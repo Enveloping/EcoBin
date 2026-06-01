@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.enveloping</groupId>
+        <artifactId>EcoBin</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ecobin-module-system</artifactId>
+    <name>ecobin-module-system</name>
+    <description>系统管理模块：租户/机构、用户、角色、权限</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-framework</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

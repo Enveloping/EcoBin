@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.enveloping</groupId>
+        <artifactId>EcoBin</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ecobin-bootstrap</artifactId>
+    <name>ecobin-bootstrap</name>
+    <description>启动模块（空壳）：仅负责组装依赖、打包、启动</description>
+
+    <dependencies>
+        <!-- 组装所有模块 -->
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-system</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-device</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-business</artifactId>
+        </dependency>
+
+        <!-- MySQL Driver -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Flyway (Spring Boot 4.x 需要 starter 触发自动配置) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

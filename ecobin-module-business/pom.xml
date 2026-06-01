@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.enveloping</groupId>
+        <artifactId>EcoBin</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ecobin-module-business</artifactId>
+    <name>ecobin-module-business</name>
+    <description>业务模块：会员、投递订单、清运订单、统计</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-framework</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>
