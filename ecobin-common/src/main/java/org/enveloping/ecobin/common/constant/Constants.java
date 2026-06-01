@@ -25,4 +25,10 @@ public final class Constants {
 
     /** 租户ID请求头 */
     public static final String TENANT_HEADER = "X-Tenant-Id";
+
+    /** 微信用户默认昵称前缀 */
+    public static final String WECHAT_NICKNAME_PREFIX = "微信用户";
+
+    /** 微信用户默认角色（普通用户） */
+    public static final int WECHAT_DEFAULT_ROLE = 5;
 }

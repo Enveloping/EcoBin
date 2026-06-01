@@ -12,7 +12,8 @@ public enum LoginType {
     PHONE(1, "手机号"),
     IC_CARD(2, "IC卡"),
     FACE(3, "人脸识别"),
-    QR_CODE(4, "二维码");
+    QR_CODE(4, "二维码"),
+    WECHAT(5, "微信小程序");
 
     private final int code;
     private final String desc;

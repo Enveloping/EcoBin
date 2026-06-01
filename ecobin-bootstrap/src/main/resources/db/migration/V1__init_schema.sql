@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     UNIQUE KEY uk_username (username),
-    INDEX idx_tenant_id (tenant_id)
+    INDEX idx_sys_user_tenant_id (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户';
 
 -- 3. 设备表
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS biz_device (
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     UNIQUE KEY uk_sn (sn),
-    INDEX idx_tenant_id (tenant_id)
+    INDEX idx_device_tenant_id (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备';
 
 -- 4. 投口表
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS biz_door (
     sort_order  INT                  DEFAULT 0 COMMENT '排序',
     create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    INDEX idx_device_id (device_id),
-    INDEX idx_tenant_id (tenant_id)
+    INDEX idx_door_device_id (device_id),
+    INDEX idx_door_tenant_id (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='投口';
 
 -- 5. 投递订单表
@@ -84,11 +84,11 @@ CREATE TABLE IF NOT EXISTS biz_delivery_order (
     login_type  TINYINT               DEFAULT NULL COMMENT '登录方式：1-手机 2-IC卡 3-人脸 4-二维码',
     status      TINYINT      NOT NULL DEFAULT 0 COMMENT '状态：0-正常 -1-异常',
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '投递时间',
-    UNIQUE KEY uk_order_sn (order_sn),
-    INDEX idx_device_id (device_id),
-    INDEX idx_user_id (user_id),
-    INDEX idx_tenant_id (tenant_id),
-    INDEX idx_create_time (create_time)
+    UNIQUE KEY uk_delivery_order_sn (order_sn),
+    INDEX idx_delivery_device_id (device_id),
+    INDEX idx_delivery_user_id (user_id),
+    INDEX idx_delivery_tenant_id (tenant_id),
+    INDEX idx_delivery_create_time (create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='投递订单';
 
 -- 6. 清运订单表
@@ -106,11 +106,11 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     status       TINYINT      NOT NULL DEFAULT 0 COMMENT '订单状态：0-创建 1-完成 2-取消',
     create_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    UNIQUE KEY uk_order_sn (order_sn),
-    INDEX idx_device_id (device_id),
-    INDEX idx_user_id (user_id),
-    INDEX idx_tenant_id (tenant_id),
-    INDEX idx_create_time (create_time)
+    UNIQUE KEY uk_clean_order_sn (order_sn),
+    INDEX idx_clean_device_id (device_id),
+    INDEX idx_clean_user_id (user_id),
+    INDEX idx_clean_tenant_id (tenant_id),
+    INDEX idx_clean_create_time (create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='清运订单';
 
 -- 7. 设备实时状态表
@@ -124,8 +124,8 @@ CREATE TABLE IF NOT EXISTS biz_device_status (
     smoke_alarm      TINYINT      NOT NULL DEFAULT 0 COMMENT '烟雾报警：0-否 1-是',
     voltage          DECIMAL(5,2)          DEFAULT NULL COMMENT '电压',
     last_report_time DATETIME              DEFAULT NULL COMMENT '最后上报时间',
-    UNIQUE KEY uk_device_id (device_id),
-    INDEX idx_tenant_id (tenant_id)
+    UNIQUE KEY uk_device_status_device_id (device_id),
+    INDEX idx_device_status_tenant_id (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备实时状态';
 
 -- 8. 重量变更记录表
@@ -136,9 +136,9 @@ CREATE TABLE IF NOT EXISTS biz_weight_record (
     door_id     BIGINT                DEFAULT NULL COMMENT '投口ID',
     weight      DECIMAL(10,3)         DEFAULT NULL COMMENT '重量',
     record_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
-    INDEX idx_device_id (device_id),
-    INDEX idx_tenant_id (tenant_id),
-    INDEX idx_record_time (record_time)
+    INDEX idx_weight_device_id (device_id),
+    INDEX idx_weight_tenant_id (tenant_id),
+    INDEX idx_weight_record_time (record_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='重量变更记录';
 
 -- =============================================

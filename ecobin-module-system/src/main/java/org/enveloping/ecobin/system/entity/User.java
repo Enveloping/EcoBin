@@ -30,6 +30,18 @@ public class User extends BaseEntity {
     /** 邮箱 */
     private String email;
 
+    /** 微信 openid */
+    private String openid;
+
+    /** 微信 unionid */
+    private String unionid;
+
+    /** 微信昵称 */
+    private String nickname;
+
+    /** 微信头像 URL */
+    private String avatar;
+
     /** 角色：1-超级管理员 2-设备管理员 3-运营人员 4-清运员 5-普通用户 */
     private Integer role;
 

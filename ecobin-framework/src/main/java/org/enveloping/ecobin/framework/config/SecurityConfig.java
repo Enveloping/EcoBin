@@ -28,8 +28,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // 登录接口放行
-                        .requestMatchers("/api/system/auth/login").permitAll()
+                        // 认证接口放行
+                        .requestMatchers("/api/system/auth/login", "/api/system/auth/wx-login").permitAll()
                         // 其他接口需要认证（可以先放行开发阶段）
                         .anyRequest().permitAll()
                 )

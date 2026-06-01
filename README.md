@@ -4,18 +4,18 @@
 
 ## 技术栈
 
-| 组件 | 版本 | 说明 |
-|------|------|------|
-| Java | 21 | 运行环境 |
-| Spring Boot | 4.0.6 | 核心框架 |
-| Spring Security | — | 认证鉴权 |
-| MyBatis Plus | 3.5.16 | ORM（需使用 `mybatis-plus-spring-boot4-starter`） |
-| JWT (jjwt) | 0.12.6 | 无状态 Token 认证 |
-| MySQL | — | 生产数据库 |
-| H2 | — | 测试环境内存数据库 |
-| Flyway | — | 数据库版本迁移 |
-| Lombok | — | 编译期注解处理器 |
-| Maven | — | 多模块构建 |
+| 组件              | 版本     | 说明                                           |
+|-----------------|--------|----------------------------------------------|
+| Java            | 21     | 运行环境                                         |
+| Spring Boot     | 4.0.6  | 核心框架                                         |
+| Spring Security | —      | 认证鉴权                                         |
+| MyBatis Plus    | 3.5.16 | ORM（需使用 `mybatis-plus-spring-boot4-starter`） |
+| JWT (jjwt)      | 0.12.6 | 无状态 Token 认证                                 |
+| MySQL           | —      | 生产数据库                                        |
+| H2              | —      | 测试环境内存数据库                                    |
+| Flyway          | —      | 数据库版本迁移                                      |
+| Lombok          | —      | 编译期注解处理器                                     |
+| Maven           | —      | 多模块构建                                        |
 
 > **注意**：Spring Boot 4.x 与 MyBatis Plus 3.5.9 不兼容，必须使用 3.5.16 版本及 `boot4-starter`；Flyway 必须通过 `spring-boot-starter-flyway` 触发自动配置。
 
@@ -49,9 +49,10 @@ ecobin-bootstrap ──→ 组装所有模块
 
 ### 认证
 
-| 方法   | 路径                       | 说明                |
-|------|--------------------------|-------------------|
-| POST | `/api/system/auth/login` | 用户登录，返回 JWT Token |
+| 方法   | 路径                            | 说明                |
+|------|-------------------------------|-------------------|
+| POST | `/api/system/auth/login`      | 用户名密码登录，返回 JWT Token |
+| POST | `/api/system/auth/wx-login`   | 微信小程序登录，返回 JWT Token |
 
 ### 系统管理
 
@@ -134,16 +135,16 @@ ecobin-bootstrap ──→ 组装所有模块
 
 所有业务表包含 `tenant_id BIGINT NOT NULL DEFAULT 1`，为多租户场景预留。表前缀：`sys_`（系统表）、`biz_`（业务表）。
 
-| 表名                   | 说明       |
-|----------------------|----------|
-| `sys_tenant`         | 系统租户     |
-| `sys_user`           | 系统用户     |
-| `biz_device`         | 设备       |
-| `biz_door`           | 投口（关联设备） |
-| `biz_delivery_order` | 投递订单     |
-| `biz_clean_order`    | 清运订单     |
-| `biz_device_status`  | 设备实时状态   |
-| `biz_weight_record`  | 重量变更记录   |
+| 表名                   | 说明                              |
+|----------------------|-----------------------------------|
+| `sys_tenant`         | 系统租户                            |
+| `sys_user`           | 系统用户（支持用户名密码 + 微信 openid 登录） |
+| `biz_device`         | 设备                              |
+| `biz_door`           | 投口（关联设备）                        |
+| `biz_delivery_order` | 投递订单                            |
+| `biz_clean_order`    | 清运订单                            |
+| `biz_device_status`  | 设备实时状态                          |
+| `biz_weight_record`  | 重量变更记录                          |
 
 迁移脚本位于 `ecobin-bootstrap/src/main/resources/db/migration/`。
 
@@ -201,6 +202,19 @@ curl -X POST http://localhost:8080/api/system/auth/login \
   -d '{"username":"admin","password":"admin123"}'
 ```
 
+### 微信小程序配置
+
+如需启用微信登录，在 `application.yml` 中配置真实的小程序参数：
+
+```yaml
+wechat:
+  miniapp:
+    appid: your_appid     # 替换为真实 AppID
+    secret: your_secret   # 替换为真实 AppSecret
+```
+
+微信登录接口为 `POST /api/system/auth/wx-login`，请求体 `{"code": "wx.login()返回的临时code"}`。首次登录自动注册用户（role=5 普通用户）。
+
 ### 默认账号
 
 | 用户名   | 密码       | 角色    |
@@ -220,7 +234,12 @@ curl -X POST http://localhost:8080/api/system/auth/login \
 ### 认证流程
 
 ```
+用户名密码登录:
 POST /api/system/auth/login → BCrypt 密码校验 → 签发 JWT Token
+
+微信小程序登录:
+POST /api/system/auth/wx-login → code 换取 openid → 查找或自动注册用户 → 签发 JWT Token
+
 后续请求 → Authorization: Bearer <token> → JwtAuthenticationFilter 解析 → SecurityContext
 ```
 

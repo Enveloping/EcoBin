@@ -28,4 +28,10 @@ public class LoginResponse {
 
     /** 角色 */
     private Integer role;
+
+    /** 微信昵称 */
+    private String nickname;
+
+    /** 微信头像 URL */
+    private String avatar;
 }

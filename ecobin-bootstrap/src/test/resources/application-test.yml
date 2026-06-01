@@ -9,4 +9,10 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:db/migration/V1__init_schema.sql
+      schema-locations: classpath:schema-h2.sql
+
+# 微信小程序配置（测试环境占位）
+wechat:
+  miniapp:
+    appid: test_appid
+    secret: test_secret

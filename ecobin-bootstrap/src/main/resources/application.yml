@@ -29,6 +29,12 @@ jwt:
   secret: EcoBin_JWT_Secret_Key_2026_Must_Be_256_Bits_Long_Change_In_Production!!
   expiration: 86400000  # 24小时 (毫秒)
 
+# 微信小程序配置（请替换为真实值）
+wechat:
+  miniapp:
+    appid: your_appid
+    secret: your_secret
+
 # 服务器端口
 server:
   port: 8080
