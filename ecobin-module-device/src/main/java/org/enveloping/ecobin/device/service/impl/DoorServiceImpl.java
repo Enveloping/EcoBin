@@ -13,6 +13,6 @@ public class DoorServiceImpl extends ServiceImpl<DoorMapper, Door> implements Do
 
     @Override
     public List<Door> listByDeviceId(Long deviceId) {
-        return ((DoorMapper) baseMapper).selectByDeviceId(deviceId);
+        return baseMapper.selectByDeviceId(deviceId);
     }
 }
