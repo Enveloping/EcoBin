@@ -8,8 +8,11 @@ public final class Constants {
     private Constants() {
     }
 
-    /** 默认租户ID（单租户阶段固定） */
+    /** 平台池租户ID（保留值，表示未分配；平台域主体上下文也用此值） */
     public static final long DEFAULT_TENANT_ID = 1L;
+
+    /** 平台池租户ID 别名（语义更清晰） */
+    public static final long PLATFORM_POOL_TENANT_ID = 1L;
 
     /** 默认分页大小 */
     public static final int DEFAULT_PAGE_SIZE = 20;
@@ -29,6 +32,6 @@ public final class Constants {
     /** 微信用户默认昵称前缀 */
     public static final String WECHAT_NICKNAME_PREFIX = "微信用户";
 
-    /** 微信用户默认角色（普通用户） */
-    public static final int WECHAT_DEFAULT_ROLE = 5;
+    /** 微信用户默认角色（普通用户，新角色体系 role=1） */
+    public static final int WECHAT_DEFAULT_ROLE = 1;
 }

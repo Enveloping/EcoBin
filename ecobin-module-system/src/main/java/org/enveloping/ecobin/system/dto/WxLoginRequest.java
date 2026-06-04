@@ -12,4 +12,8 @@ public class WxLoginRequest {
     /** 微信小程序 wx.login() 返回的临时 code */
     @NotBlank(message = "微信登录 code 不能为空")
     private String code;
+
+    /** 所属租户的小程序 AppID（用于定位租户与 secret） */
+    @NotBlank(message = "小程序 appid 不能为空")
+    private String appid;
 }

@@ -1,8 +1,10 @@
-package org.enveloping.ecobin.framework.security;
+package org.enveloping.ecobin.framework.config;
 
 import lombok.RequiredArgsConstructor;
+import org.enveloping.ecobin.framework.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -29,9 +31,32 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // 认证接口放行
-                        .requestMatchers("/api/system/auth/login", "/api/system/auth/wx-login").permitAll()
-                        // 其他接口需要认证（可以先放行开发阶段）
-                        .anyRequest().permitAll()
+                        .requestMatchers("/api/system/auth/**").permitAll()
+
+                        // 平台管理：管理员账号（仅超管）
+                        .requestMatchers("/api/system/admin/**").hasRole("SUPER_ADMIN")
+                        // 平台管理：租户 CRUD（超管 + 管理员）
+                        .requestMatchers("/api/system/tenant/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        // 用户管理：租户管自己租户用户；超管全量查看
+                        .requestMatchers("/api/system/user/**").hasAnyRole("SUPER_ADMIN", "TENANT")
+
+                        // 设备 / 投口（含 door 子路径）：超管 + 管理员 + 租户；租户仅能动自己设备（数据隔离兜底）
+                        .requestMatchers("/api/device/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "TENANT")
+
+                        // 投递订单：超管 + 租户
+                        .requestMatchers("/api/business/delivery/**").hasAnyRole("SUPER_ADMIN", "TENANT")
+
+                        // 清运订单——读（超管 + 租户）
+                        .requestMatchers(HttpMethod.GET, "/api/business/clean/**")
+                        .hasAnyRole("SUPER_ADMIN", "TENANT")
+                        // 清运订单——写（创建清运单）：租户 + 设备管理员 + 清运员
+                        .requestMatchers("/api/business/clean/**").hasAnyRole("TENANT", "CLEANER", "DEVICE_ADMIN")
+
+                        // 统计：业务数据视图，超管 + 租户
+                        .requestMatchers("/api/statistics/**").hasAnyRole("SUPER_ADMIN", "TENANT")
+
+                        // 其余接口需登录
+                        .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

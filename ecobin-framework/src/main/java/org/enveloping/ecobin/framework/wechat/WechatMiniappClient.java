@@ -21,21 +21,33 @@ public class WechatMiniappClient {
             "https://api.weixin.qq.com/sns/jscode2session?appid={appid}&secret={secret}&js_code={code}&grant_type=authorization_code";
 
     /**
-     * 用临时 code 换取 session_key 和 openid
+     * 用临时 code 换取 session_key 和 openid（使用全局默认 appid/secret）。
      *
      * @param code 前端 wx.login() 获取的临时凭证
      * @return 微信会话响应
      */
     public WechatSessionResponse code2session(String code) {
-        log.debug("微信 code2session 请求, code={}", code);
+        return code2session(wechatConfig.getAppid(), wechatConfig.getSecret(), code);
+    }
+
+    /**
+     * 用临时 code 换取 session_key 和 openid（多租户：使用指定租户的 appid/secret）。
+     *
+     * @param appid  租户小程序 AppID
+     * @param secret 租户小程序 Secret（已解密的明文）
+     * @param code   前端 wx.login() 获取的临时凭证
+     * @return 微信会话响应
+     */
+    public WechatSessionResponse code2session(String appid, String secret, String code) {
+        log.debug("微信 code2session 请求, appid={}, code={}", appid, code);
 
         WechatSessionResponse response = restTemplate.exchange(
                 CODE2SESSION_URL,
                 HttpMethod.GET,
                 null,
                 WechatSessionResponse.class,
-                wechatConfig.getAppid(),
-                wechatConfig.getSecret(),
+                appid,
+                secret,
                 code
         ).getBody();
 

@@ -17,8 +17,11 @@ public class LoginResponse {
     /** JWT Token */
     private String token;
 
-    /** 用户ID */
+    /** 用户ID（adminId / tenantId / userId） */
     private Long userId;
+
+    /** 租户ID（平台管理员为平台池ID） */
+    private Long tenantId;
 
     /** 用户名 */
     private String username;

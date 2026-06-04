@@ -29,6 +29,11 @@ jwt:
   secret: EcoBin_JWT_Secret_Key_2026_Must_Be_256_Bits_Long_Change_In_Production!!
   expiration: 86400000  # 24小时 (毫秒)
 
+# 应用加密配置（用于 sys_tenant.miniapp_secret 等敏感字段 AES 加密）
+app:
+  crypto:
+    aes-key: EcoBin_AES_Key_2026_Change_In_Production
+
 # 微信小程序配置（请替换为真实值）
 wechat:
   miniapp:

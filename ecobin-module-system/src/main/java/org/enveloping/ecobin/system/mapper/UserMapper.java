@@ -19,4 +19,8 @@ public interface UserMapper extends BaseMapper<User> {
     /** 按微信 openid 查询 */
     @Select("SELECT * FROM sys_user WHERE openid = #{openid}")
     User selectByOpenid(@Param("openid") String openid);
+
+    /** 按租户 + openid 查询（同一 openid 在不同租户下独立注册） */
+    @Select("SELECT * FROM sys_user WHERE tenant_id = #{tenantId} AND openid = #{openid}")
+    User selectByTenantIdAndOpenid(@Param("tenantId") Long tenantId, @Param("openid") String openid);
 }

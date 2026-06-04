@@ -6,7 +6,7 @@ import org.enveloping.ecobin.common.result.Result;
 import org.enveloping.ecobin.system.dto.LoginRequest;
 import org.enveloping.ecobin.system.dto.LoginResponse;
 import org.enveloping.ecobin.system.dto.WxLoginRequest;
-import org.enveloping.ecobin.system.service.UserService;
+import org.enveloping.ecobin.system.service.AuthService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,14 +20,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AuthController {
 
-    private final UserService userService;
+    private final AuthService authService;
 
     /**
-     * 用户名密码登录
+     * 网页端登录（管理员/租户，按 userType 区分）
      */
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        LoginResponse response = userService.login(request);
+        LoginResponse response = authService.login(request);
         return Result.ok(response);
     }
 
@@ -36,7 +36,7 @@ public class AuthController {
      */
     @PostMapping("/wx-login")
     public Result<LoginResponse> wxLogin(@Valid @RequestBody WxLoginRequest request) {
-        LoginResponse response = userService.wxLogin(request);
+        LoginResponse response = authService.wxLogin(request);
         return Result.ok(response);
     }
 }

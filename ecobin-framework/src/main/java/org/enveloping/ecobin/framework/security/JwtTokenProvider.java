@@ -29,19 +29,21 @@ public class JwtTokenProvider {
     /**
      * 生成 JWT Token
      *
-     * @param userId   用户ID
-     * @param username 用户名
-     * @param tenantId 租户ID
+     * @param userId   主体ID（adminId / tenantId 自身 / userId）
+     * @param subject  subject（admin username / tenant username / user openid）
+     * @param tenantId 租户ID（平台域固定为平台池ID）
+     * @param role     角色值（9/8/7/3/2/1）
      * @return JWT Token 字符串
      */
-    public String generateToken(Long userId, String username, Long tenantId) {
+    public String generateToken(Long userId, String subject, Long tenantId, Integer role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
 
         return Jwts.builder()
-                .subject(username)
+                .subject(subject)
                 .claim("userId", userId)
                 .claim("tenantId", tenantId)
+                .claim("role", role)
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(secretKey)
@@ -67,6 +69,20 @@ public class JwtTokenProvider {
      */
     public Long getTenantId(String token) {
         return parseClaims(token).get("tenantId", Long.class);
+    }
+
+    /**
+     * 从 Token 中获取角色值
+     */
+    public Integer getRole(String token) {
+        return parseClaims(token).get("role", Integer.class);
+    }
+
+    /**
+     * 从 Token 中获取签发时间
+     */
+    public Date getIssuedAt(String token) {
+        return parseClaims(token).getIssuedAt();
     }
 
     /**

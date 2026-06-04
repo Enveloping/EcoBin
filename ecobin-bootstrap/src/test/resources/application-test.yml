@@ -16,3 +16,8 @@ wechat:
   miniapp:
     appid: test_appid
     secret: test_secret
+
+# 应用加密配置（测试占位）
+app:
+  crypto:
+    aes-key: test_aes_key

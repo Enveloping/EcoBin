@@ -7,17 +7,17 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 实体基类，所有数据库实体继承此类
+ * 平台级实体基类：不含 {@code tenant_id}。
+ * <p>
+ * 用于自身不归属任何租户的登录主体表（如 {@code sys_admin}、{@code sys_tenant}）。
+ * 业务/用户实体仍继承 {@link BaseEntity}（含 tenant_id）。
  */
 @Data
-public abstract class BaseEntity {
+public abstract class PlatformBaseEntity {
 
     /** 主键 */
     @TableId(type = IdType.AUTO)
     private Long id;
-
-    /** 租户ID */
-    private Long tenantId;
 
     /** 创建时间 */
     private LocalDateTime createTime;

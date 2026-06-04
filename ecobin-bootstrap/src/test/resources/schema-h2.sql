@@ -1,39 +1,64 @@
 -- =============================================
--- EcoBin 初始建表脚本 (H2 兼容版，仅测试环境)
+-- EcoBin 建表脚本 (H2 兼容版，仅测试环境)
+-- 反映 V1 + V2 + V3 的最终表结构
 -- =============================================
 
--- 1. 系统租户表
+-- 1. 系统租户表（含 V3 登录 + 小程序字段；自身即租户，无 tenant_id 列）
 CREATE TABLE IF NOT EXISTS sys_tenant (
-    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    name        VARCHAR(100) NOT NULL,
-    code        VARCHAR(50)  NOT NULL,
-    contact_name VARCHAR(50)          DEFAULT NULL,
-    contact_phone VARCHAR(20)         DEFAULT NULL,
-    address     VARCHAR(255)          DEFAULT NULL,
-    status      TINYINT      NOT NULL DEFAULT 1,
-    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_code (code)
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name          VARCHAR(100) NOT NULL,
+    code          VARCHAR(50)  NOT NULL,
+    username      VARCHAR(50)           DEFAULT NULL,
+    password      VARCHAR(255)          DEFAULT NULL,
+    miniapp_appid VARCHAR(32)           DEFAULT NULL,
+    miniapp_secret VARCHAR(256)         DEFAULT NULL,
+    merchant_no   VARCHAR(64)           DEFAULT NULL,
+    contact_name  VARCHAR(50)           DEFAULT NULL,
+    contact_phone VARCHAR(20)           DEFAULT NULL,
+    address       VARCHAR(255)          DEFAULT NULL,
+    status        TINYINT      NOT NULL DEFAULT 1,
+    create_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_code (code),
+    UNIQUE KEY uk_tenant_miniapp_appid (miniapp_appid)
 );
 
--- 2. 系统用户表
-CREATE TABLE IF NOT EXISTS sys_user (
+-- 2. 平台管理员表（V3，无 tenant_id）
+CREATE TABLE IF NOT EXISTS sys_admin (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    tenant_id   BIGINT       NOT NULL DEFAULT 1,
     username    VARCHAR(50)  NOT NULL,
     password    VARCHAR(255) NOT NULL,
     real_name   VARCHAR(50)           DEFAULT NULL,
-    phone       VARCHAR(20)           DEFAULT NULL,
-    email       VARCHAR(100)          DEFAULT NULL,
     role        TINYINT      NOT NULL,
     status      TINYINT      NOT NULL DEFAULT 1,
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_admin_username (username)
+);
+
+-- 3. 系统用户表（终端用户：含 V2 微信字段，role=1/2/3）
+CREATE TABLE IF NOT EXISTS sys_user (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id   BIGINT       NOT NULL DEFAULT 1,
+    username    VARCHAR(50)           DEFAULT NULL,
+    password    VARCHAR(255)          DEFAULT NULL,
+    real_name   VARCHAR(50)           DEFAULT NULL,
+    phone       VARCHAR(20)           DEFAULT NULL,
+    email       VARCHAR(100)          DEFAULT NULL,
+    openid      VARCHAR(64)           DEFAULT NULL,
+    unionid     VARCHAR(64)           DEFAULT NULL,
+    nickname    VARCHAR(100)          DEFAULT NULL,
+    avatar      VARCHAR(500)          DEFAULT NULL,
+    role        TINYINT      NOT NULL DEFAULT 1,
+    status      TINYINT      NOT NULL DEFAULT 1,
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username),
+    UNIQUE KEY uk_openid (openid),
     INDEX idx_sys_user_tenant_id (tenant_id)
 );
 
--- 3. 设备表
+-- 4. 设备表
 CREATE TABLE IF NOT EXISTS biz_device (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id   BIGINT       NOT NULL DEFAULT 1,
@@ -50,7 +75,7 @@ CREATE TABLE IF NOT EXISTS biz_device (
     INDEX idx_device_tenant_id (tenant_id)
 );
 
--- 4. 投口表
+-- 5. 投口表
 CREATE TABLE IF NOT EXISTS biz_door (
     id          BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id   BIGINT      NOT NULL DEFAULT 1,
@@ -67,7 +92,7 @@ CREATE TABLE IF NOT EXISTS biz_door (
     INDEX idx_door_tenant_id (tenant_id)
 );
 
--- 5. 投递订单表
+-- 6. 投递订单表
 CREATE TABLE IF NOT EXISTS biz_delivery_order (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id   BIGINT       NOT NULL DEFAULT 1,
@@ -90,7 +115,7 @@ CREATE TABLE IF NOT EXISTS biz_delivery_order (
     INDEX idx_delivery_create_time (create_time)
 );
 
--- 6. 清运订单表
+-- 7. 清运订单表
 CREATE TABLE IF NOT EXISTS biz_clean_order (
     id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id    BIGINT       NOT NULL DEFAULT 1,
@@ -112,7 +137,7 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     INDEX idx_clean_create_time (create_time)
 );
 
--- 7. 设备实时状态表
+-- 8. 设备实时状态表
 CREATE TABLE IF NOT EXISTS biz_device_status (
     id               BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id        BIGINT       NOT NULL DEFAULT 1,
@@ -127,7 +152,7 @@ CREATE TABLE IF NOT EXISTS biz_device_status (
     INDEX idx_device_status_tenant_id (tenant_id)
 );
 
--- 8. 重量变更记录表
+-- 9. 重量变更记录表
 CREATE TABLE IF NOT EXISTS biz_weight_record (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id   BIGINT       NOT NULL DEFAULT 1,
@@ -142,11 +167,12 @@ CREATE TABLE IF NOT EXISTS biz_weight_record (
 
 -- =============================================
 -- 初始化数据 (H2 兼容语法)
+-- id=1 为平台池占位；默认超管在 sys_admin
 -- =============================================
 
-MERGE INTO sys_tenant (id, name, code, contact_name, status) KEY (id)
-VALUES (1, '默认机构', 'DEFAULT', '系统管理员', 1);
+MERGE INTO sys_tenant (id, name, code, status) KEY (id)
+VALUES (1, '平台池', 'PLATFORM_POOL', 1);
 
 -- 密码: admin123 (BCrypt 加密)
-MERGE INTO sys_user (id, tenant_id, username, password, real_name, role, status) KEY (id)
-VALUES (1, 1, 'admin', '$2a$10$4lI4Vt97..D/ZV01YR/H2OpUwJalfktThtvArsxZUuzxa60dH5sPO', '系统管理员', 1, 1);
+MERGE INTO sys_admin (id, username, password, real_name, role, status) KEY (id)
+VALUES (1, 'admin', '$2a$10$4lI4Vt97..D/ZV01YR/H2OpUwJalfktThtvArsxZUuzxa60dH5sPO', '系统管理员', 9, 1);
