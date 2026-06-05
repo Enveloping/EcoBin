@@ -53,3 +53,40 @@ Review 时间：2026-06-05
 #### 7.【低·命名】DEFAULT_TENANT_ID 与 PLATFORM_POOL_TENANT_ID 同值=1
 两常量均为 1，语义重叠（既是"平台池"又是"默认/未分配"）。
 - 将来真正给租户分配 id 时注意区分，避免混淆。
+
+---
+
+## 1300611 — 新增终端用户 C 端只读接口（/api/app/**）
+
+Review 时间：2026-06-05
+
+### 已确认良好（无需处理，仅备注）
+
+- 登录态读取一致：`JwtAuthenticationFilter` principal=username、credentials=userId(Long)，`SecurityUtils.getCurrentUserId()` 读取方式吻合。
+- 双层隔离成立：终端用户非平台域 → `setTenantId(tenantId)`+`setIgnore(false)`，`getById` 对 `DeliveryOrder`/`User` 自动加租户条件，再叠加 `user_id` 归属校验。
+- 越权读统一按"不存在"抛 `404`，不暴露存在性。
+- `DeliveryOrder.updateTime` 用 `@TableField(exist=false)` shadow 排除安全：`BaseEntity.updateTime` 无 `@TableField(fill)` 自动填充注解，不破坏填充逻辑。
+
+### 待考虑项
+
+#### 1.【中·防护】分页 pageSize 缺上限保护
+`pageMyOrders` 直接使用客户端传入的 `pageSize`，未按 CLAUDE.md「最大 200」约定 clamp；既有 `pageOrders` 同样如此。
+- C 端对外接口，传 `pageSize=100000` 可触发大查询。
+- 建议抽公共 `clampPageSize(int)` 在 service 层统一收口，连带修掉旧问题。
+
+#### 2.【中·测试】HTTP 层缺越权读用例
+`AppDeliveryQueryTest` 在 service 层覆盖了「读他人订单抛异常」，但 `AppApiSecurityTest` 无「持 token 读他人 `id` → body `code=404`」的端到端断言。归属过滤是核心安全边界，建议补一条 HTTP 用例。
+
+### 小问题（低优先级）
+
+#### 3.【低·约定】404 仅为业务码，HTTP 仍 200
+`GlobalExceptionHandler` 将 `BusinessException` 统一返回 `HTTP 200 + Result{code:404}`（项目既定约定）。小程序端需基于 body `code` 判断，确认前端约定一致即可。
+
+#### 4.【低·防御】getCurrentUserId() 理论可返回 null
+接口已强制认证、filter 必放入 Long userId，实际不会 null；但 `getMyOrder` 中 `userId.equals(...)` 在 null 时会 NPE。可加一次入口断言，纯防御性。
+
+#### 5.【低·测试】匿名用例断言偏宽
+`anonymousRequestToAppEndpointIsRejected` 用 `is4xxClientError()`，可精确到 `401`。
+
+#### 6.【低·技术债】updateTime shadow 手法脆弱
+当前务实且注释清晰，但若日后给 `BaseEntity.updateTime` 加自动填充，子类 shadow 会静默失效。长期更干净的做法是拆分「可变/不可变」基类。
