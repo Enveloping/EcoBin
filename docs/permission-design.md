@@ -391,11 +391,15 @@ POST /api/system/tenant
 // 统计：业务数据视图，超管 + 租户
 .requestMatchers("/api/statistics/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
+// 小程序终端用户 C 端接口：仅访问属于自己的数据（投递记录 / 个人信息）
+.requestMatchers("/api/app/**").hasAnyRole("USER", "CLEANER", "DEVICE_ADMIN")
+
 .anyRequest().authenticated()
 ```
 
 > 注：Spring Security 规则**自上而下匹配**，更具体（带 `HttpMethod`）的规则必须排在通配规则之前。
-> 终端域（设备管理员/清运员/用户）当前无独立操作端点；其设备操作/投递端点为后续新增项。
+> 终端域（设备管理员/清运员/用户）的 C 端只读接口已落地于 `/api/app/**`（见 §9.3）：投递记录查询 + 个人信息，
+> 按 `user_id` 归属过滤（叠加租户拦截器的 `tenant_id` 隔离）。终端域的**设备操作/清运/投递提交**端点仍为后续新增项。
 
 ### 9.2 GrantedAuthority 映射
 
@@ -425,7 +429,7 @@ case 1 -> "ROLE_USER"
 
 超管+租户:
   /api/system/user/**           → 用户角色管理（租户管自己；超管全量查看）
-  /api/business/delivery/**     → 投递订单数据
+  /api/business/delivery/**     → 投递订单数据（管理端全租户视图）
   GET /api/business/clean/**    → 清运订单查看
   /api/statistics/**            → 业务统计
 
@@ -434,6 +438,11 @@ case 1 -> "ROLE_USER"
 
 写操作（创建清运单）:
   /api/business/clean/**（POST/PUT/DELETE）→ 租户/设备管理员/清运员
+
+终端域（小程序用户，USER/CLEANER/DEVICE_ADMIN）— C 端只读，仅本人:
+  GET /api/app/delivery/my       → 我的投递记录分页（按 user_id 过滤）
+  GET /api/app/delivery/my/{id}  → 我的单条投递详情（归属校验）
+  GET /api/app/profile           → 我的个人信息（脱敏 VO）
 ```
 
 > 设备创建默认 `tenant_id=1`（平台池）；分配/收回当前通过 `PUT /api/device/{id}` 修改 `tenant_id`

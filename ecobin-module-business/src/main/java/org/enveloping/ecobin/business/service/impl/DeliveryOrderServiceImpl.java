@@ -7,6 +7,7 @@ import org.enveloping.ecobin.business.entity.DeliveryOrder;
 import org.enveloping.ecobin.business.mapper.DeliveryOrderMapper;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
 import org.enveloping.ecobin.common.constant.Constants;
+import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.common.result.PageResult;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +34,25 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
         Page<DeliveryOrder> p = new Page<>(page, pageSize);
         Page<DeliveryOrder> result = page(p, new LambdaQueryWrapper<DeliveryOrder>().orderByDesc(DeliveryOrder::getCreateTime));
         return PageResult.of(result.getRecords(), result.getTotal(), page, pageSize);
+    }
+
+    @Override
+    public PageResult<DeliveryOrder> pageMyOrders(Long userId, int page, int pageSize) {
+        Page<DeliveryOrder> p = new Page<>(page, pageSize);
+        Page<DeliveryOrder> result = page(p, new LambdaQueryWrapper<DeliveryOrder>()
+                .eq(DeliveryOrder::getUserId, userId)
+                .orderByDesc(DeliveryOrder::getCreateTime));
+        return PageResult.of(result.getRecords(), result.getTotal(), page, pageSize);
+    }
+
+    @Override
+    public DeliveryOrder getMyOrder(Long userId, Long id) {
+        DeliveryOrder order = getById(id);
+        // 租户拦截器已限定本租户范围；此处再校验 user_id 归属，越权或不存在统一按"不存在"处理避免信息泄露
+        if (order == null || !userId.equals(order.getUserId())) {
+            throw new BusinessException(404, "订单不存在");
+        }
+        return order;
     }
 
     @Override
