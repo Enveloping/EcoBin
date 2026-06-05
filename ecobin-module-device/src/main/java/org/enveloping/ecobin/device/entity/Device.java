@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.device.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.enveloping.ecobin.common.base.BaseEntity;
@@ -16,9 +17,11 @@ import java.math.BigDecimal;
 public class Device extends BaseEntity {
 
     /** 设备序列号 */
+    @NotBlank(message = "设备序列号不能为空")
     private String sn;
 
     /** 设备名称 */
+    @NotBlank(message = "设备名称不能为空")
     private String name;
 
     /** 设备类型：1-智能垃圾箱 2-滚动系统 */

@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.enveloping.ecobin.common.result.PageResult;
 import org.enveloping.ecobin.common.result.Result;
@@ -29,13 +30,13 @@ public class DeviceController {
     }
 
     @PostMapping
-    public Result<Device> create(@RequestBody Device device) {
+    public Result<Device> create(@Valid @RequestBody Device device) {
         deviceService.save(device);
         return Result.ok(device);
     }
 
     @PutMapping("/{id}")
-    public Result<Device> update(@PathVariable Long id, @RequestBody Device device) {
+    public Result<Device> update(@PathVariable Long id, @Valid @RequestBody Device device) {
         device.setId(id);
         deviceService.updateById(device);
         return Result.ok(deviceService.getById(id));

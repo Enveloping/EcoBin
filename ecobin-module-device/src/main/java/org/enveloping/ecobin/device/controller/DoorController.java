@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.enveloping.ecobin.common.result.Result;
 import org.enveloping.ecobin.device.entity.Door;
@@ -29,13 +30,13 @@ public class DoorController {
     }
 
     @PostMapping
-    public Result<Door> create(@RequestBody Door door) {
+    public Result<Door> create(@Valid @RequestBody Door door) {
         doorService.save(door);
         return Result.ok(door);
     }
 
     @PutMapping("/{id}")
-    public Result<Door> update(@PathVariable Long id, @RequestBody Door door) {
+    public Result<Door> update(@PathVariable Long id, @Valid @RequestBody Door door) {
         door.setId(id);
         doorService.updateById(door);
         return Result.ok(doorService.getById(id));

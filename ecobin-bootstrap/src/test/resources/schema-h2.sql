@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS biz_door (
     create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_door_device_id (device_id),
-    INDEX idx_door_tenant_id (tenant_id)
+    INDEX idx_door_tenant_id (tenant_id),
+    UNIQUE KEY uk_door_device_index (device_id, door_index),
+    FOREIGN KEY (device_id) REFERENCES biz_device(id) ON DELETE CASCADE
 );
 
 -- 6. 投递订单表
