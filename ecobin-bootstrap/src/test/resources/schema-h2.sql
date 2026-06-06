@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username),
-    UNIQUE KEY uk_openid (openid),
+    UNIQUE KEY uk_tenant_openid (tenant_id, openid),
     INDEX idx_sys_user_tenant_id (tenant_id)
 );
 
