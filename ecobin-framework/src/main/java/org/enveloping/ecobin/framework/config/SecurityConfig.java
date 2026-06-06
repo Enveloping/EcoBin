@@ -55,6 +55,9 @@ public class SecurityConfig {
                         // 统计：业务数据视图，超管 + 租户
                         .requestMatchers("/api/statistics/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
+                        // 设备 IoT 上报接口：明文 SN 信任，无用户登录态；鉴权由服务层按 SN 反查设备校验
+                        .requestMatchers("/api/iot/**").permitAll()
+
                         // 小程序终端用户 C 端接口：仅访问属于自己的数据（投递记录 / 个人信息）
                         // 清运员/设备管理员本身也是小程序用户，同样拥有自己的记录，故三角色均放行
                         .requestMatchers("/api/app/**").hasAnyRole("USER", "CLEANER", "DEVICE_ADMIN")

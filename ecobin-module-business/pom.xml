@@ -19,6 +19,11 @@
             <groupId>org.enveloping</groupId>
             <artifactId>ecobin-framework</artifactId>
         </dependency>
+        <!-- 投递两阶段流程需查投口/设备信息（开投口建记录、IoT 上报按 SN 反查设备） -->
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-device</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

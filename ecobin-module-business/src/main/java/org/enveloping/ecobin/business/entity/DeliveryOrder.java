@@ -20,6 +20,9 @@ public class DeliveryOrder extends BaseEntity {
     /** 订单编号 */
     private String orderSn;
 
+    /** 投递标识符（开投口生成下发，设备关投口上报回填时据此关联） */
+    private String deliveryToken;
+
     /** 设备ID */
     private Long deviceId;
 
@@ -49,6 +52,9 @@ public class DeliveryOrder extends BaseEntity {
 
     /** 状态：0-正常 -1-异常 */
     private Integer status;
+
+    /** 投递阶段：0-进行中（已开投口待回填） 1-已完成 */
+    private Integer deliveryStatus;
 
     /**
      * 投递订单为不可变事件流水，{@code biz_delivery_order} 表无 update_time 列。

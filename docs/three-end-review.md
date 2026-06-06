@@ -27,7 +27,7 @@
   - 删除 `UserMapper.selectByOpenid`（全局查询，无调用方，与复合唯一语义冲突）；保留带租户维度的 `selectByTenantIdAndOpenid`。
   - 新增 `OpenidTenantUniqueTest`（2 用例）：验证跨租户同 openid 可独立注册、同租户同 openid 被拒；全量测试无回归。
 
-### 1.2 投递业务闭环断裂：无任何投递数据入口
+### 1.2 投递业务闭环断裂：无任何投递数据入口 ✅ 已实现（两阶段流程，2026-06-06）
 
 - **证据**
   - `ecobin-module-business/.../controller/AppDeliveryController.java:18` 注释「投递订单由设备/物联网侧上报生成」，
@@ -41,6 +41,13 @@
   - 新增 `POST /api/iot/delivery` 接收设备上报投递事件（device sn、door、wasteType、weight、投递身份标识、price/score 由服务端计算）。
   - 鉴权**独立于用户 JWT**：设备 SN + 设备密钥签名（或网关白名单），不走 `/api/app/**` 的角色体系。
   - 由上报体确定 `tenant_id`（设备归属）与 `user_id`（IC卡/人脸/二维码/手机号映射到 `sys_user`）。
+- **实施结果（最终采用两阶段流程，优于单向上报）**
+  - 阶段1「开投口」（C 端登录态写接口）`POST /api/app/delivery/open`：据 `doorId` 创建「进行中」投递记录（含 `user_id` + 新生成 `delivery_token`），下发开投口指令（占位）。
+  - 阶段2「完成上报」（设备 IoT，明文 SN 信任）`POST /api/iot/delivery/complete`：按 `sn` 反查设备 + `delivery_token` 关联记录，校验归属后回填重量、置为已完成；重复上报被拒。
+  - 迁移 `V7`：`biz_delivery_order` 加 `delivery_token`（唯一）+ `delivery_status`（0-进行中 1-完成）；同步 H2 schema。
+  - `business` 模块新增对 `device` 模块依赖；设备下行指令为占位 `DeviceCommandService`（待 IoT 网关对接）。
+  - `/api/iot/**` 在 SecurityConfig 放行；新增 `DeliveryTwoPhaseTest`（2 用例），全量测试无回归。
+  - 鉴权按本轮决策采用「暂明文 SN 信任」（非密钥签名），后续加固见第 4 节技术债延伸。
 
 ---
 
@@ -91,7 +98,7 @@
 ## 5. 下一轮改动建议顺序
 
 1. ~~`V6` 修 openid 复合唯一（1.1）~~ ✅ 已完成 2026-06-06
-2. IoT 上报接口：投递 + 设备状态 + 重量（1.2 / 2.1，打通核心数据来源）
+2. ~~IoT 投递两阶段闭环（1.2）~~ ✅ 已完成 2026-06-06（开投口建记录 + 设备上报回填）；设备状态/重量上报（2.1）仍待办
 3. 租户自查 + 投递流水删除收敛（2.2 / 2.3）
 4. 钱包入账 + 提现（依赖第 2 项闭环）
 5. 统计接口补齐
