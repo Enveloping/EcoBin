@@ -6,7 +6,7 @@
 
 ---
 
-## 1. 🔴 阻断性问题（下一轮优先修）
+## 1. 🔴 阻断性问题
 
 ### 1.1 openid 全局唯一约束 与 多租户设计冲突 ✅ 已修复（V6，2026-06-06）
 
@@ -60,17 +60,26 @@
   `biz_weight_record` **连实体都没有**（V1 建表后无任何业务代码）。
 - 下一轮：随 IoT 上报接口一并补「设备状态上报」「重量上报」入口，并提供后台/ C 端的设备状态查询。
 
-### 2.2 投递流水「不可变」语义不彻底
+### 2.2 投递流水「不可变」语义不彻底 ✅ 已实现（2026-06-06）
 
 - `biz_delivery_order` 设计为不可变流水（表无 `update_time`，Entity 用 `@TableField(exist=false)` 影子屏蔽 `BaseEntity.updateTime`）。
 - 但仍开放删除：`DeliveryOrderController.java:36-40` 提供 `DELETE /api/business/delivery/{id}` → 与审计不可变诉求矛盾。
 - 下一轮：去掉或收紧删除接口（仅超管、或改逻辑删除 + 留痕）。
+- **实施结果（采用「完全移除」，最契合不可变审计语义）**
+  - 删除 `DeliveryOrderController.delete()`（`DELETE /api/business/delivery/{id}`）；投递流水永不可删。
+  - 未引入逻辑删除字段 / `@TableLogic`；service 层无改动（`removeById` 继承自 `IService`，无显式覆盖）。
+  - `SecurityConfig` 的 `/api/business/delivery/**` 规则保持不变（仍服务 page/get/create/today-overview）。
 
-### 2.3 租户无法自查自身信息
+### 2.3 租户无法自查自身信息 ✅ 已实现（2026-06-06）
 
 - `TenantController.list()` 无入参、返回全量租户；`/api/system/tenant/**` 仅放给 `SUPER_ADMIN/ADMIN`（`SecurityConfig`）。
 - 但权限矩阵要求「租户(7) 仅能看自己」。结果：租户登录后台后**无端点查看自身资料**。
 - 下一轮：新增租户自查端点（如 `GET /api/system/tenant/me`），或在 list 中按当前登录主体收敛可见范围。
+- **实施结果（采用「新增只读端点」，不动现有 CRUD 权限）**
+  - 新增 `GET /api/system/tenant/me`（仅 `TENANT`）：按 `SecurityUtils.getCurrentUserId()`（租户登录态即自身 ID）返回自身资料，范式对齐 `AppProfileController`。
+  - `SecurityConfig` 在 `/api/system/tenant/**` 通配规则**之前**插入 `/api/system/tenant/me` → `hasRole("TENANT")`（顺序敏感）。
+  - 敏感字段 `password` / `miniappSecret` 已 `@JsonProperty(WRITE_ONLY)` 脱敏；`merchantNo` 为租户自身凭证不额外处理。
+  - 新增 `TenantSelfQueryTest`（2 用例）：自查返回自身且不泄露密钥、租户访问全量 list 被 403；全量测试无回归。
 
 ---
 
@@ -99,7 +108,7 @@
 
 1. ~~`V6` 修 openid 复合唯一（1.1）~~ ✅ 已完成 2026-06-06
 2. ~~IoT 投递两阶段闭环（1.2）~~ ✅ 已完成 2026-06-06（开投口建记录 + 设备上报回填）；设备状态/重量上报（2.1）仍待办
-3. 租户自查 + 投递流水删除收敛（2.2 / 2.3）
+3. ~~租户自查 + 投递流水删除收敛（2.2 / 2.3）~~ ✅ 已完成 2026-06-06（移除投递删除接口 + 新增 `GET /api/system/tenant/me`）
 4. 钱包入账 + 提现（依赖第 2 项闭环）
 5. 统计接口补齐
 6. 技术债清理（第 4 节）

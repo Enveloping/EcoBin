@@ -33,12 +33,6 @@ public class DeliveryOrderController {
         return Result.ok(order);
     }
 
-    @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
-        deliveryOrderService.removeById(id);
-        return Result.ok();
-    }
-
     @GetMapping("/today-overview")
     public Result<Map<String, Object>> todayOverview() {
         return Result.ok(deliveryOrderService.todayOverview());

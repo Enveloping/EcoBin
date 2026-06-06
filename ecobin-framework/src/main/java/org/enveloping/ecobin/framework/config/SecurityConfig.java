@@ -35,6 +35,8 @@ public class SecurityConfig {
 
                         // 平台管理：管理员账号（仅超管）
                         .requestMatchers("/api/system/admin/**").hasRole("SUPER_ADMIN")
+                        // 租户自查自身资料（仅租户本人）；须先于下方通配规则声明
+                        .requestMatchers("/api/system/tenant/me").hasRole("TENANT")
                         // 平台管理：租户 CRUD（超管 + 管理员）
                         .requestMatchers("/api/system/tenant/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                         // 用户管理：租户管自己租户用户；超管全量查看
