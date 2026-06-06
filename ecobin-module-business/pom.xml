@@ -24,6 +24,11 @@
             <groupId>org.enveloping</groupId>
             <artifactId>ecobin-module-device</artifactId>
         </dependency>
+        <!-- 投递完成入账需调用用户钱包服务（余额挂在 sys_user，归属 system 模块） -->
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-system</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

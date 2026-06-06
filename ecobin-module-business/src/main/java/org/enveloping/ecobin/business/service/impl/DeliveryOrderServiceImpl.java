@@ -18,8 +18,12 @@ import org.enveloping.ecobin.device.service.DeviceCommandService;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
+import org.enveloping.ecobin.system.service.WalletService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +35,7 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
     private final DoorService doorService;
     private final DeviceService deviceService;
     private final DeviceCommandService deviceCommandService;
+    private final WalletService walletService;
 
     @Override
     public boolean save(DeliveryOrder order) {
@@ -82,6 +87,7 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
     }
 
     @Override
+    @Transactional
     public void completeDelivery(DeliveryReportRequest request) {
         // 明文 SN 信任：按 SN 反查设备（sn 全局唯一；IoT 链路无租户上下文，拦截器放行全局查询）
         Device device = deviceService.lambdaQuery().eq(Device::getSn, request.getSn()).one();
@@ -113,7 +119,20 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
             update.setWasteType2(request.getWasteType2());
         }
         update.setDeliveryStatus(1);    // 已完成
+
+        // 计算返现金额 = 投口单价 × 重量；回填单价，并入账到用户余额（同事务）
+        BigDecimal amount = null;
+        Door door = order.getDoorId() != null ? doorService.getById(order.getDoorId()) : null;
+        if (door != null && door.getPrice() != null && request.getWeight() != null) {
+            amount = door.getPrice().multiply(request.getWeight()).setScale(2, RoundingMode.HALF_UP);
+            update.setPrice(door.getPrice());
+        }
         updateById(update);
+
+        if (amount != null) {
+            // 重复上报已在上方拒绝，保证每单仅入账一次
+            walletService.income(order.getUserId(), order.getTenantId(), amount, order.getId());
+        }
     }
 
     @Override

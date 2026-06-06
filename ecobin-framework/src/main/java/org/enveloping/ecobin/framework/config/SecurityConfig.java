@@ -41,6 +41,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/system/tenant/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                         // 用户管理：租户管自己租户用户；超管全量查看
                         .requestMatchers("/api/system/user/**").hasAnyRole("SUPER_ADMIN", "TENANT")
+                        // 提现审核：租户处理本租户提现单；超管全量
+                        .requestMatchers("/api/system/withdraw/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
                         // 设备 / 投口（含 door 子路径）：超管 + 管理员 + 租户；租户仅能动自己设备（数据隔离兜底）
                         .requestMatchers("/api/device/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "TENANT")

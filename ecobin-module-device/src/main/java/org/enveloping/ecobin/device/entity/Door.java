@@ -6,6 +6,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.enveloping.ecobin.common.base.BaseEntity;
 
+import java.math.BigDecimal;
+
 /**
  * 投口实体
  */
@@ -31,6 +33,9 @@ public class Door extends BaseEntity {
 
     /** 二级分类 */
     private Integer wasteType2;
+
+    /** 单价（元/kg），投递完成按 单价 × 重量 返现入账 */
+    private BigDecimal price;
 
     /** 是否启用：0-禁用 1-启用 */
     private Integer enabled;

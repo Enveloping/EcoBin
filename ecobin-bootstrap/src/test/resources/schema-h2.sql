@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS sys_user (
     avatar      VARCHAR(500)          DEFAULT NULL,
     role        TINYINT      NOT NULL DEFAULT 1,
     status      TINYINT      NOT NULL DEFAULT 1,
+    balance         DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    pending_balance DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username),
@@ -84,6 +86,7 @@ CREATE TABLE IF NOT EXISTS biz_door (
     name        VARCHAR(50)          DEFAULT NULL,
     waste_type1 TINYINT     NOT NULL,
     waste_type2 TINYINT     NOT NULL DEFAULT 0,
+    price       DECIMAL(10,2)        DEFAULT NULL,
     enabled     TINYINT     NOT NULL DEFAULT 1,
     sort_order  INT                  DEFAULT 0,
     create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -168,6 +171,24 @@ CREATE TABLE IF NOT EXISTS biz_weight_record (
     INDEX idx_weight_device_id (device_id),
     INDEX idx_weight_tenant_id (tenant_id),
     INDEX idx_weight_record_time (record_time)
+);
+
+-- 10. 提现申请单表
+CREATE TABLE IF NOT EXISTS biz_withdraw_order (
+    id           BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id    BIGINT        NOT NULL DEFAULT 1,
+    user_id      BIGINT        NOT NULL,
+    amount       DECIMAL(12,2) NOT NULL,
+    status       TINYINT       NOT NULL DEFAULT 0,
+    audit_by     BIGINT                 DEFAULT NULL,
+    audit_time   DATETIME               DEFAULT NULL,
+    audit_remark VARCHAR(255)           DEFAULT NULL,
+    transfer_no  VARCHAR(64)            DEFAULT NULL,
+    create_time  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_withdraw_user_id (user_id),
+    INDEX idx_withdraw_tenant_id (tenant_id),
+    INDEX idx_withdraw_status (status)
 );
 
 -- =============================================

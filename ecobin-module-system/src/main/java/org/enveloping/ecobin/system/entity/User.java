@@ -6,6 +6,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.EqualsAndHashCode;
 import org.enveloping.ecobin.common.base.BaseEntity;
 
+import java.math.BigDecimal;
+
 /**
  * 系统用户实体
  */
@@ -47,4 +49,10 @@ public class User extends BaseEntity {
 
     /** 状态：0-禁用 1-启用 */
     private Integer status;
+
+    /** 可用余额（投递返现累计，可提现） */
+    private BigDecimal balance;
+
+    /** 待审核余额（提现申请中冻结，审核通过扣减/驳回退回） */
+    private BigDecimal pendingBalance;
 }
