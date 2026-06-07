@@ -7,8 +7,8 @@
 ALTER TABLE sys_user
     MODIFY COLUMN username VARCHAR(50)  NULL COMMENT '用户名（微信用户可空）',
     MODIFY COLUMN password VARCHAR(255) NULL COMMENT '加密密码（微信用户可空）',
-    ADD COLUMN openid   VARCHAR(64)  NULL AFTER email COMMENT '微信 openid',
-    ADD COLUMN unionid  VARCHAR(64)  NULL AFTER openid COMMENT '微信 unionid',
-    ADD COLUMN nickname VARCHAR(100) NULL AFTER unionid COMMENT '微信昵称',
-    ADD COLUMN avatar   VARCHAR(500) NULL AFTER nickname COMMENT '微信头像 URL',
+    ADD COLUMN openid   VARCHAR(64)  NULL COMMENT '微信 openid'   AFTER email,
+    ADD COLUMN unionid  VARCHAR(64)  NULL COMMENT '微信 unionid'  AFTER openid,
+    ADD COLUMN nickname VARCHAR(100) NULL COMMENT '微信昵称'      AFTER unionid,
+    ADD COLUMN avatar   VARCHAR(500) NULL COMMENT '微信头像 URL'  AFTER nickname,
     ADD UNIQUE INDEX uk_openid (openid);

@@ -1,0 +1,666 @@
+{
+  "info": {
+    "_postman_id": "ecobin-api-collection-0001",
+    "name": "EcoBin 接口（前端对接）",
+    "description": "EcoBin 智慧环保回收箱后端接口集合。\n\n三端：网页·平台管理员、网页·租户、小程序·终端用户。\n\n使用方式：\n1. 在 Variables 中确认 baseUrl（默认 http://localhost:8080）。\n2. 先调用「认证」目录下的登录接口，响应会自动把 token 写入集合变量 adminToken / tenantToken / userToken。\n3. 其余目录已按角色绑定对应 token（folder 级 Bearer 认证），可直接调用。\n\n详见 docs/api-frontend.md。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "adminToken", "value": "", "type": "string" },
+    { "key": "tenantToken", "value": "", "type": "string" },
+    { "key": "userToken", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "认证（公开）",
+      "item": [
+        {
+          "name": "网页登录 - 管理员",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json && json.data && json.data.token) {",
+                  "  pm.collectionVariables.set('adminToken', json.data.token);",
+                  "  console.log('adminToken 已保存');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userType\": \"admin\",\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/system/auth/login",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "api", "system", "auth", "login" ]
+            },
+            "description": "平台管理员登录。userType=admin。成功后自动保存 adminToken。"
+          }
+        },
+        {
+          "name": "网页登录 - 租户",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json && json.data && json.data.token) {",
+                  "  pm.collectionVariables.set('tenantToken', json.data.token);",
+                  "  console.log('tenantToken 已保存');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userType\": \"tenant\",\n  \"username\": \"greenadmin\",\n  \"password\": \"Green@123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/system/auth/login",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "api", "system", "auth", "login" ]
+            },
+            "description": "租户登录。userType=tenant。成功后自动保存 tenantToken。"
+          }
+        },
+        {
+          "name": "小程序登录 - 微信",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json && json.data && json.data.token) {",
+                  "  pm.collectionVariables.set('userToken', json.data.token);",
+                  "  console.log('userToken 已保存');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"微信 wx.login 返回的 code\",\n  \"appid\": \"租户的小程序 appid\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/system/auth/wx-login",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "api", "system", "auth", "wx-login" ]
+            },
+            "description": "微信小程序登录。首次自动注册为普通用户(role=1)。成功后自动保存 userToken。"
+          }
+        }
+      ]
+    },
+    {
+      "name": "网页·平台管理员端",
+      "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{adminToken}}", "type": "string" } ] },
+      "item": [
+        {
+          "name": "管理员账号（仅超管9）",
+          "item": [
+            {
+              "name": "管理员列表",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/admin", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "admin" ] }
+              }
+            },
+            {
+              "name": "管理员详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/admin/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "admin", "1" ] }
+              }
+            },
+            {
+              "name": "新建管理员",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"ops01\",\n  \"password\": \"Init@123\",\n  \"realName\": \"运营小王\",\n  \"role\": 8,\n  \"status\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/system/admin", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "admin" ] }
+              }
+            },
+            {
+              "name": "修改管理员",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"realName\": \"运营小王\",\n  \"status\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/system/admin/2", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "admin", "2" ] }
+              }
+            },
+            {
+              "name": "删除管理员",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/admin/2", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "admin", "2" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "租户管理（超管9+管理员8）",
+          "item": [
+            {
+              "name": "租户列表",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/tenant", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "tenant" ] }
+              }
+            },
+            {
+              "name": "租户详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/tenant/2", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "tenant", "2" ] }
+              }
+            },
+            {
+              "name": "新建租户",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"绿源环保\",\n  \"code\": \"GREEN001\",\n  \"username\": \"greenadmin\",\n  \"password\": \"Green@123\",\n  \"miniappAppid\": \"wx1234567890\",\n  \"miniappSecret\": \"abcd1234secret\",\n  \"merchantNo\": \"16xxxxxxxx\",\n  \"contactName\": \"李经理\",\n  \"contactPhone\": \"13800000000\",\n  \"address\": \"杭州市西湖区\",\n  \"status\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/system/tenant", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "tenant" ] }
+              }
+            },
+            {
+              "name": "修改租户",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"绿源环保（杭州）\",\n  \"contactPhone\": \"13900000000\",\n  \"status\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/system/tenant/2", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "tenant", "2" ] }
+              }
+            },
+            {
+              "name": "删除租户",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/tenant/2", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "tenant", "2" ] }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "设备与投口（超管/管理员/租户共用）",
+      "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{adminToken}}", "type": "string" } ] },
+      "description": "默认用 adminToken。租户调用请改用 {{tenantToken}}。",
+      "item": [
+        {
+          "name": "设备列表（分页）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/device?page=1&pageSize=20",
+              "host": [ "{{baseUrl}}" ], "path": [ "api", "device" ],
+              "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+            }
+          }
+        },
+        {
+          "name": "设备详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/device/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "1" ] }
+          }
+        },
+        {
+          "name": "创建设备（落入平台池）",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"sn\": \"SN20260607001\",\n  \"name\": \"西湖一号回收箱\",\n  \"type\": 1,\n  \"lat\": 30.259,\n  \"lng\": 120.130,\n  \"address\": \"杭州市西湖区文一路1号\",\n  \"status\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/api/device", "host": [ "{{baseUrl}}" ], "path": [ "api", "device" ] }
+          }
+        },
+        {
+          "name": "修改设备 / 分配给租户（改 tenantId）",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"tenantId\": 2,\n  \"name\": \"西湖一号回收箱\",\n  \"status\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/api/device/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "1" ] },
+            "description": "分配设备给租户：把 tenantId 改为目标租户ID(>1)；收回则改回 1。仅平台域可改归属。"
+          }
+        },
+        {
+          "name": "删除设备",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/device/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "1" ] }
+          }
+        },
+        {
+          "name": "投口列表（按设备）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/device/door/list/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "door", "list", "1" ] }
+          }
+        },
+        {
+          "name": "投口详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/device/door/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "door", "1" ] }
+          }
+        },
+        {
+          "name": "创建投口",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": 1,\n  \"doorIndex\": 1,\n  \"name\": \"可回收口\",\n  \"wasteType1\": 2,\n  \"wasteType2\": 1,\n  \"price\": 0.80,\n  \"enabled\": 1,\n  \"sortOrder\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/api/device/door", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "door" ] }
+          }
+        },
+        {
+          "name": "修改投口",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"可回收口\",\n  \"price\": 1.00,\n  \"enabled\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/api/device/door/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "door", "1" ] }
+          }
+        },
+        {
+          "name": "删除投口",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/device/door/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "device", "door", "1" ] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "网页·租户端",
+      "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{tenantToken}}", "type": "string" } ] },
+      "description": "默认用 tenantToken。投递/清运/统计/提现 超管(adminToken)亦可访问。",
+      "item": [
+        {
+          "name": "租户自查（仅租户本人）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/system/tenant/me", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "tenant", "me" ] }
+          }
+        },
+        {
+          "name": "用户管理",
+          "item": [
+            {
+              "name": "用户列表（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/system/user?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "user" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "用户详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/system/user/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "user", "1" ] }
+              }
+            },
+            {
+              "name": "提升/降低用户角色（仅租户）",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"role\": 2\n}" },
+                "url": { "raw": "{{baseUrl}}/api/system/user/1/role", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "user", "1", "role" ] },
+                "description": "role 仅允许 1-普通用户 / 2-清运员 / 3-设备管理员。改后该用户旧 token 失效。"
+              }
+            }
+          ]
+        },
+        {
+          "name": "提现审核",
+          "item": [
+            {
+              "name": "提现单列表",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/system/withdraw?status=0&page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "withdraw" ],
+                  "query": [ { "key": "status", "value": "0", "description": "可选 0-待审核 1-已通过 2-已驳回" }, { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "审核提现单",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"pass\": true,\n  \"remark\": \"已核实\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/system/withdraw/1/audit", "host": [ "{{baseUrl}}" ], "path": [ "api", "system", "withdraw", "1", "audit" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "投递订单（后台视图）",
+          "item": [
+            {
+              "name": "投递订单列表（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/business/delivery?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "delivery" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "投递订单详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/business/delivery/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "delivery", "1" ] }
+              }
+            },
+            {
+              "name": "今日投递概览",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/business/delivery/today-overview", "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "delivery", "today-overview" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "清运订单后台",
+          "item": [
+            {
+              "name": "清运单列表（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/business/clean?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "清运单详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/business/clean/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean", "1" ] }
+              }
+            },
+            {
+              "name": "审核清运单",
+              "request": {
+                "method": "PUT",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/business/clean/1/audit?auditStatus=1",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean", "1", "audit" ],
+                  "query": [ { "key": "auditStatus", "value": "1", "description": "1-通过 2-拒绝" } ]
+                }
+              }
+            },
+            {
+              "name": "修改清运单",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"weight\": 4.0,\n  \"status\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/business/clean/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean", "1" ] }
+              }
+            },
+            {
+              "name": "删除清运单",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/business/clean/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean", "1" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "业务统计",
+          "item": [
+            { "name": "今日概览 dashboard", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/dashboard", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "dashboard" ] } } },
+            { "name": "设备统计 devices", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/devices", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "devices" ] } } },
+            { "name": "会员统计 members", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/members", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "members" ] } } },
+            { "name": "本月投递统计 delivery", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/delivery", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "delivery" ] } } },
+            { "name": "本月清运统计 clean", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/clean", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "clean" ] } } },
+            { "name": "提现支出统计 payout", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/payout", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "payout" ] } } },
+            { "name": "会员资金统计 member-money", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/member-money", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "member-money" ] } } },
+            { "name": "设备地图坐标 devices-map", "request": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/api/statistics/devices-map", "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "devices-map" ] } } },
+            {
+              "name": "设备投递排行 device-ranking",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/statistics/device-ranking?pageSize=5",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "statistics", "device-ranking" ],
+                  "query": [ { "key": "pageSize", "value": "5" } ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "小程序·终端用户端",
+      "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{userToken}}", "type": "string" } ] },
+      "item": [
+        {
+          "name": "我的个人信息",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/app/profile", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "profile" ] }
+          }
+        },
+        {
+          "name": "设备与投口（只读）",
+          "item": [
+            {
+              "name": "本租户设备列表（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/app/device?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "device" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "设备详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/app/device/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "device", "1" ] }
+              }
+            },
+            {
+              "name": "某设备的投口列表",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/app/device/1/doors", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "device", "1", "doors" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "投递",
+          "item": [
+            {
+              "name": "开投口（阶段1）",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"doorId\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/app/delivery/open", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "delivery", "open" ] },
+                "description": "返回 { orderId, deliveryToken }。deliveryToken 由设备上报时带回。"
+              }
+            },
+            {
+              "name": "我的投递记录（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/app/delivery/my?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "delivery", "my" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "我的投递详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/app/delivery/my/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "delivery", "my", "1" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "清运作业（仅清运员/设备管理员）",
+          "item": [
+            {
+              "name": "提交清运",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"deviceId\": 1,\n  \"doorId\": 1,\n  \"wasteType1\": 2,\n  \"wasteType2\": 1,\n  \"weight\": 3.5\n}" },
+                "url": { "raw": "{{baseUrl}}/api/app/clean", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "clean" ] }
+              }
+            },
+            {
+              "name": "我的清运记录（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/app/clean/my?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "clean", "my" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            },
+            {
+              "name": "我的清运详情",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/app/clean/my/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "clean", "my", "1" ] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "钱包与提现",
+          "item": [
+            {
+              "name": "我的钱包余额",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/app/wallet", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "wallet" ] }
+              }
+            },
+            {
+              "name": "发起提现",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"amount\": 10.00\n}" },
+                "url": { "raw": "{{baseUrl}}/api/app/wallet/withdraw", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "wallet", "withdraw" ] }
+              }
+            },
+            {
+              "name": "我的提现记录（分页）",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/app/wallet/withdraw?page=1&pageSize=20",
+                  "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "wallet", "withdraw" ],
+                  "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "设备 IoT 上报（公开，SN 鉴权）",
+      "item": [
+        {
+          "name": "投递完成上报（阶段2）",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"sn\": \"SN20260607001\",\n  \"deliveryToken\": \"开投口时返回的 deliveryToken\",\n  \"weight\": 2.35,\n  \"wasteType1\": 2,\n  \"wasteType2\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/api/iot/delivery/complete", "host": [ "{{baseUrl}}" ], "path": [ "api", "iot", "delivery", "complete" ] },
+            "description": "设备端调用，非前端职责。按 deliveryToken 回填重量、置完成、按投口单价×重量返现。"
+          }
+        }
+      ]
+    }
+  ]
+}
