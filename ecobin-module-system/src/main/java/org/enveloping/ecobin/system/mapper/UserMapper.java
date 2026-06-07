@@ -44,4 +44,26 @@ public interface UserMapper extends BaseMapper<User> {
     @Update("UPDATE sys_user SET pending_balance = pending_balance - #{amount}, balance = balance + #{amount} " +
             "WHERE id = #{userId}")
     int refundPending(@Param("userId") Long userId, @Param("amount") BigDecimal amount);
+
+    // ---- 会员统计（role IN (1,2,3) = USER/CLEANER/DEVICE_ADMIN，排除平台域账号与租户） ----
+
+    /** 会员总数 */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE role IN (1,2,3)")
+    long countMembers();
+
+    /** 今日新增会员 */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE DATE(create_time) = CURDATE()")
+    long countTodayMembers();
+
+    /** 禁用会员数 */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE status = 0")
+    long countDisabledMembers();
+
+    /** 会员可用余额总和 */
+    @Select("SELECT COALESCE(SUM(balance), 0) FROM sys_user WHERE role IN (1,2,3)")
+    BigDecimal sumBalance();
+
+    /** 会员待审核余额总和 */
+    @Select("SELECT COALESCE(SUM(pending_balance), 0) FROM sys_user WHERE role IN (1,2,3)")
+    BigDecimal sumPendingBalance();
 }

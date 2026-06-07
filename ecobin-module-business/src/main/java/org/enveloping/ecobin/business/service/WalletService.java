@@ -1,7 +1,7 @@
-package org.enveloping.ecobin.system.service;
+package org.enveloping.ecobin.business.service;
 
+import org.enveloping.ecobin.business.entity.WithdrawOrder;
 import org.enveloping.ecobin.common.result.PageResult;
-import org.enveloping.ecobin.system.entity.WithdrawOrder;
 
 import java.math.BigDecimal;
 

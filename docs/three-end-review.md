@@ -88,7 +88,7 @@
 | 项 | 现状 | 依赖 | 备注 |
 |----|------|------|------|
 | 提现 / 现金返现 | ✅ 流程已打通（2026-06-06）：投递入账 + 提现申请/审核/查询 | — | 余额挂 `sys_user`(balance/pending_balance)、单价挂 `biz_door.price`、提现单 `biz_withdraw_order`；**真实微信「商家转账到零钱」留 TODO 占位**（缺 `sys_tenant` 支付凭证字段，本地无法联调） |
-| 统计报表 | 仅 `GET /api/statistics/dashboard`（当日 2 字段） | — | `docs/references` 参考平台定义的 11 个统计接口基本空白 |
+| 统计报表 | ✅ 已补齐（2026-06-06）：`/api/statistics` 扩展为 9 个端点 | — | dashboard(增强)/devices/members/delivery/clean/payout/member-money/devices-map/device-ranking；跳过参考 10「最新投递」（现有投递分页已覆盖）、预留字段（spill/smoke/score/storageWeights 返回 0，待 2.1 设备状态上报落地后接入） |
 | C 端清运员/设备管理员作业接口 | 仅「我的投递 + profile + 设备只读」 | — | 清运员/设备管理员有角色，但无对应 C 端作业端点（看待清运、提交清运走后台 `/api/business/clean`） |
 
 ---
@@ -110,5 +110,5 @@
 2. ~~IoT 投递两阶段闭环（1.2）~~ ✅ 已完成 2026-06-06（开投口建记录 + 设备上报回填）；设备状态/重量上报（2.1）仍待办
 3. ~~租户自查 + 投递流水删除收敛（2.2 / 2.3）~~ ✅ 已完成 2026-06-06（移除投递删除接口 + 新增 `GET /api/system/tenant/me`）
 4. ~~钱包入账 + 提现（依赖第 2 项闭环）~~ ✅ 已完成 2026-06-06（投递返现入账 + 提现申请/租户审核/记录查询；余额挂 `sys_user`、单价挂投口、提现单 `biz_withdraw_order`；真实微信转账留 TODO）
-5. 统计接口补齐
+5. ~~统计接口补齐~~ ✅ 已完成 2026-06-06（9 个端点：dashboard 增强 + 8 个新增；Mapper 聚合 SQL + StatisticsService 收口；全量 31 测试无回归）
 6. 技术债清理（第 4 节）

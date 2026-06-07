@@ -1,6 +1,6 @@
-# 提现功能设计笔记（后续方向，暂未实现）
+# 提现功能设计笔记
 
-> 状态：方向已确认，**暂未实现**。本文为后续开工的设计储备。
+> 状态：**核心流程已实现（2026-06-06）**，真实微信「商家转账到零钱」留 TODO 占位。
 > 已确认决策：提现标的 = **现金返现余额**；到账方式 = **租户人工审核**后打款。
 
 ## 1. 背景与资金链路
@@ -8,44 +8,65 @@
 用户在回收箱投递可回收物，按 `price × weight` 产生现金返现，累计为用户余额，可申请提现到微信。
 各租户使用**自己的微信商户号**付款，资金从租户自有商户出 → 天然租户隔离。
 
-现状核查：
-- `sys_tenant.merchant_no`（微信商户号）字段**已存在**（V3 迁移 / `Tenant.java`）。
-- `biz_delivery_order` 已有 `price` / `weight` / `score`，但**未汇总成用户可提现余额**；当前无钱包表、无提现表。
-- 仅有商户号不足以发起微信「商家转账到零钱」，缺签名所需的支付凭证字段。
+### 已落地（V8 迁移 `V8__add_wallet_withdraw.sql`）
 
-## 2. 设计要点（三块）
-
-### 2.1 租户支付凭证（`sys_tenant` 新增字段）
-
-微信支付 API v3 签名需要，私钥类字段比照现有 `miniapp_secret` 做 **AES 加密存储**、`@JsonProperty(WRITE_ONLY)`：
-
-| 字段 | 说明 |
+| 事项 | 实现 |
 |------|------|
-| `merchant_no` | 微信商户号（**已存在**） |
-| `mch_apiv3_key` | API v3 密钥（AES 加密） |
-| `mch_cert_serial_no` | 商户证书序列号 |
-| `mch_private_key` | 商户私钥（AES 加密） |
+| 余额存储 | `sys_user.balance`（可用）+ `sys_user.pending_balance`（待审核），**未建独立钱包表** |
+| 单价来源 | `biz_door.price`（元/kg），投递完成时服务端计算 `price × weight` 入账 |
+| 提现记录 | `biz_withdraw_order`（status: 0-待审核 / 1-已通过 / 2-已驳回） |
+| 入账触发 | `DeliveryOrderServiceImpl.completeDelivery`，投递完成时原子加余额 |
+| 提现申请 | `WalletService.applyWithdraw`：可用→待审核（条件 SQL 防透支） |
+| 审核通过 | `WalletService.auditWithdraw(pass)`：扣减待审核（资金转出） |
+| 审核驳回 | `WalletService.auditWithdraw(reject)`：待审核退回可用 |
+| 流水追溯 | 不建独立流水表：入账明细查 `biz_delivery_order`、出账明细查 `biz_withdraw_order`、余额当前值看 `sys_user` |
 
-收款方 openid 用本租户小程序（`miniapp_appid` 已存在）下的用户 openid。
+### 仍待办（依赖真实商户号配置，本地无法联调）
 
-### 2.2 余额与流水（新表，均带 `tenant_id`，纳入 `TenantLineInnerInterceptor`）
+- `sys_tenant` 补支付凭证字段（`mch_apiv3_key` / `mch_cert_serial_no` / `mch_private_key`，AES 加密 + `WRITE_ONLY`）
+- `WalletService.auditWithdraw` 通过分支接入微信「商家转账到零钱」API，回填 `transfer_no`
+- 转账异步结果回查与失败补偿
 
-- **用户余额**：推荐独立表 `biz_user_wallet`（`user_id`、`tenant_id`、`balance` 可用余额、`frozen` 冻结额），
-  或在 `sys_user` 加 `balance` 字段。
-- **资金流水** `biz_balance_record`：记录投递入账（`amount = price × weight`）与提现出账；
-  余额变更走**事务 + 乐观锁/行锁**防并发与重复提现。
-- 投递订单完成时 → 入账用户余额 + 写流水（需给 `biz_delivery_order` 补 `amount` 字段或入账时计算）。
+## 2. 设计决策记录（与原设想的差异）
 
-### 2.3 提现申请 + 微信转账（新表 + 外部接口）
+### 2.1 余额不建独立钱包表
 
-- **提现申请** `biz_withdraw_order`：`user_id`、`tenant_id`、`amount`、`status`（待审核 / 已通过 /
-  打款中 / 已到账 / 驳回 / 失败）、申请时间、审核人、审核时间、微信转账单号。
-- **流程**：用户发起提现 → 校验并**冻结**余额 → 状态"待审核" → 租户后台审核 →
-  - 通过：调微信「商家转账到零钱」（付款方=租户商户号，收款方=用户 openid）→ 扣减余额 / 记流水 / 回填转账单号；
-  - 驳回：解冻余额。
-- **风控合规**：微信转账有单笔/单日限额、用户授权与实名要求；需处理转账异步结果回查与失败补偿。
+原设想建 `biz_user_wallet` 独立表。**实际**：直接在 `sys_user` 加 `balance` + `pending_balance` 两个 `DECIMAL(12,2)` 字段。
+理由：单用户单钱包，无复杂账户层级，独立表反而多一次 JOIN。
 
-## 3. 多租户注意
+### 2.2 不建余额流水表
 
-所有新表（`biz_user_wallet`、`biz_balance_record`、`biz_withdraw_order`）必须带 `tenant_id`，
-由 MyBatis-Plus `TenantLineInnerInterceptor` 自动隔离，无需手写过滤条件。
+原设想建 `biz_balance_record` 记录每笔余额变动。**实际**：投递订单即入账流水，提现单即出账流水，不再冗余第三表。
+余额追溯路径：`biz_delivery_order` → `biz_withdraw_order` → `sys_user` 当前值。
+
+### 2.3 提现状态简化
+
+原设想 6 状态（待审核/已通过/打款中/已到账/驳回/失败）。**实际**：3 状态（0-待审核 / 1-已通过 / 2-已驳回）。
+"打款中/已到账/失败"等微信转账中间态留待真实 API 接入时扩展。
+
+### 2.4 余额原子操作用条件 SQL，不用乐观锁
+
+`UserMapper` 四个 `@Update` 注解 SQL：
+- `addBalance`：`SET balance = balance + #{amount}`
+- `freezeForWithdraw`：`SET balance = balance - #{amount}, pending_balance = pending_balance + #{amount} WHERE balance >= #{amount}`（返回 0 = 余额不足）
+- `settlePending`：扣减待审核
+- `refundPending`：待审核退回可用
+
+MySQL 行锁保证原子性，无需额外 version 字段。
+
+## 3. 接口一览
+
+| 端点 | 权限 | 说明 |
+|------|------|------|
+| `GET /api/app/wallet` | USER/CLEANER/DEVICE_ADMIN | 我的余额（balance + pendingBalance） |
+| `POST /api/app/wallet/withdraw` | 同上 | 发起提现（body: amount） |
+| `GET /api/app/wallet/withdraw` | 同上 | 我的提现记录分页 |
+| `GET /api/system/withdraw?status=` | SUPER_ADMIN/TENANT | 提现单列表（租户隔离） |
+| `POST /api/system/withdraw/{id}/audit` | SUPER_ADMIN/TENANT | 审核（body: pass, remark） |
+
+## 4. 安全要点
+
+- 余额操作全部走 `UserMapper` 原子 SQL，按主键 `id` 定位（userId 来自登录态/提现单），TenantLineInnerInterceptor 追加租户条件
+- 提现冻结用条件 `WHERE balance >= #{amount}` 防透支，返回 0 时抛 `BusinessException(400, "余额不足")`
+- 投递完成对已完成的订单拒绝重复上报，天然保证每单仅入账一次
+- `completeDelivery` 加 `@Transactional`，入账与订单状态更新同事务

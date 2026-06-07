@@ -160,7 +160,10 @@ role = 1 → USER          普通用户（默认）
 | 设备状态（实时数据） | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 投递订单 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 清运订单 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
+| 提现订单 / 审核 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
+| 用户钱包余额 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 自己的投递记录 | — | — | — | — | — | ✅ |
+| 自己的钱包信息 | — | — | — | — | — | ✅ |
 
 ---
 
@@ -412,41 +415,56 @@ case 2 -> "ROLE_CLEANER"
 case 1 -> "ROLE_USER"
 ```
 
-### 9.3 API 路径一览（当前真实路径）
+### 9.3 API 路径一览（当前真实路径，2026-06-06）
 
 ```
 网页登录:
-  /api/system/auth/login        → 管理员/租户登录（传 userType）
+  POST /api/system/auth/login         → 管理员/租户登录（传 userType）
 
 小程序:
-  /api/system/auth/wx-login     → 微信登录
+  POST /api/system/auth/wx-login      → 微信登录
 
 管理端（仅超管）:
-  /api/system/admin/**          → 管理员 CRUD
+  /api/system/admin/**                → 管理员 CRUD
 
 管理端（超管+管理员）:
-  /api/system/tenant/**         → 租户 CRUD
+  /api/system/tenant/**               → 租户 CRUD（*）
+
+租户自查（仅租户本人，比上方通配规则先匹配）:
+  GET /api/system/tenant/me           → 租户查看自身资料（脱敏）
 
 超管+租户:
-  /api/system/user/**           → 用户角色管理（租户管自己；超管全量查看）
-  /api/business/delivery/**     → 投递订单数据（管理端全租户视图）
-  GET /api/business/clean/**    → 清运订单查看
-  /api/statistics/**            → 业务统计
+  /api/system/user/**                 → 用户角色管理（租户管自己；超管全量查看）
+  /api/system/withdraw/**             → 提现单列表 + 审核
+  /api/business/delivery/**           → 投递订单数据（管理端全租户视图）
+  GET /api/business/clean/**          → 清运订单查看
+  /api/statistics/**                  → 业务统计
 
 超管+管理员+租户:
-  /api/device/**                → 设备 CRUD（含 /api/device/door 投口；租户仅限自己设备）
+  /api/device/**                      → 设备 CRUD（含 /api/device/door 投口；租户仅限自己设备）
 
 写操作（创建清运单）:
   /api/business/clean/**（POST/PUT/DELETE）→ 租户/设备管理员/清运员
 
-终端域（小程序用户，USER/CLEANER/DEVICE_ADMIN）— C 端只读，仅本人:
-  GET /api/app/delivery/my       → 我的投递记录分页（按 user_id 过滤）
-  GET /api/app/delivery/my/{id}  → 我的单条投递详情（归属校验）
-  GET /api/app/profile           → 我的个人信息（脱敏 VO）
+IoT 设备上报（放行，无用户登录态）:
+  POST /api/iot/delivery/complete     → 设备 IoT 投递完成上报（SN 反查鉴权）
+
+终端域（小程序用户，USER/CLEANER/DEVICE_ADMIN）:
+  GET  /api/app/profile               → 我的个人信息（脱敏 VO）
+  GET  /api/app/device                → 本租户设备列表（含投口信息）
+  POST /api/app/delivery/open         → 扫码开投口（建进行中投递记录）
+  GET  /api/app/delivery/my           → 我的投递记录分页（按 user_id 过滤）
+  GET  /api/app/delivery/my/{id}      → 我的单条投递详情（归属校验）
+  GET  /api/app/wallet                → 我的钱包余额（balance + pendingBalance）
+  POST /api/app/wallet/withdraw       → 发起提现申请
+  GET  /api/app/wallet/withdraw       → 我的提现记录分页
 ```
 
+> （*）租户 CRUD 通配 `/api/system/tenant/**` 覆盖 `GET /api/system/tenant` 全量列表等，仅超管/管理员。
+> 租户自查 `GET /api/system/tenant/me` 是独立规则，在通配之前声明，仅 `TENANT` 角色。
+
 > 设备创建默认 `tenant_id=1`（平台池）；分配/收回当前通过 `PUT /api/device/{id}` 修改 `tenant_id`
-> （仅平台域可改，租户被数据隔离限制）。独立的分配/收回与投递端点为后续新增项。
+> （仅平台域可改，租户被数据隔离限制）。独立的分配/收回端点为后续新增项。
 
 ---
 
@@ -466,6 +484,14 @@ case 1 -> "ROLE_USER"
 | 强制失效 | 无 | `TokenInvalidationRegistry`（登记+比对，见 §5.4） |
 | miniapp_secret | 无 | `AesCryptoUtil` AES 加密存储 |
 | `biz_device` | 现有字段 | 无变更（创建默认 `tenant_id=1`） |
+| openid 唯一约束 | 全局唯一 `uk_openid` | 改建租户内复合唯一 `uk_tenant_openid (tenant_id, openid)`（V6） |
+| 投递闭环 | 无数据入口 | 两阶段流程：C端开投口 + IoT 设备上报回填（V7），`/api/iot/**` 放行 |
+| 租户自查 | 无端点 | `GET /api/system/tenant/me`（仅 TENANT 角色） |
+| 投递流水删除 | 可删除 | 移除删除接口，投递流水不可变 |
+| 用户余额 | 无 | `sys_user.balance` + `sys_user.pending_balance`（V8），原子 SQL 防并发 |
+| 投口单价 | 无 | `biz_door.price`（元/kg），投递完成时 `price × weight` 入账 |
+| 提现流程 | 无 | `biz_withdraw_order` + 申请/租户审核/记录查询（V8） |
+| C 端钱包 | 无 | `GET/POST /api/app/wallet` + `/api/app/wallet/withdraw` |
 
 ### 新增关键组件
 - `common/base/PlatformBaseEntity`：无 `tenant_id` 的平台级实体基类（Admin/Tenant 继承）。

@@ -1,4 +1,4 @@
-package org.enveloping.ecobin.system.entity;
+package org.enveloping.ecobin.business.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;

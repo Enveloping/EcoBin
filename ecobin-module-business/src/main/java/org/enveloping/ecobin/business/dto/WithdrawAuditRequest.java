@@ -1,4 +1,4 @@
-package org.enveloping.ecobin.system.dto;
+package org.enveloping.ecobin.business.dto;
 
 import lombok.Data;
 

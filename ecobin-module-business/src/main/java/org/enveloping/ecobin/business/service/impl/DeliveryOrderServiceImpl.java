@@ -18,7 +18,7 @@ import org.enveloping.ecobin.device.service.DeviceCommandService;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
-import org.enveloping.ecobin.system.service.WalletService;
+import org.enveloping.ecobin.business.service.WalletService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
