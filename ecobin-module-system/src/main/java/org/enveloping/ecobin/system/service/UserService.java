@@ -12,4 +12,10 @@ public interface UserService extends IService<User> {
 
     /** 分页查询（使用 PageResult 格式） */
     PageResult<User> pageUsers(UserPageQuery query);
+
+    /**
+     * 租户提升/降低终端用户角色（仅限 1/2/3）。
+     * 租户拦截器限定本租户范围，跨租户用户按"不存在"处理；改角色后旧 token 立即失效。
+     */
+    User changeRole(Long id, Integer role);
 }

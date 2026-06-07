@@ -39,6 +39,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/system/tenant/me").hasRole("TENANT")
                         // 平台管理：租户 CRUD（超管 + 管理员）
                         .requestMatchers("/api/system/tenant/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        // 用户角色提升/降低：仅租户（矩阵 §4.1 超管不可改角色）；须先于下方通配规则声明
+                        .requestMatchers(HttpMethod.PUT, "/api/system/user/*/role").hasRole("TENANT")
                         // 用户管理：租户管自己租户用户；超管全量查看
                         .requestMatchers("/api/system/user/**").hasAnyRole("SUPER_ADMIN", "TENANT")
                         // 提现审核：租户处理本租户提现单；超管全量

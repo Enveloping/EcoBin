@@ -377,6 +377,8 @@ POST /api/system/tenant
 .requestMatchers("/api/system/admin/**").hasRole("SUPER_ADMIN")
 // 平台管理：租户 CRUD（超管 + 管理员）
 .requestMatchers("/api/system/tenant/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+// 用户角色提升/降低：仅租户（矩阵 §4.1 超管不可改角色）；须先于下方通配规则声明
+.requestMatchers(HttpMethod.PUT, "/api/system/user/*/role").hasRole("TENANT")
 // 用户管理：租户管自己租户用户；超管全量查看
 .requestMatchers("/api/system/user/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
@@ -435,7 +437,12 @@ case 1 -> "ROLE_USER"
   GET /api/system/tenant/me           → 租户查看自身资料（脱敏）
 
 超管+租户:
-  /api/system/user/**                 → 用户角色管理（租户管自己；超管全量查看）
+  /api/system/user/**                 → 用户管理（租户管自己；超管全量查看）
+
+仅租户（先于上方 user 通配匹配）:
+  PUT /api/system/user/{id}/role      → 提升/降低用户角色（受控，限 role∈{1,2,3}；改后旧 token 失效）
+
+超管+租户:
   /api/system/withdraw/**             → 提现单列表 + 审核
   /api/business/delivery/**           → 投递订单数据（管理端全租户视图）
   /api/business/clean/**              → 清运订单后台（查看 / 审核 / 增改删，仅超管+租户）
@@ -496,6 +503,7 @@ IoT 设备上报（放行，无用户登录态）:
 | 提现流程 | 无 | `biz_withdraw_order` + 申请/租户审核/记录查询（V8） |
 | C 端钱包 | 无 | `GET/POST /api/app/wallet` + `/api/app/wallet/withdraw` |
 | C 端清运作业 | 无（仅后台 `/api/business/clean`，且清运员可越权审核自己单） | `/api/app/clean`（提交+我的记录，CLEANER/DEVICE_ADMIN，userId 锁登录态）；后台清运写权限收紧至超管+租户 |
+| 用户角色管理 | 仅通用 `PUT /api/system/user/{id}`（无校验，租户可将 role 改成 9 → 提权） | 专用 `PUT /api/system/user/{id}/role`（仅租户，限 1/2/3，改后旧 token 失效）；并在 `save/updateById` 固化 role∈{1,2,3} 不变量堵通用路径提权 |
 
 ### 新增关键组件
 - `common/base/PlatformBaseEntity`：无 `tenant_id` 的平台级实体基类（Admin/Tenant 继承）。
