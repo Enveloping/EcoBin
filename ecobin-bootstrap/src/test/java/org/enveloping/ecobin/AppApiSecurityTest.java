@@ -15,7 +15,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.springframework.http.MediaType;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -115,5 +118,16 @@ class AppApiSecurityTest {
     void anonymousRequestToAppEndpointIsRejected() throws Exception {
         mockMvc.perform(get("/api/app/profile"))
                 .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void normalUserForbiddenFromCleanSubmission() throws Exception {
+        // 普通用户（role=1）无清运权限：/api/app/clean 规则限 CLEANER/DEVICE_ADMIN（须先于 /api/app/** 通配匹配）
+        String body = "{\"deviceId\":1,\"wasteType1\":2,\"weight\":1.0}";
+        mockMvc.perform(post("/api/app/clean")
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden());
     }
 }

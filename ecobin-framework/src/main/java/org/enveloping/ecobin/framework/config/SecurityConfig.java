@@ -50,11 +50,9 @@ public class SecurityConfig {
                         // 投递订单：超管 + 租户
                         .requestMatchers("/api/business/delivery/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
-                        // 清运订单——读（超管 + 租户）
-                        .requestMatchers(HttpMethod.GET, "/api/business/clean/**")
-                        .hasAnyRole("SUPER_ADMIN", "TENANT")
-                        // 清运订单——写（创建清运单）：租户 + 设备管理员 + 清运员
-                        .requestMatchers("/api/business/clean/**").hasAnyRole("TENANT", "CLEANER", "DEVICE_ADMIN")
+                        // 清运订单后台（查看 / 审核 / 增改删）：仅超管 + 租户
+                        // 清运员/设备管理员的清运提交走 C 端 /api/app/clean，不经此路径（防越权审核自己的单）
+                        .requestMatchers("/api/business/clean/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
                         // 统计：业务数据视图，超管 + 租户
                         .requestMatchers("/api/statistics/**").hasAnyRole("SUPER_ADMIN", "TENANT")
@@ -62,6 +60,8 @@ public class SecurityConfig {
                         // 设备 IoT 上报接口：明文 SN 信任，无用户登录态；鉴权由服务层按 SN 反查设备校验
                         .requestMatchers("/api/iot/**").permitAll()
 
+                        // C 端清运作业：仅清运员 + 设备管理员（普通用户 USER 不可清运）；须先于下方通配规则声明
+                        .requestMatchers("/api/app/clean/**").hasAnyRole("CLEANER", "DEVICE_ADMIN")
                         // 小程序终端用户 C 端接口：仅访问属于自己的数据（投递记录 / 个人信息）
                         // 清运员/设备管理员本身也是小程序用户，同样拥有自己的记录，故三角色均放行
                         .requestMatchers("/api/app/**").hasAnyRole("USER", "CLEANER", "DEVICE_ADMIN")
