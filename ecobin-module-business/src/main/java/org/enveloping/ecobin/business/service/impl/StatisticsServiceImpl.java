@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.enveloping.ecobin.business.mapper.CleanOrderMapper;
 import org.enveloping.ecobin.business.mapper.DeliveryOrderMapper;
 import org.enveloping.ecobin.business.service.StatisticsService;
+import org.enveloping.ecobin.common.constant.Constants;
 import org.enveloping.ecobin.device.entity.Device;
 import org.enveloping.ecobin.device.mapper.DeviceMapper;
 import org.enveloping.ecobin.system.mapper.UserMapper;
@@ -120,6 +121,8 @@ public class StatisticsServiceImpl implements StatisticsService {
     @Override
     public List<Map<String, Object>> deviceRanking(int pageSize) {
         if (pageSize <= 0) pageSize = 5;
+        // 裸 SQL LIMIT 不经分页拦截器，单独 clamp 上限
+        if (pageSize > Constants.MAX_PAGE_SIZE) pageSize = Constants.MAX_PAGE_SIZE;
         return deliveryOrderMapper.deviceRanking(pageSize);
     }
 

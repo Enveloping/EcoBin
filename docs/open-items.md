@@ -17,7 +17,7 @@
 | 项 | 现状 | 修法 |
 |----|------|------|
 | `TokenInvalidationRegistry` 内存态 | 单实例 `ConcurrentHashMap`，**应用重启即失忆**——被禁用/降权账号的旧 token 在重启后复活，直到自然过期 | 失效记录持久化（Redis），或显著缩短 JWT 有效期 |
-| 分页 `pageSize` 无上限 | `pageOrders`/`pageMyOrders` 等直接用客户端 `pageSize`，CLAUDE.md「最大 200」约定未生效，可传 `pageSize=100000` 触发大查询 | service 层抽公共 `clampPageSize(int)` 统一收口 |
+| ~~分页 `pageSize` 无上限~~ ✅ 已完成（2026-06-07） | 原可传 `pageSize=100000` 触发大查询 | `PaginationInnerInterceptor.setMaxLimit(200)` 全局兜底所有走 IPage 的分页端点；裸 SQL 的 `StatisticsServiceImpl.deviceRanking` 服务层另行 clamp 至 200 |
 | `AesCryptoUtil` 加密强度 | `AES/ECB/PKCS5Padding`，无 IV、相同明文同密文；默认密钥硬编码 | 升 `AES/GCM/NoPadding`（随机 IV + 认证标签）；生产用 `app.crypto.aes-key` 覆盖 |
 | `updateById` 置 null 依赖默认策略 | `TenantServiceImpl`/`AdminServiceImpl` 在密码/secret 为空时 `setPassword(null)`，依赖 MyBatis-Plus `FieldStrategy=NOT_NULL` 保持原值；全局策略一改即清空密码（高危） | 核对/显式注释锁定该假设 |
 
