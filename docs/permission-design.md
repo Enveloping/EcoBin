@@ -1,8 +1,8 @@
 # EcoBin 权限与角色设计文档
 
-> 状态：讨论完成，待实现  
-> 日期：2026-06-04  
-> 关联文档：[[database-design.md](database-design.md)]
+> 状态：**已实现**（§10 实现状态表已全部落地）  
+> 日期：2026-06-04（设计） / 2026-06-07（末次同步）  
+> 关联文档：[[database-design.md](database-design.md)]、未解决项见 [[open-items.md](open-items.md)]
 
 ---
 
@@ -386,14 +386,15 @@ POST /api/system/tenant
 // 投递订单：超管 + 租户
 .requestMatchers("/api/business/delivery/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
-// 清运订单——读（超管 + 租户）；清运员/设备管理员只写不读
-.requestMatchers(HttpMethod.GET, "/api/business/clean/**").hasAnyRole("SUPER_ADMIN", "TENANT")
-// 清运订单——写（创建清运单）：租户 + 设备管理员 + 清运员
-.requestMatchers("/api/business/clean/**").hasAnyRole("TENANT", "CLEANER", "DEVICE_ADMIN")
+// 清运订单后台（查看 / 审核 / 增改删）：仅超管 + 租户
+// 清运员/设备管理员的清运提交走 C 端 /api/app/clean，不经此路径（防越权审核自己的单）
+.requestMatchers("/api/business/clean/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
 // 统计：业务数据视图，超管 + 租户
 .requestMatchers("/api/statistics/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
+// C 端清运作业：仅清运员 + 设备管理员（普通用户 USER 不可清运）；须先于下方通配规则声明
+.requestMatchers("/api/app/clean/**").hasAnyRole("CLEANER", "DEVICE_ADMIN")
 // 小程序终端用户 C 端接口：仅访问属于自己的数据（投递记录 / 个人信息）
 .requestMatchers("/api/app/**").hasAnyRole("USER", "CLEANER", "DEVICE_ADMIN")
 
@@ -437,17 +438,19 @@ case 1 -> "ROLE_USER"
   /api/system/user/**                 → 用户角色管理（租户管自己；超管全量查看）
   /api/system/withdraw/**             → 提现单列表 + 审核
   /api/business/delivery/**           → 投递订单数据（管理端全租户视图）
-  GET /api/business/clean/**          → 清运订单查看
+  /api/business/clean/**              → 清运订单后台（查看 / 审核 / 增改删，仅超管+租户）
   /api/statistics/**                  → 业务统计
 
 超管+管理员+租户:
   /api/device/**                      → 设备 CRUD（含 /api/device/door 投口；租户仅限自己设备）
 
-写操作（创建清运单）:
-  /api/business/clean/**（POST/PUT/DELETE）→ 租户/设备管理员/清运员
-
 IoT 设备上报（放行，无用户登录态）:
   POST /api/iot/delivery/complete     → 设备 IoT 投递完成上报（SN 反查鉴权）
+
+终端域·清运作业（小程序，仅 CLEANER/DEVICE_ADMIN，先于下方通配匹配）:
+  POST /api/app/clean                 → 提交清运（userId 锁定登录态，建待审核单）
+  GET  /api/app/clean/my              → 我的清运记录分页（按 user_id 过滤）
+  GET  /api/app/clean/my/{id}         → 我的单条清运详情（归属校验）
 
 终端域（小程序用户，USER/CLEANER/DEVICE_ADMIN）:
   GET  /api/app/profile               → 我的个人信息（脱敏 VO）
@@ -492,6 +495,7 @@ IoT 设备上报（放行，无用户登录态）:
 | 投口单价 | 无 | `biz_door.price`（元/kg），投递完成时 `price × weight` 入账 |
 | 提现流程 | 无 | `biz_withdraw_order` + 申请/租户审核/记录查询（V8） |
 | C 端钱包 | 无 | `GET/POST /api/app/wallet` + `/api/app/wallet/withdraw` |
+| C 端清运作业 | 无（仅后台 `/api/business/clean`，且清运员可越权审核自己单） | `/api/app/clean`（提交+我的记录，CLEANER/DEVICE_ADMIN，userId 锁登录态）；后台清运写权限收紧至超管+租户 |
 
 ### 新增关键组件
 - `common/base/PlatformBaseEntity`：无 `tenant_id` 的平台级实体基类（Admin/Tenant 继承）。

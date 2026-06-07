@@ -1,9 +1,10 @@
 # EcoBin 数据库设计文档
 
-> 版本：V2（含微信登录扩展）  
+> 版本：V8（钱包+提现）  
 > 数据库：MySQL 8.0+  
 > 字符集：utf8mb4  
-> 迁移工具：Flyway（脚本位于 `ecobin-bootstrap/src/main/resources/db/migration/`）
+> 迁移工具：Flyway（脚本位于 `ecobin-bootstrap/src/main/resources/db/migration/`）  
+> 末次同步：2026-06-07（已对齐 V1–V8 全部迁移）；关联 [[permission-design.md](permission-design.md)]
 
 ---
 
@@ -25,13 +26,14 @@
 |------|------|------|----------|
 | `sys_admin` | sys | 平台管理员（超管/管理员，网页登录，无 tenant_id） | V3 |
 | `sys_tenant` | sys | 系统租户/机构（含租户登录 + 小程序配置） | V1, V3 |
-| `sys_user` | sys | 终端用户（小程序微信登录，role=1/2/3） | V1, V2, V3 |
+| `sys_user` | sys | 终端用户（小程序微信登录，role=1/2/3；V8 加钱包余额） | V1, V2, V3, V6, V8 |
 | `biz_device` | biz | 回收设备 | V1 |
-| `biz_door` | biz | 设备投口 | V1 |
-| `biz_delivery_order` | biz | 投递订单 | V1 |
+| `biz_door` | biz | 设备投口（V8 加单价 price） | V1, V4, V5, V8 |
+| `biz_delivery_order` | biz | 投递订单（V7 加投递两阶段字段） | V1, V7 |
 | `biz_clean_order` | biz | 清运订单 | V1 |
 | `biz_device_status` | biz | 设备实时状态 | V1 |
 | `biz_weight_record` | biz | 重量变更记录 | V1 |
+| `biz_withdraw_order` | biz | 提现申请单 | V8 |
 
 ---
 
@@ -106,13 +108,18 @@
 | `avatar` | VARCHAR(500) | ✓ | NULL | 微信头像 URL |
 | `role` | TINYINT | | 1 | 3-设备管理员 2-清运员 1-普通用户（默认） |
 | `status` | TINYINT | | 1 | 0-禁用 1-启用 |
+| `balance` | DECIMAL(12,2) | | 0.00 | 可用余额（V8，投递返现入账） |
+| `pending_balance` | DECIMAL(12,2) | | 0.00 | 待审核余额（V8，提现申请中冻结） |
 | `create_time` | DATETIME | | NOW() | 创建时间 |
 | `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
 
-索引：`uk_username`（UNIQUE）、`uk_openid`（UNIQUE）、`idx_sys_user_tenant_id`
+索引：`uk_username`（UNIQUE）、`uk_tenant_openid (tenant_id, openid)`（UNIQUE，V6）、`idx_sys_user_tenant_id`
 
-> 同一微信 openid 在不同租户下为独立记录，故业务上唯一性应为 `(tenant_id, openid)`；若沿用全局 `uk_openid`
-> 则同一 openid 无法跨租户注册——实现时需按多租户需求确认（见 [[permission-design.md](permission-design.md)] §6.4）。
+> 同一微信 openid 在不同租户下为独立记录，唯一性为复合 `(tenant_id, openid)`（V6 由全局 `uk_openid` 改建为
+> `uk_tenant_openid`）。openid 可空（非微信用户为 NULL），NULL 不参与唯一性判定。详见 [[permission-design.md](permission-design.md)] §6.4。
+>
+> **钱包余额（V8）**：`balance`（可用）+ `pending_balance`（待审核）直接挂在本表，未建独立钱包表。
+> 入账走 `UserMapper` 原子条件 SQL，资金链路见 `docs/archive/withdraw-design-notes.md`。
 
 **注册逻辑**：仅通过小程序微信 `code2session` 自动注册，**不允许手动创建**，默认 `role=1`。租户(7) 可在自己
 `tenant_id` 下提升/降低用户角色（1↔2↔3）。
@@ -148,12 +155,14 @@
 | `name` | VARCHAR(50) | ✓ | NULL | 投口名称（如"纸类回收"） |
 | `waste_type1` | TINYINT | | | 一级分类：1-厨余 2-可回收 3-有害 4-其他 |
 | `waste_type2` | TINYINT | | 0 | 二级分类：0-不区分 1-纸类 2-塑料 3-织物 4-金属 5-其他 |
+| `price` | DECIMAL(10,2) | ✓ | NULL | 单价（元/kg，V8），投递完成按 `单价 × 重量` 返现 |
 | `enabled` | TINYINT | | 1 | 0-禁用 1-启用 |
 | `sort_order` | INT | | 0 | 排序 |
 | `create_time` | DATETIME | | NOW() | 创建时间 |
 | `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
 
-索引：`idx_door_device_id`、`idx_door_tenant_id`
+索引：`idx_door_device_id`、`idx_door_tenant_id`、`uk_door_device_index (device_id, door_index)`（UNIQUE，V4）
+外键：`fk_door_device`（`device_id` → `biz_device.id` ON DELETE CASCADE，V5）
 
 ### 6. biz_delivery_order — 投递订单
 
@@ -164,21 +173,24 @@
 | `id` | BIGINT | | AUTO | 主键 |
 | `tenant_id` | BIGINT | | 1 | 租户ID |
 | `order_sn` | VARCHAR(50) | | | 订单编号（UNIQUE） |
+| `delivery_token` | VARCHAR(64) | ✓ | NULL | 投递标识符（V7，开投口生成下发，关投口上报回填关联同一记录） |
 | `device_id` | BIGINT | ✓ | NULL | 设备ID（FK → biz_device） |
 | `door_id` | BIGINT | ✓ | NULL | 投口ID（FK → biz_door） |
 | `user_id` | BIGINT | ✓ | NULL | 投递用户ID（FK → sys_user） |
 | `waste_type1` | TINYINT | | | 一级分类 |
 | `waste_type2` | TINYINT | | 0 | 二级分类 |
 | `weight` | DECIMAL(10,3) | ✓ | NULL | 重量（kg） |
-| `price` | DECIMAL(10,2) | ✓ | NULL | 单价 |
+| `price` | DECIMAL(10,2) | ✓ | NULL | 单价（投递完成时由投口 `biz_door.price` 回填） |
 | `score` | INT | | 0 | 获得积分 |
 | `login_type` | TINYINT | ✓ | NULL | 登录方式：1-手机 2-IC卡 3-人脸 4-二维码 5-微信小程序 |
 | `status` | TINYINT | | 0 | 0-正常 -1-异常 |
+| `delivery_status` | TINYINT | | 1 | 投递阶段（V7）：0-进行中（已开投口待回填） 1-已完成 |
 | `create_time` | DATETIME | | NOW() | 投递时间 |
 
-索引：`uk_delivery_order_sn`（UNIQUE）、`idx_delivery_device_id`、`idx_delivery_user_id`、`idx_delivery_tenant_id`、`idx_delivery_create_time`
+索引：`uk_delivery_order_sn`（UNIQUE）、`uk_delivery_token`（UNIQUE，V7）、`idx_delivery_device_id`、`idx_delivery_user_id`、`idx_delivery_tenant_id`、`idx_delivery_create_time`
 
 > **注意**：此表无 `update_time`，投递订单一旦创建不修改，异常仅标记。
+> **两阶段流程（V7）**：①C 端开投口建「进行中」记录（生成 `delivery_token`）；②设备 IoT 按 SN + token 上报回填重量并置「已完成」。后台/历史直接创建的订单 `delivery_status` 默认 1（已完成）。
 
 ### 7. biz_clean_order — 清运订单
 
@@ -240,6 +252,29 @@
 | `record_time` | DATETIME | | NOW() | 记录时间 |
 
 索引：`idx_weight_device_id`、`idx_weight_tenant_id`、`idx_weight_record_time`
+
+### 10. biz_withdraw_order — 提现申请单（V8 新增）
+
+用户发起的现金返现提现申请，由租户人工审核。出账明细即本表（不另建余额流水表）。
+
+| 字段 | 类型 | 可空 | 默认值 | 说明 |
+|------|------|:---:|--------|------|
+| `id` | BIGINT | | AUTO | 主键 |
+| `tenant_id` | BIGINT | | 1 | 租户ID |
+| `user_id` | BIGINT | | | 申请用户ID（FK → sys_user） |
+| `amount` | DECIMAL(12,2) | | | 提现金额 |
+| `status` | TINYINT | | 0 | 0-待审核 1-已通过 2-已驳回 |
+| `audit_by` | BIGINT | ✓ | NULL | 审核租户主体ID |
+| `audit_time` | DATETIME | ✓ | NULL | 审核时间 |
+| `audit_remark` | VARCHAR(255) | ✓ | NULL | 审核备注 |
+| `transfer_no` | VARCHAR(64) | ✓ | NULL | 微信转账单号（真实转账接入后回填，见 `docs/open-items.md` §3） |
+| `create_time` | DATETIME | | NOW() | 申请时间 |
+| `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
+
+索引：`idx_withdraw_user_id`、`idx_withdraw_tenant_id`、`idx_withdraw_status`
+
+**资金流**：投递完成按 `biz_door.price × weight` 入账 `sys_user.balance`；申请提现时可用→待审核（条件 SQL 防透支）；
+审核通过扣减待审核（资金转出），驳回则退回可用。设计差异记录见 `docs/archive/withdraw-design-notes.md`。
 
 ---
 
@@ -323,6 +358,21 @@
 | `biz_delivery_order` | 正常 | — | — | 异常 |
 | `biz_clean_order` | 创建 | 完成 | 取消 | — |
 
+### 投递阶段 (biz_delivery_order.delivery_status，V7)
+
+| 值 | 说明 |
+|----|------|
+| 0 | 进行中（已开投口，待设备上报回填） |
+| 1 | 已完成（后台/历史直接创建默认此值） |
+
+### 提现状态 (biz_withdraw_order.status，V8)
+
+| 值 | 说明 |
+|----|------|
+| 0 | 待审核 |
+| 1 | 已通过 |
+| 2 | 已驳回 |
+
 ---
 
 ## 实体关系图
@@ -354,3 +404,8 @@ sys_tenant ──< sys_user
 | V1 | `V1__init_schema.sql` | 初始建表：8 张基础表 + 默认数据 |
 | V2 | `V2__add_wechat_login.sql` | sys_user 新增微信登录字段（openid/unionid/nickname/avatar），username/password 改为可空 |
 | V3 | `V3__add_role_tables.sql` | 新增 sys_admin；sys_tenant 增加登录/小程序字段（含 uk_tenant_miniapp_appid、AUTO_INCREMENT=2）；sys_user.role 迁移为 1/2/3；admin 默认数据迁至 sys_admin(role=9) |
+| V4 | `V4__add_door_unique.sql` | biz_door 加复合唯一 `uk_door_device_index (device_id, door_index)` |
+| V5 | `V5__add_door_fk.sql` | biz_door 加外键 `fk_door_device`（→ biz_device，ON DELETE CASCADE） |
+| V6 | `V6__fix_openid_tenant_unique.sql` | sys_user 唯一约束 `uk_openid` → 复合 `uk_tenant_openid (tenant_id, openid)`，支持同 openid 跨租户独立注册 |
+| V7 | `V7__add_delivery_two_phase.sql` | biz_delivery_order 加 `delivery_token`（uk_delivery_token）+ `delivery_status`，支撑投递两阶段闭环 |
+| V8 | `V8__add_wallet_withdraw.sql` | sys_user 加 balance/pending_balance；biz_door 加 price；新建 biz_withdraw_order |
