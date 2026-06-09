@@ -2,7 +2,7 @@
 
 > 本文是项目所有**未解决 / 待办**事项的单一汇总，取代原先散落在多份审查/笔记中的待办条目。
 > 已解决的历史审查与逐次 review 见 `docs/archive/`。
-> 末次同步：2026-06-07。
+> 末次同步：2026-06-09。
 
 分三类：**技术债**（生产前需处理）、**功能缺口**（设计在册未实现）、**提现收尾**（依赖真实商户号）。
 
@@ -38,7 +38,10 @@
 | 项 | 现状 | 依赖 / 备注 |
 |----|------|------------|
 | 设备状态 / 重量上报入口 | `biz_device_status` 有实体（`device/entity/DeviceStatus.java`）但**无 Service/Controller**；`biz_weight_record` **连实体都没有**（V1 建表后无业务代码） | 与投递两阶段同源（缺设备侧上报）。补齐后，统计接口当前返回 0 的预留字段（online/spill/smoke、`storageWeights` 等）方可接入真实数据 |
-| ~~C 端清运员作业接口~~ ✅ 已完成（2026-06-07） | `/api/app/clean`：提交清运 + 我的清运记录/详情（CLEANER/DEVICE_ADMIN，userId 锁登录态，单据待租户审核）；顺带收紧后台清运写权限至超管+租户（堵清运员越权审核自己单的漏洞） | 「看待清运」复用 `GET /api/app/device`（满溢信号依赖设备状态上报，见上一行） |
+| ~~C 端清运员作业接口~~ ✅ 已完成（2026-06-07，V9 重做 2026-06-09） | 原「手填重量 + 后台审核」已**替换**为设备自动称重 + 垃圾袋去皮链：App `POST /api/app/clean/open`（扫新空袋→下发开清运门），设备经 `/api/iot/clean/gross`（毛重建单，net=毛重−去皮）与 `/tare`（换袋去皮 upsert `biz_clean_bag`）上报；审核流程取消 | 见 `database-design.md` §7/§7b、`api-frontend.md` §4.4 |
+| OneNet 设备下行真实接入 | 清运开门 `sendOpenCleanDoor` 经 `framework/onenet/OneNetClient`，但**凭证未到位**→ `onenet.*` 配置空时仅记占位日志、不真发；投递 `sendOpenDoor` 也仍为占位 | 拿到 OneNet product_id/access_key/API 规格后填 `application.yml` 的 `onenet` 段并补 `OneNetClient.openCleanDoor` 的 TODO（投递可一并接） |
+| 设备清运上报联调 | `gross`/`tare` 端点按 references `clean_data` 模型设计完毕（含 reportSn 幂等），但设备固件实际上报字段/触发时机未与硬件方对齐 | 依赖设备固件；与「设备状态/重量上报入口」同源 |
+| 小程序清运页 ✅ 已完成（2026-06-09） | `pages/clean` 改为扫袋开门 + 净重展示（`frontend/miniprogram` 不纳入 git） | — |
 | 设备管理员专属作业接口 | 设备管理员可清运（已随上一行放行），但无「设备维护」等专属端点 | 待设备状态上报落地后一并补维护/告警处理端点 |
 | HTTP 层越权读测试 | `AppDeliveryQueryTest` 在 service 层覆盖了「读他人订单抛异常」，但 `AppApiSecurityTest` 无「持 token 读他人 id → body code=404」端到端断言 | 归属过滤是核心安全边界，建议补一条 HTTP 用例 |
 

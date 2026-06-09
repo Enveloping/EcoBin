@@ -203,18 +203,20 @@ Authorization: Bearer <token>
 
 > `deliveryToken` 由后端在开投口时生成下发，设备上报时必须**原样带回**用于关联同一条记录。投递流水**不可变、不可删除**。
 
-### 4.4 清运流程（小程序提交 + 租户后台审核）
+### 4.4 清运流程（设备自动称重 + 去皮链式追踪，V9 重做）
 
 ```
-① 清运员/设备管理员 小程序选取设备/投口
-② 小程序  POST /api/app/clean { deviceId, doorId?, wasteType1, wasteType2?, weight }
-          → 建"待审核"清运单 (auditStatus=0)
-③ 租户后台 GET /api/business/clean            → 查看清运单列表
-④ 租户后台 PUT /api/business/clean/{id}/audit?auditStatus=1  → 审核通过(1)/拒绝(2)
-⑤ 清运员   GET /api/app/clean/my             → 查看自己的清运记录与审核状态
+① 清运员/设备管理员 小程序选取设备/投口，扫新空垃圾袋二维码得 bagNo
+② 小程序  POST /api/app/clean/open { doorId, bagNo }    → 下发开清运门指令（携带新袋号）
+③ 设备    POST /api/iot/clean/gross { sn, doorIndex, userId, weight, reportSn? }
+          → 建清运单：net = 毛重 − 该投口当前去皮（首次去皮按 0）
+④ 清运员换上新空袋，设备称去皮
+   设备    POST /api/iot/clean/tare  { sn, doorIndex, userId, bagNo, weight }
+          → upsert 该投口当前垃圾袋编号与去皮重量
+⑤ 清运员  GET /api/app/clean/my     → 查看自己的清运记录（含毛重/去皮/净重）
 ```
 
-> 普通用户(1) **不能清运**。清运提交走 C 端 `/api/app/clean`（userId 锁定登录态），不经后台路径，防止清运员越权审核自己的单。
+> 普通用户(1) **不能清运**。开清运门走 C 端 `/api/app/clean/open`（userId 锁定登录态）；毛重与去皮由设备经 `/api/iot/clean/**`（明文 SN 信任）上报，前端不再手填重量，**审核流程已取消**。
 
 ### 4.5 钱包与提现流程（小程序申请 + 租户审核）
 
@@ -523,7 +525,8 @@ Authorization: Bearer <token>
 | POST | `/api/business/clean` | 手工建单 |
 | PUT | `/api/business/clean/{id}` | 修改清运单 |
 | DELETE | `/api/business/clean/{id}` | 删除清运单 |
-| PUT | `/api/business/clean/{id}/audit?auditStatus=1` | **审核**（1-通过 / 2-拒绝） |
+
+> 审核端点 `PUT /api/business/clean/{id}/audit` 已随清运改造（V9）移除。
 
 **`CleanOrder` 对象字段**
 
@@ -532,9 +535,13 @@ Authorization: Bearer <token>
 | `id` | long | 主键 |
 | `orderSn` | string | 订单编号 |
 | `deviceId` / `doorId` / `userId` | long | 设备/投口/清运员 |
+| `bagQr` | string | 本次清走的垃圾袋编号 |
 | `wasteType1` / `wasteType2` | int | 分类 |
-| `weight` | decimal | 清理重量（kg） |
-| `auditStatus` | int | 0-待审核 / 1-通过 / 2-拒绝 |
+| `grossWeight` | decimal | 清运毛重（kg，设备上报满袋重量） |
+| `tareWeight` | decimal | 去皮重量（kg） |
+| `netWeight` | decimal | 实际清运量（kg）= 毛重 − 去皮 |
+| `weight` | decimal | =netWeight（兼容旧字段） |
+| `auditStatus` | int | **已废弃**（审核取消，默认 1） |
 | `status` | int | 0-创建 / 1-完成 / 2-取消 |
 | `createTime` / `updateTime` | datetime | 时间 |
 
@@ -651,27 +658,24 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/app/clean` | 提交清运（建待审核单） |
+| POST | `/api/app/clean/open` | 开清运门（扫新空袋后下发开门指令） |
 | GET | `/api/app/clean/my?page=1&pageSize=20` | 我的清运记录分页 |
 | GET | `/api/app/clean/my/{id}` | 我的单条清运详情 |
 
-**提交清运请求体**
+**开清运门请求体**
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
-| `deviceId` | long | 是 | 设备 ID（从 §8.2 选取） |
-| `doorId` | long | 否 | 投口 ID（按投口清运时指定） |
-| `wasteType1` | int | 是 | 一级分类（见 §10） |
-| `wasteType2` | int | 否 | 二级分类（缺省 0-不区分） |
-| `weight` | decimal | 是 | 清理重量（kg） |
+| `doorId` | long | 是 | 投口 ID（从 §8.2 选取） |
+| `bagNo` | string | 是 | 新空垃圾袋编号（扫码获取） |
 
 ```json
-{ "deviceId": 5, "doorId": 12, "wasteType1": 2, "wasteType2": 1, "weight": 3.5 }
+{ "doorId": 12, "bagNo": "00001" }
 ```
 
-返回 `CleanOrder`（见 §7.6），新单 `auditStatus=0` 待租户审核。
+返回 `Result<void>`（开门指令已下发，毛重/去皮由设备经 §9 上报）。`my` 列表返回 `CleanOrder`（见 §7.6，含 `grossWeight/tareWeight/netWeight`）。
 
-> 普通用户(1) 调用 `/api/app/clean/**` 会返回 403。
+> 普通用户(1) 调用 `/api/app/clean/**` 会返回 403。前端不再手填重量；下发走 OneNet，凭证未到位前为占位（见 `docs/open-items.md`）。
 
 ### 8.5 钱包与提现（USER / CLEANER / DEVICE_ADMIN）
 
@@ -719,6 +723,36 @@ Authorization: Bearer <token>
 | `wasteType2` | int | 否 | 二级分类 |
 
 成功后回填重量、置完成、按 `投口单价 × 重量` 返现入用户余额。
+
+### 9.2 清运毛重上报（V9）
+
+`POST /api/iot/clean/gross`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:---:|------|
+| `sn` | string | 是 | 设备序列号 |
+| `doorIndex` | int | 是 | 投口号（物理编号） |
+| `userId` | long | 是 | 当前登录清运人 ID |
+| `weight` | decimal | 是 | 本次清运毛重（kg，满袋重量） |
+| `reportSn` | string | 否 | 上报订单号（幂等键；设备会重复上报直到成功） |
+
+建清运单：`netWeight = 毛重 − 该投口当前去皮`（首次去皮按 0）。
+
+### 9.3 换袋去皮上报（V9）
+
+`POST /api/iot/clean/tare`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:---:|------|
+| `sn` | string | 是 | 设备序列号 |
+| `doorIndex` | int | 是 | 投口号（物理编号） |
+| `userId` | long | 是 | 当前登录清运人 ID |
+| `bagNo` | string | 是 | 新垃圾袋编号 |
+| `weight` | decimal | 是 | 新空袋去皮重量（kg） |
+
+按 `(device, doorIndex)` upsert `biz_clean_bag`，更新当前袋编号与去皮（换袋天然幂等）。
+
+> 下发「开清运门」走 OneNet（`OneNetClient`），凭证未到位前为占位日志，不阻塞主流程。
 
 ---
 
@@ -783,12 +817,14 @@ Authorization: Bearer <token>
 | 0 | 进行中（已开投口，待设备回填） |
 | 1 | 已完成 |
 
-### 清运审核状态 `auditStatus`（`AuditStatus`）
+### 清运审核状态 `auditStatus`（已废弃，V9）
+> 清运改为设备自动称重上报后审核流程取消，字段保留仅兼容历史，新记录默认 1。
+
 | 值 | 含义 |
 |---|------|
-| 0 | 待审核 |
-| 1 | 审核通过 |
-| 2 | 审核拒绝 |
+| 0 | 待审核（历史） |
+| 1 | 审核通过（新记录默认） |
+| 2 | 审核拒绝（历史） |
 
 ### 提现单状态 `status`
 | 值 | 含义 |

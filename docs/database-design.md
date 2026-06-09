@@ -30,7 +30,8 @@
 | `biz_device` | biz | 回收设备 | V1 |
 | `biz_door` | biz | 设备投口（V8 加单价 price） | V1, V4, V5, V8 |
 | `biz_delivery_order` | biz | 投递订单（V7 加投递两阶段字段） | V1, V7 |
-| `biz_clean_order` | biz | 清运订单 | V1 |
+| `biz_clean_order` | biz | 清运订单（V9 加去皮链式重量字段） | V1, V9 |
+| `biz_clean_bag` | biz | 垃圾袋追踪（每投口当前袋去皮，V9） | V9 |
 | `biz_device_status` | biz | 设备实时状态 | V1 |
 | `biz_weight_record` | biz | 重量变更记录 | V1 |
 | `biz_withdraw_order` | biz | 提现申请单 | V8 |
@@ -194,30 +195,52 @@
 
 ### 7. biz_clean_order — 清运订单
 
-清运员清理回收箱内垃圾的订单，含审核流程。
+设备自动称重驱动的清运记录（V9 重做）。每次清运设备上报**毛重**，后端按「毛重 − 该投口当前去皮」得到实际清运量；原「清运员手填 + 后台审核」流程已废弃。
 
 | 字段 | 类型 | 可空 | 默认值 | 说明 |
 |------|------|:---:|--------|------|
 | `id` | BIGINT | | AUTO | 主键 |
 | `tenant_id` | BIGINT | | 1 | 租户ID |
-| `order_sn` | VARCHAR(50) | | | 订单编号（UNIQUE） |
+| `order_sn` | VARCHAR(50) | | | 订单编号（UNIQUE；设备上报 reportSn 作幂等键） |
 | `device_id` | BIGINT | ✓ | NULL | 设备ID（FK → biz_device） |
 | `door_id` | BIGINT | ✓ | NULL | 投口ID（FK → biz_door） |
+| `bag_qr` | VARCHAR(64) | ✓ | NULL | 本次清走的垃圾袋编号（V9） |
 | `user_id` | BIGINT | ✓ | NULL | 清运员ID（FK → sys_user, role=2） |
 | `waste_type1` | TINYINT | | | 一级分类 |
 | `waste_type2` | TINYINT | | 0 | 二级分类 |
-| `weight` | DECIMAL(10,3) | ✓ | NULL | 清理重量（kg） |
-| `audit_status` | TINYINT | | 0 | 0-待审核 1-审核通过 2-审核拒绝 |
+| `weight` | DECIMAL(10,3) | ✓ | NULL | 实际清运量（=net_weight，兼容旧字段） |
+| `gross_weight` | DECIMAL(10,3) | ✓ | NULL | 清运毛重（设备上报满袋重量，V9） |
+| `tare_weight` | DECIMAL(10,3) | ✓ | NULL | 去皮重量（清运时该投口当前去皮，V9） |
+| `net_weight` | DECIMAL(10,3) | ✓ | NULL | 实际清运量 = 毛重 − 去皮（V9） |
+| `audit_status` | TINYINT | | 1 | **已废弃**（审核流程取消，新记录默认 1） |
 | `status` | TINYINT | | 0 | 0-创建 1-完成 2-取消 |
 | `create_time` | DATETIME | | NOW() | 创建时间 |
 | `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
 
 索引：`uk_clean_order_sn`（UNIQUE）、`idx_clean_device_id`、`idx_clean_user_id`、`idx_clean_tenant_id`、`idx_clean_create_time`
 
-**审核状态机**：
+### 7b. biz_clean_bag — 垃圾袋追踪（V9）
+
+维护**每个设备投口当前那只垃圾袋**的去皮重量与编号。清运员换上新空袋后设备上报去皮，按 `(device_id, door_index)` upsert；下一次清运的毛重减去此去皮即为实际清运量（首次清运无记录，去皮按 0）。
+
+| 字段 | 类型 | 可空 | 默认值 | 说明 |
+|------|------|:---:|--------|------|
+| `id` | BIGINT | | AUTO | 主键 |
+| `tenant_id` | BIGINT | | 1 | 租户ID |
+| `device_id` | BIGINT | | | 设备ID |
+| `door_index` | INT | | | 投口号（物理编号，第几个投口） |
+| `bag_qr` | VARCHAR(64) | ✓ | NULL | 当前垃圾袋编号 |
+| `tare_weight` | DECIMAL(10,3) | ✓ | NULL | 当前垃圾袋去皮重量（kg） |
+| `user_id` | BIGINT | ✓ | NULL | 最近换袋清运人ID |
+| `create_time` | DATETIME | | NOW() | 创建时间 |
+| `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
+
+索引：`uk_clean_bag_device_door`（UNIQUE：device_id + door_index）、`idx_clean_bag_tenant_id`
+
+**去皮链式追踪**（图④⑤）：
 ```
-0(待审核) ──→ 1(审核通过) ──→ 订单 status 流转
-          └─→ 2(审核拒绝)
+开清运门(扫新空袋) → 设备报毛重 → 建清运单 net = 毛重 − 该投口当前去皮
+                  → 清运员换新空袋 → 设备报去皮 → upsert biz_clean_bag(该投口)
 ```
 
 ### 8. biz_device_status — 设备实时状态
@@ -343,13 +366,15 @@
 | 4 | 二维码 |
 | 5 | 微信小程序 |
 
-### 审核状态 (biz_clean_order.audit_status)
+### 审核状态 (biz_clean_order.audit_status) — 已废弃（V9）
+
+清运改为设备自动称重上报后，人工审核流程取消，该字段保留仅为兼容历史数据，新记录默认 `1`。
 
 | 值 | 说明 |
 |----|------|
-| 0 | 待审核 |
-| 1 | 审核通过 |
-| 2 | 审核拒绝 |
+| 0 | 待审核（历史） |
+| 1 | 审核通过（新记录默认） |
+| 2 | 审核拒绝（历史） |
 
 ### 订单状态 (biz_clean_order.status / biz_delivery_order.status)
 
@@ -385,6 +410,7 @@ sys_tenant ──< sys_user
                   ├──< biz_clean_order >───────────────┤
                   │                                    │
                   │                          biz_device_status (1:1)
+                  │                          biz_clean_bag (device+door 唯一)
                   │
                   └──< biz_weight_record >────────────┘
 ```
@@ -393,6 +419,7 @@ sys_tenant ──< sys_user
 - 一台设备有 1-6 个投口，一个实时状态
 - 一个用户可产生多条投递订单和多条清运订单
 - 投递订单和清运订单关联设备和投口
+- 每个设备投口维护一条 `biz_clean_bag` 当前袋去皮记录
 - 重量变更记录关联设备和投口
 
 ---
