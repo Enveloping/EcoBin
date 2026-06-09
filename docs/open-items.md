@@ -42,6 +42,8 @@
 | OneNet 设备下行真实接入 | 清运开门 `sendOpenCleanDoor` 经 `framework/onenet/OneNetClient`，但**凭证未到位**→ `onenet.*` 配置空时仅记占位日志、不真发；投递 `sendOpenDoor` 也仍为占位 | 拿到 OneNet product_id/access_key/API 规格后填 `application.yml` 的 `onenet` 段并补 `OneNetClient.openCleanDoor` 的 TODO（投递可一并接） |
 | 设备清运上报联调 | `gross`/`tare` 端点按 references `clean_data` 模型设计完毕（含 reportSn 幂等），但设备固件实际上报字段/触发时机未与硬件方对齐 | 依赖设备固件；与「设备状态/重量上报入口」同源 |
 | 小程序清运页 ✅ 已完成（2026-06-09） | `pages/clean` 改为扫袋开门 + 净重展示（`frontend/miniprogram` 不纳入 git） | — |
+| COS STS 真实临时凭证接入 | `POST /api/iot/photo/sts` 通过 `CosTokenClient` 下发 STS 临时凭证，`photo/notify` 回填订单照片 URL；迁移 V11 已加 4 个 photo 列。但 `cos.*` 凭证未到位 → STS 返回占位凭证、`photo/notify` 正常落库 | 拿到腾讯云 COS `secretId/secretKey/region/bucketName` 后填 `application.yml` 的 `cos` 段，占位自动切换真实 STS |
+| 设备拍照联调 | 投递/清运开门前 + 关门后各拍箱内/箱外 4 张，设备经 STS 直传 COS 后调 `photo/notify` 回填 URL。设备固件抓拍时机、上传策略未与硬件方对齐 | 待 COS STS 凭证到位后联调 |
 | 设备管理员专属作业接口 | 设备管理员可清运（已随上一行放行），但无「设备维护」等专属端点 | 待设备状态上报落地后一并补维护/告警处理端点 |
 | HTTP 层越权读测试 | `AppDeliveryQueryTest` 在 service 层覆盖了「读他人订单抛异常」，但 `AppApiSecurityTest` 无「持 token 读他人 id → body code=404」端到端断言 | 归属过滤是核心安全边界，建议补一条 HTTP 用例 |
 

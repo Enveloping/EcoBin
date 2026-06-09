@@ -512,6 +512,10 @@ Authorization: Bearer <token>
 | `loginType` | int | 登录方式（见 §10） |
 | `status` | int | 0-正常 / -1-异常 |
 | `deliveryStatus` | int | 0-进行中（已开投口待回填）/ 1-已完成 |
+| `photoOpenOutside` | string | 开门前箱外照片 URL（V11） |
+| `photoOpenInside` | string | 开门前箱内照片 URL（V11） |
+| `photoCloseOutside` | string | 关门后箱外照片 URL（V11） |
+| `photoCloseInside` | string | 关门后箱内照片 URL（V11） |
 | `createTime` | datetime | 投递时间（投递流水无 updateTime） |
 
 ### 7.6 清运订单后台（超管 9 + 租户 7）
@@ -543,6 +547,10 @@ Authorization: Bearer <token>
 | `weight` | decimal | =netWeight（兼容旧字段） |
 | `auditStatus` | int | **已废弃**（审核取消，默认 1） |
 | `status` | int | 0-创建 / 1-完成 / 2-取消 |
+| `photoOpenOutside` | string | 开门前箱外照片 URL（V11） |
+| `photoOpenInside` | string | 开门前箱内照片 URL（V11） |
+| `photoCloseOutside` | string | 关门后箱外照片 URL（V11） |
+| `photoCloseInside` | string | 关门后箱内照片 URL（V11） |
 | `createTime` / `updateTime` | datetime | 时间 |
 
 ### 7.7 提现审核（超管 9 + 租户 7）
@@ -752,7 +760,48 @@ Authorization: Bearer <token>
 
 按 `(device, doorIndex)` upsert `biz_clean_bag`，更新当前袋编号与去皮（换袋天然幂等）。
 
+### 9.4 COS STS 临时凭证（V11）
+
+`POST /api/iot/photo/sts`
+
+设备请求腾讯云 COS 临时访问密钥用于直传抓拍照片。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:---:|------|
+| `sn` | string | 是 | 设备序列号 |
+| `doorIndex` | int | 是 | 投口号 |
+
+返回：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `tmpSecretId` | string | 临时 SecretId |
+| `tmpSecretKey` | string | 临时 SecretKey |
+| `sessionToken` | string | 会话令牌 |
+| `startTime` | long | 凭证开始时间（Unix 秒） |
+| `expiredTime` | long | 凭证过期时间（Unix 秒） |
+| `bucket` | string | 存储桶名称 |
+| `region` | string | 所属地域 |
+| `baseUrl` | string | COS 访问域名 |
+| `uploadPrefix` | string | 上传路径前缀（`{devSn}/{doorIndex}/`） |
+
+### 9.5 照片 URL 回报（V11）
+
+`POST /api/iot/photo/notify`
+
+设备直传 COS 完成后回报 4 张照片 URL，后端回填到对应订单。支持逐张异步上传（非空字段覆盖，不覆盖已有 URL）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:---:|------|
+| `orderSn` | string | 是 | 关联订单号 |
+| `orderType` | int | 是 | 1-投递 2-清运 |
+| `photoOpenOutside` | string | 否 | 开门前箱外照片 URL |
+| `photoOpenInside` | string | 否 | 开门前箱内照片 URL |
+| `photoCloseOutside` | string | 否 | 关门后箱外照片 URL |
+| `photoCloseInside` | string | 否 | 关门后箱内照片 URL |
+
 > 下发「开清运门」走 OneNet（`OneNetClient`），凭证未到位前为占位日志，不阻塞主流程。
+> COS STS 同模式：凭证未到位前 `photo/sts` 返回占位凭证。
 
 ---
 

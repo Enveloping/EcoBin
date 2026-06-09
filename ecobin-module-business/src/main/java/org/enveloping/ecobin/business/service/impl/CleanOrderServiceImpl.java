@@ -43,7 +43,7 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
             order.setOrderSn("C" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 4));
         }
         if (order.getAuditStatus() == null) {
-            order.setAuditStatus(1);   // 审核流程已废弃，默认通过
+            order.setAuditStatus(0);   // 默认待审核
         }
         if (order.getStatus() == null) {
             order.setStatus(0);
@@ -121,8 +121,8 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
         order.setTareWeight(tare);
         order.setNetWeight(net);
         order.setWeight(net);                        // 兼容旧字段
-        order.setAuditStatus(1);                     // 审核流程已废弃
-        order.setStatus(1);                          // 完成
+        order.setAuditStatus(0);                     // 待审核
+        order.setStatus(0);                          // 创建
         save(order);
         return order;
     }
@@ -143,6 +143,19 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
         // upsert 该投口当前垃圾袋编号与去皮重量（换袋天然幂等：重复上报覆盖为同值）
         cleanBagService.replaceBag(device.getTenantId(), device.getId(), request.getDoorIndex(),
                 request.getBagNo(), request.getWeight(), request.getUserId());
+    }
+
+    @Override
+    public void audit(Long id, Integer auditStatus) {
+        CleanOrder order = getById(id);
+        if (order == null) {
+            throw new BusinessException(404, "清运订单不存在");
+        }
+        if (auditStatus == null || auditStatus < 0 || auditStatus > 2) {
+            throw new BusinessException(400, "审核状态无效（0=待审核 1=通过 2=拒绝）");
+        }
+        order.setAuditStatus(auditStatus);
+        updateById(order);
     }
 
     @Override

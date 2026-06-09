@@ -46,6 +46,15 @@ onenet:
   product-id:
   access-key:
 
+# 腾讯云 COS 对象存储（STS 临时密钥，设备直传；凭证未到位时留空，STS 为占位日志）
+cos:
+  secret-id:
+  secret-key:
+  region:
+  bucket-name:
+  base-url:
+  duration-seconds: 1800
+
 # 服务器端口
 server:
   port: 8080

@@ -50,11 +50,22 @@ public class CleanOrder extends BaseEntity {
 
     /**
      * 审核状态：0-待审核 1-审核通过 2-审核拒绝。
-     * @deprecated 清运改为设备自动称重上报后，人工审核流程已废弃；新记录默认置 1。
+     * 设备称重上报后仍需人工审核确认，新记录默认 0（待审核）。
      */
-    @Deprecated
     private Integer auditStatus;
 
     /** 订单状态：0-创建 1-完成 2-取消 */
     private Integer status;
+
+    /** 开门前箱外照片 URL（V11） */
+    private String photoOpenOutside;
+
+    /** 开门前箱内照片 URL（V11） */
+    private String photoOpenInside;
+
+    /** 关门后箱外照片 URL（V11） */
+    private String photoCloseOutside;
+
+    /** 关门后箱内照片 URL（V11） */
+    private String photoCloseInside;
 }

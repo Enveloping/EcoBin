@@ -63,6 +63,18 @@ public class DeliveryOrder extends BaseEntity {
     @TableField(exist = false)
     private LocalDateTime updateTime;
 
+    /** 开门前箱外照片 URL（V11） */
+    private String photoOpenOutside;
+
+    /** 开门前箱内照片 URL（V11） */
+    private String photoOpenInside;
+
+    /** 关门后箱外照片 URL（V11） */
+    private String photoCloseOutside;
+
+    /** 关门后箱内照片 URL（V11） */
+    private String photoCloseInside;
+
     /** 投递时间（使用 createTime） */
     public LocalDateTime getDeliveryTime() {
         return getCreateTime();

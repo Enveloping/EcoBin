@@ -32,7 +32,8 @@
 | `biz_delivery_order` | biz | 投递订单（V7 加投递两阶段字段） | V1, V7 |
 | `biz_clean_order` | biz | 清运订单（V9 加去皮链式重量字段） | V1, V9 |
 | `biz_clean_bag` | biz | 垃圾袋追踪（每投口当前袋去皮，V9） | V9 |
-| `biz_device_status` | biz | 设备实时状态 | V1 |
+| `biz_device_status` | biz | 设备实时状态（V10 收敛为设备级：去 total_weight/spill/smoke，加 rssi/fw_version） | V1, V10 |
+| `biz_door_status` | biz | 投口实时状态（V10 新增：投口级重量/满溢/烟雾快照） | V10 |
 | `biz_weight_record` | biz | 重量变更记录 | V1 |
 | `biz_withdraw_order` | biz | 提现申请单 | V8 |
 
@@ -186,6 +187,10 @@
 | `login_type` | TINYINT | ✓ | NULL | 登录方式：1-手机 2-IC卡 3-人脸 4-二维码 5-微信小程序 |
 | `status` | TINYINT | | 0 | 0-正常 -1-异常 |
 | `delivery_status` | TINYINT | | 1 | 投递阶段（V7）：0-进行中（已开投口待回填） 1-已完成 |
+| `photo_open_outside` | VARCHAR(512) | ✓ | NULL | 开门前箱外照片 URL（V11） |
+| `photo_open_inside` | VARCHAR(512) | ✓ | NULL | 开门前箱内照片 URL（V11） |
+| `photo_close_outside` | VARCHAR(512) | ✓ | NULL | 关门后箱外照片 URL（V11） |
+| `photo_close_inside` | VARCHAR(512) | ✓ | NULL | 关门后箱内照片 URL（V11） |
 | `create_time` | DATETIME | | NOW() | 投递时间 |
 
 索引：`uk_delivery_order_sn`（UNIQUE）、`uk_delivery_token`（UNIQUE，V7）、`idx_delivery_device_id`、`idx_delivery_user_id`、`idx_delivery_tenant_id`、`idx_delivery_create_time`
@@ -214,6 +219,10 @@
 | `net_weight` | DECIMAL(10,3) | ✓ | NULL | 实际清运量 = 毛重 − 去皮（V9） |
 | `audit_status` | TINYINT | | 1 | **已废弃**（审核流程取消，新记录默认 1） |
 | `status` | TINYINT | | 0 | 0-创建 1-完成 2-取消 |
+| `photo_open_outside` | VARCHAR(512) | ✓ | NULL | 开门前箱外照片 URL（V11） |
+| `photo_open_inside` | VARCHAR(512) | ✓ | NULL | 开门前箱内照片 URL（V11） |
+| `photo_close_outside` | VARCHAR(512) | ✓ | NULL | 关门后箱外照片 URL（V11） |
+| `photo_close_inside` | VARCHAR(512) | ✓ | NULL | 关门后箱内照片 URL（V11） |
 | `create_time` | DATETIME | | NOW() | 创建时间 |
 | `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
 
@@ -243,9 +252,9 @@
                   → 清运员换新空袋 → 设备报去皮 → upsert biz_clean_bag(该投口)
 ```
 
-### 8. biz_device_status — 设备实时状态
+### 8. biz_device_status — 设备实时状态（设备级·V10 重整）
 
-与设备一对一的最新快照，由设备端定时上报更新。
+与设备一对一的最新快照，由设备端定时上报更新。**职责收敛为「设备级配置/物理/健康」**：重量/满溢/烟雾等投口级数据迁往 `biz_door_status`（§8b）。
 
 | 字段 | 类型 | 可空 | 默认值 | 说明 |
 |------|------|:---:|--------|------|
@@ -253,13 +262,32 @@
 | `tenant_id` | BIGINT | | 1 | 租户ID |
 | `device_id` | BIGINT | | | 设备ID（UNIQUE，FK → biz_device） |
 | `online` | TINYINT | | 0 | 0-离线 1-在线 |
-| `total_weight` | DECIMAL(10,3) | ✓ | NULL | 当前总重量（kg） |
-| `spill_alarm` | TINYINT | | 0 | 满溢报警：0-否 1-是 |
-| `smoke_alarm` | TINYINT | | 0 | 烟雾报警：0-否 1-是 |
 | `voltage` | DECIMAL(5,2) | ✓ | NULL | 电压（V） |
+| `rssi` | INT | ✓ | NULL | 信号强度（dBm，V10 新增） |
+| `fw_version` | VARCHAR(32) | ✓ | NULL | 固件版本（V10 新增） |
 | `last_report_time` | DATETIME | ✓ | NULL | 最后上报时间 |
 
 索引：`uk_device_status_device_id`（UNIQUE）、`idx_device_status_tenant_id`
+
+> **V10 变更**：去 `total_weight`（由各投口重量聚合得出，不落库）、`spill_alarm`、`smoke_alarm`（迁 `biz_door_status`）；新增 `rssi`、`fw_version`。
+
+### 8b. biz_door_status — 投口实时状态（V10 新增）
+
+每个设备投口一条最新快照，承载**重量/投递相关的实时状态与告警**，由设备端定时上报 upsert。配置（启用/分类/单价）仍归 `biz_door`，当前垃圾袋号/去皮仍归 `biz_clean_bag`，本表不重复存。
+
+| 字段 | 类型 | 可空 | 默认值 | 说明 |
+|------|------|:---:|--------|------|
+| `id` | BIGINT | | AUTO | 主键 |
+| `tenant_id` | BIGINT | | 1 | 租户ID |
+| `device_id` | BIGINT | | | 设备ID（FK → biz_device） |
+| `door_index` | INT | | | 投口号（物理编号，第几个投口） |
+| `weight` | DECIMAL(10,3) | ✓ | NULL | 当前即时重量（kg） |
+| `fullness` | INT | ✓ | NULL | 满溢度（0-100） |
+| `spill_alarm` | TINYINT | | 0 | 满溢报警：0-否 1-是 |
+| `smoke_alarm` | TINYINT | | 0 | 烟雾报警：0-否 1-是 |
+| `last_report_time` | DATETIME | ✓ | NULL | 最后上报时间 |
+
+索引：`uk_door_status_device_door (device_id, door_index)`（UNIQUE）、`idx_door_status_tenant_id`
 
 ### 9. biz_weight_record — 重量变更记录
 
@@ -410,13 +438,14 @@ sys_tenant ──< sys_user
                   ├──< biz_clean_order >───────────────┤
                   │                                    │
                   │                          biz_device_status (1:1)
+                  │                          biz_door_status (device+door 唯一)
                   │                          biz_clean_bag (device+door 唯一)
                   │
                   └──< biz_weight_record >────────────┘
 ```
 
 - 一个租户下有多个用户、多台设备
-- 一台设备有 1-6 个投口，一个实时状态
+- 一台设备有 1-6 个投口，一条设备级实时状态，每投口一条投口级实时状态
 - 一个用户可产生多条投递订单和多条清运订单
 - 投递订单和清运订单关联设备和投口
 - 每个设备投口维护一条 `biz_clean_bag` 当前袋去皮记录
@@ -436,3 +465,6 @@ sys_tenant ──< sys_user
 | V6 | `V6__fix_openid_tenant_unique.sql` | sys_user 唯一约束 `uk_openid` → 复合 `uk_tenant_openid (tenant_id, openid)`，支持同 openid 跨租户独立注册 |
 | V7 | `V7__add_delivery_two_phase.sql` | biz_delivery_order 加 `delivery_token`（uk_delivery_token）+ `delivery_status`，支撑投递两阶段闭环 |
 | V8 | `V8__add_wallet_withdraw.sql` | sys_user 加 balance/pending_balance；biz_door 加 price；新建 biz_withdraw_order |
+| V9 | `V9__add_clean_bag_and_refactor.sql` | 新建 biz_clean_bag（每投口去皮）；biz_clean_order 加 bag_qr/gross_weight/tare_weight/net_weight，audit_status 业务废弃 |
+| V10 | `V10__refactor_device_door_status.sql` | biz_device_status 去 total_weight/spill_alarm/smoke_alarm、加 rssi/fw_version；新建 biz_door_status（投口级重量/满溢/烟雾快照） |
+| V11 | `V11__add_order_photos.sql` | biz_delivery_order / biz_clean_order 各加 4 个 photo URL 列（开门前/关门后 × 箱内/箱外） |

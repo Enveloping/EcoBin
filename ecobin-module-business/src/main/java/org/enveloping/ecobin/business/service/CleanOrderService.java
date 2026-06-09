@@ -34,6 +34,9 @@ public interface CleanOrderService extends IService<CleanOrder> {
     /** 我的清运记录分页（按 user_id 归属过滤） */
     PageResult<CleanOrder> pageMyOrders(Long userId, int page, int pageSize);
 
+    /** 审核清运单：更新审核状态 */
+    void audit(Long id, Integer auditStatus);
+
     /** 我的单条清运详情（归属校验，越权/不存在统一按不存在处理） */
     CleanOrder getMyOrder(Long userId, Long id);
 }
