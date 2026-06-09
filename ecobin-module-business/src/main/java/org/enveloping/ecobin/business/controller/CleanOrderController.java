@@ -43,9 +43,4 @@ public class CleanOrderController {
         cleanOrderService.removeById(id);
         return Result.ok();
     }
-
-    @PutMapping("/{id}/audit")
-    public Result<CleanOrder> audit(@PathVariable Long id, @RequestParam Integer auditStatus) {
-        return Result.ok(cleanOrderService.audit(id, auditStatus));
-    }
 }

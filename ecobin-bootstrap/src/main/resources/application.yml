@@ -40,6 +40,12 @@ wechat:
     appid: your_appid
     secret: your_secret
 
+# 中国移动 OneNet 物联网平台（设备命令下行；凭证未到位时留空，下发为占位日志）
+onenet:
+  base-url:
+  product-id:
+  access-key:
+
 # 服务器端口
 server:
   port: 8080

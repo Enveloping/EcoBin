@@ -130,10 +130,14 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     order_sn     VARCHAR(50)  NOT NULL,
     device_id    BIGINT                DEFAULT NULL,
     door_id      BIGINT                DEFAULT NULL,
+    bag_qr       VARCHAR(64)           DEFAULT NULL,
     user_id      BIGINT                DEFAULT NULL,
     waste_type1  TINYINT      NOT NULL,
     waste_type2  TINYINT      NOT NULL DEFAULT 0,
     weight       DECIMAL(10,3)         DEFAULT NULL,
+    gross_weight DECIMAL(10,3)         DEFAULT NULL,
+    tare_weight  DECIMAL(10,3)         DEFAULT NULL,
+    net_weight   DECIMAL(10,3)         DEFAULT NULL,
     audit_status TINYINT      NOT NULL DEFAULT 0,
     status       TINYINT      NOT NULL DEFAULT 0,
     create_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -143,6 +147,21 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     INDEX idx_clean_user_id (user_id),
     INDEX idx_clean_tenant_id (tenant_id),
     INDEX idx_clean_create_time (create_time)
+);
+
+-- 垃圾袋追踪表：每投口当前袋去皮（换袋时 upsert）
+CREATE TABLE IF NOT EXISTS biz_clean_bag (
+    id          BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id   BIGINT        NOT NULL DEFAULT 1,
+    device_id   BIGINT        NOT NULL,
+    door_index  INT           NOT NULL,
+    bag_qr      VARCHAR(64)            DEFAULT NULL,
+    tare_weight DECIMAL(10,3)          DEFAULT NULL,
+    user_id     BIGINT                 DEFAULT NULL,
+    create_time DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_clean_bag_device_door (device_id, door_index),
+    INDEX idx_clean_bag_tenant_id (tenant_id)
 );
 
 -- 8. 设备实时状态表

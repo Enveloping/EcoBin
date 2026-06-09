@@ -16,4 +16,13 @@ public interface DeviceCommandService {
      * @param deliveryToken 投递标识符（设备关投口上报时需原样带回）
      */
     void sendOpenDoor(String deviceSn, Integer doorIndex, String deliveryToken);
+
+    /**
+     * 下发「开清运门」指令，并携带本次清运绑定的新垃圾袋编号。
+     *
+     * @param deviceSn  设备序列号
+     * @param doorIndex 投口号
+     * @param bagNo     新垃圾袋编号（设备记住，换袋去皮上报时带回）
+     */
+    void sendOpenCleanDoor(String deviceSn, Integer doorIndex, String bagNo);
 }
