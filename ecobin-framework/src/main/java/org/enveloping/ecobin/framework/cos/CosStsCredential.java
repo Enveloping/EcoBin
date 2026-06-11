@@ -10,8 +10,8 @@ import lombok.Data;
  * <ul>
  *   <li>{@code tmpSecretId / tmpSecretKey / sessionToken} — 临时凭证三要素</li>
  *   <li>{@code bucket / region / baseUrl} — 上传目标</li>
- *   <li>{@code uploadPrefix} — 上传路径前缀（如 {@code DEV_SN_001/1/}），设备以此前缀 + 文件名组装 Object Key</li>
  * </ul>
+ * 上传对象的 key 不在凭证里：由后端按订单上下文确定性生成（见 {@link CosTokenClient#buildPhotoKeys}），随开门命令下发。
  */
 @Data
 @Builder
@@ -40,7 +40,4 @@ public class CosStsCredential {
 
     /** COS 访问域名 */
     private String baseUrl;
-
-    /** 上传路径前缀（例 DEV_SN_001/1/） */
-    private String uploadPrefix;
 }

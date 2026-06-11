@@ -24,8 +24,11 @@ public class CleanOrder extends BaseEntity {
     /** 投口ID */
     private Long doorId;
 
-    /** 本次清运清走的垃圾袋编号 */
+    /** 本次清运清走的垃圾袋编号（旧袋） */
     private String bagQr;
+
+    /** 本次换上的新空袋编号（open 时小程序扫到，待 cleanTare 补去皮重） */
+    private String newBagQr;
 
     /** 清运员ID */
     private Long userId;

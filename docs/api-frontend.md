@@ -207,16 +207,18 @@ Authorization: Bearer <token>
 
 ```
 ① 清运员/设备管理员 小程序选取设备/投口，扫新空垃圾袋二维码得 bagNo
-② 小程序  POST /api/app/clean/open { doorId, bagNo }    → 下发开清运门指令（携带新袋号）
-③ 设备    POST /api/iot/clean/gross { sn, doorIndex, userId, weight, reportSn? }
-          → 建清运单：net = 毛重 − 该投口当前去皮（首次去皮按 0）
+② 小程序  POST /api/app/clean/open { doorId, bagNo }
+          → 开门即建单：后端用登录态 userId + 新袋 bagNo 建清运单(newBagQr=bagNo)
+          → 下发开清运门指令（携带 doorIndex + cleanOrderId），返回订单(含 id)
+③ 设备    POST /api/iot/clean/gross { sn, cleanOrderId, weight }
+          → 按 cleanOrderId 回填毛重：net = 毛重 − 该投口当前(旧袋)去皮；cleanOrderId 即幂等键
 ④ 清运员换上新空袋，设备称去皮
-   设备    POST /api/iot/clean/tare  { sn, doorIndex, userId, bagNo, weight }
-          → upsert 该投口当前垃圾袋编号与去皮重量
+   设备    POST /api/iot/clean/tare  { sn, cleanOrderId, weight }
+          → 按订单的 newBagQr + 本次去皮重 upsert 该投口当前垃圾袋（设备不传 bagNo）
 ⑤ 清运员  GET /api/app/clean/my     → 查看自己的清运记录（含毛重/去皮/净重）
 ```
 
-> 普通用户(1) **不能清运**。开清运门走 C 端 `/api/app/clean/open`（userId 锁定登录态）；毛重与去皮由设备经 `/api/iot/clean/**`（明文 SN 信任）上报，前端不再手填重量，**审核流程已取消**。
+> 普通用户(1) **不能清运**。**开门即建单**：`/api/app/clean/open` 用登录态 userId 建单并返回订单，设备只收 `cleanOrderId`（业务标识符）+ `doorIndex`（物理控制）；毛重/去皮由设备经 `/api/iot/clean/**`（明文 SN 信任）只回传 `{sn, cleanOrderId, weight}` 上报——**设备不碰 userId/bagNo/reportSn**。前端不手填重量，**审核流程已取消**。
 
 ### 4.5 钱包与提现流程（小程序申请 + 租户审核）
 
@@ -666,7 +668,7 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/app/clean/open` | 开清运门（扫新空袋后下发开门指令） |
+| POST | `/api/app/clean/open` | 开清运门：扫新空袋后**即建清运单**并下发开门指令，返回订单 |
 | GET | `/api/app/clean/my?page=1&pageSize=20` | 我的清运记录分页 |
 | GET | `/api/app/clean/my/{id}` | 我的单条清运详情 |
 
@@ -681,7 +683,7 @@ Authorization: Bearer <token>
 { "doorId": 12, "bagNo": "00001" }
 ```
 
-返回 `Result<void>`（开门指令已下发，毛重/去皮由设备经 §9 上报）。`my` 列表返回 `CleanOrder`（见 §7.6，含 `grossWeight/tareWeight/netWeight`）。
+返回 `Result<CleanOrder>`（**已建单**，含 `id`/`newBagQr`/`userId`；`cleanOrderId` 随开门指令下发给设备）。毛重/去皮由设备经 §9 按 `cleanOrderId` 回填。`my` 列表返回 `CleanOrder`（见 §7.6，含 `grossWeight/tareWeight/netWeight`）。
 
 > 普通用户(1) 调用 `/api/app/clean/**` 会返回 403。前端不再手填重量；下发走 OneNet，凭证未到位前为占位（见 `docs/open-items.md`）。
 
@@ -738,13 +740,11 @@ Authorization: Bearer <token>
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
-| `sn` | string | 是 | 设备序列号 |
-| `doorIndex` | int | 是 | 投口号（物理编号） |
-| `userId` | long | 是 | 当前登录清运人 ID |
+| `sn` | string | 是 | 设备序列号（明文 SN 信任，校验订单归属） |
+| `cleanOrderId` | long | 是 | 清运订单 ID（开门时下发，设备原样回传；**充当幂等键**） |
 | `weight` | decimal | 是 | 本次清运毛重（kg，满袋重量） |
-| `reportSn` | string | 否 | 上报订单号（幂等键；设备会重复上报直到成功） |
 
-建清运单：`netWeight = 毛重 − 该投口当前去皮`（首次去皮按 0）。
+按 `cleanOrderId` 回填订单：`netWeight = 毛重 − 该投口当前(旧袋)去皮`（首次去皮按 0）。已回填毛重则幂等返回。设备**不传** `doorIndex/userId/reportSn`（后端按订单反查）。
 
 ### 9.3 换袋去皮上报（V9）
 
@@ -752,56 +752,28 @@ Authorization: Bearer <token>
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
-| `sn` | string | 是 | 设备序列号 |
-| `doorIndex` | int | 是 | 投口号（物理编号） |
-| `userId` | long | 是 | 当前登录清运人 ID |
-| `bagNo` | string | 是 | 新垃圾袋编号 |
+| `sn` | string | 是 | 设备序列号（明文 SN 信任，校验订单归属） |
+| `cleanOrderId` | long | 是 | 清运订单 ID（开门时下发，设备原样回传） |
 | `weight` | decimal | 是 | 新空袋去皮重量（kg） |
+
+按 `cleanOrderId` 取订单的 `newBagQr`（open 时小程序已扫）+ 本次去皮重，upsert 该投口当前垃圾袋。设备**不传** `doorIndex/userId/bagNo`。
 
 按 `(device, doorIndex)` upsert `biz_clean_bag`，更新当前袋编号与去皮（换袋天然幂等）。
 
-### 9.4 COS STS 临时凭证（V11）
+### 9.4 COS 照片直传（后端定 key + 开门即存 URL）
 
-`POST /api/iot/photo/sts`
+**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。照片链路改为：
 
-设备请求腾讯云 COS 临时访问密钥用于直传抓拍照片。
+1. 后端开门时（投递 `openDoor` / 清运 `open`）按订单 token 确定性生成 4 张照片的 COS 对象 key，
+   并把 4 个完整 URL 直接写入订单 `photoOpenOutside/photoOpenInside/photoCloseOutside/photoCloseInside`；
+2. 后端把 COS 临时凭证 + 4 个 key 随开门命令（OneNet `cosToken`）下发给设备（见 `onenet-thing-model.md` §3.4）；
+3. 设备用凭证把 4 张照片**分别**直传到对应 key，**不再回传 URL**。
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|:---:|------|
-| `sn` | string | 是 | 设备序列号 |
-| `doorIndex` | int | 是 | 投口号 |
+key 形如 `{sn}/{doorIndex}/{token}/<slot>.jpg`，token = 投递 `deliveryToken` / 清运 `cleanOrderId`，
+slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。
 
-返回：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `tmpSecretId` | string | 临时 SecretId |
-| `tmpSecretKey` | string | 临时 SecretKey |
-| `sessionToken` | string | 会话令牌 |
-| `startTime` | long | 凭证开始时间（Unix 秒） |
-| `expiredTime` | long | 凭证过期时间（Unix 秒） |
-| `bucket` | string | 存储桶名称 |
-| `region` | string | 所属地域 |
-| `baseUrl` | string | COS 访问域名 |
-| `uploadPrefix` | string | 上传路径前缀（`{devSn}/{doorIndex}/`） |
-
-### 9.5 照片 URL 回报（V11）
-
-`POST /api/iot/photo/notify`
-
-设备直传 COS 完成后回报 4 张照片 URL，后端回填到对应订单。支持逐张异步上传（非空字段覆盖，不覆盖已有 URL）。
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|:---:|------|
-| `orderSn` | string | 是 | 关联订单号 |
-| `orderType` | int | 是 | 1-投递 2-清运 |
-| `photoOpenOutside` | string | 否 | 开门前箱外照片 URL |
-| `photoOpenInside` | string | 否 | 开门前箱内照片 URL |
-| `photoCloseOutside` | string | 否 | 关门后箱外照片 URL |
-| `photoCloseInside` | string | 否 | 关门后箱内照片 URL |
-
-> 下发「开清运门」走 OneNet（`OneNetClient`），凭证未到位前为占位日志，不阻塞主流程。
-> COS STS 同模式：凭证未到位前 `photo/sts` 返回占位凭证。
+> 下发「开门」走 OneNet（`OneNetClient`），COS / OneNet 凭证未到位前均为占位日志/占位值，不阻塞主流程。
+> 兜底：后端不校验对象是否真上传成功，设备没传上时前端加载出 404 显示占位图。
 
 ---
 

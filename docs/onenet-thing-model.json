@@ -1,0 +1,193 @@
+{
+  "properties": [
+    {
+      "identifier": "online",
+      "name": "在线状态",
+      "functionType": "u",
+      "accessMode": "r",
+      "desc": "",
+      "dataType": { "type": "bool", "specs": { "true": "在线", "false": "离线" } }
+    },
+    {
+      "identifier": "voltage",
+      "name": "电压",
+      "functionType": "u",
+      "accessMode": "r",
+      "desc": "",
+      "dataType": { "type": "float", "specs": { "min": "0", "max": "60", "unit": "V", "step": "0.1" } }
+    },
+    {
+      "identifier": "rssi",
+      "name": "信号强度",
+      "functionType": "u",
+      "accessMode": "r",
+      "desc": "",
+      "dataType": { "type": "int32", "specs": { "min": "-150", "max": "0", "unit": "dBm", "step": "1" } }
+    },
+    {
+      "identifier": "fwVersion",
+      "name": "固件版本",
+      "functionType": "u",
+      "accessMode": "r",
+      "desc": "",
+      "dataType": { "type": "string", "specs": { "length": 32 } }
+    },
+    {
+      "identifier": "doorStates",
+      "name": "各投口状态",
+      "functionType": "u",
+      "accessMode": "r",
+      "desc": "",
+      "dataType": {
+        "type": "array",
+        "specs": {
+          "length": 6,
+          "type": "struct",
+          "specs": [
+            { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
+            { "identifier": "weight", "name": "当前即时重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
+            { "identifier": "fullness", "name": "满溢度", "dataType": { "type": "int32", "specs": { "min": "0", "max": "100", "unit": "%", "step": "1" } } },
+            { "identifier": "spillAlarm", "name": "满溢标志", "dataType": { "type": "bool", "specs": { "true": "满溢", "false": "正常" } } },
+            { "identifier": "smokeAlarm", "name": "烟雾标志", "dataType": { "type": "bool", "specs": { "true": "报警", "false": "正常" } } }
+          ]
+        }
+      }
+    }
+  ],
+  "services": [
+    {
+      "identifier": "openDeliveryDoor",
+      "name": "开投递投口",
+      "functionType": "u",
+      "callType": "async",
+      "desc": "",
+      "input": [
+        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
+        { "identifier": "deliveryToken", "name": "投递标识", "dataType": { "type": "string", "specs": { "length": 64 } } },
+        { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
+        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
+        { "identifier": "cosToken", "name": "上传临时密钥", "dataType": {
+          "type": "struct",
+          "specs": [
+            { "identifier": "tmpSecretId", "name": "临时SecretId", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "tmpSecretKey", "name": "临时SecretKey", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "sessionToken1", "name": "会话令牌1", "dataType": { "type": "string", "specs": { "length": 512 } } },
+            { "identifier": "sessionToken2", "name": "会话令牌2", "dataType": { "type": "string", "specs": { "length": 512 } } },
+            { "identifier": "bucket", "name": "桶名", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "region", "name": "地域", "dataType": { "type": "string", "specs": { "length": 32 } } },
+            { "identifier": "baseUrl", "name": "访问域名", "dataType": { "type": "string", "specs": { "length": 256 } } },
+            { "identifier": "keyOpenOutside", "name": "开门前箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "keyOpenInside", "name": "开门前箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "keyCloseOutside", "name": "关门后箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "keyCloseInside", "name": "关门后箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "expire", "name": "过期时间秒", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999", "unit": "", "step": "1" } } }
+          ]
+        } }
+      ],
+      "output": [
+        { "identifier": "accepted", "name": "是否受理", "dataType": { "type": "bool", "specs": { "true": "受理", "false": "拒绝" } } }
+      ]
+    },
+    {
+      "identifier": "openCleanDoor",
+      "name": "开清运门",
+      "functionType": "u",
+      "callType": "async",
+      "desc": "",
+      "input": [
+        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
+        { "identifier": "cleanOrderId", "name": "清运订单ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
+        { "identifier": "cosToken", "name": "上传临时密钥", "dataType": {
+          "type": "struct",
+          "specs": [
+            { "identifier": "tmpSecretId", "name": "临时SecretId", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "tmpSecretKey", "name": "临时SecretKey", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "sessionToken1", "name": "会话令牌1", "dataType": { "type": "string", "specs": { "length": 512 } } },
+            { "identifier": "sessionToken2", "name": "会话令牌2", "dataType": { "type": "string", "specs": { "length": 512 } } },
+            { "identifier": "bucket", "name": "桶名", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "region", "name": "地域", "dataType": { "type": "string", "specs": { "length": 32 } } },
+            { "identifier": "baseUrl", "name": "访问域名", "dataType": { "type": "string", "specs": { "length": 256 } } },
+            { "identifier": "keyOpenOutside", "name": "开门前箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "keyOpenInside", "name": "开门前箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "keyCloseOutside", "name": "关门后箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "keyCloseInside", "name": "关门后箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
+            { "identifier": "expire", "name": "过期时间秒", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999", "unit": "", "step": "1" } } }
+          ]
+        } }
+      ],
+      "output": [
+        { "identifier": "accepted", "name": "是否受理", "dataType": { "type": "bool", "specs": { "true": "受理", "false": "拒绝" } } }
+      ]
+    },
+    {
+      "identifier": "reboot",
+      "name": "远程重启",
+      "functionType": "u",
+      "callType": "async",
+      "desc": "",
+      "input": [],
+      "output": [
+        { "identifier": "accepted", "name": "是否受理", "dataType": { "type": "bool", "specs": { "true": "受理", "false": "拒绝" } } }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "identifier": "deliveryComplete",
+      "name": "投递完成",
+      "functionType": "u",
+      "eventType": "info",
+      "desc": "",
+      "outputData": [
+        { "identifier": "deliveryToken", "name": "投递标识", "dataType": { "type": "string", "specs": { "length": 64 } } },
+        { "identifier": "weight", "name": "投递重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
+        { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
+        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } }
+      ]
+    },
+    {
+      "identifier": "cleanGross",
+      "name": "清运毛重",
+      "functionType": "u",
+      "eventType": "info",
+      "desc": "",
+      "outputData": [
+        { "identifier": "cleanOrderId", "name": "清运订单ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
+        { "identifier": "weight", "name": "清运毛重", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } }
+      ]
+    },
+    {
+      "identifier": "cleanTare",
+      "name": "去皮上报",
+      "functionType": "u",
+      "eventType": "info",
+      "desc": "",
+      "outputData": [
+        { "identifier": "cleanOrderId", "name": "清运订单ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
+        { "identifier": "weight", "name": "去皮重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "100", "unit": "kg", "step": "0.001" } } }
+      ]
+    },
+    {
+      "identifier": "spillAlarm",
+      "name": "满溢告警",
+      "functionType": "u",
+      "eventType": "alert",
+      "desc": "",
+      "outputData": [
+        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "0", "max": "6", "unit": "", "step": "1" } } },
+        { "identifier": "fullness", "name": "满溢度", "dataType": { "type": "int32", "specs": { "min": "0", "max": "100", "unit": "%", "step": "1" } } }
+      ]
+    },
+    {
+      "identifier": "smokeAlarm",
+      "name": "烟雾告警",
+      "functionType": "u",
+      "eventType": "error",
+      "desc": "",
+      "outputData": [
+        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "0", "max": "6", "unit": "", "step": "1" } } },
+        { "identifier": "temperature", "name": "温度", "dataType": { "type": "float", "specs": { "min": "-40", "max": "300", "unit": "℃", "step": "0.1" } } }
+      ]
+    }
+  ]
+}

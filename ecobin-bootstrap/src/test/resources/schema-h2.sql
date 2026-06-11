@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     device_id    BIGINT                DEFAULT NULL,
     door_id      BIGINT                DEFAULT NULL,
     bag_qr       VARCHAR(64)           DEFAULT NULL,
+    new_bag_qr   VARCHAR(64)           DEFAULT NULL,
     user_id      BIGINT                DEFAULT NULL,
     waste_type1  TINYINT      NOT NULL,
     waste_type2  TINYINT      NOT NULL DEFAULT 0,

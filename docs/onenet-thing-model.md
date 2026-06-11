@@ -21,21 +21,43 @@
 ```
 设备固件 ──MQTT(物模型 Topic)──► OneNet 平台
                                      │
-                                     │ 数据转发 / HTTP 推送（OneNet 包装报文）
+                                     │ 北向：消息队列 MQ 订阅（首选，后端作消费者拨出去，免公网）
+                                     │       HTTP 推送（备选，需后端有公网 IP）
                                      ▼
-                          后端 POST /api/iot/onenet/notify   ◄── 待建：OneNet 报文适配入口
+                          后端 MQ 消费者 / POST /api/iot/onenet/notify   ◄── 待建：OneNet 报文适配入口
                                      │ 解包 notify_type + payload，按事件标识符分发
                                      ├─► deliveryComplete ─► 现有投递两阶段 Service
                                      ├─► cleanGross ───────► CleanOrderService.reportGross
                                      ├─► cleanTare ────────► CleanOrderService.reportTare
+                                     ├─► photoReport ──────► PhotoNotifyService（按 refToken 回填 URL）
                                      └─► 属性/告警 ────────► DeviceStatusService（待补）
 
 后端下发：DeviceCommandService → OneNetClient → OneNet 服务调用 API → 设备
-          ├─ openDeliveryDoor   （投递开投口，对应 sendOpenDoor）
-          └─ openCleanDoor      （清运开门，对应 sendOpenCleanDoor）
+          ├─ openDeliveryDoor   （投递开投口，对应 sendOpenDoor；下发时带 cosToken）
+          └─ openCleanDoor      （清运开门，对应 sendOpenCleanDoor；下发时带 cosToken）
 ```
 
-**关键决策**：保留现有 `/api/iot/clean/gross`、`/api/iot/clean/tare`、投递上报端点给「设备直连联调」用；OneNet 生产链路另开 `POST /api/iot/onenet/notify` 统一入口，解包后复用同一批 Service，互不影响。
+**关键决策**：
+- 北向（设备→后端）**以消息队列 MQ 订阅为主**：后端作消费者主动连 OneNet，免公网、可靠不丢、天然削峰（设备多时优势明显）。HTTP 推送仅作「有公网 IP 时」的备选；二者解包后复用同一批 Service，互不影响。
+- 保留现有 `/api/iot/clean/gross`、`/api/iot/clean/tare`、投递上报、`/api/iot/photo/**` 端点给「设备直连联调」用。
+
+### 1.1 图片链路（抓拍 4 张：开门前/关门后 × 箱内/箱外）
+
+图片二进制由**设备直传腾讯云 COS**（设备↔COS 公网直连，不经后端、不占后端带宽）。
+**照片的对象 key 由后端开门时确定性生成**：开门那一刻后端已握有 `deliveryToken`/`cleanOrderId`，
+能算出 4 个 key、立刻把 4 个完整 URL 预存进订单，并把凭证 + 4 个 key 随开门命令下发给设备。
+设备按槽位直传到指定 key 即可，**无需回传 URL**：
+
+```
+① 后端：开门即按 token 生成 4 个 key，预存订单 photo_* 的 4 个完整 URL（baseUrl + key）
+② 后端 ──openDeliveryDoor/openCleanDoor(input 带 cosToken：凭证 + 4 个 key)──► OneNet ──► 设备
+        （COS 临时密钥 + key 搭车开门命令下发，设备开门即拿到，无往返、无需独立续发）
+③ 设备：开门前抓拍 2 张 → 关门后抓拍 2 张 → 用凭证按 cosToken 里的 4 个 key 直传 COS（完）
+```
+
+> key 形如 `{sn}/{doorIndex}/{token}/<slot>.jpg`，token = 投递 `deliveryToken` / 清运 `cleanOrderId`
+> （随开门命令下发，与订单一一对应，避免同投口多单互相覆盖）。
+> **兜底**：后端开门即存 URL、不校验对象是否真上传成功；设备若没传上，前端加载出 404 显示占位图。
 
 ---
 
@@ -84,23 +106,49 @@
 | input | `deliveryToken` | string | 后端生成的投递标识，设备原样在 `deliveryComplete` 带回 |
 | input | `wasteType1` | int32 | 一级分类 |
 | input | `wasteType2` | int32 | 二级分类 |
+| input | `cosToken` | struct | COS 上传临时密钥（搭车下发，见 §3.4） |
 | output | `accepted` | bool | 设备是否受理 |
 
-对应 `DeviceCommandService.sendOpenDoor`（现为占位日志）。
+对应 `DeviceCommandService.sendOpenDoor`（现为占位日志）。下发前由 `CosTokenClient.getTempCredentials` 取临时密钥、`buildPhotoKeys` 按 `deliveryToken` 算 4 个 key，一并填入 `cosToken`。
 
 ### 3.2 `openCleanDoor` — 开清运门
 
 | 方向 | 字段 | dataType | 对应后端 |
 |------|------|----------|---------|
-| input | `doorIndex` | int32 | 投口号 |
-| input | `bagNo` | string | 本次清运换上的新空袋编号 |
+| input | `doorIndex` | int32 | 投口号（物理控制，开哪个投口） |
+| input | `cleanOrderId` | int64 | 清运订单ID（**开门即建单**，设备原样在 `cleanGross`/`cleanTare`/`photoReport` 带回） |
+| input | `cosToken` | struct | COS 上传临时密钥（搭车下发，见 §3.4） |
 | output | `accepted` | bool | 设备是否受理 |
 
-对应 `DeviceCommandService.sendOpenCleanDoor(devSn, doorIndex, bagNo)`。
+对应 `DeviceCommandService.sendOpenCleanDoor(devSn, doorIndex, cleanOrderId)`。**开门即建单**：清运员小程序 `open` 时后端已握有登录 `userId` + 扫到的新空袋编号，此刻创建 `CleanOrder`（`newBagQr` 记新袋），把 `cleanOrderId` 随命令下发。设备**不再接收 `bagNo`/`userId`**。下发前由 `CosTokenClient.getTempCredentials` 取临时密钥、`buildPhotoKeys` 按 `cleanOrderId` 算 4 个 key，一并填入 `cosToken`。
 
 ### 3.3 `reboot` — 远程重启（运维预留）
 
 无入参，output `accepted` bool。
+
+### 3.4 `cosToken` 结构（搭车 §3.1 / §3.2 下发）
+
+COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下发，设备开门即拿到、直传 COS 时使用。
+凭证字段对齐后端 `framework/cos/CosStsCredential`；4 个 key 由 `CosTokenClient.buildPhotoKeys` 按订单 token 生成。
+
+> ⚠ **OneNet 字符串字段上限 512**，而 STS `sessionToken` 实测约 **640**（随 policy 浮动），单字段装不下，故**拆成 `sessionToken1` + `sessionToken2` 两段**（各 512，合计 1024）。后端下发时按序切分，**固件按 `sessionToken1 + sessionToken2` 顺序拼接还原**完整令牌。实测：`tmpSecretId`=68、`tmpSecretKey`=44、`sessionToken`=640、`expiredTime`=10 位 epoch。
+>
+> 照片 **key 由后端确定性生成并下发**（取代旧的 `uploadPrefix` + 设备自取文件名 + 回传 URL 方案）。设备把 4 张照片**分别**直传到对应 key，无需回传——后端开门时已据同一 key 预存订单 URL。key 形如 `{sn}/{doorIndex}/{token}/open_outside.jpg`。
+
+| 子字段 | dataType | 说明 |
+|--------|----------|------|
+| `tmpSecretId` | string(128) | STS 临时 SecretId（实测 68） |
+| `tmpSecretKey` | string(128) | STS 临时 SecretKey（实测 44） |
+| `sessionToken1` | string(512) | STS 会话令牌·前段（与 2 拼接还原） |
+| `sessionToken2` | string(512) | STS 会话令牌·后段 |
+| `bucket` | string(128) | COS 桶名 |
+| `region` | string(32) | COS 地域 |
+| `baseUrl` | string(256) | COS 访问域名 |
+| `keyOpenOutside` | string(128) | 开门前·箱外照片对象 key |
+| `keyOpenInside` | string(128) | 开门前·箱内照片对象 key |
+| `keyCloseOutside` | string(128) | 关门后·箱外照片对象 key |
+| `keyCloseInside` | string(128) | 关门后·箱内照片对象 key |
+| `expire` | int64 | 密钥过期时间（epoch 秒） |
 
 ---
 
@@ -121,23 +169,19 @@
 
 | identifier | dataType | 对应 CleanGrossRequest |
 |------------|----------|------------------------|
-| `doorIndex` | int32 | doorIndex |
-| `userId` | int64 | userId（设备当前登录清运员） |
+| `cleanOrderId` | int64 | cleanOrderId（开门时下发，原样带回；**充当幂等键**） |
 | `weight` | float (kg) | weight（满袋毛重） |
-| `reportSn` | string | reportSn（**幂等键，设备生成**，重传不变） |
 
-> ⚠ `reportSn` 必须由设备生成并固定，**不能**用 OneNet 自动消息 ID（每次重传都会变，破坏幂等）。后端按 `reportSn` 去重，`net = 毛重 − 该投口当前去皮`。
+> 设备只回传 `cleanOrderId` + 毛重；`doorIndex`/`userId` 由后端按订单反查。后端按 `cleanOrderId` 定位订单：已回填毛重则幂等返回，否则 `net = 毛重 − 该投口当前(旧袋)去皮`。
 
 ### 4.3 `cleanTare`（info）— 去皮上报（清运·图⑤，换新空袋）
 
 | identifier | dataType | 对应 CleanTareRequest |
 |------------|----------|------------------------|
-| `doorIndex` | int32 | doorIndex |
-| `userId` | int64 | userId |
-| `bagNo` | string | bagNo（新垃圾袋编号） |
+| `cleanOrderId` | int64 | cleanOrderId（开门时下发，原样带回） |
 | `weight` | float (kg) | weight（新空袋去皮重） |
 
-> 后端 upsert `biz_clean_bag (device_id, door_index)`：写入新 `bagNo` + `tareWeight`。
+> 设备**不传 bagNo**：新袋编号 open 时已由小程序扫到并记在订单 `newBagQr`。后端按 `cleanOrderId` 取订单的 `newBagQr` + 本次去皮重，upsert `biz_clean_bag (device_id, door_index)`。
 
 ### 4.4 `spillAlarm`（alert）— 满溢告警
 
@@ -155,166 +199,20 @@
 
 > §4.4 / §4.5 对应「设备状态/告警上报」功能缺口，待后端补告警处理端点（`open-items.md` §2）。
 
+> **无 `photoReport` 事件**：照片 key 由后端开门时确定性生成并下发（§3.4），后端开门即按同一 key 预存订单
+> 4 张照片 URL，设备直传到对应 key 即可，不再回传 URL。
+
 ---
 
 ## 5. OneNet 物模型导入 JSON
 
-> 可直接导入 OneNet 控制台「物模型」。如平台 schema 版本差异，以本文表格为准微调字段。
-
-```json
-{
-  "properties": [
-    {
-      "identifier": "online",
-      "name": "在线状态",
-      "accessMode": "r",
-      "required": false,
-      "dataType": { "type": "bool", "specs": { "0": "离线", "1": "在线" } }
-    },
-    {
-      "identifier": "voltage",
-      "name": "电压",
-      "accessMode": "r",
-      "required": false,
-      "dataType": { "type": "float", "specs": { "min": "0", "max": "60", "unit": "V", "step": "0.1" } }
-    },
-    {
-      "identifier": "rssi",
-      "name": "信号强度",
-      "accessMode": "r",
-      "required": false,
-      "dataType": { "type": "int32", "specs": { "min": "-150", "max": "0", "unit": "dBm", "step": "1" } }
-    },
-    {
-      "identifier": "fwVersion",
-      "name": "固件版本",
-      "accessMode": "r",
-      "required": false,
-      "dataType": { "type": "string", "specs": { "length": "32" } }
-    },
-    {
-      "identifier": "doorStates",
-      "name": "各投口状态",
-      "accessMode": "r",
-      "required": false,
-      "dataType": {
-        "type": "array",
-        "specs": {
-          "size": "6",
-          "item": {
-            "type": "struct",
-            "specs": [
-              { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "step": "1" } } },
-              { "identifier": "weight", "name": "当前即时重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
-              { "identifier": "fullness", "name": "满溢度", "dataType": { "type": "int32", "specs": { "min": "0", "max": "100", "unit": "%", "step": "1" } } },
-              { "identifier": "spillAlarm", "name": "满溢标志", "dataType": { "type": "bool", "specs": { "0": "正常", "1": "满溢" } } },
-              { "identifier": "smokeAlarm", "name": "烟雾标志", "dataType": { "type": "bool", "specs": { "0": "正常", "1": "报警" } } }
-            ]
-          }
-        }
-      }
-    }
-  ],
-  "services": [
-    {
-      "identifier": "openDeliveryDoor",
-      "name": "开投递投口",
-      "callType": "async",
-      "required": false,
-      "input": [
-        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "step": "1" } } },
-        { "identifier": "deliveryToken", "name": "投递标识", "dataType": { "type": "string", "specs": { "length": "64" } } },
-        { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "step": "1" } } },
-        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "step": "1" } } }
-      ],
-      "output": [
-        { "identifier": "accepted", "name": "是否受理", "dataType": { "type": "bool", "specs": { "0": "拒绝", "1": "受理" } } }
-      ]
-    },
-    {
-      "identifier": "openCleanDoor",
-      "name": "开清运门",
-      "callType": "async",
-      "required": false,
-      "input": [
-        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "step": "1" } } },
-        { "identifier": "bagNo", "name": "新垃圾袋号", "dataType": { "type": "string", "specs": { "length": "64" } } }
-      ],
-      "output": [
-        { "identifier": "accepted", "name": "是否受理", "dataType": { "type": "bool", "specs": { "0": "拒绝", "1": "受理" } } }
-      ]
-    },
-    {
-      "identifier": "reboot",
-      "name": "远程重启",
-      "callType": "async",
-      "required": false,
-      "input": [],
-      "output": [
-        { "identifier": "accepted", "name": "是否受理", "dataType": { "type": "bool", "specs": { "0": "拒绝", "1": "受理" } } }
-      ]
-    }
-  ],
-  "events": [
-    {
-      "identifier": "deliveryComplete",
-      "name": "投递完成",
-      "eventType": "info",
-      "required": false,
-      "output": [
-        { "identifier": "deliveryToken", "name": "投递标识", "dataType": { "type": "string", "specs": { "length": "64" } } },
-        { "identifier": "weight", "name": "投递重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
-        { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "step": "1" } } },
-        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "step": "1" } } }
-      ]
-    },
-    {
-      "identifier": "cleanGross",
-      "name": "清运毛重",
-      "eventType": "info",
-      "required": false,
-      "output": [
-        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "step": "1" } } },
-        { "identifier": "userId", "name": "清运人ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999", "step": "1" } } },
-        { "identifier": "weight", "name": "清运毛重", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
-        { "identifier": "reportSn", "name": "上报订单号(幂等键)", "dataType": { "type": "string", "specs": { "length": "64" } } }
-      ]
-    },
-    {
-      "identifier": "cleanTare",
-      "name": "去皮上报",
-      "eventType": "info",
-      "required": false,
-      "output": [
-        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "step": "1" } } },
-        { "identifier": "userId", "name": "清运人ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999", "step": "1" } } },
-        { "identifier": "bagNo", "name": "新垃圾袋号", "dataType": { "type": "string", "specs": { "length": "64" } } },
-        { "identifier": "weight", "name": "去皮重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "100", "unit": "kg", "step": "0.001" } } }
-      ]
-    },
-    {
-      "identifier": "spillAlarm",
-      "name": "满溢告警",
-      "eventType": "alert",
-      "required": false,
-      "output": [
-        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "0", "max": "6", "step": "1" } } },
-        { "identifier": "fullness", "name": "满溢度", "dataType": { "type": "int32", "specs": { "min": "0", "max": "100", "unit": "%", "step": "1" } } }
-      ]
-    },
-    {
-      "identifier": "smokeAlarm",
-      "name": "烟雾告警",
-      "eventType": "error",
-      "required": false,
-      "output": [
-        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "0", "max": "6", "step": "1" } } },
-        { "identifier": "temperature", "name": "温度", "dataType": { "type": "float", "specs": { "min": "-40", "max": "300", "unit": "℃", "step": "0.1" } } }
-      ]
-    }
-  ]
-}
-```
+> **导入文件**：**`docs/onenet-thing-model.json`**（已按 OneNet 控制台格式校验，可直接上传）。本文不再内嵌 JSON 副本以免脱节，功能点结构以 §2/§3/§4 表格为准。
+>
+> OneNet 格式要点（实测踩坑）：
+> - 每个功能点（属性/服务/事件）必须带 `functionType`（自定义填 `"u"`）；事件输出字段用 `outputData`（非 `output`）。
+> - `bool` 的 specs 用 `{"true":..,"false":..}`；枚举用 `enum`；`array` 用 `{"length":N,"type":..,"specs":..}`。
+> - `string` 的 `length` 为**无引号整数、范围 1-512**；超长字段（如 STS `sessionToken`≈640）须拆成多段（见 §3.4）。
+> - `name` 限 1-32 位、仅中文/英文/数字/`_-`、首字符为中英文（不可含括号等符号）。`identifier` 用英文驼峰。
 
 ---
 
@@ -322,11 +220,13 @@
 
 | 物模型功能点 | 类型 | 后端落点 | 状态 |
 |--------------|------|---------|------|
-| `openDeliveryDoor` | service | `DeviceCommandService.sendOpenDoor` → `OneNetClient` | 占位，待凭证 |
-| `openCleanDoor` | service | `DeviceCommandService.sendOpenCleanDoor` → `OneNetClient` | 占位，待凭证 |
-| `deliveryComplete` | event | 投递两阶段 Service（`DeliveryReportRequest`） | 已实现（直连），待 OneNet notify 适配 |
-| `cleanGross` | event | `CleanOrderService.reportGross`（`CleanGrossRequest`） | 已实现（直连），待 OneNet notify 适配 |
-| `cleanTare` | event | `CleanOrderService.reportTare`（`CleanTareRequest`） | 已实现（直连），待 OneNet notify 适配 |
+| `openDeliveryDoor` | service | `DeviceCommandService.sendOpenDoor` → `OneNetClient.openDeliveryDoor`(invokeService) | 真实下发已实现（门控 isConfigured），本地未测待凭证联调 |
+| `openCleanDoor`(含 cleanOrderId) | service | `CleanOrderService.openCleanDoor`（**开门即建单**）→ `DeviceCommandService.sendOpenCleanDoor` → `OneNetClient.openCleanDoor` | 建单已实现；OneNet 真实下发已实现（门控），本地未测待凭证联调 |
+| `cosToken`(搭车 openDoor) | service 入参 | `CosTokenClient.getTempCredentials`(凭证) + `buildPhotoKeys`(4 个 key) → `OneNetClient` 按 512 拆 `sessionToken1/2` 填入下发 | 已实现（搭车 openDoor），待凭证联调 |
+| 照片 URL（开门即存） | — | 开门时 `CosTokenClient.buildPhotoKeys`+`toUrl` 算 4 URL，直接写订单 `photo_*`（取代设备回传） | 已实现 |
+| `deliveryComplete` | event | 投递两阶段 Service（`DeliveryReportRequest`） | 已实现（直连 + OneNet MQ 上行），待联调 |
+| `cleanGross` | event | `CleanOrderService.reportGross`（按 `cleanOrderId` 回填，幂等） | 已实现（直连 + OneNet MQ 上行），待联调 |
+| `cleanTare` | event | `CleanOrderService.reportTare`（按 `cleanOrderId` 取新袋去皮） | 已实现（直连 + OneNet MQ 上行），待联调 |
 | `online/voltage/rssi/fwVersion` | property | `DeviceStatusService`（`biz_device_status`，去 totalWeight/spill/smoke） | 待补 Service/Controller |
 | `doorStates`(weight/fullness/spill/smoke) | property | `DoorStatusService`（`biz_door_status`，**新表**） | 待建表 + Service/Controller |
 | `spillAlarm/smokeAlarm` | event | 告警处理端点（同时刷新 `biz_door_status` 标志位） | 待建 |
@@ -336,9 +236,19 @@
 ## 7. 待确认 / 待办
 
 1. **库表调整（需新增迁移 V10）**：`biz_device_status` 去 `total_weight`/`spill_alarm`/`smoke_alarm`、加 `rssi`/`fw_version`；新建 `biz_door_status`（投口级重量/满溢/烟雾快照，`UNIQUE(device_id, door_index)`）。同步改 `DeviceStatus` 实体、新增 `DoorStatus` 实体与 H2 测试 schema。详见 `database-design.md` §8/§8b。
-2. **OneNet → 后端通道**：需建 `POST /api/iot/onenet/notify` 适配入口，解 OneNet 数据转发的包装报文（外层 `device_name`/`notify_type`/`payload`），按事件标识符分发到现有 Service。OneNet 推送报文的确切结构需拿到凭证后按实际抓包确定。
-3. **`userId` 可信度**：清运事件里的 `userId` 是「设备当前登录清运员」，取决于设备端登录方式（扫码？刷卡？）。需与硬件方确认 id 来源，决定后端是否要二次校验该清运员归属。
-4. **`reportSn` 生成规则**：需与固件方约定（建议 `devSn + 时间戳 + 投口` 拼接），确保同一条记录重传时不变。
+2. **OneNet → 后端通道（北向）**：✅ **已实现并联调通过上行**（2026-06-10，控制台模拟设备 test-divice-1）。后端作 **Pulsar 消费者**拨出去连 OneNet 北向 MQ（`pulsar+ssl://iot-north-mq.heclouds.com:6651/`，topic `{accessId}/iot/event`），免公网、可靠不丢、削峰。实现：`framework/onenet/OneNetMqConsumer`（自定义鉴权 `OneNetAuthentication`）→ 解第一层报文 → `OneNetCipher` 解密 → `business/onenet/OneNetEventDispatcher` 按 `msgType`/事件 identifier 分发到现有 Service。消费组凭证由 `.env` 注入（`iotAccessId/iotSecretKey/iotSubscriptionName`）。
+   - **报文结构（已据官方「服务端订阅消息类型」文档确认）**：两层。第一层 `{ superMsg, pv, t, data, sign }`，`data` 为 **AES 加密 Base64**（算法 `AES/ECB/PKCS5`，key = 消费组 KEY 的 `substring(8,24)`）；解密后第二层 `{ "msgType": <类型>, "subData": { deviceName, productId, deviceId, imei, params/... } }`。
+   - **身份**在 `subData.deviceName`（= `biz_device.sn`），印证 §0「身份不进 payload」。**业务事件**走 `msgType=thingEvent`，输出在 `subData.params` 按 identifier 承载；属性 `thingProperty`、上下线 `deviceOnline/Offline`、下发回执 `thingServiceReply`。
+   - **事件输出结构（已用真实报文确认）**：`thingEvent` 单个事件**被 `value` 包裹**，形如 `params.cleanGross = {"time":<ms>,"value":{"weight":10,"cleanOrderId":45}}`；`OneNetEventDispatcher.unwrap` 正确解出。真实报文不含 `imei` 字段（无妨，按需取）。
+   - **联调实测（2026-06-10）**：控制台设备模拟器以 test-divice-1 发 cleanGross → consumer 收到并解密 → 分发器调 `reportGross` 成功（仅因测试单不存在而抛"订单不存在"，属预期）。整条上行（连接/解密/解析/分发）零问题。
+   - HTTP 推送（`POST /api/iot/onenet/notify`）仍仅作有公网 IP 时的备选，未实现。
+2b. **图片链路（后端定 key + 开门即存 URL，已落地）**：
+   - 后端开门时调 `CosTokenClient.getTempCredentials`(凭证) + `buildPhotoKeys`(按 token 算 4 个 key) 塞进 `cosToken` 随开门下发（凭证待配）；同时用 `toUrl` 把 4 个完整 URL 直接写进订单 `photo_*`（投递在 insert 前、清运在 save 后 updateById）。
+   - **照片 key 约定**：`{sn}/{doorIndex}/{token}/<slot>.jpg`，token = 投递 `deliveryToken` / 清运 `cleanOrderId`，slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。设备把 4 张照片**分别**直传到 `cosToken` 里对应 key，**不再回传 URL**（`photoReport` 事件、`/api/iot/photo/**` 端点、`PhotoNotifyService` 均已移除）。
+   - **固件约定（sessionToken 拼接）**：STS 令牌实测约 640 > OneNet 512 上限，已拆 `sessionToken1`+`sessionToken2`。后端下发时按序切分（前 512 + 余下）；**固件须按 `sessionToken1 + sessionToken2` 顺序拼接还原**完整令牌再用于 COS 直传。
+   - **兜底**：后端不校验对象是否真上传成功；设备没传上时前端加载出 404 显示占位图。
+3. **清运 `userId` 来源**：已定为**小程序扫码登录态**——`openCleanDoor` 建单时由后端 `SecurityUtils` 取登录清运员写入订单，设备不再上报 `userId`（现仅支持小程序扫码登录）。
+4. **`cleanOrderId` 幂等**：清运毛重以 `cleanOrderId` 为幂等键（一单一次毛重，重复上报不覆盖），取代原设备生成的 `reportSn`。设备只需原样回传开门下发的 `cleanOrderId`。
 5. **下发 API 规格**：OneNet 服务调用（同步/异步命令下发）的具体 HTTP API、鉴权（token 签名算法）待凭证与文档到位后补 `OneNetClient` 实现，并填 `application.yml` 的 `onenet` 段。
 6. **物模型 schema 校验**：§5 JSON 按 OneNet 标准物模型常见格式编写，导入前需在 OneNet 控制台实测，按平台实际 schema 版本微调。
 

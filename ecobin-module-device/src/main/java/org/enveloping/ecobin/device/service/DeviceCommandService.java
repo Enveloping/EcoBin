@@ -18,11 +18,11 @@ public interface DeviceCommandService {
     void sendOpenDoor(String deviceSn, Integer doorIndex, String deliveryToken);
 
     /**
-     * 下发「开清运门」指令，并携带本次清运绑定的新垃圾袋编号。
+     * 下发「开清运门」指令，并携带本次清运订单ID。
      *
-     * @param deviceSn  设备序列号
-     * @param doorIndex 投口号
-     * @param bagNo     新垃圾袋编号（设备记住，换袋去皮上报时带回）
+     * @param deviceSn     设备序列号
+     * @param doorIndex    投口号（物理控制，开哪个投口）
+     * @param cleanOrderId 清运订单ID（设备记住，毛重/去皮/图片上报时原样带回）
      */
-    void sendOpenCleanDoor(String deviceSn, Integer doorIndex, String bagNo);
+    void sendOpenCleanDoor(String deviceSn, Integer doorIndex, Long cleanOrderId);
 }

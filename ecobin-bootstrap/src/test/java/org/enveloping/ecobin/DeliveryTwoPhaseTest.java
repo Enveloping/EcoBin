@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 投递两阶段流程验证（开投口建记录 → 设备 IoT 上报回填）。
@@ -101,6 +102,12 @@ class DeliveryTwoPhaseTest {
         assertEquals(0, pending.getDeliveryStatus());   // 进行中
         assertEquals(userId, pending.getUserId());
         assertNull(pending.getWeight());
+        // 开门即按 deliveryToken 预存 4 张照片 URL（设备直传到对应 key，无需回传）
+        String token = result.deliveryToken();
+        assertTrue(pending.getPhotoOpenOutside().endsWith("/" + token + "/open_outside.jpg"));
+        assertTrue(pending.getPhotoOpenInside().endsWith("/" + token + "/open_inside.jpg"));
+        assertTrue(pending.getPhotoCloseOutside().endsWith("/" + token + "/close_outside.jpg"));
+        assertTrue(pending.getPhotoCloseInside().endsWith("/" + token + "/close_inside.jpg"));
 
         asDevice();
         DeliveryReportRequest report = new DeliveryReportRequest();

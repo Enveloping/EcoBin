@@ -30,7 +30,7 @@
 | `biz_device` | biz | 回收设备 | V1 |
 | `biz_door` | biz | 设备投口（V8 加单价 price） | V1, V4, V5, V8 |
 | `biz_delivery_order` | biz | 投递订单（V7 加投递两阶段字段） | V1, V7 |
-| `biz_clean_order` | biz | 清运订单（V9 加去皮链式重量字段） | V1, V9 |
+| `biz_clean_order` | biz | 清运订单（V9 去皮链；V11 照片；V12 开门即建单 new_bag_qr） | V1, V9, V11, V12 |
 | `biz_clean_bag` | biz | 垃圾袋追踪（每投口当前袋去皮，V9） | V9 |
 | `biz_device_status` | biz | 设备实时状态（V10 收敛为设备级：去 total_weight/spill/smoke，加 rssi/fw_version） | V1, V10 |
 | `biz_door_status` | biz | 投口实时状态（V10 新增：投口级重量/满溢/烟雾快照） | V10 |
@@ -200,24 +200,25 @@
 
 ### 7. biz_clean_order — 清运订单
 
-设备自动称重驱动的清运记录（V9 重做）。每次清运设备上报**毛重**，后端按「毛重 − 该投口当前去皮」得到实际清运量；原「清运员手填 + 后台审核」流程已废弃。
+设备自动称重驱动的清运记录（V9 重做）。**开门即建单**（V12 起）：清运员小程序 `open` 时后端用登录态 `user_id` + 扫到的新空袋（记 `new_bag_qr`）建单，`cleanOrderId` 随开门命令下发给设备；后续设备只回传 `cleanOrderId` + 物理量。每次清运设备上报**毛重**，后端按「毛重 − 该投口当前(旧袋)去皮」得到实际清运量。
 
 | 字段 | 类型 | 可空 | 默认值 | 说明 |
 |------|------|:---:|--------|------|
 | `id` | BIGINT | | AUTO | 主键 |
 | `tenant_id` | BIGINT | | 1 | 租户ID |
-| `order_sn` | VARCHAR(50) | | | 订单编号（UNIQUE；设备上报 reportSn 作幂等键） |
+| `order_sn` | VARCHAR(50) | | | 订单编号（UNIQUE，open 建单时生成） |
 | `device_id` | BIGINT | ✓ | NULL | 设备ID（FK → biz_device） |
 | `door_id` | BIGINT | ✓ | NULL | 投口ID（FK → biz_door） |
-| `bag_qr` | VARCHAR(64) | ✓ | NULL | 本次清走的垃圾袋编号（V9） |
-| `user_id` | BIGINT | ✓ | NULL | 清运员ID（FK → sys_user, role=2） |
+| `bag_qr` | VARCHAR(64) | ✓ | NULL | 本次清走的垃圾袋编号（旧袋，毛重上报时回填，V9） |
+| `new_bag_qr` | VARCHAR(64) | ✓ | NULL | 本次换上的新空袋编号（open 时小程序扫到，待去皮，V12） |
+| `user_id` | BIGINT | ✓ | NULL | 清运员ID（open 时登录态写入，FK → sys_user, role=2） |
 | `waste_type1` | TINYINT | | | 一级分类 |
 | `waste_type2` | TINYINT | | 0 | 二级分类 |
 | `weight` | DECIMAL(10,3) | ✓ | NULL | 实际清运量（=net_weight，兼容旧字段） |
 | `gross_weight` | DECIMAL(10,3) | ✓ | NULL | 清运毛重（设备上报满袋重量，V9） |
 | `tare_weight` | DECIMAL(10,3) | ✓ | NULL | 去皮重量（清运时该投口当前去皮，V9） |
 | `net_weight` | DECIMAL(10,3) | ✓ | NULL | 实际清运量 = 毛重 − 去皮（V9） |
-| `audit_status` | TINYINT | | 1 | **已废弃**（审核流程取消，新记录默认 1） |
+| `audit_status` | TINYINT | | 0 | 审核状态：0-待审核 1-通过 2-拒绝；设备称重后仍需人工审核，新记录默认 0 |
 | `status` | TINYINT | | 0 | 0-创建 1-完成 2-取消 |
 | `photo_open_outside` | VARCHAR(512) | ✓ | NULL | 开门前箱外照片 URL（V11） |
 | `photo_open_inside` | VARCHAR(512) | ✓ | NULL | 开门前箱内照片 URL（V11） |
@@ -468,3 +469,4 @@ sys_tenant ──< sys_user
 | V9 | `V9__add_clean_bag_and_refactor.sql` | 新建 biz_clean_bag（每投口去皮）；biz_clean_order 加 bag_qr/gross_weight/tare_weight/net_weight，audit_status 业务废弃 |
 | V10 | `V10__refactor_device_door_status.sql` | biz_device_status 去 total_weight/spill_alarm/smoke_alarm、加 rssi/fw_version；新建 biz_door_status（投口级重量/满溢/烟雾快照） |
 | V11 | `V11__add_order_photos.sql` | biz_delivery_order / biz_clean_order 各加 4 个 photo URL 列（开门前/关门后 × 箱内/箱外） |
+| V12 | `V12__clean_order_new_bag.sql` | biz_clean_order 加 `new_bag_qr`（开门即建单：open 时扫到的新空袋，待去皮） |

@@ -17,6 +17,8 @@ import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceCommandService;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
+import org.enveloping.ecobin.framework.cos.CosPhotoKeys;
+import org.enveloping.ecobin.framework.cos.CosTokenClient;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
 import org.enveloping.ecobin.business.service.WalletService;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,7 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
     private final DeviceService deviceService;
     private final DeviceCommandService deviceCommandService;
     private final WalletService walletService;
+    private final CosTokenClient cosTokenClient;
 
     @Override
     public boolean save(DeliveryOrder order) {
@@ -79,6 +82,12 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
         order.setStatus(0);             // 正常
         order.setDeliveryStatus(0);     // 进行中（待设备上报回填）
         order.setLoginType(4);          // 二维码扫码
+        // 照片 key 由后端按 deliveryToken 确定性生成，开门即预存 4 张照片 URL（设备直传到对应 key，无需回传）
+        CosPhotoKeys keys = cosTokenClient.buildPhotoKeys(device.getSn(), door.getDoorIndex(), deliveryToken);
+        order.setPhotoOpenOutside(cosTokenClient.toUrl(keys.openOutside()));
+        order.setPhotoOpenInside(cosTokenClient.toUrl(keys.openInside()));
+        order.setPhotoCloseOutside(cosTokenClient.toUrl(keys.closeOutside()));
+        order.setPhotoCloseInside(cosTokenClient.toUrl(keys.closeInside()));
         save(order);
 
         // 下发开投口指令（当前为占位实现，不阻塞主流程）

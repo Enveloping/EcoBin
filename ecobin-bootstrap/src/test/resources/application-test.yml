@@ -21,3 +21,8 @@ wechat:
 app:
   crypto:
     aes-key: test_aes_key
+
+# OneNet 北向消费者测试环境强制关闭（绝不连真实 MQ）
+onenet:
+  subscription:
+    enabled: false

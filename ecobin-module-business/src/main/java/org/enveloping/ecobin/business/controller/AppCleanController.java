@@ -30,11 +30,10 @@ public class AppCleanController {
 
     private final CleanOrderService cleanOrderService;
 
-    /** 开清运门：扫新空垃圾袋后下发开门指令（携带新袋编号） */
+    /** 开清运门：扫新空垃圾袋后即建清运单并下发开门指令（携带 cleanOrderId），返回新建订单 */
     @PostMapping("/open")
-    public Result<Void> open(@Valid @RequestBody CleanOpenRequest request) {
-        cleanOrderService.openCleanDoor(request.getDoorId(), request.getBagNo());
-        return Result.ok();
+    public Result<CleanOrder> open(@Valid @RequestBody CleanOpenRequest request) {
+        return Result.ok(cleanOrderService.openCleanDoor(request.getDoorId(), request.getBagNo()));
     }
 
     /** 我的清运记录分页 */

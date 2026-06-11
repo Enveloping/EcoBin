@@ -18,8 +18,8 @@ import java.util.TreeMap;
  * 待 {@link CosProperties} 配置齐全后，{@link #getRealTempCredentials} 会调用
  * {@code com.tencent.cloud.CosStsClient.getCredential} 获取真实临时凭证。
  * <p>
- * 使用方式：设备先调 {@code POST /api/iot/photo/sts} 拿临时密钥，再直传 COS，
- * 最后调 {@code POST /api/iot/photo/notify} 回填 URL。
+ * 使用方式：照片 key 由后端开门时确定性生成（{@link #buildPhotoKeys}），随开门命令把凭证 + key
+ * 一并下发给设备，设备按 key 直传 COS；后端开门即把对应 URL 预存进订单，无需设备回传。
  */
 @Slf4j
 @Component
@@ -28,19 +28,20 @@ public class CosTokenClient {
 
     private final CosProperties properties;
 
+    /** 占位 baseUrl（凭证未配置时用于联调） */
+    private static final String PLACEHOLDER_BASE_URL = "https://placeholder.cos.ap-guangzhou.myqcloud.com";
+
     /**
      * 获取设备直传 COS 所需的 STS 临时凭证。
      *
-     * @param deviceSn  设备序列号
-     * @param doorIndex 投口号
-     * @return 临时凭证（含上传前缀）
+     * @param deviceSn  设备序列号（仅用于日志）
+     * @param doorIndex 投口号（仅用于日志）
+     * @return 临时凭证三件套 + bucket/region/baseUrl
      */
     public CosStsCredential getTempCredentials(String deviceSn, Integer doorIndex) {
-        String uploadPrefix = deviceSn + "/" + doorIndex + "/";
-
         if (!properties.isConfigured()) {
-            log.info("[COS·占位] 请求临时凭证 deviceSn={}, doorIndex={}, prefix={}（凭证未配置，返回占位值）",
-                    deviceSn, doorIndex, uploadPrefix);
+            log.info("[COS·占位] 请求临时凭证 deviceSn={}, doorIndex={}（凭证未配置，返回占位值）",
+                    deviceSn, doorIndex);
             return CosStsCredential.builder()
                     .tmpSecretId("PLACEHOLDER_TMP_SECRET_ID")
                     .tmpSecretKey("PLACEHOLDER_TMP_SECRET_KEY")
@@ -49,18 +50,38 @@ public class CosTokenClient {
                     .expiredTime(Instant.now().getEpochSecond() + properties.getDurationSeconds())
                     .bucket(nullToDefault(properties.getBucketName(), "placeholder-bucket-1234567890"))
                     .region(nullToDefault(properties.getRegion(), "ap-guangzhou"))
-                    .baseUrl(nullToDefault(properties.getBaseUrl(), "https://placeholder.cos.ap-guangzhou.myqcloud.com"))
-                    .uploadPrefix(uploadPrefix)
+                    .baseUrl(nullToDefault(properties.getBaseUrl(), PLACEHOLDER_BASE_URL))
                     .build();
         }
 
-        return getRealTempCredentials(uploadPrefix);
+        return getRealTempCredentials();
+    }
+
+    /**
+     * 生成一笔订单 4 张照片的 COS 对象 key（确定性、与订单 token 绑定，避免同投口多单互相覆盖）。
+     *
+     * @param deviceSn  设备序列号
+     * @param doorIndex 投口号
+     * @param token     订单关联键：投递 deliveryToken / 清运 cleanOrderId
+     */
+    public CosPhotoKeys buildPhotoKeys(String deviceSn, Integer doorIndex, String token) {
+        String prefix = deviceSn + "/" + doorIndex + "/" + token + "/";
+        return new CosPhotoKeys(
+                prefix + "open_outside.jpg",
+                prefix + "open_inside.jpg",
+                prefix + "close_outside.jpg",
+                prefix + "close_inside.jpg");
+    }
+
+    /** 由对象 key 拼出可访问的完整 URL（{@code baseUrl + "/" + key}）。 */
+    public String toUrl(String key) {
+        return nullToDefault(properties.getBaseUrl(), PLACEHOLDER_BASE_URL) + "/" + key;
     }
 
     /**
      * 真实 STS 调用（凭证齐全时）。
      */
-    private CosStsCredential getRealTempCredentials(String uploadPrefix) {
+    private CosStsCredential getRealTempCredentials() {
         TreeMap<String, Object> config = new TreeMap<>();
         config.put("secretId", properties.getSecretId());
         config.put("secretKey", properties.getSecretKey());
@@ -93,7 +114,7 @@ public class CosTokenClient {
 
         try {
             Response response = com.tencent.cloud.CosStsClient.getCredential(config);
-            log.info("[COS] 临时凭证下发成功 uploadPrefix={}, expiredTime={}", uploadPrefix, response.expiredTime);
+            log.info("[COS] 临时凭证下发成功 expiredTime={}", response.expiredTime);
 
             return CosStsCredential.builder()
                     .tmpSecretId(response.credentials.tmpSecretId)
@@ -104,7 +125,6 @@ public class CosTokenClient {
                     .bucket(bucketName)
                     .region(properties.getRegion())
                     .baseUrl(properties.getBaseUrl())
-                    .uploadPrefix(uploadPrefix)
                     .build();
         } catch (Exception e) {
             log.error("[COS] 获取临时凭证失败", e);

@@ -2,6 +2,10 @@ spring:
   application:
     name: EcoBin
 
+  # 加载项目根目录 .env（实为 Java properties；密钥不入库，仅本地/部署机存放）
+  config:
+    import: optional:file:./.env[.properties]
+
   # 数据源配置
   datasource:
     url: jdbc:mysql://localhost:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
@@ -40,11 +44,19 @@ wechat:
     appid: your_appid
     secret: your_secret
 
-# 中国移动 OneNet 物联网平台（设备命令下行；凭证未到位时留空，下发为占位日志）
+# 中国移动 OneNet 物联网平台
 onenet:
-  base-url:
-  product-id:
-  access-key:
+  # 上行（北向 MQ 服务端订阅消费）：凭证由 .env 注入；非测试 + enabled + 凭证齐全才启动消费者
+  subscription:
+    broker-url: pulsar+ssl://iot-north-mq.heclouds.com:6651/
+    access-id: ${iotAccessId:}
+    secret-key: ${iotSecretKey:}
+    subscription-name: ${iotSubscriptionName:}
+    enabled: true
+  # 下行（物模型服务调用）：product-id/access-key 待设备端配合到位；缺失时下发为占位日志
+  base-url: https://iot-api.heclouds.com
+  product-id: ${onenetProductId:}
+  access-key: ${onenetAccessKey:}
 
 # 腾讯云 COS 对象存储（STS 临时密钥，设备直传；凭证未到位时留空，STS 为占位日志）
 cos:

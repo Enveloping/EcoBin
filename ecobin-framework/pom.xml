@@ -52,6 +52,12 @@
             <artifactId>cos-sts_api</artifactId>
         </dependency>
 
+        <!-- 中国移动 OneNet 北向消息队列消费（Pulsar 客户端） -->
+        <dependency>
+            <groupId>org.apache.pulsar</groupId>
+            <artifactId>pulsar-client</artifactId>
+        </dependency>
+
         <!-- JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
