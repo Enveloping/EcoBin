@@ -58,14 +58,14 @@ onenet:
   product-id: ${onenetProductId:}
   access-key: ${onenetAccessKey:}
 
-# 腾讯云 COS 对象存储（STS 临时密钥，设备直传；凭证未到位时留空，STS 为占位日志）
+# 腾讯云 COS 对象存储（STS 临时密钥，设备直传；密钥经 .env 注入，缺失时 STS 走占位日志）
 cos:
-  secret-id:
-  secret-key:
-  region:
-  bucket-name:
-  base-url:
-  duration-seconds: 1800
+  secret-id: ${cosSecretId:}
+  secret-key: ${cosSecretKey:}
+  region: ${cosRegion:}
+  bucket-name: ${cosBucketName:}
+  base-url: ${cosBaseUrl:}
+  duration-seconds: ${cosDurationSeconds:1800}
 
 # 服务器端口
 server:
