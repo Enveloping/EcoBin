@@ -2,7 +2,6 @@ package org.enveloping.ecobin.business.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.dto.OpenDoorResult;
 import org.enveloping.ecobin.business.entity.DeliveryOrder;
 import org.enveloping.ecobin.common.result.PageResult;
 
@@ -14,17 +13,18 @@ public interface DeliveryOrderService extends IService<DeliveryOrder> {
     PageResult<DeliveryOrder> pageOrders(int page, int pageSize);
 
     /**
-     * 投递两阶段·阶段1：C 端用户开投口。
-     * 创建一条「进行中」投递记录（含 user_id 与新生成的投递标识符），并下发开投口指令。
+     * 投递·开启设备：C 端用户在小程序「开启设备」。
+     * 仅写入该设备「当前活跃用户」会话并下发开投口指令，<strong>不建单</strong>
+     * （建单移到设备上传称重数据之后，见 {@link #completeDelivery}）。
      *
      * @param doorId 投口ID（受当前登录用户的租户隔离约束）
-     * @return 投递记录ID与投递标识符
      */
-    OpenDoorResult openDoor(Long doorId);
+    void openDoor(Long doorId);
 
     /**
-     * 投递两阶段·阶段2：设备 IoT 上报投递完成。
-     * 按设备 SN + 投递标识符关联「进行中」记录，回填重量并置为已完成。
+     * 投递·上传后建单：设备 IoT 上报投递完成（含 4 个照片 URL）。
+     * 按设备 SN + doorIndex 定位投口，取该设备「当前活跃用户」会话确定归属并建单
+     * （无活跃会话则建无主单、不返现）。按 device + {@code msgId}（OneNet 消息 id / MQ messageId）幂等去重。
      */
     void completeDelivery(DeliveryReportRequest request);
 

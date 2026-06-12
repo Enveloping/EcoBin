@@ -39,11 +39,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static final String EVT_DELIVERY_COMPLETE = "deliveryComplete";
 
     @Override
-    public void handle(String decryptedJson) {
+    public void handle(String decryptedJson, String mqMessageId) {
         JsonNode root = objectMapper.readTree(decryptedJson);
         String msgType = root.path("msgType").asString();
         JsonNode subData = root.path("subData");
         String sn = subData.path("deviceName").asString();
+        // 投递幂等键：优先报文自带 OneNet 消息 id（root.id / subData.id），缺失回退 MQ 传输层 messageId
+        // （同一消息重投 messageId 不变，可兜底 MQ at-least-once 去重；具体报文 id 字段以联调真实明文为准）
+        String msgId = firstNonBlank(root.path("id").asString(), subData.path("id").asString(), mqMessageId);
 
         if (sn == null || sn.isBlank()) {
             log.warn("[OneNet·分发] 报文缺少 deviceName(sn)，跳过：msgType={}", msgType);
@@ -51,7 +54,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
 
         switch (msgType) {
-            case "thingEvent" -> dispatchEvents(sn, subData.path("params"));
+            case "thingEvent" -> dispatchEvents(sn, msgId, subData.path("params"));
             case "thingProperty" -> log.info("[OneNet·分发] 收到属性上报（设备状态 Service 待补，暂跳过）sn={}", sn);
             case "deviceOnline", "deviceOffline" ->
                     log.info("[OneNet·分发] 收到上下线 {} sn={}（在线状态 Service 待补，暂跳过）", msgType, sn);
@@ -62,7 +65,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     }
 
     /** 遍历 thingEvent 的 params，按 identifier 路由到对应业务入口。 */
-    private void dispatchEvents(String sn, JsonNode params) {
+    private void dispatchEvents(String sn, String msgId, JsonNode params) {
         if (params == null || !params.isObject()) {
             log.warn("[OneNet·分发] thingEvent 缺少 params，sn={}", sn);
             return;
@@ -73,7 +76,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 switch (identifier) {
                     case EVT_CLEAN_GROSS -> handleCleanGross(sn, value);
                     case EVT_CLEAN_TARE -> handleCleanTare(sn, value);
-                    case EVT_DELIVERY_COMPLETE -> handleDeliveryComplete(sn, value);
+                    case EVT_DELIVERY_COMPLETE -> handleDeliveryComplete(sn, msgId, value);
                     default -> log.info("[OneNet·分发] 未处理事件 identifier={} sn={}（如告警，Service 待补）",
                             identifier, sn);
                 }
@@ -101,10 +104,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         log.info("[OneNet·分发] cleanTare 已入账 sn={}, cleanOrderId={}", sn, req.getCleanOrderId());
     }
 
-    private void handleDeliveryComplete(String sn, JsonNode v) {
+    private void handleDeliveryComplete(String sn, String msgId, JsonNode v) {
         DeliveryReportRequest req = new DeliveryReportRequest();
         req.setSn(sn);
-        req.setDeliveryToken(v.path("deliveryToken").asString());
+        req.setMsgId(msgId);                 // 幂等键（OneNet 消息 id / MQ messageId）
+        req.setDoorIndex(v.path("doorIndex").asInt());
         req.setWeight(decimal(v, "weight"));
         if (v.has("wasteType1")) {
             req.setWasteType1(v.path("wasteType1").asInt());
@@ -112,8 +116,21 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         if (v.has("wasteType2")) {
             req.setWasteType2(v.path("wasteType2").asInt());
         }
+        // 照片 URL：设备直传 COS 后随本事件回传，后端原样存（可选，缺失则前端占位）
+        if (v.has("photoOpenOutside")) {
+            req.setPhotoOpenOutside(v.path("photoOpenOutside").asString());
+        }
+        if (v.has("photoOpenInside")) {
+            req.setPhotoOpenInside(v.path("photoOpenInside").asString());
+        }
+        if (v.has("photoCloseOutside")) {
+            req.setPhotoCloseOutside(v.path("photoCloseOutside").asString());
+        }
+        if (v.has("photoCloseInside")) {
+            req.setPhotoCloseInside(v.path("photoCloseInside").asString());
+        }
         deliveryOrderService.completeDelivery(req);
-        log.info("[OneNet·分发] deliveryComplete 已入账 sn={}, deliveryToken={}", sn, req.getDeliveryToken());
+        log.info("[OneNet·分发] deliveryComplete 已入账 sn={}, doorIndex={}", sn, req.getDoorIndex());
     }
 
     /** OneJSON 事件输出可能被 {@code {"value":{..},"time":..}} 包裹，兼容解出真正的字段对象。 */
@@ -126,5 +143,15 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static BigDecimal decimal(JsonNode v, String field) {
         return new BigDecimal(v.path(field).asString());
+    }
+
+    /** 返回首个非空白字符串（用于挑选幂等键：报文 id 优先，回退 MQ messageId）。 */
+    private static String firstNonBlank(String... candidates) {
+        for (String c : candidates) {
+            if (c != null && !c.isBlank()) {
+                return c;
+            }
+        }
+        return null;
     }
 }

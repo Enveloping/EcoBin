@@ -20,9 +20,9 @@ public class DeviceCommandServiceImpl implements DeviceCommandService {
     private final OneNetClient oneNetClient;
 
     @Override
-    public void sendOpenDoor(String deviceSn, Integer doorIndex, String deliveryToken) {
-        // 经 OneNet 下发 openDeliveryDoor；分类缺省（null）由设备按投口配置兜底（物模型 §3.1）
-        oneNetClient.openDeliveryDoor(deviceSn, doorIndex, deliveryToken, null, null);
+    public void sendOpenDoor(String deviceSn, Integer doorIndex) {
+        // 经 OneNet 下发 openDeliveryDoor（仅含 COS 凭证）；分类缺省由设备按投口配置兜底（物模型 §3.1）
+        oneNetClient.openDeliveryDoor(deviceSn, doorIndex, null, null);
     }
 
     @Override

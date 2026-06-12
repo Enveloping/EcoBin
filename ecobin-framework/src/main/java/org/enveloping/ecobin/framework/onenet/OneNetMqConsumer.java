@@ -98,7 +98,8 @@ public class OneNetMqConsumer implements SmartLifecycle {
             Message<byte[]> message = null;
             try {
                 message = consumer.receive();
-                dispatch(new String(message.getData(), java.nio.charset.StandardCharsets.UTF_8));
+                dispatch(new String(message.getData(), java.nio.charset.StandardCharsets.UTF_8),
+                        message.getMessageId().toString());
             } catch (Exception e) {
                 if (running.get()) {
                     log.error("[OneNet·MQ] 处理消息异常", e);
@@ -115,8 +116,8 @@ public class OneNetMqConsumer implements SmartLifecycle {
         }
     }
 
-    /** 解第一层 → 解密 → 打印 → 交分发器。 */
-    private void dispatch(String envelope) {
+    /** 解第一层 → 解密 → 打印 → 交分发器（透传 MQ 消息 id 作幂等兜底）。 */
+    private void dispatch(String envelope, String mqMessageId) {
         String decrypted;
         try {
             JsonNode root = objectMapper.readTree(envelope);
@@ -138,7 +139,7 @@ public class OneNetMqConsumer implements SmartLifecycle {
             return;
         }
         try {
-            handler.handle(decrypted);
+            handler.handle(decrypted, mqMessageId);
         } catch (Exception e) {
             log.error("[OneNet·MQ] 分发处理异常（已忽略，消息将被 ack）", e);
         }

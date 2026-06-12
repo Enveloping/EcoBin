@@ -2,7 +2,6 @@ package org.enveloping.ecobin.framework.onenet;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.enveloping.ecobin.framework.cos.CosPhotoKeys;
 import org.enveloping.ecobin.framework.cos.CosStsCredential;
 import org.enveloping.ecobin.framework.cos.CosTokenClient;
 import org.springframework.http.HttpEntity;
@@ -38,36 +37,40 @@ public class OneNetClient {
 
     /**
      * 下发「开投递投口」指令（物模型服务 {@code openDeliveryDoor}），COS 临时密钥搭车下发。
+     * <p>
+     * 投递为「上传后建单」：照片位置由<strong>设备</strong>决定（设备自生成 token、自定对象 key 直传），
+     * 故本命令<strong>只下发凭证</strong>，不下发照片 key。
      *
-     * @param devSn         设备序列号
-     * @param doorIndex     投口号
-     * @param deliveryToken 投递标识符（设备 {@code deliveryComplete} 原样带回）
-     * @param wasteType1    一级分类
-     * @param wasteType2    二级分类
+     * @param devSn      设备序列号
+     * @param doorIndex  投口号
+     * @param wasteType1 一级分类
+     * @param wasteType2 二级分类
      */
-    public void openDeliveryDoor(String devSn, Integer doorIndex, String deliveryToken,
+    public void openDeliveryDoor(String devSn, Integer doorIndex,
                                  Integer wasteType1, Integer wasteType2) {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("doorIndex", doorIndex);
-        input.put("deliveryToken", deliveryToken);
         input.put("wasteType1", wasteType1);
         input.put("wasteType2", wasteType2);
-        input.put("cosToken", buildCosToken(devSn, doorIndex, deliveryToken));
+        input.put("cosToken", baseCosToken(devSn, doorIndex));
         invokeService(devSn, "openDeliveryDoor", input);
     }
 
     /**
      * 下发「开清运门」指令（物模型服务 {@code openCleanDoor}），COS 临时密钥搭车下发。
+     * <p>
+     * 清运「开门即建单」：照片 key 由后端按 {@code {sn}/{doorIndex}/{cleanOrderId}/<slot>.jpg} 确定性生成并
+     * 开门即预存订单 URL；本命令<strong>不下发照片 key</strong>，设备据下发的 {@code cleanOrderId} 自行按同一约定拼 key 直传。
      *
      * @param devSn        设备序列号
      * @param doorIndex    投口号（物理控制）
-     * @param cleanOrderId 清运订单ID（设备 {@code cleanGross}/{@code cleanTare} 原样带回；同时用于生成照片 key）
+     * @param cleanOrderId 清运订单ID（设备 {@code cleanGross}/{@code cleanTare} 原样带回；并据此自拼照片 key）
      */
     public void openCleanDoor(String devSn, Integer doorIndex, Long cleanOrderId) {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("doorIndex", doorIndex);
         input.put("cleanOrderId", cleanOrderId);
-        input.put("cosToken", buildCosToken(devSn, doorIndex, String.valueOf(cleanOrderId)));
+        input.put("cosToken", baseCosToken(devSn, doorIndex));
         invokeService(devSn, "openCleanDoor", input);
     }
 
@@ -106,19 +109,16 @@ public class OneNetClient {
     }
 
     /**
-     * 取 COS 临时密钥并组装为 {@code cosToken} 结构（物模型 §3.4）。
+     * 取 COS 临时密钥组装为<strong>仅凭证</strong>的 {@code cosToken} 结构（投递/清运通用，物模型 §3.4）。
      * <p>
+     * 照片 key 不下发：投递由设备自定位置、清运由设备据 {@code cleanOrderId} 按约定自拼。
      * {@code sessionToken} 实测约 640 > OneNet 512 上限，按 512 拆 {@code sessionToken1/2}，固件按序拼接还原。
-     * 上传 key 由后端按订单 {@code token} 确定性生成（4 张照片各一个），设备按槽位直传，无需回传 URL。
-     *
-     * @param token 订单关联键：投递 deliveryToken / 清运 cleanOrderId（用于生成照片 key）
      */
-    private Map<String, Object> buildCosToken(String devSn, Integer doorIndex, String token) {
+    private Map<String, Object> baseCosToken(String devSn, Integer doorIndex) {
         CosStsCredential cred = cosTokenClient.getTempCredentials(devSn, doorIndex);
         String sessionToken = cred.getSessionToken() == null ? "" : cred.getSessionToken();
         String part1 = sessionToken.length() > ONENET_STRING_MAX ? sessionToken.substring(0, ONENET_STRING_MAX) : sessionToken;
         String part2 = sessionToken.length() > ONENET_STRING_MAX ? sessionToken.substring(ONENET_STRING_MAX) : "";
-        CosPhotoKeys keys = cosTokenClient.buildPhotoKeys(devSn, doorIndex, token);
 
         Map<String, Object> cosToken = new LinkedHashMap<>();
         cosToken.put("tmpSecretId", cred.getTmpSecretId());
@@ -128,11 +128,6 @@ public class OneNetClient {
         cosToken.put("bucket", cred.getBucket());
         cosToken.put("region", cred.getRegion());
         cosToken.put("baseUrl", cred.getBaseUrl());
-        cosToken.put("keyOpenOutside", keys.openOutside());
-        cosToken.put("keyOpenInside", keys.openInside());
-        cosToken.put("keyCloseOutside", keys.closeOutside());
-        cosToken.put("keyCloseInside", keys.closeInside());
-        cosToken.put("expire", cred.getExpiredTime());
         return cosToken;
     }
 }

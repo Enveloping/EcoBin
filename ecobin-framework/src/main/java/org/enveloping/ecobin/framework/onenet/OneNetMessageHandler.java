@@ -14,6 +14,8 @@ public interface OneNetMessageHandler {
      * 实现应自行保证幂等并吞掉异常（北向为 at-least-once，抛出会阻塞 ack）。
      *
      * @param decryptedJson 解密后的第二层明文 JSON
+     * @param mqMessageId   MQ 传输层消息 id（Pulsar messageId），作幂等兜底键：
+     *                      报文自带 OneNet 消息 id 时优先用报文 id，缺失时回退本值（同一消息重投 id 不变）
      */
-    void handle(String decryptedJson);
+    void handle(String decryptedJson, String mqMessageId);
 }

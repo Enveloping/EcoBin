@@ -1,7 +1,6 @@
 package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.dto.OpenDoorResult;
 import org.enveloping.ecobin.business.entity.DeliveryOrder;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
 import org.enveloping.ecobin.business.service.StatisticsService;
@@ -54,6 +53,7 @@ class StatisticsTest {
     private final Long tenantId = 2L;
     private Long userId;
     private Long doorId;
+    private Integer doorIndex;
     private String deviceSn;
 
     @BeforeEach
@@ -75,6 +75,7 @@ class StatisticsTest {
 
         Door door = doorService.listByDeviceId(device.getId()).get(0);
         doorId = door.getId();
+        doorIndex = door.getDoorIndex();
         door.setPrice(new BigDecimal("2.00"));
         doorService.updateById(door);
 
@@ -123,14 +124,14 @@ class StatisticsTest {
         TenantContextHolder.setIgnore(false);
     }
 
-    /** 走完投递两阶段流程以产生投递数据 */
+    /** 走完投递流程（开启设备建会话 → 设备上传后建单）以产生投递数据 */
     private void doDelivery(double weight) {
         asUser();
-        OpenDoorResult result = deliveryOrderService.openDoor(doorId);
+        deliveryOrderService.openDoor(doorId);
         asDevice();
         DeliveryReportRequest report = new DeliveryReportRequest();
         report.setSn(deviceSn);
-        report.setDeliveryToken(result.deliveryToken());
+        report.setDoorIndex(doorIndex);
         report.setWeight(new BigDecimal(String.valueOf(weight)));
         deliveryOrderService.completeDelivery(report);
     }

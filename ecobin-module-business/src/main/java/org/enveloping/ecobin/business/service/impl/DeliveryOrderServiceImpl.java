@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.dto.OpenDoorResult;
 import org.enveloping.ecobin.business.entity.DeliveryOrder;
 import org.enveloping.ecobin.business.mapper.DeliveryOrderMapper;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
@@ -13,12 +13,12 @@ import org.enveloping.ecobin.common.constant.Constants;
 import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.common.result.PageResult;
 import org.enveloping.ecobin.device.entity.Device;
+import org.enveloping.ecobin.device.entity.DeviceSession;
 import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceCommandService;
 import org.enveloping.ecobin.device.service.DeviceService;
+import org.enveloping.ecobin.device.service.DeviceSessionService;
 import org.enveloping.ecobin.device.service.DoorService;
-import org.enveloping.ecobin.framework.cos.CosPhotoKeys;
-import org.enveloping.ecobin.framework.cos.CosTokenClient;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
 import org.enveloping.ecobin.business.service.WalletService;
 import org.springframework.stereotype.Service;
@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, DeliveryOrder> implements DeliveryOrderService {
@@ -37,8 +38,8 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
     private final DoorService doorService;
     private final DeviceService deviceService;
     private final DeviceCommandService deviceCommandService;
+    private final DeviceSessionService deviceSessionService;
     private final WalletService walletService;
-    private final CosTokenClient cosTokenClient;
 
     @Override
     public boolean save(DeliveryOrder order) {
@@ -52,7 +53,7 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
     }
 
     @Override
-    public OpenDoorResult openDoor(Long doorId) {
+    public void openDoor(Long doorId) {
         Long userId = SecurityUtils.getCurrentUserId();
         if (userId == null) {
             throw new BusinessException(401, "未登录");
@@ -70,29 +71,11 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
             throw new BusinessException(404, "设备不存在");
         }
 
-        String deliveryToken = UUID.randomUUID().toString().replace("-", "");
-        DeliveryOrder order = new DeliveryOrder();
-        order.setTenantId(door.getTenantId());
-        order.setDeliveryToken(deliveryToken);
-        order.setDeviceId(device.getId());
-        order.setDoorId(door.getId());
-        order.setUserId(userId);
-        order.setWasteType1(door.getWasteType1());
-        order.setWasteType2(door.getWasteType2() != null ? door.getWasteType2() : 0);
-        order.setStatus(0);             // 正常
-        order.setDeliveryStatus(0);     // 进行中（待设备上报回填）
-        order.setLoginType(4);          // 二维码扫码
-        // 照片 key 由后端按 deliveryToken 确定性生成，开门即预存 4 张照片 URL（设备直传到对应 key，无需回传）
-        CosPhotoKeys keys = cosTokenClient.buildPhotoKeys(device.getSn(), door.getDoorIndex(), deliveryToken);
-        order.setPhotoOpenOutside(cosTokenClient.toUrl(keys.openOutside()));
-        order.setPhotoOpenInside(cosTokenClient.toUrl(keys.openInside()));
-        order.setPhotoCloseOutside(cosTokenClient.toUrl(keys.closeOutside()));
-        order.setPhotoCloseInside(cosTokenClient.toUrl(keys.closeInside()));
-        save(order);
+        // 不建单：仅记「设备当前活跃用户」会话（loginType=4 二维码扫码），建单移到设备上传之后。
+        deviceSessionService.activate(device.getId(), door.getTenantId(), userId, 4);
 
-        // 下发开投口指令（当前为占位实现，不阻塞主流程）
-        deviceCommandService.sendOpenDoor(device.getSn(), door.getDoorIndex(), deliveryToken);
-        return new OpenDoorResult(order.getId(), deliveryToken);
+        // 下发开投口指令（仅含 COS 凭证；token/照片 key 由设备每次开门自生成）
+        deviceCommandService.sendOpenDoor(device.getSn(), door.getDoorIndex());
     }
 
     @Override
@@ -103,44 +86,71 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
         if (device == null) {
             throw new BusinessException(404, "设备未注册: " + request.getSn());
         }
-        DeliveryOrder order = lambdaQuery()
-                .eq(DeliveryOrder::getDeliveryToken, request.getDeliveryToken())
+
+        // 幂等：按 device + msgId（OneNet 消息 id / MQ messageId，落 delivery_token 列）去重，
+        //   适配 MQ at-least-once 重投。msgId 为空（直连未带）则跳过去重。
+        String msgId = request.getMsgId();
+        if (msgId != null && !msgId.isBlank()) {
+            DeliveryOrder exist = lambdaQuery()
+                    .eq(DeliveryOrder::getDeviceId, device.getId())
+                    .eq(DeliveryOrder::getDeliveryToken, msgId)
+                    .one();
+            if (exist != null) {
+                log.info("[投递] 重复上报已忽略 sn={}, msgId={}", request.getSn(), msgId);
+                return;
+            }
+        }
+
+        // 按 device + doorIndex 反查投口（取单价、分类兜底）
+        Door door = doorService.lambdaQuery()
+                .eq(Door::getDeviceId, device.getId())
+                .eq(Door::getDoorIndex, request.getDoorIndex())
                 .one();
-        if (order == null) {
-            throw new BusinessException(404, "投递记录不存在");
-        }
-        // 校验记录确属该设备/租户，避免越权回填
-        if (!device.getId().equals(order.getDeviceId())
-                || !device.getTenantId().equals(order.getTenantId())) {
-            throw new BusinessException(400, "投递记录与设备不匹配");
-        }
-        if (order.getDeliveryStatus() != null && order.getDeliveryStatus() == 1) {
-            throw new BusinessException(400, "投递已完成，请勿重复上报");
+
+        // 取该设备「当前活跃用户」会话确定归属；无/过期 → 无主单
+        DeviceSession session = deviceSessionService.findActive(device.getId());
+
+        DeliveryOrder order = new DeliveryOrder();
+        order.setDeviceId(device.getId());
+        order.setDoorId(door != null ? door.getId() : null);
+        order.setDeliveryToken(request.getMsgId());   // 幂等键落库（device+msgId 唯一）
+        order.setWeight(request.getWeight());
+        order.setStatus(0);
+        order.setDeliveryStatus(1);     // 上传即完成
+        // 分类：上报优先，否则取投口配置兜底
+        order.setWasteType1(request.getWasteType1() != null ? request.getWasteType1()
+                : (door != null ? door.getWasteType1() : 0));
+        order.setWasteType2(request.getWasteType2() != null ? request.getWasteType2()
+                : (door != null && door.getWasteType2() != null ? door.getWasteType2() : 0));
+        // 照片 URL：设备直传 COS 后随本次称重上报回传，后端原样存（继续投递时位置由设备定，不由后端复原）
+        order.setPhotoOpenOutside(request.getPhotoOpenOutside());
+        order.setPhotoOpenInside(request.getPhotoOpenInside());
+        order.setPhotoCloseOutside(request.getPhotoCloseOutside());
+        order.setPhotoCloseInside(request.getPhotoCloseInside());
+
+        if (session != null) {
+            order.setTenantId(session.getTenantId());
+            order.setUserId(session.getUserId());
+            order.setLoginType(session.getLoginType());
+        } else {
+            // 无主单：归设备租户、不绑用户、不返现，告警待认领
+            order.setTenantId(device.getTenantId());
+            log.warn("[投递] 无活跃用户会话，建无主单 sn={}, doorIndex={}",
+                    request.getSn(), request.getDoorIndex());
         }
 
-        DeliveryOrder update = new DeliveryOrder();
-        update.setId(order.getId());
-        update.setWeight(request.getWeight());
-        if (request.getWasteType1() != null) {
-            update.setWasteType1(request.getWasteType1());
-        }
-        if (request.getWasteType2() != null) {
-            update.setWasteType2(request.getWasteType2());
-        }
-        update.setDeliveryStatus(1);    // 已完成
-
-        // 计算返现金额 = 投口单价 × 重量；回填单价，并入账到用户余额（同事务）
+        // 计算返现单价（有投口配置时回填）
         BigDecimal amount = null;
-        Door door = order.getDoorId() != null ? doorService.getById(order.getDoorId()) : null;
         if (door != null && door.getPrice() != null && request.getWeight() != null) {
+            order.setPrice(door.getPrice());
             amount = door.getPrice().multiply(request.getWeight()).setScale(2, RoundingMode.HALF_UP);
-            update.setPrice(door.getPrice());
         }
-        updateById(update);
+        save(order);
 
-        if (amount != null) {
-            // 重复上报已在上方拒绝，保证每单仅入账一次
+        // 仅命中活跃用户时入账并续期会话；无主单不返现
+        if (session != null && amount != null) {
             walletService.income(order.getUserId(), order.getTenantId(), amount, order.getId());
+            deviceSessionService.refresh(device.getId());
         }
     }
 

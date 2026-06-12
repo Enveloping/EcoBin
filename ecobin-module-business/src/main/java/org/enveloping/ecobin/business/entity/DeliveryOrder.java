@@ -20,7 +20,7 @@ public class DeliveryOrder extends BaseEntity {
     /** 订单编号 */
     private String orderSn;
 
-    /** 投递标识符（开投口生成下发，设备关投口上报回填时据此关联） */
+    /** 幂等键：上传后建单时落 OneNet 消息 id / MQ messageId（device+此值唯一去重）；直连未带则空 */
     private String deliveryToken;
 
     /** 设备ID */

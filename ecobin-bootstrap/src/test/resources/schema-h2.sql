@@ -202,6 +202,20 @@ CREATE TABLE IF NOT EXISTS biz_door_status (
     INDEX idx_door_status_tenant_id (tenant_id)
 );
 
+-- 8c. 设备活跃会话表（V13：当前活跃用户，支撑投递上传后建单的用户归属）
+CREATE TABLE IF NOT EXISTS biz_device_session (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id   BIGINT       NOT NULL DEFAULT 1,
+    device_id   BIGINT       NOT NULL,
+    user_id     BIGINT                DEFAULT NULL,
+    login_type  TINYINT               DEFAULT NULL,
+    expire_time DATETIME              DEFAULT NULL,
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_device_session_device_id (device_id),
+    INDEX idx_device_session_tenant_id (tenant_id)
+);
+
 -- 9. 重量变更记录表
 CREATE TABLE IF NOT EXISTS biz_weight_record (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

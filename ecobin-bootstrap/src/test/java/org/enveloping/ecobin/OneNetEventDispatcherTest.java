@@ -42,7 +42,7 @@ class OneNetEventDispatcherTest {
                 {"msgType":"thingEvent","subData":{"deviceName":"EcoBin-SN-0001",
                 "params":{"cleanGross":{"value":{"cleanOrderId":123,"weight":12.5},"time":1700000000000}}}}""";
 
-        dispatcher.handle(json);
+        dispatcher.handle(json, "mq-msg-1");
 
         ArgumentCaptor<CleanGrossRequest> captor = ArgumentCaptor.forClass(CleanGrossRequest.class);
         verify(cleanOrderService).reportGross(captor.capture());
@@ -58,7 +58,7 @@ class OneNetEventDispatcherTest {
                 {"msgType":"thingEvent","subData":{"deviceName":"EcoBin-SN-0002",
                 "params":{"cleanTare":{"cleanOrderId":456,"weight":0.30}}}}""";
 
-        dispatcher.handle(json);
+        dispatcher.handle(json, "mq-msg-1");
 
         ArgumentCaptor<CleanTareRequest> captor = ArgumentCaptor.forClass(CleanTareRequest.class);
         verify(cleanOrderService).reportTare(captor.capture());
@@ -72,18 +72,23 @@ class OneNetEventDispatcherTest {
     void deliveryComplete_routesToCompleteDelivery() {
         String json = """
                 {"msgType":"thingEvent","subData":{"deviceName":"EcoBin-SN-0003",
-                "params":{"deliveryComplete":{"value":{"deliveryToken":"TK-9","weight":3.2,"wasteType1":1,"wasteType2":11}}}}}""";
+                "params":{"deliveryComplete":{"value":{"doorIndex":2,"weight":3.2,"wasteType1":1,"wasteType2":11,\
+                "photoOpenOutside":"https://b/a/open_outside.jpg","photoCloseInside":"https://b/a/close_inside.jpg"}}}}}""";
 
-        dispatcher.handle(json);
+        dispatcher.handle(json, "mq-msg-1");
 
         ArgumentCaptor<DeliveryReportRequest> captor = ArgumentCaptor.forClass(DeliveryReportRequest.class);
         verify(deliveryOrderService).completeDelivery(captor.capture());
         DeliveryReportRequest req = captor.getValue();
         assertThat(req.getSn()).isEqualTo("EcoBin-SN-0003");
-        assertThat(req.getDeliveryToken()).isEqualTo("TK-9");
+        assertThat(req.getMsgId()).isEqualTo("mq-msg-1");   // 报文无 id → 回退 MQ messageId 作幂等键
+        assertThat(req.getDoorIndex()).isEqualTo(2);
         assertThat(req.getWeight()).isEqualByComparingTo(new BigDecimal("3.2"));
         assertThat(req.getWasteType1()).isEqualTo(1);
         assertThat(req.getWasteType2()).isEqualTo(11);
+        // 照片 URL 随事件回传，分发器灌进 DTO
+        assertThat(req.getPhotoOpenOutside()).isEqualTo("https://b/a/open_outside.jpg");
+        assertThat(req.getPhotoCloseInside()).isEqualTo("https://b/a/close_inside.jpg");
     }
 
     @Test
@@ -91,7 +96,7 @@ class OneNetEventDispatcherTest {
         String json = """
                 {"msgType":"thingProperty","subData":{"deviceName":"EcoBin-SN-0004","params":{"voltage":{"value":12.0}}}}""";
 
-        dispatcher.handle(json);
+        dispatcher.handle(json, "mq-msg-1");
 
         verifyNoInteractions(cleanOrderService, deliveryOrderService);
     }
