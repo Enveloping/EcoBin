@@ -179,29 +179,34 @@ Authorization: Bearer <token>
 
 > 用户**只能通过小程序自动注册**，后台不提供手动建终端用户。同一微信在不同租户小程序下是各自独立的账号。
 
-### 4.3 投递流程（两阶段：小程序开投口 + 设备 IoT 上报）
+### 4.3 投递流程（开启设备 + 设备上传后建单，支持设备端「继续投递」）
 
 ```
 阶段0 选择目标
   小程序  GET /api/app/device              → 列出本租户设备
   小程序  GET /api/app/device/{id}/doors   → 列出该设备的投口（含分类、单价）
 
-阶段1 开投口（小程序）
+① 开启设备（小程序）—— 不建单
   小程序  POST /api/app/delivery/open { doorId }
-          → 后端建"进行中"投递记录(deliveryStatus=0)，返回 { orderId, deliveryToken }
-          → 下发开投口指令，用户投放垃圾
+          → 后端记「设备当前活跃用户」会话（device→userId，TTL 15min），返回 ok
+          → 下发开投口指令（仅含 COS 凭证），用户投放垃圾
 
-阶段2 完成上报（设备 IoT，非前端调用）
-  设备    POST /api/iot/delivery/complete { sn, deliveryToken, weight, wasteType1?, wasteType2? }
-          → 按 deliveryToken 关联回填重量，置"已完成"(deliveryStatus=1)
-          → 按 投口单价 price × weight 计算返现，入账到用户 balance
+② 设备作业 + 继续投递（设备端自主）
+          → 设备每次开门自生成 deliveryToken；用户可在设备屏点「继续投递」再投一袋（每袋独立成单）
+
+③ 完成上报（设备 IoT，非前端调用）—— 上传后建单
+  设备    POST /api/iot/delivery/complete { sn, doorIndex, deliveryToken, weight, wasteType1?, wasteType2? }
+          → 按 device+deliveryToken 幂等；取「当前活跃用户」会话建单(deliveryStatus=1)
+          → 命中用户：按 投口单价 price × weight 返现入账到 balance；无活跃会话：建无主单不返现
 
 查询
   小程序  GET /api/app/delivery/my         → 我的投递记录
   小程序  GET /api/app/wallet              → 查看返现后的余额
 ```
 
-> `deliveryToken` 由后端在开投口时生成下发，设备上报时必须**原样带回**用于关联同一条记录。投递流水**不可变、不可删除**。
+> `deliveryToken` 由**设备每次开门自生成**（照片 key 前缀 + 上报幂等键）。建单时机在**设备上传称重之后**，
+> 用户归属取该设备「当前活跃用户」会话；无活跃会话（过期/从未开启）则建无主单、不返现。投递流水**不可变、不可删除**。
+> 详见 `onenet-thing-model.md` §8。
 
 ### 4.4 清运流程（设备自动称重 + 去皮链式追踪，V9 重做）
 
@@ -505,15 +510,15 @@ Authorization: Bearer <token>
 |------|------|------|
 | `id` | long | 主键 |
 | `orderSn` | string | 订单编号 |
-| `deliveryToken` | string | 投递标识符（关联设备上报） |
-| `deviceId` / `doorId` / `userId` | long | 设备/投口/用户 |
+| `deliveryToken` | string | 投递标识符（设备生成，关联设备上报） |
+| `deviceId` / `doorId` / `userId` | long | 设备/投口/用户（无主单 `userId` 为 null） |
 | `wasteType1` / `wasteType2` | int | 分类 |
 | `weight` | decimal | 重量（kg） |
 | `price` | decimal | 单价 |
 | `score` | int | 获得积分 |
 | `loginType` | int | 登录方式（见 §10） |
 | `status` | int | 0-正常 / -1-异常 |
-| `deliveryStatus` | int | 0-进行中（已开投口待回填）/ 1-已完成 |
+| `deliveryStatus` | int | 1-已完成（投递改为上传后建单，建单即完成；0-进行中为历史遗留语义） |
 | `photoOpenOutside` | string | 开门前箱外照片 URL（V11） |
 | `photoOpenInside` | string | 开门前箱内照片 URL（V11） |
 | `photoCloseOutside` | string | 关门后箱外照片 URL（V11） |
@@ -641,11 +646,11 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/app/delivery/open` | 开投口（阶段1） |
+| POST | `/api/app/delivery/open` | 开启设备：记「当前活跃用户」会话 + 下发开门（**不建单**） |
 | GET | `/api/app/delivery/my?page=1&pageSize=20` | 我的投递记录分页 |
 | GET | `/api/app/delivery/my/{id}` | 我的单条投递详情 |
 
-**开投口请求体**
+**开启设备请求体**
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
@@ -655,14 +660,11 @@ Authorization: Bearer <token>
 { "doorId": 12 }
 ```
 
-**开投口响应** `data`：
+**开启设备响应** `data`：`null`（仅 `{ "code":200, "message":"ok" }`）。
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `orderId` | long | 新建的进行中投递记录 ID |
-| `deliveryToken` | string | 投递标识符（设备上报时关联用） |
-
-后续重量回填与返现由设备 IoT 上报完成（§9）。`my` 列表返回 `DeliveryOrder`（见 §7.5）。
+> 不再返回 `orderId`/`deliveryToken`：投递改为「上传后建单」——订单在设备投放称重后由后端创建，
+> 用户在 `my` 列表（`DeliveryOrder`，见 §7.5）查看。用户可在设备屏「继续投递」再投一袋，每袋独立成单。
+> 重量回填与返现由设备 IoT 上报触发建单（§9）。
 
 ### 8.4 清运作业（仅 CLEANER 2 / DEVICE_ADMIN 3）
 
@@ -720,19 +722,20 @@ Authorization: Bearer <token>
 
 > 由设备端调用，**非前端职责**，列出以便理解投递闭环。路径 `/api/iot/**` 放行（无用户登录态），后端按上报的 `sn` 反查设备确定租户并校验。
 
-### 9.1 投递完成上报（投递两阶段·阶段2）
+### 9.1 投递完成上报（上传后建单）
 
 `POST /api/iot/delivery/complete`
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
 | `sn` | string | 是 | 设备序列号 |
-| `deliveryToken` | string | 是 | 开投口时后端下发，此处原样带回 |
+| `doorIndex` | int | 是 | 投口号（后端据 device+doorIndex 反查投口取单价/分类） |
+| `deliveryToken` | string | 是 | **设备每次开门自生成**：照片 key 前缀 + 上报幂等键 |
 | `weight` | decimal | 是 | 本次投递重量（kg） |
 | `wasteType1` | int | 否 | 一级分类（缺省沿用投口配置） |
 | `wasteType2` | int | 否 | 二级分类 |
 
-成功后回填重量、置完成、按 `投口单价 × 重量` 返现入用户余额。
+后端此刻**建单**：按 `device+deliveryToken` 幂等；取该设备「当前活跃用户」会话确定归属——命中则建单(`deliveryStatus=1`)、按 `投口单价 × 重量` 返现入余额；无活跃会话（过期/从未开启）则建无主单、不返现。详见 `onenet-thing-model.md` §8。
 
 ### 9.2 清运毛重上报（V9）
 
@@ -760,17 +763,16 @@ Authorization: Bearer <token>
 
 按 `(device, doorIndex)` upsert `biz_clean_bag`，更新当前袋编号与去皮（换袋天然幂等）。
 
-### 9.4 COS 照片直传（后端定 key + 开门即存 URL）
+### 9.4 COS 照片直传（设备直传 + 不回传 URL）
 
-**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。照片链路改为：
+**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。设备直传 COS、不回传 URL，
+但 token 产生方与建单/存 URL 时机按业务不同：
 
-1. 后端开门时（投递 `openDoor` / 清运 `open`）按订单 token 确定性生成 4 张照片的 COS 对象 key，
-   并把 4 个完整 URL 直接写入订单 `photoOpenOutside/photoOpenInside/photoCloseOutside/photoCloseInside`；
-2. 后端把 COS 临时凭证 + 4 个 key 随开门命令（OneNet `cosToken`）下发给设备（见 `onenet-thing-model.md` §3.4）；
-3. 设备用凭证把 4 张照片**分别**直传到对应 key，**不再回传 URL**。
+- **清运（开门即建单）**：后端开门时按 `cleanOrderId` 生成 4 个 key、把 URL 写入订单，并把凭证 + 4 个 key 随开门命令（OneNet `cosToken`）下发；设备按槽位直传。
+- **投递（上传后建单）**：开门只下发凭证；`deliveryToken` 与照片 key 由**设备**生成/自拼；后端在 `deliveryComplete` 建单时按同一公式复原 4 个 URL 写入订单。
 
-key 形如 `{sn}/{doorIndex}/{token}/<slot>.jpg`，token = 投递 `deliveryToken` / 清运 `cleanOrderId`，
-slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。
+key 形如 `{sn}/{doorIndex}/{token}/<slot>.jpg`，token = 投递 `deliveryToken`（设备生成）/ 清运 `cleanOrderId`（后端生成），
+slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。详见 `onenet-thing-model.md` §1.1/§3.4/§8。
 
 > 下发「开门」走 OneNet（`OneNetClient`），COS / OneNet 凭证未到位前均为占位日志/占位值，不阻塞主流程。
 > 兜底：后端不校验对象是否真上传成功，设备没传上时前端加载出 404 显示占位图。
@@ -835,8 +837,8 @@ slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。
 ### 投递阶段 `deliveryStatus`
 | 值 | 含义 |
 |---|------|
-| 0 | 进行中（已开投口，待设备回填） |
-| 1 | 已完成 |
+| 0 | 进行中（历史遗留；投递改上传后建单后不再产生此态） |
+| 1 | 已完成（设备上传即建单即完成） |
 
 ### 清运审核状态 `auditStatus`（已废弃，V9）
 > 清运改为设备自动称重上报后审核流程取消，字段保留仅兼容历史，新记录默认 1。

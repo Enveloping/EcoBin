@@ -34,6 +34,7 @@
 | `biz_clean_bag` | biz | 垃圾袋追踪（每投口当前袋去皮，V9） | V9 |
 | `biz_device_status` | biz | 设备实时状态（V10 收敛为设备级：去 total_weight/spill/smoke，加 rssi/fw_version） | V1, V10 |
 | `biz_door_status` | biz | 投口实时状态（V10 新增：投口级重量/满溢/烟雾快照） | V10 |
+| `biz_device_session` | biz | 设备活跃会话（V13 新增：当前活跃用户，支撑投递上传后建单） | V13 |
 | `biz_weight_record` | biz | 重量变更记录 | V1 |
 | `biz_withdraw_order` | biz | 提现申请单 | V8 |
 
@@ -290,6 +291,24 @@
 
 索引：`uk_door_status_device_door (device_id, door_index)`（UNIQUE）、`idx_door_status_tenant_id`
 
+### 8c. biz_device_session — 设备活跃会话（V13 新增）
+
+一台设备一行「当前活跃用户」，支撑**投递「上传后建单」时的用户归属**（设备无用户信息）。用户小程序「开启设备」时按 `device_id` upsert（覆盖为最近用户）；设备投递上报时按 `device_id` 查未过期会话确定用户，过期/无则建无主单。
+
+| 字段 | 类型 | 可空 | 默认值 | 说明 |
+|------|------|:---:|--------|------|
+| `id` | BIGINT | | AUTO | 主键 |
+| `tenant_id` | BIGINT | | 1 | 租户ID |
+| `device_id` | BIGINT | | | 设备ID（唯一，一台设备一行） |
+| `user_id` | BIGINT | ✓ | NULL | 当前活跃用户ID |
+| `login_type` | TINYINT | ✓ | NULL | 登录方式：1-手机 2-IC卡 3-人脸 4-二维码 |
+| `expire_time` | DATETIME | ✓ | NULL | 会话过期时间（超过即无活跃用户，TTL 默认 15min） |
+| `create_time` / `update_time` | DATETIME | | NOW() | 时间戳 |
+
+索引：`uk_device_session_device_id (device_id)`（UNIQUE）、`idx_device_session_tenant_id`
+
+> 详见 `onenet-thing-model.md` §8。覆盖语义：后来用户开启覆盖上一行（接受「最近用户」，交叠极罕见不额外处理）。
+
 ### 9. biz_weight_record — 重量变更记录
 
 设备重量变化的时序日志，用于异常检测和历史追溯。
@@ -470,3 +489,4 @@ sys_tenant ──< sys_user
 | V10 | `V10__refactor_device_door_status.sql` | biz_device_status 去 total_weight/spill_alarm/smoke_alarm、加 rssi/fw_version；新建 biz_door_status（投口级重量/满溢/烟雾快照） |
 | V11 | `V11__add_order_photos.sql` | biz_delivery_order / biz_clean_order 各加 4 个 photo URL 列（开门前/关门后 × 箱内/箱外） |
 | V12 | `V12__clean_order_new_bag.sql` | biz_clean_order 加 `new_bag_qr`（开门即建单：open 时扫到的新空袋，待去皮） |
+| V13 | `V13__add_device_session.sql` | 新建 biz_device_session（设备当前活跃用户，支撑投递上传后建单的用户归属） |

@@ -63,10 +63,9 @@
       "desc": "",
       "input": [
         { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
-        { "identifier": "deliveryToken", "name": "投递标识", "dataType": { "type": "string", "specs": { "length": 64 } } },
         { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
         { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
-        { "identifier": "cosToken", "name": "上传临时密钥", "dataType": {
+        { "identifier": "cosToken", "name": "上传临时密钥_仅凭证", "dataType": {
           "type": "struct",
           "specs": [
             { "identifier": "tmpSecretId", "name": "临时SecretId", "dataType": { "type": "string", "specs": { "length": 128 } } },
@@ -75,12 +74,7 @@
             { "identifier": "sessionToken2", "name": "会话令牌2", "dataType": { "type": "string", "specs": { "length": 512 } } },
             { "identifier": "bucket", "name": "桶名", "dataType": { "type": "string", "specs": { "length": 128 } } },
             { "identifier": "region", "name": "地域", "dataType": { "type": "string", "specs": { "length": 32 } } },
-            { "identifier": "baseUrl", "name": "访问域名", "dataType": { "type": "string", "specs": { "length": 256 } } },
-            { "identifier": "keyOpenOutside", "name": "开门前箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "keyOpenInside", "name": "开门前箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "keyCloseOutside", "name": "关门后箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "keyCloseInside", "name": "关门后箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "expire", "name": "过期时间秒", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999", "unit": "", "step": "1" } } }
+            { "identifier": "baseUrl", "name": "访问域名", "dataType": { "type": "string", "specs": { "length": 256 } } }
           ]
         } }
       ],
@@ -106,12 +100,7 @@
             { "identifier": "sessionToken2", "name": "会话令牌2", "dataType": { "type": "string", "specs": { "length": 512 } } },
             { "identifier": "bucket", "name": "桶名", "dataType": { "type": "string", "specs": { "length": 128 } } },
             { "identifier": "region", "name": "地域", "dataType": { "type": "string", "specs": { "length": 32 } } },
-            { "identifier": "baseUrl", "name": "访问域名", "dataType": { "type": "string", "specs": { "length": 256 } } },
-            { "identifier": "keyOpenOutside", "name": "开门前箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "keyOpenInside", "name": "开门前箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "keyCloseOutside", "name": "关门后箱外key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "keyCloseInside", "name": "关门后箱内key", "dataType": { "type": "string", "specs": { "length": 128 } } },
-            { "identifier": "expire", "name": "过期时间秒", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999", "unit": "", "step": "1" } } }
+            { "identifier": "baseUrl", "name": "访问域名", "dataType": { "type": "string", "specs": { "length": 256 } } }
           ]
         } }
       ],
@@ -139,10 +128,14 @@
       "eventType": "info",
       "desc": "",
       "outputData": [
-        { "identifier": "deliveryToken", "name": "投递标识", "dataType": { "type": "string", "specs": { "length": 64 } } },
+        { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
         { "identifier": "weight", "name": "投递重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
         { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
-        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } }
+        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
+        { "identifier": "photoOpenOutside", "name": "开门前箱外照片", "dataType": { "type": "string", "specs": { "length": 256 } } },
+        { "identifier": "photoOpenInside", "name": "开门前箱内照片", "dataType": { "type": "string", "specs": { "length": 256 } } },
+        { "identifier": "photoCloseOutside", "name": "关门后箱外照片", "dataType": { "type": "string", "specs": { "length": 256 } } },
+        { "identifier": "photoCloseInside", "name": "关门后箱内照片", "dataType": { "type": "string", "specs": { "length": 256 } } }
       ]
     },
     {

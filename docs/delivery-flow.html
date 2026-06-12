@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoBin 投递详细流程图（上传后建单 + 设备端继续投递）</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+    color: #1f2933;
+    background: #fafbfc;
+    line-height: 1.7;
+  }
+  h1 { font-size: 24px; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { font-size: 18px; margin-top: 36px; color: #1e3a8a; }
+  .diagram {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    overflow-x: auto;
+  }
+  .legend {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-top: 16px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 6px;
+    margin-right: 6px;
+  }
+  .tag-p1 { background: #dbeafe; color: #1e40af; }
+  .tag-p2 { background: #dcfce7; color: #166534; }
+  .tag-net { background: #e0e7ff; color: #3730a3; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 14px; }
+  th, td { border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; }
+  code { background: #f1f5f9; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .footnote { color: #64748b; font-size: 13px; margin-top: 24px; }
+</style>
+</head>
+<body>
+
+<h1>EcoBin 投递详细流程图 — 上传后建单 + 设备端继续投递</h1>
+<p>投递从「后端开门即建单」改为「<strong>设备上传称重后后端才建单</strong>」：用户在小程序「开启设备」只记录
+该设备<strong>当前活跃用户</strong>会话（不建单）；设备投放称重后上报，后端此刻才建单，归属取活跃会话用户。
+用户可在<strong>设备屏「继续投递」</strong>本地再开门投下一袋，仍归同一活跃用户、每袋独立成单。照片由设备
+<strong>直传腾讯云 COS</strong>（key 由设备按约定格式自拼，后端建单时复原 URL），<strong>设备不回传 URL</strong>。全程免公网。
+<span class="tag tag-p1">开启设备·建会话</span>
+<span class="tag tag-p2">上传后建单</span>
+<span class="tag tag-net">设备↔COS 直连</span>
+</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as 终端用户<br/>(微信小程序)
+    participant B as EcoBin 后端<br/>(内网·免公网)
+    participant O as OneNet 平台
+    participant D as 回收箱设备
+    participant C as 腾讯云 COS
+
+    rect rgb(219,234,254)
+    Note over U,B: ① 开启设备（App · 登录态）— 不建单
+    U->>U: 扫码登录（loginType=4）→ 选投口
+    U->>B: POST /api/app/delivery/open { doorId }
+    Note over B: SecurityUtils 取 userId（未登录 → 401）；校验 door/device
+    Note over B: upsert 设备会话 biz_device_session：device→userId/tenant，expire=now+15min
+    B->>O: openDeliveryDoor（doorIndex + cosToken 仅凭证）出站
+    O->>D: 下发开投口命令 + COS 临时凭证（设备整会话缓存复用）
+    B-->>U: ok（不返回 orderId/token，订单事后在「我的投递」看）
+    end
+
+    rect rgb(224,231,255)
+    Note over D,C: ② 设备作业 + 继续投递（设备端自主，免公网）
+    D->>D: 开门（首次后端触发 / 续投设备本地开）→ 每次自生成 deliveryToken
+    D->>D: 开门前抓拍 2 张
+    Note over U,D: 用户投放 → 关投口 → 设备称重
+    D->>D: 关门后抓拍 2 张
+    D->>C: 按 {sn}/{doorIndex}/{deliveryToken}/&lt;slot&gt;.jpg 自拼 key 直传 4 张（用缓存凭证）
+    C-->>D: 200 OK（无需回传 URL）
+    Note over D: 用户在设备屏点「继续投递」→ 回到本段开头（新 deliveryToken）
+    end
+
+    rect rgb(220,252,231)
+    Note over D,B: ③ 设备上传 → 后端建单 deliveryComplete
+    D->>O: deliveryComplete{ deliveryToken, doorIndex, weight, wasteType1/2? }（MQTT 上行）
+    O-->>B: 北向 MQ 订阅（OneNetMqConsumer 解密 → OneNetEventDispatcher）出站
+    Note over B: 联调备选：设备直连 POST /api/iot/delivery/complete
+    Note over B: 按 SN 反查 device；按 device+deliveryToken 幂等（已建单→忽略）
+    Note over B: 按 device+doorIndex 反查投口（取单价/分类兜底）
+    Note over B: findActive 取设备「当前活跃用户」会话
+    alt 命中活跃会话
+        Note over B: 建单(userId=会话用户, deliveryStatus=1)，按 deliveryToken 复原 4 张照片 URL
+        Note over B: 返现 = door.price × weight → 入账余额；续期会话
+    else 过期 / 从未开启
+        Note over B: 建无主单(userId=null, 归设备租户)，不返现，log.warn 告警
+    end
+    end
+</pre>
+</div>
+
+<h2>关键规则速查</h2>
+<div class="legend">
+<table>
+  <tr><th>点</th><th>说明</th></tr>
+  <tr>
+    <td>身份关联 <code>biz_device_session</code></td>
+    <td>按 <code>device_id</code> 唯一，一台设备一行「当前活跃用户」。开启设备 upsert；上传时 findActive 取归属。
+        后来用户开启会覆盖上一行（接受「最近用户」语义，交叠极罕见不额外处理）。TTL 默认 15 分钟，投递成功续期。</td>
+  </tr>
+  <tr>
+    <td>建单时机</td>
+    <td><strong>设备上传称重之后</strong>才建单（不预建）。首投 / 续投对称，每袋独立成单（<code>deliveryStatus=1</code> 上传即完成）。</td>
+  </tr>
+  <tr>
+    <td>关联键 <code>deliveryToken</code></td>
+    <td><strong>设备每次开门自生成</strong>（含设备屏续投本地开门）。既是照片 key 前缀，也是 <code>device+deliveryToken</code> 的上报幂等键（适配 MQ at-least-once）。</td>
+  </tr>
+  <tr>
+    <td>照片 key</td>
+    <td><code>{sn}/{doorIndex}/{deliveryToken}/&lt;slot&gt;.jpg</code>，slot ∈ open_outside/open_inside/close_outside/close_inside。
+        开门只下发凭证（设备整会话缓存复用）；设备自拼 key 直传，后端建单时按同一公式复原 <code>baseUrl + key</code> 写订单 photo_*。</td>
+  </tr>
+  <tr>
+    <td>返现入账</td>
+    <td>命中活跃用户时 <code>amount = door.price × weight</code>（HALF_UP 2 位）入用户余额，与建单同事务；<strong>无主单不返现</strong>。</td>
+  </tr>
+  <tr>
+    <td>免公网 <span class="tag tag-p2">出站</span></td>
+    <td>开门下发 = 后端→OneNet 出站；事件上行 = 后端作 MQ 消费者拨出去；照片 = 设备↔COS 直连。无任何「设备/平台 → 后端」入站端点。</td>
+  </tr>
+</table>
+</div>
+
+<p class="footnote">对应代码：开启设备 <code>AppDeliveryController.openDoor</code> → <code>DeliveryOrderServiceImpl.openDoor</code>（建会话 + 下发）；
+下发 <code>DeviceCommandService.sendOpenDoor(sn,doorIndex)</code> → <code>OneNetClient.openDeliveryDoor</code>（cosToken 仅凭证）；
+上传后建单 <code>OneNetEventDispatcher.handleDeliveryComplete</code>（或直连 <code>IotDeliveryController.complete</code>）→ <code>DeliveryOrderServiceImpl.completeDelivery</code>；
+会话 <code>DeviceSessionService</code>（迁移 <code>V13__add_device_session.sql</code>）。字段口径见 <code>onenet-thing-model.md</code> §3.1 / §4.1 / §8。</p>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, sequence: { showSequenceNumbers: false, wrap: true } });
+</script>
+</body>
+</html>
