@@ -50,8 +50,10 @@ public class OneNetClient {
                                  Integer wasteType1, Integer wasteType2) {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("doorIndex", doorIndex);
-        input.put("wasteType1", wasteType1);
-        input.put("wasteType2", wasteType2);
+        // 物模型 openDeliveryDoor 的入参均为必填，OneNet 服务调用会校验"required value"。
+        // 分类未指定时下发 0（= 缺省/不区分，设备侧仍按投口配置兜底），避免传 null 触发 10415。
+        input.put("wasteType1", wasteType1 != null ? wasteType1 : 0);
+        input.put("wasteType2", wasteType2 != null ? wasteType2 : 0);
         input.put("cosToken", baseCosToken(devSn, doorIndex));
         invokeService(devSn, "openDeliveryDoor", input);
     }

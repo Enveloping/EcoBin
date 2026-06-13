@@ -23,8 +23,8 @@ public class OneNetProperties {
     /** 平台 API 基地址（OneNET Studio 物联网开放平台） */
     private String baseUrl = "https://iot-api.heclouds.com";
 
-    /** 物模型服务调用路径（联调待校验） */
-    private String invokeServicePath = "/thingmodel/invoke-thing-service";
+    /** 物模型服务调用路径（AIoT 融合平台「设备服务调用」API，见 docs/references/设备服务调用.md） */
+    private String invokeServicePath = "/thingmodel/call-service";
 
     /** 产品ID */
     private String productId;
