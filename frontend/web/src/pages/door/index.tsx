@@ -13,6 +13,7 @@ import {
 } from '@ant-design/pro-components';
 import { Button, Popconfirm, App } from 'antd';
 import { listDoors, createDoor, updateDoor, deleteDoor } from '@/api/door';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import {
   WASTE_TYPE1,
   WASTE_TYPE2,
@@ -81,7 +82,7 @@ export default function DoorPage() {
           title="确认删除该投口？"
           onConfirm={() => record.id && handleDelete(record.id)}
         >
-          <a style={{ color: '#ff4d4f' }}>删除</a>
+          <a style={{ color: DANGER_COLOR }}>删除</a>
         </Popconfirm>,
       ],
     },
@@ -89,7 +90,7 @@ export default function DoorPage() {
 
   return (
     <PageContainer
-      title={`设备 #${did} 的投口管理`}
+      {...pageHeader(`设备 #${did} 的投口管理`)}
       extra={
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/device')}>
           返回设备列表
@@ -97,10 +98,11 @@ export default function DoorPage() {
       }
     >
       <ProTable<Door>
+        {...proTableConfig}
+        search={false}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
-        search={false}
         pagination={false}
         request={async () => {
           try {
