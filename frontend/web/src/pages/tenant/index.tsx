@@ -12,6 +12,7 @@ import {
 import { Button, Popconfirm, App } from 'antd';
 import { listTenants, createTenant, updateTenant, deleteTenant } from '@/api/tenant';
 import { toProTableListResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import { STATUS, toValueEnum } from '@/constants';
 import type { Tenant } from '@/types';
 
@@ -81,20 +82,21 @@ export default function TenantPage() {
           title="确认删除该租户？将连带其名下数据隔离空间。"
           onConfirm={() => record.id && handleDelete(record.id)}
         >
-          <a style={{ color: '#ff4d4f' }}>删除</a>
+          <a style={{ color: DANGER_COLOR }}>删除</a>
         </Popconfirm>,
       ],
     },
   ];
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('租户管理', '多租户账号与小程序配置')}>
       <ProTable<Tenant>
+        {...proTableConfig}
+        search={false}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
         request={(params) => toProTableListResult(listTenants, params)}
-        search={false}
         scroll={{ x: 1100 }}
         toolBarRender={() => [
           <Button key="add" type="primary" icon={<PlusOutlined />} onClick={openCreate}>

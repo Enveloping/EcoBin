@@ -12,6 +12,7 @@ import {
 import { Button, Popconfirm, App } from 'antd';
 import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '@/api/admin';
 import { toProTableListResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import { ROLE, STATUS, toValueEnum } from '@/constants';
 import type { Admin } from '@/types';
 
@@ -88,20 +89,21 @@ export default function AdminPage() {
           title="确认删除该管理员？"
           onConfirm={() => record.id && handleDelete(record.id)}
         >
-          <a style={{ color: '#ff4d4f' }}>删除</a>
+          <a style={{ color: DANGER_COLOR }}>删除</a>
         </Popconfirm>,
       ],
     },
   ];
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('管理员管理', '平台管理员账号维护')}>
       <ProTable<Admin>
+        {...proTableConfig}
+        search={false}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
         request={(params) => toProTableListResult(listAdmins, params)}
-        search={false}
         toolBarRender={() => [
           <Button key="add" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建管理员

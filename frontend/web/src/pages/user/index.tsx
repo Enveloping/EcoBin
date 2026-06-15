@@ -10,6 +10,7 @@ import {
 import { App } from 'antd';
 import { pageUsers, updateUserRole } from '@/api/user';
 import { toProTableResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import { ROLE, STATUS, ROLE_TENANT, toValueEnum } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
@@ -79,14 +80,15 @@ export default function UserPage() {
   ];
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('用户管理', '终端用户账号与角色维护')}>
       <ProTable<User>
+        {...proTableConfig}
+        search={false}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
-        request={(params) => toProTableResult(pageUsers, params)}
-        search={false}
         scroll={{ x: 1000 }}
+        request={(params) => toProTableResult(pageUsers, params)}
       />
 
       <ModalForm<{ role: number }>

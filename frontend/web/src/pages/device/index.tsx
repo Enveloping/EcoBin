@@ -14,6 +14,7 @@ import {
 import { Button, Popconfirm, App } from 'antd';
 import { pageDevices, createDevice, updateDevice, deleteDevice } from '@/api/device';
 import { toProTableResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import {
   DEVICE_TYPE,
   DEVICE_STATUS,
@@ -96,20 +97,20 @@ export default function DevicePage() {
           title="确认删除该设备？"
           onConfirm={() => record.id && handleDelete(record.id)}
         >
-          <a style={{ color: '#ff4d4f' }}>删除</a>
+          <a style={{ color: DANGER_COLOR }}>删除</a>
         </Popconfirm>,
       ],
     },
   ];
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('设备管理', '智能回收设备维护与投口分配')}>
       <ProTable<Device>
+        {...proTableConfig}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
         request={(params) => toProTableResult(pageDevices, params)}
-        search={{ labelWidth: 'auto' }}
         scroll={{ x: 1100 }}
         toolBarRender={() =>
           isPlatform

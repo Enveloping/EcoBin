@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
-import { Card, Statistic, Row, Col } from 'antd';
+import { Statistic, Row, Col } from 'antd';
+import { InboxOutlined, DashboardOutlined } from '@ant-design/icons';
 import { pageDeliveries, deliveryTodayOverview } from '@/api/delivery';
 import { toProTableResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig } from '@/utils/pageStyle';
+import { statCardGradients } from '@/theme';
+import CountUp from '@/components/CountUp';
 import {
   WASTE_TYPE1,
   WASTE_TYPE2,
@@ -13,6 +17,18 @@ import {
   statLabel,
 } from '@/constants';
 import type { DeliveryOrder } from '@/types';
+
+const ICON_MAP: Record<string, React.ReactNode> = {
+  deliveryCount: <InboxOutlined />,
+  deliveryWeight: <DashboardOutlined />,
+};
+
+const GRADIENTS = [
+  statCardGradients.primary,
+  statCardGradients.info,
+  statCardGradients.success,
+  statCardGradients.warning,
+];
 
 export default function DeliveryPage() {
   const [overview, setOverview] = useState<Record<string, unknown>>({});
@@ -53,19 +69,42 @@ export default function DeliveryPage() {
   const overviewEntries = Object.entries(overview);
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('投递订单', '查看用户投递记录与今日数据概览')}>
       {overviewEntries.length > 0 && (
-        <Card style={{ marginBottom: 16 }} title="今日投递概览">
-          <Row gutter={16}>
-            {overviewEntries.map(([k, v]) => (
-              <Col key={k} span={6}>
-                <Statistic title={statLabel(k)} value={v as number | string} />
-              </Col>
-            ))}
-          </Row>
-        </Card>
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          {overviewEntries.map(([k, v], idx) => (
+            <Col key={k} xs={24} sm={12} lg={6}>
+              <div
+                style={{
+                  background: GRADIENTS[idx % GRADIENTS.length],
+                  borderRadius: 12,
+                  padding: 20,
+                  minHeight: 100,
+                }}
+              >
+                <Statistic
+                  title={
+                    <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 14 }}>
+                      {statLabel(k)}
+                    </span>
+                  }
+                  value={v as number | string}
+                  valueRender={() => (
+                    <span style={{ color: '#FFFFFF', fontWeight: 600, fontSize: 26 }}>
+                      <CountUp value={v as number | string} duration={1200} />
+                    </span>
+                  )}
+                  prefix={ICON_MAP[k] ? (
+                    <span style={{ marginRight: 8, opacity: 0.9 }}>{ICON_MAP[k]}</span>
+                  ) : undefined}
+                />
+              </div>
+            </Col>
+          ))}
+        </Row>
       )}
       <ProTable<DeliveryOrder>
+        {...proTableConfig}
         rowKey="id"
         columns={columns}
         search={false}

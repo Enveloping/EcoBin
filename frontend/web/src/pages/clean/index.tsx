@@ -8,6 +8,7 @@ import {
 import { Popconfirm, App } from 'antd';
 import { pageCleans, auditClean } from '@/api/clean';
 import { toProTableResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import {
   WASTE_TYPE1,
   WASTE_TYPE2,
@@ -62,7 +63,7 @@ export default function CleanPage() {
                 title="确认拒绝该清运单？"
                 onConfirm={() => handleAudit(record.id, false)}
               >
-                <a style={{ color: '#ff4d4f' }}>拒绝</a>
+                <a style={{ color: DANGER_COLOR }}>拒绝</a>
               </Popconfirm>,
             ]
           : ['已处理'],
@@ -70,12 +71,12 @@ export default function CleanPage() {
   ];
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('清运审核', '审核清运员提交的清运单')}>
       <ProTable<CleanOrder>
+        {...proTableConfig}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
-        search={{ labelWidth: 'auto' }}
         scroll={{ x: 1300 }}
         request={(params) => toProTableResult(pageCleans, params)}
       />

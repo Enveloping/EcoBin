@@ -10,6 +10,7 @@ import {
 import { App, Tag } from 'antd';
 import { pageWithdraws, auditWithdraw } from '@/api/withdraw';
 import { toProTableResult } from '@/utils/proTable';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import { WITHDRAW_STATUS, toValueEnum } from '@/constants';
 import type { WithdrawOrder } from '@/types';
 
@@ -63,7 +64,7 @@ export default function WithdrawPage() {
               <a key="pass" onClick={() => openAudit(record.id, true)}>
                 通过
               </a>,
-              <a key="reject" style={{ color: '#ff4d4f' }} onClick={() => openAudit(record.id, false)}>
+              <a key="reject" style={{ color: DANGER_COLOR }} onClick={() => openAudit(record.id, false)}>
                 驳回
               </a>,
             ]
@@ -72,12 +73,12 @@ export default function WithdrawPage() {
   ];
 
   return (
-    <PageContainer>
+    <PageContainer {...pageHeader('提现审核', '处理用户提现申请')}>
       <ProTable<WithdrawOrder>
+        {...proTableConfig}
         rowKey="id"
         actionRef={actionRef}
         columns={columns}
-        search={{ labelWidth: 'auto' }}
         scroll={{ x: 1300 }}
         request={(params) => toProTableResult(pageWithdraws, params)}
       />

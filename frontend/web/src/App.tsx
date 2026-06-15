@@ -4,6 +4,7 @@ import { RequireAuth, RoleGuard } from '@/router/guard';
 import { appRoutes, defaultPathFor } from '@/router/routes';
 import MainLayout from '@/layouts/MainLayout';
 import Login from '@/pages/login';
+import CustomCursor from '@/components/CustomCursor';
 
 function HomeRedirect() {
   const role = useAuthStore((s) => s.role);
@@ -13,6 +14,7 @@ function HomeRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
+      <CustomCursor />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
