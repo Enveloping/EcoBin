@@ -56,7 +56,7 @@
 <p>投递从「后端开门即建单」改为「<strong>设备上传称重后后端才建单</strong>」：用户在小程序「开启设备」只记录
 该设备<strong>当前活跃用户</strong>会话（不建单）；设备投放称重后上报，后端此刻才建单，归属取活跃会话用户。
 用户可在<strong>设备屏「继续投递」</strong>本地再开门投下一袋，仍归同一活跃用户、每袋独立成单。照片由设备
-<strong>直传腾讯云 COS</strong>（key 由设备按约定格式自拼，后端建单时复原 URL），<strong>设备不回传 URL</strong>。全程免公网。
+<strong>直传腾讯云 COS</strong>（位置由<strong>设备自定</strong>），并把 4 个 URL <strong>随 deliveryComplete 回传</strong>，后端原样存。全程免公网。
 <span class="tag tag-p1">开启设备·建会话</span>
 <span class="tag tag-p2">上传后建单</span>
 <span class="tag tag-net">设备↔COS 直连</span>
@@ -85,25 +85,25 @@ sequenceDiagram
 
     rect rgb(224,231,255)
     Note over D,C: ② 设备作业 + 继续投递（设备端自主，免公网）
-    D->>D: 开门（首次后端触发 / 续投设备本地开）→ 每次自生成 deliveryToken
+    D->>D: 开门（首次后端触发 / 续投设备本地开）
     D->>D: 开门前抓拍 2 张
     Note over U,D: 用户投放 → 关投口 → 设备称重
     D->>D: 关门后抓拍 2 张
-    D->>C: 按 {sn}/{doorIndex}/{deliveryToken}/&lt;slot&gt;.jpg 自拼 key 直传 4 张（用缓存凭证）
-    C-->>D: 200 OK（无需回传 URL）
-    Note over D: 用户在设备屏点「继续投递」→ 回到本段开头（新 deliveryToken）
+    D->>C: 按设备自定 key（建议 {sn}/delivery/{唯一串}/&lt;slot&gt;.jpg）直传 4 张（用缓存凭证）
+    C-->>D: 200 OK → 记下 4 个 URL 待上报回传
+    Note over D: 用户在设备屏点「继续投递」→ 回到本段开头
     end
 
     rect rgb(220,252,231)
     Note over D,B: ③ 设备上传 → 后端建单 deliveryComplete
-    D->>O: deliveryComplete{ deliveryToken, doorIndex, weight, wasteType1/2? }（MQTT 上行）
+    D->>O: deliveryComplete{ doorIndex, weight, wasteType1/2?, 4×照片 URL }（MQTT 上行）
     O-->>B: 北向 MQ 订阅（OneNetMqConsumer 解密 → OneNetEventDispatcher）出站
     Note over B: 联调备选：设备直连 POST /api/iot/delivery/complete
-    Note over B: 按 SN 反查 device；按 device+deliveryToken 幂等（已建单→忽略）
+    Note over B: 按 SN 反查 device；按 device + OneNet 消息 id 幂等（已建单→忽略，落 delivery_token 列）
     Note over B: 按 device+doorIndex 反查投口（取单价/分类兜底）
     Note over B: findActive 取设备「当前活跃用户」会话
     alt 命中活跃会话
-        Note over B: 建单(userId=会话用户, deliveryStatus=1)，按 deliveryToken 复原 4 张照片 URL
+        Note over B: 建单(userId=会话用户, deliveryStatus=1)，原样存设备回传的 4 个照片 URL
         Note over B: 返现 = door.price × weight → 入账余额；续期会话
     else 过期 / 从未开启
         Note over B: 建无主单(userId=null, 归设备租户)，不返现，log.warn 告警
@@ -126,13 +126,13 @@ sequenceDiagram
     <td><strong>设备上传称重之后</strong>才建单（不预建）。首投 / 续投对称，每袋独立成单（<code>deliveryStatus=1</code> 上传即完成）。</td>
   </tr>
   <tr>
-    <td>关联键 <code>deliveryToken</code></td>
-    <td><strong>设备每次开门自生成</strong>（含设备屏续投本地开门）。既是照片 key 前缀，也是 <code>device+deliveryToken</code> 的上报幂等键（适配 MQ at-least-once）。</td>
+    <td>幂等键 <code>OneNet 消息 id</code></td>
+    <td>分发器取报文消息 id（缺失回退 MQ messageId），按 <code>device + 消息 id</code> 幂等去重，落 <code>biz_delivery_order.delivery_token</code> 列（唯一索引兜底，适配 MQ at-least-once）。直连未带消息 id 则不去重。</td>
   </tr>
   <tr>
     <td>照片 key</td>
-    <td><code>{sn}/{doorIndex}/{deliveryToken}/&lt;slot&gt;.jpg</code>，slot ∈ open_outside/open_inside/close_outside/close_inside。
-        开门只下发凭证（设备整会话缓存复用）；设备自拼 key 直传，后端建单时按同一公式复原 <code>baseUrl + key</code> 写订单 photo_*。</td>
+    <td>由<strong>设备自定位置</strong>（建议 <code>{sn}/delivery/{唯一串}/&lt;slot&gt;.jpg</code>），slot ∈ open_outside/open_inside/close_outside/close_inside。
+        开门只下发凭证（设备整会话缓存复用）；设备直传后把 4 个 URL 随 <code>deliveryComplete</code> 回传，后端原样写订单 photo_*（不复原）。</td>
   </tr>
   <tr>
     <td>返现入账</td>
