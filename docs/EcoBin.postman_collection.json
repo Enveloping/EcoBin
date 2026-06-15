@@ -440,18 +440,6 @@
               }
             },
             {
-              "name": "审核清运单",
-              "request": {
-                "method": "PUT",
-                "header": [],
-                "url": {
-                  "raw": "{{baseUrl}}/api/business/clean/1/audit?auditStatus=1",
-                  "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean", "1", "audit" ],
-                  "query": [ { "key": "auditStatus", "value": "1", "description": "1-通过 2-拒绝" } ]
-                }
-              }
-            },
-            {
               "name": "修改清运单",
               "request": {
                 "method": "PUT",
@@ -581,12 +569,13 @@
           "name": "清运作业（仅清运员/设备管理员）",
           "item": [
             {
-              "name": "提交清运",
+              "name": "开清运门（扫新空袋）",
               "request": {
                 "method": "POST",
                 "header": [ { "key": "Content-Type", "value": "application/json" } ],
-                "body": { "mode": "raw", "raw": "{\n  \"deviceId\": 1,\n  \"doorId\": 1,\n  \"wasteType1\": 2,\n  \"wasteType2\": 1,\n  \"weight\": 3.5\n}" },
-                "url": { "raw": "{{baseUrl}}/api/app/clean", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "clean" ] }
+                "body": { "mode": "raw", "raw": "{\n  \"doorId\": 1,\n  \"bagNo\": \"00001\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/app/clean/open", "host": [ "{{baseUrl}}" ], "path": [ "api", "app", "clean", "open" ] },
+                "description": "下发开清运门指令（携带新垃圾袋编号）；毛重/去皮由设备经 /api/iot/clean/** 上报。"
               }
             },
             {
@@ -658,6 +647,26 @@
             "body": { "mode": "raw", "raw": "{\n  \"sn\": \"SN20260607001\",\n  \"deliveryToken\": \"开投口时返回的 deliveryToken\",\n  \"weight\": 2.35,\n  \"wasteType1\": 2,\n  \"wasteType2\": 1\n}" },
             "url": { "raw": "{{baseUrl}}/api/iot/delivery/complete", "host": [ "{{baseUrl}}" ], "path": [ "api", "iot", "delivery", "complete" ] },
             "description": "设备端调用，非前端职责。按 deliveryToken 回填重量、置完成、按投口单价×重量返现。"
+          }
+        },
+        {
+          "name": "清运毛重上报",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"sn\": \"SN20260607001\",\n  \"doorIndex\": 1,\n  \"userId\": 1,\n  \"weight\": 12.0,\n  \"reportSn\": \"可选，幂等键\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/iot/clean/gross", "host": [ "{{baseUrl}}" ], "path": [ "api", "iot", "clean", "gross" ] },
+            "description": "设备端调用。建清运单：净重 = 毛重 − 该投口当前去皮（首次去皮按 0）。reportSn 作幂等键。"
+          }
+        },
+        {
+          "name": "换袋去皮上报",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"sn\": \"SN20260607001\",\n  \"doorIndex\": 1,\n  \"userId\": 1,\n  \"bagNo\": \"00002\",\n  \"weight\": 1.0\n}" },
+            "url": { "raw": "{{baseUrl}}/api/iot/clean/tare", "host": [ "{{baseUrl}}" ], "path": [ "api", "iot", "clean", "tare" ] },
+            "description": "设备端调用。按 (device, doorIndex) upsert biz_clean_bag，更新当前袋编号与去皮重量。"
           }
         }
       ]

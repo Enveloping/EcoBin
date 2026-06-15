@@ -114,6 +114,10 @@ CREATE TABLE IF NOT EXISTS biz_delivery_order (
     login_type  TINYINT               DEFAULT NULL,
     status      TINYINT      NOT NULL DEFAULT 0,
     delivery_status TINYINT  NOT NULL DEFAULT 1,
+    photo_open_outside  VARCHAR(512)          DEFAULT NULL,
+    photo_open_inside   VARCHAR(512)          DEFAULT NULL,
+    photo_close_outside VARCHAR(512)          DEFAULT NULL,
+    photo_close_inside  VARCHAR(512)          DEFAULT NULL,
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_delivery_order_sn (order_sn),
     UNIQUE KEY uk_delivery_token (delivery_token),
@@ -130,12 +134,21 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     order_sn     VARCHAR(50)  NOT NULL,
     device_id    BIGINT                DEFAULT NULL,
     door_id      BIGINT                DEFAULT NULL,
+    bag_qr       VARCHAR(64)           DEFAULT NULL,
+    new_bag_qr   VARCHAR(64)           DEFAULT NULL,
     user_id      BIGINT                DEFAULT NULL,
     waste_type1  TINYINT      NOT NULL,
     waste_type2  TINYINT      NOT NULL DEFAULT 0,
     weight       DECIMAL(10,3)         DEFAULT NULL,
+    gross_weight DECIMAL(10,3)         DEFAULT NULL,
+    tare_weight  DECIMAL(10,3)         DEFAULT NULL,
+    net_weight   DECIMAL(10,3)         DEFAULT NULL,
     audit_status TINYINT      NOT NULL DEFAULT 0,
     status       TINYINT      NOT NULL DEFAULT 0,
+    photo_open_outside  VARCHAR(512)          DEFAULT NULL,
+    photo_open_inside   VARCHAR(512)          DEFAULT NULL,
+    photo_close_outside VARCHAR(512)          DEFAULT NULL,
+    photo_close_inside  VARCHAR(512)          DEFAULT NULL,
     create_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_clean_order_sn (order_sn),
@@ -145,19 +158,62 @@ CREATE TABLE IF NOT EXISTS biz_clean_order (
     INDEX idx_clean_create_time (create_time)
 );
 
--- 8. 设备实时状态表
+-- 垃圾袋追踪表：每投口当前袋去皮（换袋时 upsert）
+CREATE TABLE IF NOT EXISTS biz_clean_bag (
+    id          BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id   BIGINT        NOT NULL DEFAULT 1,
+    device_id   BIGINT        NOT NULL,
+    door_index  INT           NOT NULL,
+    bag_qr      VARCHAR(64)            DEFAULT NULL,
+    tare_weight DECIMAL(10,3)          DEFAULT NULL,
+    user_id     BIGINT                 DEFAULT NULL,
+    create_time DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_clean_bag_device_door (device_id, door_index),
+    INDEX idx_clean_bag_tenant_id (tenant_id)
+);
+
+-- 8. 设备实时状态表（V10 重整：去 total_weight/spill/smoke，加 rssi/fw_version）
 CREATE TABLE IF NOT EXISTS biz_device_status (
     id               BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     tenant_id        BIGINT       NOT NULL DEFAULT 1,
     device_id        BIGINT       NOT NULL,
     online           TINYINT      NOT NULL DEFAULT 0,
-    total_weight     DECIMAL(10,3)         DEFAULT NULL,
-    spill_alarm      TINYINT      NOT NULL DEFAULT 0,
-    smoke_alarm      TINYINT      NOT NULL DEFAULT 0,
     voltage          DECIMAL(5,2)          DEFAULT NULL,
+    rssi             INT                   DEFAULT NULL,
+    fw_version       VARCHAR(32)           DEFAULT NULL,
     last_report_time DATETIME              DEFAULT NULL,
     UNIQUE KEY uk_device_status_device_id (device_id),
     INDEX idx_device_status_tenant_id (tenant_id)
+);
+
+-- 8b. 投口实时状态表（V10 新增：投口级重量/满溢/烟雾快照）
+CREATE TABLE IF NOT EXISTS biz_door_status (
+    id               BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id        BIGINT       NOT NULL DEFAULT 1,
+    device_id        BIGINT       NOT NULL,
+    door_index       INT          NOT NULL,
+    weight           DECIMAL(10,3)         DEFAULT NULL,
+    fullness         INT                   DEFAULT NULL,
+    spill_alarm      TINYINT      NOT NULL DEFAULT 0,
+    smoke_alarm      TINYINT      NOT NULL DEFAULT 0,
+    last_report_time DATETIME              DEFAULT NULL,
+    UNIQUE KEY uk_door_status_device_door (device_id, door_index),
+    INDEX idx_door_status_tenant_id (tenant_id)
+);
+
+-- 8c. 设备活跃会话表（V13：当前活跃用户，支撑投递上传后建单的用户归属）
+CREATE TABLE IF NOT EXISTS biz_device_session (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tenant_id   BIGINT       NOT NULL DEFAULT 1,
+    device_id   BIGINT       NOT NULL,
+    user_id     BIGINT                DEFAULT NULL,
+    login_type  TINYINT               DEFAULT NULL,
+    expire_time DATETIME              DEFAULT NULL,
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_device_session_device_id (device_id),
+    INDEX idx_device_session_tenant_id (tenant_id)
 );
 
 -- 9. 重量变更记录表

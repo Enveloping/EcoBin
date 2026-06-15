@@ -9,11 +9,22 @@ package org.enveloping.ecobin.device.service;
 public interface DeviceCommandService {
 
     /**
-     * 下发「开投口」指令，并携带本次投递标识符。
+     * 下发「开投口」指令（仅含 COS 上传凭证，不下发订单标识/照片 key）。
+     * <p>
+     * 投递「上传后建单」：照片位置由设备决定（自定对象 key 直传，URL 随上报回传），
+     * 后端在收到设备上报时才建单。故开门命令只下发凭证，不下发照片 key。
      *
-     * @param deviceSn      设备序列号
-     * @param doorIndex     投口号
-     * @param deliveryToken 投递标识符（设备关投口上报时需原样带回）
+     * @param deviceSn  设备序列号
+     * @param doorIndex 投口号
      */
-    void sendOpenDoor(String deviceSn, Integer doorIndex, String deliveryToken);
+    void sendOpenDoor(String deviceSn, Integer doorIndex);
+
+    /**
+     * 下发「开清运门」指令，并携带本次清运订单ID。
+     *
+     * @param deviceSn     设备序列号
+     * @param doorIndex    投口号（物理控制，开哪个投口）
+     * @param cleanOrderId 清运订单ID（设备记住，毛重/去皮/图片上报时原样带回）
+     */
+    void sendOpenCleanDoor(String deviceSn, Integer doorIndex, Long cleanOrderId);
 }

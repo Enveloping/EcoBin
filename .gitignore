@@ -34,3 +34,11 @@ build/
 
 ### 运行日志 ###
 *.log
+
+.env
+
+### 前端小程序（不纳入版本管理）###
+frontend/miniprogram/
+
+### 硬件侧脚本（含永久密钥，不纳入版本管理）###
+hardware/

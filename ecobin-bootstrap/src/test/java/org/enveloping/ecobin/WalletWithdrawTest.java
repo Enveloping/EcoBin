@@ -1,7 +1,6 @@
 package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.dto.OpenDoorResult;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
 import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.device.entity.Device;
@@ -57,6 +56,7 @@ class WalletWithdrawTest {
     private final Long tenantId = 2L;
     private Long userId;
     private Long doorId;
+    private Integer doorIndex;
     private String deviceSn;
 
     @BeforeEach
@@ -76,6 +76,7 @@ class WalletWithdrawTest {
         // 设备注册自动生成默认投口；配置单价 2.00 元/kg
         Door door = doorService.listByDeviceId(device.getId()).get(0);
         doorId = door.getId();
+        doorIndex = door.getDoorIndex();
         door.setPrice(new BigDecimal("2.00"));
         doorService.updateById(door);
 
@@ -142,13 +143,15 @@ class WalletWithdrawTest {
 
     @Test
     void deliveryCompleteCreditsBalance() {
+        // 开启设备：记活跃用户会话（不建单）
         asUser();
-        OpenDoorResult result = deliveryOrderService.openDoor(doorId);
+        deliveryOrderService.openDoor(doorId);
 
+        // 设备上传：上传后建单，归属取活跃会话用户，按单价×重量入账
         asDevice();
         DeliveryReportRequest report = new DeliveryReportRequest();
         report.setSn(deviceSn);
-        report.setDeliveryToken(result.deliveryToken());
+        report.setDoorIndex(doorIndex);
         report.setWeight(new BigDecimal("1.500"));
         deliveryOrderService.completeDelivery(report);
 

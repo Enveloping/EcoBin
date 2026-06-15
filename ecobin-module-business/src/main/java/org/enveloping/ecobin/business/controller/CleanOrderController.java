@@ -1,6 +1,8 @@
 package org.enveloping.ecobin.business.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.enveloping.ecobin.business.dto.CleanAuditRequest;
 import org.enveloping.ecobin.business.entity.CleanOrder;
 import org.enveloping.ecobin.business.service.CleanOrderService;
 import org.enveloping.ecobin.common.result.PageResult;
@@ -38,14 +40,15 @@ public class CleanOrderController {
         return Result.ok(cleanOrderService.getById(id));
     }
 
+    @PutMapping("/{id}/audit")
+    public Result<Void> audit(@PathVariable Long id, @Valid @RequestBody CleanAuditRequest request) {
+        cleanOrderService.audit(id, request.getAuditStatus());
+        return Result.ok();
+    }
+
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         cleanOrderService.removeById(id);
         return Result.ok();
-    }
-
-    @PutMapping("/{id}/audit")
-    public Result<CleanOrder> audit(@PathVariable Long id, @RequestParam Integer auditStatus) {
-        return Result.ok(cleanOrderService.audit(id, auditStatus));
     }
 }

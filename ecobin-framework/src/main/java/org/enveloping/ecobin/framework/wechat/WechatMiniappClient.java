@@ -2,9 +2,9 @@ package org.enveloping.ecobin.framework.wechat;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 微信小程序 API 客户端
@@ -16,6 +16,14 @@ public class WechatMiniappClient {
 
     private final WechatConfig wechatConfig;
     private final RestTemplate restTemplate;
+
+    /**
+     * Spring 注入的 Jackson 3 ObjectMapper，用于手动解析微信 code2session 响应。
+     * 微信该接口返回 JSON 但 Content-Type 为 {@code text/plain}，无法走 RestTemplate
+     * 按 content-type 匹配的消息转换器，故以 String 取回后用此 mapper 解析。
+     * Jackson 3 默认不对未知字段（如 session_key）报错。
+     */
+    private final ObjectMapper objectMapper;
 
     private static final String CODE2SESSION_URL =
             "https://api.weixin.qq.com/sns/jscode2session?appid={appid}&secret={secret}&js_code={code}&grant_type=authorization_code";
@@ -41,19 +49,19 @@ public class WechatMiniappClient {
     public WechatSessionResponse code2session(String appid, String secret, String code) {
         log.debug("微信 code2session 请求, appid={}, code={}", appid, code);
 
-        WechatSessionResponse response = restTemplate.exchange(
-                CODE2SESSION_URL,
-                HttpMethod.GET,
-                null,
-                WechatSessionResponse.class,
-                appid,
-                secret,
-                code
-        ).getBody();
-
-        if (response == null) {
+        // 微信返回 JSON 但 Content-Type=text/plain，按 String 取回再手动解析，规避转换器按类型匹配的限制
+        String body = restTemplate.getForObject(CODE2SESSION_URL, String.class, appid, secret, code);
+        if (body == null || body.isBlank()) {
             log.error("微信 code2session 返回为空");
             throw new RuntimeException("微信登录失败: 响应为空");
+        }
+
+        WechatSessionResponse response;
+        try {
+            response = objectMapper.readValue(body, WechatSessionResponse.class);
+        } catch (Exception e) {
+            log.error("微信 code2session 响应解析失败, body={}", body, e);
+            throw new RuntimeException("微信登录失败: 响应解析失败");
         }
 
         if (!response.isSuccess()) {

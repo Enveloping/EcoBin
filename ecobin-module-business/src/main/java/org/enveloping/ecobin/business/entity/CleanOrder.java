@@ -24,6 +24,12 @@ public class CleanOrder extends BaseEntity {
     /** 投口ID */
     private Long doorId;
 
+    /** 本次清运清走的垃圾袋编号（旧袋） */
+    private String bagQr;
+
+    /** 本次换上的新空袋编号（open 时小程序扫到，待 cleanTare 补去皮重） */
+    private String newBagQr;
+
     /** 清运员ID */
     private Long userId;
 
@@ -33,12 +39,36 @@ public class CleanOrder extends BaseEntity {
     /** 二级分类 */
     private Integer wasteType2;
 
-    /** 清理重量（kg） */
+    /** 清理重量（kg），等同 {@link #netWeight}，保留以兼容旧后台/统计查询 */
     private BigDecimal weight;
 
-    /** 审核状态：0-待审核 1-审核通过 2-审核拒绝 */
+    /** 清运毛重（kg，设备上报的满袋重量） */
+    private BigDecimal grossWeight;
+
+    /** 去皮重量（kg，清运时该投口当前垃圾袋去皮） */
+    private BigDecimal tareWeight;
+
+    /** 实际清运量（kg）= 毛重 - 去皮 */
+    private BigDecimal netWeight;
+
+    /**
+     * 审核状态：0-待审核 1-审核通过 2-审核拒绝。
+     * 设备称重上报后仍需人工审核确认，新记录默认 0（待审核）。
+     */
     private Integer auditStatus;
 
     /** 订单状态：0-创建 1-完成 2-取消 */
     private Integer status;
+
+    /** 开门前箱外照片 URL（V11） */
+    private String photoOpenOutside;
+
+    /** 开门前箱内照片 URL（V11） */
+    private String photoOpenInside;
+
+    /** 关门后箱外照片 URL（V11） */
+    private String photoCloseOutside;
+
+    /** 关门后箱内照片 URL（V11） */
+    private String photoCloseInside;
 }

@@ -1,21 +1,33 @@
 package org.enveloping.ecobin.device.service.impl;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.service.DeviceCommandService;
+import org.enveloping.ecobin.framework.onenet.OneNetClient;
 import org.springframework.stereotype.Service;
 
 /**
- * 设备下行指令服务占位实现。
+ * 设备下行指令服务实现。
  * <p>
- * TODO 对接设备下行通道（MQTT/长连接/网关回调）后替换为真实下发。
+ * 开投口 / 开清运门均经 {@link OneNetClient} 走 OneNet 物模型服务调用下发；下发凭证未到位时
+ * {@link OneNetClient} 内部记占位日志、不阻塞主流程。下行链路本地不测试，联调时校验。
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class DeviceCommandServiceImpl implements DeviceCommandService {
 
+    private final OneNetClient oneNetClient;
+
     @Override
-    public void sendOpenDoor(String deviceSn, Integer doorIndex, String deliveryToken) {
-        // 占位：当前无下行链路，仅记录意图，不影响开投口主流程
-        log.info("[设备指令·占位] 开投口 sn={}, doorIndex={}, deliveryToken={}", deviceSn, doorIndex, deliveryToken);
+    public void sendOpenDoor(String deviceSn, Integer doorIndex) {
+        // 经 OneNet 下发 openDeliveryDoor（仅含 COS 凭证）；分类缺省由设备按投口配置兜底（物模型 §3.1）
+        oneNetClient.openDeliveryDoor(deviceSn, doorIndex, null, null);
+    }
+
+    @Override
+    public void sendOpenCleanDoor(String deviceSn, Integer doorIndex, Long cleanOrderId) {
+        // 经 OneNet 下发；凭证未配置时 OneNetClient 内部记占位日志，不阻塞开清运门主流程
+        oneNetClient.openCleanDoor(deviceSn, doorIndex, cleanOrderId);
     }
 }
