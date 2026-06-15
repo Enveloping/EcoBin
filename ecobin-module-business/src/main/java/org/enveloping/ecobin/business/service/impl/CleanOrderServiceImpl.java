@@ -19,8 +19,6 @@ import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceCommandService;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
-import org.enveloping.ecobin.framework.cos.CosPhotoKeys;
-import org.enveloping.ecobin.framework.cos.CosTokenClient;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
 import org.springframework.stereotype.Service;
 
@@ -35,7 +33,6 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
     private final DoorService doorService;
     private final DeviceCommandService deviceCommandService;
     private final CleanBagService cleanBagService;
-    private final CosTokenClient cosTokenClient;
 
     @Override
     public boolean save(CleanOrder order) {
@@ -92,13 +89,7 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
         order.setStatus(0);           // 创建
         save(order);                  // 生成 id + orderSn
 
-        // 照片 key 由后端按 cleanOrderId 确定性生成（id 在 save 后才有），开门即预存 4 张照片 URL（设备直传到对应 key，无需回传）
-        CosPhotoKeys keys = cosTokenClient.buildPhotoKeys(device.getSn(), door.getDoorIndex(), String.valueOf(order.getId()));
-        order.setPhotoOpenOutside(cosTokenClient.toUrl(keys.openOutside()));
-        order.setPhotoOpenInside(cosTokenClient.toUrl(keys.openInside()));
-        order.setPhotoCloseOutside(cosTokenClient.toUrl(keys.closeOutside()));
-        order.setPhotoCloseInside(cosTokenClient.toUrl(keys.closeInside()));
-        updateById(order);
+        // 照片位置由设备自定（与投递一致）：开门只下发凭证、不预存 key/URL，照片 URL 待设备随 cleanGross 回传
 
         // 下发开清运门指令（携带 doorIndex 物理控制 + cleanOrderId），经 OneNet；凭证未到位时为占位日志，不阻塞主流程
         deviceCommandService.sendOpenCleanDoor(device.getSn(), door.getDoorIndex(), order.getId());
@@ -130,6 +121,11 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
         order.setTareWeight(tare);
         order.setNetWeight(net);
         order.setWeight(net);                        // 兼容旧字段
+        // 照片 URL：设备自定位置、直传 COS 后随毛重上报回传，原样存（缺失留空，前端占位）
+        order.setPhotoOpenOutside(request.getPhotoOpenOutside());
+        order.setPhotoOpenInside(request.getPhotoOpenInside());
+        order.setPhotoCloseOutside(request.getPhotoCloseOutside());
+        order.setPhotoCloseInside(request.getPhotoCloseInside());
         updateById(order);
         return order;
     }

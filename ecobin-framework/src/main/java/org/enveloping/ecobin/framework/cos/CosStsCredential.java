@@ -11,7 +11,7 @@ import lombok.Data;
  *   <li>{@code tmpSecretId / tmpSecretKey / sessionToken} — 临时凭证三要素</li>
  *   <li>{@code bucket / region / baseUrl} — 上传目标</li>
  * </ul>
- * 上传对象的 key 不在凭证里：由后端按订单上下文确定性生成（见 {@link CosTokenClient#buildPhotoKeys}），随开门命令下发。
+ * 上传对象的 key 不在凭证里：由<strong>设备自定</strong>（投递、清运一致），设备直传后把 URL 随上行事件回传后端。
  */
 @Data
 @Builder

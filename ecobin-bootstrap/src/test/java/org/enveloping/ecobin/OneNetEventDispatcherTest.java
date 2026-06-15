@@ -40,7 +40,9 @@ class OneNetEventDispatcherTest {
     void cleanGross_wrappedInValue_routesToReportGross() {
         String json = """
                 {"msgType":"thingEvent","subData":{"deviceName":"EcoBin-SN-0001",
-                "params":{"cleanGross":{"value":{"cleanOrderId":123,"weight":12.5},"time":1700000000000}}}}""";
+                "params":{"cleanGross":{"value":{"cleanOrderId":123,"weight":12.5,\
+                "photoOpenOutside":"https://b/SN/clean/x/open_outside.jpg",\
+                "photoCloseInside":"https://b/SN/clean/x/close_inside.jpg"},"time":1700000000000}}}}""";
 
         dispatcher.handle(json, "mq-msg-1");
 
@@ -50,6 +52,9 @@ class OneNetEventDispatcherTest {
         assertThat(req.getSn()).isEqualTo("EcoBin-SN-0001");
         assertThat(req.getCleanOrderId()).isEqualTo(123L);
         assertThat(req.getWeight()).isEqualByComparingTo(new BigDecimal("12.5"));
+        // 照片 URL（设备自定位置）随事件回传，分发器灌进 DTO
+        assertThat(req.getPhotoOpenOutside()).isEqualTo("https://b/SN/clean/x/open_outside.jpg");
+        assertThat(req.getPhotoCloseInside()).isEqualTo("https://b/SN/clean/x/close_inside.jpg");
     }
 
     @Test

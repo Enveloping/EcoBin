@@ -18,8 +18,8 @@ import java.util.TreeMap;
  * 待 {@link CosProperties} 配置齐全后，{@link #getRealTempCredentials} 会调用
  * {@code com.tencent.cloud.CosStsClient.getCredential} 获取真实临时凭证。
  * <p>
- * 使用方式：照片 key 由后端开门时确定性生成（{@link #buildPhotoKeys}），随开门命令把凭证 + key
- * 一并下发给设备，设备按 key 直传 COS；后端开门即把对应 URL 预存进订单，无需设备回传。
+ * 使用方式：开门命令只下发<strong>凭证</strong>（不含照片 key）；照片对象 key 由<strong>设备自定</strong>
+ * （投递、清运一致），设备直传 COS 后把 URL 随上行事件回传，后端原样存。
  */
 @Slf4j
 @Component
@@ -55,27 +55,6 @@ public class CosTokenClient {
         }
 
         return getRealTempCredentials();
-    }
-
-    /**
-     * 生成一笔订单 4 张照片的 COS 对象 key（确定性、与订单 token 绑定，避免同投口多单互相覆盖）。
-     *
-     * @param deviceSn  设备序列号
-     * @param doorIndex 投口号
-     * @param token     订单关联键：投递 deliveryToken / 清运 cleanOrderId
-     */
-    public CosPhotoKeys buildPhotoKeys(String deviceSn, Integer doorIndex, String token) {
-        String prefix = deviceSn + "/" + doorIndex + "/" + token + "/";
-        return new CosPhotoKeys(
-                prefix + "open_outside.jpg",
-                prefix + "open_inside.jpg",
-                prefix + "close_outside.jpg",
-                prefix + "close_inside.jpg");
-    }
-
-    /** 由对象 key 拼出可访问的完整 URL（{@code baseUrl + "/" + key}）。 */
-    public String toUrl(String key) {
-        return nullToDefault(properties.getBaseUrl(), PLACEHOLDER_BASE_URL) + "/" + key;
     }
 
     /**

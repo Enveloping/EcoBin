@@ -27,4 +27,19 @@ public class CleanGrossRequest {
     /** 本次清运毛重（kg，满袋重量） */
     @NotNull(message = "清运毛重不能为空")
     private BigDecimal weight;
+
+    // ---------- 照片 URL（设备直传 COS 后随毛重上报一并回传，后端原样存；缺失则前端占位） ----------
+    // 清运与投递一致：照片位置由设备自定，后端不再按订单算 key，只存设备回传的 URL。
+
+    /** 开门前·箱外照片 URL（可选） */
+    private String photoOpenOutside;
+
+    /** 开门前·箱内照片 URL（可选） */
+    private String photoOpenInside;
+
+    /** 关门后·箱外照片 URL（可选） */
+    private String photoCloseOutside;
+
+    /** 关门后·箱内照片 URL（可选） */
+    private String photoCloseInside;
 }

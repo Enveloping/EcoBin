@@ -27,7 +27,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 清运流程验证（开门即建单 + 设备只认 cleanOrderId + 去皮链式追踪）：
@@ -135,12 +134,29 @@ class CleanFlowTest {
         assertNull(order.getGrossWeight());                // 毛重待设备上报
         assertEquals(tenantId, order.getTenantId());
         assertEquals(doorId, order.getDoorId());
-        // 开门即按 cleanOrderId 预存 4 张照片 URL（设备直传到对应 key，无需回传）
-        String token = String.valueOf(order.getId());
-        assertTrue(order.getPhotoOpenOutside().endsWith("/" + token + "/open_outside.jpg"));
-        assertTrue(order.getPhotoOpenInside().endsWith("/" + token + "/open_inside.jpg"));
-        assertTrue(order.getPhotoCloseOutside().endsWith("/" + token + "/close_outside.jpg"));
-        assertTrue(order.getPhotoCloseInside().endsWith("/" + token + "/close_inside.jpg"));
+        // 照片位置由设备自定（与投递一致）：开门不预存 key/URL，照片待 cleanGross 回传
+        assertNull(order.getPhotoOpenOutside());
+        assertNull(order.getPhotoOpenInside());
+        assertNull(order.getPhotoCloseOutside());
+        assertNull(order.getPhotoCloseInside());
+    }
+
+    @Test
+    void grossStoresDeviceReturnedPhotoUrls() {
+        Long orderId = openOrder("BAG-001");
+        asDevice();
+        CleanGrossRequest req = gross(orderId, new BigDecimal("10.000"));
+        // 设备自传 COS 后随毛重上报回传 4 个 URL（位置设备自定）
+        req.setPhotoOpenOutside("https://b/SN/clean/x/open_outside.jpg");
+        req.setPhotoOpenInside("https://b/SN/clean/x/open_inside.jpg");
+        req.setPhotoCloseOutside("https://b/SN/clean/x/close_outside.jpg");
+        req.setPhotoCloseInside("https://b/SN/clean/x/close_inside.jpg");
+        CleanOrder order = cleanOrderService.reportGross(req);
+
+        assertEquals("https://b/SN/clean/x/open_outside.jpg", order.getPhotoOpenOutside());
+        assertEquals("https://b/SN/clean/x/open_inside.jpg", order.getPhotoOpenInside());
+        assertEquals("https://b/SN/clean/x/close_outside.jpg", order.getPhotoCloseOutside());
+        assertEquals("https://b/SN/clean/x/close_inside.jpg", order.getPhotoCloseInside());
     }
 
     @Test

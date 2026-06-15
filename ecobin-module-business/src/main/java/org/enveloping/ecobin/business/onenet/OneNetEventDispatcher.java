@@ -91,6 +91,19 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         req.setSn(sn);
         req.setCleanOrderId(v.path("cleanOrderId").asLong());
         req.setWeight(decimal(v, "weight"));
+        // 照片 URL：设备自定位置、直传 COS 后随本事件回传，后端原样存（可选，缺失则前端占位）
+        if (v.has("photoOpenOutside")) {
+            req.setPhotoOpenOutside(v.path("photoOpenOutside").asString());
+        }
+        if (v.has("photoOpenInside")) {
+            req.setPhotoOpenInside(v.path("photoOpenInside").asString());
+        }
+        if (v.has("photoCloseOutside")) {
+            req.setPhotoCloseOutside(v.path("photoCloseOutside").asString());
+        }
+        if (v.has("photoCloseInside")) {
+            req.setPhotoCloseInside(v.path("photoCloseInside").asString());
+        }
         cleanOrderService.reportGross(req);
         log.info("[OneNet·分发] cleanGross 已入账 sn={}, cleanOrderId={}", sn, req.getCleanOrderId());
     }

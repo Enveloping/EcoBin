@@ -763,16 +763,15 @@ Authorization: Bearer <token>
 
 按 `(device, doorIndex)` upsert `biz_clean_bag`，更新当前袋编号与去皮（换袋天然幂等）。
 
-### 9.4 COS 照片直传（设备直传 + 不回传 URL）
+### 9.4 COS 照片直传（设备直传 + 设备自定 key + 回传 URL）
 
-**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。设备直传 COS、不回传 URL，
-但 token 产生方与建单/存 URL 时机按业务不同：
+**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。**投递、清运一致**：开门命令只下发凭证（OneNet `cosToken`，不含 key），照片对象 key 由**设备自定位置**，设备直传 COS 后把 **4 个 URL 随上行业务事件回传**，后端原样存订单（不再算 key、不复原）：
 
-- **清运（开门即建单）**：后端开门时按 `cleanOrderId` 生成 4 个 key、把 URL 写入订单，并把凭证 + 4 个 key 随开门命令（OneNet `cosToken`）下发；设备按槽位直传。
-- **投递（上传后建单）**：开门只下发凭证；`deliveryToken` 与照片 key 由**设备**生成/自拼；后端在 `deliveryComplete` 建单时按同一公式复原 4 个 URL 写入订单。
+- **投递（上传后建单）**：4 个 URL 随 `deliveryComplete` 回传，`completeDelivery` 建单时写入订单。
+- **清运（开门即建单）**：开门时订单照片字段留空，4 个 URL 随 `cleanGross` 回传，`reportGross` 回填订单。
 
-key 形如 `{sn}/{doorIndex}/{token}/<slot>.jpg`，token = 投递 `deliveryToken`（设备生成）/ 清运 `cleanOrderId`（后端生成），
-slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。详见 `onenet-thing-model.md` §1.1/§3.4/§8。
+key 由设备自定（后端不约束格式），建议带业务段与唯一串避免覆盖：投递 `{sn}/delivery/{唯一串}/<slot>.jpg`、清运 `{sn}/clean/{唯一串}/<slot>.jpg`，
+slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。详见 `onenet-thing-model.md` §1.1/§3.4/§4。
 
 > 下发「开门」走 OneNet（`OneNetClient`），COS / OneNet 凭证未到位前均为占位日志/占位值，不阻塞主流程。
 > 兜底：后端不校验对象是否真上传成功，设备没传上时前端加载出 404 显示占位图。
