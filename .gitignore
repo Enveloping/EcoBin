@@ -42,3 +42,6 @@ frontend/miniprogram/
 
 ### 硬件侧脚本（含永久密钥，不纳入版本管理）###
 hardware/
+
+test_report/
+/docs/deploy-docker.md

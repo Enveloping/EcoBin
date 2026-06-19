@@ -32,7 +32,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 认证接口放行
                         .requestMatchers("/api/system/auth/**").permitAll()
-
+                        // 健康检查放行(部署/检查用，不含敏感信息)
+                        .requestMatchers("/actuator/health").permitAll()
                         // 平台管理：管理员账号（仅超管）
                         .requestMatchers("/api/system/admin/**").hasRole("SUPER_ADMIN")
                         // 租户自查自身资料（仅租户本人）；须先于下方通配规则声明

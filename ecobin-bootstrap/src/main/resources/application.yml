@@ -8,9 +8,9 @@ spring:
 
   # 数据源配置
   datasource:
-    url: jdbc:mysql://localhost:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
-    username: root
-    password: 123456
+    url: ${dbUrl:jdbc:mysql://localhost:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true}
+    username: ${dbUsername:root}
+    password: ${dbPassword:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # Flyway 数据库迁移
@@ -30,19 +30,19 @@ mybatis-plus:
 
 # JWT 配置
 jwt:
-  secret: EcoBin_JWT_Secret_Key_2026_Must_Be_256_Bits_Long_Change_In_Production!!
+  secret: ${jwtSecret:EcoBin_JWT_Secret_Key_2026_Must_Be_256_Bits_Long_Change_In_Production!!}
   expiration: 86400000  # 24小时 (毫秒)
 
 # 应用加密配置（用于 sys_tenant.miniapp_secret 等敏感字段 AES 加密）
 app:
   crypto:
-    aes-key: EcoBin_AES_Key_2026_Change_In_Production
+    aes-key: ${appAesKey:EcoBin_AES_Key_2026_Change_In_Production}
 
 # 微信小程序配置（请替换为真实值）
 wechat:
   miniapp:
-    appid: your_appid
-    secret: your_secret
+    appid: ${wechatAppid:}
+    secret: ${wechatSecret:}
 
 # 中国移动 OneNet 物联网平台
 onenet:

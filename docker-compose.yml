@@ -1,0 +1,34 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: ecobin-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: ecobin
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ecobin-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: .
+    container_name: ecobin-backend
+    depends_on:
+      mysql:
+          condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+
+volumes:
+  ecobin-mysql-data:

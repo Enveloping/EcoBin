@@ -9,7 +9,6 @@ EcoBin是一个智慧环保回收箱后端管理系统，基于 Spring Boot 4.0.
 （`EcoBinTenantLineHandler`）按登录上下文自动注入/回填，平台域（超管/管理员）放行。三类登录主体
 （`sys_admin`/`sys_tenant`/`sys_user`）+ 角色体系 + JWT 强制失效登记表见 `docs/permission-design.md`。
 
-`docs/references/` 目录下是小智环保平台的参考对接文档（中文），仅供参考，不作为重大决策依据。
 
 ## 构建与运行命令
 
