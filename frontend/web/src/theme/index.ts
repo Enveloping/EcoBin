@@ -125,7 +125,6 @@ export const lightTheme: ThemeConfig = {
       borderRadiusSM: 4,
     },
     Descriptions: {
-      itemColor: TEXT_SECONDARY,
       labelBg: '#F8FAFC',
       contentColor: TEXT_PRIMARY,
     },

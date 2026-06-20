@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { palette } from '@/theme';
 
 interface Particle {
   x: number;

@@ -57,13 +57,10 @@ export default function MainLayout() {
           colorTextMenuActive: palette.primary,
           colorTextMenuItemHover: palette.primary,
         },
-      }}
-      // 顶部导航栏样式
-      headerTheme="light"
-      headerStyle={{
-        background: '#FFFFFF',
-        borderBottom: '1px solid #E2E8F0',
-        paddingInline: 24,
+        // 顶部导航栏样式（ProLayout 通过 token.header 控制，headerStyle 已不生效）
+        header: {
+          colorBgHeader: '#FFFFFF',
+        },
       }}
       // 右上角用户头像
       avatarProps={{

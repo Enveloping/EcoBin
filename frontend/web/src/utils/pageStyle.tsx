@@ -23,7 +23,7 @@ export const proTableConfig = {
     reload: true,
     setting: false,
   },
-  search: { labelWidth: 'auto' },
+  search: { labelWidth: 'auto' as const },
 };
 
 /** 统一的"危险操作"链接颜色 */
