@@ -45,3 +45,4 @@ hardware/
 
 test_report/
 /docs/deploy-docker.md
+/docs/deploy-web-docker.md

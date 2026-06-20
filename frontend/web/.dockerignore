@@ -1,0 +1,11 @@
+# 依赖和产物都在容器内重新生成，别带进构建上下文（又大又可能是旧的）
+node_modules
+dist
+
+# 本地环境文件不进镜像（生产构建用相对 /api，不需要 .env.development）
+.env
+.env.*
+
+# 杂项
+.git
+*.log

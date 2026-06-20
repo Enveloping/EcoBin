@@ -12,7 +12,7 @@ services:
     volumes:
       - ecobin-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456" ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p123456"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -23,11 +23,26 @@ services:
     container_name: ecobin-backend
     depends_on:
       mysql:
-          condition: service_healthy
+        condition: service_healthy
+    environment:
+      # 数据库连接交给运行环境决定：Docker 里连容器服务名 mysql（本机 IDEA 跑则走 application.yml 的 localhost 默认）
+      - "dbUrl=jdbc:mysql://mysql:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true"
+      - dbUsername=root
+      - dbPassword=123456
     ports:
       - "8080:8080"
     volumes:
       - ./.env:/app/.env:ro
+    restart: unless-stopped
+
+  # 前端管理后台：nginx 托管构建产物 + 把 /api 同源反代到 backend
+  web:
+    build: ./frontend/web
+    container_name: ecobin-web
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
     restart: unless-stopped
 
 volumes:
