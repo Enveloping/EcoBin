@@ -117,6 +117,7 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
         order.setWeight(request.getWeight());
         order.setStatus(0);
         order.setDeliveryStatus(1);     // 上传即完成
+        order.setAuditStatus(0);        // 待审核：返现入账迁移到审核通过时
         // 分类：上报优先，否则取投口配置兜底
         order.setWasteType1(request.getWasteType1() != null ? request.getWasteType1()
                 : (door != null ? door.getWasteType1() : 0));
@@ -139,19 +140,42 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
                     request.getSn(), request.getDoorIndex());
         }
 
-        // 计算返现单价（有投口配置时回填）
-        BigDecimal amount = null;
+        // 回填返现单价（有投口配置时）；返现金额在审核通过时按 price×weight 重算入账
         if (door != null && door.getPrice() != null && request.getWeight() != null) {
             order.setPrice(door.getPrice());
-            amount = door.getPrice().multiply(request.getWeight()).setScale(2, RoundingMode.HALF_UP);
         }
         save(order);
 
-        // 仅命中活跃用户时入账并续期会话；无主单不返现
-        if (session != null && amount != null) {
-            walletService.income(order.getUserId(), order.getTenantId(), amount, order.getId());
+        // 命中活跃用户即续期会话（与入账解耦）；无主单不续期
+        if (session != null) {
             deviceSessionService.refresh(device.getId());
         }
+    }
+
+    @Override
+    @Transactional
+    public void audit(Long id, Integer auditStatus, String remark) {
+        DeliveryOrder order = getById(id);
+        if (order == null) {
+            throw new BusinessException(404, "投递订单不存在");
+        }
+        if (auditStatus == null || (auditStatus != 1 && auditStatus != 2)) {
+            throw new BusinessException(400, "审核状态无效（1=通过 2=拒绝）");
+        }
+        // 幂等：仅允许「待审核」流转，杜绝重复入账
+        if (order.getAuditStatus() != null && order.getAuditStatus() != 0) {
+            throw new BusinessException(400, "订单已审核");
+        }
+        // 审核通过且有归属用户、有单价重量：按 price×weight 返现入账
+        if (auditStatus == 1 && order.getUserId() != null
+                && order.getPrice() != null && order.getWeight() != null) {
+            BigDecimal amount = order.getPrice().multiply(order.getWeight()).setScale(2, RoundingMode.HALF_UP);
+            walletService.income(order.getUserId(), order.getTenantId(), amount, order.getId());
+        }
+        order.setAuditStatus(auditStatus);
+        order.setAuditTime(java.time.LocalDateTime.now());
+        order.setAuditRemark(remark);
+        updateById(order);
     }
 
     @Override

@@ -36,4 +36,11 @@ public interface DeliveryOrderService extends IService<DeliveryOrder> {
 
     /** 终端用户查询「自己的」单条投递详情；不存在或不属于自己均抛业务异常 */
     DeliveryOrder getMyOrder(Long userId, Long id);
+
+    /**
+     * 审核投递订单（网页后台，租户管理员/超管）。
+     * 仅「待审核」可流转；通过（auditStatus=1）时按 price×weight 返现入账，拒绝（2）不入账。
+     * 重复审核抛业务异常，杜绝重复入账。
+     */
+    void audit(Long id, Integer auditStatus, String remark);
 }

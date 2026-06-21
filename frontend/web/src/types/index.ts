@@ -140,6 +140,13 @@ export interface DeliveryOrder {
   loginType?: number;
   status: number;
   deliveryStatus: number;
+  auditStatus?: number;
+  auditTime?: string;
+  auditRemark?: string;
+  photoOpenOutside?: string;
+  photoOpenInside?: string;
+  photoCloseOutside?: string;
+  photoCloseInside?: string;
   createTime: string;
 }
 

@@ -56,6 +56,15 @@ public class DeliveryOrder extends BaseEntity {
     /** 投递阶段：0-进行中（已开投口待回填） 1-已完成 */
     private Integer deliveryStatus;
 
+    /** 审核状态：0-待审核 1-审核通过 2-审核拒绝。审核通过时才返现入账 */
+    private Integer auditStatus;
+
+    /** 审核时间 */
+    private LocalDateTime auditTime;
+
+    /** 审核备注 */
+    private String auditRemark;
+
     /**
      * 投递订单为不可变事件流水，{@code biz_delivery_order} 表无 update_time 列。
      * 此处 shadow 掉 {@link BaseEntity#getUpdateTime()} 并标记不参与映射，避免 SELECT/INSERT 带出该列。

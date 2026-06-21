@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
-import { PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
-import { Statistic, Row, Col } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import {
+  PageContainer,
+  ProTable,
+  type ActionType,
+  type ProColumns,
+} from '@ant-design/pro-components';
+import { Statistic, Row, Col, Popconfirm, App, Image, Space } from 'antd';
 import { InboxOutlined, DashboardOutlined } from '@ant-design/icons';
-import { pageDeliveries, deliveryTodayOverview } from '@/api/delivery';
+import { pageDeliveries, deliveryTodayOverview, auditDelivery } from '@/api/delivery';
 import { toProTableResult } from '@/utils/proTable';
-import { pageHeader, proTableConfig } from '@/utils/pageStyle';
+import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import { statCardGradients } from '@/theme';
 import CountUp from '@/components/CountUp';
 import {
@@ -12,6 +17,7 @@ import {
   WASTE_TYPE2,
   DELIVERY_STATUS,
   DELIVERY_ABNORMAL,
+  AUDIT_STATUS,
   LOGIN_TYPE,
   toValueEnum,
   statLabel,
@@ -32,12 +38,20 @@ const GRADIENTS = [
 
 export default function DeliveryPage() {
   const [overview, setOverview] = useState<Record<string, unknown>>({});
+  const actionRef = useRef<ActionType>(null);
+  const { message } = App.useApp();
 
   useEffect(() => {
     deliveryTodayOverview()
       .then(setOverview)
       .catch(() => undefined);
   }, []);
+
+  const handleAudit = async (id: number, pass: boolean) => {
+    await auditDelivery(id, pass ? 1 : 2);
+    message.success(pass ? '已通过' : '已拒绝');
+    actionRef.current?.reload();
+  };
 
   const columns: ProColumns<DeliveryOrder>[] = [
     { title: 'ID', dataIndex: 'id', width: 70, search: false },
@@ -63,7 +77,69 @@ export default function DeliveryPage() {
       valueEnum: toValueEnum(DELIVERY_ABNORMAL),
       search: false,
     },
+    {
+      title: '审核状态',
+      dataIndex: 'auditStatus',
+      valueEnum: toValueEnum(AUDIT_STATUS),
+      search: false,
+    },
+    {
+      title: '照片',
+      width: 200,
+      search: false,
+      render: (_, record) => {
+        const photos = [
+          { src: record.photoOpenOutside, label: '开门·箱外' },
+          { src: record.photoOpenInside, label: '开门·箱内' },
+          { src: record.photoCloseOutside, label: '关门·箱外' },
+          { src: record.photoCloseInside, label: '关门·箱内' },
+        ].filter((p) => p.src);
+        if (photos.length === 0) return '—';
+        return (
+          <Image.PreviewGroup>
+            <Space size={4}>
+              {photos.map((p) => (
+                <Image
+                  key={p.label}
+                  src={p.src}
+                  alt={p.label}
+                  title={p.label}
+                  width={36}
+                  height={36}
+                  style={{ objectFit: 'cover', borderRadius: 4 }}
+                />
+              ))}
+            </Space>
+          </Image.PreviewGroup>
+        );
+      },
+    },
     { title: '投递时间', dataIndex: 'createTime', valueType: 'dateTime', search: false },
+    {
+      title: '操作',
+      valueType: 'option',
+      fixed: 'right',
+      width: 140,
+      render: (_, record) =>
+        record.auditStatus === 0
+          ? [
+              <Popconfirm
+                key="pass"
+                title="确认审核通过？通过后返现金额将入账用户余额。"
+                onConfirm={() => handleAudit(record.id, true)}
+              >
+                <a>通过</a>
+              </Popconfirm>,
+              <Popconfirm
+                key="reject"
+                title="确认拒绝该投递单？拒绝后不返现。"
+                onConfirm={() => handleAudit(record.id, false)}
+              >
+                <a style={{ color: DANGER_COLOR }}>拒绝</a>
+              </Popconfirm>,
+            ]
+          : ['已处理'],
+    },
   ];
 
   const overviewEntries = Object.entries(overview);
@@ -106,9 +182,10 @@ export default function DeliveryPage() {
       <ProTable<DeliveryOrder>
         {...proTableConfig}
         rowKey="id"
+        actionRef={actionRef}
         columns={columns}
         search={false}
-        scroll={{ x: 1400 }}
+        scroll={{ x: 1800 }}
         request={(params) => toProTableResult(pageDeliveries, params)}
       />
     </PageContainer>

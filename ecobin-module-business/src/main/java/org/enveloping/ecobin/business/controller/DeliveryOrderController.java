@@ -1,6 +1,8 @@
 package org.enveloping.ecobin.business.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.enveloping.ecobin.business.dto.DeliveryAuditRequest;
 import org.enveloping.ecobin.business.entity.DeliveryOrder;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
 import org.enveloping.ecobin.common.result.PageResult;
@@ -36,5 +38,12 @@ public class DeliveryOrderController {
     @GetMapping("/today-overview")
     public Result<Map<String, Object>> todayOverview() {
         return Result.ok(deliveryOrderService.todayOverview());
+    }
+
+    /** 审核投递订单：1-通过（返现入账） 2-拒绝。仅超管/租户可调（见 SecurityConfig） */
+    @PutMapping("/{id}/audit")
+    public Result<Void> audit(@PathVariable Long id, @Valid @RequestBody DeliveryAuditRequest req) {
+        deliveryOrderService.audit(id, req.getAuditStatus(), req.getRemark());
+        return Result.ok();
     }
 }

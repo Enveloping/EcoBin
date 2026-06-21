@@ -141,13 +141,11 @@ class WalletWithdrawTest {
         return userService.getById(userId).getPendingBalance();
     }
 
-    @Test
-    void deliveryCompleteCreditsBalance() {
-        // 开启设备：记活跃用户会话（不建单）
+    /** 走完投递流程（开启设备 → 设备上传后建单），返回该设备最新一单 id */
+    private Long doDeliveryAndGetOrderId() {
         asUser();
         deliveryOrderService.openDoor(doorId);
 
-        // 设备上传：上传后建单，归属取活跃会话用户，按单价×重量入账
         asDevice();
         DeliveryReportRequest report = new DeliveryReportRequest();
         report.setSn(deviceSn);
@@ -155,7 +153,54 @@ class WalletWithdrawTest {
         report.setWeight(new BigDecimal("1.500"));
         deliveryOrderService.completeDelivery(report);
 
-        // 单价 2.00 × 重量 1.5 = 3.00
+        return deliveryOrderService.lambdaQuery()
+                .orderByDesc(org.enveloping.ecobin.business.entity.DeliveryOrder::getId)
+                .last("limit 1")
+                .one().getId();
+    }
+
+    @Test
+    void deliveryCreatesPendingAuditNoCredit() {
+        Long orderId = doDeliveryAndGetOrderId();
+
+        // 建单进入「待审核」，钱未入账
+        asPlatform();
+        var order = deliveryOrderService.getById(orderId);
+        assertEquals(0, order.getAuditStatus());
+        assertEquals(0, BigDecimal.ZERO.compareTo(balanceOf()));
+    }
+
+    @Test
+    void auditApproveCreditsBalance() {
+        Long orderId = doDeliveryAndGetOrderId();
+
+        asTenant();
+        deliveryOrderService.audit(orderId, 1, "通过");
+
+        // 单价 2.00 × 重量 1.5 = 3.00，审核通过后才入账
+        assertEquals(0, new BigDecimal("3.00").compareTo(balanceOf()));
+    }
+
+    @Test
+    void auditRejectDoesNotCredit() {
+        Long orderId = doDeliveryAndGetOrderId();
+
+        asTenant();
+        deliveryOrderService.audit(orderId, 2, "材质不符");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(balanceOf()));
+    }
+
+    @Test
+    void repeatedAuditRejected() {
+        Long orderId = doDeliveryAndGetOrderId();
+
+        asTenant();
+        deliveryOrderService.audit(orderId, 1, "通过");
+        // 已审核再次审核被拒，杜绝重复入账
+        assertThrows(BusinessException.class,
+                () -> deliveryOrderService.audit(orderId, 1, "再次通过"));
+        // 余额仅入账一次
         assertEquals(0, new BigDecimal("3.00").compareTo(balanceOf()));
     }
 
