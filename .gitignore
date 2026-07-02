@@ -40,8 +40,7 @@ build/
 ### 前端小程序（不纳入版本管理）###
 frontend/miniprogram/
 
-### 硬件侧脚本（含永久密钥，不纳入版本管理）###
-hardware/
+### 硬件侧脚本 ###
 
 test_report/
 /docs/deploy-docker.md
