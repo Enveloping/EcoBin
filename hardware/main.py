@@ -31,14 +31,13 @@ import sys
 import threading
 import time
 
-import paho.mqtt.client as mqtt
-
 from config import (
     PRODUCT_ID,
     DEVICE_NAME,
     DEVICE_KEY,
     MQTT_HOST,
     MQTT_PORT,
+    TEST_MODE,
     validate as config_validate,
 )
 from hardware_layer import BinState, SerialBridge, DualCamera, CosUploader, SERIAL_PORT
@@ -46,6 +45,9 @@ from mqtt_gateway import MqttGateway
 from thing_model import ThingModel
 from delivery_handler import DeliveryHandler
 from clean_handler import CleanHandler, handle_reboot
+
+if TEST_MODE:
+    from test_mode import MockSerialBridge, MockCamera
 
 
 logging.basicConfig(
@@ -65,8 +67,22 @@ class SmartBinGateway:
         # ── 配置校验 ──
         config_validate()
 
-        # ── 硬件层 ──
-        self.serial = SerialBridge()
+        # ── 测试模式 ──
+        if TEST_MODE:
+            logger.info("=" * 60)
+            logger.info("⚠  测试模式已启用 (ECOBIN_TEST_MODE=true)")
+            logger.info("   串口 / 摄像头数据均为模拟，MQTT 和 COS 上传保持真实")
+            logger.info("=" * 60)
+
+        # ── 硬件层（测试模式下串口和摄像头使用模拟实现） ──
+        if TEST_MODE:
+            SerialCls = MockSerialBridge
+            CameraCls = MockCamera
+        else:
+            SerialCls = SerialBridge
+            CameraCls = DualCamera
+
+        self.serial = SerialCls()
         self.serial.on_weight_received = self._on_weight_from_mcu
         self.serial.on_spill_alarm = self._on_spill_from_mcu
         self.serial.on_smoke_alarm = self._on_smoke_from_mcu
@@ -77,10 +93,10 @@ class SmartBinGateway:
         # ── 物模型 ──
         self.tm = ThingModel(self.gw)
 
-        # ── 服务处理器（注入硬件依赖） ──
+        # ── 服务处理器（COS 上传始终使用真实实现） ──
         self.delivery_handler = DeliveryHandler(
             serial=self.serial,
-            camera=DualCamera,
+            camera=CameraCls,
             uploader=CosUploader,
             bin_state=BinState,
             thing_model=self.tm,
@@ -88,7 +104,7 @@ class SmartBinGateway:
         )
         self.clean_handler = CleanHandler(
             serial=self.serial,
-            camera=DualCamera,
+            camera=CameraCls,
             uploader=CosUploader,
             bin_state=BinState,
             thing_model=self.tm,
@@ -184,6 +200,8 @@ class SmartBinGateway:
         logger.info("=" * 60)
         logger.info("智能垃圾桶网关启动 (香橙派 Zero3)")
         logger.info("PID=%s  Device=%s", PRODUCT_ID, DEVICE_NAME)
+        if TEST_MODE:
+            logger.info("测试模式: 串口/摄像头数据均为模拟")
         logger.info("=" * 60)
 
         # 校验凭证

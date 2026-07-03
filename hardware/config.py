@@ -17,6 +17,8 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_MQTT_PORT      — MQTT 端口（默认: 1883）
     ECOBIN_SERIAL_PORT    — 串口设备路径（默认: /dev/ttyS3）
     ECOBIN_SERIAL_BAUDRATE— 串口波特率（默认: 115200）
+    ECOBIN_TEST_MODE      — 测试模式开关（true/1/yes 开启，默认: false）
+                            开启后所有 MCU/硬件数据均为模拟，无需实际硬件连接
 """
 
 import os
@@ -50,6 +52,9 @@ SERIAL_BAUDRATE = int(os.getenv("ECOBIN_SERIAL_BAUDRATE", "115200"))
 # ── 摄像头 ──
 CAMERA_OUTSIDE = int(os.getenv("ECOBIN_CAMERA_OUTSIDE", "0"))
 CAMERA_INSIDE = int(os.getenv("ECOBIN_CAMERA_INSIDE", "1"))
+
+# ── 测试模式 ──
+TEST_MODE = os.getenv("ECOBIN_TEST_MODE", "false").lower() in ("true", "1", "yes")
 
 # ── 凭证校验 ──
 _REQUIRED = ["ECOBIN_PRODUCT_ID", "ECOBIN_DEVICE_NAME", "ECOBIN_DEVICE_KEY"]
