@@ -40,20 +40,15 @@ public class OneNetClient {
      * <p>
      * 投递为「上传后建单」：照片位置由<strong>设备</strong>决定（设备自生成 token、自定对象 key 直传），
      * 故本命令<strong>只下发凭证</strong>，不下发照片 key。
+     * <p>
+     * 分类不再随开门下发：投递分类由后端建单时按投口配置（{@code biz_door}）兜底确定。
      *
      * @param devSn      设备序列号
      * @param doorIndex  投口号
-     * @param wasteType1 一级分类
-     * @param wasteType2 二级分类
      */
-    public void openDeliveryDoor(String devSn, Integer doorIndex,
-                                 Integer wasteType1, Integer wasteType2) {
+    public void openDeliveryDoor(String devSn, Integer doorIndex) {
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("doorIndex", doorIndex);
-        // 物模型 openDeliveryDoor 的入参均为必填，OneNet 服务调用会校验"required value"。
-        // 分类未指定时下发 0（= 缺省/不区分，设备侧仍按投口配置兜底），避免传 null 触发 10415。
-        input.put("wasteType1", wasteType1 != null ? wasteType1 : 0);
-        input.put("wasteType2", wasteType2 != null ? wasteType2 : 0);
         input.put("cosToken", baseCosToken(devSn, doorIndex));
         invokeService(devSn, "openDeliveryDoor", input);
     }

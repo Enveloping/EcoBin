@@ -77,7 +77,7 @@ class OneNetEventDispatcherTest {
     void deliveryComplete_routesToCompleteDelivery() {
         String json = """
                 {"msgType":"thingEvent","subData":{"deviceName":"EcoBin-SN-0003",
-                "params":{"deliveryComplete":{"value":{"doorIndex":2,"weight":3.2,"wasteType1":1,"wasteType2":11,\
+                "params":{"deliveryComplete":{"value":{"doorIndex":2,"weight":3.2,\
                 "photoOpenOutside":"https://b/a/open_outside.jpg","photoCloseInside":"https://b/a/close_inside.jpg"}}}}}""";
 
         dispatcher.handle(json, "mq-msg-1");
@@ -89,8 +89,6 @@ class OneNetEventDispatcherTest {
         assertThat(req.getMsgId()).isEqualTo("mq-msg-1");   // 报文无 id → 回退 MQ messageId 作幂等键
         assertThat(req.getDoorIndex()).isEqualTo(2);
         assertThat(req.getWeight()).isEqualByComparingTo(new BigDecimal("3.2"));
-        assertThat(req.getWasteType1()).isEqualTo(1);
-        assertThat(req.getWasteType2()).isEqualTo(11);
         // 照片 URL 随事件回传，分发器灌进 DTO
         assertThat(req.getPhotoOpenOutside()).isEqualTo("https://b/a/open_outside.jpg");
         assertThat(req.getPhotoCloseInside()).isEqualTo("https://b/a/close_inside.jpg");

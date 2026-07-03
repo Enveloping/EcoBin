@@ -123,12 +123,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         req.setMsgId(msgId);                 // 幂等键（OneNet 消息 id / MQ messageId）
         req.setDoorIndex(v.path("doorIndex").asInt());
         req.setWeight(decimal(v, "weight"));
-        if (v.has("wasteType1")) {
-            req.setWasteType1(v.path("wasteType1").asInt());
-        }
-        if (v.has("wasteType2")) {
-            req.setWasteType2(v.path("wasteType2").asInt());
-        }
         // 照片 URL：设备直传 COS 后随本事件回传，后端原样存（可选，缺失则前端占位）
         if (v.has("photoOpenOutside")) {
             req.setPhotoOpenOutside(v.path("photoOpenOutside").asString());

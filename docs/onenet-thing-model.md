@@ -104,14 +104,13 @@
 | 方向 | 字段 | dataType | 对应后端 |
 |------|------|----------|---------|
 | input | `doorIndex` | int32 | 投口号 |
-| input | `wasteType1` | int32 | 一级分类 |
-| input | `wasteType2` | int32 | 二级分类 |
 | input | `cosToken` | struct | COS 上传临时密钥（**仅凭证**，搭车下发，见 §3.4） |
 | output | `accepted` | bool | 设备是否受理 |
 
 对应 `DeviceCommandService.sendOpenDoor(devSn, doorIndex)`。**投递为「上传后建单」**（见 §8）：照片位置由**设备**决定（含设备屏「继续投递」本地再开门，设备自定对象 key 直传、URL 随上报回传），故开门命令<strong>不下发照片 key</strong>，`cosToken` 只含凭证。下发前由 `CosTokenClient.getTempCredentials` 取临时密钥填入 `cosToken`，设备可整会话缓存复用。
 
-> ⚠ **所有 input 均为必填**：OneNet 服务调用按物模型校验入参，缺值/传 `null` 会报 `10415 设备服务调用失败:required value`。小程序开投递门未指定分类时，`OneNetClient.openDeliveryDoor` 把 `wasteType1`/`wasteType2` 兜底为 `0`（= 缺省/不区分，设备侧仍按投口配置兜底），避免缺值。
+> ⚠ **分类不随开门下发**：开门时无从知道用户要投什么分类，投递分类统一由后端建单（`deliveryComplete`，见 §8）时按**投口配置 `biz_door.waste_type1/2`** 兜底确定，故 `openDeliveryDoor` 入参只剩 `doorIndex` + `cosToken`。
+> ⚠ **所有 input 均为必填**：OneNet 服务调用按物模型校验入参，缺值/传 `null` 会报 `10415 设备服务调用失败:required value`，下发前确保入参齐全。
 
 ### 3.2 `openCleanDoor` — 开清运门
 
@@ -181,8 +180,6 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 |------------|----------|---------------------------|
 | `doorIndex` | int32 | doorIndex（设备开的哪个投口；后端据 device+doorIndex 反查投口取单价/分类） |
 | `weight` | float (kg) | weight |
-| `wasteType1` | int32 | wasteType1（可选） |
-| `wasteType2` | int32 | wasteType2（可选） |
 | `photoOpenOutside` | string | photoOpenOutside（可选，开门前·箱外照片 URL，**设备回传**） |
 | `photoOpenInside` | string | photoOpenInside（可选，开门前·箱内照片 URL，**设备回传**） |
 | `photoCloseOutside` | string | photoCloseOutside（可选，关门后·箱外照片 URL，**设备回传**） |
@@ -252,7 +249,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 | 物模型功能点 | 类型 | 后端落点 | 状态 |
 |--------------|------|---------|------|
-| `openDeliveryDoor` | service | `DeliveryOrderService.openDoor`（**开启设备=建会话不建单**）→ `DeviceCommandService.sendOpenDoor(sn,doorIndex)` → `OneNetClient.openDeliveryDoor` | 真实下发已接通（凭证已配、API `/thingmodel/call-service` 已确认、wasteType 兜底 0）；平台受理待设备在线最终确认 |
+| `openDeliveryDoor` | service | `DeliveryOrderService.openDoor`（**开启设备=建会话不建单**）→ `DeviceCommandService.sendOpenDoor(sn,doorIndex)` → `OneNetClient.openDeliveryDoor` | 真实下发已接通（凭证已配、API `/thingmodel/call-service` 已确认、入参仅 doorIndex+cosToken，分类由后端按投口配置兜底）；平台受理待设备在线最终确认 |
 | `openCleanDoor`(含 cleanOrderId) | service | `CleanOrderService.openCleanDoor`（**开门即建单**，不预存照片）→ `DeviceCommandService.sendOpenCleanDoor` → `OneNetClient.openCleanDoor` | 建单已实现；真实下发同上（同一 `call-service` 通道），待设备在线确认 |
 | `cosToken`(仅凭证，投递/清运通用) | service 入参 | `OneNetClient.baseCosToken`（凭证，无 key、无 expire；按 512 拆 `sessionToken1/2`） | 已实现，待凭证联调 |
 | 照片 URL | — | **投递/清运一致**：设备自定位置、随上行事件回传 4 个 URL，后端原样存（投递 `completeDelivery`、清运 `reportGross`）；后端不再算 key | 已实现 |

@@ -63,8 +63,6 @@
       "desc": "",
       "input": [
         { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
-        { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
-        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
         { "identifier": "cosToken", "name": "上传临时密钥_仅凭证", "dataType": {
           "type": "struct",
           "specs": [
@@ -130,8 +128,6 @@
       "outputData": [
         { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
         { "identifier": "weight", "name": "投递重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } },
-        { "identifier": "wasteType1", "name": "一级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
-        { "identifier": "wasteType2", "name": "二级分类", "dataType": { "type": "int32", "specs": { "min": "0", "max": "99", "unit": "", "step": "1" } } },
         { "identifier": "photoOpenOutside", "name": "开门前箱外照片", "dataType": { "type": "string", "specs": { "length": 256 } } },
         { "identifier": "photoOpenInside", "name": "开门前箱内照片", "dataType": { "type": "string", "specs": { "length": 256 } } },
         { "identifier": "photoCloseOutside", "name": "关门后箱外照片", "dataType": { "type": "string", "specs": { "length": 256 } } },

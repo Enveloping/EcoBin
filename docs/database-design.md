@@ -1,10 +1,10 @@
 # EcoBin 数据库设计文档
 
-> 版本：V8（钱包+提现）  
+> 版本：V14（投递订单审核）  
 > 数据库：MySQL 8.0+  
 > 字符集：utf8mb4  
 > 迁移工具：Flyway（脚本位于 `ecobin-bootstrap/src/main/resources/db/migration/`）  
-> 末次同步：2026-06-07（已对齐 V1–V8 全部迁移）；关联 [[permission-design.md](permission-design.md)]
+> 末次同步：2026-06-27（已对齐 V1–V14 全部迁移）；关联 [[permission-design.md](permission-design.md)]
 
 ---
 
@@ -29,7 +29,7 @@
 | `sys_user` | sys | 终端用户（小程序微信登录，role=1/2/3；V8 加钱包余额） | V1, V2, V3, V6, V8 |
 | `biz_device` | biz | 回收设备 | V1 |
 | `biz_door` | biz | 设备投口（V8 加单价 price） | V1, V4, V5, V8 |
-| `biz_delivery_order` | biz | 投递订单（V7 加投递两阶段字段） | V1, V7 |
+| `biz_delivery_order` | biz | 投递订单（V7 两阶段字段；V11 照片；V14 人工审核） | V1, V7, V11, V14 |
 | `biz_clean_order` | biz | 清运订单（V9 去皮链；V11 照片；V12 开门即建单 new_bag_qr） | V1, V9, V11, V12 |
 | `biz_clean_bag` | biz | 垃圾袋追踪（每投口当前袋去皮，V9） | V9 |
 | `biz_device_status` | biz | 设备实时状态（V10 收敛为设备级：去 total_weight/spill/smoke，加 rssi/fw_version） | V1, V10 |
@@ -111,7 +111,7 @@
 | `avatar` | VARCHAR(500) | ✓ | NULL | 微信头像 URL |
 | `role` | TINYINT | | 1 | 3-设备管理员 2-清运员 1-普通用户（默认） |
 | `status` | TINYINT | | 1 | 0-禁用 1-启用 |
-| `balance` | DECIMAL(12,2) | | 0.00 | 可用余额（V8，投递返现入账） |
+| `balance` | DECIMAL(12,2) | | 0.00 | 可用余额（V8，投递订单审核通过后返现入账） |
 | `pending_balance` | DECIMAL(12,2) | | 0.00 | 待审核余额（V8，提现申请中冻结） |
 | `create_time` | DATETIME | | NOW() | 创建时间 |
 | `update_time` | DATETIME | | NOW() | 更新时间（ON UPDATE） |
@@ -192,12 +192,16 @@
 | `photo_open_inside` | VARCHAR(512) | ✓ | NULL | 开门前箱内照片 URL（V11） |
 | `photo_close_outside` | VARCHAR(512) | ✓ | NULL | 关门后箱外照片 URL（V11） |
 | `photo_close_inside` | VARCHAR(512) | ✓ | NULL | 关门后箱内照片 URL（V11） |
+| `audit_status` | TINYINT | | 0 | 审核状态（V14）：0-待审核 1-审核通过 2-审核拒绝；仅通过时才返现入账 |
+| `audit_time` | DATETIME | ✓ | NULL | 审核时间（V14） |
+| `audit_remark` | VARCHAR(255) | ✓ | NULL | 审核备注（V14） |
 | `create_time` | DATETIME | | NOW() | 投递时间 |
 
 索引：`uk_delivery_order_sn`（UNIQUE）、`uk_delivery_token`（UNIQUE，V7）、`idx_delivery_device_id`、`idx_delivery_user_id`、`idx_delivery_tenant_id`、`idx_delivery_create_time`
 
-> **注意**：此表无 `update_time`，投递订单一旦创建不修改，异常仅标记。
+> **注意**：此表无 `update_time` 列（实体以 `@TableField(exist = false)` 屏蔽），订单创建后仅由审核流程回写 `audit_*` 字段，业务量（重量/分类）不修改，异常仅标记。
 > **两阶段流程（V7）**：①C 端开投口建「进行中」记录（生成 `delivery_token`）；②设备 IoT 按 SN + token 上报回填重量并置「已完成」。后台/历史直接创建的订单 `delivery_status` 默认 1（已完成）。
+> **人工审核（V14）**：建单进入 `audit_status=0`（待审核），租户管理员在网页后台审核；通过（1）时按 `biz_door.price × weight` 返现入账 `sys_user.balance`，拒绝（2）不入账。仅「待审核」可流转，杜绝重复入账；存量历史订单迁移时置为已通过（1）。
 
 ### 7. biz_clean_order — 清运订单
 
@@ -344,7 +348,7 @@
 
 索引：`idx_withdraw_user_id`、`idx_withdraw_tenant_id`、`idx_withdraw_status`
 
-**资金流**：投递完成按 `biz_door.price × weight` 入账 `sys_user.balance`；申请提现时可用→待审核（条件 SQL 防透支）；
+**资金流**：投递订单审核通过（V14）后按 `biz_door.price × weight` 入账 `sys_user.balance`；申请提现时可用→待审核（条件 SQL 防透支）；
 审核通过扣减待审核（资金转出），驳回则退回可用。设计差异记录见 `docs/archive/withdraw-design-notes.md`。
 
 ---
@@ -438,6 +442,14 @@
 | 0 | 进行中（已开投口，待设备上报回填） |
 | 1 | 已完成（后台/历史直接创建默认此值） |
 
+### 投递审核状态 (biz_delivery_order.audit_status，V14)
+
+| 值 | 说明 |
+|----|------|
+| 0 | 待审核（建单默认；审核通过前不返现） |
+| 1 | 审核通过（返现入账） |
+| 2 | 审核拒绝（不入账） |
+
 ### 提现状态 (biz_withdraw_order.status，V8)
 
 | 值 | 说明 |
@@ -490,3 +502,4 @@ sys_tenant ──< sys_user
 | V11 | `V11__add_order_photos.sql` | biz_delivery_order / biz_clean_order 各加 4 个 photo URL 列（开门前/关门后 × 箱内/箱外） |
 | V12 | `V12__clean_order_new_bag.sql` | biz_clean_order 加 `new_bag_qr`（开门即建单：open 时扫到的新空袋，待去皮） |
 | V13 | `V13__add_device_session.sql` | 新建 biz_device_session（设备当前活跃用户，支撑投递上传后建单的用户归属） |
+| V14 | `V14__add_delivery_audit.sql` | biz_delivery_order 加 `audit_status`/`audit_time`/`audit_remark`（投递人工审核，通过后才返现入账；存量订单置为已通过） |

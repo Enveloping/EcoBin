@@ -195,7 +195,7 @@ Authorization: Bearer <token>
           → 设备每次开门自生成 deliveryToken；用户可在设备屏点「继续投递」再投一袋（每袋独立成单）
 
 ③ 完成上报（设备 IoT，非前端调用）—— 上传后建单
-  设备    POST /api/iot/delivery/complete { sn, doorIndex, deliveryToken, weight, wasteType1?, wasteType2? }
+  设备    POST /api/iot/delivery/complete { sn, doorIndex, deliveryToken, weight }
           → 按 device+deliveryToken 幂等；取「当前活跃用户」会话建单(deliveryStatus=1)
           → 命中用户：按 投口单价 price × weight 返现入账到 balance；无活跃会话：建无主单不返现
 
@@ -732,8 +732,6 @@ Authorization: Bearer <token>
 | `doorIndex` | int | 是 | 投口号（后端据 device+doorIndex 反查投口取单价/分类） |
 | `deliveryToken` | string | 是 | **设备每次开门自生成**：照片 key 前缀 + 上报幂等键 |
 | `weight` | decimal | 是 | 本次投递重量（kg） |
-| `wasteType1` | int | 否 | 一级分类（缺省沿用投口配置） |
-| `wasteType2` | int | 否 | 二级分类 |
 
 后端此刻**建单**：按 `device+deliveryToken` 幂等；取该设备「当前活跃用户」会话确定归属——命中则建单(`deliveryStatus=1`)、按 `投口单价 × 重量` 返现入余额；无活跃会话（过期/从未开启）则建无主单、不返现。详见 `onenet-thing-model.md` §8。
 

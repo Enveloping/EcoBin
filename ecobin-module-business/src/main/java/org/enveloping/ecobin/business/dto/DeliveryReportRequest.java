@@ -33,12 +33,6 @@ public class DeliveryReportRequest {
     @NotNull(message = "投递重量不能为空")
     private BigDecimal weight;
 
-    /** 一级分类（可选，缺省沿用开投口时投口配置） */
-    private Integer wasteType1;
-
-    /** 二级分类（可选） */
-    private Integer wasteType2;
-
     // ---------- 照片 URL（设备直传 COS 后随本次称重上报一并回传，后端原样存；缺失则前端占位） ----------
     // 投递「上传后建单 + 设备本地继续投递」，开门时后端无订单标识，故照片位置由设备决定并回传，不由后端复原。
 

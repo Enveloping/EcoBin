@@ -21,8 +21,8 @@ public class DeviceCommandServiceImpl implements DeviceCommandService {
 
     @Override
     public void sendOpenDoor(String deviceSn, Integer doorIndex) {
-        // 经 OneNet 下发 openDeliveryDoor（仅含 COS 凭证）；分类缺省由设备按投口配置兜底（物模型 §3.1）
-        oneNetClient.openDeliveryDoor(deviceSn, doorIndex, null, null);
+        // 经 OneNet 下发 openDeliveryDoor（仅含 COS 凭证）；分类不随开门下发，由后端建单时按投口配置兜底（物模型 §3.1）
+        oneNetClient.openDeliveryDoor(deviceSn, doorIndex);
     }
 
     @Override

@@ -118,11 +118,9 @@ public class DeliveryOrderServiceImpl extends ServiceImpl<DeliveryOrderMapper, D
         order.setStatus(0);
         order.setDeliveryStatus(1);     // 上传即完成
         order.setAuditStatus(0);        // 待审核：返现入账迁移到审核通过时
-        // 分类：上报优先，否则取投口配置兜底
-        order.setWasteType1(request.getWasteType1() != null ? request.getWasteType1()
-                : (door != null ? door.getWasteType1() : 0));
-        order.setWasteType2(request.getWasteType2() != null ? request.getWasteType2()
-                : (door != null && door.getWasteType2() != null ? door.getWasteType2() : 0));
+        // 分类取投口配置（开门/上报不再传分类）
+        order.setWasteType1(door != null ? door.getWasteType1() : 0);
+        order.setWasteType2(door != null && door.getWasteType2() != null ? door.getWasteType2() : 0);
         // 照片 URL：设备直传 COS 后随本次称重上报回传，后端原样存（继续投递时位置由设备定，不由后端复原）
         order.setPhotoOpenOutside(request.getPhotoOpenOutside());
         order.setPhotoOpenInside(request.getPhotoOpenInside());
