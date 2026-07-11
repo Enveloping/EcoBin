@@ -195,6 +195,11 @@ class SmartBinGateway:
     def _signal_handler(self, signum, frame):
         logger.info("收到退出信号 %d，正在关闭...", signum)
         self.exit_flag.set()
+        # 主动断开 MQTT，使 loop_forever() 退出阻塞
+        try:
+            self.gw.disconnect()
+        except Exception:
+            pass
 
     def run(self):
         logger.info("=" * 60)

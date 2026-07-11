@@ -1,6 +1,6 @@
 # 代码 Review 待办记录
 
-> 📦 历史快照（已归档）。仍未解决的条目已汇总至 `docs/open-items.md`，本文仅作逐次 review 的原始记录。
+> 📦 历史快照（已归档）。仍未解决的条目已汇总至 `docs/planning/open-items.md`，本文仅作逐次 review 的原始记录。
 
 本文件按 git 提交 ID 隔离，记录每次 review 发现的、**暂不立即修复但推进项目时需要考虑**的点。
 每节标题为被 review 的提交短 ID + 主题，便于回溯。不在此处记录已修复内容。
@@ -21,7 +21,7 @@ Review 时间：2026-06-05
 
 > 已处理（按本文件约定不再展开）：原「终端用户登录后无业务接口可用」设计缺口已落地 C 端只读接口
 > （`/api/app/**`：我的投递记录 + 个人信息，按 `user_id` 归属过滤），并补齐 `SecurityConfig` 终端域放行。
-> 详见 `docs/permission-design.md` §9。
+> 详见 `docs/architecture/permission-design.md` §9。
 
 #### 1.【中·运维隐患】TokenInvalidationRegistry 重启即失忆
 内存 `ConcurrentHashMap` 实现。除注释已提的"多实例需换 Redis"外，更隐蔽的问题是：

@@ -4,7 +4,7 @@
 
 临时密钥来源：
   - 正式流程：随开门命令的 cosToken 由 OneNet 下发给设备
-    （见 docs/onenet-thing-model.md §3.4）
+    （见 docs/iot/onenet-thing-model.md §3.4）
   - 联调测试：通过 EcoBin 后端 /api/iot/cos/temp-credentials
 
 依赖（uv 已装）：cos-python-sdk-v5, requests

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 EcoBin是一个智慧环保回收箱后端管理系统，基于 Spring Boot 4.0.6 + Java 21 + Maven 多模块构建。
 已实现多租户数据隔离：所有业务表含 `tenant_id`，框架层 `TenantContextHolder` + MyBatis-Plus `TenantLineInnerInterceptor`
 （`EcoBinTenantLineHandler`）按登录上下文自动注入/回填，平台域（超管/管理员）放行。三类登录主体
-（`sys_admin`/`sys_tenant`/`sys_user`）+ 角色体系 + JWT 强制失效登记表见 `docs/permission-design.md`。
+（`sys_admin`/`sys_tenant`/`sys_user`）+ 角色体系 + JWT 强制失效登记表见 `docs/architecture/permission-design.md`。
 
 
 ## 构建与运行命令

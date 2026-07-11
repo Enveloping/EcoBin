@@ -33,7 +33,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private final DeliveryOrderService deliveryOrderService;
     private final ObjectMapper objectMapper;
 
-    // 物模型事件标识符（与 docs/onenet-thing-model.md §4 对齐）
+    // 物模型事件标识符（与 docs/iot/onenet-thing-model.md §4 对齐）
     private static final String EVT_CLEAN_GROSS = "cleanGross";
     private static final String EVT_CLEAN_TARE = "cleanTare";
     private static final String EVT_DELIVERY_COMPLETE = "deliveryComplete";

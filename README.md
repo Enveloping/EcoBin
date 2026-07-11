@@ -1,6 +1,6 @@
 # EcoBin 智慧环保回收箱管理系统
 
-基于 Spring Boot 4.0.6 + Java 21 的智慧环保回收箱后端管理系统，提供设备管理、投递订单、清运订单、数据统计等核心功能。已实现**多租户数据隔离**、三类登录主体（平台管理员 / 租户 / 小程序用户）、基于角色的接口鉴权，以及角色/状态变更后的 JWT 强制失效。详细权限设计见 [`docs/permission-design.md`](docs/permission-design.md)。
+基于 Spring Boot 4.0.6 + Java 21 的智慧环保回收箱后端管理系统，提供设备管理、投递订单、清运订单、数据统计等核心功能。已实现**多租户数据隔离**、三类登录主体（平台管理员 / 租户 / 小程序用户）、基于角色的接口鉴权，以及角色/状态变更后的 JWT 强制失效。文档入口见 [`docs/README.md`](docs/README.md)，详细权限设计见 [`docs/architecture/permission-design.md`](docs/architecture/permission-design.md)。
 
 ## 技术栈
 
@@ -45,7 +45,7 @@ ecobin-bootstrap ──→ 组装所有模块
 
 ## API 接口
 
-所有接口统一前缀 `/api`，认证接口除外，其余接口需携带 JWT Token（`Authorization: Bearer <token>`）。各接口按角色鉴权，规则见 [`docs/permission-design.md`](docs/permission-design.md) §9。
+所有接口统一前缀 `/api`，认证接口除外，其余接口需携带 JWT Token（`Authorization: Bearer <token>`）。各接口按角色鉴权，规则见 [`docs/architecture/permission-design.md`](docs/architecture/permission-design.md) §9。
 
 ### 认证
 
@@ -136,7 +136,7 @@ ecobin-bootstrap ──→ 组装所有模块
 
 所有业务表包含 `tenant_id BIGINT NOT NULL DEFAULT 1`。`tenant_id = 1` 为保留值（平台池/未分配），真实租户
 `tenant_id = sys_tenant.id 且恒 > 1`（`sys_tenant` 自增从 2 开始）。表前缀：`sys_`（系统表）、`biz_`（业务表）。
-完整设计见 [`docs/database-design.md`](docs/database-design.md)。
+完整设计见 [`docs/architecture/database-design.md`](docs/architecture/database-design.md)。
 
 | 表名                   | 说明                              |
 |----------------------|-----------------------------------|

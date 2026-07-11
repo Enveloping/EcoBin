@@ -1,6 +1,6 @@
 # 三端功能横向审查待办
 
-> 📦 历史快照（已归档）。仍未解决的条目（§2.1 设备状态上报、§3 C 端清运接口、§4 技术债）已汇总至 `docs/open-items.md`，本文为审查当时的完整记录。
+> 📦 历史快照（已归档）。仍未解决的条目（§2.1 设备状态上报、§3 C 端清运接口、§4 技术债）已汇总至 `docs/planning/open-items.md`，本文为审查当时的完整记录。
 
 > 范围：终端用户(C端) / 租户 / 管理员 三端功能完整性与设计问题。
 > 与 `review-notes.md`（按提交 ID 记录的逐次 review）区分：本文件是一次**横向专项审查**的结论与下一轮改动方向。
@@ -15,8 +15,8 @@
 - **证据**
   - `ecobin-bootstrap/src/main/resources/db/migration/V2__add_wechat_login.sql:14`
     建的是 `ADD UNIQUE INDEX uk_openid (openid)` —— **全局唯一**。
-  - 设计意图相反：`docs/permission-design.md:294`「同一微信 openid 在不同租户下为独立 `sys_user` 记录」、
-    `docs/permission-design.md:502`「同一 openid 在不同租户下独立注册」。
+  - 设计意图相反：`docs/architecture/permission-design.md:294`「同一微信 openid 在不同租户下为独立 `sys_user` 记录」、
+    `docs/architecture/permission-design.md:502`「同一 openid 在不同租户下独立注册」。
 - **后果**
   - 同一微信用户扫第二个租户的小程序码时，`AuthServiceImpl` 自动注册执行 `INSERT sys_user`，
     因 `uk_openid` 全局唯一触发**键冲突，注册失败** → 第二个租户永远无法获取该用户。

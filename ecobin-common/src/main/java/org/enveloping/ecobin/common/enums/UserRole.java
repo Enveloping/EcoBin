@@ -7,7 +7,7 @@ import lombok.Getter;
  * <p>
  * 角色不是线性高低，而是分属三个作用域：
  * 平台域（9/8，sys_admin）、租户域（7，sys_tenant）、终端域（3/2/1，sys_user）。
- * 详见 docs/permission-design.md。
+ * 详见 docs/architecture/permission-design.md。
  */
 @Getter
 public enum UserRole {

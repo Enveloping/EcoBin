@@ -1,6 +1,6 @@
 -- OneNet 上行联调用测试数据：设备 test-divice-1 + 一个投口（默认机构 tenant_id=1）
 -- 幂等，可重复执行。库名按 application.yml 为 ecobin。
--- 用途见 docs/onenet-device-simulation.md 阶段2。
+-- 用途见 docs/iot/onenet-device-simulation.md 阶段2。
 
 -- 1) 测试设备（sn 唯一键，重复执行只更新名称/状态）
 INSERT INTO biz_device (tenant_id, sn, name, type, status)

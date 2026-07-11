@@ -1,4 +1,4 @@
-// 枚举映射，对照 docs/api-frontend.md §10。每项含 label + antd Tag color。
+// 枚举映射，对照 docs/api/api-frontend.md §10。每项含 label + antd Tag color。
 
 export interface EnumItem {
   label: string;
