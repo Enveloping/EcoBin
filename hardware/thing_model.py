@@ -26,7 +26,7 @@ logger = logging.getLogger("thing_model")
 class ThingModel:
     """物模型用户接口 —— 属性/事件/服务分发的薄层。"""
 
-    def __init__(self, device):
+    def __init__(self, device, unit_price_store=None):
         """
         :param device: SmartBinGateway 实例（或兼容的 Mock），提供:
                          - device.post_property()  属性上报 (MQTT)
@@ -37,6 +37,7 @@ class ThingModel:
         self.device = device
         self.serial = None
         self.exit_flag: threading.Event = None
+        self.unit_price_store = unit_price_store
 
         # ── 属性读取处理器 ──
         self.prop_read_handlers = {
@@ -46,9 +47,13 @@ class ThingModel:
             "rssi": self._read_rssi,
             "voltage": self._read_voltage,
         }
+        if self.unit_price_store is not None:
+            self.prop_read_handlers["unitPrice"] = self._read_unit_price
 
-        # ── 属性写入处理器（当前为空） ──
+        # ── 属性写入处理器 ──
         self.prop_write_handlers = {}
+        if self.unit_price_store is not None:
+            self.prop_write_handlers["unitPrice"] = self._write_unit_price
 
         # ── 服务调用处理器（由 main.py 注入具体 handler） ──
         self.service_handlers = {}
@@ -57,7 +62,7 @@ class ThingModel:
 
     @staticmethod
     def get_prop_list() -> list:
-        return ["doorStates", "fwVersion", "online", "rssi", "voltage"]
+        return ["doorStates", "fwVersion", "online", "rssi", "voltage", "unitPrice"]
 
     @staticmethod
     def get_svc_list() -> list:
@@ -80,9 +85,20 @@ class ThingModel:
 
     def _read_door_states(self) -> list:
         states = BinState.get_state()
-        for i, s in enumerate(states):
+        for i, s in enumerate(states, start=1):
             s["doorIndex"] = i
         return states
+
+    def _read_unit_price(self) -> float:
+        return self.unit_price_store.get()
+
+    def _write_unit_price(self, value) -> None:
+        """先持久化 OneNet 期望值，再立即同步给 MCU。"""
+        stored = self.unit_price_store.set(value)
+        digit = self.unit_price_store.get_protocol_digit()
+        if self.serial is None or not self.serial.send_price_digit(digit):
+            raise RuntimeError("unitPrice 已保存，但当前未能同步到 MCU")
+        logger.info("单价已更新: %.4g 元/kg → MCU 数据位 %d", stored, digit)
 
     @staticmethod
     def _read_fw_version() -> str:
@@ -226,9 +242,9 @@ class ThingModel:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(name)s] %(message)s")
 
-    BinState.update_overflow(0, 0)
-    BinState.update_weight(0, 1500)
-    BinState.update_smoke(0, 0)
+    BinState.update_overflow(1, 0)
+    BinState.update_weight(1, 1500)
+    BinState.update_smoke(1, 0)
 
     class MockDevice:
         _connected = True

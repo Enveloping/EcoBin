@@ -4,6 +4,11 @@
 > 审计范围：`hardware/hardware_layer.py` SerialBridge 协议实现 + `hardware/door_flow.py` 开门闭环
 > 协议版本：A1/B1/C1/D1 逗号分隔文本帧
 
+> **历史说明（2026-07-17）**：投递链路已改用固定长度 AA/BB/CC/DD 二进制协议，
+> 本报告的正则、换行分帧和旧重量轮询结论仅适用于旧实现。接收缓冲上限、严格分帧、
+> 新重量事件隔离和门状态确认已在新投递路径落实；CRC、序号、独立 ACK/重试、多投口
+> 及清运适配仍未完成，现状见 `uart-protocol-temporary-compatibility.md`。
+
 ---
 
 ## 严重问题 (4)

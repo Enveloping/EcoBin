@@ -5,17 +5,16 @@ hardware_layer.py — 香橙派 Zero3 硬件抽象层
 负责与前端垃圾桶 MCU 的串口通信、USB 摄像头拍照、COS 图片上传。
 
 物理连接（推测，按实际接线调整）：
-  - UART: 香橙派 GPIO (ttyS3 或 ttyS5) ←→ 垃圾桶 MCU 串口
+  - UART: 香橙派 26Pin UART5 (/dev/ttyS5) ←→ 垃圾桶 MCU 串口
   - 摄像头1 (箱外): /dev/video0 — 拍摄箱体外部
   - 摄像头2 (箱内): /dev/video1 — 拍摄箱体内部
 
-MCU 通信协议（垃圾桶 → 香橙派，逗号分隔）：
-  A1,{flag},A0    溢满标志位     (flag: 0=正常, 1=满溢)
-  B1,{weight},B0  重量（克）     (weight: int, 单位g)
-  C1,{flag},C0    烟雾报警标志   (flag: 0=正常, 1=报警)
+新投递协议使用固定长度二进制帧（当前仅物理投口 1）：
+  MCU → 香橙派: AA,{0|1},AA 门状态；BB,{0|1},BB 红外；
+                  CC,{0|1},CC 烟雾；DD,{uint24-be},DD 最终重量（克）
+  香橙派 → MCU: AA,00,AA 开盖；AA,01,AA 关盖；BB,{0..9},BB 单价
 
-香橙派 → 垃圾桶 MCU（门控指令）：
-  D1,{index},{cmd},D0    cmd: open / close / status  （D0=动作完成/超时）
+旧清运代码暂时仍通过 send_cmd() 发送 D1 文本帧，尚未适配新固件。
 
 依赖（香橙派 ARMbian 上安装）：
   sudo apt install python3-serial fswebcam
@@ -24,7 +23,6 @@ MCU 通信协议（垃圾桶 → 香橙派，逗号分隔）：
 
 import logging
 import os
-import re
 import threading
 import time
 import uuid
@@ -85,25 +83,35 @@ class BinState:
     _clean_order_ids = [None] * 6
 
     @classmethod
+    def _offset(cls, door_index: int):
+        """物模型投口号为 1..6，转换为内部列表下标。"""
+        if isinstance(door_index, int) and 1 <= door_index <= len(cls.doors):
+            return door_index - 1
+        return None
+
+    @classmethod
     def update_overflow(cls, door_index: int, flag: int):
         with cls.lock:
-            if 0 <= door_index < 6:
-                cls.doors[door_index]["fullness"] = 100 if flag else 0
-                cls.doors[door_index]["spill_alarm"] = bool(flag)
+            offset = cls._offset(door_index)
+            if offset is not None:
+                cls.doors[offset]["fullness"] = 100 if flag else 0
+                cls.doors[offset]["spill_alarm"] = bool(flag)
                 logger.info("舱门%d 溢满标志=%d", door_index, flag)
 
     @classmethod
     def update_weight(cls, door_index: int, weight_grams: int):
         with cls.lock:
-            if 0 <= door_index < 6:
-                cls.doors[door_index]["weight"] = weight_grams / 1000.0
+            offset = cls._offset(door_index)
+            if offset is not None:
+                cls.doors[offset]["weight"] = weight_grams / 1000.0
                 logger.info("舱门%d 重量=%.2fkg", door_index, weight_grams / 1000.0)
 
     @classmethod
     def update_smoke(cls, door_index: int, flag: int):
         with cls.lock:
-            if 0 <= door_index < 6:
-                cls.doors[door_index]["smoke_alarm"] = bool(flag)
+            offset = cls._offset(door_index)
+            if offset is not None:
+                cls.doors[offset]["smoke_alarm"] = bool(flag)
                 logger.info("舱门%d 烟雾报警=%d", door_index, flag)
 
     @classmethod
@@ -115,8 +123,9 @@ class BinState:
     @classmethod
     def get_door_state(cls, door_index: int) -> dict:
         with cls.lock:
-            if 0 <= door_index < 6:
-                return {**cls.doors[door_index]}
+            offset = cls._offset(door_index)
+            if offset is not None:
+                return {**cls.doors[offset]}
             return {}
 
     # ── 清运订单追踪 ──
@@ -125,35 +134,48 @@ class BinState:
     def set_clean_order_id(cls, door_index: int, clean_order_id: int):
         """记录某门的活跃清运订单 ID。"""
         with cls.lock:
-            if 0 <= door_index < 6:
-                cls._clean_order_ids[door_index] = clean_order_id
+            offset = cls._offset(door_index)
+            if offset is not None:
+                cls._clean_order_ids[offset] = clean_order_id
 
     @classmethod
     def get_clean_order_id(cls, door_index: int):
         """获取某门的活跃清运订单 ID（None = 无）。"""
         with cls.lock:
-            if 0 <= door_index < 6:
-                return cls._clean_order_ids[door_index]
+            offset = cls._offset(door_index)
+            if offset is not None:
+                return cls._clean_order_ids[offset]
             return None
 
     @classmethod
     def clear_clean_order_id(cls, door_index: int):
         """清除某门的清运订单记录。"""
         with cls.lock:
-            if 0 <= door_index < 6:
-                cls._clean_order_ids[door_index] = None
+            offset = cls._offset(door_index)
+            if offset is not None:
+                cls._clean_order_ids[offset] = None
 
 
 # ================================================================
 #  串口通信 — 解析 MCU 协议、发送门控指令
 # ================================================================
 class SerialBridge:
-    """香橙派 ←→ MCU 串口桥接器"""
+    """香橙派 ←→ MCU 串口桥接器。"""
+
+    SINGLE_DOOR_INDEX = 1
+    MAX_RECV_BUFFER = 4096
+    FRAME_LENGTHS = {0xAA: 3, 0xBB: 3, 0xCC: 3, 0xDD: 5}
 
     def __init__(self):
         self.serial_port: Optional[serial.Serial] = None
         self._recv_buffer = b""   # 粘包/拆包拼接缓冲
         self._running = False
+        self._write_lock = threading.Lock()
+        self._event_condition = threading.Condition()
+        self._door_is_open: Optional[bool] = None
+        self._door_state_version = 0
+        self._latest_weight_grams: Optional[int] = None
+        self._weight_version = 0
         # 回调：收到重量后触发（参数: door_index, weight_grams）
         self.on_weight_received: Optional[Callable] = None
         # 回调：收到溢满报警后触发
@@ -179,63 +201,145 @@ class SerialBridge:
 
     def close(self):
         self._running = False
+        with self._event_condition:
+            self._event_condition.notify_all()
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
             logger.info("串口已关闭")
 
     def send_cmd(self, door_index: int, cmd: str) -> bool:
         """
-        向 MCU 发送门控指令: D1,{index},{cmd},D0
+        旧清运流程专用的文本门控指令: D1,{index},{cmd},D0。
+
+        新投递流程必须使用 send_door_control()；此方法不代表新固件兼容。
         cmd 可选: open / close / status
         """
         frame = f"D1,{door_index},{cmd},D0\r\n"
+        return self._write(frame.encode("utf-8"), frame.strip())
+
+    def send_door_control(self, door_index: int, open_door: bool) -> bool:
+        """按新二进制协议控制唯一投口。00=开盖，01=关盖。"""
+        if door_index != self.SINGLE_DOOR_INDEX:
+            logger.error("新 UART 协议仅支持投口%d，收到 doorIndex=%s", self.SINGLE_DOOR_INDEX, door_index)
+            return False
+        data = 0x00 if open_door else 0x01
+        frame = bytes((0xAA, data, 0xAA))
+        return self._write(frame, frame.hex(" ").upper())
+
+    def send_price_digit(self, digit: int) -> bool:
+        """向 MCU 同步一位单价数据（0..9）。"""
+        if isinstance(digit, bool) or not isinstance(digit, int) or not 0 <= digit <= 9:
+            raise ValueError("单价协议数据必须是 0..9 的整数")
+        frame = bytes((0xBB, digit, 0xBB))
+        return self._write(frame, frame.hex(" ").upper())
+
+    def _write(self, frame: bytes, display: str) -> bool:
         if self.serial_port and self.serial_port.is_open:
             try:
-                self.serial_port.write(frame.encode("utf-8"))
-                logger.info("串口发送: %s", frame.strip())
+                with self._write_lock:
+                    self.serial_port.write(frame)
+                logger.info("串口发送: %s", display)
                 return True
             except Exception as e:
                 logger.error("串口发送失败: %s", e)
         return False
 
-    # --- MCU 协议解析正则 ---
-    # A1,{0|1},A0 — 溢满报警
-    RE_OVERFLOW = re.compile(r"A1,(\d+),A0")
-    # B1,{weight_g},B0 — 重量（克）
-    RE_WEIGHT = re.compile(r"B1,(\d+),B0")
-    # C1,{0|1},C0 — 烟雾报警
-    RE_SMOKE = re.compile(r"C1,(\d+),C0")
+    def event_versions(self) -> tuple[int, int]:
+        """返回门状态和重量事件版本，用来排除旧帧。"""
+        with self._event_condition:
+            return self._door_state_version, self._weight_version
 
-    def _parse_line(self, line: str):
-        """解析一行协议文本，更新 BinState 并触发回调"""
-        line = line.strip()
+    def wait_for_door_state(self, expected_open: bool, after_version: int, timeout_s: float) -> bool:
+        deadline = time.monotonic() + timeout_s
+        with self._event_condition:
+            while True:
+                if self._door_state_version > after_version and self._door_is_open is expected_open:
+                    return True
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._event_condition.wait(remaining)
 
-        # 溢满标志 A1,{flag},A0
-        m = self.RE_OVERFLOW.search(line)
-        if m:
-            flag = int(m.group(1))
-            BinState.update_overflow(0, flag)  # TODO: 多舱门需MCU协议增加舱门编号
+    def wait_for_weight(self, after_version: int, timeout_s: float) -> Optional[int]:
+        deadline = time.monotonic() + timeout_s
+        with self._event_condition:
+            while True:
+                if self._weight_version > after_version:
+                    return self._latest_weight_grams
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._event_condition.wait(remaining)
+
+    def _feed_received_data(self, data: bytes) -> None:
+        """追加串口字节并按固定长度帧解析。供接收线程和单元测试共用。"""
+        if not data:
+            return
+        self._recv_buffer += data
+        if len(self._recv_buffer) > self.MAX_RECV_BUFFER:
+            logger.warning("串口接收缓冲区超过 %d 字节，丢弃旧数据", self.MAX_RECV_BUFFER)
+            self._recv_buffer = self._recv_buffer[-self.MAX_RECV_BUFFER :]
+
+        while self._recv_buffer:
+            marker = self._recv_buffer[0]
+            frame_length = self.FRAME_LENGTHS.get(marker)
+            if frame_length is None:
+                self._recv_buffer = self._recv_buffer[1:]
+                continue
+            if len(self._recv_buffer) < frame_length:
+                return
+            frame = self._recv_buffer[:frame_length]
+            if frame[-1] != marker:
+                logger.warning("无效串口帧头，重新同步: %s", frame.hex(" ").upper())
+                self._recv_buffer = self._recv_buffer[1:]
+                continue
+            self._recv_buffer = self._recv_buffer[frame_length:]
+            try:
+                self._handle_frame(frame)
+            except Exception as exc:
+                logger.warning("串口帧处理失败: %s frame=%s", exc, frame.hex(" ").upper())
+
+    def _handle_frame(self, frame: bytes) -> None:
+        marker = frame[0]
+        door_index = self.SINGLE_DOOR_INDEX
+        if marker == 0xAA:
+            flag = frame[1]
+            if flag not in (0, 1):
+                raise ValueError(f"非法门状态: {flag}")
+            is_open = flag == 1
+            with self._event_condition:
+                self._door_is_open = is_open
+                self._door_state_version += 1
+                self._event_condition.notify_all()
+            logger.info("舱门%d 状态=%s", door_index, "开盖" if is_open else "关盖")
+            return
+
+        if marker == 0xBB:
+            flag = frame[1]
+            if flag not in (0, 1):
+                raise ValueError(f"非法红外状态: {flag}")
+            BinState.update_overflow(door_index, flag)
             if self.on_spill_alarm and flag:
-                self.on_spill_alarm(0)
+                self.on_spill_alarm(door_index)
             return
 
-        # 重量 B1,{weight_g},B0
-        m = self.RE_WEIGHT.search(line)
-        if m:
-            weight_g = int(m.group(1))
-            BinState.update_weight(0, weight_g)
-            if self.on_weight_received:
-                self.on_weight_received(0, weight_g)
-            return
-
-        # 烟雾报警 C1,{flag},C0
-        m = self.RE_SMOKE.search(line)
-        if m:
-            flag = int(m.group(1))
-            BinState.update_smoke(0, flag)
+        if marker == 0xCC:
+            flag = frame[1]
+            if flag not in (0, 1):
+                raise ValueError(f"非法烟雾状态: {flag}")
+            BinState.update_smoke(door_index, flag)
             if self.on_smoke_alarm and flag:
-                self.on_smoke_alarm(0)
+                self.on_smoke_alarm(door_index)
             return
+
+        weight_grams = int.from_bytes(frame[1:4], byteorder="big", signed=False)
+        BinState.update_weight(door_index, weight_grams)
+        with self._event_condition:
+            self._latest_weight_grams = weight_grams
+            self._weight_version += 1
+            self._event_condition.notify_all()
+        if self.on_weight_received:
+            self.on_weight_received(door_index, weight_grams)
 
     def recv_loop(self):
         """串口接收线程 — 持续读取并解析 MCU 数据"""
@@ -249,16 +353,7 @@ class SerialBridge:
             try:
                 if self.serial_port.in_waiting > 0:
                     data = self.serial_port.read(self.serial_port.in_waiting)
-                    self._recv_buffer += data
-
-                    # 按 \n 拆帧，处理完整行，残余保留到 buffer
-                    while b"\n" in self._recv_buffer:
-                        line_bytes, self._recv_buffer = self._recv_buffer.split(b"\n", 1)
-                        try:
-                            line = line_bytes.decode("utf-8", errors="replace")
-                            self._parse_line(line)
-                        except Exception:
-                            pass
+                    self._feed_received_data(data)
                 else:
                     time.sleep(0.01)
             except Exception as e:
@@ -422,10 +517,8 @@ if __name__ == "__main__":
     # 测试串口协议解析
     print("=== 测试协议解析 ===")
     bridge = SerialBridge()
-    bridge._parse_line("A1,1,A0")
-    bridge._parse_line("B1,1500,B0")
-    bridge._parse_line("C1,0,C0")
-    print("舱门0状态:", BinState.get_door_state(0))
+    bridge._feed_received_data(bytes.fromhex("AA 01 AA BB 01 BB CC 00 CC DD 00 05 DC DD"))
+    print("舱门1状态:", BinState.get_door_state(1))
 
     # 测试拍照（需要实际摄像头）
     print("=== 测试拍照 ===")

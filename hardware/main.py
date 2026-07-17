@@ -38,8 +38,12 @@ from config import (
     MQTT_HOST,
     MQTT_PORT,
     TEST_MODE,
+    DOOR_STATE_TIMEOUT,
+    DELIVERY_WEIGHT_TIMEOUT,
+    DEVICE_CONFIG_PATH,
     validate as config_validate,
 )
+from device_config import UnitPriceStore
 from hardware_layer import BinState, SerialBridge, DualCamera, CosUploader, SERIAL_PORT
 from mqtt_gateway import MqttGateway
 from thing_model import ThingModel
@@ -63,6 +67,7 @@ class SmartBinGateway:
 
     def __init__(self):
         self.exit_flag = threading.Event()
+        self.unit_price_store = UnitPriceStore(DEVICE_CONFIG_PATH)
 
         # ── 配置校验 ──
         config_validate()
@@ -91,7 +96,7 @@ class SmartBinGateway:
         self.gw = MqttGateway(PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT)
 
         # ── 物模型 ──
-        self.tm = ThingModel(self.gw)
+        self.tm = ThingModel(self.gw, self.unit_price_store)
 
         # ── 服务处理器（COS 上传始终使用真实实现） ──
         self.delivery_handler = DeliveryHandler(
@@ -101,6 +106,8 @@ class SmartBinGateway:
             bin_state=BinState,
             thing_model=self.tm,
             device_name=DEVICE_NAME,
+            door_state_timeout_s=DOOR_STATE_TIMEOUT,
+            weight_timeout_s=DELIVERY_WEIGHT_TIMEOUT,
         )
         self.clean_handler = CleanHandler(
             serial=self.serial,
@@ -225,6 +232,15 @@ class SmartBinGateway:
             recv_thread.start()
             self.tm.serial = self.serial
             self.tm.exit_flag = self.exit_flag
+            price_digit = self.unit_price_store.get_protocol_digit()
+            if self.serial.send_price_digit(price_digit):
+                logger.info(
+                    "启动单价已同步到 MCU: %.4g 元/kg → 数据位 %d",
+                    self.unit_price_store.get(),
+                    price_digit,
+                )
+            else:
+                logger.warning("启动单价同步到 MCU 失败，等待后续 OneNet 再次设置")
 
         # 连接 MQTT
         if not self.gw.connect():

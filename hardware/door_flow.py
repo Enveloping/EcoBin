@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-door_flow.py — 通用开门闭环（开→拍照→等重量→关→拍照→COS 上传）。
+door_flow.py — 投递新协议状态机与旧清运开门闭环。
 
-投递和清运的硬件操作序列完全一致，仅"业务前缀"和"上报事件"不同。
-本模块提供纯函数，不依赖 ThingModel 或 MQTT，方便独立测试。
+本模块提供纯函数，不依赖 ThingModel 或 MQTT，方便独立测试。投递已使用
+AA/BB/CC/DD 二进制协议；清运暂留旧 D1 文本流程，二者不能视为固件兼容。
 """
 
 import logging
@@ -22,6 +22,86 @@ from hardware_layer import (
 logger = logging.getLogger("door_flow")
 
 
+def execute_delivery_cycle(
+    door_index: int,
+    cos_token: dict,
+    serial: SerialBridge,
+    camera: type,
+    uploader: type,
+    device_name: str,
+    door_state_timeout_s: float,
+    weight_timeout_s: float,
+) -> dict | None:
+    """按新二进制 UART 协议执行单投口投递流程。"""
+    if door_index != SerialBridge.SINGLE_DOOR_INDEX:
+        logger.error("[delivery] 新协议当前仅支持 doorIndex=1，收到 %s", door_index)
+        return None
+    if not cos_token.get("tmpSecretId"):
+        logger.error("[delivery] cosToken 凭证缺失（tmpSecretId 为空）")
+        return None
+
+    open_command_sent = False
+    closed_confirmed = False
+    try:
+        door_version, weight_version = serial.event_versions()
+        if not serial.send_door_control(door_index, open_door=True):
+            logger.error("[delivery] 串口发送开盖指令失败")
+            return None
+        open_command_sent = True
+
+        if not serial.wait_for_door_state(True, door_version, door_state_timeout_s):
+            logger.error("[delivery] 等待开盖状态超时（%.1fs）", door_state_timeout_s)
+            return None
+
+        prefix = os.path.join(PHOTO_DIR, f"door{door_index}_open")
+        open_outside_path, open_inside_path = camera.capture_both(prefix)
+
+        weight_grams = serial.wait_for_weight(weight_version, weight_timeout_s)
+        if weight_grams is None:
+            logger.error("[delivery] 等待本次重量超时（%.1fs）", weight_timeout_s)
+            return None
+
+        close_version, _ = serial.event_versions()
+        if not serial.send_door_control(door_index, open_door=False):
+            logger.error("[delivery] 串口发送关盖指令失败")
+            return None
+        if not serial.wait_for_door_state(False, close_version, door_state_timeout_s):
+            logger.error("[delivery] 等待关盖状态超时（%.1fs）", door_state_timeout_s)
+            return None
+        closed_confirmed = True
+
+        prefix = os.path.join(PHOTO_DIR, f"door{door_index}_close")
+        close_outside_path, close_inside_path = camera.capture_both(prefix)
+
+        creds = uploader.creds_from_cos_token(cos_token)
+        upload_prefix = f"{device_name}/delivery/{int(time.time())}-{uuid.uuid4().hex[:8]}"
+
+        def _upload_or_empty(path, slot_name) -> str:
+            if path and os.path.exists(path):
+                key = f"{upload_prefix}/{slot_name}.jpg"
+                return uploader.upload(creds, path, key)
+            return ""
+
+        urls = {
+            "photoOpenOutside": _upload_or_empty(open_outside_path, "open_outside"),
+            "photoOpenInside": _upload_or_empty(open_inside_path, "open_inside"),
+            "photoCloseOutside": _upload_or_empty(close_outside_path, "close_outside"),
+            "photoCloseInside": _upload_or_empty(close_inside_path, "close_inside"),
+        }
+        weight = weight_grams / 1000.0
+        logger.info("[delivery] 完成 doorIndex=%d weight=%.3fkg", door_index, weight)
+        return {"weight": weight, **urls}
+    except Exception:
+        logger.exception("[delivery] 投递硬件流程异常")
+        return None
+    finally:
+        if open_command_sent and not closed_confirmed:
+            if serial.send_door_control(door_index, open_door=False):
+                logger.warning("[delivery] 流程失败，已额外发送一次安全关盖指令")
+            else:
+                logger.error("[delivery] 流程失败，安全关盖指令发送失败")
+
+
 def execute_door_cycle(
     door_index: int,
     cos_token: dict,
@@ -33,9 +113,12 @@ def execute_door_cycle(
     device_name: str,
 ) -> dict | None:
     """
-    执行完整的开门→拍照→等重量→关门→拍照→COS 上传周期。
+    执行旧清运流程的开门→拍照→等重量→关门→拍照→COS 上传周期。
 
-    :param door_index:       舱门编号（0-5）
+    注意：该函数仍使用旧 D1 文本协议，未适配新版 MCU 固件；新投递流程使用
+    execute_delivery_cycle()。
+
+    :param door_index:       舱门编号（1-6）
     :param cos_token:        平台下发的 COS 临时凭证 dict
     :param serial:           SerialBridge 实例（可为 None，测试模式跳过串口）
     :param camera:           DualCamera 类

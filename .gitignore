@@ -41,6 +41,8 @@ build/
 frontend/miniprogram/
 
 ### 硬件侧脚本 ###
+hardware/data/*.json
+hardware/data/*.tmp
 
 test_report/
 /docs/deploy-docker.md

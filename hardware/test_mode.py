@@ -60,6 +60,11 @@ class MockSerialBridge:
     def __init__(self):
         self.serial_port = None
         self._running = False
+        self._door_state_version = 0
+        self._weight_version = 0
+        self._door_is_open = None
+        self._latest_weight_grams = None
+        self.last_price_digit = None
         self.on_weight_received: Optional[Callable] = None
         self.on_spill_alarm: Optional[Callable] = None
         self.on_smoke_alarm: Optional[Callable] = None
@@ -74,8 +79,8 @@ class MockSerialBridge:
 
     def send_cmd(self, door_index: int, cmd: str) -> bool:
         """
-        模拟门控指令。cmd="open" 时立即向 BinState 注入随机重量，
-        确保 door_flow.wait_for_weight() 能在超时前读到数据。
+        模拟旧清运门控指令。cmd="open" 时立即向 BinState 注入随机重量，
+        供尚未适配新协议的旧清运流程使用。
         """
         logger.info("[TEST] 模拟串口发送: D1,%d,%s,D0", door_index, cmd)
         if cmd == "open":
@@ -85,6 +90,40 @@ class MockSerialBridge:
             if self.on_weight_received:
                 self.on_weight_received(door_index, weight)
         return True
+
+    def send_door_control(self, door_index: int, open_door: bool) -> bool:
+        """模拟新二进制投递协议，并立即产生动作状态。"""
+        if door_index != 1:
+            return False
+        self._door_is_open = open_door
+        self._door_state_version += 1
+        logger.info("[TEST] 模拟二进制门控: door=%d open=%s", door_index, open_door)
+        if open_door:
+            weight = random.randint(500, 5000)
+            self._latest_weight_grams = weight
+            self._weight_version += 1
+            BinState.update_weight(door_index, weight)
+            if self.on_weight_received:
+                self.on_weight_received(door_index, weight)
+        return True
+
+    def send_price_digit(self, digit: int) -> bool:
+        if isinstance(digit, bool) or not isinstance(digit, int) or not 0 <= digit <= 9:
+            raise ValueError("单价协议数据必须是 0..9 的整数")
+        self.last_price_digit = digit
+        logger.info("[TEST] 模拟单价同步: BB %02X BB", digit)
+        return True
+
+    def event_versions(self) -> tuple[int, int]:
+        return self._door_state_version, self._weight_version
+
+    def wait_for_door_state(self, expected_open: bool, after_version: int, timeout_s: float) -> bool:
+        return self._door_state_version > after_version and self._door_is_open is expected_open
+
+    def wait_for_weight(self, after_version: int, timeout_s: float):
+        if self._weight_version > after_version:
+            return self._latest_weight_grams
+        return None
 
     def recv_loop(self):
         """模拟串口接收线程（空转，数据由 send_cmd 事件驱动）。"""

@@ -35,6 +35,8 @@
 后端下发：DeviceCommandService → OneNetClient → OneNet 服务调用 API → 设备
           ├─ openDeliveryDoor   （投递开投口，sendOpenDoor；cosToken 仅凭证）
           └─ openCleanDoor      （清运开门，sendOpenCleanDoor；cosToken 含凭证 + 4 个 key）
+
+运维配置：OneNet property/set(unitPrice) → 香橙派持久化 → UART 同步 MCU
 ```
 
 **关键决策**：
@@ -76,9 +78,15 @@
 | `voltage` | 电压 | float (V) | r | DeviceStatus.voltage | 整机供电 |
 | `rssi` | 信号强度 | int32 | r | **新增 DeviceStatus.rssi** | 运维 |
 | `fwVersion` | 固件版本 | string | r | **新增 DeviceStatus.fwVersion** | 运维 |
+| `unitPrice` | 设备显示单价 | float (元/kg) | rw | 暂不经过后端 | OneNet 直接配置，范围 0.00–0.99 |
 
 > 去掉原 `totalWeight`：整机总重由各投口 `weight` 聚合得出，不单独落库。
 > 原 `spillAlarm` / `smokeAlarm` 是投口级实时状态，移入 `doorStates`（见 §2.2），不再挂设备级。
+
+`unitPrice` 是当前设备联调阶段的临时配置：香橙派默认使用 `0.5`，收到 OneNet
+`property/set` 后原子持久化，并按 `floor(unitPrice × 10)` 转成 MCU 的一位数据。
+例如 `0.5 → 5`、`0.45 → 4`。该转换有精度损失，限制与后续替换条件见
+`hardware/docs/review/uart-protocol-temporary-compatibility.md`。
 
 ### 2.2 投口级属性 `doorStates`（array of struct，size ≤ 6）→ `biz_door_status`
 

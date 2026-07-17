@@ -17,6 +17,14 @@
       "dataType": { "type": "float", "specs": { "min": "0", "max": "60", "unit": "V", "step": "0.1" } }
     },
     {
+      "identifier": "unitPrice",
+      "name": "投递单价",
+      "functionType": "u",
+      "accessMode": "rw",
+      "desc": "设备显示用临时单价配置；香橙派按 floor(value*10) 转为 MCU 一位数据",
+      "dataType": { "type": "float", "specs": { "min": "0", "max": "0.99", "unit": "元/kg", "step": "0.01" } }
+    },
+    {
       "identifier": "rssi",
       "name": "信号强度",
       "functionType": "u",

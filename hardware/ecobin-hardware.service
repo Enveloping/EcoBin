@@ -1,0 +1,19 @@
+[Unit]
+Description=EcoBin Orange Pi hardware gateway
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/EcoBin/hardware
+ExecStart=/root/EcoBin/hardware/.venv/bin/python /root/EcoBin/hardware/main.py
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
