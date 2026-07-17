@@ -1,0 +1,16 @@
+<view class="eco-page franchise-page">
+  <view class="franchise-hero"><t-icon name="shop" size="62rpx" color="#fff" /><text>加盟绿色回收事业</text><text>共建环保社区，共享绿色红利</text></view>
+  <view class="advantage eco-card"><view class="block-title">加盟优势</view>
+    <view><view class="adv-icon"><t-icon name="secured" size="34rpx" color="#10b927" /></view><view><text>品牌背书</text><text>国家认证回收品牌，政策支持</text></view></view>
+    <view><view class="adv-icon"><t-icon name="flash" size="34rpx" color="#10b927" /></view><view><text>智能设备</text><text>提供全套智能回收设备</text></view></view>
+    <view><view class="adv-icon"><t-icon name="chart" size="34rpx" color="#10b927" /></view><view><text>高回报</text><text>月均净利润 8,000-20,000 元</text></view></view>
+    <view><view class="adv-icon"><t-icon name="star" size="34rpx" color="#10b927" /></view><view><text>全程运营</text><text>总部提供完整运营培训支持</text></view></view>
+  </view>
+  <view class="form-card eco-card"><view class="block-title">意向登记</view>
+    <input placeholder="请输入您的姓名" value="{{name}}" data-field="name" bindinput="onInput" />
+    <input type="number" maxlength="11" placeholder="请输入联系电话" value="{{phone}}" data-field="phone" bindinput="onInput" />
+    <input placeholder="请输入意向城市" value="{{city}}" data-field="city" bindinput="onInput" />
+    <input type="digit" placeholder="请输入投资预算" value="{{budget}}" data-field="budget" bindinput="onInput" />
+    <view class="eco-primary submit" bindtap="onSubmit">提交加盟意向</view>
+  </view>
+</view>

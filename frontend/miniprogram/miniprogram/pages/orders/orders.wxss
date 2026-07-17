@@ -1,0 +1,7 @@
+.orders-page { padding-top: 0; }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0 -28rpx 24rpx; background: #fff; }
+.tabs view { position: relative; padding: 28rpx 0 24rpx; color: #969c96; text-align: center; font-size: 25rpx; font-weight: 600; }.tabs view.active { color: #10b927; }.tabs view.active::after { content: ""; position: absolute; right: 26rpx; bottom: 0; left: 26rpx; height: 4rpx; background: #10b927; border-radius: 4rpx; }
+.order-card { margin-bottom: 22rpx; padding: 26rpx 30rpx; }
+.order-head,.order-body { display: flex; align-items: center; justify-content: space-between; }.type { padding: 7rpx 14rpx; color: #10a425; font-size: 20rpx; background: #e8f7eb; border-radius: 18rpx; }.date { margin-left: 12rpx; color: #a4aaa4; font-size: 21rpx; }.status { padding: 6rpx 13rpx; color: #8f968f; font-size: 19rpx; background: #f2f4f2; border-radius: 18rpx; }
+.order-body { margin-top: 18rpx; }.order-body > view { display: flex; flex-direction: column; gap: 10rpx; }.title { font-size: 27rpx; font-weight: 650; }.number { color: #adb2ad; font-size: 20rpx; }.amount { color: #10b927; font-size: 29rpx; font-weight: 750; }.amount.expense { color: #f0443c; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 18rpx; padding-top: 180rpx; color: #aab0aa; font-size: 24rpx; }

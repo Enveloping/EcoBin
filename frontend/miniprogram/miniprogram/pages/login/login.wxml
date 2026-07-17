@@ -1,0 +1,17 @@
+<view class="login">
+  <view class="brand">
+    <view class="logo">♻️</view>
+    <view class="title">EcoBin</view>
+    <view class="subtitle">智慧环保回收</view>
+  </view>
+
+  <view class="action">
+    <block wx:if="{{loading}}">
+      <view class="hint">正在登录...</view>
+    </block>
+    <block wx:else>
+      <view class="hint error">{{error}}</view>
+      <t-button theme="primary" block bindtap="onRetry">重新登录</t-button>
+    </block>
+  </view>
+</view>

@@ -1,0 +1,11 @@
+<view class="eco-page fault-page">
+  <view class="fault-card eco-card">
+    <view class="field-label">设备编号</view><input placeholder="如：SH-PDX-001" value="{{deviceNo}}" data-field="deviceNo" bindinput="onInput" />
+    <view class="field-label">故障类型</view><view class="fault-types"><view wx:for="{{faultTypes}}" wx:key="*this" class="{{selectedType === item ? 'selected' : ''}}" data-type="{{item}}" bindtap="onType">{{item}}</view></view>
+    <view class="field-label">故障描述</view><textarea maxlength="300" placeholder="请详细描述故障情况…" value="{{description}}" data-field="description" bindinput="onInput"></textarea>
+    <view class="field-label">上传图片 <text>（选填）</text></view>
+    <view class="upload" wx:if="{{!imagePath}}" bindtap="onChooseImage"><t-icon name="add" size="45rpx" color="#aeb4ae" /><text>添加图片</text></view>
+    <view class="preview" wx:else><image src="{{imagePath}}" mode="aspectFill" /><view bindtap="onRemoveImage">×</view></view>
+  </view>
+  <view class="eco-primary submit" bindtap="onSubmit">提交上报</view>
+</view>

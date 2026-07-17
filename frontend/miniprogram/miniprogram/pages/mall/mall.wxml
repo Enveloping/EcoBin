@@ -1,0 +1,10 @@
+<view class="eco-page mall-page">
+  <view class="search"><t-icon name="search" size="30rpx" color="#99a099" /><input placeholder="搜索商品" value="{{keyword}}" bindinput="onSearch" /></view>
+  <view class="mall-head"><view><t-icon name="leaf" size="30rpx" color="#10b927" /><text>积分兑换好物</text></view><text>我的积分：<text>{{points}}</text></text></view>
+  <view class="product-grid">
+    <view class="product eco-card" wx:for="{{products}}" wx:key="id" data-title="{{item.name}}" bindtap="onProduct">
+      <view class="product-image {{item.tone}}"><text class="badge" wx:if="{{item.badge}}">{{item.badge}}</text><view class="bag"><view></view></view></view>
+      <view class="product-info"><text class="product-name">{{item.name}}</text><view><text class="points">{{item.points}}积分</text><view class="redeem" data-id="{{item.id}}" catchtap="onRedeem">兑换</view></view></view>
+    </view>
+  </view>
+</view>

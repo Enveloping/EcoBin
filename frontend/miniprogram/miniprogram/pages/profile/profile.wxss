@@ -1,0 +1,45 @@
+.profile-page {
+  min-height: 100vh;
+  padding: calc(env(safe-area-inset-top) + 52rpx) 28rpx calc(164rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: #f4f7f3;
+}
+
+.profile-top {
+  display: flex;
+  align-items: center;
+  gap: 26rpx;
+  padding: 10rpx 24rpx 42rpx;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 50%;
+  background: #e1e7e1;
+}
+
+.name {
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.asset-card { padding: 30rpx 28rpx 22rpx; }
+.asset-row { display: flex; align-items: center; justify-content: space-between; }
+.asset-label { margin-right: 16rpx; font-size: 30rpx; font-weight: 650; }.asset-value { color: #f14a3b; font-size: 38rpx; font-weight: 750; }.asset-unit { margin-left: 4rpx; font-size: 22rpx; }
+.asset-button { padding: 15rpx 34rpx; color: #fff; font-size: 24rpx; background: #10b927; border-radius: 36rpx; }
+.assurances { display: flex; justify-content: space-between; margin-top: 28rpx; padding-top: 20rpx; color: #9aa29b; font-size: 20rpx; border-top: 1rpx solid #edf0ed; }.assurances view { display: flex; align-items: center; gap: 7rpx; }
+
+.service-grid { display: grid; grid-template-columns: repeat(4, 1fr); row-gap: 30rpx; margin-top: 22rpx; padding: 28rpx 18rpx; }
+.service-item { display: flex; flex-direction: column; align-items: center; gap: 11rpx; font-size: 21rpx; }
+.service-icon { display: flex; align-items: center; justify-content: center; width: 72rpx; height: 72rpx; background: #35b86a; border-radius: 50%; }
+.tone-1,.tone-5 { background: #ee9845; }.tone-2,.tone-6 { background: #efbf38; }.tone-3,.tone-7 { background: #e66c8c; }
+
+.menu-box { margin-top: 22rpx; overflow: hidden; }
+.menu-grid { display: grid; grid-template-columns: repeat(3, 1fr); padding: 26rpx 8rpx; }
+.menu-grid > view { display: flex; flex-direction: column; align-items: center; gap: 10rpx; font-size: 23rpx; }
+.helper-grid { border-top: 1rpx solid #edf0ed; }
+.logout { margin-top: 18rpx; padding: 28rpx; color: #df3e3e; text-align: center; font-size: 27rpx; font-weight: 600; }

@@ -1,0 +1,9 @@
+<view class="eco-page">
+  <view class="appointment eco-card" wx:for="{{appointments}}" wx:key="id">
+    <view class="appointment-head"><view><t-icon name="calendar" size="31rpx" color="#10b927" /><text>{{item.type}}</text></view><text class="status {{item.tone}}">{{item.status}}</text></view>
+    <view class="detail"><text class="label">时间</text><text>{{item.time}}</text></view>
+    <view class="detail"><text class="label">地址</text><text>{{item.address}}</text></view>
+    <view class="detail"><text class="label">内容</text><text>{{item.content}}</text></view>
+    <view class="cancel" wx:if="{{item.cancelable}}" data-id="{{item.id}}" bindtap="onCancel">取消预约</view>
+  </view>
+</view>

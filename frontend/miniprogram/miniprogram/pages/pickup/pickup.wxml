@@ -1,0 +1,21 @@
+<view class="pickup-page">
+  <view class="steps">
+    <block wx:for="{{steps}}" wx:key="*this"><view class="step {{step >= item ? 'active' : ''}}"><view>{{item}}</view><text>{{item === 1 ? '选择品类' : (item === 2 ? '填写信息' : '确认预约')}}</text></view><view class="step-line {{step > item ? 'active' : ''}}" wx:if="{{item < 3}}"></view></block>
+  </view>
+  <view class="pickup-content" wx:if="{{step === 1}}">
+    <view class="form-title">请选择回收品类（可多选）</view>
+    <view class="category-grid"><view wx:for="{{categories}}" wx:key="name" class="category {{item.selected ? 'selected' : ''}}" data-index="{{index}}" bindtap="onCategory"><view class="circle"></view>{{item.name}}</view></view>
+    <view class="next" bindtap="onNext">下一步</view>
+  </view>
+  <view class="pickup-content" wx:elif="{{step === 2}}">
+    <view class="field"><text>联系电话</text><input type="number" maxlength="11" placeholder="请输入手机号" value="{{phone}}" data-field="phone" bindinput="onInput" /></view>
+    <view class="field"><text>回收地址</text><input placeholder="请输入详细地址" value="{{address}}" data-field="address" bindinput="onInput" /></view>
+    <view class="field"><text>预约时间</text><picker mode="date" value="{{time}}" bindchange="onTime"><view class="picker {{time ? '' : 'placeholder'}}">{{time || '选择上门日期'}}</view></picker></view>
+    <view class="field"><text>备注说明</text><input placeholder="其他说明（选填）" value="{{note}}" data-field="note" bindinput="onInput" /></view>
+    <view class="buttons"><view class="previous" bindtap="onPrevious">上一步</view><view class="next" bindtap="onNext">下一步</view></view>
+  </view>
+  <view class="pickup-content" wx:else>
+    <view class="confirm-card eco-card"><view class="form-title">预约信息确认</view><view><text>回收品类</text><text>{{categoryText}}</text></view><view><text>联系电话</text><text>{{phone}}</text></view><view><text>上门地址</text><text>{{address}}</text></view><view><text>预约时间</text><text>{{time}}</text></view><view wx:if="{{note}}"><text>备注说明</text><text>{{note}}</text></view></view>
+    <view class="buttons"><view class="previous" bindtap="onPrevious">上一步</view><view class="next" bindtap="onConfirm">确认预约</view></view>
+  </view>
+</view>

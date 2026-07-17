@@ -1,0 +1,68 @@
+<view class="page">
+  <view class="card">
+    <view class="card-title">开清运门</view>
+
+    <picker mode="selector" range="{{deviceNames}}" value="{{deviceIndex}}" bindchange="onSelectDevice">
+      <view class="field">
+        <text class="field-label">设备</text>
+        <text class="field-value {{deviceIndex < 0 ? 'placeholder' : ''}}">
+          {{ deviceIndex >= 0 ? deviceNames[deviceIndex] : '请选择设备' }}
+        </text>
+      </view>
+    </picker>
+
+    <picker
+      mode="selector"
+      range="{{doorLabels}}"
+      value="{{doorIndex}}"
+      bindchange="onSelectDoor"
+      disabled="{{deviceIndex < 0}}"
+    >
+      <view class="field">
+        <text class="field-label">投口</text>
+        <text class="field-value {{doorIndex < 0 ? 'placeholder' : ''}}">
+          {{ doorIndex >= 0 ? doorLabels[doorIndex] : (deviceIndex < 0 ? '请先选择设备' : '请选择投口') }}
+        </text>
+      </view>
+    </picker>
+
+    <view class="field">
+      <text class="field-label">垃圾袋</text>
+      <text class="field-value {{bagNo ? '' : 'placeholder'}}">
+        {{ bagNo || '请扫描新垃圾袋' }}
+      </text>
+    </view>
+
+    <view class="bag-actions">
+      <t-button theme="default" size="small" variant="outline" bindtap="onScanBag" class="bag-btn">
+        扫垃圾袋
+      </t-button>
+      <t-button theme="default" size="small" variant="outline" bindtap="onManualBag" class="bag-btn">
+        手动输入
+      </t-button>
+    </view>
+
+    <t-button theme="primary" block loading="{{opening}}" bindtap="onOpen" class="submit-btn">
+      开清运门
+    </t-button>
+
+    <view class="tip">开门后请清运并换上新垃圾袋，毛重与去皮由设备自动称重上报，无需手填。</view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">我的清运</view>
+    <block wx:if="{{cleans.length > 0}}">
+      <view class="clean-item" wx:for="{{cleans}}" wx:key="id">
+        <view class="clean-left">
+          <view class="clean-weight">{{item.netText}} kg</view>
+          <view class="clean-time">{{item.createTime}}</view>
+        </view>
+        <view class="clean-detail">
+          <text class="clean-sub">毛重 {{item.grossWeight}} / 去皮 {{item.tareWeight}}</text>
+          <text class="clean-bag" wx:if="{{item.bagQr}}">袋 {{item.bagQr}}</text>
+        </view>
+      </view>
+    </block>
+    <t-empty wx:else icon="folder" description="暂无清运记录" />
+  </view>
+</view>

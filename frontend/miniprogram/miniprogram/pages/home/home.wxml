@@ -1,0 +1,64 @@
+<view class="home-page">
+  <view class="topbar">
+    <view class="city-pill" bindtap="onCity">
+      <t-icon name="location" size="28rpx" color="#1e5528" />
+      <text>{{city}}</text>
+      <t-icon name="chevron-down" size="24rpx" color="#5f765f" />
+    </view>
+  </view>
+
+  <view class="hero eco-card">
+    <view class="hero-copy">
+      <view class="hero-kicker">ECOBIN · 绿色生活</view>
+      <view class="hero-title">垃圾分类</view>
+      <view class="hero-sub">配合垃圾分类，争做文明市民</view>
+      <view class="hero-chip">低碳每一天</view>
+    </view>
+    <view class="hero-art">
+      <view class="sun"></view>
+      <view class="tree tree-a"></view>
+      <view class="tree tree-b"></view>
+      <view class="bin bin-a"><text>♻</text></view>
+      <view class="bin bin-b"><text>♻</text></view>
+      <view class="bin bin-c"><text>♻</text></view>
+    </view>
+  </view>
+
+  <view class="feature-card eco-card">
+    <view class="feature" wx:for="{{features}}" wx:key="text" data-index="{{index}}" bindtap="onFeatureTap">
+      <view class="feature-icon"><t-icon name="{{item.icon}}" size="50rpx" color="#10b927" /></view>
+      <text>{{item.text}}</text>
+    </view>
+  </view>
+
+  <view class="stats">
+    <view class="stat eco-card">
+      <text class="stat-label">累计投递重量</text>
+      <view><text class="stat-num">12.8</text><text class="stat-unit">kg</text></view>
+      <view class="progress"><view></view></view>
+      <text class="stat-note">本月累计 3.6kg</text>
+    </view>
+    <view class="stat eco-card">
+      <text class="stat-label">账户资产</text>
+      <view><text class="stat-num">26.80</text><text class="stat-unit">元</text></view>
+      <view class="withdraw" bindtap="onWithdraw">去提现</view>
+    </view>
+  </view>
+
+  <view class="eco-section-title">附近智能回收设备</view>
+  <view class="nearby eco-card">
+    <view class="nearby-head">
+      <view><text class="device-name">红旗路回收站</text><text class="distance">距你 128m</text></view>
+      <view class="nearby-action" bindtap="onNearby">查看全部</view>
+    </view>
+    <view class="map-card" bindtap="onNearby">
+      <view class="road road-one"></view><view class="road road-two"></view>
+      <view class="map-marker"><view></view></view>
+      <view class="map-bubble">到这里回收</view>
+    </view>
+    <view class="category-row">
+      <text wx:for="{{categories}}" wx:key="*this">{{item}}</text>
+    </view>
+    <view class="scan-button" bindtap="onScan"><t-icon name="scan" size="34rpx" color="#fff" />扫码开门</view>
+  </view>
+</view>

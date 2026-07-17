@@ -1,0 +1,18 @@
+<view class="tab-bar">
+  <view
+    wx:for="{{tabs}}"
+    wx:key="text"
+    class="tab-item {{index === 1 ? 'tab-scan' : 'tab-standard'}}"
+    data-index="{{index}}"
+    bindtap="onTap"
+  >
+    <view class="scan-orb" wx:if="{{index === 1}}">
+      <t-icon name="{{item.icon}}" size="44rpx" color="#ffffff" />
+      <text>{{item.text}}</text>
+    </view>
+    <block wx:else>
+      <t-icon name="{{item.icon}}" size="43rpx" color="{{index === selected ? '#10b927' : '#939a93'}}" />
+      <text class="tab-label {{index === selected ? 'active' : ''}}">{{item.text}}</text>
+    </block>
+  </view>
+</view>

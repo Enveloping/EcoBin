@@ -1,0 +1,100 @@
+.page {
+  min-height: 100vh;
+  padding: 24rpx;
+  box-sizing: border-box;
+  padding-bottom: 160rpx;
+  background: #f5f6f7;
+}
+
+.card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+}
+
+.card-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 12rpx;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.field-label {
+  font-size: 28rpx;
+  color: #333;
+}
+
+.field-value {
+  font-size: 28rpx;
+  color: #222;
+}
+
+.field-value.placeholder {
+  color: #bbb;
+}
+
+.bag-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.bag-btn {
+  flex: 1;
+}
+
+.submit-btn {
+  margin-top: 36rpx;
+}
+
+.tip {
+  margin-top: 20rpx;
+  font-size: 22rpx;
+  color: #aaa;
+  line-height: 1.5;
+}
+
+.clean-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.clean-weight {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222;
+}
+
+.clean-time {
+  font-size: 22rpx;
+  color: #aaa;
+  margin-top: 6rpx;
+}
+
+.clean-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.clean-sub {
+  font-size: 22rpx;
+  color: #888;
+}
+
+.clean-bag {
+  font-size: 22rpx;
+  color: #aaa;
+  margin-top: 6rpx;
+}

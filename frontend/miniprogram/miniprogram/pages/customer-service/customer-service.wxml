@@ -1,0 +1,7 @@
+<view class="eco-page service-page">
+  <view class="service-hero eco-card"><view class="headset"><t-icon name="service" size="58rpx" color="#10b927" /></view><view><text class="hero-title">人工客服</text><text class="hero-time">工作日 9:00-18:00</text><text class="hero-phone">400-888-8888</text></view></view>
+  <view class="contact eco-card"><view><view class="contact-icon"><t-icon name="call" size="36rpx" color="#10b927" /></view><view><text>电话联系</text><text>拨打热线电话</text></view></view><view class="action" bindtap="onCall">立即拨打</view></view>
+  <view class="contact eco-card"><view><view class="contact-icon"><t-icon name="service" size="36rpx" color="#10b927" /></view><view><text>在线客服</text><text>微信消息咨询</text></view></view><view class="action" bindtap="onOnline">发送消息</view></view>
+  <view class="contact eco-card"><view><view class="contact-icon"><t-icon name="error-circle" size="36rpx" color="#10b927" /></view><view><text>故障反馈</text><text>设备问题上报</text></view></view><view class="action" bindtap="onFeedback">去反馈</view></view>
+  <view class="faq-card eco-card"><view class="faq-title">常见问题</view><view class="faq" wx:for="{{faqs}}" wx:key="*this" data-question="{{item}}" bindtap="onFaq"><text>{{item}}</text><t-icon name="chevron-right" size="29rpx" color="#b1b6b1" /></view></view>
+</view>

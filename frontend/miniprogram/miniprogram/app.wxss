@@ -1,0 +1,57 @@
+page {
+  --eco-green: #10b927;
+  --eco-green-dark: #07951c;
+  --eco-green-soft: #e8f7eb;
+  --eco-ink: #202820;
+  --eco-muted: #8a918a;
+  --eco-line: #e9ede8;
+  --eco-bg: #f4f7f3;
+  min-height: 100%;
+  color: var(--eco-ink);
+  background: var(--eco-bg);
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button::after { border: 0; }
+
+.eco-page {
+  min-height: 100vh;
+  padding: 24rpx 28rpx calc(48rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: var(--eco-bg);
+}
+
+.eco-card {
+  background: #fff;
+  border-radius: 28rpx;
+  box-shadow: 0 10rpx 34rpx rgba(38, 72, 43, 0.07);
+}
+
+.eco-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88rpx;
+  border-radius: 24rpx;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+  background: var(--eco-green);
+}
+
+.eco-section-title {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 28rpx 4rpx 18rpx;
+  font-size: 29rpx;
+  font-weight: 650;
+}
+
+.eco-section-title::before {
+  content: "";
+  width: 8rpx;
+  height: 32rpx;
+  border-radius: 8rpx;
+  background: var(--eco-green);
+}

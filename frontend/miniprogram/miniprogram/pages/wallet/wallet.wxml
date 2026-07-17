@@ -1,0 +1,40 @@
+<view class="page">
+  <view class="balance-card">
+    <view class="label">可用余额（元）</view>
+    <view class="balance">{{balance}}</view>
+    <view class="pending">待审核冻结：¥{{pendingBalance}}</view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">申请提现</view>
+    <t-input
+      type="digit"
+      placeholder="请输入提现金额"
+      value="{{amount}}"
+      bind:change="onAmountInput"
+    />
+    <t-button theme="primary" block loading="{{submitting}}" bindtap="onWithdraw" class="withdraw-btn">
+      提现
+    </t-button>
+  </view>
+
+  <view class="card">
+    <view class="card-title">提现记录</view>
+    <block wx:if="{{list.length > 0}}">
+      <view class="wd-item" wx:for="{{list}}" wx:key="id">
+        <view class="wd-left">
+          <view class="wd-amount">¥{{item.amount}}</view>
+          <view class="wd-time">{{item.createTime}}</view>
+        </view>
+        <t-tag
+          size="small"
+          variant="light"
+          theme="{{item.status === 1 ? 'success' : (item.status === 2 ? 'danger' : 'warning')}}"
+        >
+          {{item.statusText}}
+        </t-tag>
+      </view>
+    </block>
+    <t-empty wx:else icon="wallet" description="暂无提现记录" />
+  </view>
+</view>

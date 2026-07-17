@@ -1,0 +1,41 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/profile/profile",
+    "pages/nearby/nearby",
+    "pages/orders/orders",
+    "pages/appointments/appointments",
+    "pages/pickup/pickup",
+    "pages/bind-phone/bind-phone",
+    "pages/fault-report/fault-report",
+    "pages/customer-service/customer-service",
+    "pages/franchise/franchise",
+    "pages/mall/mall",
+    "pages/placeholder/placeholder"
+  ],
+  "window": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "EcoBin",
+    "navigationBarBackgroundColor": "#10b927",
+    "backgroundColor": "#f4f7f3",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#8b938b",
+    "selectedColor": "#10b927",
+    "backgroundColor": "#ffffff",
+    "list": [
+      { "pagePath": "pages/home/home", "text": "首页" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  },
+  "usingComponents": {
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-tag": "tdesign-miniprogram/tag/tag",
+    "t-toast": "tdesign-miniprogram/toast/toast"
+  },
+  "componentFramework": "glass-easel",
+  "lazyCodeLoading": "requiredComponents"
+}

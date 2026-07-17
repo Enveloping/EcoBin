@@ -1,0 +1,68 @@
+.page {
+  min-height: 100vh;
+  padding: 24rpx;
+  box-sizing: border-box;
+  padding-bottom: 160rpx;
+  background: #f5f6f7;
+}
+
+.balance-card {
+  background: linear-gradient(135deg, #0a7d34 0%, #14a04a 100%);
+  border-radius: 24rpx;
+  padding: 48rpx 40rpx;
+  color: #fff;
+  margin-bottom: 24rpx;
+}
+
+.balance-card .label {
+  font-size: 26rpx;
+  opacity: 0.85;
+}
+
+.balance {
+  font-size: 72rpx;
+  font-weight: 700;
+  margin: 12rpx 0;
+}
+
+.pending {
+  font-size: 24rpx;
+  opacity: 0.85;
+}
+
+.card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+}
+
+.card-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 24rpx;
+}
+
+.withdraw-btn {
+  margin-top: 24rpx;
+}
+
+.wd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.wd-amount {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222;
+}
+
+.wd-time {
+  font-size: 22rpx;
+  color: #aaa;
+  margin-top: 6rpx;
+}

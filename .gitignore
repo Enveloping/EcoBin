@@ -37,8 +37,8 @@ build/
 
 .env
 
-### 前端小程序（不纳入版本管理）###
-frontend/miniprogram/
+### 前端小程序（纳入版本管理）###
+#frontend/miniprogram/
 
 ### 硬件侧脚本 ###
 hardware/data/*.json

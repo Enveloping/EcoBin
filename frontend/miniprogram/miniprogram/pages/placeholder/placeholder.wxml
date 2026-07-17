@@ -1,0 +1,1 @@
+<view class="placeholder-page"><view class="illustration"><view class="leaf leaf-a"></view><view class="leaf leaf-b"></view><view class="dot"></view></view><view class="title">{{title}}正在建设中</view><view class="description">页面样式与入口已经就绪，待业务接口接入后即可继续完善。</view><view class="back" bindtap="onBack">返回上一页</view></view>

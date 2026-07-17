@@ -1,0 +1,14 @@
+.nearby-page { padding-top: 30rpx; }
+.map-overview { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 280rpx; margin-bottom: 28rpx; overflow: hidden; color: #10b927; font-size: 25rpx; font-weight: 600; background: #dff2e2; }
+.map-overview::before,.map-overview::after,.map-line { content: ""; position: absolute; height: 18rpx; background: rgba(255,255,255,.75); }
+.map-overview::before { width: 800rpx; transform: rotate(-9deg); }.map-overview::after { width: 700rpx; transform: rotate(54deg); }
+.map-pin,.map-overview > text { position: relative; z-index: 2; }
+.relocate { position: absolute; top: 20rpx; right: 20rpx; z-index: 3; display: flex; align-items: center; gap: 6rpx; padding: 12rpx 18rpx; font-size: 21rpx; background: #fff; border-radius: 30rpx; }
+.device-card { margin-bottom: 22rpx; padding: 28rpx; }
+.device-row { display: flex; gap: 18rpx; }
+.recycle-mark { display: flex; align-items: center; justify-content: center; flex: none; width: 70rpx; height: 70rpx; background: #e9f7eb; border-radius: 50%; }
+.device-copy { min-width: 0; flex: 1; }.device-copy > view { display: flex; align-items: center; justify-content: space-between; }
+.device-name { font-size: 28rpx; font-weight: 700; }.address { display: block; margin-top: 7rpx; color: #929992; font-size: 22rpx; }
+.status { padding: 6rpx 13rpx; font-size: 19rpx; border-radius: 20rpx; }.status.free { color: #10a425; background: #e8f7eb; }.status.busy { color: #ef8c1a; background: #fff2dc; }.status.repair { color: #e54a5c; background: #fde8ec; }
+.meta-row { display: flex; align-items: center; justify-content: space-between; margin-top: 20rpx; }.tags { display: flex; gap: 10rpx; }.tags text { padding: 7rpx 14rpx; color: #727a72; font-size: 20rpx; background: #f2f4f2; border-radius: 18rpx; }
+.distance { display: flex; align-items: center; gap: 4rpx; color: #9ca39c; font-size: 21rpx; }.device-action { height: 70rpx; margin-top: 20rpx; font-size: 25rpx; }

@@ -1,0 +1,40 @@
+<view class="profile-page">
+  <view class="profile-top">
+    <view class="avatar"><t-icon name="user" size="68rpx" color="#8d968f" /></view>
+    <view class="name">{{nickname}}</view>
+  </view>
+
+  <view class="asset-card eco-card">
+    <view class="asset-row">
+      <view><text class="asset-label">账户资产</text><text class="asset-value">26.80</text><text class="asset-unit">元</text></view>
+      <view class="asset-button" bindtap="onWithdraw">去提现</view>
+    </view>
+    <view class="assurances">
+      <view><t-icon name="secured" size="28rpx" color="#9aa29b" />资金安全</view>
+      <view><t-icon name="shield" size="28rpx" color="#9aa29b" />平台保障</view>
+      <view><t-icon name="refresh" size="28rpx" color="#9aa29b" />不满意退款</view>
+    </view>
+  </view>
+
+  <view class="service-grid eco-card">
+    <view class="service-item" wx:for="{{serviceItems}}" wx:key="text" data-title="{{item.text}}" bindtap="onServiceTap">
+      <view class="service-icon tone-{{index}}"><t-icon name="{{item.icon}}" size="48rpx" color="#fff" /></view>
+      <text>{{item.text}}</text>
+    </view>
+  </view>
+
+  <view class="menu-box eco-card">
+    <view class="menu-grid">
+      <view wx:for="{{shortcuts}}" wx:key="text" data-url="{{item.url}}" bindtap="onMenuTap">
+        <t-icon name="{{item.icon}}" size="43rpx" color="#10b927" /><text>{{item.text}}</text>
+      </view>
+    </view>
+    <view class="menu-grid helper-grid">
+      <view wx:for="{{helpers}}" wx:key="text" data-url="{{item.url}}" bindtap="onMenuTap">
+        <t-icon name="{{item.icon}}" size="43rpx" color="#10b927" /><text>{{item.text}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="logout eco-card" bindtap="onLogout">退出登录</view>
+</view>

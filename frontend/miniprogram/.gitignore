@@ -1,0 +1,20 @@
+# Dependencies
+/node_modules/
+
+# WeChat DevTools generated npm packages
+/miniprogram/miniprogram_npm/
+
+# Developer-specific WeChat DevTools settings
+/project.private.config.json
+
+# Local automation output
+/auto/shots/
+
+# Local caches and debug output
+.DS_Store
+Thumbs.db
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.local
