@@ -6,8 +6,8 @@
  */
 
 /** 后端接口基地址（按需改成你的后端地址） */
-export const BASE_URL = 'http://115.159.67.35:8080'
-//export const BASE_URL = 'http://localhost:8080'
+//export const BASE_URL = 'http://115.159.67.35:8080'
+export const BASE_URL = 'http://localhost:8080'
 
 /** 开发演示开关：true 时扫码开门前允许选择扫码或手动填写投口 ID。 */
 export const test = true

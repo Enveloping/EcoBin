@@ -58,6 +58,16 @@ export function refreshToken(): Promise<LoginResponse> {
   return refreshing
 }
 
+/**
+ * 确保当前存在未过期的登录态。
+ * 冷启动、扫码页直达或 token 过期时复用同一套微信静默登录/自动注册流程。
+ */
+export async function ensureLoggedIn(): Promise<void> {
+  const token = wx.getStorageSync(STORAGE_KEYS.token)
+  if (token && !isTokenExpired(token)) return
+  await refreshToken()
+}
+
 /** 是否已登录 */
 export function isLoggedIn(): boolean {
   return !!wx.getStorageSync(STORAGE_KEYS.token)

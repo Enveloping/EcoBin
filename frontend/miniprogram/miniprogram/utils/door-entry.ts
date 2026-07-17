@@ -1,4 +1,8 @@
 import { test } from '../config/index'
+import { openDoor } from '../api/delivery'
+import { ensureLoggedIn } from './auth'
+
+let opening = false
 
 export function parseDoorId(raw: string): number | null {
   const value = (raw || '').trim()
@@ -13,13 +17,40 @@ export function parseDoorId(raw: string): number | null {
   return Number.isInteger(id) && id > 0 ? id : null
 }
 
-function showResolved(doorId: number) {
+function showOpened(doorId: number) {
   wx.showModal({
-    title: '投口识别成功',
-    content: `已识别投口 ID：${doorId}\n\n当前为静态演示模式，未发送真实开门指令。`,
+    title: '开门请求已发送',
+    content: `投口 ID：${doorId}\n\n请在设备端确认开门并完成投递。投递订单将在设备完成称重并上报后生成。`,
     showCancel: false,
     confirmText: '我知道了',
   })
+}
+
+function showOpenError(error: unknown) {
+  if (error instanceof Error && error.message === 'unauthorized') return
+  const message = error instanceof Error && error.message ? error.message : '开门请求失败，请稍后重试'
+  wx.showToast({ title: message, icon: 'none' })
+}
+
+async function requestOpenDoor(doorId: number) {
+  if (opening) {
+    wx.showToast({ title: '开门请求正在处理中', icon: 'none' })
+    return
+  }
+
+  opening = true
+  wx.showLoading({ title: '正在发送请求', mask: true })
+  try {
+    await ensureLoggedIn()
+    await openDoor(doorId, false)
+    wx.hideLoading()
+    showOpened(doorId)
+  } catch (error) {
+    wx.hideLoading()
+    showOpenError(error)
+  } finally {
+    opening = false
+  }
 }
 
 function resolve(raw: string, invalidText: string) {
@@ -28,7 +59,7 @@ function resolve(raw: string, invalidText: string) {
     wx.showToast({ title: invalidText, icon: 'none' })
     return
   }
-  showResolved(doorId)
+  void requestOpenDoor(doorId)
 }
 
 function scanDoor() {
