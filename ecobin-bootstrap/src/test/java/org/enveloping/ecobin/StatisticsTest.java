@@ -9,10 +9,10 @@ import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.system.entity.User;
 import org.enveloping.ecobin.business.entity.WithdrawOrder;
-import org.enveloping.ecobin.system.service.UserService;
 import org.enveloping.ecobin.business.service.WalletService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDraft;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +48,7 @@ class StatisticsTest {
     @Autowired
     private WalletService walletService;
     @Autowired
-    private UserService userService;
+    private LegacyOrganizationUserDirectoryPort userDirectory;
 
     private final Long tenantId = 2L;
     private Long userId;
@@ -80,14 +80,11 @@ class StatisticsTest {
         doorService.updateById(door);
 
         // 创建用户
-        User user = new User();
-        user.setTenantId(tenantId);
-        user.setOpenid("openid-stat-" + System.nanoTime());
-        user.setNickname("统计测试用户");
-        user.setRole(1);     // USER
-        user.setStatus(1);
-        userService.save(user);
-        userId = user.getId();
+        var user = userDirectory.create(new LegacyOrganizationUserDraft(
+                tenantId, null, null, null, null, null,
+                "openid-stat-" + System.nanoTime(), null, "统计测试用户", null,
+                1, 1, null, null));
+        userId = user.userId().value();
 
         TenantContextHolder.clear();
     }

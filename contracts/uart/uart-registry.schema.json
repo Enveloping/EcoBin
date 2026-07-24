@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/uart/uart-registry.schema.json",
+  "title": "EcoBin UART registry meta-schema",
+  "type": "object",
+  "required": [
+    "registryVersion",
+    "status",
+    "physicalLink",
+    "protocol",
+    "streamParser",
+    "wireTypes",
+    "enums",
+    "bitmaps",
+    "capabilities",
+    "capabilityPolicy",
+    "digestProfiles",
+    "fieldGroups",
+    "messages",
+    "semanticRules",
+    "goldenVectors",
+    "nonVolatileRequirements"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "registryVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$"
+    },
+    "status": {
+      "const": "MCU_REVIEW_REQUIRED"
+    },
+    "physicalLink": {
+      "type": "object",
+      "required": [
+        "baudRate",
+        "dataBits",
+        "parity",
+        "stopBits",
+        "flowControl",
+        "devicePath"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "baudRate": { "const": 115200 },
+        "dataBits": { "const": 8 },
+        "parity": { "const": "NONE" },
+        "stopBits": { "const": 1 },
+        "flowControl": { "const": "NONE" },
+        "devicePath": { "const": "DEPLOYMENT_CONFIGURED" }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "required": [
+        "magicHex",
+        "major",
+        "minor",
+        "byteOrder",
+        "maximumFrameLength",
+        "headerLength",
+        "crcLength",
+        "maximumPayloadLength",
+        "receiveBufferLimit",
+        "frameReceiveDeadlineMs",
+        "ackTimeoutMs",
+        "maximumSends",
+        "crc"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "magicHex": { "const": "ec42" },
+        "major": { "const": 1 },
+        "minor": { "const": 0 },
+        "byteOrder": { "const": "big-endian" },
+        "maximumFrameLength": { "const": 256 },
+        "headerLength": { "const": 12 },
+        "crcLength": { "const": 2 },
+        "maximumPayloadLength": { "const": 242 },
+        "receiveBufferLimit": { "const": 512 },
+        "frameReceiveDeadlineMs": { "const": 100 },
+        "ackTimeoutMs": { "const": 500 },
+        "maximumSends": { "const": 3 },
+        "crc": {
+          "type": "object",
+          "required": [
+            "name",
+            "polynomialHex",
+            "initialHex",
+            "reflectInput",
+            "reflectOutput",
+            "xorOutHex",
+            "checkAscii",
+            "checkHex"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "const": "CRC-16/CCITT-FALSE" },
+            "polynomialHex": { "const": "1021" },
+            "initialHex": { "const": "ffff" },
+            "reflectInput": { "const": false },
+            "reflectOutput": { "const": false },
+            "xorOutHex": { "const": "0000" },
+            "checkAscii": { "const": "123456789" },
+            "checkHex": { "const": "29b1" }
+          }
+        }
+      }
+    },
+    "streamParser": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "inputBufferLimit",
+        "frameAssemblyDeadlineMs",
+        "crcBeforeSemanticValidation",
+        "invalidLengthDisposition",
+        "crcFailureDisposition",
+        "timeoutDisposition",
+        "bufferOverflowDisposition",
+        "directionValidation",
+        "ackFlagValidation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "const": "BOUNDED_MAGIC_SCAN_CRC_FIRST" },
+        "inputBufferLimit": { "const": 512 },
+        "frameAssemblyDeadlineMs": { "const": 100 },
+        "crcBeforeSemanticValidation": { "const": true },
+        "invalidLengthDisposition": { "const": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN" },
+        "crcFailureDisposition": { "const": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN" },
+        "timeoutDisposition": { "const": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN" },
+        "bufferOverflowDisposition": { "const": "KEEP_LAST_POSSIBLE_MAGIC_PREFIX" },
+        "directionValidation": { "const": true },
+        "ackFlagValidation": { "const": true }
+      }
+    },
+    "wireTypes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "minimumSize", "maximumSize"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": ["unsigned", "signed", "boolean", "uuid", "sha256", "utf8"]
+          },
+          "minimumSize": { "type": "integer", "minimum": 1, "maximum": 255 },
+          "maximumSize": { "type": "integer", "minimum": 1, "maximum": 255 },
+          "minimum": { "type": "integer" },
+          "maximum": { "type": "integer" },
+          "lengthPrefix": { "enum": ["u8"] }
+        }
+      }
+    },
+    "enums": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["wireType", "values"],
+        "additionalProperties": false,
+        "properties": {
+          "wireType": { "enum": ["u8", "u16", "u32"] },
+          "values": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "bitmaps": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "wireType",
+          "bits",
+          "knownMaskHex",
+          "unknownBitDisposition"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "wireType": { "enum": ["u8", "u16", "u32", "u64"] },
+          "bits": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 63
+            }
+          },
+          "knownMaskHex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]+$"
+          },
+          "unknownBitDisposition": { "const": "REJECT_RESERVED_BITS" },
+          "notes": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 63
+      }
+    },
+    "capabilityPolicy": {
+      "type": "object",
+      "required": [
+        "knownMaskHex",
+        "requiredEdgeMaskHex",
+        "requiredMcuMaskHex",
+        "unknownBitDisposition",
+        "negotiation",
+        "messageRequirements"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "knownMaskHex": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "requiredEdgeMaskHex": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "requiredMcuMaskHex": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "unknownBitDisposition": { "const": "HELLO_INCOMPATIBLE" },
+        "negotiation": { "const": "INTERSECTION_AFTER_REQUIRED_MASK_CHECK" },
+        "messageRequirements": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+          }
+        }
+      }
+    },
+    "digestProfiles": {
+      "type": "object",
+      "required": ["commandDigestSha256", "mcuPayloadSha256", "snapshotSha256"],
+      "additionalProperties": false,
+      "properties": {
+        "commandDigestSha256": { "$ref": "#/$defs/digestProfile" },
+        "mcuPayloadSha256": { "$ref": "#/$defs/digestProfile" },
+        "snapshotSha256": { "$ref": "#/$defs/digestProfile" }
+      }
+    },
+    "fieldGroups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/fieldOrGroup" }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "id",
+          "direction",
+          "category",
+          "ackRequired",
+          "payload"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "id": { "type": "integer", "minimum": 1, "maximum": 255 },
+          "direction": {
+            "enum": ["EDGE_TO_MCU", "MCU_TO_EDGE", "BIDIRECTIONAL"]
+          },
+          "category": {
+            "enum": ["CONTROL", "CONFIGURATION", "COMMAND", "EVENT", "SNAPSHOT"]
+          },
+          "ackRequired": { "type": "boolean" },
+          "criticalEvent": { "type": "boolean" },
+          "notes": { "type": "string" },
+          "payload": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/fieldOrGroup" }
+          }
+        }
+      }
+    },
+    "semanticRules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "messages", "notes"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "kind": {
+            "enum": [
+              "MEASUREMENT_VALIDITY",
+              "CLEAN_LOCK_INFERENCE",
+              "HELLO_OUTCOME",
+              "WORK_SCOPE",
+              "SAFE_CLOSE_SCOPE",
+              "SAFE_CLOSE_RESULT_OUTCOME",
+              "FAULT_COMPONENT_CODE",
+              "SENSOR_VALUE_HEALTH",
+              "CONFIG_SEGMENTS",
+              "SNAPSHOT_SEGMENTS",
+              "SNAPSHOT_PORT_FAULT_BITMAP",
+              "CLEAN_COMPLETION_GENERATION",
+              "DELIVERY_SELECTION_ORDER"
+            ]
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+          },
+          "notes": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "goldenVectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "expected"],
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "message": { "type": "string" },
+          "messageTypeValue": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "flags": {
+            "type": "array",
+            "items": { "enum": ["ACK_REQUIRED"] },
+            "uniqueItems": true
+          },
+          "txSequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "payload": { "type": "object" },
+          "rawPayloadHex": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{2})*$"
+          },
+          "expected": {
+            "enum": [
+              "VALID",
+              "FRAME_VALID_MESSAGE_UNSUPPORTED",
+              "CRC_INVALID"
+            ]
+          },
+          "mutate": { "enum": ["FLIP_LAST_CRC_BIT"] }
+        }
+      }
+    },
+    "nonVolatileRequirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "fieldOrGroup": {
+      "oneOf": [
+        { "$ref": "#/$defs/field" },
+        {
+          "type": "object",
+          "required": ["group"],
+          "additionalProperties": false,
+          "properties": {
+            "group": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "field": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+        "type": { "type": "string" },
+        "enum": { "type": "string" },
+        "unit": { "type": "string" },
+        "minimum": { "type": "integer" },
+        "maximum": { "type": "integer" },
+        "const": {
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "boolean" },
+            { "type": "string" }
+          ]
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 254
+        },
+        "absentWhen": { "type": "string" },
+        "invalidWhen": { "type": "string" },
+        "invalidEncoding": { "const": "all-zero bytes" },
+        "zeroAllowed": { "const": true },
+        "zeroAllowedWhen": { "type": "string", "minLength": 1 },
+        "bitmap": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" }
+      }
+    },
+    "digestProfile": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "domainHex",
+        "layoutVersion",
+        "preimage",
+        "ordering",
+        "excludes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "const": "SHA-256" },
+        "domainHex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})+$"
+        },
+        "layoutVersion": { "const": 1 },
+        "preimage": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "ordering": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "excludes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -6,7 +6,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.enveloping.ecobin.common.constant.Constants;
-import org.enveloping.ecobin.common.enums.UserRole;
+import org.enveloping.ecobin.framework.context.TrustedExecutionContextHolder;
+import org.enveloping.ecobin.framework.context.TrustedPrincipalKind;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -20,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * JWT 认证过滤器：从请求头中提取 Token 并解析用户信息
@@ -33,54 +35,65 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final TokenInvalidationRegistry tokenInvalidationRegistry;
+    private final TrustedSessionResolver trustedSessionResolver;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String token = resolveToken(request);
-
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
-            // 解析用户信息
-            Long userId = jwtTokenProvider.getUserId(token);
-            String username = jwtTokenProvider.getUsername(token);
-            Long tenantId = jwtTokenProvider.getTenantId(token);
-            Integer role = jwtTokenProvider.getRole(token);
-
-            // 强制失效校验：角色/状态变更后旧 token 立即失效
-            long iatSec = jwtTokenProvider.getIssuedAt(token).getTime() / 1000;
-            if (tokenInvalidationRegistry.isInvalidated(role, userId, tenantId, iatSec)) {
-                writeUnauthorized(response, "权限已变更，请重新登录");
-                return;
-            }
-
-            // 设置租户上下文：平台域（超管/管理员）固定平台池且放行租户过滤；其余按 JWT 租户隔离
-            boolean platform = UserRole.isPlatform(role);
-            TenantContextHolder.setTenantId(platform ? Constants.PLATFORM_POOL_TENANT_ID : tenantId);
-            TenantContextHolder.setIgnore(platform);
-
-            // 由 role 构造 GrantedAuthority（ROLE_SUPER_ADMIN / ROLE_TENANT / ...）
-            List<GrantedAuthority> authorities = Collections.emptyList();
-            String authority = UserRole.authorityOf(role);
-            if (authority != null) {
-                authorities = List.of(new SimpleGrantedAuthority("ROLE_" + authority));
-            }
-
-            // 设置 Spring Security 认证信息（用于后续的过滤链 或 @PreAuthorize/@PostAuthorize）
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(username, userId, authorities);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-        } else {
-            // 无 Token（permitAll 的登录前流程）：放行租户过滤，由业务代码显式指定 tenant_id
-            TenantContextHolder.setTenantId(Constants.DEFAULT_TENANT_ID);
-            TenantContextHolder.setIgnore(true);
-        }
-
         try {
+            String token = resolveToken(request);
+
+            if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+                try {
+                    JwtSessionClaims claims = jwtTokenProvider.parseSession(token);
+                    ResolvedTrustedSession session = trustedSessionResolver.resolve(claims);
+
+                    // 强制失效校验使用 identity 按当前数据库事实解析出的主体和作用域。
+                    long iatSec = claims.issuedAt().getEpochSecond();
+                    if (tokenInvalidationRegistry.isInvalidated(
+                            session.legacyRole(),
+                            session.legacyPrincipalId(),
+                            session.legacyTenantId(),
+                            iatSec)) {
+                        writeUnauthorized(response, "权限已变更，请重新登录");
+                        return;
+                    }
+
+                    boolean platform = session.context().principalKind() == TrustedPrincipalKind.PLATFORM_ADMIN;
+                    TenantContextHolder.setTenantId(
+                            platform ? Constants.PLATFORM_POOL_TENANT_ID : session.legacyTenantId());
+                    TenantContextHolder.setIgnore(platform);
+                    TrustedExecutionContextHolder.set(
+                            session.context().withRequestId(resolveRequestId(request)));
+
+                    List<GrantedAuthority> authorities = Collections.emptyList();
+                    String authority = org.enveloping.ecobin.common.enums.UserRole.authorityOf(session.legacyRole());
+                    if (authority != null) {
+                        authorities = List.of(new SimpleGrantedAuthority("ROLE_" + authority));
+                    }
+
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(
+                                    session.authenticationName(),
+                                    session.legacyPrincipalId(),
+                                    authorities);
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                } catch (TrustedSessionRejectedException | IllegalArgumentException e) {
+                    writeUnauthorized(response, "登录状态无效，请重新登录");
+                    return;
+                }
+            } else {
+                // 无 Token（permitAll 的登录前流程）：放行租户过滤，由业务代码显式指定 tenant_id
+                TenantContextHolder.setTenantId(Constants.DEFAULT_TENANT_ID);
+                TenantContextHolder.setIgnore(true);
+            }
+
             filterChain.doFilter(request, response);
         } finally {
-            // 清理 ThreadLocal
+            // 覆盖 resolver 拒绝、提前返回和下游异常，防止线程复用时泄漏请求上下文。
             TenantContextHolder.clear();
+            TrustedExecutionContextHolder.clear();
         }
     }
 
@@ -103,5 +116,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return bearerToken.substring(Constants.TOKEN_PREFIX.length());
         }
         return null;
+    }
+
+    private String resolveRequestId(HttpServletRequest request) {
+        String requestId = request.getHeader("X-Request-ID");
+        return StringUtils.hasText(requestId) ? requestId : UUID.randomUUID().toString();
     }
 }

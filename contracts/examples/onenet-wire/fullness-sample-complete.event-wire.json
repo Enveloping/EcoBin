@@ -1,0 +1,57 @@
+{
+  "identifier": "fullnessSampleComplete",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "102",
+    "params": {
+      "fullnessSampleComplete": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "50000000-0000-4000-8000-000000000004",
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "detectionUid": "50000000-0000-4000-8000-000000000001",
+          "edgeEventSequence": 1044,
+          "eventType": 1,
+          "eventUid": "50000000-0000-4000-8000-000000000003",
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "infraredHealth": 1,
+          "infraredValue": 1,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "112e10ebfe97cdea51e0fc03fa3c3a0992acd1fe680347d539686903da8eda4d",
+          "portNo": 2,
+          "sampleRole": 1,
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "50000000-0000-4000-8000-000000000001"
+          },
+          "totalWeightMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": 1,
+            "faultCodePresent": false,
+            "lastObservedWeightGrams": 13250,
+            "lastObservedWeightGramsPresent": true,
+            "mcuBootId": 101,
+            "mcuEventSequence": 45,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "50000000-0000-4000-8000-000000000002",
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "stableWeightGrams": 13250,
+            "stableWeightGramsPresent": true,
+            "status": 1
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

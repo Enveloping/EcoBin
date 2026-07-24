@@ -1,0 +1,82 @@
+{
+  "identifier": "deviceRuntimeSnapshot",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "111",
+    "params": {
+      "deviceRuntimeSnapshot": {
+        "value": {
+          "appliedConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "appliedConfigPresent": true,
+          "capabilityBitmapHex": "0000000000001fff",
+          "clockQuality": 1,
+          "clockState": 1,
+          "commandUidPresent": false,
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeBootId": 9001,
+          "edgeEventSequence": 1053,
+          "edgeVersion": "1.0.0-rc.1",
+          "eventType": 1,
+          "eventUid": "89000000-0000-4000-8000-000000000001",
+          "localStorageState": 1,
+          "mcuBootId": 101,
+          "mcuBootIdPresent": true,
+          "mcuFirmwareVersion": "1.0.0-rc.1",
+          "mcuFirmwareVersionPresent": true,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "77c4b3308df9591ba8144cea15805620fb7692a10fc128c85c5e3e679213eaa7",
+          "pendingReliableEventCount": 2,
+          "ports": [
+            {
+              "cleanLockAndInferredDoorInferred": 1,
+              "cleanLockAndInferredDoorLockPowe": 1,
+              "cleanLockAndInferredDoorSolenoid": 1,
+              "cleanLockAndInferredDoorStateBas": 1,
+              "deliveryDoorHealth": 1,
+              "deliveryDoorState": 1,
+              "infraredHealth": 1,
+              "infraredValue": 1,
+              "portNo": 1,
+              "smokeSensorHealth": 1,
+              "smokeState": 1,
+              "weightSensorHealth": 1
+            },
+            {
+              "cleanLockAndInferredDoorInferred": 1,
+              "cleanLockAndInferredDoorLockPowe": 1,
+              "cleanLockAndInferredDoorSolenoid": 1,
+              "cleanLockAndInferredDoorStateBas": 1,
+              "deliveryDoorHealth": 1,
+              "deliveryDoorState": 1,
+              "infraredHealth": 1,
+              "infraredValue": 1,
+              "portNo": 2,
+              "smokeSensorHealth": 1,
+              "smokeState": 1,
+              "weightSensorHealth": 1
+            }
+          ],
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "Dp_demo_01"
+          },
+          "uartProtocolMajor": 1,
+          "uartProtocolMajorPresent": true,
+          "uartProtocolMinor": 0,
+          "uartProtocolMinorPresent": true,
+          "uartState": 3
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

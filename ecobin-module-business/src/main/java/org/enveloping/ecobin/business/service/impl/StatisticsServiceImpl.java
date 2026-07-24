@@ -8,7 +8,8 @@ import org.enveloping.ecobin.business.service.StatisticsService;
 import org.enveloping.ecobin.common.constant.Constants;
 import org.enveloping.ecobin.device.entity.Device;
 import org.enveloping.ecobin.device.mapper.DeviceMapper;
-import org.enveloping.ecobin.system.mapper.UserMapper;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserFinancePort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserStatistics;
 import org.enveloping.ecobin.business.mapper.WithdrawOrderMapper;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +25,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     private final DeliveryOrderMapper deliveryOrderMapper;
     private final CleanOrderMapper cleanOrderMapper;
-    private final UserMapper userMapper;
+    private final LegacyOrganizationUserFinancePort organizationUserFinancePort;
     private final WithdrawOrderMapper withdrawOrderMapper;
     private final DeviceMapper deviceMapper;
 
@@ -51,9 +52,10 @@ public class StatisticsServiceImpl implements StatisticsService {
     @Override
     public Map<String, Object> memberStats() {
         Map<String, Object> result = new HashMap<>();
-        result.put("memberCount", userMapper.countMembers());
-        result.put("todayMemberCount", userMapper.countTodayMembers());
-        result.put("memberDisableCount", userMapper.countDisabledMembers());
+        LegacyOrganizationUserStatistics statistics = organizationUserFinancePort.statistics();
+        result.put("memberCount", statistics.memberCount());
+        result.put("todayMemberCount", statistics.todayMemberCount());
+        result.put("memberDisableCount", statistics.disabledMemberCount());
         return result;
     }
 
@@ -90,9 +92,10 @@ public class StatisticsServiceImpl implements StatisticsService {
     @Override
     public Map<String, Object> memberMoneyStats() {
         Map<String, Object> result = new HashMap<>();
-        result.put("memberCount", userMapper.countMembers());
-        result.put("memberMoney", toDouble(userMapper.sumBalance()));
-        result.put("memberPlanMoney", toDouble(userMapper.sumPendingBalance()));
+        LegacyOrganizationUserStatistics statistics = organizationUserFinancePort.statistics();
+        result.put("memberCount", statistics.memberCount());
+        result.put("memberMoney", toDouble(statistics.balanceTotal()));
+        result.put("memberPlanMoney", toDouble(statistics.pendingBalanceTotal()));
         result.put("memberScore", 0);       // 当前无积分体系
         return result;
     }

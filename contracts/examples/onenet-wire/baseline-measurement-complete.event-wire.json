@@ -1,0 +1,56 @@
+{
+  "identifier": "baselineMeasurementComplete",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "106",
+    "params": {
+      "baselineMeasurementComplete": {
+        "value": {
+          "bagUid": "40000000-0000-4000-8000-000000000002",
+          "clockQuality": 1,
+          "commandUid": "82000000-0000-4000-8000-000000000002",
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1048,
+          "emptyBagConfirmed": true,
+          "eventType": 1,
+          "eventUid": "86000000-0000-4000-8000-000000000001",
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "measurementUid": "82000000-0000-4000-8000-000000000001",
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "c095bdc9fb1a28eeb9d3f8cca462e56d0f47301582f6592a287114d3447d49cf",
+          "portNo": 2,
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "82000000-0000-4000-8000-000000000001"
+          },
+          "totalWeightMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": 1,
+            "faultCodePresent": false,
+            "lastObservedWeightGrams": 1180,
+            "lastObservedWeightGramsPresent": true,
+            "mcuBootId": 101,
+            "mcuEventSequence": 47,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "86000000-0000-4000-8000-000000000002",
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "stableWeightGrams": 1180,
+            "stableWeightGramsPresent": true,
+            "status": 1
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

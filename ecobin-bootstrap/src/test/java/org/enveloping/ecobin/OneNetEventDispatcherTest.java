@@ -3,7 +3,7 @@ package org.enveloping.ecobin;
 import org.enveloping.ecobin.business.dto.CleanGrossRequest;
 import org.enveloping.ecobin.business.dto.CleanTareRequest;
 import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.onenet.OneNetEventDispatcher;
+import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.business.service.CleanOrderService;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
 import org.junit.jupiter.api.BeforeEach;

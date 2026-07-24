@@ -1,0 +1,406 @@
+{
+  "parserAlgorithm": "BOUNDED_MAGIC_SCAN_CRC_FIRST",
+  "registrySha256": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705",
+  "registryVersion": "1.0.0-rc.2",
+  "traces": [
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec"
+        },
+        {
+          "atMs": 1,
+          "hex": "42"
+        },
+        {
+          "atMs": 2,
+          "hex": "01"
+        },
+        {
+          "atMs": 3,
+          "hex": "00"
+        },
+        {
+          "atMs": 4,
+          "hex": "01"
+        },
+        {
+          "atMs": 5,
+          "hex": "00"
+        },
+        {
+          "atMs": 6,
+          "hex": "00"
+        },
+        {
+          "atMs": 7,
+          "hex": "2d"
+        },
+        {
+          "atMs": 8,
+          "hex": "00"
+        },
+        {
+          "atMs": 9,
+          "hex": "00"
+        },
+        {
+          "atMs": 10,
+          "hex": "00"
+        },
+        {
+          "atMs": 11,
+          "hex": "01"
+        },
+        {
+          "atMs": 12,
+          "hex": "01"
+        },
+        {
+          "atMs": 13,
+          "hex": "00"
+        },
+        {
+          "atMs": 14,
+          "hex": "1f"
+        },
+        {
+          "atMs": 15,
+          "hex": "ff"
+        },
+        {
+          "atMs": 16,
+          "hex": "ff"
+        },
+        {
+          "atMs": 17,
+          "hex": "ff"
+        },
+        {
+          "atMs": 18,
+          "hex": "ff"
+        },
+        {
+          "atMs": 19,
+          "hex": "ff"
+        },
+        {
+          "atMs": 20,
+          "hex": "ff"
+        },
+        {
+          "atMs": 21,
+          "hex": "01"
+        },
+        {
+          "atMs": 22,
+          "hex": "00"
+        },
+        {
+          "atMs": 23,
+          "hex": "00"
+        },
+        {
+          "atMs": 24,
+          "hex": "06"
+        },
+        {
+          "atMs": 25,
+          "hex": "00"
+        },
+        {
+          "atMs": 26,
+          "hex": "00"
+        },
+        {
+          "atMs": 27,
+          "hex": "00"
+        },
+        {
+          "atMs": 28,
+          "hex": "00"
+        },
+        {
+          "atMs": 29,
+          "hex": "00"
+        },
+        {
+          "atMs": 30,
+          "hex": "00"
+        },
+        {
+          "atMs": 31,
+          "hex": "1f"
+        },
+        {
+          "atMs": 32,
+          "hex": "ff"
+        },
+        {
+          "atMs": 33,
+          "hex": "01"
+        },
+        {
+          "atMs": 34,
+          "hex": "00"
+        },
+        {
+          "atMs": 35,
+          "hex": "00"
+        },
+        {
+          "atMs": 36,
+          "hex": "00"
+        },
+        {
+          "atMs": 37,
+          "hex": "08"
+        },
+        {
+          "atMs": 38,
+          "hex": "6f"
+        },
+        {
+          "atMs": 39,
+          "hex": "72"
+        },
+        {
+          "atMs": 40,
+          "hex": "61"
+        },
+        {
+          "atMs": 41,
+          "hex": "6e"
+        },
+        {
+          "atMs": 42,
+          "hex": "67"
+        },
+        {
+          "atMs": 43,
+          "hex": "65"
+        },
+        {
+          "atMs": 44,
+          "hex": "70"
+        },
+        {
+          "atMs": 45,
+          "hex": "69"
+        },
+        {
+          "atMs": 46,
+          "hex": "0a"
+        },
+        {
+          "atMs": 47,
+          "hex": "31"
+        },
+        {
+          "atMs": 48,
+          "hex": "2e"
+        },
+        {
+          "atMs": 49,
+          "hex": "30"
+        },
+        {
+          "atMs": 50,
+          "hex": "2e"
+        },
+        {
+          "atMs": 51,
+          "hex": "30"
+        },
+        {
+          "atMs": 52,
+          "hex": "2d"
+        },
+        {
+          "atMs": 53,
+          "hex": "72"
+        },
+        {
+          "atMs": 54,
+          "hex": "63"
+        },
+        {
+          "atMs": 55,
+          "hex": "2e"
+        },
+        {
+          "atMs": 56,
+          "hex": "31"
+        },
+        {
+          "atMs": 57,
+          "hex": "3a"
+        },
+        {
+          "atMs": 58,
+          "hex": "0d"
+        }
+      ],
+      "expectedDiagnostics": [],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "bytewise_split",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0dec4201000300001600000007000000000000001100000000000000220102030420022fd6"
+        }
+      ],
+      "expectedDiagnostics": [],
+      "expectedMessageNames": [
+        "HELLO",
+        "ACK"
+      ],
+      "name": "sticky_frames",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "00ffec00ec420100010000f300000001ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "NOISE_DISCARDED",
+        "INVALID_LENGTH",
+        "NOISE_DISCARDED"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "noise_false_magic_invalid_length",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0cec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "CRC_INVALID",
+        "NOISE_DISCARDED"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "crc_failure_resynchronizes",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201000100002d"
+        },
+        {
+          "atMs": 100,
+          "hex": ""
+        },
+        {
+          "atMs": 101,
+          "hex": "ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "FRAME_TIMEOUT"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "assembly_timeout_resynchronizes",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201001301008a0000000a4444444444444444844444444444444487a7ae9bb38dada5644b3a39a90827bd9559bfec3a0b72b518a6b68eda34878c555555555555455585555555555555550000000000000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0909c07b"
+        }
+      ],
+      "expectedDiagnostics": [],
+      "expectedMessageNames": [
+        "CONFIG_COMMIT"
+      ],
+      "name": "payload_contains_magic",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201007e0000000000000d71ccec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "SEMANTIC_REJECTED:unsupported UART message type"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "unknown_type_consumes_crc_valid_frame",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201000101002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e31414dec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "SEMANTIC_REJECTED:ACK_REQUIRED flag differs from the message Registry"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "ack_flag_checked_after_crc",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "ec4201003e01003c0000000b0000000000000065000000cb000000000004a38061616161616141618161616161616161020007626262626262426282626262626262620101010101c0acec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "SEMANTIC_REJECTED:message direction differs from the sender role"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "direction_checked_after_crc",
+      "senderRole": "EDGE"
+    },
+    {
+      "chunks": [
+        {
+          "atMs": 0,
+          "hex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d"
+        }
+      ],
+      "expectedDiagnostics": [
+        "BUFFER_OVERFLOW",
+        "NOISE_DISCARDED"
+      ],
+      "expectedMessageNames": [
+        "HELLO"
+      ],
+      "name": "bounded_noise_buffer",
+      "senderRole": "EDGE"
+    }
+  ]
+}

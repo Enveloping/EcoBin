@@ -8,10 +8,12 @@ import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.system.entity.User;
 import org.enveloping.ecobin.business.entity.WithdrawOrder;
-import org.enveloping.ecobin.system.service.UserService;
 import org.enveloping.ecobin.business.service.WalletService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDraft;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserFinancePort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserId;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +53,9 @@ class WalletWithdrawTest {
     @Autowired
     private WalletService walletService;
     @Autowired
-    private UserService userService;
+    private LegacyOrganizationUserDirectoryPort userDirectory;
+    @Autowired
+    private LegacyOrganizationUserFinancePort userFinance;
 
     private final Long tenantId = 2L;
     private Long userId;
@@ -80,14 +84,11 @@ class WalletWithdrawTest {
         door.setPrice(new BigDecimal("2.00"));
         doorService.updateById(door);
 
-        User user = new User();
-        user.setTenantId(tenantId);
-        user.setOpenid("openid-wallet-" + System.nanoTime());
-        user.setNickname("钱包测试用户");
-        user.setRole(1);
-        user.setStatus(1);
-        userService.save(user);
-        userId = user.getId();
+        var user = userDirectory.create(new LegacyOrganizationUserDraft(
+                tenantId, null, null, null, null, null,
+                "openid-wallet-" + System.nanoTime(), null, "钱包测试用户", null,
+                1, 1, null, null));
+        userId = user.userId().value();
 
         TenantContextHolder.clear();
     }
@@ -133,12 +134,12 @@ class WalletWithdrawTest {
 
     private BigDecimal balanceOf() {
         asPlatform();
-        return userService.getById(userId).getBalance();
+        return userFinance.findAccount(new LegacyOrganizationUserId(userId)).balance();
     }
 
     private BigDecimal pendingOf() {
         asPlatform();
-        return userService.getById(userId).getPendingBalance();
+        return userFinance.findAccount(new LegacyOrganizationUserId(userId)).pendingBalance();
     }
 
     /** 走完投递流程（开启设备 → 设备上传后建单），返回该设备最新一单 id */

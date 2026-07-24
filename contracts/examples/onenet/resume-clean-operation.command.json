@@ -1,0 +1,41 @@
+{
+  "commandType": "RESUME_CLEAN_OPERATION",
+  "commandUid": "81000000-0000-4000-8000-000000000003",
+  "cosGrant": {
+    "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+    "bucket": "ecobin-contract-1250000000",
+    "expiresAt": "2026-07-24T01:30:00.000Z",
+    "grantUid": "71000000-0000-4000-8000-000000000004",
+    "keyPrefix": "ecobin/Dp_demo_01/clean-operation/40000000-0000-4000-8000-000000000001/",
+    "region": "ap-guangzhou",
+    "sessionTokenParts": [
+      "TOKEN_4_PART_1",
+      "TOKEN_4_PART_2"
+    ],
+    "tmpSecretId": "TMP_SECRET_ID_4",
+    "tmpSecretKey": "TMP_SECRET_KEY_4"
+  },
+  "deploymentCode": "Dp_demo_01",
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "config": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "newBagUid": "40000000-0000-4000-8000-000000000002",
+    "operationUid": "40000000-0000-4000-8000-000000000001",
+    "operationWindowMs": 1800000,
+    "originalCleanerConfirmedOnsite": true,
+    "portNo": 2,
+    "recoveryGeneration": 1
+  },
+  "payloadSchemaVersion": 1,
+  "payloadSha256": "3b1dc10f9b915ba72757934d7fda6118252ee7d2ed714ede6ab63cca078366c2",
+  "schemaVersion": 1,
+  "target": {
+    "type": "CLEAN_OPERATION",
+    "uid": "40000000-0000-4000-8000-000000000001"
+  }
+}

@@ -1,0 +1,1125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/onenet/events/events.schema.json",
+  "title": "EcoBin OneNet P0 typed events",
+  "oneOf": [
+    { "$ref": "#/$defs/deviceCommandObservedEvent" },
+    { "$ref": "#/$defs/configurationProgressEvent" },
+    { "$ref": "#/$defs/deliveryCompleteEvent" },
+    { "$ref": "#/$defs/cleanCompleteEvent" },
+    { "$ref": "#/$defs/fullnessSampleCompleteEvent" },
+    { "$ref": "#/$defs/baselineMeasurementCompleteEvent" },
+    { "$ref": "#/$defs/deviceFaultObservedEvent" },
+    { "$ref": "#/$defs/deviceFaultRecoveredEvent" },
+    { "$ref": "#/$defs/photoStatusReportedEvent" },
+    { "$ref": "#/$defs/photoUploadGrantRequestedEvent" },
+    { "$ref": "#/$defs/businessConfirmationReceiptEvent" },
+    { "$ref": "#/$defs/deviceRuntimeSnapshotEvent" }
+  ],
+  "$defs": {
+    "configSnapshot": {
+      "type": "object",
+      "required": [
+        "version",
+        "contentSha256",
+        "mcuPayloadSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "contentSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "mcuPayloadSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "deliveryPhotos": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/photoSlot"
+      }
+    },
+    "cleanPhotos": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/photoSlot"
+      }
+    },
+    "deviceCommandObservedPayload": {
+      "type": "object",
+      "required": [
+        "observedCommandType",
+        "stage",
+        "mcuCommandUid",
+        "errorCode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "observedCommandType": {
+          "enum": [
+            "START_DELIVERY_SESSION",
+            "START_CLEAN_OPERATION",
+            "END_CLEAN_BEFORE_UNLOCK",
+            "RESUME_CLEAN_OPERATION",
+            "SAMPLE_FULLNESS",
+            "MEASURE_EMPTY_BAG_BASELINE"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "RECEIVED",
+            "ACCEPTED",
+            "REJECTED",
+            "MCU_ACCEPTED",
+            "PRE_START_FAILED",
+            "FAILED"
+          ]
+        },
+        "mcuCommandUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "errorCode": {
+          "$ref": "../common.schema.json#/$defs/errorCode"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "stage": { "enum": ["RECEIVED", "ACCEPTED"] },
+            "mcuCommandUid": { "type": "null" },
+            "errorCode": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "stage": { "const": "REJECTED" },
+            "mcuCommandUid": { "type": "null" },
+            "errorCode": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "maxLength": 64
+            }
+          }
+        },
+        {
+          "properties": {
+            "stage": { "const": "MCU_ACCEPTED" },
+            "mcuCommandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "errorCode": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "stage": { "enum": ["PRE_START_FAILED", "FAILED"] },
+            "errorCode": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "maxLength": 64
+            }
+          }
+        }
+      ]
+    },
+    "configurationProgressPayload": {
+      "type": "object",
+      "required": [
+        "applicationUid",
+        "stage",
+        "version",
+        "contentSha256",
+        "mcuPayloadSha256",
+        "mcuCommandUid",
+        "errorCode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "applicationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "stage": {
+          "enum": ["EDGE_SAVED", "APPLIED", "FAILED"]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "contentSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "mcuPayloadSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "mcuCommandUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "errorCode": {
+          "$ref": "../common.schema.json#/$defs/errorCode"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "stage": { "const": "EDGE_SAVED" },
+            "mcuCommandUid": { "type": "null" },
+            "errorCode": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "stage": { "const": "APPLIED" },
+            "mcuCommandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "errorCode": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "stage": { "const": "FAILED" },
+            "errorCode": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "maxLength": 64
+            }
+          }
+        }
+      ]
+    },
+    "deliveryCompletePayload": {
+      "type": "object",
+      "required": [
+        "sessionUid",
+        "portNo",
+        "firstPreOpenMeasurement",
+        "finalPostCloseMeasurement",
+        "deliveryNetWeightGrams",
+        "finalDeliveryDoor",
+        "completionReason",
+        "negativeWeightAnomaly",
+        "frozenConfig",
+        "unitPriceTenThousandths",
+        "photos"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "firstPreOpenMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurementStable"
+        },
+        "finalPostCloseMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurement"
+        },
+        "deliveryNetWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSafeSignedIntegerGrams"
+        },
+        "finalDeliveryDoor": {
+          "allOf": [
+            { "$ref": "../common.schema.json#/$defs/deliveryDoor" },
+            {
+              "properties": {
+                "state": { "const": "CLOSED" },
+                "health": { "const": "OK" }
+              }
+            }
+          ]
+        },
+        "completionReason": {
+          "enum": [
+            "USER_ENDED",
+            "SELECTION_WINDOW_EXPIRED",
+            "TERMINAL_WEIGHT_FAILURE"
+          ]
+        },
+        "negativeWeightAnomaly": {
+          "type": "boolean"
+        },
+        "frozenConfig": {
+          "$ref": "#/$defs/configSnapshot"
+        },
+        "unitPriceTenThousandths": {
+          "$ref": "../common.schema.json#/$defs/unitPriceTenThousandths"
+        },
+        "photos": {
+          "$ref": "#/$defs/deliveryPhotos"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "completionReason": {
+              "enum": ["USER_ENDED", "SELECTION_WINDOW_EXPIRED"]
+            },
+            "finalPostCloseMeasurement": {
+              "$ref": "../common.schema.json#/$defs/measurementStable"
+            },
+            "deliveryNetWeightGrams": {
+              "$ref": "../common.schema.json#/$defs/safeSignedIntegerGrams"
+            }
+          }
+        },
+        {
+          "properties": {
+            "completionReason": { "const": "TERMINAL_WEIGHT_FAILURE" },
+            "finalPostCloseMeasurement": {
+              "$ref": "../common.schema.json#/$defs/measurementFailure"
+            },
+            "deliveryNetWeightGrams": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "cleanCompletionLock": {
+      "type": "object",
+      "required": [
+        "lockPowerState",
+        "solenoidHealth",
+        "inferredDoorState",
+        "stateBasis"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lockPowerState": { "const": "DEENERGIZED" },
+        "solenoidHealth": { "const": "OK" },
+        "inferredDoorState": { "const": "CLOSED" },
+        "stateBasis": { "const": "INFERRED_FROM_LOCK_POWER" }
+      }
+    },
+    "cleanCompletePayload": {
+      "type": "object",
+      "required": [
+        "operationUid",
+        "portNo",
+        "oldBagUid",
+        "newBagUid",
+        "preUnlockMeasurement",
+        "cleanerConfirmedFinalMeasurement",
+        "removedNetWeightGrams",
+        "newBaselineWeightGrams",
+        "cleanerCompletionConfirmed",
+        "cleanLockAndInferredDoor",
+        "frozenConfig",
+        "photos"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "oldBagUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "newBagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "preUnlockMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurementStable"
+        },
+        "cleanerConfirmedFinalMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurement"
+        },
+        "removedNetWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSafeSignedIntegerGrams"
+        },
+        "newBaselineWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSignedInt32Grams"
+        },
+        "cleanerCompletionConfirmed": {
+          "const": true
+        },
+        "cleanLockAndInferredDoor": {
+          "$ref": "#/$defs/cleanCompletionLock"
+        },
+        "frozenConfig": {
+          "$ref": "#/$defs/configSnapshot"
+        },
+        "photos": {
+          "$ref": "#/$defs/cleanPhotos"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "cleanerConfirmedFinalMeasurement": {
+              "$ref": "../common.schema.json#/$defs/measurementStable"
+            },
+            "removedNetWeightGrams": {
+              "$ref": "../common.schema.json#/$defs/safeSignedIntegerGrams"
+            },
+            "newBaselineWeightGrams": {
+              "$ref": "../common.schema.json#/$defs/signedInt32Grams"
+            }
+          }
+        },
+        {
+          "properties": {
+            "cleanerConfirmedFinalMeasurement": {
+              "$ref": "../common.schema.json#/$defs/measurementFailure"
+            },
+            "removedNetWeightGrams": { "type": "null" },
+            "newBaselineWeightGrams": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "fullnessSampleCompletePayload": {
+      "type": "object",
+      "required": [
+        "detectionUid",
+        "portNo",
+        "sampleRole",
+        "infraredValue",
+        "infraredHealth",
+        "totalWeightMeasurement",
+        "frozenConfig"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "detectionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "sampleRole": {
+          "enum": ["INITIAL", "CONFIRMATION", "MANUAL_RECHECK"]
+        },
+        "infraredValue": {
+          "enum": ["CLEAR", "BLOCKED", "UNKNOWN"]
+        },
+        "infraredHealth": {
+          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        },
+        "totalWeightMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurement"
+        },
+        "frozenConfig": {
+          "$ref": "#/$defs/configSnapshot"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "infraredValue": { "enum": ["CLEAR", "BLOCKED"] },
+            "infraredHealth": { "const": "OK" }
+          }
+        },
+        {
+          "properties": {
+            "infraredValue": { "const": "UNKNOWN" },
+            "infraredHealth": {
+              "enum": ["TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+            }
+          }
+        }
+      ]
+    },
+    "baselineMeasurementCompletePayload": {
+      "type": "object",
+      "required": [
+        "measurementUid",
+        "portNo",
+        "bagUid",
+        "emptyBagConfirmed",
+        "totalWeightMeasurement",
+        "frozenConfig"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "measurementUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "bagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "emptyBagConfirmed": {
+          "const": true
+        },
+        "totalWeightMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurement"
+        },
+        "frozenConfig": {
+          "$ref": "#/$defs/configSnapshot"
+        }
+      }
+    },
+    "deviceFaultPayload": {
+      "type": "object",
+      "required": [
+        "faultUid",
+        "portNo",
+        "component",
+        "severity",
+        "faultCode",
+        "mcuBootId",
+        "mcuEventSequence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "faultUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/nullablePortNo"
+        },
+        "component": {
+          "enum": [
+            "UART",
+            "DELIVERY_DOOR",
+            "CLEAN_SOLENOID",
+            "WEIGHT_SENSOR",
+            "INFRARED_SENSOR",
+            "SMOKE_SENSOR",
+            "EDGE_STORAGE",
+            "MCU_STORAGE",
+            "CAMERA",
+            "NETWORK",
+            "CLOCK",
+            "MCU_INTERNAL"
+          ]
+        },
+        "severity": {
+          "enum": ["WARNING", "BLOCK_PORT", "BLOCK_DEVICE"]
+        },
+        "faultCode": {
+          "$ref": "../common.schema.json#/$defs/deviceFaultCodeSymbol"
+        },
+        "mcuBootId": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mcuEventSequence": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "photoStatusReportedPayload": {
+      "type": "object",
+      "required": [
+        "workType",
+        "workUid",
+        "photo"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "workType": {
+          "enum": ["DELIVERY_SESSION", "CLEAN_OPERATION"]
+        },
+        "workUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "photo": {
+          "$ref": "../common.schema.json#/$defs/photoTerminalStatus"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "workType": { "const": "DELIVERY_SESSION" },
+            "photo": {
+              "properties": {
+                "slot": {
+                  "enum": [
+                    "BEFORE_INNER",
+                    "BEFORE_OUTER",
+                    "AFTER_INNER",
+                    "AFTER_OUTER"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "workType": { "const": "CLEAN_OPERATION" },
+            "photo": {
+              "properties": {
+                "slot": {
+                  "enum": [
+                    "FIRST_OPEN_INNER",
+                    "FIRST_OPEN_OUTER",
+                    "FINAL_CLOSE_INNER",
+                    "FINAL_CLOSE_OUTER"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "photoUploadGrantRequestedPayload": {
+      "type": "object",
+      "required": [
+        "workType",
+        "workUid",
+        "requestedSlots",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "workType": {
+          "enum": ["DELIVERY_SESSION", "CLEAN_OPERATION"]
+        },
+        "workUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "requestedSlots": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "BEFORE_INNER",
+              "BEFORE_OUTER",
+              "AFTER_INNER",
+              "AFTER_OUTER",
+              "FIRST_OPEN_INNER",
+              "FIRST_OPEN_OUTER",
+              "FINAL_CLOSE_INNER",
+              "FINAL_CLOSE_OUTER"
+            ]
+          }
+        },
+        "reason": {
+          "enum": [
+            "INITIAL_GRANT_MISSING",
+            "GRANT_EXPIRED",
+            "EDGE_RESTARTED",
+            "UPLOAD_RETRY"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "workType": { "const": "DELIVERY_SESSION" },
+            "requestedSlots": {
+              "items": {
+                "enum": [
+                  "BEFORE_INNER",
+                  "BEFORE_OUTER",
+                  "AFTER_INNER",
+                  "AFTER_OUTER"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "workType": { "const": "CLEAN_OPERATION" },
+            "requestedSlots": {
+              "items": {
+                "enum": [
+                  "FIRST_OPEN_INNER",
+                  "FIRST_OPEN_OUTER",
+                  "FINAL_CLOSE_INNER",
+                  "FINAL_CLOSE_OUTER"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "businessConfirmationReceiptPayload": {
+      "type": "object",
+      "required": [
+        "confirmationUid",
+        "originalEventUid",
+        "originalPayloadSha256",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "confirmationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "originalEventUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "originalPayloadSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "outcome": {
+          "enum": ["BUSINESS_APPLIED", "EVENT_QUARANTINED"]
+        }
+      }
+    },
+    "runtimePort": {
+      "type": "object",
+      "required": [
+        "portNo",
+        "deliveryDoor",
+        "cleanLockAndInferredDoor",
+        "weightSensorHealth",
+        "infraredValue",
+        "infraredHealth",
+        "smokeState",
+        "smokeSensorHealth"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "deliveryDoor": {
+          "$ref": "../common.schema.json#/$defs/deliveryDoor"
+        },
+        "cleanLockAndInferredDoor": {
+          "$ref": "../common.schema.json#/$defs/cleanLockAndInferredDoor"
+        },
+        "weightSensorHealth": {
+          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        },
+        "infraredValue": {
+          "enum": ["CLEAR", "BLOCKED", "UNKNOWN"]
+        },
+        "infraredHealth": {
+          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        },
+        "smokeState": {
+          "enum": ["NORMAL", "ALARM", "UNKNOWN"]
+        },
+        "smokeSensorHealth": {
+          "enum": ["OK", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        }
+      }
+    },
+    "deviceRuntimeSnapshotPayload": {
+      "type": "object",
+      "required": [
+        "edgeBootId",
+        "edgeVersion",
+        "mcuBootId",
+        "mcuFirmwareVersion",
+        "uartState",
+        "uartProtocolMajor",
+        "uartProtocolMinor",
+        "capabilityBitmapHex",
+        "appliedConfig",
+        "localStorageState",
+        "clockState",
+        "pendingReliableEventCount",
+        "ports"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "edgeBootId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "edgeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "mcuBootId": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mcuFirmwareVersion": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "uartState": {
+          "enum": ["DISCONNECTED", "NEGOTIATING", "READY", "INCOMPATIBLE", "FAULT"]
+        },
+        "uartProtocolMajor": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "uartProtocolMinor": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "capabilityBitmapHex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "appliedConfig": {
+          "oneOf": [
+            { "$ref": "#/$defs/configSnapshot" },
+            { "type": "null" }
+          ]
+        },
+        "localStorageState": {
+          "enum": ["HEALTHY", "DEGRADED", "READ_ONLY", "FULL", "CORRUPT"]
+        },
+        "clockState": {
+          "enum": ["SYNCED", "ESTIMATED", "UNAVAILABLE"]
+        },
+        "pendingReliableEventCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/runtimePort"
+          }
+        }
+      }
+    },
+    "deviceCommandObservedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DEVICE_COMMAND_OBSERVED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_COMMAND" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/deviceCommandObservedPayload"
+            }
+          }
+        }
+      ]
+    },
+    "configurationProgressEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "CONFIGURATION_PROGRESS" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "CONFIGURATION_APPLICATION" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/configurationProgressPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deliveryCompleteEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DELIVERY_COMPLETE" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DELIVERY_SESSION" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/deliveryCompletePayload"
+            }
+          }
+        }
+      ]
+    },
+    "cleanCompleteEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "CLEAN_COMPLETE" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "CLEAN_OPERATION" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/cleanCompletePayload"
+            }
+          }
+        }
+      ]
+    },
+    "fullnessSampleCompleteEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "FULLNESS_SAMPLE_COMPLETE" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "FULLNESS_DETECTION" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/fullnessSampleCompletePayload"
+            }
+          }
+        }
+      ]
+    },
+    "baselineMeasurementCompleteEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "BASELINE_MEASUREMENT_COMPLETE" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BASELINE_MEASUREMENT" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/baselineMeasurementCompletePayload"
+            }
+          }
+        }
+      ]
+    },
+    "deviceFaultObservedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DEVICE_FAULT_OBSERVED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/deviceFaultPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deviceFaultRecoveredEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DEVICE_FAULT_RECOVERED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/deviceFaultPayload"
+            }
+          }
+        }
+      ]
+    },
+    "photoStatusReportedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "PHOTO_STATUS_REPORTED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": {
+                      "enum": ["DELIVERY_SESSION", "CLEAN_OPERATION"]
+                    }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/photoStatusReportedPayload"
+            }
+          }
+        }
+      ]
+    },
+    "photoUploadGrantRequestedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "PHOTO_UPLOAD_GRANT_REQUESTED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": {
+                      "enum": ["DELIVERY_SESSION", "CLEAN_OPERATION"]
+                    }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "type": "null" },
+            "payload": {
+              "$ref": "#/$defs/photoUploadGrantRequestedPayload"
+            }
+          }
+        }
+      ]
+    },
+    "businessConfirmationReceiptEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "BUSINESS_CONFIRMATION_RECEIPT" },
+            "deliveryClass": { "const": "CONTROL_RECEIPT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BUSINESS_CONFIRMATION" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/businessConfirmationReceiptPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deviceRuntimeSnapshotEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DEVICE_RUNTIME_SNAPSHOT" },
+            "deliveryClass": { "const": "TELEMETRY_SNAPSHOT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "type": "null" },
+            "payload": {
+              "$ref": "#/$defs/deviceRuntimeSnapshotPayload"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

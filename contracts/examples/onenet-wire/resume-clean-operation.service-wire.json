@@ -1,0 +1,66 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "resumeCleanOperation",
+    "params": {
+      "config": {
+        "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "version": 8
+      },
+      "cosGrantSessionTokenParts": [
+        "TOKEN_4_PART_1",
+        "TOKEN_4_PART_2"
+      ],
+      "scalarFields1": {
+        "commandType": 1,
+        "commandUid": "81000000-0000-4000-8000-000000000003",
+        "cosGrantBucket": "ecobin-contract-1250000000",
+        "cosGrantGrantUid": "71000000-0000-4000-8000-000000000004",
+        "cosGrantPresent": true,
+        "cosGrantRegion": "ap-guangzhou",
+        "cosGrantTmpSecretId": "TMP_SECRET_ID_4",
+        "cosGrantTmpSecretKey": "TMP_SECRET_KEY_4",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "newBagUid": "40000000-0000-4000-8000-000000000002",
+        "operationUid": "40000000-0000-4000-8000-000000000001",
+        "operationWindowMs": 1800000,
+        "originalCleanerConfirmedOnsite": true,
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "3b1dc10f9b915ba72757934d7fda6118252ee7d2ed714ede6ab63cca078366c2",
+        "portNo": 2,
+        "recoveryGeneration": 1,
+        "schemaVersion": 1
+      },
+      "scalarFields2": {
+        "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+        "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
+        "cosGrantKeyPrefix": "ecobin/Dp_demo_01/clean-operation/40000000-0000-4000-8000-000000000001/"
+      },
+      "target": {
+        "type": 1,
+        "uid": "40000000-0000-4000-8000-000000000001"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "81000000-0000-4000-8000-000000000003",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/resumeCleanOperation/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/resumeCleanOperation/invoke_reply",
+  "identifier": "resumeCleanOperation",
+  "kind": "SYNC_SERVICE"
+}

@@ -1,0 +1,42 @@
+{
+  "identifier": "deviceFaultRecovered",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "108",
+    "params": {
+      "deviceFaultRecovered": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "",
+          "commandUidPresent": false,
+          "component": 4,
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1050,
+          "eventType": 1,
+          "eventUid": "87000000-0000-4000-8000-000000000003",
+          "faultCode": 9,
+          "faultUid": "87000000-0000-4000-8000-000000000001",
+          "mcuBootId": 101,
+          "mcuBootIdPresent": true,
+          "mcuEventSequence": 49,
+          "mcuEventSequencePresent": true,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "a96e6ac4a21a05366b2a44544832f3890b5e12579188c36e902c4a949d9f013a",
+          "portNo": 2,
+          "portNoPresent": true,
+          "schemaVersion": 1,
+          "severity": 2,
+          "target": {
+            "type": 1,
+            "uid": "Dp_demo_01"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

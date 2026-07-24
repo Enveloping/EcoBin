@@ -1,0 +1,1578 @@
+{
+  "registryVersion": "1.0.0-rc.2",
+  "status": "MCU_REVIEW_REQUIRED",
+  "physicalLink": {
+    "baudRate": 115200,
+    "dataBits": 8,
+    "parity": "NONE",
+    "stopBits": 1,
+    "flowControl": "NONE",
+    "devicePath": "DEPLOYMENT_CONFIGURED"
+  },
+  "protocol": {
+    "magicHex": "ec42",
+    "major": 1,
+    "minor": 0,
+    "byteOrder": "big-endian",
+    "maximumFrameLength": 256,
+    "headerLength": 12,
+    "crcLength": 2,
+    "maximumPayloadLength": 242,
+    "receiveBufferLimit": 512,
+    "frameReceiveDeadlineMs": 100,
+    "ackTimeoutMs": 500,
+    "maximumSends": 3,
+    "crc": {
+      "name": "CRC-16/CCITT-FALSE",
+      "polynomialHex": "1021",
+      "initialHex": "ffff",
+      "reflectInput": false,
+      "reflectOutput": false,
+      "xorOutHex": "0000",
+      "checkAscii": "123456789",
+      "checkHex": "29b1"
+    }
+  },
+  "streamParser": {
+    "algorithm": "BOUNDED_MAGIC_SCAN_CRC_FIRST",
+    "inputBufferLimit": 512,
+    "frameAssemblyDeadlineMs": 100,
+    "crcBeforeSemanticValidation": true,
+    "invalidLengthDisposition": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN",
+    "crcFailureDisposition": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN",
+    "timeoutDisposition": "DISCARD_FIRST_MAGIC_BYTE_AND_RESCAN",
+    "bufferOverflowDisposition": "KEEP_LAST_POSSIBLE_MAGIC_PREFIX",
+    "directionValidation": true,
+    "ackFlagValidation": true
+  },
+  "wireTypes": {
+    "u8": {
+      "kind": "unsigned",
+      "minimumSize": 1,
+      "maximumSize": 1,
+      "minimum": 0,
+      "maximum": 255
+    },
+    "u16": {
+      "kind": "unsigned",
+      "minimumSize": 2,
+      "maximumSize": 2,
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "u32": {
+      "kind": "unsigned",
+      "minimumSize": 4,
+      "maximumSize": 4,
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "u64": {
+      "kind": "unsigned",
+      "minimumSize": 8,
+      "maximumSize": 8,
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "i32": {
+      "kind": "signed",
+      "minimumSize": 4,
+      "maximumSize": 4,
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "bool": {
+      "kind": "boolean",
+      "minimumSize": 1,
+      "maximumSize": 1,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "uuid": {
+      "kind": "uuid",
+      "minimumSize": 16,
+      "maximumSize": 16
+    },
+    "sha256": {
+      "kind": "sha256",
+      "minimumSize": 32,
+      "maximumSize": 32
+    },
+    "string_u8": {
+      "kind": "utf8",
+      "minimumSize": 1,
+      "maximumSize": 255,
+      "lengthPrefix": "u8"
+    }
+  },
+  "enums": {
+    "SenderRole": {
+      "wireType": "u8",
+      "values": {
+        "EDGE": 1,
+        "MCU": 2
+      }
+    },
+    "HelloStatus": {
+      "wireType": "u8",
+      "values": {
+        "ACCEPTED": 1,
+        "INCOMPATIBLE": 2
+      }
+    },
+    "AckDisposition": {
+      "wireType": "u8",
+      "values": {
+        "ACCEPTED": 1,
+        "DUPLICATE_ACCEPTED": 2
+      }
+    },
+    "NackError": {
+      "wireType": "u16",
+      "values": {
+        "NONE": 0,
+        "UNSUPPORTED_VERSION": 1,
+        "UNSUPPORTED_MESSAGE": 2,
+        "UNSUPPORTED_FLAGS": 3,
+        "INVALID_LENGTH": 4,
+        "INVALID_FIELD": 5,
+        "EXPIRED": 6,
+        "BUSY": 7,
+        "STATE_CONFLICT": 8,
+        "UNKNOWN_WORK": 9,
+        "IDEMPOTENCY_CONFLICT": 10,
+        "SAFETY_BLOCKED": 11,
+        "INTERNAL_FAULT": 12
+      }
+    },
+    "WorkType": {
+      "wireType": "u8",
+      "values": {
+        "NONE": 0,
+        "CONFIG_APPLICATION": 1,
+        "DELIVERY_SESSION": 2,
+        "CLEAN_OPERATION": 3,
+        "FULLNESS_DETECTION": 4,
+        "BASELINE_MEASUREMENT": 5
+      }
+    },
+    "McuWorkPhase": {
+      "wireType": "u8",
+      "values": {
+        "IDLE": 0,
+        "CONFIG_STAGING": 1,
+        "DELIVERY_PREPARING": 16,
+        "DELIVERY_PREOPEN_MEASURING": 17,
+        "DELIVERY_OPENING": 18,
+        "DELIVERY_OPEN": 19,
+        "DELIVERY_CLOSING": 20,
+        "DELIVERY_POSTCLOSE_MEASURING": 21,
+        "DELIVERY_WAIT_SELECTION": 22,
+        "DELIVERY_FINALIZING": 23,
+        "CLEAN_PREPARING": 32,
+        "CLEAN_PREUNLOCK_MEASURING": 33,
+        "CLEAN_ACTIVE": 34,
+        "CLEAN_FINAL_MEASURING": 35,
+        "CLEAN_RECOVERY_REQUIRED": 36,
+        "FULLNESS_SAMPLING": 48,
+        "BASELINE_MEASURING": 49,
+        "SAFETY_LOCKED": 64
+      }
+    },
+    "ConfigApplyStatus": {
+      "wireType": "u8",
+      "values": {
+        "APPLIED": 1,
+        "FAILED": 2
+      }
+    },
+    "FullnessMode": {
+      "wireType": "u8",
+      "values": {
+        "INFRARED_ONLY": 1,
+        "WEIGHT_ONLY": 2,
+        "INFRARED_OR_WEIGHT": 3
+      }
+    },
+    "DeliveryDoorState": {
+      "wireType": "u8",
+      "values": {
+        "CLOSED": 1,
+        "OPENING": 2,
+        "OPEN": 3,
+        "CLOSING": 4,
+        "JAMMED": 5,
+        "UNKNOWN": 6
+      }
+    },
+    "DeliveryDoorHealth": {
+      "wireType": "u8",
+      "values": {
+        "OK": 1,
+        "TIMEOUT": 2,
+        "ACTUATOR_FAULT": 3,
+        "SWITCH_FAULT": 4,
+        "DISCONNECTED": 5
+      }
+    },
+    "CleanLockPowerState": {
+      "wireType": "u8",
+      "values": {
+        "DEENERGIZED": 1,
+        "ENERGIZED": 2,
+        "UNKNOWN": 3
+      }
+    },
+    "SolenoidHealth": {
+      "wireType": "u8",
+      "values": {
+        "OK": 1,
+        "DRIVER_FAULT": 2,
+        "DISCONNECTED": 3,
+        "UNKNOWN": 4
+      }
+    },
+    "InferredCleanDoorState": {
+      "wireType": "u8",
+      "values": {
+        "CLOSED": 1,
+        "OPEN": 2,
+        "UNKNOWN": 3
+      }
+    },
+    "CleanDoorStateBasis": {
+      "wireType": "u8",
+      "values": {
+        "INFERRED_FROM_LOCK_POWER": 1
+      }
+    },
+    "MeasurementStatus": {
+      "wireType": "u8",
+      "values": {
+        "STABLE": 1,
+        "UNSTABLE": 2,
+        "TIMEOUT": 3,
+        "SENSOR_FAULT": 4,
+        "OVERLOAD": 5
+      }
+    },
+    "SensorHealth": {
+      "wireType": "u8",
+      "values": {
+        "OK": 1,
+        "TIMEOUT": 2,
+        "SENSOR_FAULT": 3,
+        "DISCONNECTED": 4,
+        "UNKNOWN": 5
+      }
+    },
+    "InfraredValue": {
+      "wireType": "u8",
+      "values": {
+        "CLEAR": 1,
+        "BLOCKED": 2,
+        "UNKNOWN": 3
+      }
+    },
+    "SmokeState": {
+      "wireType": "u8",
+      "values": {
+        "NORMAL": 1,
+        "ALARM": 2,
+        "UNKNOWN": 3
+      }
+    },
+    "DeliverySelection": {
+      "wireType": "u8",
+      "values": {
+        "CONTINUE": 1,
+        "END": 2,
+        "WINDOW_EXPIRED": 3
+      }
+    },
+    "SampleRole": {
+      "wireType": "u8",
+      "values": {
+        "INITIAL": 1,
+        "CONFIRMATION": 2,
+        "MANUAL_RECHECK": 3
+      }
+    },
+    "CleanEndReason": {
+      "wireType": "u8",
+      "values": {
+        "CLEANER_CANCELLED": 1,
+        "START_AUTHORIZATION_EXPIRED": 2,
+        "PREUNLOCK_FAILURE": 3
+      }
+    },
+    "SafeCloseScope": {
+      "wireType": "u8",
+      "values": {
+        "ALL_DELIVERY_DOORS": 1,
+        "SINGLE_DELIVERY_DOOR": 2
+      }
+    },
+    "FaultComponent": {
+      "wireType": "u8",
+      "values": {
+        "UART": 1,
+        "DELIVERY_DOOR": 2,
+        "CLEAN_SOLENOID": 3,
+        "WEIGHT_SENSOR": 4,
+        "INFRARED_SENSOR": 5,
+        "SMOKE_SENSOR": 6,
+        "MCU_STORAGE": 7,
+        "MCU_INTERNAL": 8
+      }
+    },
+    "FaultSeverity": {
+      "wireType": "u8",
+      "values": {
+        "WARNING": 1,
+        "BLOCK_PORT": 2,
+        "BLOCK_DEVICE": 3
+      }
+    },
+    "FaultLifecycle": {
+      "wireType": "u8",
+      "values": {
+        "OBSERVED": 1,
+        "RECOVERED": 2
+      }
+    },
+    "FaultCode": {
+      "wireType": "u16",
+      "values": {
+        "NONE": 0,
+        "UART_PROTOCOL": 256,
+        "UART_STORAGE": 257,
+        "DELIVERY_DOOR_TIMEOUT": 512,
+        "DELIVERY_DOOR_ACTUATOR": 513,
+        "DELIVERY_DOOR_SWITCH": 514,
+        "CLEAN_SOLENOID_DRIVER": 768,
+        "WEIGHT_UNSTABLE": 1024,
+        "WEIGHT_TIMEOUT": 1025,
+        "WEIGHT_SENSOR": 1026,
+        "WEIGHT_OVERLOAD": 1027,
+        "INFRARED_TIMEOUT": 1280,
+        "INFRARED_SENSOR": 1281,
+        "SMOKE_SENSOR": 1536,
+        "MCU_STORAGE": 1792,
+        "MCU_INTERNAL": 2048
+      }
+    },
+    "ResetReason": {
+      "wireType": "u8",
+      "values": {
+        "POWER_ON": 1,
+        "WATCHDOG": 2,
+        "BROWN_OUT": 3,
+        "SOFTWARE": 4,
+        "UNKNOWN": 5
+      }
+    }
+  },
+  "bitmaps": {
+    "PortFaultBitmap": {
+      "wireType": "u32",
+      "bits": {
+        "DELIVERY_DOOR_FAULT": 0,
+        "CLEAN_SOLENOID_FAULT": 1,
+        "WEIGHT_SENSOR_FAULT": 2,
+        "INFRARED_SENSOR_FAULT": 3,
+        "SMOKE_SENSOR_FAULT": 4
+      },
+      "knownMaskHex": "0000001f",
+      "unknownBitDisposition": "REJECT_RESERVED_BITS",
+      "notes": "STATE_SNAPSHOT_PORT 的派生故障摘要：对应 health 不为 OK 时该位为 1，等于 OK 时为 0；bit 5..31 保留并必须为 0。权威故障细节仍为同一快照段中的类型化 health/fault 字段。"
+    }
+  },
+  "capabilities": {
+    "DELIVERY_DOOR_CONTROL": 0,
+    "DELIVERY_DOOR_POSITION_FEEDBACK": 1,
+    "CLEAN_SOLENOID_CONTROL": 2,
+    "STABLE_SIGNED_WEIGHT": 3,
+    "INFRARED_SAMPLING": 4,
+    "SMOKE_MONITORING": 5,
+    "PERSISTENT_COMMAND_DEDUP": 6,
+    "PERSISTENT_CRITICAL_EVENTS": 7,
+    "CONFIG_STAGING_COMMIT": 8,
+    "STATE_SNAPSHOT_SEGMENTS": 9,
+    "DELIVERY_LOCAL_CONTINUE": 10,
+    "DELIVERY_SAFE_CLOSE": 11,
+    "CLEAN_MANUAL_CONFIRMATION": 12
+  },
+  "capabilityPolicy": {
+    "knownMaskHex": "0000000000001fff",
+    "requiredEdgeMaskHex": "0000000000001fff",
+    "requiredMcuMaskHex": "0000000000001fff",
+    "unknownBitDisposition": "HELLO_INCOMPATIBLE",
+    "negotiation": "INTERSECTION_AFTER_REQUIRED_MASK_CHECK",
+    "messageRequirements": {
+      "START_DELIVERY_SESSION": [
+        "DELIVERY_DOOR_CONTROL",
+        "DELIVERY_DOOR_POSITION_FEEDBACK",
+        "STABLE_SIGNED_WEIGHT",
+        "PERSISTENT_COMMAND_DEDUP",
+        "PERSISTENT_CRITICAL_EVENTS",
+        "DELIVERY_LOCAL_CONTINUE"
+      ],
+      "START_CLEAN_OPERATION": [
+        "CLEAN_SOLENOID_CONTROL",
+        "STABLE_SIGNED_WEIGHT",
+        "PERSISTENT_COMMAND_DEDUP",
+        "PERSISTENT_CRITICAL_EVENTS",
+        "CLEAN_MANUAL_CONFIRMATION"
+      ],
+      "CONFIG_BEGIN": [
+        "CONFIG_STAGING_COMMIT",
+        "PERSISTENT_COMMAND_DEDUP"
+      ],
+      "SAMPLE_FULLNESS": [
+        "STABLE_SIGNED_WEIGHT",
+        "INFRARED_SAMPLING"
+      ],
+      "QUERY_STATE": [
+        "STATE_SNAPSHOT_SEGMENTS",
+        "PERSISTENT_CRITICAL_EVENTS"
+      ],
+      "SAFE_CLOSE": [
+        "DELIVERY_SAFE_CLOSE",
+        "DELIVERY_DOOR_POSITION_FEEDBACK"
+      ]
+    }
+  },
+  "digestProfiles": {
+    "commandDigestSha256": {
+      "algorithm": "SHA-256",
+      "domainHex": "45434f42494e3a554152543a434f4d4d414e443a763100",
+      "layoutVersion": 1,
+      "preimage": [
+        "domain bytes",
+        "messageType as u8",
+        "semantic payload length as u16_be",
+        "payload bytes from offset 48 through payload end"
+      ],
+      "ordering": [
+        "messageType precedes length",
+        "semantic payload bytes retain Registry field order"
+      ],
+      "excludes": [
+        "frame magic/version/flags/txSequence/CRC",
+        "payload bytes 0..15 mcuCommandUid",
+        "payload bytes 16..47 commandDigestSha256"
+      ]
+    },
+    "mcuPayloadSha256": {
+      "algorithm": "SHA-256",
+      "domainHex": "45434f42494e3a554152543a4d43552d434f4e4649473a763100",
+      "layoutVersion": 1,
+      "preimage": [
+        "domain bytes",
+        "configVersion:u64_be",
+        "contentSha256:sha256",
+        "expectedPortCount:u8",
+        "continueDeliveryWaitMs:u32_be",
+        "negativeWeightThresholdGrams:u32_be",
+        "deliveryAutoCloseMs:u32_be",
+        "weightMeasurementTimeoutMs:u32_be",
+        "cleanSolenoidPulseMs:u32_be",
+        "smokeMonitoringEnabled:bool",
+        "for each port: portNo:u8, enabled:bool, unitPriceTenThousandths:u32_be, fullnessMode:u8, configuredFullWeightGrams:u32_be, fullnessSettleWaitMs:u32_be, fullnessConfirmationWaitMs:u32_be, weightStableWindowMs:u32_be, weightMaximumFluctuationGrams:u32_be, weightRequiredSampleCount:u16_be, weightMeasurementTimeoutMs:u32_be, weightMinimumGrams:i32_be, weightMaximumGrams:i32_be, calibrationVersion:u32_be, infraredSampleTimeoutMs:u32_be, deliveryDoorOperationTimeoutMs:u32_be"
+      ],
+      "ordering": [
+        "exactly expectedPortCount port blocks",
+        "port blocks strictly ordered and contiguous from portNo 1"
+      ],
+      "excludes": [
+        "applicationUid",
+        "mcuCommandUid",
+        "commandDigestSha256",
+        "CONFIG partIndex/partCount",
+        "mcuPayloadSha256 itself"
+      ]
+    },
+    "snapshotSha256": {
+      "algorithm": "SHA-256",
+      "domainHex": "45434f42494e3a554152543a534e415053484f543a763100",
+      "layoutVersion": 1,
+      "preimage": [
+        "domain bytes",
+        "STATE_SNAPSHOT_BEGIN fields snapshotUid through resetReason, excluding partIndex/partCount",
+        "each STATE_SNAPSHOT_PORT semantic field from portNo through faultBitmap",
+        "STATE_SNAPSHOT_END pendingCriticalEventCount and oldest/latest bootId/sequence fields"
+      ],
+      "ordering": [
+        "one BEGIN",
+        "exactly portCount PORT records strictly ordered and contiguous from portNo 1",
+        "one END"
+      ],
+      "excludes": [
+        "criticalEventIdentity on every segment",
+        "partIndex and partCount on every segment",
+        "snapshotSha256 itself"
+      ]
+    }
+  },
+  "fieldGroups": {
+    "commandIdentity": [
+      {
+        "name": "mcuCommandUid",
+        "type": "uuid"
+      },
+      {
+        "name": "commandDigestSha256",
+        "type": "sha256"
+      }
+    ],
+    "criticalEventIdentity": [
+      {
+        "name": "mcuBootId",
+        "type": "u64",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      {
+        "name": "mcuEventSequence",
+        "type": "u32",
+        "minimum": 1
+      },
+      {
+        "name": "uptimeMs",
+        "type": "u64",
+        "maximum": 9007199254740991,
+        "unit": "ms"
+      }
+    ],
+    "configPartIdentity": [
+      {
+        "group": "commandIdentity"
+      },
+      {
+        "name": "applicationUid",
+        "type": "uuid"
+      },
+      {
+        "name": "configVersion",
+        "type": "u64",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      {
+        "name": "contentSha256",
+        "type": "sha256"
+      },
+      {
+        "name": "mcuPayloadSha256",
+        "type": "sha256"
+      }
+    ],
+    "measurementResult": [
+      {
+        "name": "measurementStatus",
+        "type": "u8",
+        "enum": "MeasurementStatus"
+      },
+      {
+        "name": "stableWeightValid",
+        "type": "bool",
+        "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实"
+      },
+      {
+        "name": "stableWeightGrams",
+        "type": "i32",
+        "unit": "g",
+        "invalidWhen": "stableWeightValid=false",
+        "invalidEncoding": "all-zero bytes"
+      },
+      {
+        "name": "lastObservedWeightValid",
+        "type": "bool"
+      },
+      {
+        "name": "lastObservedWeightGrams",
+        "type": "i32",
+        "unit": "g",
+        "invalidWhen": "lastObservedWeightValid=false",
+        "invalidEncoding": "all-zero bytes"
+      },
+      {
+        "name": "measurementElapsedMs",
+        "type": "u32",
+        "unit": "ms"
+      },
+      {
+        "name": "sampleCount",
+        "type": "u16"
+      },
+      {
+        "name": "calibrationVersion",
+        "type": "u32"
+      },
+      {
+        "name": "weightSensorHealth",
+        "type": "u8",
+        "enum": "SensorHealth"
+      },
+      {
+        "name": "faultCode",
+        "type": "u16",
+        "enum": "FaultCode"
+      }
+    ]
+  },
+  "messages": [
+    {
+      "name": "HELLO",
+      "id": 1,
+      "direction": "BIDIRECTIONAL",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "payload": [
+        { "name": "senderRole", "type": "u8", "enum": "SenderRole" },
+        { "name": "senderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "supportedMajor", "type": "u8", "const": 1 },
+        { "name": "minimumMinor", "type": "u8", "const": 0 },
+        { "name": "maximumMinor", "type": "u8", "const": 0 },
+        { "name": "portCount", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "capabilityBitmap", "type": "u64" },
+        { "name": "maximumFrameLength", "type": "u16", "const": 256 },
+        { "name": "pendingCriticalEventCount", "type": "u16" },
+        { "name": "firmwareIdentity", "type": "string_u8", "maxLength": 32 },
+        { "name": "firmwareVersion", "type": "string_u8", "maxLength": 32 }
+      ]
+    },
+    {
+      "name": "HELLO_ACK",
+      "id": 2,
+      "direction": "BIDIRECTIONAL",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "payload": [
+        { "name": "responderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "referencedSenderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "selectedMajor", "type": "u8", "const": 1 },
+        { "name": "selectedMinor", "type": "u8", "const": 0 },
+        { "name": "status", "type": "u8", "enum": "HelloStatus" },
+        { "name": "portCount", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "capabilityBitmap", "type": "u64" },
+        { "name": "maximumFrameLength", "type": "u16", "const": 256 },
+        { "name": "errorCode", "type": "u16", "enum": "NackError" }
+      ]
+    },
+    {
+      "name": "ACK",
+      "id": 3,
+      "direction": "BIDIRECTIONAL",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "payload": [
+        { "name": "senderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "referencedSenderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "referencedTxSequence", "type": "u32", "minimum": 1 },
+        { "name": "referencedMessageType", "type": "u8" },
+        { "name": "disposition", "type": "u8", "enum": "AckDisposition" }
+      ]
+    },
+    {
+      "name": "NACK",
+      "id": 4,
+      "direction": "BIDIRECTIONAL",
+      "category": "CONTROL",
+      "ackRequired": false,
+      "payload": [
+        { "name": "senderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "referencedSenderBootId", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "referencedTxSequence", "type": "u32", "minimum": 1 },
+        { "name": "referencedMessageType", "type": "u8" },
+        { "name": "errorCode", "type": "u16", "enum": "NackError" }
+      ]
+    },
+    {
+      "name": "QUERY_STATE",
+      "id": 5,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": true,
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "snapshotUid", "type": "uuid" }
+      ]
+    },
+    {
+      "name": "SAFE_CLOSE",
+      "id": 6,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONTROL",
+      "ackRequired": true,
+      "notes": "只允许关闭有真实执行器与门位反馈的投递门，不适用于清运门",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "scope", "type": "u8", "enum": "SafeCloseScope" },
+        { "name": "portNo", "type": "u8", "minimum": 0, "maximum": 6 },
+        { "name": "executionDeadlineMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "CONFIG_BEGIN",
+      "id": 16,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "payload": [
+        { "group": "configPartIdentity" },
+        { "name": "partIndex", "type": "u8", "const": 1 },
+        { "name": "partCount", "type": "u8", "minimum": 4, "maximum": 9 },
+        { "name": "expectedPortCount", "type": "u8", "minimum": 1, "maximum": 6 }
+      ]
+    },
+    {
+      "name": "CONFIG_DEVICE_BLOCK",
+      "id": 17,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "payload": [
+        { "group": "configPartIdentity" },
+        { "name": "partIndex", "type": "u8", "const": 2 },
+        { "name": "partCount", "type": "u8", "minimum": 4, "maximum": 9 },
+        { "name": "continueDeliveryWaitMs", "type": "u32", "minimum": 1000, "unit": "ms" },
+        { "name": "negativeWeightThresholdGrams", "type": "u32", "minimum": 1, "unit": "g" },
+        { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "unit": "ms" },
+        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "cleanSolenoidPulseMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "smokeMonitoringEnabled", "type": "bool" }
+      ]
+    },
+    {
+      "name": "CONFIG_PORT_BLOCK",
+      "id": 18,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "payload": [
+        { "group": "configPartIdentity" },
+        { "name": "partIndex", "type": "u8", "minimum": 3, "maximum": 8 },
+        { "name": "partCount", "type": "u8", "minimum": 4, "maximum": 9 },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "enabled", "type": "bool" },
+        { "name": "unitPriceTenThousandths", "type": "u32", "minimum": 1, "unit": "yuan_per_kg_x10000" },
+        { "name": "fullnessMode", "type": "u8", "enum": "FullnessMode" },
+        { "name": "configuredFullWeightGrams", "type": "u32", "minimum": 1, "unit": "g" },
+        { "name": "fullnessSettleWaitMs", "type": "u32", "unit": "ms" },
+        { "name": "fullnessConfirmationWaitMs", "type": "u32", "unit": "ms" },
+        { "name": "weightStableWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "weightMaximumFluctuationGrams", "type": "u32", "unit": "g" },
+        { "name": "weightRequiredSampleCount", "type": "u16", "minimum": 1 },
+        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "weightMinimumGrams", "type": "i32", "unit": "g" },
+        { "name": "weightMaximumGrams", "type": "i32", "minimum": 1, "unit": "g" },
+        { "name": "calibrationVersion", "type": "u32" },
+        { "name": "infraredSampleTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "deliveryDoorOperationTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "CONFIG_COMMIT",
+      "id": 19,
+      "direction": "EDGE_TO_MCU",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "payload": [
+        { "group": "configPartIdentity" },
+        { "name": "partIndex", "type": "u8", "minimum": 4, "maximum": 9 },
+        { "name": "partCount", "type": "u8", "minimum": 4, "maximum": 9 }
+      ]
+    },
+    {
+      "name": "CONFIG_APPLY_RESULT",
+      "id": 20,
+      "direction": "MCU_TO_EDGE",
+      "category": "CONFIGURATION",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "applicationUid", "type": "uuid" },
+        { "name": "status", "type": "u8", "enum": "ConfigApplyStatus" },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "contentSha256", "type": "sha256" },
+        { "name": "mcuPayloadSha256", "type": "sha256" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
+      ]
+    },
+    {
+      "name": "START_DELIVERY_SESSION",
+      "id": 32,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "notes": "只建立待首次开门会话并触发首次前置称重；不得因本命令或重量事件 ACK 直接开门",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "configContentSha256", "type": "sha256" },
+        { "name": "unitPriceTenThousandths", "type": "u32", "minimum": 1, "unit": "yuan_per_kg_x10000" },
+        { "name": "continueDeliveryWaitMs", "type": "u32", "minimum": 1000, "unit": "ms" },
+        { "name": "negativeWeightThresholdGrams", "type": "u32", "minimum": 1, "unit": "g" },
+        { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "START_CLEAN_OPERATION",
+      "id": 33,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "configContentSha256", "type": "sha256" },
+        { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "operationWindowMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "UNLOCK_CLEAN_DOOR",
+      "id": 34,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "notes": "电磁阀通电解锁；不声明清运门具有门磁或自动关门能力",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "cleanActionSequence", "type": "u16", "notes": "首次自动解锁固定为0；再次解锁必须精确回显 CLEAN_UNLOCK_REQUESTED 的非零序号" },
+        { "name": "recoveryGeneration", "type": "u32", "notes": "首次操作固定为0；恢复后与当前 RESUME_CLEAN_OPERATION 一致" },
+        { "name": "unlockPulseMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "remainingOperationWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "parentCommandUid", "type": "uuid" }
+      ]
+    },
+    {
+      "name": "RESUME_CLEAN_OPERATION",
+      "id": 35,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "recoveryGeneration", "type": "u32", "minimum": 1 },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "configContentSha256", "type": "sha256" },
+        { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "operationWindowMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "END_CLEAN_BEFORE_UNLOCK",
+      "id": 36,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "parentCommandUid", "type": "uuid" },
+        { "name": "recoveryGeneration", "type": "u32" },
+        { "name": "executionDeadlineMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "reason", "type": "u8", "enum": "CleanEndReason" }
+      ]
+    },
+    {
+      "name": "SAMPLE_FULLNESS",
+      "id": 37,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "detectionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "sampleRole", "type": "u8", "enum": "SampleRole" },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "configContentSha256", "type": "sha256" },
+        { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "settleWaitMs", "type": "u32", "unit": "ms" },
+        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "MEASURE_BASELINE",
+      "id": 38,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "measurementUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "configContentSha256", "type": "sha256" },
+        { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "AUTHORIZE_DELIVERY_FIRST_OPEN",
+      "id": 39,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "notes": "香橙派仅在首次前置重量与两张开门前照片均已可靠写入 SQLite 且开始授权仍有效后发送；ACK 只表示受理，真实开门由 DELIVERY_DOOR_STATE_CHANGED 证明",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "firstPreOpenMeasurementUid", "type": "uuid" },
+        { "name": "parentStartCommandUid", "type": "uuid" },
+        { "name": "remainingStartAuthorizationMs", "type": "u32", "minimum": 1, "unit": "ms" }
+      ]
+    },
+    {
+      "name": "WORK_PREOPEN_WEIGHT_READY",
+      "id": 48,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "roundIndex", "type": "u16", "minimum": 1 },
+        { "name": "measurementUid", "type": "uuid" },
+        { "group": "measurementResult" }
+      ]
+    },
+    {
+      "name": "DELIVERY_DOOR_STATE_CHANGED",
+      "id": 49,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "roundIndex", "type": "u16", "minimum": 1 },
+        { "name": "doorState", "type": "u8", "enum": "DeliveryDoorState" },
+        { "name": "doorHealth", "type": "u8", "enum": "DeliveryDoorHealth" }
+      ]
+    },
+    {
+      "name": "WORK_POSTCLOSE_WEIGHT_READY",
+      "id": 50,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "roundIndex", "type": "u16", "minimum": 1 },
+        { "name": "measurementUid", "type": "uuid" },
+        { "group": "measurementResult" }
+      ]
+    },
+    {
+      "name": "DELIVERY_SELECTION",
+      "id": 51,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "必须在同 roundIndex 的 WORK_POSTCLOSE_WEIGHT_READY 获得持久 ACK 后发送；END/WINDOW_EXPIRED 使所绑定测量成为整场最终重量，CONTINUE 获 ACK 后才可再次开门",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "sessionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "roundIndex", "type": "u16", "minimum": 1 },
+        { "name": "postCloseMeasurementUid", "type": "uuid" },
+        { "name": "selection", "type": "u8", "enum": "DeliverySelection" }
+      ]
+    },
+    {
+      "name": "WORK_PREUNLOCK_WEIGHT_READY",
+      "id": 52,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "measurementUid", "type": "uuid" },
+        { "group": "measurementResult" }
+      ]
+    },
+    {
+      "name": "CLEAN_LOCK_POWER_CHANGED",
+      "id": 53,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "只表达电磁阀输出，不是清运门门磁事实",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "lockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
+        { "name": "solenoidHealth", "type": "u8", "enum": "SolenoidHealth" }
+      ]
+    },
+    {
+      "name": "CLEAN_UNLOCK_REQUESTED",
+      "id": 54,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "cleanActionSequence 在同一 operationUid 的再次解锁与完成请求间共享、严格递增且不得回绕",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 }
+      ]
+    },
+    {
+      "name": "CLEAN_FINISH_REQUESTED",
+      "id": 55,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "清运员第一次按完成只请求最终称重并进入结果展示；它不是人工关门完成确认。cleanActionSequence 与再次解锁请求共享并严格递增",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 }
+      ]
+    },
+    {
+      "name": "CLEAN_FINAL_WEIGHT_READY",
+      "id": 56,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "人工完成请求后的独立最终称重或明确终态称重失败；只可归并到相同 cleanActionSequence，之后发生再次解锁即作废",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 },
+        { "name": "measurementUid", "type": "uuid" },
+        { "group": "measurementResult" }
+      ]
+    },
+    {
+      "name": "FULLNESS_SAMPLE_RESULT",
+      "id": 57,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "detectionUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "sampleRole", "type": "u8", "enum": "SampleRole" },
+        { "name": "infraredValue", "type": "u8", "enum": "InfraredValue" },
+        { "name": "infraredHealth", "type": "u8", "enum": "SensorHealth" },
+        { "name": "measurementUid", "type": "uuid" },
+        { "group": "measurementResult" }
+      ]
+    },
+    {
+      "name": "BASELINE_MEASUREMENT_RESULT",
+      "id": 58,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "measurementUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "weightMeasurementUid", "type": "uuid" },
+        { "group": "measurementResult" }
+      ]
+    },
+    {
+      "name": "FAULT_OBSERVED",
+      "id": 59,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "faultUid", "type": "uuid" },
+        { "name": "lifecycle", "type": "u8", "enum": "FaultLifecycle" },
+        { "name": "component", "type": "u8", "enum": "FaultComponent" },
+        { "name": "severity", "type": "u8", "enum": "FaultSeverity" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" },
+        { "name": "workType", "type": "u8", "enum": "WorkType" },
+        { "name": "workUid", "type": "uuid", "zeroAllowedWhen": "workType=NONE", "notes": "workType=NONE 时必须为全零 UUID；其他值必须使用非零 UUID" },
+        { "name": "portNo", "type": "u8", "minimum": 0, "maximum": 6 }
+      ]
+    },
+    {
+      "name": "SAFETY_SENSOR_EVENT",
+      "id": 60,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "smokeState", "type": "u8", "enum": "SmokeState" },
+        { "name": "smokeSensorHealth", "type": "u8", "enum": "SensorHealth" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" },
+        { "name": "workType", "type": "u8", "enum": "WorkType" },
+        { "name": "workUid", "type": "uuid", "zeroAllowedWhen": "workType=NONE", "notes": "workType=NONE 时必须为全零 UUID；其他值必须使用非零 UUID" },
+        { "name": "portNo", "type": "u8", "minimum": 0, "maximum": 6 }
+      ]
+    },
+    {
+      "name": "SAFE_CLOSE_RESULT",
+      "id": 61,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "scope", "type": "u8", "enum": "SafeCloseScope" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "doorState", "type": "u8", "enum": "DeliveryDoorState" },
+        { "name": "doorHealth", "type": "u8", "enum": "DeliveryDoorHealth" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
+      ]
+    },
+    {
+      "name": "CLEAN_COMPLETION_CONFIRMED",
+      "id": 62,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "只在同代 CLEAN_FINAL_WEIGHT_READY 已持久 ACK、屏幕展示结果且清运员再次明确确认安装与人工关门完成后产生；之后更大 cleanActionSequence 的再次解锁会使本确认与候选重量一起作废",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "operationUid", "type": "uuid" },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "cleanActionSequence", "type": "u16", "minimum": 1 },
+        { "name": "finalMeasurementUid", "type": "uuid" },
+        { "name": "lockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
+        { "name": "solenoidHealth", "type": "u8", "enum": "SolenoidHealth" },
+        { "name": "inferredCleanDoorState", "type": "u8", "enum": "InferredCleanDoorState" },
+        { "name": "cleanDoorStateBasis", "type": "u8", "enum": "CleanDoorStateBasis" },
+        { "name": "cleanerPhysicalCloseConfirmed", "type": "bool", "const": true }
+      ]
+    },
+    {
+      "name": "STATE_SNAPSHOT_BEGIN",
+      "id": 80,
+      "direction": "MCU_TO_EDGE",
+      "category": "SNAPSHOT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "snapshotUid", "type": "uuid" },
+        { "name": "queryCommandUid", "type": "uuid" },
+        { "name": "protocolMajor", "type": "u8", "const": 1 },
+        { "name": "protocolMinor", "type": "u8", "const": 0 },
+        { "name": "firmwareVersionCode", "type": "u32" },
+        { "name": "activeWorkType", "type": "u8", "enum": "WorkType" },
+        { "name": "activeWorkUid", "type": "uuid", "zeroAllowedWhen": "activeWorkType=NONE", "notes": "仅 activeWorkType=NONE 时为全零 UUID" },
+        { "name": "activePortNo", "type": "u8", "minimum": 0, "maximum": 6 },
+        { "name": "activeWorkPhase", "type": "u8", "enum": "McuWorkPhase" },
+        { "name": "latestMcuCommandUid", "type": "uuid", "zeroAllowed": true, "notes": "全零 UUID 表示 MCU 尚未持久接收过任何命令；否则为最后一次持久接收的非零命令 UUID" },
+        { "name": "appliedConfigVersion", "type": "u64", "maximum": 9007199254740991, "notes": "0 表示从未应用配置且两个 applied SHA-256 必须全零；大于 0 时两个 applied SHA-256 必须非零" },
+        { "name": "appliedContentSha256", "type": "sha256", "notes": "与 appliedConfigVersion 构成全有或全无三元组" },
+        { "name": "appliedMcuPayloadSha256", "type": "sha256", "notes": "与 appliedConfigVersion 构成全有或全无三元组" },
+        { "name": "stagingValid", "type": "bool" },
+        { "name": "stagingApplicationUid", "type": "uuid", "zeroAllowedWhen": "stagingValid=false", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时必须为非零 UUID" },
+        { "name": "stagingConfigVersion", "type": "u64", "maximum": 9007199254740991, "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时范围为 1..9007199254740991" },
+        { "name": "stagingMcuPayloadSha256", "type": "sha256", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时必须非零" },
+        { "name": "stagingPartCount", "type": "u8", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时等于本快照 portCount+3（即已接受 CONFIG_BEGIN 的 expectedPortCount+3），范围为 4..9" },
+        { "name": "stagingReceivedPartBitmap", "type": "u16", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时 bit n 表示 partIndex=n+1 已完整持久化；bit 0 必须为 1；索引大于 stagingPartCount 的位必须为 0" },
+        { "name": "portCount", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "partIndex", "type": "u8", "const": 1 },
+        { "name": "partCount", "type": "u8", "minimum": 3, "maximum": 8 },
+        { "name": "resetReason", "type": "u8", "enum": "ResetReason" }
+      ]
+    },
+    {
+      "name": "STATE_SNAPSHOT_PORT",
+      "id": 81,
+      "direction": "MCU_TO_EDGE",
+      "category": "SNAPSHOT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "snapshotUid", "type": "uuid" },
+        { "name": "partIndex", "type": "u8", "minimum": 2, "maximum": 7 },
+        { "name": "partCount", "type": "u8", "minimum": 3, "maximum": 8 },
+        { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
+        { "name": "deliveryDoorState", "type": "u8", "enum": "DeliveryDoorState" },
+        { "name": "deliveryDoorHealth", "type": "u8", "enum": "DeliveryDoorHealth" },
+        { "name": "cleanLockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
+        { "name": "cleanSolenoidHealth", "type": "u8", "enum": "SolenoidHealth" },
+        { "name": "inferredCleanDoorState", "type": "u8", "enum": "InferredCleanDoorState" },
+        { "name": "cleanDoorStateBasis", "type": "u8", "enum": "CleanDoorStateBasis" },
+        { "name": "cleanerPhysicalCloseConfirmed", "type": "bool" },
+        { "group": "measurementResult" },
+        { "name": "infraredValue", "type": "u8", "enum": "InfraredValue" },
+        { "name": "infraredHealth", "type": "u8", "enum": "SensorHealth" },
+        { "name": "smokeState", "type": "u8", "enum": "SmokeState" },
+        { "name": "smokeSensorHealth", "type": "u8", "enum": "SensorHealth" },
+        { "name": "faultBitmap", "type": "u32", "bitmap": "PortFaultBitmap" }
+      ]
+    },
+    {
+      "name": "STATE_SNAPSHOT_END",
+      "id": 82,
+      "direction": "MCU_TO_EDGE",
+      "category": "SNAPSHOT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "pendingCriticalEventCount=0 时四个最早/最新身份字段必须全零；非零时必须给出原事件各自 bootId，允许跨 MCU 重启",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "snapshotUid", "type": "uuid" },
+        { "name": "partIndex", "type": "u8", "minimum": 3, "maximum": 8 },
+        { "name": "partCount", "type": "u8", "minimum": 3, "maximum": 8 },
+        { "name": "pendingCriticalEventCount", "type": "u16" },
+        { "name": "oldestPendingEventBootId", "type": "u64", "maximum": 9007199254740991 },
+        { "name": "oldestPendingEventSequence", "type": "u32" },
+        { "name": "latestPendingEventBootId", "type": "u64", "maximum": 9007199254740991 },
+        { "name": "latestPendingEventSequence", "type": "u32" },
+        { "name": "snapshotSha256", "type": "sha256" }
+      ]
+    }
+  ],
+  "semanticRules": [
+    {
+      "id": "MEASUREMENT_STATUS_VALIDITY",
+      "kind": "MEASUREMENT_VALIDITY",
+      "messages": [
+        "WORK_PREOPEN_WEIGHT_READY",
+        "WORK_POSTCLOSE_WEIGHT_READY",
+        "WORK_PREUNLOCK_WEIGHT_READY",
+        "CLEAN_FINAL_WEIGHT_READY",
+        "FULLNESS_SAMPLE_RESULT",
+        "BASELINE_MEASUREMENT_RESULT",
+        "STATE_SNAPSHOT_PORT"
+      ],
+      "notes": "STABLE 当且仅当 stableWeightValid=true、weightSensorHealth=OK、faultCode=NONE；无效固定槽全零。失败状态必须 stableWeightValid=false 且使用相匹配的 health/fault；lastObservedWeightValid=false 时固定槽全零。"
+    },
+    {
+      "id": "CLEAN_LOCK_POWER_INFERENCE",
+      "kind": "CLEAN_LOCK_INFERENCE",
+      "messages": [
+        "STATE_SNAPSHOT_PORT",
+        "CLEAN_COMPLETION_CONFIRMED"
+      ],
+      "notes": "health=OK 且 ENERGIZED 推定 OPEN，health=OK 且 DEENERGIZED 推定 CLOSED；锁状态未知或 health 非 OK 只能推定 UNKNOWN；stateBasis 恒为 INFERRED_FROM_LOCK_POWER。"
+    },
+    {
+      "id": "HELLO_AND_NACK_OUTCOME",
+      "kind": "HELLO_OUTCOME",
+      "messages": [
+        "HELLO",
+        "HELLO_ACK",
+        "NACK"
+      ],
+      "notes": "HELLO capability 不得包含未知位且必须覆盖对应 required mask；HELLO_ACK ACCEPTED 要求 errorCode=NONE、能力为合法交集，INCOMPATIBLE 要求非 NONE；NACK 禁止 NONE。"
+    },
+    {
+      "id": "OPTIONAL_WORK_SCOPE",
+      "kind": "WORK_SCOPE",
+      "messages": [
+        "FAULT_OBSERVED",
+        "SAFETY_SENSOR_EVENT",
+        "STATE_SNAPSHOT_BEGIN"
+      ],
+      "notes": "FAULT_OBSERVED/SAFETY_SENSOR_EVENT 仅要求 workType=NONE 当且仅当 workUid 为全零；portNo 独立表示故障作用域，可为设备级 0 或真实投口。STATE_SNAPSHOT_BEGIN 的 NONE 状态使用全零 workUid、portNo=0、IDLE；CONFIG_APPLICATION 使用非零 workUid、portNo=0、CONFIG_STAGING；其他活动作业使用非零 workUid 和真实投口。"
+    },
+    {
+      "id": "SAFE_CLOSE_SCOPE_PORT",
+      "kind": "SAFE_CLOSE_SCOPE",
+      "messages": [
+        "SAFE_CLOSE",
+        "SAFE_CLOSE_RESULT"
+      ],
+      "notes": "ALL_DELIVERY_DOORS 只在命令中使用 portNo=0；SINGLE_DELIVERY_DOOR 与每条结果均使用真实 1..portCount。"
+    },
+    {
+      "id": "SAFE_CLOSE_RESULT_MATRIX",
+      "kind": "SAFE_CLOSE_RESULT_OUTCOME",
+      "messages": [
+        "SAFE_CLOSE_RESULT"
+      ],
+      "notes": "成功结果必须为 doorState=CLOSED、doorHealth=OK、faultCode=NONE；TIMEOUT 对应 DELIVERY_DOOR_TIMEOUT，ACTUATOR_FAULT 对应 DELIVERY_DOOR_ACTUATOR，SWITCH_FAULT 或 DISCONNECTED 对应 DELIVERY_DOOR_SWITCH，故障结果不得声称 CLOSED+OK。"
+    },
+    {
+      "id": "UART_FAULT_COMPONENT_CODE",
+      "kind": "FAULT_COMPONENT_CODE",
+      "messages": [
+        "FAULT_OBSERVED"
+      ],
+      "notes": "faultCode 禁止 NONE，且必须属于 component：UART→UART_PROTOCOL/UART_STORAGE；DELIVERY_DOOR→DELIVERY_DOOR_TIMEOUT/ACTUATOR/SWITCH；CLEAN_SOLENOID→CLEAN_SOLENOID_DRIVER；WEIGHT_SENSOR→WEIGHT_UNSTABLE/TIMEOUT/SENSOR/OVERLOAD；INFRARED_SENSOR→INFRARED_TIMEOUT/SENSOR；SMOKE_SENSOR→SMOKE_SENSOR；MCU_STORAGE→MCU_STORAGE；MCU_INTERNAL→MCU_INTERNAL。"
+    },
+    {
+      "id": "SENSOR_VALUE_HEALTH_MATRIX",
+      "kind": "SENSOR_VALUE_HEALTH",
+      "messages": [
+        "FULLNESS_SAMPLE_RESULT",
+        "SAFETY_SENSOR_EVENT",
+        "STATE_SNAPSHOT_PORT"
+      ],
+      "notes": "infraredHealth=OK 时 infraredValue 只能 CLEAR/BLOCKED，非 OK 时必须 UNKNOWN；smokeSensorHealth=OK 时 smokeState 只能 NORMAL/ALARM，非 OK 时必须 UNKNOWN。SAFETY_SENSOR_EVENT 的健康正常值使用 faultCode=NONE，传感器非 OK 使用 faultCode=SMOKE_SENSOR。FULLNESS_SAMPLE_RESULT 的 faultCode 仍只描述同消息的称重结果，不用红外故障覆盖。"
+    },
+    {
+      "id": "CONFIG_SEGMENT_SET",
+      "kind": "CONFIG_SEGMENTS",
+      "messages": [
+        "CONFIG_BEGIN",
+        "CONFIG_DEVICE_BLOCK",
+        "CONFIG_PORT_BLOCK",
+        "CONFIG_COMMIT"
+      ],
+      "notes": "同一 application/version/content/mcuPayload 摘要组成 BEGIN、DEVICE、按 portNo 连续有序的 PORT、COMMIT；partCount=expectedPortCount+3，partIndex 与端口严格对应。"
+    },
+    {
+      "id": "SNAPSHOT_SEGMENT_SET",
+      "kind": "SNAPSHOT_SEGMENTS",
+      "messages": [
+        "STATE_SNAPSHOT_BEGIN",
+        "STATE_SNAPSHOT_PORT",
+        "STATE_SNAPSHOT_END"
+      ],
+      "notes": "同一 snapshotUid 恰有 BEGIN、portCount 个连续有序 PORT 与 END；partCount=portCount+2；仅完整集合且 snapshotSha256 一致可用于恢复。appliedConfigVersion=0 当且仅当两个 applied SHA 全零；大于 0 时二者均非零。stagingValid=false 时全部 staging 字段全零；为 true 时 applicationUid/SHA 非零、configVersion>=1、stagingPartCount=portCount+3 且为 4..9，bitmap 的 bit n 对应 partIndex=n+1、bit0=1、超出 stagingPartCount 的位为 0。"
+    },
+    {
+      "id": "SNAPSHOT_PORT_FAULT_SUMMARY",
+      "kind": "SNAPSHOT_PORT_FAULT_BITMAP",
+      "messages": [
+        "STATE_SNAPSHOT_PORT"
+      ],
+      "notes": "faultBitmap 仅使用 PortFaultBitmap 已登记的 bit 0..4，保留位必须为 0；每一位严格由对应 health 是否为 OK 派生，不代替类型化 health/fault 事实。"
+    },
+    {
+      "id": "CLEAN_FINISH_GENERATION",
+      "kind": "CLEAN_COMPLETION_GENERATION",
+      "messages": [
+        "CLEAN_UNLOCK_REQUESTED",
+        "UNLOCK_CLEAN_DOOR",
+        "CLEAN_FINISH_REQUESTED",
+        "CLEAN_FINAL_WEIGHT_READY",
+        "CLEAN_COMPLETION_CONFIRMED"
+      ],
+      "notes": "cleanActionSequence 在再次解锁与完成请求间严格递增；完成确认必须绑定同代最终 measurementUid，任何更大序号解锁都会作废旧候选。"
+    },
+    {
+      "id": "DELIVERY_POSTCLOSE_SELECTION_ORDER",
+      "kind": "DELIVERY_SELECTION_ORDER",
+      "messages": [
+        "WORK_POSTCLOSE_WEIGHT_READY",
+        "DELIVERY_SELECTION"
+      ],
+      "notes": "选择事件必须精确绑定已持久 ACK 的 postCloseMeasurementUid；END/WINDOW_EXPIRED 固化最终重量，CONTINUE 获 ACK 后才允许再次开门。"
+    }
+  ],
+  "goldenVectors": [
+    {
+      "name": "hello_edge",
+      "message": "HELLO",
+      "flags": [],
+      "txSequence": 1,
+      "payload": {
+        "senderRole": "EDGE",
+        "senderBootId": 9007199254740991,
+        "supportedMajor": 1,
+        "minimumMinor": 0,
+        "maximumMinor": 0,
+        "portCount": 6,
+        "capabilityBitmap": 8191,
+        "maximumFrameLength": 256,
+        "pendingCriticalEventCount": 0,
+        "firmwareIdentity": "orangepi",
+        "firmwareVersion": "1.0.0-rc.1"
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "ack_duplicate",
+      "message": "ACK",
+      "flags": [],
+      "txSequence": 7,
+      "payload": {
+        "senderBootId": 17,
+        "referencedSenderBootId": 34,
+        "referencedTxSequence": 16909060,
+        "referencedMessageType": 32,
+        "disposition": "DUPLICATE_ACCEPTED"
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "authorize_delivery_first_open",
+      "message": "AUTHORIZE_DELIVERY_FIRST_OPEN",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 8,
+      "payload": {
+        "mcuCommandUid": "70707070-7070-4070-8070-707070707070",
+        "commandDigestSha256": "AUTO",
+        "sessionUid": "71717171-7171-4171-8171-717171717171",
+        "portNo": 2,
+        "firstPreOpenMeasurementUid": "72727272-7272-4272-8272-727272727272",
+        "parentStartCommandUid": "73737373-7373-4373-8373-737373737373",
+        "remainingStartAuthorizationMs": 45000
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "negative_stable_weight",
+      "message": "WORK_POSTCLOSE_WEIGHT_READY",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 9,
+      "payload": {
+        "mcuBootId": 101,
+        "mcuEventSequence": 202,
+        "uptimeMs": 303000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 2,
+        "roundIndex": 3,
+        "measurementUid": "33333333-3333-4333-8333-333333333333",
+        "measurementStatus": "STABLE",
+        "stableWeightValid": true,
+        "stableWeightGrams": -500,
+        "lastObservedWeightValid": true,
+        "lastObservedWeightGrams": -500,
+        "measurementElapsedMs": 1250,
+        "sampleCount": 12,
+        "calibrationVersion": 4,
+        "weightSensorHealth": "OK",
+        "faultCode": "NONE"
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "payload_contains_magic",
+      "message": "CONFIG_COMMIT",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 10,
+      "payload": {
+        "mcuCommandUid": "44444444-4444-4444-8444-444444444444",
+        "commandDigestSha256": "AUTO",
+        "applicationUid": "55555555-5555-4555-8555-555555555555",
+        "configVersion": 8,
+        "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "partIndex": 9,
+        "partCount": 9
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "clean_completion_confirmed",
+      "message": "CLEAN_COMPLETION_CONFIRMED",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 11,
+      "payload": {
+        "mcuBootId": 101,
+        "mcuEventSequence": 203,
+        "uptimeMs": 304000,
+        "operationUid": "61616161-6161-4161-8161-616161616161",
+        "portNo": 2,
+        "cleanActionSequence": 7,
+        "finalMeasurementUid": "62626262-6262-4262-8262-626262626262",
+        "lockPowerState": "DEENERGIZED",
+        "solenoidHealth": "OK",
+        "inferredCleanDoorState": "CLOSED",
+        "cleanDoorStateBasis": "INFERRED_FROM_LOCK_POWER",
+        "cleanerPhysicalCloseConfirmed": true
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "nack_highest_error",
+      "message": "NACK",
+      "flags": [],
+      "txSequence": 12,
+      "payload": {
+        "senderBootId": 51,
+        "referencedSenderBootId": 68,
+        "referencedTxSequence": 4294967295,
+        "referencedMessageType": 255,
+        "errorCode": "INTERNAL_FAULT"
+      },
+      "expected": "VALID"
+    },
+    {
+      "name": "empty_payload_unknown_message",
+      "messageTypeValue": 126,
+      "flags": [],
+      "txSequence": 13,
+      "rawPayloadHex": "",
+      "expected": "FRAME_VALID_MESSAGE_UNSUPPORTED"
+    },
+    {
+      "name": "maximum_frame_unknown_message",
+      "messageTypeValue": 127,
+      "flags": [],
+      "txSequence": 14,
+      "fillByteHex": "a5",
+      "payloadLength": 242,
+      "expected": "FRAME_VALID_MESSAGE_UNSUPPORTED"
+    },
+    {
+      "name": "crc_invalid",
+      "sourceVector": "hello_edge",
+      "mutate": "FLIP_LAST_CRC_BIT",
+      "expected": "CRC_INVALID"
+    }
+  ],
+  "nonVolatileRequirements": [
+    "MCU 每次真实重启必须改变非零 mcuBootId，并优先使用持久单调启动计数器。",
+    "所有关键 MCU 事件在香橙派 SQLite 持久 ACK 前必须保留原 mcuBootId、mcuEventSequence 和原始内容。",
+    "不可逆开门或电磁阀通电命令的 mcuCommandUid、摘要和既有处置必须跨看门狗/掉电保留，避免重放再次驱动。",
+    "已应用配置版本、完整摘要、MCU 子集摘要及非活动 staging 进度必须跨重启保存。",
+    "当前作业、投递门安全阶段和清运电磁阀可能通电边界必须具有掉电后可恢复证据。",
+    "START_DELIVERY_SESSION 与首次开门授权必须分离；MCU 在收到 AUTHORIZE_DELIVERY_FIRST_OPEN 前不得首次开门。",
+    "清运 cleanActionSequence、与其绑定的最终称重以及后续再次解锁造成的作废边界必须可恢复。",
+    "正式 Registry 不定义清运门门磁、清运门自动关门或清运门 SAFE_CLOSE 能力。"
+  ]
+}

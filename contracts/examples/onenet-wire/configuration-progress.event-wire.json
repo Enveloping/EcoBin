@@ -1,0 +1,40 @@
+{
+  "identifier": "configurationProgress",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "105",
+    "params": {
+      "configurationProgress": {
+        "value": {
+          "applicationUid": "10000000-0000-4000-8000-000000000001",
+          "clockQuality": 1,
+          "commandUid": "20000000-0000-4000-8000-000000000001",
+          "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1047,
+          "errorCode": "",
+          "errorCodePresent": false,
+          "eventType": 1,
+          "eventUid": "85000000-0000-4000-8000-000000000001",
+          "mcuCommandUid": "85000000-0000-4000-8000-000000000002",
+          "mcuCommandUidPresent": true,
+          "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "d82854d30f82edbd441a9d94e96c9f9649c7d7ba198db1ec54190084c483de37",
+          "schemaVersion": 1,
+          "stage": 2,
+          "target": {
+            "type": 1,
+            "uid": "10000000-0000-4000-8000-000000000001"
+          },
+          "version": 8
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

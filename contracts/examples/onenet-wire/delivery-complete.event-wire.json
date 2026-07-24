@@ -1,0 +1,143 @@
+{
+  "identifier": "deliveryComplete",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "100",
+    "params": {
+      "deliveryComplete": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "30000000-0000-4000-8000-000000000003",
+          "completionReason": 1,
+          "deliveryClass": 1,
+          "deliveryNetWeightGrams": 1250,
+          "deliveryNetWeightGramsPresent": true,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1042,
+          "eventType": 1,
+          "eventUid": "30000000-0000-4000-8000-000000000006",
+          "finalDeliveryDoor": {
+            "health": 1,
+            "state": 1
+          },
+          "finalPostCloseMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": 1,
+            "faultCodePresent": false,
+            "lastObservedWeightGrams": 13250,
+            "lastObservedWeightGramsPresent": true,
+            "mcuBootId": 101,
+            "mcuEventSequence": 29,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "30000000-0000-4000-8000-000000000005",
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "stableWeightGrams": 13250,
+            "stableWeightGramsPresent": true,
+            "status": 1
+          },
+          "firstPreOpenMeasurement": {
+            "calibrationVersion": 4,
+            "faultCodePresent": false,
+            "lastObservedWeightGrams": 12000,
+            "lastObservedWeightGramsPresent": true,
+            "mcuBootId": 101,
+            "mcuEventSequence": 11,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "30000000-0000-4000-8000-000000000004",
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "stableWeightGrams": 12000,
+            "status": 1
+          },
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "negativeWeightAnomaly": false,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+          "photos": [
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "BEFORE_INNER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            },
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "BEFORE_OUTER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            },
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "AFTER_INNER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            },
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "AFTER_OUTER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            }
+          ],
+          "portNo": 2,
+          "schemaVersion": 1,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "target": {
+            "type": 1,
+            "uid": "30000000-0000-4000-8000-000000000001"
+          },
+          "unitPriceTenThousandths": 4500
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

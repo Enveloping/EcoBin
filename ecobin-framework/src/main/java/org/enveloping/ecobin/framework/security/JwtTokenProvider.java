@@ -2,12 +2,16 @@ package org.enveloping.ecobin.framework.security;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import org.enveloping.ecobin.common.enums.UserRole;
+import org.enveloping.ecobin.framework.context.TrustedAudience;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 /**
  * JWT Token 工具类：生成、解析、校验
@@ -38,16 +42,38 @@ public class JwtTokenProvider {
     public String generateToken(Long userId, String subject, Long tenantId, Integer role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
+        TrustedAudience audience = audienceOf(role);
 
         return Jwts.builder()
+                .issuer("ecobin")
+                .id(UUID.randomUUID().toString())
                 .subject(subject)
                 .claim("userId", userId)
                 .claim("tenantId", tenantId)
                 .claim("role", role)
+                .claim("clientAudience", audience.name())
+                .claim("authVersion", 0L)
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(secretKey)
                 .compact();
+    }
+
+    public JwtSessionClaims parseSession(String token) {
+        Claims claims = parseClaims(token);
+        String jti = claims.getId();
+        String audience = claims.get("clientAudience", String.class);
+        if (jti == null || audience == null) {
+            throw new IllegalArgumentException("token is missing typed session claims");
+        }
+        return new JwtSessionClaims(
+                claims.get("userId", Long.class),
+                claims.get("tenantId", Long.class),
+                claims.get("role", Integer.class),
+                claims.getSubject(),
+                UUID.fromString(jti),
+                TrustedAudience.valueOf(audience),
+                claims.getIssuedAt().toInstant());
     }
 
     /**
@@ -103,5 +129,15 @@ public class JwtTokenProvider {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    private static TrustedAudience audienceOf(Integer role) {
+        if (UserRole.isPlatform(role)) {
+            return TrustedAudience.WEB_PLATFORM;
+        }
+        if (role != null && role == UserRole.TENANT.getCode()) {
+            return TrustedAudience.WEB_STAFF;
+        }
+        return TrustedAudience.MINIAPP;
     }
 }

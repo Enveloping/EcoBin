@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/onenet/event-envelope.schema.json",
+  "title": "EcoBin OneNet event envelope",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "eventUid",
+    "deploymentCode",
+    "edgeEventSequence",
+    "eventType",
+    "deliveryClass",
+    "target",
+    "commandUid",
+    "occurredAt",
+    "clockQuality",
+    "payloadSha256",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventUid": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "deploymentCode": {
+      "$ref": "common.schema.json#/$defs/deploymentCode"
+    },
+    "edgeEventSequence": {
+      "$ref": "common.schema.json#/$defs/positiveSequence"
+    },
+    "eventType": {
+      "enum": [
+        "DEVICE_COMMAND_OBSERVED",
+        "CONFIGURATION_PROGRESS",
+        "DELIVERY_COMPLETE",
+        "CLEAN_COMPLETE",
+        "FULLNESS_SAMPLE_COMPLETE",
+        "BASELINE_MEASUREMENT_COMPLETE",
+        "DEVICE_FAULT_OBSERVED",
+        "DEVICE_FAULT_RECOVERED",
+        "PHOTO_STATUS_REPORTED",
+        "PHOTO_UPLOAD_GRANT_REQUESTED",
+        "BUSINESS_CONFIRMATION_RECEIPT",
+        "DEVICE_RUNTIME_SNAPSHOT"
+      ]
+    },
+    "deliveryClass": {
+      "enum": ["RELIABLE_FACT", "CONTROL_RECEIPT", "TELEMETRY_SNAPSHOT"]
+    },
+    "target": {
+      "$ref": "common.schema.json#/$defs/target"
+    },
+    "commandUid": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    },
+    "occurredAt": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/utcInstant" },
+        { "type": "null" }
+      ]
+    },
+    "clockQuality": {
+      "enum": ["SYNCED", "ESTIMATED", "UNAVAILABLE"]
+    },
+    "payloadSha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "clockQuality": { "const": "SYNCED" }
+        }
+      },
+      "then": {
+        "properties": {
+          "occurredAt": {
+            "$ref": "common.schema.json#/$defs/utcInstant"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "occurredAt": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": null,
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1052,
+  "eventType": "PHOTO_UPLOAD_GRANT_REQUESTED",
+  "eventUid": "83000000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "reason": "GRANT_EXPIRED",
+    "requestedSlots": [
+      "AFTER_INNER",
+      "AFTER_OUTER"
+    ],
+    "workType": "DELIVERY_SESSION",
+    "workUid": "30000000-0000-4000-8000-000000000001"
+  },
+  "payloadSha256": "8caf887a07f22c28c133bccea689c81956a0fb9e559a5a7756e0d238ab5935e9",
+  "schemaVersion": 1,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

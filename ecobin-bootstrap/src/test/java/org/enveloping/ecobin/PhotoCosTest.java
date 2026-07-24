@@ -1,7 +1,7 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.framework.cos.CosStsCredential;
-import org.enveloping.ecobin.framework.cos.CosTokenClient;
+import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
+import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,18 +23,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PhotoCosTest {
 
     @Autowired
-    private CosTokenClient cosTokenClient;
+    private CosUploadCredentialPort cosUploadCredentialPort;
 
     @Test
     void stsPlaceholderReturnsNonEmpty() {
-        CosStsCredential credential = cosTokenClient.getTempCredentials("SN-TEST-001", 1);
-        assertNotNull(credential.getTmpSecretId());
-        assertNotNull(credential.getTmpSecretKey());
-        assertNotNull(credential.getSessionToken());
-        assertTrue(credential.getExpiredTime() > credential.getStartTime());
+        CosUploadCredential credential = cosUploadCredentialPort.issue("SN-TEST-001", 1);
+        assertNotNull(credential.tmpSecretId());
+        assertNotNull(credential.tmpSecretKey());
+        assertNotNull(credential.sessionToken());
+        assertTrue(credential.expiredTime() > credential.startTime());
         // 占位模式也有 bucket / region / baseUrl
-        assertNotNull(credential.getBucket());
-        assertNotNull(credential.getRegion());
-        assertNotNull(credential.getBaseUrl());
+        assertNotNull(credential.bucket());
+        assertNotNull(credential.region());
+        assertNotNull(credential.baseUrl());
     }
 }

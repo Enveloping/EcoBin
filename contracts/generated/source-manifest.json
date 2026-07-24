@@ -1,0 +1,16 @@
+{
+  "onenetMappingVersion": "1.0.0-rc.2",
+  "sources": {
+    "onenet/command-envelope.schema.json": "f2cabfa2d53ebdca77fae170f30d80087d3bc7c93892cadea300f4ebde1ae53c",
+    "onenet/command-receipt.schema.json": "5af4d09a6841ffb89be587a7eabe7faee0e6a2f1496ef1860764980b328ab6a3",
+    "onenet/commands/commands.schema.json": "da94f905e1fec84342e05372c1c6e861725c9bc3397b621dc70b3b838c44ef1e",
+    "onenet/common.schema.json": "f3d3f57e52c8e203a13878b8c9e4054dbbc3cf113c3f4b99eb44a0e22f6f5770",
+    "onenet/event-envelope.schema.json": "010a2ae62964ccceaf492e6948fc3b0758d3301a9660ae547e67487cf90593c5",
+    "onenet/events/events.schema.json": "70e7840d297eb3079983ab202c0254bcd2a79a3a03a40ed35b3db51fbb64936f",
+    "onenet/thing-model.mapping.yaml": "8530b6e7c6ebe36f99e11363262d10ee5dce0b6ba7545e7be87c88273d3f3319",
+    "uart/uart-registry.schema.json": "a006830a72c78e7f796200473710bc01cf481cdbf3e19d5f0b0eee8554c621e6",
+    "uart/uart-registry.yaml": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705"
+  },
+  "uartRegistrySha256": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705",
+  "uartRegistryVersion": "1.0.0-rc.2"
+}

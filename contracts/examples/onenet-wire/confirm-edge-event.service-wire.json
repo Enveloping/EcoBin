@@ -1,0 +1,58 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "confirmEdgeEvent",
+    "params": {
+      "resultReferences": [
+        {
+          "key": "DO202607240001",
+          "type": 1
+        }
+      ],
+      "scalarFields": {
+        "commandType": 1,
+        "commandUid": "60000000-0000-4000-8000-000000000002",
+        "confirmationUid": "60000000-0000-4000-8000-000000000001",
+        "cosGrantPresent": false,
+        "deploymentCode": "Dp_demo_01",
+        "effectKind": 1,
+        "effectKindPresent": true,
+        "errorCode": "",
+        "errorCodePresent": false,
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "originalEventUid": "30000000-0000-4000-8000-000000000006",
+        "originalPayloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+        "outcome": 1,
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "11def8fa2128b251fa1d8fa488747f7ce8c734f6c6b4a7f110cd95a409522868",
+        "processedAt": "2026-07-24T01:00:31.000Z",
+        "quarantineUid": "",
+        "quarantineUidPresent": false,
+        "schemaVersion": 1
+      },
+      "target": {
+        "type": 1,
+        "uid": "30000000-0000-4000-8000-000000000006"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "60000000-0000-4000-8000-000000000002",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/confirmEdgeEvent/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/confirmEdgeEvent/invoke_reply",
+  "identifier": "confirmEdgeEvent",
+  "kind": "SYNC_SERVICE"
+}

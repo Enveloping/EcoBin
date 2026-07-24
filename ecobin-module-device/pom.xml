@@ -19,6 +19,15 @@
             <groupId>org.enveloping</groupId>
             <artifactId>ecobin-framework</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-identity</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 
 </project>

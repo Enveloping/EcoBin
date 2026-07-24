@@ -2,8 +2,8 @@ package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.system.entity.Tenant;
-import org.enveloping.ecobin.system.service.TenantService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyTenantDirectoryPort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyTenantDraft;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,7 +37,7 @@ class TenantSelfQueryTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
-    private TenantService tenantService;
+    private LegacyTenantDirectoryPort tenantDirectory;
 
     /** 被测租户自身 ID 与登录 token */
     private Long tenantId;
@@ -50,18 +50,11 @@ class TenantSelfQueryTest {
         TenantContextHolder.setIgnore(true);
 
         String username = "tenant-self-" + System.nanoTime();
-        Tenant tenant = new Tenant();
-        tenant.setName("自查测试租户");
-        tenant.setCode("T-" + System.nanoTime());
-        tenant.setUsername(username);
-        tenant.setPassword("secret123");
-        tenant.setMiniappAppid("wxappid-" + System.nanoTime());
-        tenant.setMiniappSecret("miniapp-secret-test");
-        tenant.setMerchantNo("MCH-123456");
-        tenant.setContactName("联系人");
-        tenant.setContactPhone("13900000000");
-        tenantService.save(tenant);
-        tenantId = tenant.getId();
+        var tenant = tenantDirectory.create(new LegacyTenantDraft(
+                "自查测试租户", "T-" + System.nanoTime(), username, "secret123",
+                "wxappid-" + System.nanoTime(), "miniapp-secret-test", "MCH-123456",
+                "联系人", "13900000000", null, 1));
+        tenantId = tenant.tenantId();
 
         TenantContextHolder.clear();
 

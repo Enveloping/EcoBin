@@ -1,0 +1,41 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "50000000-0000-4000-8000-000000000004",
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1044,
+  "eventType": "FULLNESS_SAMPLE_COMPLETE",
+  "eventUid": "50000000-0000-4000-8000-000000000003",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "detectionUid": "50000000-0000-4000-8000-000000000001",
+    "frozenConfig": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "infraredHealth": "OK",
+    "infraredValue": "CLEAR",
+    "portNo": 2,
+    "sampleRole": "INITIAL",
+    "totalWeightMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "lastObservedWeightGrams": 13250,
+      "mcuBootId": 101,
+      "mcuEventSequence": 45,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "50000000-0000-4000-8000-000000000002",
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "stableWeightGrams": 13250,
+      "status": "STABLE"
+    }
+  },
+  "payloadSha256": "112e10ebfe97cdea51e0fc03fa3c3a0992acd1fe680347d539686903da8eda4d",
+  "schemaVersion": 1,
+  "target": {
+    "type": "FULLNESS_DETECTION",
+    "uid": "50000000-0000-4000-8000-000000000001"
+  }
+}

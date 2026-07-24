@@ -1,0 +1,37 @@
+{
+  "identifier": "deviceCommandObserved",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "104",
+    "params": {
+      "deviceCommandObserved": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "30000000-0000-4000-8000-000000000003",
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1046,
+          "errorCode": "",
+          "errorCodePresent": false,
+          "eventType": 1,
+          "eventUid": "84000000-0000-4000-8000-000000000001",
+          "mcuCommandUid": "84000000-0000-4000-8000-000000000002",
+          "mcuCommandUidPresent": true,
+          "observedCommandType": 1,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "e693e48114cfcb69b849750fc8740ad26fe8afdf8b391a591e39a80f2ee0efe5",
+          "schemaVersion": 1,
+          "stage": 4,
+          "target": {
+            "type": 1,
+            "uid": "30000000-0000-4000-8000-000000000003"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

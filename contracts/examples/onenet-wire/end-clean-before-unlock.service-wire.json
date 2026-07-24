@@ -1,0 +1,42 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "endCleanBeforeUnlock",
+    "params": {
+      "commandType": 1,
+      "commandUid": "81000000-0000-4000-8000-000000000002",
+      "cosGrantPresent": false,
+      "deploymentCode": "Dp_demo_01",
+      "expiresAt": "2026-07-24T01:01:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "operationUid": "40000000-0000-4000-8000-000000000001",
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "8d3fd7ba6fe19c2e11d3322fc0e0c56fda0d19aed65a1f350c34dab97d077ea6",
+      "portNo": 2,
+      "reason": 1,
+      "schemaVersion": 1,
+      "target": {
+        "type": 1,
+        "uid": "40000000-0000-4000-8000-000000000001"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "81000000-0000-4000-8000-000000000002",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/endCleanBeforeUnlock/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/endCleanBeforeUnlock/invoke_reply",
+  "identifier": "endCleanBeforeUnlock",
+  "kind": "SYNC_SERVICE"
+}

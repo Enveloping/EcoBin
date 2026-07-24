@@ -1,0 +1,140 @@
+{
+  "crcCheck": {
+    "expectedHex": "29b1",
+    "inputAscii": "123456789"
+  },
+  "registrySha256": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705",
+  "registryVersion": "1.0.0-rc.2",
+  "vectors": [
+    {
+      "expected": "VALID",
+      "flags": 0,
+      "frameHex": "ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0d",
+      "frameLength": 59,
+      "messageName": "HELLO",
+      "messageType": 1,
+      "name": "hello_edge",
+      "payloadHex": "01001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e31",
+      "payloadLength": 45,
+      "txSequence": 1,
+      "wireCrcHex": "3a0d"
+    },
+    {
+      "expected": "VALID",
+      "flags": 0,
+      "frameHex": "ec4201000300001600000007000000000000001100000000000000220102030420022fd6",
+      "frameLength": 36,
+      "messageName": "ACK",
+      "messageType": 3,
+      "name": "ack_duplicate",
+      "payloadHex": "00000000000000110000000000000022010203042002",
+      "payloadLength": 22,
+      "txSequence": 7,
+      "wireCrcHex": "2fd6"
+    },
+    {
+      "expected": "VALID",
+      "flags": 1,
+      "frameHex": "ec420100270100650000000870707070707040708070707070707070dfd0ad6ba8d037c9a10fa32e2830073cf755b7c17004b426c1edeae06847c00e717171717171417181717171717171710272727272727242728272727272727272737373737373437383737373737373730000afc8f006",
+      "frameLength": 115,
+      "messageName": "AUTHORIZE_DELIVERY_FIRST_OPEN",
+      "messageType": 39,
+      "name": "authorize_delivery_first_open",
+      "payloadHex": "70707070707040708070707070707070dfd0ad6ba8d037c9a10fa32e2830073cf755b7c17004b426c1edeae06847c00e717171717171417181717171717171710272727272727242728272727272727272737373737373437383737373737373730000afc8",
+      "payloadLength": 101,
+      "txSequence": 8,
+      "wireCrcHex": "f006"
+    },
+    {
+      "expected": "VALID",
+      "flags": 1,
+      "frameHex": "ec4201003201005f000000090000000000000065000000ca0000000000049f981111111111114111811111111111111122222222222242228222222222222222020003333333333333433383333333333333330101fffffe0c01fffffe0c000004e2000c000000040100003abe",
+      "frameLength": 109,
+      "messageName": "WORK_POSTCLOSE_WEIGHT_READY",
+      "messageType": 50,
+      "name": "negative_stable_weight",
+      "payloadHex": "0000000000000065000000ca0000000000049f981111111111114111811111111111111122222222222242228222222222222222020003333333333333433383333333333333330101fffffe0c01fffffe0c000004e2000c00000004010000",
+      "payloadLength": 95,
+      "txSequence": 9,
+      "wireCrcHex": "3abe"
+    },
+    {
+      "expected": "VALID",
+      "flags": 1,
+      "frameHex": "ec4201001301008a0000000a4444444444444444844444444444444487a7ae9bb38dada5644b3a39a90827bd9559bfec3a0b72b518a6b68eda34878c555555555555455585555555555555550000000000000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0909c07b",
+      "frameLength": 152,
+      "messageName": "CONFIG_COMMIT",
+      "messageType": 19,
+      "name": "payload_contains_magic",
+      "payloadHex": "4444444444444444844444444444444487a7ae9bb38dada5644b3a39a90827bd9559bfec3a0b72b518a6b68eda34878c555555555555455585555555555555550000000000000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0909",
+      "payloadLength": 138,
+      "txSequence": 10,
+      "wireCrcHex": "c07b"
+    },
+    {
+      "expected": "VALID",
+      "flags": 1,
+      "frameHex": "ec4201003e01003c0000000b0000000000000065000000cb000000000004a38061616161616141618161616161616161020007626262626262426282626262626262620101010101c0ac",
+      "frameLength": 74,
+      "messageName": "CLEAN_COMPLETION_CONFIRMED",
+      "messageType": 62,
+      "name": "clean_completion_confirmed",
+      "payloadHex": "0000000000000065000000cb000000000004a38061616161616141618161616161616161020007626262626262426282626262626262620101010101",
+      "payloadLength": 60,
+      "txSequence": 11,
+      "wireCrcHex": "c0ac"
+    },
+    {
+      "expected": "VALID",
+      "flags": 0,
+      "frameHex": "ec420100040000170000000c00000000000000330000000000000044ffffffffff000c5e1c",
+      "frameLength": 37,
+      "messageName": "NACK",
+      "messageType": 4,
+      "name": "nack_highest_error",
+      "payloadHex": "00000000000000330000000000000044ffffffffff000c",
+      "payloadLength": 23,
+      "txSequence": 12,
+      "wireCrcHex": "5e1c"
+    },
+    {
+      "expected": "FRAME_VALID_MESSAGE_UNSUPPORTED",
+      "flags": 0,
+      "frameHex": "ec4201007e0000000000000d71cc",
+      "frameLength": 14,
+      "messageName": null,
+      "messageType": 126,
+      "name": "empty_payload_unknown_message",
+      "payloadHex": "",
+      "payloadLength": 0,
+      "txSequence": 13,
+      "wireCrcHex": "71cc"
+    },
+    {
+      "expected": "FRAME_VALID_MESSAGE_UNSUPPORTED",
+      "flags": 0,
+      "frameHex": "ec4201007f0000f20000000ea5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5594e",
+      "frameLength": 256,
+      "messageName": null,
+      "messageType": 127,
+      "name": "maximum_frame_unknown_message",
+      "payloadHex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+      "payloadLength": 242,
+      "txSequence": 14,
+      "wireCrcHex": "594e"
+    },
+    {
+      "expected": "CRC_INVALID",
+      "flags": 0,
+      "frameHex": "ec4201000100002d0000000101001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e313a0c",
+      "frameLength": 59,
+      "messageName": null,
+      "messageType": 1,
+      "name": "crc_invalid",
+      "payloadHex": "01001fffffffffffff010000060000000000001fff01000000086f72616e676570690a312e302e302d72632e31",
+      "payloadLength": 45,
+      "txSequence": 1,
+      "wireCrcHex": "3a0c"
+    }
+  ]
+}

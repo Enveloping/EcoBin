@@ -1,0 +1,38 @@
+{
+  "identifier": "photoUploadGrantRequested",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "110",
+    "params": {
+      "photoUploadGrantRequested": {
+        "value": {
+          "clockQuality": 1,
+          "commandUidPresent": false,
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1052,
+          "eventType": 1,
+          "eventUid": "83000000-0000-4000-8000-000000000001",
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "8caf887a07f22c28c133bccea689c81956a0fb9e559a5a7756e0d238ab5935e9",
+          "reason": 2,
+          "requestedSlots": [
+            3,
+            4
+          ],
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "30000000-0000-4000-8000-000000000001"
+          },
+          "workType": 1,
+          "workUid": "30000000-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

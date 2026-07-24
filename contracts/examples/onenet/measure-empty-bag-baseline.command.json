@@ -1,0 +1,27 @@
+{
+  "commandType": "MEASURE_EMPTY_BAG_BASELINE",
+  "commandUid": "82000000-0000-4000-8000-000000000002",
+  "cosGrant": null,
+  "deploymentCode": "Dp_demo_01",
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "bagUid": "40000000-0000-4000-8000-000000000002",
+    "config": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "emptyBagConfirmed": true,
+    "measurementTimeoutMs": 10000,
+    "measurementUid": "82000000-0000-4000-8000-000000000001",
+    "portNo": 2
+  },
+  "payloadSchemaVersion": 1,
+  "payloadSha256": "c0d398cc3586f5b4ebe3c394730f1c037e5920cba22fe878bdb299c1bcad5920",
+  "schemaVersion": 1,
+  "target": {
+    "type": "BASELINE_MEASUREMENT",
+    "uid": "82000000-0000-4000-8000-000000000001"
+  }
+}

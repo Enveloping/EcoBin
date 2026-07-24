@@ -1,8 +1,8 @@
 package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.system.entity.User;
-import org.enveloping.ecobin.system.service.UserService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDraft;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class OpenidTenantUniqueTest {
 
     @Autowired
-    private UserService userService;
+    private LegacyOrganizationUserDirectoryPort userDirectory;
 
     @BeforeEach
     void setUp() {
@@ -43,35 +43,30 @@ class OpenidTenantUniqueTest {
         TenantContextHolder.clear();
     }
 
-    private User wechatUser(Long tenantId, String openid) {
-        User user = new User();
-        user.setTenantId(tenantId);
-        user.setOpenid(openid);
-        user.setNickname("测试用户");
-        user.setRole(1);
-        user.setStatus(1);
-        return user;
+    private LegacyOrganizationUserDraft wechatUser(Long tenantId, String openid) {
+        return new LegacyOrganizationUserDraft(
+                tenantId, null, null, null, null, null, openid, null,
+                "测试用户", null, 1, 1, null, null);
     }
 
     @Test
     void sameOpenidCanCoexistAcrossTenants() {
         String openid = "openid-uniq-" + System.nanoTime();
 
-        userService.save(wechatUser(2L, openid));
-        User second = wechatUser(3L, openid);
-        userService.save(second);
+        userDirectory.create(wechatUser(2L, openid));
+        var second = userDirectory.create(wechatUser(3L, openid));
 
         // 第二个租户下的注册成功，拿到独立主键
-        assertNotNull(second.getId());
+        assertNotNull(second.userId());
     }
 
     @Test
     void sameOpenidRejectedWithinSameTenant() {
         String openid = "openid-dup-" + System.nanoTime();
 
-        userService.save(wechatUser(2L, openid));
+        userDirectory.create(wechatUser(2L, openid));
 
         assertThrows(DataIntegrityViolationException.class,
-                () -> userService.save(wechatUser(2L, openid)));
+                () -> userDirectory.create(wechatUser(2L, openid)));
     }
 }

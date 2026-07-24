@@ -1,0 +1,148 @@
+{
+  "identifier": "cleanComplete",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "101",
+    "params": {
+      "cleanComplete": {
+        "value": {
+          "cleanLockAndInferredDoor": {
+            "inferredDoorState": 1,
+            "lockPowerState": 1,
+            "solenoidHealth": 1,
+            "stateBasis": 1
+          },
+          "cleanerCompletionConfirmed": true,
+          "cleanerConfirmedFinalMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": 1,
+            "faultCodePresent": false,
+            "lastObservedWeightGrams": 1200,
+            "lastObservedWeightGramsPresent": true,
+            "mcuBootId": 101,
+            "mcuEventSequence": 42,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "40000000-0000-4000-8000-000000000004",
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "stableWeightGrams": 1200,
+            "stableWeightGramsPresent": true,
+            "status": 1
+          },
+          "clockQuality": 1,
+          "commandUid": "40000000-0000-4000-8000-000000000005",
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1043,
+          "eventType": 1,
+          "eventUid": "40000000-0000-4000-8000-000000000006",
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "newBagUid": "40000000-0000-4000-8000-000000000002",
+          "newBaselineWeightGrams": 1200,
+          "newBaselineWeightGramsPresent": true,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "oldBagUid": "",
+          "oldBagUidPresent": false,
+          "operationUid": "40000000-0000-4000-8000-000000000001",
+          "payloadSha256": "2d9e096d7851a9f974a4d16c404ad1fed3dd5c5671ade4aef502653b6634cd9c",
+          "photos": [
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "FIRST_OPEN_INNER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            },
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "FIRST_OPEN_OUTER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            },
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "FINAL_CLOSE_INNER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            },
+            {
+              "capturedAt": "",
+              "capturedAtPresent": false,
+              "missingReason": "CAMERA_NOT_READY",
+              "missingReasonPresent": true,
+              "photoUid": "",
+              "photoUidPresent": false,
+              "sha256": "",
+              "sha256Present": false,
+              "sizeBytes": 1,
+              "sizeBytesPresent": false,
+              "slot": "FINAL_CLOSE_OUTER",
+              "status": 2,
+              "url": "",
+              "urlPresent": false
+            }
+          ],
+          "portNo": 2,
+          "preUnlockMeasurement": {
+            "calibrationVersion": 4,
+            "faultCodePresent": false,
+            "lastObservedWeightGrams": 20000,
+            "lastObservedWeightGramsPresent": true,
+            "mcuBootId": 101,
+            "mcuEventSequence": 31,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "40000000-0000-4000-8000-000000000003",
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "stableWeightGrams": 20000,
+            "status": 1
+          },
+          "removedNetWeightGrams": 18800,
+          "removedNetWeightGramsPresent": true,
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "40000000-0000-4000-8000-000000000001"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

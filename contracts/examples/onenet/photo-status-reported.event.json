@@ -1,0 +1,30 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": null,
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1051,
+  "eventType": "PHOTO_STATUS_REPORTED",
+  "eventUid": "88000000-0000-4000-8000-000000000002",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "photo": {
+      "capturedAt": "2026-07-24T01:00:29.000Z",
+      "missingReason": null,
+      "photoUid": "88000000-0000-4000-8000-000000000001",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sizeBytes": 483220,
+      "slot": "AFTER_INNER",
+      "status": "AVAILABLE",
+      "url": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com/ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/AFTER_INNER/88000000-0000-4000-8000-000000000001.jpg"
+    },
+    "workType": "DELIVERY_SESSION",
+    "workUid": "30000000-0000-4000-8000-000000000001"
+  },
+  "payloadSha256": "d57b48724ed92caa534466b26c490a80b706e76ef786d700c3bfb0106fb7dd64",
+  "schemaVersion": 1,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

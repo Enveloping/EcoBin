@@ -1,0 +1,35 @@
+{
+  "identifier": "businessConfirmationReceipt",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "103",
+    "params": {
+      "businessConfirmationReceipt": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "60000000-0000-4000-8000-000000000002",
+          "confirmationUid": "60000000-0000-4000-8000-000000000001",
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1045,
+          "eventType": 1,
+          "eventUid": "60000000-0000-4000-8000-000000000003",
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "originalEventUid": "30000000-0000-4000-8000-000000000006",
+          "originalPayloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+          "outcome": 1,
+          "payloadSha256": "85e397fe93d77293c956c895be4fcda4911376c2fc7e0f22c8b2ef31499bd651",
+          "schemaVersion": 1,
+          "target": {
+            "type": 1,
+            "uid": "60000000-0000-4000-8000-000000000001"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

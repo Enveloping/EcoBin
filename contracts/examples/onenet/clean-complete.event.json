@@ -1,0 +1,104 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "40000000-0000-4000-8000-000000000005",
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1043,
+  "eventType": "CLEAN_COMPLETE",
+  "eventUid": "40000000-0000-4000-8000-000000000006",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "cleanLockAndInferredDoor": {
+      "inferredDoorState": "CLOSED",
+      "lockPowerState": "DEENERGIZED",
+      "solenoidHealth": "OK",
+      "stateBasis": "INFERRED_FROM_LOCK_POWER"
+    },
+    "cleanerCompletionConfirmed": true,
+    "cleanerConfirmedFinalMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "lastObservedWeightGrams": 1200,
+      "mcuBootId": 101,
+      "mcuEventSequence": 42,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "40000000-0000-4000-8000-000000000004",
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "stableWeightGrams": 1200,
+      "status": "STABLE"
+    },
+    "frozenConfig": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "newBagUid": "40000000-0000-4000-8000-000000000002",
+    "newBaselineWeightGrams": 1200,
+    "oldBagUid": null,
+    "operationUid": "40000000-0000-4000-8000-000000000001",
+    "photos": [
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "FIRST_OPEN_INNER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "FIRST_OPEN_OUTER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "FINAL_CLOSE_INNER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "FINAL_CLOSE_OUTER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      }
+    ],
+    "portNo": 2,
+    "preUnlockMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "lastObservedWeightGrams": 20000,
+      "mcuBootId": 101,
+      "mcuEventSequence": 31,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "40000000-0000-4000-8000-000000000003",
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "stableWeightGrams": 20000,
+      "status": "STABLE"
+    },
+    "removedNetWeightGrams": 18800
+  },
+  "payloadSha256": "2d9e096d7851a9f974a4d16c404ad1fed3dd5c5671ade4aef502653b6634cd9c",
+  "schemaVersion": 1,
+  "target": {
+    "type": "CLEAN_OPERATION",
+    "uid": "40000000-0000-4000-8000-000000000001"
+  }
+}

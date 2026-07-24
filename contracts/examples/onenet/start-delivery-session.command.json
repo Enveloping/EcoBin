@@ -1,0 +1,29 @@
+{
+  "commandType": "START_DELIVERY_SESSION",
+  "commandUid": "30000000-0000-4000-8000-000000000003",
+  "cosGrant": null,
+  "deploymentCode": "Dp_demo_01",
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "bagUid": "30000000-0000-4000-8000-000000000002",
+    "config": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "continueDeliveryWaitMs": 30000,
+    "deliveryAutoCloseMs": 60000,
+    "negativeWeightThresholdGrams": 500,
+    "portNo": 2,
+    "sessionUid": "30000000-0000-4000-8000-000000000001",
+    "unitPriceTenThousandths": 4500
+  },
+  "payloadSchemaVersion": 1,
+  "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+  "schemaVersion": 1,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

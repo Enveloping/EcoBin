@@ -1,0 +1,25 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "20000000-0000-4000-8000-000000000001",
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1047,
+  "eventType": "CONFIGURATION_PROGRESS",
+  "eventUid": "85000000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "applicationUid": "10000000-0000-4000-8000-000000000001",
+    "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "errorCode": null,
+    "mcuCommandUid": "85000000-0000-4000-8000-000000000002",
+    "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "stage": "APPLIED",
+    "version": 8
+  },
+  "payloadSha256": "d82854d30f82edbd441a9d94e96c9f9649c7d7ba198db1ec54190084c483de37",
+  "schemaVersion": 1,
+  "target": {
+    "type": "CONFIGURATION_APPLICATION",
+    "uid": "10000000-0000-4000-8000-000000000001"
+  }
+}

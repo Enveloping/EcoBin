@@ -1,0 +1,93 @@
+{
+  "examples": [
+    {
+      "file": "apply-configuration.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "start-delivery-session.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "delivery-complete.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "clean-complete.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "fullness-sample-complete.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "confirm-edge-event.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "business-confirmation-receipt.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "command-receipt.json",
+      "schema": "../../onenet/command-receipt.schema.json"
+    },
+    {
+      "file": "start-clean-operation.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "end-clean-before-unlock.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "resume-clean-operation.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "sample-fullness.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "measure-empty-bag-baseline.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "provide-photo-upload-grant.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "device-command-observed.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "configuration-progress.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "baseline-measurement-complete.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "device-fault-observed.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "device-fault-recovered.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "photo-status-reported.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "photo-upload-grant-requested.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "device-runtime-snapshot.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    }
+  ],
+  "generated": true
+}

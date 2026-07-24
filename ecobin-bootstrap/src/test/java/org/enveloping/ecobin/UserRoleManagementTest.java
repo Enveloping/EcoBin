@@ -4,8 +4,10 @@ import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
 import org.enveloping.ecobin.framework.security.TokenInvalidationRegistry;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.system.entity.User;
-import org.enveloping.ecobin.system.service.UserService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDraft;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserId;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserUpdate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UserRoleManagementTest {
 
     @Autowired
-    private UserService userService;
+    private LegacyOrganizationUserDirectoryPort userDirectory;
     @Autowired
     private TokenInvalidationRegistry tokenInvalidationRegistry;
     @Autowired
@@ -58,14 +60,11 @@ class UserRoleManagementTest {
     void setUp() {
         TenantContextHolder.setTenantId(tenantId);
         TenantContextHolder.setIgnore(true);
-        User user = new User();
-        user.setTenantId(tenantId);
-        user.setOpenid("openid-role-" + System.nanoTime());
-        user.setNickname("角色测试用户");
-        user.setRole(1);
-        user.setStatus(1);
-        userService.save(user);
-        userId = user.getId();
+        var user = userDirectory.create(new LegacyOrganizationUserDraft(
+                tenantId, null, null, null, null, null,
+                "openid-role-" + System.nanoTime(), null, "角色测试用户", null,
+                1, 1, null, null));
+        userId = user.userId().value();
         TenantContextHolder.clear();
     }
 
@@ -85,23 +84,24 @@ class UserRoleManagementTest {
     @Test
     void tenantPromotesUserRole() {
         asTenant();
-        User updated = userService.changeRole(userId, 2);   // → 清运员
-        assertEquals(2, updated.getRole());
-        assertEquals(2, userService.getById(userId).getRole());
+        var updated = userDirectory.changeRole(new LegacyOrganizationUserId(userId), 2);
+        assertEquals(2, updated.role());
+        assertEquals(2, userDirectory.find(new LegacyOrganizationUserId(userId)).role());
     }
 
     @Test
     void changeRoleRejectsPlatformRole() {
         asTenant();
-        assertThrows(BusinessException.class, () -> userService.changeRole(userId, 9));
+        assertThrows(BusinessException.class,
+                () -> userDirectory.changeRole(new LegacyOrganizationUserId(userId), 9));
         // 库中角色未被改动
-        assertEquals(1, userService.getById(userId).getRole());
+        assertEquals(1, userDirectory.find(new LegacyOrganizationUserId(userId)).role());
     }
 
     @Test
     void changeRoleInvalidatesUserToken() {
         asTenant();
-        userService.changeRole(userId, 3);
+        userDirectory.changeRole(new LegacyOrganizationUserId(userId), 3);
         // 以"过去的签发时刻"断言旧 token 已失效
         long pastIat = System.currentTimeMillis() / 1000 - 100;
         assertTrue(tokenInvalidationRegistry.isInvalidated(3, userId, tenantId, pastIat));
@@ -112,27 +112,25 @@ class UserRoleManagementTest {
         // 在租户 3 下另造一个用户
         TenantContextHolder.setTenantId(3L);
         TenantContextHolder.setIgnore(true);
-        User other = new User();
-        other.setTenantId(3L);
-        other.setOpenid("openid-role-other-" + System.nanoTime());
-        other.setNickname("他租户用户");
-        other.setRole(1);
-        other.setStatus(1);
-        userService.save(other);
-        Long otherId = other.getId();
+        var other = userDirectory.create(new LegacyOrganizationUserDraft(
+                3L, null, null, null, null, null,
+                "openid-role-other-" + System.nanoTime(), null, "他租户用户", null,
+                1, 1, null, null));
+        Long otherId = other.userId().value();
         TenantContextHolder.clear();
 
         asTenant();   // 租户 2 上下文
-        assertThrows(BusinessException.class, () -> userService.changeRole(otherId, 2));
+        assertThrows(BusinessException.class,
+                () -> userDirectory.changeRole(new LegacyOrganizationUserId(otherId), 2));
     }
 
     @Test
     void genericUpdateRejectsPlatformRole() {
         asTenant();
-        User update = new User();
-        update.setId(userId);
-        update.setRole(8);
-        assertThrows(BusinessException.class, () -> userService.updateById(update));
+        var update = new LegacyOrganizationUserUpdate(
+                new LegacyOrganizationUserId(userId), null, null, null, null,
+                null, null, 8, null);
+        assertThrows(BusinessException.class, () -> userDirectory.update(update));
     }
 
     @Test

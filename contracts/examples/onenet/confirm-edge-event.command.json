@@ -1,0 +1,31 @@
+{
+  "commandType": "CONFIRM_EDGE_EVENT",
+  "commandUid": "60000000-0000-4000-8000-000000000002",
+  "cosGrant": null,
+  "deploymentCode": "Dp_demo_01",
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "confirmationUid": "60000000-0000-4000-8000-000000000001",
+    "effectKind": "CREATED",
+    "errorCode": null,
+    "originalEventUid": "30000000-0000-4000-8000-000000000006",
+    "originalPayloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+    "outcome": "BUSINESS_APPLIED",
+    "processedAt": "2026-07-24T01:00:31.000Z",
+    "quarantineUid": null,
+    "resultReferences": [
+      {
+        "key": "DO202607240001",
+        "type": "DELIVERY_ORDER"
+      }
+    ]
+  },
+  "payloadSchemaVersion": 1,
+  "payloadSha256": "11def8fa2128b251fa1d8fa488747f7ce8c734f6c6b4a7f110cd95a409522868",
+  "schemaVersion": 1,
+  "target": {
+    "type": "EDGE_EVENT",
+    "uid": "30000000-0000-4000-8000-000000000006"
+  }
+}

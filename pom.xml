@@ -20,9 +20,14 @@
     <modules>
         <module>ecobin-common</module>
         <module>ecobin-framework</module>
-        <module>ecobin-module-system</module>
+        <module>ecobin-module-identity</module>
         <module>ecobin-module-device</module>
+        <module>ecobin-module-funds</module>
+        <module>ecobin-module-recycling</module>
+        <module>ecobin-module-operations</module>
+        <!-- F-03 完成前保留的 legacy 业务模块。 -->
         <module>ecobin-module-business</module>
+        <module>ecobin-integration</module>
         <module>ecobin-bootstrap</module>
     </modules>
 
@@ -47,7 +52,7 @@
             </dependency>
             <dependency>
                 <groupId>org.enveloping</groupId>
-                <artifactId>ecobin-module-system</artifactId>
+                <artifactId>ecobin-module-identity</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -57,7 +62,27 @@
             </dependency>
             <dependency>
                 <groupId>org.enveloping</groupId>
+                <artifactId>ecobin-module-funds</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.enveloping</groupId>
+                <artifactId>ecobin-module-recycling</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.enveloping</groupId>
+                <artifactId>ecobin-module-operations</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.enveloping</groupId>
                 <artifactId>ecobin-module-business</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.enveloping</groupId>
+                <artifactId>ecobin-integration</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -107,15 +132,6 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
-
-    <dependencies>
-        <!-- 所有子模块通用的依赖 -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-    </dependencies>
 
     <build>
         <pluginManagement>

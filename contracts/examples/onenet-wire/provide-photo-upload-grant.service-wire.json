@@ -1,0 +1,61 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "providePhotoUploadGrant",
+    "params": {
+      "authorizedSlots": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "cosGrantSessionTokenParts": [
+        "TOKEN_5_PART_1",
+        "TOKEN_5_PART_2"
+      ],
+      "scalarFields": {
+        "commandType": 1,
+        "commandUid": "83000000-0000-4000-8000-000000000002",
+        "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+        "cosGrantBucket": "ecobin-contract-1250000000",
+        "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
+        "cosGrantGrantUid": "71000000-0000-4000-8000-000000000005",
+        "cosGrantKeyPrefix": "ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/",
+        "cosGrantRegion": "ap-guangzhou",
+        "cosGrantTmpSecretId": "TMP_SECRET_ID_5",
+        "cosGrantTmpSecretKey": "TMP_SECRET_KEY_5",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "grantRequestEventUid": "83000000-0000-4000-8000-000000000001",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "74bc18a6be35bc0b214cd6150c7100e2e618c25c72d048afe76f2edbc9012b1a",
+        "schemaVersion": 1,
+        "workType": 1,
+        "workUid": "30000000-0000-4000-8000-000000000001"
+      },
+      "target": {
+        "type": 1,
+        "uid": "83000000-0000-4000-8000-000000000001"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "83000000-0000-4000-8000-000000000002",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/providePhotoUploadGrant/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/providePhotoUploadGrant/invoke_reply",
+  "identifier": "providePhotoUploadGrant",
+  "kind": "SYNC_SERVICE"
+}

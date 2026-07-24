@@ -1,0 +1,799 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/onenet/commands/commands.schema.json",
+  "title": "EcoBin OneNet P0 typed commands and controls",
+  "oneOf": [
+    { "$ref": "#/$defs/applyConfigurationCommand" },
+    { "$ref": "#/$defs/startDeliverySessionCommand" },
+    { "$ref": "#/$defs/startCleanOperationCommand" },
+    { "$ref": "#/$defs/endCleanBeforeUnlockCommand" },
+    { "$ref": "#/$defs/resumeCleanOperationCommand" },
+    { "$ref": "#/$defs/sampleFullnessCommand" },
+    { "$ref": "#/$defs/measureEmptyBagBaselineCommand" },
+    { "$ref": "#/$defs/confirmEdgeEventCommand" },
+    { "$ref": "#/$defs/providePhotoUploadGrantCommand" }
+  ],
+  "$defs": {
+    "configIdentity": {
+      "type": "object",
+      "required": [
+        "version",
+        "contentSha256",
+        "mcuPayloadSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "contentSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "mcuPayloadSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "deviceConfig": {
+      "type": "object",
+      "required": [
+        "continueDeliveryWaitMs",
+        "negativeWeightThresholdGrams",
+        "deliveryAutoCloseMs",
+        "weightMeasurementTimeoutMs",
+        "cleanSolenoidPulseMs",
+        "smokeMonitoringEnabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "continueDeliveryWaitMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 4294967295
+        },
+        "negativeWeightThresholdGrams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "deliveryAutoCloseMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 4294967295
+        },
+        "weightMeasurementTimeoutMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "cleanSolenoidPulseMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "smokeMonitoringEnabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "portConfig": {
+      "type": "object",
+      "required": [
+        "portNo",
+        "displayName",
+        "enabled",
+        "unitPriceTenThousandths",
+        "fullnessMode",
+        "configuredFullWeightGrams",
+        "fullnessSettleWaitMs",
+        "fullnessConfirmationWaitMs",
+        "weightStableWindowMs",
+        "weightMaximumFluctuationGrams",
+        "weightRequiredSampleCount",
+        "weightMeasurementTimeoutMs",
+        "weightMinimumGrams",
+        "weightMaximumGrams",
+        "calibrationVersion",
+        "infraredSampleTimeoutMs",
+        "deliveryDoorOperationTimeoutMs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "unitPriceTenThousandths": {
+          "$ref": "../common.schema.json#/$defs/unitPriceTenThousandths"
+        },
+        "fullnessMode": {
+          "enum": ["INFRARED_ONLY", "WEIGHT_ONLY", "INFRARED_OR_WEIGHT"]
+        },
+        "configuredFullWeightGrams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "fullnessSettleWaitMs": {
+          "$ref": "../common.schema.json#/$defs/durationMs"
+        },
+        "fullnessConfirmationWaitMs": {
+          "$ref": "../common.schema.json#/$defs/durationMs"
+        },
+        "weightStableWindowMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "weightMaximumFluctuationGrams": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "weightRequiredSampleCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "weightMeasurementTimeoutMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "weightMinimumGrams": {
+          "$ref": "../common.schema.json#/$defs/signedInt32Grams"
+        },
+        "weightMaximumGrams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "calibrationVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "infraredSampleTimeoutMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "deliveryDoorOperationTimeoutMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        }
+      }
+    },
+    "applyConfigurationPayload": {
+      "type": "object",
+      "required": [
+        "applicationUid",
+        "config",
+        "deviceConfig",
+        "ports"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "applicationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "config": {
+          "$ref": "#/$defs/configIdentity"
+        },
+        "deviceConfig": {
+          "$ref": "#/$defs/deviceConfig"
+        },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/portConfig"
+          }
+        }
+      }
+    },
+    "startDeliverySessionPayload": {
+      "type": "object",
+      "required": [
+        "sessionUid",
+        "portNo",
+        "bagUid",
+        "config",
+        "unitPriceTenThousandths",
+        "continueDeliveryWaitMs",
+        "negativeWeightThresholdGrams",
+        "deliveryAutoCloseMs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "bagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "config": {
+          "$ref": "#/$defs/configIdentity"
+        },
+        "unitPriceTenThousandths": {
+          "$ref": "../common.schema.json#/$defs/unitPriceTenThousandths"
+        },
+        "continueDeliveryWaitMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 4294967295
+        },
+        "negativeWeightThresholdGrams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "deliveryAutoCloseMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "startCleanOperationPayload": {
+      "type": "object",
+      "required": [
+        "operationUid",
+        "portNo",
+        "oldBagUid",
+        "oldBaselineWeightGrams",
+        "newBagUid",
+        "config",
+        "operationWindowMs",
+        "recoveryGeneration"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "oldBagUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "oldBaselineWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSignedInt32Grams"
+        },
+        "newBagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "config": {
+          "$ref": "#/$defs/configIdentity"
+        },
+        "operationWindowMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "recoveryGeneration": {
+          "const": 0
+        }
+      }
+    },
+    "endCleanBeforeUnlockPayload": {
+      "type": "object",
+      "required": [
+        "operationUid",
+        "portNo",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "reason": {
+          "enum": [
+            "CLEANER_CANCELLED",
+            "START_AUTHORIZATION_EXPIRED",
+            "PREUNLOCK_FAILURE"
+          ]
+        }
+      }
+    },
+    "resumeCleanOperationPayload": {
+      "type": "object",
+      "required": [
+        "operationUid",
+        "portNo",
+        "newBagUid",
+        "config",
+        "operationWindowMs",
+        "recoveryGeneration",
+        "originalCleanerConfirmedOnsite"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "newBagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "config": {
+          "$ref": "#/$defs/configIdentity"
+        },
+        "operationWindowMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "recoveryGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "originalCleanerConfirmedOnsite": {
+          "const": true
+        }
+      }
+    },
+    "sampleFullnessPayload": {
+      "type": "object",
+      "required": [
+        "detectionUid",
+        "portNo",
+        "sampleRole",
+        "triggerType",
+        "fullnessMode",
+        "currentBaselineWeightGrams",
+        "configuredFullWeightGrams",
+        "settleWaitMs",
+        "measurementTimeoutMs",
+        "config"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "detectionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "sampleRole": {
+          "enum": ["INITIAL", "CONFIRMATION", "MANUAL_RECHECK"]
+        },
+        "triggerType": {
+          "enum": ["DELIVERY_COMPLETE", "CLEAN_COMPLETE", "MANUAL_RECHECK"]
+        },
+        "fullnessMode": {
+          "enum": ["INFRARED_ONLY", "WEIGHT_ONLY", "INFRARED_OR_WEIGHT"]
+        },
+        "currentBaselineWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSignedInt32Grams"
+        },
+        "configuredFullWeightGrams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "settleWaitMs": {
+          "$ref": "../common.schema.json#/$defs/durationMs"
+        },
+        "measurementTimeoutMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "config": {
+          "$ref": "#/$defs/configIdentity"
+        }
+      }
+    },
+    "measureEmptyBagBaselinePayload": {
+      "type": "object",
+      "required": [
+        "measurementUid",
+        "portNo",
+        "bagUid",
+        "emptyBagConfirmed",
+        "measurementTimeoutMs",
+        "config"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "measurementUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "bagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "emptyBagConfirmed": {
+          "const": true
+        },
+        "measurementTimeoutMs": {
+          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+        },
+        "config": {
+          "$ref": "#/$defs/configIdentity"
+        }
+      }
+    },
+    "confirmEdgeEventPayload": {
+      "type": "object",
+      "required": [
+        "confirmationUid",
+        "originalEventUid",
+        "originalPayloadSha256",
+        "outcome",
+        "effectKind",
+        "processedAt",
+        "resultReferences",
+        "errorCode",
+        "quarantineUid"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "confirmationUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "originalEventUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "originalPayloadSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "outcome": {
+          "enum": ["BUSINESS_APPLIED", "EVENT_QUARANTINED"]
+        },
+        "effectKind": {
+          "type": ["string", "null"],
+          "enum": ["CREATED", "UPDATED", "NO_ACTION_REQUIRED", null]
+        },
+        "processedAt": {
+          "$ref": "../common.schema.json#/$defs/utcInstant"
+        },
+        "resultReferences": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/resultReference"
+          }
+        },
+        "errorCode": {
+          "$ref": "../common.schema.json#/$defs/errorCode"
+        },
+        "quarantineUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "outcome": { "const": "BUSINESS_APPLIED" },
+            "effectKind": {
+              "enum": ["CREATED", "UPDATED", "NO_ACTION_REQUIRED"]
+            },
+            "errorCode": { "type": "null" },
+            "quarantineUid": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "outcome": { "const": "EVENT_QUARANTINED" },
+            "effectKind": { "type": "null" },
+            "resultReferences": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "errorCode": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "maxLength": 64
+            },
+            "quarantineUid": {
+              "oneOf": [
+                { "$ref": "../common.schema.json#/$defs/uuid" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "providePhotoUploadGrantPayload": {
+      "type": "object",
+      "required": [
+        "grantRequestEventUid",
+        "workType",
+        "workUid",
+        "authorizedSlots"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "grantRequestEventUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "workType": {
+          "enum": ["DELIVERY_SESSION", "CLEAN_OPERATION"]
+        },
+        "workUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "authorizedSlots": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "BEFORE_INNER",
+              "BEFORE_OUTER",
+              "AFTER_INNER",
+              "AFTER_OUTER",
+              "FIRST_OPEN_INNER",
+              "FIRST_OPEN_OUTER",
+              "FINAL_CLOSE_INNER",
+              "FINAL_CLOSE_OUTER"
+            ]
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "workType": { "const": "DELIVERY_SESSION" },
+            "authorizedSlots": {
+              "items": {
+                "enum": [
+                  "BEFORE_INNER",
+                  "BEFORE_OUTER",
+                  "AFTER_INNER",
+                  "AFTER_OUTER"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "workType": { "const": "CLEAN_OPERATION" },
+            "authorizedSlots": {
+              "items": {
+                "enum": [
+                  "FIRST_OPEN_INNER",
+                  "FIRST_OPEN_OUTER",
+                  "FINAL_CLOSE_INNER",
+                  "FINAL_CLOSE_OUTER"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "applyConfigurationCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "APPLY_CONFIGURATION" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "CONFIGURATION_APPLICATION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/applyConfigurationPayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "startDeliverySessionCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "START_DELIVERY_SESSION" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DELIVERY_SESSION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/startDeliverySessionPayload"
+            }
+          }
+        }
+      ]
+    },
+    "startCleanOperationCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "START_CLEAN_OPERATION" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "CLEAN_OPERATION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/startCleanOperationPayload"
+            }
+          }
+        }
+      ]
+    },
+    "endCleanBeforeUnlockCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "END_CLEAN_BEFORE_UNLOCK" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "CLEAN_OPERATION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/endCleanBeforeUnlockPayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "resumeCleanOperationCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "RESUME_CLEAN_OPERATION" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "CLEAN_OPERATION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/resumeCleanOperationPayload"
+            }
+          }
+        }
+      ]
+    },
+    "sampleFullnessCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "SAMPLE_FULLNESS" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "FULLNESS_DETECTION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/sampleFullnessPayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "measureEmptyBagBaselineCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "MEASURE_EMPTY_BAG_BASELINE" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "BASELINE_MEASUREMENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/measureEmptyBagBaselinePayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "confirmEdgeEventCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "CONFIRM_EDGE_EVENT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "EDGE_EVENT" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/confirmEdgeEventPayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "providePhotoUploadGrantCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "PROVIDE_PHOTO_UPLOAD_GRANT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "PHOTO_GRANT_REQUEST" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/providePhotoUploadGrantPayload"
+            },
+            "cosGrant": {
+              "$ref": "../common.schema.json#/$defs/cosGrant"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

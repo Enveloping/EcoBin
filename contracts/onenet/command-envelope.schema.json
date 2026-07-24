@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/onenet/command-envelope.schema.json",
+  "title": "EcoBin OneNet command envelope",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "commandUid",
+    "commandType",
+    "deploymentCode",
+    "target",
+    "issuedAt",
+    "expiresAt",
+    "payloadSchemaVersion",
+    "payloadSha256",
+    "payload",
+    "cosGrant"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "commandUid": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "commandType": {
+      "enum": [
+        "APPLY_CONFIGURATION",
+        "START_DELIVERY_SESSION",
+        "START_CLEAN_OPERATION",
+        "END_CLEAN_BEFORE_UNLOCK",
+        "RESUME_CLEAN_OPERATION",
+        "SAMPLE_FULLNESS",
+        "MEASURE_EMPTY_BAG_BASELINE",
+        "CONFIRM_EDGE_EVENT",
+        "PROVIDE_PHOTO_UPLOAD_GRANT"
+      ]
+    },
+    "deploymentCode": {
+      "$ref": "common.schema.json#/$defs/deploymentCode"
+    },
+    "target": {
+      "$ref": "common.schema.json#/$defs/target"
+    },
+    "issuedAt": {
+      "$ref": "common.schema.json#/$defs/utcInstant"
+    },
+    "expiresAt": {
+      "$ref": "common.schema.json#/$defs/utcInstant"
+    },
+    "payloadSchemaVersion": { "const": 1 },
+    "payloadSha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "cosGrant": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/cosGrant" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

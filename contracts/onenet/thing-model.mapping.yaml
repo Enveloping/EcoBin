@@ -1,0 +1,282 @@
+{
+  "mappingVersion": "1.0.0-rc.2",
+  "status": "IMPLEMENTATION_CANDIDATE",
+  "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "transport": {
+    "uplink": "OneNet MQTT -> OneNet northbound Pulsar -> EcoBin",
+    "downlink": "EcoBin -> OneNet thingmodel/call-service -> device",
+    "mqttQos": 1,
+    "deviceNameSource": "hardwareSn",
+    "businessIdentityExcludes": [
+      "OneNet message id",
+      "MQTT packet id",
+      "Pulsar message id",
+      "OneNet request_id"
+    ]
+  },
+  "trustedCosEnvironment": {
+    "bindingSource": "TRUSTED_RUNTIME_CONFIGURATION",
+    "requiredExactMatch": [
+      "bucket",
+      "region",
+      "baseUrl"
+    ],
+    "contractTestProfile": {
+      "bucket": "ecobin-contract-1250000000",
+      "region": "ap-guangzhou",
+      "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com"
+    },
+    "notes": "contractTestProfile 只用于契约示例；生产环境必须从可信部署配置注入同形值，不能信任设备或命令载荷自行声明的 COS 环境。"
+  },
+  "canonicalization": {
+    "algorithm": "RFC8785-JCS",
+    "digest": "SHA-256",
+    "jsonNumberPolicy": "integers-only",
+    "payloadSha256Scope": "payload only",
+    "commandCanonicalDomain": "ECOBIN:ONENET:COMMAND:v1\\0",
+    "commandCanonicalFields": [
+      "schemaVersion",
+      "commandUid",
+      "commandType",
+      "deploymentCode",
+      "target",
+      "issuedAt",
+      "expiresAt",
+      "payloadSchemaVersion",
+      "payloadSha256"
+    ],
+    "eventCanonicalDomain": "ECOBIN:ONENET:EVENT:v1\\0",
+    "eventCanonicalFields": [
+      "trustedSource.productId",
+      "trustedSource.deviceName",
+      "schemaVersion",
+      "eventUid",
+      "deploymentCode",
+      "edgeEventSequence",
+      "eventType",
+      "deliveryClass",
+      "target",
+      "commandUid",
+      "occurredAt",
+      "clockQuality",
+      "payloadSha256"
+    ],
+    "excludedFromStableDigest": [
+      "cosGrant",
+      "temporary credentials",
+      "transport attempt",
+      "OneNet request_id",
+      "log metadata"
+    ]
+  },
+  "oneNetProjection": {
+    "generatedImportFile": "generated/onenet-thing-model.candidate.json",
+    "dataProtocol": "OneJSON",
+    "serviceCallType": "sync",
+    "syncReceiptDeadline": "OneNet platform limit: 5 seconds",
+    "functionPointLimit": 100,
+    "objectEncoding": "Envelope and payload wrapper are projected losslessly; when a service would exceed OneNet's 20 top-level input limit, primitive parameters are grouped into one-level scalarFields/scalarFieldsN structs of at most 20 members each. Nested business objects use one-level struct; arrays of objects use array-of-struct.",
+    "nullableEncoding": "Every nullable field is encoded as <field>Present plus a typed placeholder value; adapters reconstruct JSON null before payload digest validation.",
+    "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",
+    "fixedFieldEncoding": "commandType/eventType/deliveryClass and target type remain explicit enum parameters and must equal the function identifier registry.",
+    "semanticValidation": "OneNet validates primitive shapes; edge and backend must still validate the authoritative Draft 2020-12 schema and semanticChecksBeyondJsonSchema."
+  },
+  "commandEnvelopeSchema": "command-envelope.schema.json",
+  "eventEnvelopeSchema": "event-envelope.schema.json",
+  "commandReceiptSchema": "command-receipt.schema.json",
+  "typedCommandSchema": "commands/commands.schema.json",
+  "typedEventSchema": "events/events.schema.json",
+  "services": {
+    "applyConfiguration": {
+      "commandType": "APPLY_CONFIGURATION",
+      "targetType": "CONFIGURATION_APPLICATION",
+      "schemaRef": "commands/commands.schema.json#/$defs/applyConfigurationCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "startDeliverySession": {
+      "commandType": "START_DELIVERY_SESSION",
+      "targetType": "DELIVERY_SESSION",
+      "schemaRef": "commands/commands.schema.json#/$defs/startDeliverySessionCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": true
+    },
+    "startCleanOperation": {
+      "commandType": "START_CLEAN_OPERATION",
+      "targetType": "CLEAN_OPERATION",
+      "schemaRef": "commands/commands.schema.json#/$defs/startCleanOperationCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": true
+    },
+    "endCleanBeforeUnlock": {
+      "commandType": "END_CLEAN_BEFORE_UNLOCK",
+      "targetType": "CLEAN_OPERATION",
+      "schemaRef": "commands/commands.schema.json#/$defs/endCleanBeforeUnlockCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "resumeCleanOperation": {
+      "commandType": "RESUME_CLEAN_OPERATION",
+      "targetType": "CLEAN_OPERATION",
+      "schemaRef": "commands/commands.schema.json#/$defs/resumeCleanOperationCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": true
+    },
+    "sampleFullness": {
+      "commandType": "SAMPLE_FULLNESS",
+      "targetType": "FULLNESS_DETECTION",
+      "schemaRef": "commands/commands.schema.json#/$defs/sampleFullnessCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "measureEmptyBagBaseline": {
+      "commandType": "MEASURE_EMPTY_BAG_BASELINE",
+      "targetType": "BASELINE_MEASUREMENT",
+      "schemaRef": "commands/commands.schema.json#/$defs/measureEmptyBagBaselineCommand",
+      "deliveryKind": "DOMAIN_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "confirmEdgeEvent": {
+      "commandType": "CONFIRM_EDGE_EVENT",
+      "targetType": "EDGE_EVENT",
+      "schemaRef": "commands/commands.schema.json#/$defs/confirmEdgeEventCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "providePhotoUploadGrant": {
+      "commandType": "PROVIDE_PHOTO_UPLOAD_GRANT",
+      "targetType": "PHOTO_GRANT_REQUEST",
+      "schemaRef": "commands/commands.schema.json#/$defs/providePhotoUploadGrantCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": true
+    }
+  },
+  "events": {
+    "deviceCommandObserved": {
+      "eventType": "DEVICE_COMMAND_OBSERVED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_COMMAND",
+      "schemaRef": "events/events.schema.json#/$defs/deviceCommandObservedEvent"
+    },
+    "configurationProgress": {
+      "eventType": "CONFIGURATION_PROGRESS",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "CONFIGURATION_APPLICATION",
+      "schemaRef": "events/events.schema.json#/$defs/configurationProgressEvent"
+    },
+    "deliveryComplete": {
+      "eventType": "DELIVERY_COMPLETE",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DELIVERY_SESSION",
+      "schemaRef": "events/events.schema.json#/$defs/deliveryCompleteEvent"
+    },
+    "cleanComplete": {
+      "eventType": "CLEAN_COMPLETE",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "CLEAN_OPERATION",
+      "schemaRef": "events/events.schema.json#/$defs/cleanCompleteEvent"
+    },
+    "fullnessSampleComplete": {
+      "eventType": "FULLNESS_SAMPLE_COMPLETE",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "FULLNESS_DETECTION",
+      "schemaRef": "events/events.schema.json#/$defs/fullnessSampleCompleteEvent"
+    },
+    "baselineMeasurementComplete": {
+      "eventType": "BASELINE_MEASUREMENT_COMPLETE",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "BASELINE_MEASUREMENT",
+      "schemaRef": "events/events.schema.json#/$defs/baselineMeasurementCompleteEvent"
+    },
+    "deviceFaultObserved": {
+      "eventType": "DEVICE_FAULT_OBSERVED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/deviceFaultObservedEvent"
+    },
+    "deviceFaultRecovered": {
+      "eventType": "DEVICE_FAULT_RECOVERED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/deviceFaultRecoveredEvent"
+    },
+    "photoStatusReported": {
+      "eventType": "PHOTO_STATUS_REPORTED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetTypes": ["DELIVERY_SESSION", "CLEAN_OPERATION"],
+      "schemaRef": "events/events.schema.json#/$defs/photoStatusReportedEvent"
+    },
+    "photoUploadGrantRequested": {
+      "eventType": "PHOTO_UPLOAD_GRANT_REQUESTED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetTypes": ["DELIVERY_SESSION", "CLEAN_OPERATION"],
+      "schemaRef": "events/events.schema.json#/$defs/photoUploadGrantRequestedEvent"
+    },
+    "businessConfirmationReceipt": {
+      "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
+      "deliveryClass": "CONTROL_RECEIPT",
+      "targetType": "BUSINESS_CONFIRMATION",
+      "schemaRef": "events/events.schema.json#/$defs/businessConfirmationReceiptEvent"
+    },
+    "deviceRuntimeSnapshot": {
+      "eventType": "DEVICE_RUNTIME_SNAPSHOT",
+      "deliveryClass": "TELEMETRY_SNAPSHOT",
+      "targetType": "DEVICE_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/deviceRuntimeSnapshotEvent"
+    }
+  },
+  "semanticChecksBeyondJsonSchema": [
+    "payloadSha256 equals the RFC8785 canonical payload digest",
+    "issuedAt is strictly before expiresAt",
+    "target.uid equals the strong work UID repeated inside the payload",
+    "DELIVERY_COMPLETE has exactly the four delivery slots and no intermediate cycle fields",
+    "DELIVERY_COMPLETE net weight equals final stable grams minus first stable grams, otherwise is null",
+    "CLEAN_COMPLETE has exactly the four cleaning slots",
+    "CLEAN_COMPLETE requires cleaner confirmation and DEENERGIZED/CLOSED inferred from lock power",
+    "eventType to deliveryClass mapping cannot be downgraded by the device",
+    "edgeEventSequence is unique and monotonic within deploymentCode",
+    "cosGrant is excluded from payloadSha256 and never persisted or logged as stable content",
+    "APPLY_CONFIGURATION ports and runtime snapshot ports are unique, ordered and contiguous from 1",
+    "configuration stages, command observation stages and receipt outcomes enforce their error/mcu identity relationships",
+    "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind deployment, work, slot and photo identity",
+    "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation"
+  ],
+  "forbiddenLegacyIdentifiers": [
+    "openDeliveryDoor",
+    "openCleanDoor",
+    "deliveryComplete-v0",
+    "cleanGross",
+    "cleanTare",
+    "spillAlarm-v0",
+    "unitPrice-float"
+  ],
+  "enumDisplay": {
+    "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
+    "CONFIGURATION_PROGRESS": "CONFIG_PROGRESS",
+    "FULLNESS_SAMPLE_COMPLETE": "FULLNESS_SAMPLE_DONE",
+    "BASELINE_MEASUREMENT_COMPLETE": "BASELINE_MEAS_DONE",
+    "DEVICE_FAULT_OBSERVED": "DEV_FAULT_OBSERVED",
+    "DEVICE_FAULT_RECOVERED": "DEV_FAULT_RECOVERED",
+    "PHOTO_STATUS_REPORTED": "PHOTO_STATUS_RPT",
+    "PHOTO_UPLOAD_GRANT_REQUESTED": "PHOTO_GRANT_REQ",
+    "BUSINESS_CONFIRMATION_RECEIPT": "BIZ_CONFIRM_RCPT",
+    "DEVICE_RUNTIME_SNAPSHOT": "DEV_RUNTIME_SNAP",
+    "START_DELIVERY_SESSION": "START_DELIV_SESSION",
+    "START_CLEAN_OPERATION": "START_CLEAN_OPT",
+    "END_CLEAN_BEFORE_UNLOCK": "END_CLEAN_PRE_UNLOCK",
+    "RESUME_CLEAN_OPERATION": "RESUME_CLEAN_OPT",
+    "MEASURE_EMPTY_BAG_BASELINE": "MEAS_BAG_BASELINE",
+    "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
+    "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",
+    "BASELINE_MEASUREMENT": "BASELINE_MEAS",
+    "BUSINESS_CONFIRMATION": "BIZ_CONFIRMATION",
+    "DELIVERY_DOOR_TIMEOUT": "DELIV_DOOR_TIMEOUT",
+    "DELIVERY_DOOR_ACTUATOR": "DELIV_DOOR_ACTUATOR",
+    "CLEAN_SOLENOID_DRIVER": "CLEAN_SOL_DRIVER",
+    "SELECTION_WINDOW_EXPIRED": "SEL_WINDOW_EXPIRED",
+    "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL",
+    "INFERRED_FROM_LOCK_POWER": "INFERRED_LOCK_PWR",
+    "START_AUTHORIZATION_EXPIRED": "START_AUTH_EXPIRED",
+    "INITIAL_GRANT_MISSING": "INIT_GRANT_MISSING"
+  }
+}

@@ -1,0 +1,2846 @@
+{
+  "functions": {
+    "applyConfiguration": {
+      "commandType": "APPLY_CONFIGURATION",
+      "inputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandType",
+          "nullable": false,
+          "wireIdentifier": "commandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.issuedAt",
+          "nullable": false,
+          "wireIdentifier": "issuedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "expiresAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "payloadSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.applicationUid",
+          "nullable": false,
+          "wireIdentifier": "applicationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.config",
+          "nullable": false,
+          "wireIdentifier": "config"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceConfig",
+          "nullable": false,
+          "wireIdentifier": "deviceConfig"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.ports",
+          "nullable": false,
+          "wireIdentifier": "ports"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/applyConfigurationCommand"
+    },
+    "baselineMeasurementComplete": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "BASELINE_MEASUREMENT_COMPLETE",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.measurementUid",
+          "nullable": false,
+          "wireIdentifier": "measurementUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bagUid",
+          "nullable": false,
+          "wireIdentifier": "bagUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.emptyBagConfirmed",
+          "nullable": false,
+          "wireIdentifier": "emptyBagConfirmed"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.totalWeightMeasurement",
+          "nullable": false,
+          "wireIdentifier": "totalWeightMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.frozenConfig",
+          "nullable": false,
+          "wireIdentifier": "frozenConfig"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/baselineMeasurementCompleteEvent"
+    },
+    "businessConfirmationReceipt": {
+      "deliveryClass": "CONTROL_RECEIPT",
+      "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.confirmationUid",
+          "nullable": false,
+          "wireIdentifier": "confirmationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalEventUid",
+          "nullable": false,
+          "wireIdentifier": "originalEventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.originalPayloadSha256",
+          "nullable": false,
+          "wireIdentifier": "originalPayloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.outcome",
+          "nullable": false,
+          "wireIdentifier": "outcome"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/businessConfirmationReceiptEvent"
+    },
+    "cleanComplete": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "CLEAN_COMPLETE",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.operationUid",
+          "nullable": false,
+          "wireIdentifier": "operationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.oldBagUid",
+          "nullable": true,
+          "wireIdentifier": "oldBagUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.newBagUid",
+          "nullable": false,
+          "wireIdentifier": "newBagUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.preUnlockMeasurement",
+          "nullable": false,
+          "wireIdentifier": "preUnlockMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cleanerConfirmedFinalMeasurement",
+          "nullable": false,
+          "wireIdentifier": "cleanerConfirmedFinalMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.removedNetWeightGrams",
+          "nullable": true,
+          "wireIdentifier": "removedNetWeightGrams"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.newBaselineWeightGrams",
+          "nullable": true,
+          "wireIdentifier": "newBaselineWeightGrams"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cleanerCompletionConfirmed",
+          "nullable": false,
+          "wireIdentifier": "cleanerCompletionConfirmed"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cleanLockAndInferredDoor",
+          "nullable": false,
+          "wireIdentifier": "cleanLockAndInferredDoor"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.frozenConfig",
+          "nullable": false,
+          "wireIdentifier": "frozenConfig"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.photos",
+          "nullable": false,
+          "wireIdentifier": "photos"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/cleanCompleteEvent"
+    },
+    "configurationProgress": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "CONFIGURATION_PROGRESS",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.applicationUid",
+          "nullable": false,
+          "wireIdentifier": "applicationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.stage",
+          "nullable": false,
+          "wireIdentifier": "stage"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.version",
+          "nullable": false,
+          "wireIdentifier": "version"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.contentSha256",
+          "nullable": false,
+          "wireIdentifier": "contentSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuPayloadSha256",
+          "nullable": false,
+          "wireIdentifier": "mcuPayloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuCommandUid",
+          "nullable": true,
+          "wireIdentifier": "mcuCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/configurationProgressEvent"
+    },
+    "confirmEdgeEvent": {
+      "commandType": "CONFIRM_EDGE_EVENT",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.deploymentCode",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentCode"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.confirmationUid",
+              "presenceFlag": false,
+              "wireIdentifier": "confirmationUid"
+            },
+            {
+              "jsonPath": "$.payload.originalEventUid",
+              "presenceFlag": false,
+              "wireIdentifier": "originalEventUid"
+            },
+            {
+              "jsonPath": "$.payload.originalPayloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "originalPayloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.outcome",
+              "presenceFlag": false,
+              "wireIdentifier": "outcome"
+            },
+            {
+              "jsonPath": "$.payload.effectKind",
+              "presenceFlag": true,
+              "wireIdentifier": "effectKindPresent"
+            },
+            {
+              "jsonPath": "$.payload.effectKind",
+              "presenceFlag": false,
+              "wireIdentifier": "effectKind"
+            },
+            {
+              "jsonPath": "$.payload.processedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "processedAt"
+            },
+            {
+              "jsonPath": "$.payload.errorCode",
+              "presenceFlag": true,
+              "wireIdentifier": "errorCodePresent"
+            },
+            {
+              "jsonPath": "$.payload.errorCode",
+              "presenceFlag": false,
+              "wireIdentifier": "errorCode"
+            },
+            {
+              "jsonPath": "$.payload.quarantineUid",
+              "presenceFlag": true,
+              "wireIdentifier": "quarantineUidPresent"
+            },
+            {
+              "jsonPath": "$.payload.quarantineUid",
+              "presenceFlag": false,
+              "wireIdentifier": "quarantineUid"
+            },
+            {
+              "jsonPath": "$.cosGrant",
+              "presenceFlag": true,
+              "wireIdentifier": "cosGrantPresent"
+            }
+          ],
+          "wireIdentifier": "scalarFields"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.resultReferences",
+          "nullable": false,
+          "wireIdentifier": "resultReferences"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/confirmEdgeEventCommand"
+    },
+    "deliveryComplete": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DELIVERY_COMPLETE",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.firstPreOpenMeasurement",
+          "nullable": false,
+          "wireIdentifier": "firstPreOpenMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.finalPostCloseMeasurement",
+          "nullable": false,
+          "wireIdentifier": "finalPostCloseMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deliveryNetWeightGrams",
+          "nullable": true,
+          "wireIdentifier": "deliveryNetWeightGrams"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.finalDeliveryDoor",
+          "nullable": false,
+          "wireIdentifier": "finalDeliveryDoor"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.completionReason",
+          "nullable": false,
+          "wireIdentifier": "completionReason"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.negativeWeightAnomaly",
+          "nullable": false,
+          "wireIdentifier": "negativeWeightAnomaly"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.frozenConfig",
+          "nullable": false,
+          "wireIdentifier": "frozenConfig"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.unitPriceTenThousandths",
+          "nullable": false,
+          "wireIdentifier": "unitPriceTenThousandths"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.photos",
+          "nullable": false,
+          "wireIdentifier": "photos"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deliveryCompleteEvent"
+    },
+    "deviceCommandObserved": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DEVICE_COMMAND_OBSERVED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.observedCommandType",
+          "nullable": false,
+          "wireIdentifier": "observedCommandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.stage",
+          "nullable": false,
+          "wireIdentifier": "stage"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuCommandUid",
+          "nullable": true,
+          "wireIdentifier": "mcuCommandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deviceCommandObservedEvent"
+    },
+    "deviceFaultObserved": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DEVICE_FAULT_OBSERVED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultUid",
+          "nullable": false,
+          "wireIdentifier": "faultUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": true,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.component",
+          "nullable": false,
+          "wireIdentifier": "component"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.severity",
+          "nullable": false,
+          "wireIdentifier": "severity"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultCode",
+          "nullable": false,
+          "wireIdentifier": "faultCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuBootId",
+          "nullable": true,
+          "wireIdentifier": "mcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuEventSequence",
+          "nullable": true,
+          "wireIdentifier": "mcuEventSequence"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deviceFaultObservedEvent"
+    },
+    "deviceFaultRecovered": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "DEVICE_FAULT_RECOVERED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultUid",
+          "nullable": false,
+          "wireIdentifier": "faultUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": true,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.component",
+          "nullable": false,
+          "wireIdentifier": "component"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.severity",
+          "nullable": false,
+          "wireIdentifier": "severity"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultCode",
+          "nullable": false,
+          "wireIdentifier": "faultCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuBootId",
+          "nullable": true,
+          "wireIdentifier": "mcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuEventSequence",
+          "nullable": true,
+          "wireIdentifier": "mcuEventSequence"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deviceFaultRecoveredEvent"
+    },
+    "deviceRuntimeSnapshot": {
+      "deliveryClass": "TELEMETRY_SNAPSHOT",
+      "eventType": "DEVICE_RUNTIME_SNAPSHOT",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.edgeVersion",
+          "nullable": false,
+          "wireIdentifier": "edgeVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuBootId",
+          "nullable": true,
+          "wireIdentifier": "mcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuFirmwareVersion",
+          "nullable": true,
+          "wireIdentifier": "mcuFirmwareVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.uartState",
+          "nullable": false,
+          "wireIdentifier": "uartState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.uartProtocolMajor",
+          "nullable": true,
+          "wireIdentifier": "uartProtocolMajor"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.uartProtocolMinor",
+          "nullable": true,
+          "wireIdentifier": "uartProtocolMinor"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.capabilityBitmapHex",
+          "nullable": false,
+          "wireIdentifier": "capabilityBitmapHex"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.appliedConfig",
+          "nullable": true,
+          "wireIdentifier": "appliedConfig"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.localStorageState",
+          "nullable": false,
+          "wireIdentifier": "localStorageState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.clockState",
+          "nullable": false,
+          "wireIdentifier": "clockState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.pendingReliableEventCount",
+          "nullable": false,
+          "wireIdentifier": "pendingReliableEventCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.ports",
+          "nullable": false,
+          "wireIdentifier": "ports"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/deviceRuntimeSnapshotEvent"
+    },
+    "endCleanBeforeUnlock": {
+      "commandType": "END_CLEAN_BEFORE_UNLOCK",
+      "inputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandType",
+          "nullable": false,
+          "wireIdentifier": "commandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.issuedAt",
+          "nullable": false,
+          "wireIdentifier": "issuedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "expiresAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "payloadSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.operationUid",
+          "nullable": false,
+          "wireIdentifier": "operationUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.reason",
+          "nullable": false,
+          "wireIdentifier": "reason"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/endCleanBeforeUnlockCommand"
+    },
+    "fullnessSampleComplete": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "FULLNESS_SAMPLE_COMPLETE",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.detectionUid",
+          "nullable": false,
+          "wireIdentifier": "detectionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sampleRole",
+          "nullable": false,
+          "wireIdentifier": "sampleRole"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.infraredValue",
+          "nullable": false,
+          "wireIdentifier": "infraredValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.infraredHealth",
+          "nullable": false,
+          "wireIdentifier": "infraredHealth"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.totalWeightMeasurement",
+          "nullable": false,
+          "wireIdentifier": "totalWeightMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.frozenConfig",
+          "nullable": false,
+          "wireIdentifier": "frozenConfig"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/fullnessSampleCompleteEvent"
+    },
+    "measureEmptyBagBaseline": {
+      "commandType": "MEASURE_EMPTY_BAG_BASELINE",
+      "inputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandType",
+          "nullable": false,
+          "wireIdentifier": "commandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.issuedAt",
+          "nullable": false,
+          "wireIdentifier": "issuedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "expiresAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "payloadSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.measurementUid",
+          "nullable": false,
+          "wireIdentifier": "measurementUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bagUid",
+          "nullable": false,
+          "wireIdentifier": "bagUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.emptyBagConfirmed",
+          "nullable": false,
+          "wireIdentifier": "emptyBagConfirmed"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.measurementTimeoutMs",
+          "nullable": false,
+          "wireIdentifier": "measurementTimeoutMs"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.config",
+          "nullable": false,
+          "wireIdentifier": "config"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/measureEmptyBagBaselineCommand"
+    },
+    "photoStatusReported": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "PHOTO_STATUS_REPORTED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.workType",
+          "nullable": false,
+          "wireIdentifier": "workType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.workUid",
+          "nullable": false,
+          "wireIdentifier": "workUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.photo",
+          "nullable": false,
+          "wireIdentifier": "photo"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/photoStatusReportedEvent"
+    },
+    "photoUploadGrantRequested": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "PHOTO_UPLOAD_GRANT_REQUESTED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.workType",
+          "nullable": false,
+          "wireIdentifier": "workType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.workUid",
+          "nullable": false,
+          "wireIdentifier": "workUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.requestedSlots",
+          "nullable": false,
+          "wireIdentifier": "requestedSlots"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.reason",
+          "nullable": false,
+          "wireIdentifier": "reason"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/photoUploadGrantRequestedEvent"
+    },
+    "providePhotoUploadGrant": {
+      "commandType": "PROVIDE_PHOTO_UPLOAD_GRANT",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.deploymentCode",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentCode"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.grantRequestEventUid",
+              "presenceFlag": false,
+              "wireIdentifier": "grantRequestEventUid"
+            },
+            {
+              "jsonPath": "$.payload.workType",
+              "presenceFlag": false,
+              "wireIdentifier": "workType"
+            },
+            {
+              "jsonPath": "$.payload.workUid",
+              "presenceFlag": false,
+              "wireIdentifier": "workUid"
+            },
+            {
+              "jsonPath": "$.cosGrant.grantUid",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantGrantUid"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretId",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretId"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretKey",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretKey"
+            },
+            {
+              "jsonPath": "$.cosGrant.bucket",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBucket"
+            },
+            {
+              "jsonPath": "$.cosGrant.region",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantRegion"
+            },
+            {
+              "jsonPath": "$.cosGrant.baseUrl",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBaseUrl"
+            },
+            {
+              "jsonPath": "$.cosGrant.keyPrefix",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantKeyPrefix"
+            },
+            {
+              "jsonPath": "$.cosGrant.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantExpiresAt"
+            }
+          ],
+          "wireIdentifier": "scalarFields"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.authorizedSlots",
+          "nullable": false,
+          "wireIdentifier": "authorizedSlots"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.cosGrant.sessionTokenParts",
+          "nullable": false,
+          "wireIdentifier": "cosGrantSessionTokenParts"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/providePhotoUploadGrantCommand"
+    },
+    "resumeCleanOperation": {
+      "commandType": "RESUME_CLEAN_OPERATION",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.deploymentCode",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentCode"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.operationUid",
+              "presenceFlag": false,
+              "wireIdentifier": "operationUid"
+            },
+            {
+              "jsonPath": "$.payload.portNo",
+              "presenceFlag": false,
+              "wireIdentifier": "portNo"
+            },
+            {
+              "jsonPath": "$.payload.newBagUid",
+              "presenceFlag": false,
+              "wireIdentifier": "newBagUid"
+            },
+            {
+              "jsonPath": "$.payload.operationWindowMs",
+              "presenceFlag": false,
+              "wireIdentifier": "operationWindowMs"
+            },
+            {
+              "jsonPath": "$.payload.recoveryGeneration",
+              "presenceFlag": false,
+              "wireIdentifier": "recoveryGeneration"
+            },
+            {
+              "jsonPath": "$.payload.originalCleanerConfirmedOnsite",
+              "presenceFlag": false,
+              "wireIdentifier": "originalCleanerConfirmedOnsite"
+            },
+            {
+              "jsonPath": "$.cosGrant",
+              "presenceFlag": true,
+              "wireIdentifier": "cosGrantPresent"
+            },
+            {
+              "jsonPath": "$.cosGrant.grantUid",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantGrantUid"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretId",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretId"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretKey",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretKey"
+            },
+            {
+              "jsonPath": "$.cosGrant.bucket",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBucket"
+            },
+            {
+              "jsonPath": "$.cosGrant.region",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantRegion"
+            }
+          ],
+          "wireIdentifier": "scalarFields1"
+        },
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.cosGrant.baseUrl",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBaseUrl"
+            },
+            {
+              "jsonPath": "$.cosGrant.keyPrefix",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantKeyPrefix"
+            },
+            {
+              "jsonPath": "$.cosGrant.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantExpiresAt"
+            }
+          ],
+          "wireIdentifier": "scalarFields2"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.config",
+          "nullable": false,
+          "wireIdentifier": "config"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.cosGrant.sessionTokenParts",
+          "nullable": false,
+          "wireIdentifier": "cosGrantSessionTokenParts"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/resumeCleanOperationCommand"
+    },
+    "sampleFullness": {
+      "commandType": "SAMPLE_FULLNESS",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.deploymentCode",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentCode"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.detectionUid",
+              "presenceFlag": false,
+              "wireIdentifier": "detectionUid"
+            },
+            {
+              "jsonPath": "$.payload.portNo",
+              "presenceFlag": false,
+              "wireIdentifier": "portNo"
+            },
+            {
+              "jsonPath": "$.payload.sampleRole",
+              "presenceFlag": false,
+              "wireIdentifier": "sampleRole"
+            },
+            {
+              "jsonPath": "$.payload.triggerType",
+              "presenceFlag": false,
+              "wireIdentifier": "triggerType"
+            },
+            {
+              "jsonPath": "$.payload.fullnessMode",
+              "presenceFlag": false,
+              "wireIdentifier": "fullnessMode"
+            },
+            {
+              "jsonPath": "$.payload.currentBaselineWeightGrams",
+              "presenceFlag": true,
+              "wireIdentifier": "currentBaselineWeightGramPresent"
+            },
+            {
+              "jsonPath": "$.payload.currentBaselineWeightGrams",
+              "presenceFlag": false,
+              "wireIdentifier": "currentBaselineWeightGram"
+            },
+            {
+              "jsonPath": "$.payload.configuredFullWeightGrams",
+              "presenceFlag": false,
+              "wireIdentifier": "configuredFullWeightGrams"
+            },
+            {
+              "jsonPath": "$.payload.settleWaitMs",
+              "presenceFlag": false,
+              "wireIdentifier": "settleWaitMs"
+            },
+            {
+              "jsonPath": "$.payload.measurementTimeoutMs",
+              "presenceFlag": false,
+              "wireIdentifier": "measurementTimeoutMs"
+            },
+            {
+              "jsonPath": "$.cosGrant",
+              "presenceFlag": true,
+              "wireIdentifier": "cosGrantPresent"
+            }
+          ],
+          "wireIdentifier": "scalarFields"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.config",
+          "nullable": false,
+          "wireIdentifier": "config"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/sampleFullnessCommand"
+    },
+    "startCleanOperation": {
+      "commandType": "START_CLEAN_OPERATION",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.deploymentCode",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentCode"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.operationUid",
+              "presenceFlag": false,
+              "wireIdentifier": "operationUid"
+            },
+            {
+              "jsonPath": "$.payload.portNo",
+              "presenceFlag": false,
+              "wireIdentifier": "portNo"
+            },
+            {
+              "jsonPath": "$.payload.oldBagUid",
+              "presenceFlag": true,
+              "wireIdentifier": "oldBagUidPresent"
+            },
+            {
+              "jsonPath": "$.payload.oldBagUid",
+              "presenceFlag": false,
+              "wireIdentifier": "oldBagUid"
+            },
+            {
+              "jsonPath": "$.payload.oldBaselineWeightGrams",
+              "presenceFlag": true,
+              "wireIdentifier": "oldBaselineWeightGramsPresent"
+            },
+            {
+              "jsonPath": "$.payload.oldBaselineWeightGrams",
+              "presenceFlag": false,
+              "wireIdentifier": "oldBaselineWeightGrams"
+            },
+            {
+              "jsonPath": "$.payload.newBagUid",
+              "presenceFlag": false,
+              "wireIdentifier": "newBagUid"
+            },
+            {
+              "jsonPath": "$.payload.operationWindowMs",
+              "presenceFlag": false,
+              "wireIdentifier": "operationWindowMs"
+            },
+            {
+              "jsonPath": "$.payload.recoveryGeneration",
+              "presenceFlag": false,
+              "wireIdentifier": "recoveryGeneration"
+            },
+            {
+              "jsonPath": "$.cosGrant",
+              "presenceFlag": true,
+              "wireIdentifier": "cosGrantPresent"
+            },
+            {
+              "jsonPath": "$.cosGrant.grantUid",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantGrantUid"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretId",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretId"
+            }
+          ],
+          "wireIdentifier": "scalarFields1"
+        },
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.cosGrant.tmpSecretKey",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretKey"
+            },
+            {
+              "jsonPath": "$.cosGrant.bucket",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBucket"
+            },
+            {
+              "jsonPath": "$.cosGrant.region",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantRegion"
+            },
+            {
+              "jsonPath": "$.cosGrant.baseUrl",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBaseUrl"
+            },
+            {
+              "jsonPath": "$.cosGrant.keyPrefix",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantKeyPrefix"
+            },
+            {
+              "jsonPath": "$.cosGrant.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantExpiresAt"
+            }
+          ],
+          "wireIdentifier": "scalarFields2"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.config",
+          "nullable": false,
+          "wireIdentifier": "config"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.cosGrant.sessionTokenParts",
+          "nullable": false,
+          "wireIdentifier": "cosGrantSessionTokenParts"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/startCleanOperationCommand"
+    },
+    "startDeliverySession": {
+      "commandType": "START_DELIVERY_SESSION",
+      "inputMappings": [
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.schemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "schemaVersion"
+            },
+            {
+              "jsonPath": "$.commandUid",
+              "presenceFlag": false,
+              "wireIdentifier": "commandUid"
+            },
+            {
+              "jsonPath": "$.commandType",
+              "presenceFlag": false,
+              "wireIdentifier": "commandType"
+            },
+            {
+              "jsonPath": "$.deploymentCode",
+              "presenceFlag": false,
+              "wireIdentifier": "deploymentCode"
+            },
+            {
+              "jsonPath": "$.issuedAt",
+              "presenceFlag": false,
+              "wireIdentifier": "issuedAt"
+            },
+            {
+              "jsonPath": "$.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "expiresAt"
+            },
+            {
+              "jsonPath": "$.payloadSchemaVersion",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSchemaVersion"
+            },
+            {
+              "jsonPath": "$.payloadSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "payloadSha256"
+            },
+            {
+              "jsonPath": "$.payload.sessionUid",
+              "presenceFlag": false,
+              "wireIdentifier": "sessionUid"
+            },
+            {
+              "jsonPath": "$.payload.portNo",
+              "presenceFlag": false,
+              "wireIdentifier": "portNo"
+            },
+            {
+              "jsonPath": "$.payload.bagUid",
+              "presenceFlag": false,
+              "wireIdentifier": "bagUid"
+            },
+            {
+              "jsonPath": "$.payload.unitPriceTenThousandths",
+              "presenceFlag": false,
+              "wireIdentifier": "unitPriceTenThousandths"
+            },
+            {
+              "jsonPath": "$.payload.continueDeliveryWaitMs",
+              "presenceFlag": false,
+              "wireIdentifier": "continueDeliveryWaitMs"
+            },
+            {
+              "jsonPath": "$.payload.negativeWeightThresholdGrams",
+              "presenceFlag": false,
+              "wireIdentifier": "negativeWeightThresholdGrams"
+            },
+            {
+              "jsonPath": "$.payload.deliveryAutoCloseMs",
+              "presenceFlag": false,
+              "wireIdentifier": "deliveryAutoCloseMs"
+            },
+            {
+              "jsonPath": "$.cosGrant",
+              "presenceFlag": true,
+              "wireIdentifier": "cosGrantPresent"
+            },
+            {
+              "jsonPath": "$.cosGrant.grantUid",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantGrantUid"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretId",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretId"
+            },
+            {
+              "jsonPath": "$.cosGrant.tmpSecretKey",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantTmpSecretKey"
+            },
+            {
+              "jsonPath": "$.cosGrant.bucket",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBucket"
+            }
+          ],
+          "wireIdentifier": "scalarFields1"
+        },
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
+            {
+              "jsonPath": "$.cosGrant.region",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantRegion"
+            },
+            {
+              "jsonPath": "$.cosGrant.baseUrl",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantBaseUrl"
+            },
+            {
+              "jsonPath": "$.cosGrant.keyPrefix",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantKeyPrefix"
+            },
+            {
+              "jsonPath": "$.cosGrant.expiresAt",
+              "presenceFlag": false,
+              "wireIdentifier": "cosGrantExpiresAt"
+            }
+          ],
+          "wireIdentifier": "scalarFields2"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.config",
+          "nullable": false,
+          "wireIdentifier": "config"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.cosGrant.sessionTokenParts",
+          "nullable": false,
+          "wireIdentifier": "cosGrantSessionTokenParts"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/startDeliverySessionCommand"
+    }
+  },
+  "generated": true,
+  "mappingVersion": "1.0.0-rc.2",
+  "projection": {
+    "dataProtocol": "OneJSON",
+    "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",
+    "fixedFieldEncoding": "commandType/eventType/deliveryClass and target type remain explicit enum parameters and must equal the function identifier registry.",
+    "functionPointLimit": 100,
+    "generatedImportFile": "generated/onenet-thing-model.candidate.json",
+    "nullableEncoding": "Every nullable field is encoded as <field>Present plus a typed placeholder value; adapters reconstruct JSON null before payload digest validation.",
+    "objectEncoding": "Envelope and payload wrapper are projected losslessly; when a service would exceed OneNet's 20 top-level input limit, primitive parameters are grouped into one-level scalarFields/scalarFieldsN structs of at most 20 members each. Nested business objects use one-level struct; arrays of objects use array-of-struct.",
+    "semanticValidation": "OneNet validates primitive shapes; edge and backend must still validate the authoritative Draft 2020-12 schema and semanticChecksBeyondJsonSchema.",
+    "serviceCallType": "sync",
+    "syncReceiptDeadline": "OneNet platform limit: 5 seconds"
+  },
+  "thingModelFile": "onenet-thing-model.candidate.json"
+}

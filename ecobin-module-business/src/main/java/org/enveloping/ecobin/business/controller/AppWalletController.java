@@ -10,8 +10,9 @@ import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.common.result.PageResult;
 import org.enveloping.ecobin.common.result.Result;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
-import org.enveloping.ecobin.system.entity.User;
-import org.enveloping.ecobin.system.service.UserService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserFinancePort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserId;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserSnapshot;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,14 +30,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AppWalletController {
 
-    private final UserService userService;
+    private final LegacyOrganizationUserFinancePort organizationUserFinancePort;
     private final WalletService walletService;
 
     /** 我的钱包余额 */
     @GetMapping
     public Result<WalletVO> myWallet() {
         Long userId = SecurityUtils.getCurrentUserId();
-        User user = userService.getById(userId);
+        LegacyOrganizationUserSnapshot user =
+                organizationUserFinancePort.findAccount(new LegacyOrganizationUserId(userId));
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }

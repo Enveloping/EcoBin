@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.enveloping</groupId>
+        <artifactId>EcoBin</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ecobin-integration</artifactId>
+    <name>ecobin-integration</name>
+    <description>外部适配模块：OneNet/Pulsar、COS 与微信渠道协议</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-identity</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-device</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-funds</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-recycling</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-operations</artifactId>
+        </dependency>
+
+        <!-- F-03 前的旧 OneNet 分发器仍调用 legacy business 服务。 -->
+        <dependency>
+            <groupId>org.enveloping</groupId>
+            <artifactId>ecobin-module-business</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos-sts_api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pulsar</groupId>
+            <artifactId>pulsar-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>

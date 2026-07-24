@@ -1,6 +1,6 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.framework.onenet.OneNetCipher;
+import org.enveloping.ecobin.integration.onenet.inbound.OneNetCipher;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

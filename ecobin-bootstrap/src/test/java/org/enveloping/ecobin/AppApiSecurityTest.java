@@ -2,10 +2,14 @@ package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.business.entity.DeliveryOrder;
 import org.enveloping.ecobin.business.service.DeliveryOrderService;
+import org.enveloping.ecobin.framework.context.TrustedAudience;
+import org.enveloping.ecobin.framework.context.TrustedExecutionContext;
+import org.enveloping.ecobin.framework.context.TrustedExecutionContextHolder;
+import org.enveloping.ecobin.framework.context.TrustedPrincipalKind;
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.system.entity.User;
-import org.enveloping.ecobin.system.service.UserService;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDraft;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +21,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import org.springframework.http.MediaType;
 
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -43,7 +52,7 @@ class AppApiSecurityTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
-    private UserService userService;
+    private LegacyOrganizationUserDirectoryPort userDirectory;
 
     @Autowired
     private DeliveryOrderService deliveryOrderService;
@@ -56,17 +65,12 @@ class AppApiSecurityTest {
         // 在租户2 下造一个微信终端用户（无 username/password），显式 tenant_id=2
         TenantContextHolder.setTenantId(2L);
         TenantContextHolder.setIgnore(true);
-        User user = new User();
-        user.setTenantId(2L);
-        user.setOpenid("openid-app-sec-" + System.nanoTime());
-        user.setNickname("测试用户");
-        user.setAvatar("http://example.com/a.png");
-        user.setRealName("张三");
-        user.setPhone("13800000000");
-        user.setRole(1);
-        user.setStatus(1);
-        userService.save(user);
-        Long userId = user.getId();
+        String openid = "openid-app-sec-" + System.nanoTime();
+        var user = userDirectory.create(new LegacyOrganizationUserDraft(
+                2L, null, null, "张三", "13800000000", null,
+                openid, null, "测试用户", "http://example.com/a.png",
+                1, 1, null, null));
+        Long userId = user.userId().value();
 
         // 该用户的一条投递订单
         TenantContextHolder.setTenantId(2L);
@@ -81,12 +85,13 @@ class AppApiSecurityTest {
         TenantContextHolder.clear();
 
         // 终端用户 token：role=1，tenantId=2，subject=openid
-        userToken = jwtTokenProvider.generateToken(userId, user.getOpenid(), 2L, 1);
+        userToken = jwtTokenProvider.generateToken(userId, openid, 2L, 1);
     }
 
     @AfterEach
     void tearDown() {
         TenantContextHolder.clear();
+        TrustedExecutionContextHolder.clear();
     }
 
     @Test
@@ -129,5 +134,32 @@ class AppApiSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void unknownLegacyRoleIsRejectedAndRequestThreadLocalsAreCleared() throws Exception {
+        String openid = "openid-unknown-role-" + System.nanoTime();
+        String unknownRoleToken = jwtTokenProvider.generateToken(999L, openid, 2L, 6);
+
+        // 模拟容器复用线程时遗留的旧请求上下文；无论 resolver 如何提前退出，本次请求都必须清空。
+        TenantContextHolder.setTenantId(99L);
+        TenantContextHolder.setIgnore(true);
+        TrustedExecutionContextHolder.set(new TrustedExecutionContext(
+                TrustedPrincipalKind.PLATFORM_ADMIN,
+                UUID.randomUUID(),
+                TrustedAudience.WEB_PLATFORM,
+                null,
+                null,
+                UUID.randomUUID(),
+                0,
+                "stale-request"));
+
+        mockMvc.perform(get("/api/app/profile")
+                        .header("Authorization", "Bearer " + unknownRoleToken))
+                .andExpect(status().isUnauthorized());
+
+        assertNull(TenantContextHolder.getTenantId());
+        assertFalse(TenantContextHolder.isIgnore());
+        assertThrows(IllegalStateException.class, TrustedExecutionContextHolder::getRequired);
     }
 }

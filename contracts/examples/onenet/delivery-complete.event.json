@@ -1,0 +1,101 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "30000000-0000-4000-8000-000000000003",
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1042,
+  "eventType": "DELIVERY_COMPLETE",
+  "eventUid": "30000000-0000-4000-8000-000000000006",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "completionReason": "USER_ENDED",
+    "deliveryNetWeightGrams": 1250,
+    "finalDeliveryDoor": {
+      "health": "OK",
+      "state": "CLOSED"
+    },
+    "finalPostCloseMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "lastObservedWeightGrams": 13250,
+      "mcuBootId": 101,
+      "mcuEventSequence": 29,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "30000000-0000-4000-8000-000000000005",
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "stableWeightGrams": 13250,
+      "status": "STABLE"
+    },
+    "firstPreOpenMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "lastObservedWeightGrams": 12000,
+      "mcuBootId": 101,
+      "mcuEventSequence": 11,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "30000000-0000-4000-8000-000000000004",
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "stableWeightGrams": 12000,
+      "status": "STABLE"
+    },
+    "frozenConfig": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "negativeWeightAnomaly": false,
+    "photos": [
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "BEFORE_INNER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "BEFORE_OUTER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "AFTER_INNER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      },
+      {
+        "capturedAt": null,
+        "missingReason": "CAMERA_NOT_READY",
+        "photoUid": null,
+        "sha256": null,
+        "sizeBytes": null,
+        "slot": "AFTER_OUTER",
+        "status": "UPLOAD_PENDING",
+        "url": null
+      }
+    ],
+    "portNo": 2,
+    "sessionUid": "30000000-0000-4000-8000-000000000001",
+    "unitPriceTenThousandths": 4500
+  },
+  "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+  "schemaVersion": 1,
+  "target": {
+    "type": "DELIVERY_SESSION",
+    "uid": "30000000-0000-4000-8000-000000000001"
+  }
+}

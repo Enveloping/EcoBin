@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/onenet/command-receipt.schema.json",
+  "title": "EcoBin OneNet immediate command receipt",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "commandUid",
+    "receiptState",
+    "errorCode",
+    "edgeBootId"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "commandUid": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "receiptState": {
+      "enum": ["ACCEPTED", "DUPLICATE_ACCEPTED", "REJECTED"]
+    },
+    "errorCode": {
+      "$ref": "common.schema.json#/$defs/errorCode"
+    },
+    "edgeBootId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "receiptState": {
+          "enum": ["ACCEPTED", "DUPLICATE_ACCEPTED"]
+        },
+        "errorCode": { "type": "null" }
+      }
+    },
+    {
+      "properties": {
+        "receiptState": { "const": "REJECTED" },
+        "errorCode": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "maxLength": 64
+        }
+      }
+    }
+  ]
+}

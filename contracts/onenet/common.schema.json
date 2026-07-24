@@ -1,0 +1,654 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecobin.local/contracts/onenet/common.schema.json",
+  "title": "EcoBin OneNet common types",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "uuidAnyVersion": {
+      "type": "string",
+      "format": "uuid",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "deploymentCode": {
+      "type": "string",
+      "pattern": "^Dp_[A-Za-z0-9_-]{6,61}$",
+      "maxLength": 64
+    },
+    "publicUidOrCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "utcInstant": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20,
+      "maxLength": 30,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+    },
+    "positiveSequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "portNo": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+    },
+    "nullablePortNo": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 6
+    },
+    "signedInt32Grams": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "nullableSignedInt32Grams": {
+      "type": ["integer", "null"],
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "safeSignedIntegerGrams": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "nullableSafeSignedIntegerGrams": {
+      "type": ["integer", "null"],
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "unitPriceTenThousandths": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "positiveDurationMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "errorCode": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+      "maxLength": 64
+    },
+    "faultCodeSymbol": {
+      "enum": [
+        "UART_PROTOCOL",
+        "UART_STORAGE",
+        "DELIVERY_DOOR_TIMEOUT",
+        "DELIVERY_DOOR_ACTUATOR",
+        "DELIVERY_DOOR_SWITCH",
+        "CLEAN_SOLENOID_DRIVER",
+        "WEIGHT_UNSTABLE",
+        "WEIGHT_TIMEOUT",
+        "WEIGHT_SENSOR",
+        "WEIGHT_OVERLOAD",
+        "INFRARED_TIMEOUT",
+        "INFRARED_SENSOR",
+        "SMOKE_SENSOR",
+        "MCU_STORAGE",
+        "MCU_INTERNAL"
+      ]
+    },
+    "nullableFaultCodeSymbol": {
+      "oneOf": [
+        { "$ref": "#/$defs/faultCodeSymbol" },
+        { "type": "null" }
+      ]
+    },
+    "deviceFaultCodeSymbol": {
+      "enum": [
+        "UART_PROTOCOL",
+        "UART_STORAGE",
+        "DELIVERY_DOOR_TIMEOUT",
+        "DELIVERY_DOOR_ACTUATOR",
+        "DELIVERY_DOOR_SWITCH",
+        "CLEAN_SOLENOID_DRIVER",
+        "WEIGHT_UNSTABLE",
+        "WEIGHT_TIMEOUT",
+        "WEIGHT_SENSOR",
+        "WEIGHT_OVERLOAD",
+        "INFRARED_TIMEOUT",
+        "INFRARED_SENSOR",
+        "SMOKE_SENSOR",
+        "MCU_STORAGE",
+        "MCU_INTERNAL",
+        "EDGE_STORAGE",
+        "CAMERA_CAPTURE",
+        "CAMERA_STORAGE",
+        "NETWORK_CONNECTIVITY",
+        "CLOCK_UNSYNCED"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "required": ["type", "uid"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "DEVICE_COMMAND",
+            "CONFIGURATION_APPLICATION",
+            "DELIVERY_SESSION",
+            "CLEAN_OPERATION",
+            "FULLNESS_DETECTION",
+            "BASELINE_MEASUREMENT",
+            "DEVICE_DEPLOYMENT",
+            "EDGE_EVENT",
+            "BUSINESS_CONFIRMATION",
+            "PHOTO_GRANT_REQUEST"
+          ]
+        },
+        "uid": {
+          "$ref": "#/$defs/publicUidOrCode"
+        }
+      }
+    },
+    "measurementStable": {
+      "type": "object",
+      "required": [
+        "measurementUid",
+        "status",
+        "stableWeightGrams",
+        "lastObservedWeightGrams",
+        "measurementElapsedMs",
+        "sampleCount",
+        "calibrationVersion",
+        "sensorHealth",
+        "faultCode",
+        "mcuBootId",
+        "mcuEventSequence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "measurementUid": { "$ref": "#/$defs/uuid" },
+        "status": { "const": "STABLE" },
+        "stableWeightGrams": { "$ref": "#/$defs/signedInt32Grams" },
+        "lastObservedWeightGrams": { "$ref": "#/$defs/nullableSignedInt32Grams" },
+        "measurementElapsedMs": { "$ref": "#/$defs/durationMs" },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "calibrationVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "sensorHealth": { "const": "OK" },
+        "faultCode": { "type": "null" },
+        "mcuBootId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mcuEventSequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "measurementFailure": {
+      "type": "object",
+      "required": [
+        "measurementUid",
+        "status",
+        "stableWeightGrams",
+        "lastObservedWeightGrams",
+        "measurementElapsedMs",
+        "sampleCount",
+        "calibrationVersion",
+        "sensorHealth",
+        "faultCode",
+        "mcuBootId",
+        "mcuEventSequence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "measurementUid": { "$ref": "#/$defs/uuid" },
+        "status": {
+          "enum": ["UNSTABLE", "TIMEOUT", "SENSOR_FAULT", "OVERLOAD"]
+        },
+        "stableWeightGrams": { "type": "null" },
+        "lastObservedWeightGrams": { "$ref": "#/$defs/nullableSignedInt32Grams" },
+        "measurementElapsedMs": { "$ref": "#/$defs/durationMs" },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "calibrationVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "sensorHealth": {
+          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        },
+        "faultCode": { "$ref": "#/$defs/faultCodeSymbol" },
+        "mcuBootId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mcuEventSequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": { "const": "UNSTABLE" },
+            "sensorHealth": { "const": "OK" },
+            "faultCode": { "const": "WEIGHT_UNSTABLE" }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "TIMEOUT" },
+            "sensorHealth": { "const": "TIMEOUT" },
+            "faultCode": { "const": "WEIGHT_TIMEOUT" }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "SENSOR_FAULT" },
+            "sensorHealth": {
+              "enum": ["SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+            },
+            "faultCode": { "const": "WEIGHT_SENSOR" }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "OVERLOAD" },
+            "sensorHealth": { "const": "OK" },
+            "faultCode": { "const": "WEIGHT_OVERLOAD" }
+          }
+        }
+      ]
+    },
+    "measurement": {
+      "oneOf": [
+        { "$ref": "#/$defs/measurementStable" },
+        { "$ref": "#/$defs/measurementFailure" }
+      ]
+    },
+    "deliveryDoor": {
+      "type": "object",
+      "required": ["state", "health"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": ["CLOSED", "OPENING", "OPEN", "CLOSING", "JAMMED", "UNKNOWN"]
+        },
+        "health": {
+          "enum": ["OK", "TIMEOUT", "ACTUATOR_FAULT", "SWITCH_FAULT", "DISCONNECTED"]
+        }
+      }
+    },
+    "cleanLockAndInferredDoor": {
+      "type": "object",
+      "required": [
+        "lockPowerState",
+        "solenoidHealth",
+        "inferredDoorState",
+        "stateBasis"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lockPowerState": {
+          "enum": ["ENERGIZED", "DEENERGIZED", "UNKNOWN"]
+        },
+        "solenoidHealth": {
+          "enum": ["OK", "DRIVER_FAULT", "DISCONNECTED", "UNKNOWN"]
+        },
+        "inferredDoorState": {
+          "enum": ["OPEN", "CLOSED", "UNKNOWN"]
+        },
+        "stateBasis": {
+          "const": "INFERRED_FROM_LOCK_POWER"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "lockPowerState": { "const": "ENERGIZED" },
+            "solenoidHealth": { "const": "OK" },
+            "inferredDoorState": { "const": "OPEN" }
+          }
+        },
+        {
+          "properties": {
+            "lockPowerState": { "const": "DEENERGIZED" },
+            "solenoidHealth": { "const": "OK" },
+            "inferredDoorState": { "const": "CLOSED" }
+          }
+        },
+        {
+          "properties": {
+            "solenoidHealth": {
+              "enum": ["DRIVER_FAULT", "DISCONNECTED", "UNKNOWN"]
+            },
+            "inferredDoorState": { "const": "UNKNOWN" }
+          }
+        },
+        {
+          "properties": {
+            "lockPowerState": { "const": "UNKNOWN" },
+            "solenoidHealth": { "const": "OK" },
+            "inferredDoorState": { "const": "UNKNOWN" }
+          }
+        }
+      ]
+    },
+    "photoAvailable": {
+      "type": "object",
+      "required": [
+        "slot",
+        "status",
+        "photoUid",
+        "url",
+        "sha256",
+        "sizeBytes",
+        "capturedAt",
+        "missingReason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+        },
+        "status": { "const": "AVAILABLE" },
+        "photoUid": { "$ref": "#/$defs/uuid" },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^?#]+$",
+          "maxLength": 1024
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20971520
+        },
+        "capturedAt": {
+          "oneOf": [
+            { "$ref": "#/$defs/utcInstant" },
+            { "type": "null" }
+          ]
+        },
+        "missingReason": { "type": "null" }
+      }
+    },
+    "photoUploadPendingCaptured": {
+      "type": "object",
+      "required": [
+        "slot",
+        "status",
+        "photoUid",
+        "url",
+        "sha256",
+        "sizeBytes",
+        "capturedAt",
+        "missingReason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+        },
+        "status": { "const": "UPLOAD_PENDING" },
+        "photoUid": { "$ref": "#/$defs/uuid" },
+        "url": { "type": "null" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20971520
+        },
+        "capturedAt": {
+          "oneOf": [
+            { "$ref": "#/$defs/utcInstant" },
+            { "type": "null" }
+          ]
+        },
+        "missingReason": { "$ref": "#/$defs/errorCode" }
+      }
+    },
+    "photoUploadPendingNotCaptured": {
+      "type": "object",
+      "required": [
+        "slot",
+        "status",
+        "photoUid",
+        "url",
+        "sha256",
+        "sizeBytes",
+        "capturedAt",
+        "missingReason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+        },
+        "status": { "const": "UPLOAD_PENDING" },
+        "photoUid": { "type": "null" },
+        "url": { "type": "null" },
+        "sha256": { "type": "null" },
+        "sizeBytes": { "type": "null" },
+        "capturedAt": { "type": "null" },
+        "missingReason": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "maxLength": 64
+        }
+      }
+    },
+    "photoPermanentlyMissingNotCaptured": {
+      "type": "object",
+      "required": [
+        "slot",
+        "status",
+        "photoUid",
+        "url",
+        "sha256",
+        "sizeBytes",
+        "capturedAt",
+        "missingReason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+        },
+        "status": { "const": "PERMANENTLY_MISSING" },
+        "photoUid": { "type": "null" },
+        "url": { "type": "null" },
+        "sha256": { "type": "null" },
+        "sizeBytes": { "type": "null" },
+        "capturedAt": { "type": "null" },
+        "missingReason": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "maxLength": 64
+        }
+      }
+    },
+    "photoPermanentlyMissingCaptured": {
+      "type": "object",
+      "required": [
+        "slot",
+        "status",
+        "photoUid",
+        "url",
+        "sha256",
+        "sizeBytes",
+        "capturedAt",
+        "missingReason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+        },
+        "status": { "const": "PERMANENTLY_MISSING" },
+        "photoUid": { "$ref": "#/$defs/uuid" },
+        "url": { "type": "null" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20971520
+        },
+        "capturedAt": {
+          "oneOf": [
+            { "$ref": "#/$defs/utcInstant" },
+            { "type": "null" }
+          ]
+        },
+        "missingReason": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "maxLength": 64
+        }
+      }
+    },
+    "photoSlot": {
+      "oneOf": [
+        { "$ref": "#/$defs/photoAvailable" },
+        { "$ref": "#/$defs/photoUploadPendingCaptured" },
+        { "$ref": "#/$defs/photoUploadPendingNotCaptured" },
+        { "$ref": "#/$defs/photoPermanentlyMissingNotCaptured" },
+        { "$ref": "#/$defs/photoPermanentlyMissingCaptured" }
+      ]
+    },
+    "photoTerminalStatus": {
+      "oneOf": [
+        { "$ref": "#/$defs/photoAvailable" },
+        { "$ref": "#/$defs/photoPermanentlyMissingNotCaptured" },
+        { "$ref": "#/$defs/photoPermanentlyMissingCaptured" }
+      ]
+    },
+    "cosGrant": {
+      "type": "object",
+      "required": [
+        "grantUid",
+        "tmpSecretId",
+        "tmpSecretKey",
+        "sessionTokenParts",
+        "bucket",
+        "region",
+        "baseUrl",
+        "keyPrefix",
+        "expiresAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "grantUid": { "$ref": "#/$defs/uuid" },
+        "tmpSecretId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "tmpSecretKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sessionTokenParts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "bucket": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^/?#]+$",
+          "maxLength": 256
+        },
+        "keyPrefix": {
+          "type": "string",
+          "pattern": "^ecobin/Dp_[A-Za-z0-9_-]+/(delivery-session|clean-operation)/[0-9a-f-]{36}/$",
+          "maxLength": 256
+        },
+        "expiresAt": { "$ref": "#/$defs/utcInstant" }
+      }
+    },
+    "resultReference": {
+      "type": "object",
+      "required": ["type", "key"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "DELIVERY_ORDER",
+            "CLEAN_RECORD",
+            "FULLNESS_DETECTION",
+            "BASELINE_MEASUREMENT",
+            "CONFIGURATION_APPLICATION",
+            "PHOTO_SLOT",
+            "DEVICE_FAULT"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    }
+  }
+}

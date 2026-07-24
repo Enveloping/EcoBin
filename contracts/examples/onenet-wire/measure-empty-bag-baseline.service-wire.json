@@ -1,0 +1,49 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "measureEmptyBagBaseline",
+    "params": {
+      "bagUid": "40000000-0000-4000-8000-000000000002",
+      "commandType": 1,
+      "commandUid": "82000000-0000-4000-8000-000000000002",
+      "config": {
+        "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "version": 8
+      },
+      "cosGrantPresent": false,
+      "deploymentCode": "Dp_demo_01",
+      "emptyBagConfirmed": true,
+      "expiresAt": "2026-07-24T01:01:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "measurementTimeoutMs": 10000,
+      "measurementUid": "82000000-0000-4000-8000-000000000001",
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "c0d398cc3586f5b4ebe3c394730f1c037e5920cba22fe878bdb299c1bcad5920",
+      "portNo": 2,
+      "schemaVersion": 1,
+      "target": {
+        "type": 1,
+        "uid": "82000000-0000-4000-8000-000000000001"
+      }
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "82000000-0000-4000-8000-000000000002",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/measureEmptyBagBaseline/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/measureEmptyBagBaseline/invoke_reply",
+  "identifier": "measureEmptyBagBaseline",
+  "kind": "SYNC_SERVICE"
+}

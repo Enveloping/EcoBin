@@ -1,0 +1,27 @@
+{
+  "examples": [
+    "apply-configuration.service-wire.json",
+    "baseline-measurement-complete.event-wire.json",
+    "business-confirmation-receipt.event-wire.json",
+    "clean-complete.event-wire.json",
+    "configuration-progress.event-wire.json",
+    "confirm-edge-event.service-wire.json",
+    "delivery-complete.event-wire.json",
+    "device-command-observed.event-wire.json",
+    "device-fault-observed.event-wire.json",
+    "device-fault-recovered.event-wire.json",
+    "device-runtime-snapshot.event-wire.json",
+    "end-clean-before-unlock.service-wire.json",
+    "fullness-sample-complete.event-wire.json",
+    "measure-empty-bag-baseline.service-wire.json",
+    "photo-status-reported.event-wire.json",
+    "photo-upload-grant-requested.event-wire.json",
+    "provide-photo-upload-grant.service-wire.json",
+    "resume-clean-operation.service-wire.json",
+    "sample-fullness.service-wire.json",
+    "start-clean-operation.service-wire.json",
+    "start-delivery-session.service-wire.json"
+  ],
+  "generated": true,
+  "thingModel": "../../onenet/generated/onenet-thing-model.candidate.json"
+}

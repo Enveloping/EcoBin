@@ -1,0 +1,40 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "82000000-0000-4000-8000-000000000002",
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1048,
+  "eventType": "BASELINE_MEASUREMENT_COMPLETE",
+  "eventUid": "86000000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "bagUid": "40000000-0000-4000-8000-000000000002",
+    "emptyBagConfirmed": true,
+    "frozenConfig": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "measurementUid": "82000000-0000-4000-8000-000000000001",
+    "portNo": 2,
+    "totalWeightMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "lastObservedWeightGrams": 1180,
+      "mcuBootId": 101,
+      "mcuEventSequence": 47,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "86000000-0000-4000-8000-000000000002",
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "stableWeightGrams": 1180,
+      "status": "STABLE"
+    }
+  },
+  "payloadSha256": "c095bdc9fb1a28eeb9d3f8cca462e56d0f47301582f6592a287114d3447d49cf",
+  "schemaVersion": 1,
+  "target": {
+    "type": "BASELINE_MEASUREMENT",
+    "uid": "82000000-0000-4000-8000-000000000001"
+  }
+}

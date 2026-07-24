@@ -1,0 +1,540 @@
+{
+  "commandDomainUtf8WithNullHex": "45434f42494e3a4f4e454e45543a434f4d4d414e443a763100",
+  "eventDomainUtf8WithNullHex": "45434f42494e3a4f4e454e45543a4556454e543a763100",
+  "profile": "EcoBin OneNet stable command/event identity v1",
+  "vectors": [
+    {
+      "input": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "cosGrant": null,
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payload": {
+          "bagUid": "30000000-0000-4000-8000-000000000002",
+          "config": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "continueDeliveryWaitMs": 30000,
+          "deliveryAutoCloseMs": 60000,
+          "negativeWeightThresholdGrams": 500,
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "kind": "COMMAND",
+      "name": "command_without_cos_grant",
+      "preimageHex": "45434f42494e3a4f4e454e45543a434f4d4d414e443a7631007b22636f6d6d616e6454797065223a2253544152545f44454c49564552595f53455353494f4e222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22657870697265734174223a22323032362d30372d32345430313a30313a30302e3030305a222c226973737565644174223a22323032362d30372d32345430313a30303a30302e3030305a222c227061796c6f6164536368656d6156657273696f6e223a312c227061796c6f6164536861323536223a2231613431666563316337636430393534303936396264663231633731653436366235636239343162633437363536376637633035376261626438633838643062222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031227d7d",
+      "projection": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "sha256": "aec9fbd81fc56774bcad114d98fecda52de1fd60c96b14a970ee11c9fa513340"
+    },
+    {
+      "input": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "cosGrant": {
+          "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+          "bucket": "ecobin-contract-1250000000",
+          "expiresAt": "2026-07-24T01:30:00.000Z",
+          "grantUid": "71000000-0000-4000-8000-000000000001",
+          "keyPrefix": "ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/",
+          "region": "ap-guangzhou",
+          "sessionTokenParts": [
+            "TOKEN_1_PART_1",
+            "TOKEN_1_PART_2"
+          ],
+          "tmpSecretId": "TMP_SECRET_ID_1",
+          "tmpSecretKey": "TMP_SECRET_KEY_1"
+        },
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payload": {
+          "bagUid": "30000000-0000-4000-8000-000000000002",
+          "config": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "continueDeliveryWaitMs": 30000,
+          "deliveryAutoCloseMs": 60000,
+          "negativeWeightThresholdGrams": 500,
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "kind": "COMMAND",
+      "name": "command_with_cos_grant_refresh_1",
+      "preimageHex": "45434f42494e3a4f4e454e45543a434f4d4d414e443a7631007b22636f6d6d616e6454797065223a2253544152545f44454c49564552595f53455353494f4e222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22657870697265734174223a22323032362d30372d32345430313a30313a30302e3030305a222c226973737565644174223a22323032362d30372d32345430313a30303a30302e3030305a222c227061796c6f6164536368656d6156657273696f6e223a312c227061796c6f6164536861323536223a2231613431666563316337636430393534303936396264663231633731653436366235636239343162633437363536376637633035376261626438633838643062222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031227d7d",
+      "projection": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "sha256": "aec9fbd81fc56774bcad114d98fecda52de1fd60c96b14a970ee11c9fa513340"
+    },
+    {
+      "input": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "cosGrant": {
+          "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+          "bucket": "ecobin-contract-1250000000",
+          "expiresAt": "2026-07-24T01:30:00.000Z",
+          "grantUid": "71000000-0000-4000-8000-000000000002",
+          "keyPrefix": "ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/",
+          "region": "ap-guangzhou",
+          "sessionTokenParts": [
+            "TOKEN_2_PART_1",
+            "TOKEN_2_PART_2"
+          ],
+          "tmpSecretId": "TMP_SECRET_ID_2",
+          "tmpSecretKey": "TMP_SECRET_KEY_2"
+        },
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payload": {
+          "bagUid": "30000000-0000-4000-8000-000000000002",
+          "config": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "continueDeliveryWaitMs": 30000,
+          "deliveryAutoCloseMs": 60000,
+          "negativeWeightThresholdGrams": 500,
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "kind": "COMMAND",
+      "name": "command_with_cos_grant_refresh_2",
+      "preimageHex": "45434f42494e3a4f4e454e45543a434f4d4d414e443a7631007b22636f6d6d616e6454797065223a2253544152545f44454c49564552595f53455353494f4e222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22657870697265734174223a22323032362d30372d32345430313a30313a30302e3030305a222c226973737565644174223a22323032362d30372d32345430313a30303a30302e3030305a222c227061796c6f6164536368656d6156657273696f6e223a312c227061796c6f6164536861323536223a2231613431666563316337636430393534303936396264663231633731653436366235636239343162633437363536376637633035376261626438633838643062222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031227d7d",
+      "projection": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "sha256": "aec9fbd81fc56774bcad114d98fecda52de1fd60c96b14a970ee11c9fa513340"
+    },
+    {
+      "input": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "cosGrant": null,
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payload": {
+          "bagUid": "30000000-0000-4000-8000-000000000002",
+          "config": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "continueDeliveryWaitMs": 30000,
+          "deliveryAutoCloseMs": 60000,
+          "negativeWeightThresholdGrams": 500,
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000099"
+        }
+      },
+      "kind": "COMMAND",
+      "name": "command_target_changed",
+      "preimageHex": "45434f42494e3a4f4e454e45543a434f4d4d414e443a7631007b22636f6d6d616e6454797065223a2253544152545f44454c49564552595f53455353494f4e222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22657870697265734174223a22323032362d30372d32345430313a30313a30302e3030305a222c226973737565644174223a22323032362d30372d32345430313a30303a30302e3030305a222c227061796c6f6164536368656d6156657273696f6e223a312c227061796c6f6164536861323536223a2231613431666563316337636430393534303936396264663231633731653436366235636239343162633437363536376637633035376261626438633838643062222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303939227d7d",
+      "projection": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000099"
+        }
+      },
+      "sha256": "f1c167afdf708f8eb220a128e51270639aa58dc97e807de303a0d844320c4e32"
+    },
+    {
+      "input": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "cosGrant": null,
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:02:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payload": {
+          "bagUid": "30000000-0000-4000-8000-000000000002",
+          "config": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "continueDeliveryWaitMs": 30000,
+          "deliveryAutoCloseMs": 60000,
+          "negativeWeightThresholdGrams": 500,
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "kind": "COMMAND",
+      "name": "command_expiry_changed",
+      "preimageHex": "45434f42494e3a4f4e454e45543a434f4d4d414e443a7631007b22636f6d6d616e6454797065223a2253544152545f44454c49564552595f53455353494f4e222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22657870697265734174223a22323032362d30372d32345430313a30323a30302e3030305a222c226973737565644174223a22323032362d30372d32345430313a30303a30302e3030305a222c227061796c6f6164536368656d6156657273696f6e223a312c227061796c6f6164536861323536223a2231613431666563316337636430393534303936396264663231633731653436366235636239343162633437363536376637633035376261626438633838643062222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031227d7d",
+      "projection": {
+        "commandType": "START_DELIVERY_SESSION",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deploymentCode": "Dp_demo_01",
+        "expiresAt": "2026-07-24T01:02:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "1a41fec1c7cd09540969bdf21c71e466b5cb941bc476567f7c057babd8c88d0b",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "sha256": "7e6afab9e8b5e9275887f4773120af29c0094cc19e1de411032affeea0ac7223"
+    },
+    {
+      "input": {
+        "clockQuality": "SYNCED",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deliveryClass": "RELIABLE_FACT",
+        "deploymentCode": "Dp_demo_01",
+        "edgeEventSequence": 1042,
+        "eventType": "DELIVERY_COMPLETE",
+        "eventUid": "30000000-0000-4000-8000-000000000006",
+        "occurredAt": "2026-07-24T01:00:30.000Z",
+        "payload": {
+          "completionReason": "USER_ENDED",
+          "deliveryNetWeightGrams": 1250,
+          "finalDeliveryDoor": {
+            "health": "OK",
+            "state": "CLOSED"
+          },
+          "finalPostCloseMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": null,
+            "lastObservedWeightGrams": 13250,
+            "mcuBootId": 101,
+            "mcuEventSequence": 29,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "30000000-0000-4000-8000-000000000005",
+            "sampleCount": 12,
+            "sensorHealth": "OK",
+            "stableWeightGrams": 13250,
+            "status": "STABLE"
+          },
+          "firstPreOpenMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": null,
+            "lastObservedWeightGrams": 12000,
+            "mcuBootId": 101,
+            "mcuEventSequence": 11,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "30000000-0000-4000-8000-000000000004",
+            "sampleCount": 12,
+            "sensorHealth": "OK",
+            "stableWeightGrams": 12000,
+            "status": "STABLE"
+          },
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "negativeWeightAnomaly": false,
+          "photos": [
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "BEFORE_INNER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            },
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "BEFORE_OUTER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            },
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "AFTER_INNER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            },
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "AFTER_OUTER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            }
+          ],
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "kind": "EVENT",
+      "name": "event_authenticated_source",
+      "preimageHex": "45434f42494e3a4f4e454e45543a4556454e543a7631007b22636c6f636b5175616c697479223a2253594e434544222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c2264656c6976657279436c617373223a2252454c4941424c455f46414354222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22656467654576656e7453657175656e6365223a313034322c226576656e7454797065223a2244454c49564552595f434f4d504c455445222c226576656e74556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303036222c226f636375727265644174223a22323032362d30372d32345430313a30303a33302e3030305a222c227061796c6f6164536861323536223a2239353339363939386162653464646463316536303037626133383364316663383230303966396466366134383430376233336232336339396163653738623464222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031227d2c2274727573746564536f75726365223a7b226465766963654e616d65223a22534e2d434f4e54524143542d30303031222c2270726f647563744964223a2265636f62696e2d70726f647563742d636f6e7472616374227d7d",
+      "projection": {
+        "clockQuality": "SYNCED",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deliveryClass": "RELIABLE_FACT",
+        "deploymentCode": "Dp_demo_01",
+        "edgeEventSequence": 1042,
+        "eventType": "DELIVERY_COMPLETE",
+        "eventUid": "30000000-0000-4000-8000-000000000006",
+        "occurredAt": "2026-07-24T01:00:30.000Z",
+        "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        },
+        "trustedSource": {
+          "deviceName": "SN-CONTRACT-0001",
+          "productId": "ecobin-product-contract"
+        }
+      },
+      "sha256": "3a7508c24f064b0a0c1a338ad22c6f2057052fe851497271ef0e3198013beb9d",
+      "trustedSource": {
+        "deviceName": "SN-CONTRACT-0001",
+        "productId": "ecobin-product-contract"
+      }
+    },
+    {
+      "input": {
+        "clockQuality": "SYNCED",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deliveryClass": "RELIABLE_FACT",
+        "deploymentCode": "Dp_demo_01",
+        "edgeEventSequence": 1042,
+        "eventType": "DELIVERY_COMPLETE",
+        "eventUid": "30000000-0000-4000-8000-000000000006",
+        "occurredAt": "2026-07-24T01:00:30.000Z",
+        "payload": {
+          "completionReason": "USER_ENDED",
+          "deliveryNetWeightGrams": 1250,
+          "finalDeliveryDoor": {
+            "health": "OK",
+            "state": "CLOSED"
+          },
+          "finalPostCloseMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": null,
+            "lastObservedWeightGrams": 13250,
+            "mcuBootId": 101,
+            "mcuEventSequence": 29,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "30000000-0000-4000-8000-000000000005",
+            "sampleCount": 12,
+            "sensorHealth": "OK",
+            "stableWeightGrams": 13250,
+            "status": "STABLE"
+          },
+          "firstPreOpenMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": null,
+            "lastObservedWeightGrams": 12000,
+            "mcuBootId": 101,
+            "mcuEventSequence": 11,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "30000000-0000-4000-8000-000000000004",
+            "sampleCount": 12,
+            "sensorHealth": "OK",
+            "stableWeightGrams": 12000,
+            "status": "STABLE"
+          },
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "negativeWeightAnomaly": false,
+          "photos": [
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "BEFORE_INNER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            },
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "BEFORE_OUTER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            },
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "AFTER_INNER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            },
+            {
+              "capturedAt": null,
+              "missingReason": "CAMERA_NOT_READY",
+              "photoUid": null,
+              "sha256": null,
+              "sizeBytes": null,
+              "slot": "AFTER_OUTER",
+              "status": "UPLOAD_PENDING",
+              "url": null
+            }
+          ],
+          "portNo": 2,
+          "sessionUid": "30000000-0000-4000-8000-000000000001",
+          "unitPriceTenThousandths": 4500
+        },
+        "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        }
+      },
+      "kind": "EVENT",
+      "name": "event_authenticated_device_changed",
+      "preimageHex": "45434f42494e3a4f4e454e45543a4556454e543a7631007b22636c6f636b5175616c697479223a2253594e434544222c22636f6d6d616e64556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303033222c2264656c6976657279436c617373223a2252454c4941424c455f46414354222c226465706c6f796d656e74436f6465223a2244705f64656d6f5f3031222c22656467654576656e7453657175656e6365223a313034322c226576656e7454797065223a2244454c49564552595f434f4d504c455445222c226576656e74556964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303036222c226f636375727265644174223a22323032362d30372d32345430313a30303a33302e3030305a222c227061796c6f6164536861323536223a2239353339363939386162653464646463316536303037626133383364316663383230303966396466366134383430376233336232336339396163653738623464222c22736368656d6156657273696f6e223a312c22746172676574223a7b2274797065223a2244454c49564552595f53455353494f4e222c22756964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031227d2c2274727573746564536f75726365223a7b226465766963654e616d65223a22534e2d434f4e54524143542d30303032222c2270726f647563744964223a2265636f62696e2d70726f647563742d636f6e7472616374227d7d",
+      "projection": {
+        "clockQuality": "SYNCED",
+        "commandUid": "30000000-0000-4000-8000-000000000003",
+        "deliveryClass": "RELIABLE_FACT",
+        "deploymentCode": "Dp_demo_01",
+        "edgeEventSequence": 1042,
+        "eventType": "DELIVERY_COMPLETE",
+        "eventUid": "30000000-0000-4000-8000-000000000006",
+        "occurredAt": "2026-07-24T01:00:30.000Z",
+        "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+        "schemaVersion": 1,
+        "target": {
+          "type": "DELIVERY_SESSION",
+          "uid": "30000000-0000-4000-8000-000000000001"
+        },
+        "trustedSource": {
+          "deviceName": "SN-CONTRACT-0002",
+          "productId": "ecobin-product-contract"
+        }
+      },
+      "sha256": "4eb1b4d37ad453f3fed21604688d1710629930b93df72c3ecf1bbdfc6a57991e",
+      "trustedSource": {
+        "deviceName": "SN-CONTRACT-0002",
+        "productId": "ecobin-product-contract"
+      }
+    }
+  ]
+}

@@ -9,7 +9,8 @@ import org.enveloping.ecobin.business.service.WalletService;
 import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.common.result.PageResult;
 import org.enveloping.ecobin.framework.security.SecurityUtils;
-import org.enveloping.ecobin.system.mapper.UserMapper;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserFinancePort;
+import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserId;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +21,7 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class WalletServiceImpl implements WalletService {
 
-    private final UserMapper userMapper;
+    private final LegacyOrganizationUserFinancePort organizationUserFinancePort;
     private final WithdrawOrderMapper withdrawOrderMapper;
 
     private static final int STATUS_PENDING = 0;
@@ -33,7 +34,7 @@ public class WalletServiceImpl implements WalletService {
         if (userId == null || amount == null || amount.signum() <= 0) {
             return;
         }
-        userMapper.addBalance(userId, amount);
+        organizationUserFinancePort.addBalance(new LegacyOrganizationUserId(userId), amount);
     }
 
     @Override
@@ -43,7 +44,8 @@ public class WalletServiceImpl implements WalletService {
             throw new BusinessException(400, "提现金额必须大于0");
         }
         // 原子冻结：余额不足时条件 UPDATE 不命中，返回 0
-        if (userMapper.freezeForWithdraw(userId, amount) == 0) {
+        if (!organizationUserFinancePort.freezeForWithdraw(
+                new LegacyOrganizationUserId(userId), amount)) {
             throw new BusinessException(400, "余额不足");
         }
         WithdrawOrder order = new WithdrawOrder();
@@ -66,12 +68,14 @@ public class WalletServiceImpl implements WalletService {
             throw new BusinessException(400, "提现单已审核，请勿重复操作");
         }
         if (pass) {
-            userMapper.settlePending(order.getUserId(), order.getAmount());
+            organizationUserFinancePort.settlePending(
+                    new LegacyOrganizationUserId(order.getUserId()), order.getAmount());
             order.setStatus(STATUS_APPROVED);
             // TODO: 调微信「商家转账到零钱」（付款方=租户商户号 merchant_no，收款方=用户 openid），
             //       转账成功后回填 order.transferNo；当前仅标记已通过，真实转账待 IoT/支付网关接入。
         } else {
-            userMapper.refundPending(order.getUserId(), order.getAmount());
+            organizationUserFinancePort.refundPending(
+                    new LegacyOrganizationUserId(order.getUserId()), order.getAmount());
             order.setStatus(STATUS_REJECTED);
         }
         order.setAuditBy(SecurityUtils.getCurrentUserId());

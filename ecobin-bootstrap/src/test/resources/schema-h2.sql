@@ -257,6 +257,10 @@ CREATE TABLE IF NOT EXISTS biz_withdraw_order (
 
 MERGE INTO sys_tenant (id, name, code, status) KEY (id)
 VALUES (1, '平台池', 'PLATFORM_POOL', 1);
+MERGE INTO sys_tenant (id, name, code, status) KEY (id)
+VALUES (2, '测试租户二', 'TEST_TENANT_2', 1);
+MERGE INTO sys_tenant (id, name, code, status) KEY (id)
+VALUES (3, '测试租户三', 'TEST_TENANT_3', 1);
 
 -- 密码: admin123 (BCrypt 加密)
 MERGE INTO sys_admin (id, username, password, real_name, role, status) KEY (id)
