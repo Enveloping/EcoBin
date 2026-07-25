@@ -22,12 +22,19 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_DEVICE_CONFIG_PATH— 设备持久化配置路径
     ECOBIN_TEST_MODE      — 测试模式开关（true/1/yes 开启，默认: false）
                             开启后所有 MCU/硬件数据均为模拟，无需实际硬件连接
+    ECOBIN_DATA_DIR       — 持久数据目录（默认: data/）
+    ECOBIN_EDGE_STORE_PATH— SQLite 数据库路径（默认: data/edge.db）
+    ECOBIN_EDGE_BOOT_ID   — 边缘启动 ID 持久文件（默认: data/edge-boot-id）
+    ECOBIN_DEPLOYMENT_CODE— 后端下发的当前部署编码
 """
 
 import os
 import logging
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*a, **kw): pass
 
 # 自动加载项目根目录的 .env 文件（已存在则覆盖系统环境变量）
 load_dotenv(override=True)
@@ -38,10 +45,16 @@ logger = logging.getLogger("config")
 PRODUCT_ID = os.getenv("ECOBIN_PRODUCT_ID", "")
 DEVICE_NAME = os.getenv("ECOBIN_DEVICE_NAME", "")
 DEVICE_KEY = os.getenv("ECOBIN_DEVICE_KEY", "")
+DEPLOYMENT_CODE = os.getenv("ECOBIN_DEPLOYMENT_CODE", "")
 
 # ── MQTT ──
 MQTT_HOST = os.getenv("ECOBIN_MQTT_HOST", "mqtts.heclouds.com")
 MQTT_PORT = int(os.getenv("ECOBIN_MQTT_PORT", "1883"))
+MQTT_CLEAN_SESSION = os.getenv("ECOBIN_MQTT_CLEAN_SESSION", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # ── Token 参数 ──
 TOKEN_VERSION = "2018-10-31"
@@ -67,6 +80,22 @@ CAMERA_INSIDE = int(os.getenv("ECOBIN_CAMERA_INSIDE", "1"))
 # ── 测试模式 ──
 TEST_MODE = os.getenv("ECOBIN_TEST_MODE", "false").lower() in ("true", "1", "yes")
 
+# ── 边缘持久存储 ──
+_data_dir = os.getenv("ECOBIN_DATA_DIR", "data")
+_project_root = os.path.dirname(__file__)
+DATA_DIR = _data_dir if os.path.isabs(_data_dir) else os.path.join(_project_root, _data_dir)
+EDGE_STORE_PATH = os.getenv(
+    "ECOBIN_EDGE_STORE_PATH",
+    os.path.join(DATA_DIR, "edge.db"),
+)
+EDGE_BOOT_ID_PATH = os.getenv(
+    "ECOBIN_EDGE_BOOT_ID_PATH",
+    os.path.join(DATA_DIR, "edge-boot-id"),
+)
+EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
+EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
+EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = int(os.getenv("ECOBIN_RUNTIME_SNAPSHOT_INTERVAL_S", "300"))
+
 # ── 凭证校验 ──
 _REQUIRED = ["ECOBIN_PRODUCT_ID", "ECOBIN_DEVICE_NAME", "ECOBIN_DEVICE_KEY"]
 
@@ -78,3 +107,6 @@ def validate():
             logger.error(
                 "%s 未设置！请复制 .env.example 为 .env 并填入真实凭证", env_var
             )
+    # 确保 DATA_DIR 存在
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(EDGE_PHOTO_DIR, exist_ok=True)
