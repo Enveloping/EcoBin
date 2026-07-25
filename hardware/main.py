@@ -19,7 +19,8 @@ import time
 
 from config import (
     PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT,
-    TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, EDGE_STORE_PATH,
+    TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
+    UART_HIL_REQUIRED_CAPABILITIES, EDGE_STORE_PATH,
     EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
     MQTT_CLEAN_SESSION,
     validate as config_validate,
@@ -68,7 +69,13 @@ class EcoBinEdge:
             self.store.set_edge_boot_id(str(self._edge_boot_id))
 
         # -- UART Link --
-        self.uart = _make_uart_link(SERIAL_PORT, self._edge_boot_id, SERIAL_BAUDRATE)
+        self.uart = _make_uart_link(
+            SERIAL_PORT,
+            self._edge_boot_id,
+            SERIAL_BAUDRATE,
+            UART_PORT_COUNT,
+            UART_HIL_REQUIRED_CAPABILITIES,
+        )
 
         # -- MQTT Client --
         self.mqtt = MqttClient(
@@ -254,13 +261,31 @@ class EcoBinEdge:
         logger.info("shutdown complete")
 
 
-def _make_uart_link(port, boot_id, baudrate):
+def _make_uart_link(
+    port,
+    boot_id,
+    baudrate,
+    port_count,
+    hil_required_capabilities,
+):
     """Create UartLink, using mock in TEST_MODE."""
     if TEST_MODE:
         from test_mode import MockUartLink
         return MockUartLink(port=port, edge_boot_id=boot_id)
     from uart_link import UartLink
-    return UartLink(port=port, edge_boot_id=boot_id, baudrate=baudrate)
+    kwargs = {
+        "port": port,
+        "edge_boot_id": boot_id,
+        "port_count": port_count,
+        "baudrate": baudrate,
+    }
+    if hil_required_capabilities is not None:
+        logger.warning(
+            "UART HIL capability override enabled: required=0x%X",
+            hil_required_capabilities,
+        )
+        kwargs["required_capability_bitmap"] = hil_required_capabilities
+    return UartLink(**kwargs)
 
 
 if __name__ == "__main__":

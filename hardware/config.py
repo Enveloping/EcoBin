@@ -17,6 +17,9 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_MQTT_PORT      — MQTT 端口（默认: 1883）
     ECOBIN_SERIAL_PORT    — 串口设备路径（默认: /dev/ttyS5）
     ECOBIN_SERIAL_BAUDRATE— 串口波特率（默认: 115200）
+    ECOBIN_UART_PORT_COUNT— UART 握手端口数（默认: 6）
+    ECOBIN_UART_HIL_REQUIRED_CAPABILITIES
+                          — 仅 HIL 使用的最小能力位图；未设置时严格要求 0x1fff
     ECOBIN_DOOR_STATE_TIMEOUT— 等待 MCU 开关盖状态秒数（默认: 5）
     ECOBIN_DELIVERY_WEIGHT_TIMEOUT— 等待投递重量秒数（默认: 120）
     ECOBIN_DEVICE_CONFIG_PATH— 设备持久化配置路径
@@ -64,6 +67,16 @@ TOKEN_METHOD = "sha256"
 # ── 串口 ──
 SERIAL_PORT = os.getenv("ECOBIN_SERIAL_PORT", "/dev/ttyS5")
 SERIAL_BAUDRATE = int(os.getenv("ECOBIN_SERIAL_BAUDRATE", "115200"))
+UART_PORT_COUNT = int(os.getenv("ECOBIN_UART_PORT_COUNT", "6"))
+_uart_hil_required_capabilities = os.getenv(
+    "ECOBIN_UART_HIL_REQUIRED_CAPABILITIES",
+    "",
+).strip()
+UART_HIL_REQUIRED_CAPABILITIES = (
+    int(_uart_hil_required_capabilities, 0)
+    if _uart_hil_required_capabilities
+    else None
+)
 DOOR_STATE_TIMEOUT = float(os.getenv("ECOBIN_DOOR_STATE_TIMEOUT", "5"))
 DELIVERY_WEIGHT_TIMEOUT = float(os.getenv("ECOBIN_DELIVERY_WEIGHT_TIMEOUT", "120"))
 _device_config_path = os.getenv("ECOBIN_DEVICE_CONFIG_PATH", "data/device-config.json")
