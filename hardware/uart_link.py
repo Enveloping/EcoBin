@@ -74,12 +74,16 @@ class UartLink:
     """UART 1.0 串行链路。"""
 
     def __init__(self, port: str, edge_boot_id: int, port_count: int = 6,
-                 baudrate: int = 115200, timeout_s: float = 0.5):
+                 baudrate: int = 115200, timeout_s: float = 0.5,
+                 required_capability_bitmap: int = EDGE_CAPABILITY_BITMAP):
         self.port = port
         self.edge_boot_id = edge_boot_id
         self.port_count = port_count
         self.baudrate = baudrate
         self.timeout_s = timeout_s
+        if required_capability_bitmap & ~EDGE_CAPABILITY_BITMAP:
+            raise ValueError("required capability bitmap contains unknown bits")
+        self.required_capability_bitmap = required_capability_bitmap
         self._ser: Optional[serial.Serial] = None
         # Bytes read by this object are sent by the MCU.
         self._parser = StreamParser(sender_role="MCU")
@@ -303,7 +307,9 @@ class UartLink:
         mcu_boot_id = mcu_payload.get("senderBootId", 0)
         mcu_capability = mcu_payload.get("capabilityBitmap", 0)
         unknown_capabilities = mcu_capability & ~EDGE_CAPABILITY_BITMAP
-        missing_capabilities = EDGE_CAPABILITY_BITMAP & ~mcu_capability
+        missing_capabilities = (
+            self.required_capability_bitmap & ~mcu_capability
+        )
         negotiated = EDGE_CAPABILITY_BITMAP & mcu_capability
 
         logger.info("收到 MCU HELLO: bootId=%d ports=%d capability=0x%X negotiated=0x%X",

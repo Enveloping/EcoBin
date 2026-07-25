@@ -2,8 +2,10 @@ import json
 from pathlib import Path
 import uuid
 
+import pytest
+
 from onenet_wire import decode_service_command
-from uart_link import UartLink, compute_mcu_payload_sha256
+from uart_link import UartError, UartLink, compute_mcu_payload_sha256
 from uart_protocol import (
     MESSAGE_TYPE,
     compute_command_digest,
@@ -85,6 +87,74 @@ class EventBeforeAckSerial(AutoAckSerial):
         return super().write(data)
 
 
+class HandshakeSerial:
+    def __init__(self, edge_boot_id, mcu_boot_id, mcu_capability):
+        self.edge_boot_id = edge_boot_id
+        self.mcu_boot_id = mcu_boot_id
+        self.mcu_capability = mcu_capability
+        self.is_open = True
+        self.timeout = 0.5
+        self.writes = []
+        self._incoming = bytearray()
+        self._mcu_tx_sequence = 0
+
+    @property
+    def in_waiting(self):
+        return len(self._incoming)
+
+    def write(self, data):
+        self.writes.append(bytes(data))
+        decoded = decode_frame(data, sender_role="EDGE")
+        if decoded["messageType"] == MESSAGE_TYPE["HELLO"]:
+            self._mcu_tx_sequence += 1
+            hello = encode_payload("HELLO", {
+                "senderRole": "MCU",
+                "senderBootId": self.mcu_boot_id,
+                "supportedMajor": 1,
+                "minimumMinor": 0,
+                "maximumMinor": 0,
+                "portCount": 1,
+                "capabilityBitmap": self.mcu_capability,
+                "maximumFrameLength": 256,
+                "pendingCriticalEventCount": 0,
+                "firmwareIdentity": "stm32f103rct6",
+                "firmwareVersion": "1.0.0-hil.1",
+            })
+            self._incoming.extend(
+                encode_frame("HELLO", self._mcu_tx_sequence, hello)
+            )
+        elif decoded["messageType"] == MESSAGE_TYPE["HELLO_ACK"]:
+            self._mcu_tx_sequence += 1
+            hello_ack = encode_payload("HELLO_ACK", {
+                "responderBootId": self.mcu_boot_id,
+                "referencedSenderBootId": self.edge_boot_id,
+                "selectedMajor": 1,
+                "selectedMinor": 0,
+                "status": "ACCEPTED",
+                "portCount": 1,
+                "capabilityBitmap": self.mcu_capability,
+                "maximumFrameLength": 256,
+                "errorCode": "NONE",
+            })
+            self._incoming.extend(
+                encode_frame("HELLO_ACK", self._mcu_tx_sequence, hello_ack)
+            )
+        return len(data)
+
+    def flush(self):
+        pass
+
+    def read(self, size):
+        if not self._incoming:
+            return b""
+        chunk = bytes(self._incoming[:size])
+        del self._incoming[:size]
+        return chunk
+
+    def close(self):
+        self.is_open = False
+
+
 def query_state_payload():
     values = {
         "mcuCommandUid": "10000000-0000-4000-8000-000000000001",
@@ -95,6 +165,32 @@ def query_state_payload():
         compute_command_digest("QUERY_STATE", values)
     )
     return encode_payload("QUERY_STATE", values)
+
+
+def test_handshake_requires_full_registry_capability_by_default():
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._ser = HandshakeSerial(7, 42, 0x300)
+
+    with pytest.raises(UartError, match="能力不兼容"):
+        link.handshake()
+
+
+def test_hil_handshake_can_require_only_the_slice_under_test():
+    link = UartLink(
+        port="fake",
+        edge_boot_id=7,
+        port_count=1,
+        required_capability_bitmap=0x300,
+    )
+    link._ser = HandshakeSerial(7, 42, 0x300)
+
+    result = link.handshake()
+
+    assert result["mcu_boot_id"] == 42
+    assert result["mcu_capability"] == 0x300
+    assert result["mcu_port_count"] == 1
+    assert result["mcu_firmware_identity"] == "stm32f103rct6"
+    assert result["mcu_firmware_version"] == "1.0.0-hil.1"
 
 
 def test_ack_is_matched_against_boot_sequence_and_message_type():
