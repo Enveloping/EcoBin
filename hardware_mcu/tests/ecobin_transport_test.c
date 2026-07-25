@@ -655,6 +655,29 @@ int main(void)
                 + ECOBIN_UART_CONFIG_APPLY_RESULT_MCU_EVENT_SEQUENCE_OFFSET)
         == config_result_event_sequence);
 
+    CHECK(feed_edge_frame(
+        ECOBIN_UART_MESSAGE_CONFIG_BEGIN,
+        begin,
+        ECOBIN_UART_CONFIG_BEGIN_PAYLOAD_MAX_LENGTH) == 0);
+    CHECK(feed_edge_frame(
+        ECOBIN_UART_MESSAGE_CONFIG_DEVICE_BLOCK,
+        device,
+        ECOBIN_UART_CONFIG_DEVICE_BLOCK_PAYLOAD_MAX_LENGTH) == 0);
+    CHECK(feed_edge_frame(
+        ECOBIN_UART_MESSAGE_CONFIG_PORT_BLOCK,
+        port,
+        ECOBIN_UART_CONFIG_PORT_BLOCK_PAYLOAD_MAX_LENGTH) == 0);
+    before = captured_count;
+    CHECK(feed_edge_frame(
+        ECOBIN_UART_MESSAGE_CONFIG_COMMIT,
+        commit,
+        ECOBIN_UART_CONFIG_COMMIT_PAYLOAD_MAX_LENGTH) == 0);
+    CHECK(captured_count == before + 2u);
+    CHECK(check_ack(
+        before,
+        ECOBIN_UART_MESSAGE_CONFIG_COMMIT,
+        ECOBIN_UART_ACK_DISPOSITION_DUPLICATE_ACCEPTED) == 0);
+
     build_query(query, 0xB1u, 0xD1u);
     before = captured_count;
     CHECK(feed_edge_frame(
@@ -668,6 +691,10 @@ int main(void)
             snapshot_begin.payload
                 + ECOBIN_UART_STATE_SNAPSHOT_BEGIN_APPLIED_CONFIG_VERSION_OFFSET)
         == UINT64_C(23));
+    CHECK(
+        snapshot_begin.payload[
+            ECOBIN_UART_STATE_SNAPSHOT_BEGIN_STAGING_VALID_OFFSET]
+        == 0u);
 
     printf("ecobin transport host tests passed (%lu frames captured)\n",
            (unsigned long)captured_count);

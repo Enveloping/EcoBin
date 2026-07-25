@@ -1036,6 +1036,12 @@ static int handle_config_command(const ecobin_uart_frame_view_t *view)
             view->payload + 16u,
             32u) == 0
         && config_identity_equals(&identity, &g_config_applied.identity)) {
+        if (g_config_staging.valid != 0u
+            && config_identity_equals(
+                &g_config_staging.identity,
+                &g_config_applied.identity)) {
+            memset(&g_config_staging, 0, sizeof(g_config_staging));
+        }
         send_ack_frame(
             view->tx_sequence,
             view->message_type,
