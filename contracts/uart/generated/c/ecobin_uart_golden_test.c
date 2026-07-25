@@ -235,16 +235,16 @@ static const stream_chunk_t trace_9_chunks[] = {
 static const uint8_t trace_9_expected[] = {0x01u};
 
 static const stream_trace_t traces[] = {
-    {"bytewise_split", ECOBIN_UART_SENDER_EDGE, trace_0_chunks, sizeof(trace_0_chunks) / sizeof(trace_0_chunks[0]), trace_0_expected, 1u, UINT32_C(0)},
-    {"sticky_frames", ECOBIN_UART_SENDER_EDGE, trace_1_chunks, sizeof(trace_1_chunks) / sizeof(trace_1_chunks[0]), trace_1_expected, 2u, UINT32_C(0)},
-    {"noise_false_magic_invalid_length", ECOBIN_UART_SENDER_EDGE, trace_2_chunks, sizeof(trace_2_chunks) / sizeof(trace_2_chunks[0]), trace_2_expected, 1u, ECOBIN_UART_DIAG_INVALID_LENGTH | ECOBIN_UART_DIAG_NOISE_DISCARDED},
-    {"crc_failure_resynchronizes", ECOBIN_UART_SENDER_EDGE, trace_3_chunks, sizeof(trace_3_chunks) / sizeof(trace_3_chunks[0]), trace_3_expected, 1u, ECOBIN_UART_DIAG_CRC_INVALID | ECOBIN_UART_DIAG_NOISE_DISCARDED},
-    {"assembly_timeout_resynchronizes", ECOBIN_UART_SENDER_EDGE, trace_4_chunks, sizeof(trace_4_chunks) / sizeof(trace_4_chunks[0]), trace_4_expected, 1u, ECOBIN_UART_DIAG_FRAME_TIMEOUT},
-    {"payload_contains_magic", ECOBIN_UART_SENDER_EDGE, trace_5_chunks, sizeof(trace_5_chunks) / sizeof(trace_5_chunks[0]), trace_5_expected, 1u, UINT32_C(0)},
-    {"unknown_type_consumes_crc_valid_frame", ECOBIN_UART_SENDER_EDGE, trace_6_chunks, sizeof(trace_6_chunks) / sizeof(trace_6_chunks[0]), trace_6_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
-    {"ack_flag_checked_after_crc", ECOBIN_UART_SENDER_EDGE, trace_7_chunks, sizeof(trace_7_chunks) / sizeof(trace_7_chunks[0]), trace_7_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
-    {"direction_checked_after_crc", ECOBIN_UART_SENDER_EDGE, trace_8_chunks, sizeof(trace_8_chunks) / sizeof(trace_8_chunks[0]), trace_8_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
-    {"bounded_noise_buffer", ECOBIN_UART_SENDER_EDGE, trace_9_chunks, sizeof(trace_9_chunks) / sizeof(trace_9_chunks[0]), trace_9_expected, 1u, ECOBIN_UART_DIAG_BUFFER_OVERFLOW | ECOBIN_UART_DIAG_NOISE_DISCARDED},
+    {"bytewise_split", ECOBIN_UART_SENDER_ROLE_EDGE, trace_0_chunks, sizeof(trace_0_chunks) / sizeof(trace_0_chunks[0]), trace_0_expected, 1u, UINT32_C(0)},
+    {"sticky_frames", ECOBIN_UART_SENDER_ROLE_EDGE, trace_1_chunks, sizeof(trace_1_chunks) / sizeof(trace_1_chunks[0]), trace_1_expected, 2u, UINT32_C(0)},
+    {"noise_false_magic_invalid_length", ECOBIN_UART_SENDER_ROLE_EDGE, trace_2_chunks, sizeof(trace_2_chunks) / sizeof(trace_2_chunks[0]), trace_2_expected, 1u, ECOBIN_UART_DIAG_INVALID_LENGTH | ECOBIN_UART_DIAG_NOISE_DISCARDED},
+    {"crc_failure_resynchronizes", ECOBIN_UART_SENDER_ROLE_EDGE, trace_3_chunks, sizeof(trace_3_chunks) / sizeof(trace_3_chunks[0]), trace_3_expected, 1u, ECOBIN_UART_DIAG_CRC_INVALID | ECOBIN_UART_DIAG_NOISE_DISCARDED},
+    {"assembly_timeout_resynchronizes", ECOBIN_UART_SENDER_ROLE_EDGE, trace_4_chunks, sizeof(trace_4_chunks) / sizeof(trace_4_chunks[0]), trace_4_expected, 1u, ECOBIN_UART_DIAG_FRAME_TIMEOUT},
+    {"payload_contains_magic", ECOBIN_UART_SENDER_ROLE_EDGE, trace_5_chunks, sizeof(trace_5_chunks) / sizeof(trace_5_chunks[0]), trace_5_expected, 1u, UINT32_C(0)},
+    {"unknown_type_consumes_crc_valid_frame", ECOBIN_UART_SENDER_ROLE_EDGE, trace_6_chunks, sizeof(trace_6_chunks) / sizeof(trace_6_chunks[0]), trace_6_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
+    {"ack_flag_checked_after_crc", ECOBIN_UART_SENDER_ROLE_EDGE, trace_7_chunks, sizeof(trace_7_chunks) / sizeof(trace_7_chunks[0]), trace_7_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
+    {"direction_checked_after_crc", ECOBIN_UART_SENDER_ROLE_EDGE, trace_8_chunks, sizeof(trace_8_chunks) / sizeof(trace_8_chunks[0]), trace_8_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
+    {"bounded_noise_buffer", ECOBIN_UART_SENDER_ROLE_EDGE, trace_9_chunks, sizeof(trace_9_chunks) / sizeof(trace_9_chunks[0]), trace_9_expected, 1u, ECOBIN_UART_DIAG_BUFFER_OVERFLOW | ECOBIN_UART_DIAG_NOISE_DISCARDED},
 };
 
 static const uint8_t digest_0_preimage[] = {0x45u, 0x43u, 0x4Fu, 0x42u, 0x49u, 0x4Eu, 0x3Au, 0x55u, 0x41u, 0x52u, 0x54u, 0x3Au, 0x43u, 0x4Fu, 0x4Du, 0x4Du, 0x41u, 0x4Eu, 0x44u, 0x3Au, 0x76u, 0x31u, 0x00u, 0x27u, 0x00u, 0x35u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x41u, 0x71u, 0x81u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x02u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x42u, 0x72u, 0x82u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x43u, 0x73u, 0x83u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x00u, 0x00u, 0xAFu, 0xC8u};

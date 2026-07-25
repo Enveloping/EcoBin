@@ -1231,11 +1231,6 @@ def render_c_header(
 
     lines.extend(
         [
-            "typedef enum ecobin_uart_sender_role {",
-            "    ECOBIN_UART_SENDER_EDGE = 1,",
-            "    ECOBIN_UART_SENDER_MCU = 2",
-            "} ecobin_uart_sender_role_t;",
-            "",
             "typedef struct ecobin_uart_frame_view {",
             "    uint8_t message_type;",
             "    uint8_t flags;",
@@ -2241,9 +2236,9 @@ def render_c_golden_test(
             )
         diagnostics = " | ".join(sorted(set(diagnostic_terms))) or "UINT32_C(0)"
         sender = (
-            "ECOBIN_UART_SENDER_EDGE"
+            "ECOBIN_UART_SENDER_ROLE_EDGE"
             if trace["senderRole"] == "EDGE"
-            else "ECOBIN_UART_SENDER_MCU"
+            else "ECOBIN_UART_SENDER_ROLE_MCU"
         )
         trace_rows.append(
             "    {"

@@ -863,11 +863,6 @@ static inline void ecobin_uart_copy_sha256(uint8_t *target, const uint8_t source
     memcpy(target, source, 32u);
 }
 
-typedef enum ecobin_uart_sender_role {
-    ECOBIN_UART_SENDER_EDGE = 1,
-    ECOBIN_UART_SENDER_MCU = 2
-} ecobin_uart_sender_role_t;
-
 typedef struct ecobin_uart_frame_view {
     uint8_t message_type;
     uint8_t flags;
