@@ -1,29 +1,15 @@
 # -*- coding: utf-8 -*-
+"""EcoBin 香橙派网关 v2 — SQLite 驱动可靠边缘运行时。
+
+架构变化（相比 v1）：
+  - SQLite (WAL) 作为唯一持久化真相源
+  - UART 1.0 二进制协议 (CRC/ACK/NACK/HELLO/QUERY_STATE)
+  - MQTT QoS 1 + SQLite 驱动事件中继
+  - 投递 session 一单 + 边缘本地多轮
+  - 清运单次 complete + 电磁阀通断推定 + 人工关门确认
+  - 启动恢复: SQLite/MCU 双事实对照
 """
-智能垃圾桶网关主程序（main.py）
-================================
-适配平台：香橙派 Zero3 (Orange Pi Zero3)
-
-程序角色：香橙派作为"中继网关"，桥接：
-  1. OneNET 平台（MQTT 协议）—— 远端云平台
-  2. 垃圾桶 MCU（串口 UART）—— 近端硬件
-  3. USB 双摄像头 —— 本地外设
-
-模块架构（重构后）：
-  main.py              — 入口，组装所有模块
-  config.py            — 环境变量配置
-  mqtt_gateway.py      — MQTT 连接/鉴权/收发
-  thing_model.py       — 物模型：属性/事件/服务分发
-  door_flow.py         — 通用开门闭环
-  delivery_handler.py  — 投递开门处理器
-  clean_handler.py     — 清运开门处理器
-  hardware_layer.py    — 硬件抽象层
-
-使用方法：
-  1. 设置环境变量或修改 config.py 默认值
-  2. python3 main.py
-  3. Ctrl+C 退出
-"""
+from __future__ import annotations
 
 import logging
 import signal
@@ -32,237 +18,251 @@ import threading
 import time
 
 from config import (
-    PRODUCT_ID,
-    DEVICE_NAME,
-    DEVICE_KEY,
-    MQTT_HOST,
-    MQTT_PORT,
-    TEST_MODE,
-    DOOR_STATE_TIMEOUT,
-    DELIVERY_WEIGHT_TIMEOUT,
-    DEVICE_CONFIG_PATH,
+    PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT,
+    TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, EDGE_STORE_PATH,
+    EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
+    MQTT_CLEAN_SESSION,
     validate as config_validate,
 )
-from device_config import UnitPriceStore
-from hardware_layer import BinState, SerialBridge, DualCamera, CosUploader, SERIAL_PORT
-from mqtt_gateway import MqttGateway
-from thing_model import ThingModel
-from delivery_handler import DeliveryHandler
-from clean_handler import CleanHandler, handle_reboot
-
-if TEST_MODE:
-    from test_mode import MockSerialBridge, MockCamera
-
+from edge_store import EdgeStore
+from edge_identity import (
+    is_valid_edge_boot_id,
+    load_or_generate_edge_boot_id,
+    persist_edge_boot_id,
+)
+from mqtt_client import MqttClient
+from photo_manager import PhotoManager
+from work_manager import WorkManager
+from command_processor import CommandProcessor
+from edge_boot import boot_sequence
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)-10s] %(levelname)-5s %(message)s",
+    format="%(asctime)s [%(name)-12s] %(levelname)-5s %(message)s",
     stream=sys.stdout,
 )
 logger = logging.getLogger("main")
 
 
-class SmartBinGateway:
-    """智能垃圾桶网关 —— 组装所有模块并协调生命周期。"""
+class EcoBinEdge:
+    """EcoBin 香橙派边缘网关 v2。"""
 
     def __init__(self):
-        self.exit_flag = threading.Event()
-        self.unit_price_store = UnitPriceStore(DEVICE_CONFIG_PATH)
+        self._exit_flag = threading.Event()
 
-        # ── 配置校验 ──
         config_validate()
-
-        # ── 测试模式 ──
         if TEST_MODE:
-            logger.info("=" * 60)
-            logger.info("⚠  测试模式已启用 (ECOBIN_TEST_MODE=true)")
-            logger.info("   串口 / 摄像头数据均为模拟，MQTT 和 COS 上传保持真实")
-            logger.info("=" * 60)
+            logger.info("TEST MODE enabled")
 
-        # ── 硬件层（测试模式下串口和摄像头使用模拟实现） ──
-        if TEST_MODE:
-            SerialCls = MockSerialBridge
-            CameraCls = MockCamera
+        # -- EdgeStore (SQLite) --
+        self.store = EdgeStore(EDGE_STORE_PATH)
+        self.store.initialize()
+
+        # -- 读取 boot ID --
+        self._edge_boot_id = load_or_generate_edge_boot_id(EDGE_BOOT_ID_PATH)
+        stored_boot_id = self.store.get_edge_boot_id()
+        if is_valid_edge_boot_id(stored_boot_id):
+            self._edge_boot_id = int(stored_boot_id)
+            persist_edge_boot_id(EDGE_BOOT_ID_PATH, self._edge_boot_id)
         else:
-            SerialCls = SerialBridge
-            CameraCls = DualCamera
+            self.store.set_edge_boot_id(str(self._edge_boot_id))
 
-        self.serial = SerialCls()
-        self.serial.on_weight_received = self._on_weight_from_mcu
-        self.serial.on_spill_alarm = self._on_spill_from_mcu
-        self.serial.on_smoke_alarm = self._on_smoke_from_mcu
+        # -- UART Link --
+        self.uart = _make_uart_link(SERIAL_PORT, self._edge_boot_id, SERIAL_BAUDRATE)
 
-        # ── MQTT 网关 ──
-        self.gw = MqttGateway(PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT)
-
-        # ── 物模型 ──
-        self.tm = ThingModel(self.gw, self.unit_price_store)
-
-        # ── 服务处理器（COS 上传始终使用真实实现） ──
-        self.delivery_handler = DeliveryHandler(
-            serial=self.serial,
-            camera=CameraCls,
-            uploader=CosUploader,
-            bin_state=BinState,
-            thing_model=self.tm,
-            device_name=DEVICE_NAME,
-            door_state_timeout_s=DOOR_STATE_TIMEOUT,
-            weight_timeout_s=DELIVERY_WEIGHT_TIMEOUT,
-        )
-        self.clean_handler = CleanHandler(
-            serial=self.serial,
-            camera=CameraCls,
-            uploader=CosUploader,
-            bin_state=BinState,
-            thing_model=self.tm,
-            device_name=DEVICE_NAME,
+        # -- MQTT Client --
+        self.mqtt = MqttClient(
+            product_id=PRODUCT_ID, device_name=DEVICE_NAME,
+            device_key=DEVICE_KEY, edge_store=self.store,
+            mqtt_host=MQTT_HOST, mqtt_port=MQTT_PORT,
+            deployment_code=DEPLOYMENT_CODE, edge_boot_id=self._edge_boot_id,
+            clean_session=MQTT_CLEAN_SESSION,
         )
 
-        # ── 向 MQTT 网关注册回调 ──
-        self.gw.on_service_call = self._dispatch_service
-        self.gw.on_property_get = self._on_property_get
-        self.gw.on_property_set = self._on_property_set
-        self.gw.on_connected = self._start_periodic_report
+        # -- Photo Manager --
+        self.photo = PhotoManager(self.store)
 
-        # ── 注册服务处理器 ──
-        self.tm.service_handlers = {
-            "openDeliveryDoor": self.delivery_handler.handle,
-            "openCleanDoor": self.clean_handler.handle,
-            "reboot": handle_reboot,
-        }
+        # -- Work Manager --
+        self.work = WorkManager(self.store, self.uart, self.mqtt, self.photo)
+        self.commands = CommandProcessor(self.store, self.uart, self.work)
 
-        # ── 系统信号 ──
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # -- Wire callbacks --
+        self.mqtt.on_command_received = self._on_command
+        self.mqtt.on_confirmation_received = self._on_confirmation
 
-    # ═══════════════════════════════════════════════════════════
-    #  回调：MQTT → ThingModel
-    # ═══════════════════════════════════════════════════════════
+        # -- Signal handlers --
+        signal.signal(signal.SIGINT, self._on_signal)
+        signal.signal(signal.SIGTERM, self._on_signal)
 
-    def _on_property_get(self, name: str):
-        """MQTT 属性查询回调：查 ThingModel 的 prop_read_handlers。"""
-        cb = self.tm.prop_read_handlers.get(name)
-        if cb:
-            return cb()
-        return None
-
-    def _on_property_set(self, name: str, value) -> None:
-        """MQTT 属性设置回调。"""
-        cb = self.tm.prop_write_handlers.get(name)
-        if cb:
-            cb(value)
-
-    def _dispatch_service(self, svc_id: str, params: dict, msg_id: str) -> dict:
-        """MQTT 服务调用回调：分发给 ThingModel.service_handlers。"""
-        return self.tm.dispatch_service(svc_id, params, msg_id)
-
-    # ═══════════════════════════════════════════════════════════
-    #  回调：串口传感器
-    # ═══════════════════════════════════════════════════════════
-
-    def _on_weight_from_mcu(self, door_index: int, weight_grams: int):
-        logger.info("[传感器] 舱门%d 重量=%dg", door_index, weight_grams)
-
-    def _on_spill_from_mcu(self, door_index: int):
-        logger.info("[传感器] 舱门%d 满溢报警!", door_index)
-        self.tm.notify_spill_alarm(door_index, 100)
-
-    def _on_smoke_from_mcu(self, door_index: int):
-        logger.info("[传感器] 舱门%d 烟雾报警!", door_index)
-        self.tm.notify_smoke_alarm(door_index, 0.0)
-
-    # ═══════════════════════════════════════════════════════════
-    #  定时上报
-    # ═══════════════════════════════════════════════════════════
-
-    def _start_periodic_report(self):
-        """MQTT 连接成功后启动定时属性上报线程（每 30 秒）。"""
-
-        def _report_loop():
-            while not self.exit_flag.is_set():
-                self.exit_flag.wait(30)
-                if self.exit_flag.is_set():
-                    break
-                try:
-                    self.tm.notify_door_states(self.tm._read_door_states())
-                    self.tm.notify_online(self.gw.connected)
-                    self.tm.notify_rssi(self.tm._read_rssi())
-                    self.tm.notify_voltage(self.tm._read_voltage())
-                    logger.debug("定时上报完成")
-                except Exception as e:
-                    logger.error("定时上报失败: %s", e)
-
-        t = threading.Thread(target=_report_loop, daemon=True, name="periodic")
-        t.start()
-
-    # ═══════════════════════════════════════════════════════════
-    #  生命周期
-    # ═══════════════════════════════════════════════════════════
-
-    def _signal_handler(self, signum, frame):
-        logger.info("收到退出信号 %d，正在关闭...", signum)
-        self.exit_flag.set()
-        # 主动断开 MQTT，使 loop_forever() 退出阻塞
+    def _on_signal(self, signum, frame):
+        logger.info("signal %d, shutting down...", signum)
+        self._exit_flag.set()
         try:
-            self.gw.disconnect()
+            self.mqtt.disconnect()
+        except Exception:
+            pass
+        try:
+            self.uart.close()
         except Exception:
             pass
 
+    def _on_command(self, cmd_id, cmd_type, payload):
+        logger.info("command received: type=%s id=%s", cmd_type, cmd_id)
+        self.commands.wake()
+
+    def _on_confirmation(self, topic, payload):
+        logger.debug("confirmation received: topic=%s", topic)
+
     def run(self):
-        logger.info("=" * 60)
-        logger.info("智能垃圾桶网关启动 (香橙派 Zero3)")
-        logger.info("PID=%s  Device=%s", PRODUCT_ID, DEVICE_NAME)
-        if TEST_MODE:
-            logger.info("测试模式: 串口/摄像头数据均为模拟")
-        logger.info("=" * 60)
+        logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
 
-        # 校验凭证
-        if not all([PRODUCT_ID, DEVICE_NAME, DEVICE_KEY]):
-            logger.error("PRODUCT_ID / DEVICE_NAME / DEVICE_KEY 不能为空!")
-            return
-
-        # 打开串口
-        if not self.serial.open(SERIAL_PORT):
-            logger.warning("串口 %s 打开失败，将无传感器数据!", SERIAL_PORT)
-            logger.warning("继续以纯MQTT模式运行")
-        else:
-            recv_thread = threading.Thread(
-                target=self.serial.recv_loop, daemon=True, name="serial_recv"
-            )
-            recv_thread.start()
-            self.tm.serial = self.serial
-            self.tm.exit_flag = self.exit_flag
-            price_digit = self.unit_price_store.get_protocol_digit()
-            if self.serial.send_price_digit(price_digit):
-                logger.info(
-                    "启动单价已同步到 MCU: %.4g 元/kg → 数据位 %d",
-                    self.unit_price_store.get(),
-                    price_digit,
-                )
-            else:
-                logger.warning("启动单价同步到 MCU 失败，等待后续 OneNet 再次设置")
-
-        # 连接 MQTT
-        if not self.gw.connect():
-            logger.error("MQTT 连接失败，退出")
-            return
-
-        logger.info("进入保活循环 (Ctrl+C 退出)")
-        try:
-            self.gw.loop_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
+        # -- Boot sequence --
+        result = boot_sequence(
+            store=self.store, uart_link=self.uart,
+            mqtt_client=self.mqtt, work_manager=self.work,
+            photo_manager=self.photo, test_mode=TEST_MODE,
+        )
+        if result["status"] == "SAFETY_LOCKED":
+            logger.critical("BOOT FAILED: %s", result.get("reason"))
             self._shutdown()
+            return
+        if self._exit_flag.is_set():
+            self._shutdown()
+            return
+        logger.info("Boot result: %s", result["status"])
+
+        recovered = self.store.recover_interrupted_commands()
+        if recovered["configuration_requeued"] or recovered["physical_locked"]:
+            logger.warning("Recovered interrupted commands: %s", recovered)
+
+        # -- Start UART event reader thread --
+        threading.Thread(target=self._uart_event_loop, daemon=True, name="uart-evt").start()
+
+        # -- Persistent command and MCU-event consumer --
+        threading.Thread(target=self._command_loop, daemon=True, name="cmd-consumer").start()
+
+        # -- Periodic runtime snapshots --
+        threading.Thread(target=self._runtime_snapshot_loop, daemon=True, name="rt-snap").start()
+
+        # -- MQTT main loop --
+        self.mqtt.loop_forever()
+        self._shutdown()
+
+    def _uart_event_loop(self):
+        """Persist MCU events before ACK; processing happens on another thread."""
+        logger.info("UART event reader started")
+        while not self._exit_flag.is_set():
+            try:
+                frame = self.uart.read_mcu_event(timeout_ms=500)
+                if frame:
+                    payload = frame.get("payload") or {}
+                    result = self.store.receive_mcu_frame(frame)
+                    if result in ("ACCEPTED", "DUPLICATE"):
+                        self.uart.send_ack(
+                            payload["mcuBootId"],
+                            frame["tx_sequence"],
+                            frame["message_type"],
+                            "DUPLICATE_ACCEPTED" if result == "DUPLICATE" else "ACCEPTED",
+                        )
+                        self.commands.wake()
+                    elif result == "CONFLICT":
+                        self.uart.send_nack(
+                            payload["mcuBootId"],
+                            frame["tx_sequence"],
+                            frame["message_type"],
+                            "IDEMPOTENCY_CONFLICT",
+                        )
+                        logger.critical(
+                            "MCU event identity conflict: boot=%s seq=%s",
+                            payload.get("mcuBootId"),
+                            payload.get("mcuEventSequence"),
+                        )
+                    else:
+                        logger.error("Rejected MCU frame: %s", result)
+            except Exception as e:
+                logger.error("uart event loop error: %s", e)
+                time.sleep(0.1)
+        logger.info("UART event reader stopped")
+
+    def _command_loop(self):
+        logger.info("command consumer started")
+        while not self._exit_flag.is_set():
+            progressed = False
+            try:
+                for event in self.store.list_pending_mcu_events(limit=20):
+                    try:
+                        self.commands.process_mcu_event(event)
+                        self.store.mark_mcu_event_processed(
+                            event["mcu_boot_id"], event["mcu_event_sequence"]
+                        )
+                        progressed = True
+                    except Exception as error:
+                        self.store.mark_mcu_event_failed(
+                            event["mcu_boot_id"],
+                            event["mcu_event_sequence"],
+                            str(error),
+                        )
+                        logger.error(
+                            "MCU event processing failed: boot=%d seq=%d: %s",
+                            event["mcu_boot_id"],
+                            event["mcu_event_sequence"],
+                            error,
+                        )
+                        break
+                if self.commands.process_next():
+                    progressed = True
+            except Exception as error:
+                logger.error("command consumer error: %s", error)
+            if not progressed:
+                self.commands.wait(0.5)
+        logger.info("command consumer stopped")
+
+    def _runtime_snapshot_loop(self):
+        """Publish periodic runtime snapshots."""
+        while not self._exit_flag.is_set():
+            self._exit_flag.wait(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S)
+            if self._exit_flag.is_set():
+                break
+            try:
+                if self.mqtt.connected:
+                    from edge_boot import _publish_runtime_snapshot
+                    _publish_runtime_snapshot(
+                        self.store, self.mqtt,
+                        {"mcu_boot_id": self.uart._mcu_boot_id or 0,
+                         "mcu_capability": self.uart._mcu_capability or 0,
+                         "mcu_firmware_version": getattr(self.uart, "_mcu_firmware_version", "")},
+                        [],
+                    )
+            except Exception as e:
+                logger.error("runtime snapshot error: %s", e)
 
     def _shutdown(self):
-        logger.info("正在关闭...")
-        self.exit_flag.set()
-        self.serial.close()
-        self.gw.disconnect()
-        logger.info("网关已关闭")
+        logger.info("shutting down...")
+        self._exit_flag.set()
+        try:
+            self.uart.close()
+        except Exception:
+            pass
+        try:
+            self.mqtt.disconnect()
+        except Exception:
+            pass
+        try:
+            self.store.close()
+        except Exception:
+            pass
+        logger.info("shutdown complete")
+
+
+def _make_uart_link(port, boot_id, baudrate):
+    """Create UartLink, using mock in TEST_MODE."""
+    if TEST_MODE:
+        from test_mode import MockUartLink
+        return MockUartLink(port=port, edge_boot_id=boot_id)
+    from uart_link import UartLink
+    return UartLink(port=port, edge_boot_id=boot_id, baudrate=baudrate)
 
 
 if __name__ == "__main__":
-    gateway = SmartBinGateway()
+    gateway = EcoBinEdge()
     gateway.run()

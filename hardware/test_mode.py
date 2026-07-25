@@ -17,9 +17,12 @@ import os
 import random
 import threading
 import time
+from collections import deque
 from typing import Optional, Callable
-
-from hardware_layer import BinState
+try:
+    from hardware_layer import BinState
+except ImportError:
+    BinState = None
 
 logger = logging.getLogger("test_mode")
 
@@ -85,7 +88,8 @@ class MockSerialBridge:
         logger.info("[TEST] 模拟串口发送: D1,%d,%s,D0", door_index, cmd)
         if cmd == "open":
             weight = random.randint(500, 5000)
-            BinState.update_weight(door_index, weight)
+            if BinState:
+                BinState.update_weight(door_index, weight)
             logger.info("[TEST] 模拟重量注入: 舱门%d = %dg (%.2fkg)", door_index, weight, weight / 1000.0)
             if self.on_weight_received:
                 self.on_weight_received(door_index, weight)
@@ -102,7 +106,8 @@ class MockSerialBridge:
             weight = random.randint(500, 5000)
             self._latest_weight_grams = weight
             self._weight_version += 1
-            BinState.update_weight(door_index, weight)
+            if BinState:
+                BinState.update_weight(door_index, weight)
             if self.on_weight_received:
                 self.on_weight_received(door_index, weight)
         return True
@@ -167,3 +172,104 @@ class MockCamera:
         cls.capture(0, outside)
         cls.capture(1, inside)
         return outside, inside
+
+
+# ================================================================
+#  MockUartLink — UART 1.0 协议测试桩
+# ================================================================
+class MockUartLink:
+    """UART 1.0 串行链路测试桩。"""
+
+    def __init__(self, port="mock", edge_boot_id=1, baudrate=115200):
+        self._open = False
+        self._mcu_boot_id = None
+        self._mcu_capability = 0x1FFF
+        self._mcu_firmware_version = "stub-1.0"
+        self._mcu_port_count = 6
+        self.edge_boot_id = edge_boot_id
+        self._events = deque()
+        self._mcu_event_sequence = 0
+
+    @property
+    def is_open(self):
+        return self._open
+
+    def open(self):
+        self._open = True
+        logger.info("[TEST] MockUartLink opened")
+        return True
+
+    def close(self):
+        self._open = False
+        logger.info("[TEST] MockUartLink closed")
+
+    def handshake(self):
+        self._mcu_boot_id = 42
+        return {
+            "mcu_boot_id": 42, "mcu_capability": self._mcu_capability,
+            "mcu_port_count": self._mcu_port_count,
+            "mcu_firmware_identity": "stm32-stub",
+            "mcu_firmware_version": self._mcu_firmware_version,
+            "mcu_pending_critical_events": 0,
+        }
+
+    def query_state(self, on_segment=None):
+        return []
+
+    def apply_configuration(self, command, part_command_uids):
+        payload = command["payload"]
+        config = payload["config"]
+        self._mcu_event_sequence += 1
+        self._events.append({
+            "message_name": "CONFIG_APPLY_RESULT",
+            "message_type": 20,
+            "flags": 1,
+            "tx_sequence": self._mcu_event_sequence,
+            "payload": {
+                "mcuBootId": self._mcu_boot_id or 42,
+                "mcuEventSequence": self._mcu_event_sequence,
+                "uptimeMs": int(time.monotonic() * 1000),
+                "mcuCommandUid": part_command_uids[-1],
+                "applicationUid": payload["applicationUid"],
+                "status": "APPLIED",
+                "configVersion": config["version"],
+                "contentSha256": config["contentSha256"],
+                "mcuPayloadSha256": config["mcuPayloadSha256"],
+                "faultCode": "NONE",
+            },
+        })
+        return {
+            "acked": True,
+            "commit_mcu_command_uid": part_command_uids[-1],
+            "parts": [
+                {"acked": True, "mcu_command_uid": uid}
+                for uid in part_command_uids
+            ],
+        }
+
+    def send_authorize_delivery_first_open(self, **kw):
+        return {"acked": True, "disposition": "ACCEPTED"}
+
+    def send_authorize_delivery_local_continue(self, **kw):
+        return {"acked": True, "disposition": "ACCEPTED"}
+
+    def send_unlock_clean_door(self, **kw):
+        return {"acked": True, "disposition": "ACCEPTED"}
+
+    def send_clean_finish(self, **kw):
+        return {"acked": True}
+
+    def send_safe_close_all(self):
+        return {"acked": True}
+
+    def read_mcu_event(self, timeout_ms=500):
+        if self._events:
+            return self._events.popleft()
+        time.sleep(min(timeout_ms / 1000.0, 0.01))
+        return None
+
+    def send_ack(self, *a, **kw):
+        pass
+
+    def send_nack(self, *a, **kw):
+        pass

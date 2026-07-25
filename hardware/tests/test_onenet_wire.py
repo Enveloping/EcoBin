@@ -1,0 +1,200 @@
+import json
+import os
+from pathlib import Path
+
+from edge_store import EdgeStore
+from onenet_wire import (
+    build_configuration_progress_event,
+    canonical_payload_sha256,
+    decode_service_command,
+    encode_command_receipt,
+    encode_event_post,
+)
+
+
+def test_all_service_wire_examples_reconstruct_stable_payload_digest():
+    examples = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+    )
+    for path in examples.glob("*.service-wire.json"):
+        with path.open(encoding="utf-8") as source:
+            body = json.load(source)["callServiceApiBodyTemplate"]
+        command = decode_service_command(body["identifier"], body["params"])
+        assert canonical_payload_sha256(command["payload"]) == command["payloadSha256"], path.name
+
+
+def test_decode_start_delivery_session_wire_example():
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "start-delivery-session.service-wire.json",
+    )
+    with open(path, encoding="utf-8") as f:
+        wire = json.load(f)
+    body = wire["callServiceApiBodyTemplate"]
+
+    command = decode_service_command(body["identifier"], body["params"])
+
+    assert command["commandType"] == "START_DELIVERY_SESSION"
+    assert command["commandUid"] == "30000000-0000-4000-8000-000000000003"
+    assert command["deploymentCode"] == "Dp_demo_01"
+    assert command["target"] == {
+        "type": "DELIVERY_SESSION",
+        "uid": "30000000-0000-4000-8000-000000000001",
+    }
+    assert command["payload"]["sessionUid"] == "30000000-0000-4000-8000-000000000001"
+    assert command["payload"]["portNo"] == 2
+    assert command["cosGrant"] is None
+
+
+def test_decode_confirm_edge_event_wire_example():
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "confirm-edge-event.service-wire.json",
+    )
+    with open(path, encoding="utf-8") as f:
+        wire = json.load(f)
+    body = wire["callServiceApiBodyTemplate"]
+
+    command = decode_service_command(body["identifier"], body["params"])
+
+    assert command["commandType"] == "CONFIRM_EDGE_EVENT"
+    assert command["payload"]["outcome"] == "BUSINESS_APPLIED"
+    assert command["payload"]["effectKind"] == "CREATED"
+    assert command["payload"]["quarantineUid"] is None
+    assert command["payload"]["resultReferences"] == [
+        {"key": "DO202607240001", "type": "DELIVERY_ORDER"}
+    ]
+
+
+def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "apply-configuration.service-wire.json",
+    )
+    with open(path, encoding="utf-8") as f:
+        wire = json.load(f)
+    body = wire["callServiceApiBodyTemplate"]
+
+    command = decode_service_command(body["identifier"], body["params"])
+
+    assert set(command["payload"]) == {
+        "applicationUid",
+        "config",
+        "deviceConfig",
+        "ports",
+    }
+    assert command["payloadSha256"] == (
+        "320a55772a17584e388870feea4d992f20d0b8e36d4faa67af1f9353f78f3c82"
+    )
+
+
+def test_encode_receipt_uses_target_numeric_state():
+    receipt = encode_command_receipt("cmd-1", "DUPLICATE_ACCEPTED", 9001)
+
+    assert receipt == {
+        "schemaVersion": 1,
+        "commandUid": "cmd-1",
+        "receiptState": 2,
+        "errorCodePresent": False,
+        "errorCode": "",
+        "edgeBootId": 9001,
+    }
+
+
+def test_encode_business_confirmation_receipt_event_shape():
+    event = {
+        "schemaVersion": 1,
+        "eventUid": "60000000-0000-4000-8000-000000000003",
+        "deploymentCode": "Dp_demo_01",
+        "edgeEventSequence": 1045,
+        "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
+        "deliveryClass": "CONTROL_RECEIPT",
+        "target": {"type": "BUSINESS_CONFIRMATION", "uid": "conf-1"},
+        "commandUid": "cmd-1",
+        "occurredAt": "2026-07-24T01:00:30.000Z",
+        "clockQuality": "SYNCED",
+        "payloadSha256": "abc",
+        "payload": {
+            "confirmationUid": "conf-1",
+            "originalEventUid": "evt-1",
+            "originalPayloadSha256": "def",
+            "outcome": "BUSINESS_APPLIED",
+        },
+    }
+
+    wire = encode_event_post("BUSINESS_CONFIRMATION_RECEIPT", event)
+
+    value = wire["params"]["businessConfirmationReceipt"]["value"]
+    assert wire["id"] == "60000000-0000-4000-8000-000000000003"
+    assert value["eventType"] == 1
+    assert value["deliveryClass"] == 1
+    assert value["outcome"] == 1
+    assert value["target"] == {"type": 1, "uid": "conf-1"}
+
+
+def test_encode_configuration_progress_presence_and_enum_fields():
+    event = build_configuration_progress_event(
+        deployment_code="Dp_demo_01",
+        command_uid="20000000-0000-4000-8000-000000000001",
+        application_uid="10000000-0000-4000-8000-000000000001",
+        stage="EDGE_SAVED",
+        version=8,
+        content_sha256="a" * 64,
+        mcu_payload_sha256="b" * 64,
+        edge_event_sequence=1,
+    )
+
+    wire = encode_event_post("CONFIGURATION_PROGRESS", event)
+    value = wire["params"]["configurationProgress"]["value"]
+
+    assert value["stage"] == 1
+    assert value["mcuCommandUidPresent"] is False
+    assert value["mcuCommandUid"] == ""
+    assert value["errorCodePresent"] is False
+    assert value["errorCode"] == ""
+
+
+def test_store_confirmation_creates_receipt_event(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.receive_mcu_event(
+        "30000000-0000-4000-8000-000000000006",
+        "DELIVERY_COMPLETE",
+        {"payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d"},
+    )
+
+    result = store.receive_business_confirmation_and_create_receipt(
+        command_uid="60000000-0000-4000-8000-000000000002",
+        deployment_code="Dp_demo_01",
+        confirmation_payload={
+            "confirmationUid": "60000000-0000-4000-8000-000000000001",
+            "originalEventUid": "30000000-0000-4000-8000-000000000006",
+            "originalPayloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+            "outcome": "BUSINESS_APPLIED",
+        },
+    )
+
+    assert result == "ACCEPTED"
+    receipts = store._conn.execute(
+        "SELECT * FROM event_outbox WHERE event_type='BUSINESS_CONFIRMATION_RECEIPT'"
+    ).fetchall()
+    assert len(receipts) == 1
+    store.close()
