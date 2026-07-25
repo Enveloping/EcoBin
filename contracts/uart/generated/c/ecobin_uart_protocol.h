@@ -9,6 +9,11 @@
 #include <stdint.h>
 #include <string.h>
 
+/* ARM Compiler 5 uses __inline in C mode. */
+#if defined(__CC_ARM) && !defined(__cplusplus)
+#define inline __inline
+#endif
+
 #define ECOBIN_UART_REGISTRY_SHA256 "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705"
 #define ECOBIN_UART_BAUD_RATE 115200u
 #define ECOBIN_UART_DATA_BITS 8u
@@ -983,7 +988,7 @@ static inline int ecobin_uart_validate_frame(
     message_type = frame[4];
     flags = frame[5];
     tx_sequence = ecobin_uart_read_u32_be(frame + 8u);
-    if ((flags & (uint8_t)~ECOBIN_UART_FLAG_ACK_REQUIRED) != 0u
+    if ((flags & (UINT8_MAX ^ ECOBIN_UART_FLAG_ACK_REQUIRED)) != 0u
         || tx_sequence == 0u) return -6;
     ack_required = ecobin_uart_message_ack_required(message_type);
     direction = ecobin_uart_message_direction(message_type);
@@ -1009,7 +1014,7 @@ static inline int ecobin_uart_encode_frame(
     if (output == NULL || output_length == NULL
         || payload_length > ECOBIN_UART_MAX_PAYLOAD_LENGTH
         || output_capacity < length || tx_sequence == 0u) return -1;
-    if ((flags & (uint8_t)~ECOBIN_UART_FLAG_ACK_REQUIRED) != 0u) return -2;
+    if ((flags & (UINT8_MAX ^ ECOBIN_UART_FLAG_ACK_REQUIRED)) != 0u) return -2;
     output[0] = ECOBIN_UART_MAGIC_0;
     output[1] = ECOBIN_UART_MAGIC_1;
     output[2] = ECOBIN_UART_PROTOCOL_MAJOR;
