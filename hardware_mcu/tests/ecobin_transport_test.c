@@ -484,7 +484,7 @@ int main(void)
     ecobin_uart_frame_view_t snapshot_end;
     ecobin_transport_rx_msg_t rx_msg;
 
-    ecobin_transport_init("stm32f103rct6", "1.0.0-hil.2");
+    ecobin_transport_init("stm32f103rct6", "1.0.0-hil.3");
     CHECK(captured_count == 1u);
     CHECK(captured_view(0u, &hello_view) == 0);
     CHECK(hello_view.message_type == ECOBIN_UART_MESSAGE_HELLO);
@@ -507,7 +507,7 @@ int main(void)
     index = ECOBIN_UART_HELLO_FIRMWARE_IDENTITY_OFFSET;
     CHECK(hello_view.payload[index] == strlen("stm32f103rct6"));
     index += 1u + hello_view.payload[index];
-    CHECK(hello_view.payload[index] == strlen("1.0.0-hil.2"));
+    CHECK(hello_view.payload[index] == strlen("1.0.0-hil.3"));
     CHECK(
         hello_view.payload_length
         == index + 1u + hello_view.payload[index]);
@@ -573,6 +573,31 @@ int main(void)
     CHECK(
         snapshot_end.message_type
         == ECOBIN_UART_MESSAGE_STATE_SNAPSHOT_END);
+    CHECK(
+        ecobin_uart_read_u16_be(
+            snapshot_end.payload
+                + ECOBIN_UART_STATE_SNAPSHOT_END_PENDING_CRITICAL_EVENT_COUNT_OFFSET)
+        == 0u);
+    CHECK(
+        ecobin_uart_read_u64_be(
+            snapshot_end.payload
+                + ECOBIN_UART_STATE_SNAPSHOT_END_OLDEST_PENDING_EVENT_BOOT_ID_OFFSET)
+        == UINT64_C(0));
+    CHECK(
+        ecobin_uart_read_u32_be(
+            snapshot_end.payload
+                + ECOBIN_UART_STATE_SNAPSHOT_END_OLDEST_PENDING_EVENT_SEQUENCE_OFFSET)
+        == 0u);
+    CHECK(
+        ecobin_uart_read_u64_be(
+            snapshot_end.payload
+                + ECOBIN_UART_STATE_SNAPSHOT_END_LATEST_PENDING_EVENT_BOOT_ID_OFFSET)
+        == UINT64_C(0));
+    CHECK(
+        ecobin_uart_read_u32_be(
+            snapshot_end.payload
+                + ECOBIN_UART_STATE_SNAPSHOT_END_LATEST_PENDING_EVENT_SEQUENCE_OFFSET)
+        == 0u);
     CHECK(
         memcmp(
             snapshot_begin.payload
