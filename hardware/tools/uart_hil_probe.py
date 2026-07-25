@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         default=23,
         help="sample configuration version (default: 23)",
     )
+    parser.add_argument(
+        "--repeat-sample-configuration",
+        action="store_true",
+        help="replay the exact same configuration parts and verify idempotency",
+    )
     return parser.parse_args()
 
 
@@ -117,45 +122,67 @@ def _ack_hil_frame(link: UartLink, frame: dict) -> None:
 def _apply_sample_configuration(
     link: UartLink,
     version: int,
+    repeat: bool = False,
 ) -> dict:
     command = _sample_configuration(version)
     part_uids = [
         str(uuid.uuid4())
         for _ in range(len(command["payload"]["ports"]) + 3)
     ]
-    delivery = link.apply_configuration(command, part_uids)
-    if not delivery["acked"]:
-        raise UartError(
-            "sample configuration delivery failed: "
-            f"{delivery.get('error', 'unknown')}"
-        )
 
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        remaining_ms = max(
-            1,
-            int((deadline - time.monotonic()) * 1000),
-        )
-        frame = link.read_mcu_event(timeout_ms=remaining_ms)
-        if frame is None:
-            break
-        if frame.get("message_name") != "CONFIG_APPLY_RESULT":
+    def deliver_once() -> dict:
+        delivery = link.apply_configuration(command, part_uids)
+        if not delivery["acked"]:
             raise UartError(
-                "expected CONFIG_APPLY_RESULT, got "
-                f"{frame.get('message_name')}"
+                "sample configuration delivery failed: "
+                f"{delivery.get('error', 'unknown')}"
             )
-        _ack_hil_frame(link, frame)
-        return {
-            "delivery": delivery,
-            "result": frame,
-            "applicationUid": command["payload"]["applicationUid"],
-            "configVersion": version,
-            "contentSha256": command["payload"]["config"]["contentSha256"],
-            "mcuPayloadSha256": command["payload"]["config"][
-                "mcuPayloadSha256"
-            ],
-        }
-    raise UartError("CONFIG_APPLY_RESULT timeout")
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            remaining_ms = max(
+                1,
+                int((deadline - time.monotonic()) * 1000),
+            )
+            frame = link.read_mcu_event(timeout_ms=remaining_ms)
+            if frame is None:
+                break
+            if frame.get("message_name") != "CONFIG_APPLY_RESULT":
+                raise UartError(
+                    "expected CONFIG_APPLY_RESULT, got "
+                    f"{frame.get('message_name')}"
+                )
+            _ack_hil_frame(link, frame)
+            return {"delivery": delivery, "result": frame}
+        raise UartError("CONFIG_APPLY_RESULT timeout")
+
+    first = deliver_once()
+    outcome = {
+        **first,
+        "applicationUid": command["payload"]["applicationUid"],
+        "configVersion": version,
+        "contentSha256": command["payload"]["config"]["contentSha256"],
+        "mcuPayloadSha256": command["payload"]["config"][
+            "mcuPayloadSha256"
+        ],
+    }
+    if repeat:
+        duplicate = deliver_once()
+        commit_part = duplicate["delivery"]["parts"][-1]
+        if commit_part.get("disposition") != "DUPLICATE_ACCEPTED":
+            raise UartError(
+                "duplicate CONFIG_COMMIT was not duplicate-accepted"
+            )
+        first_sequence = first["result"]["payload"]["mcuEventSequence"]
+        duplicate_sequence = duplicate["result"]["payload"][
+            "mcuEventSequence"
+        ]
+        if duplicate_sequence != first_sequence:
+            raise UartError(
+                "duplicate CONFIG_APPLY_RESULT changed event sequence"
+            )
+        outcome["duplicateReplay"] = duplicate
+    return outcome
 
 
 def main() -> int:
@@ -186,6 +213,7 @@ def main() -> int:
             result["configuration"] = _apply_sample_configuration(
                 link,
                 args.config_version,
+                args.repeat_sample_configuration,
             )
             result["stage"] = "APPLY_CONFIGURATION"
         if args.query_state:

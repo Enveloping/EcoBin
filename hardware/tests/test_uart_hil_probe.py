@@ -8,27 +8,40 @@ from uart_link import compute_mcu_payload_sha256
 
 
 class FakeUartLink:
-    def __init__(self):
+    def __init__(self, repeat=False):
         self.applied = []
         self.acks = []
-        self.events = [
-            {
-                "message_name": "CONFIG_APPLY_RESULT",
-                "message_type": 20,
-                "tx_sequence": 9,
-                "payload": {
-                    "mcuBootId": 42,
-                    "status": "APPLIED",
-                    "configVersion": 23,
-                },
-            }
-        ]
+        event = {
+            "message_name": "CONFIG_APPLY_RESULT",
+            "message_type": 20,
+            "tx_sequence": 9,
+            "payload": {
+                "mcuBootId": 42,
+                "mcuEventSequence": 7,
+                "status": "APPLIED",
+                "configVersion": 23,
+            },
+        }
+        self.events = [event]
+        if repeat:
+            self.events.append(
+                {
+                    **event,
+                    "tx_sequence": 10,
+                    "payload": dict(event["payload"]),
+                }
+            )
 
     def apply_configuration(self, command, part_uids):
         self.applied.append((command, list(part_uids)))
+        disposition = (
+            "DUPLICATE_ACCEPTED"
+            if len(self.applied) > 1
+            else "ACCEPTED"
+        )
         return {
             "acked": True,
-            "parts": [],
+            "parts": [{"disposition": disposition}],
             "commit_mcu_command_uid": part_uids[-1],
         }
 
@@ -79,3 +92,22 @@ def test_apply_sample_configuration_waits_for_result_and_acks_it():
     assert len(link.applied[0][1]) == 4
     assert result["result"]["payload"]["status"] == "APPLIED"
     assert link.acks == [(42, 9, 20, "ACCEPTED")]
+
+
+def test_repeat_sample_configuration_reuses_identities_and_event_sequence():
+    link = FakeUartLink(repeat=True)
+
+    result = _apply_sample_configuration(link, 23, repeat=True)
+
+    assert len(link.applied) == 2
+    assert link.applied[0] == link.applied[1]
+    assert result["duplicateReplay"]["delivery"]["parts"][-1][
+        "disposition"
+    ] == "DUPLICATE_ACCEPTED"
+    assert result["duplicateReplay"]["result"]["payload"][
+        "mcuEventSequence"
+    ] == result["result"]["payload"]["mcuEventSequence"]
+    assert link.acks == [
+        (42, 9, 20, "ACCEPTED"),
+        (42, 10, 20, "ACCEPTED"),
+    ]
