@@ -1,7 +1,7 @@
 ---
 task_id: F-06
 title: 目标数据库 V6-V10 funds、operations 与约束
-status: blocked
+status: ready
 executor: agent
 owner: "TBD / database-funds-operations-owner"
 effort_range: "5-8 person-days"
@@ -13,8 +13,8 @@ implementation_authorized: false
 
 # F-06｜目标数据库 V6-V10 funds、operations 与约束
 
-> `status: blocked` 表示任务依赖尚未完成；`implementation_authorized: false`
-> 表示本文件的发布不构成编码或迁移授权。
+> `status: ready` 表示 F-05 前置依赖已经完成；`implementation_authorized: false`
+> 表示依赖解除不构成 F-06 编码或迁移授权。
 
 ## 目标
 
@@ -45,8 +45,9 @@ implementation_authorized: false
 
 ## 阻塞与最早开始
 
-- 当前被 [F-05](f-05-database-v5-recycling.md) 阻塞。
-- 必须先完成 V5，才能建立 V6～V10 中指向 recycling 的跨模块约束并验证完整 83 表。
+- [F-05](f-05-database-v5-recycling.md) 已完成，V5 及其验证证据已经具备，任务依赖
+  已经解除。
+- 本任务仍须由项目负责人明确授权后，才能实施 V6～V10。
 
 ## 排除范围
 
@@ -69,3 +70,5 @@ implementation_authorized: false
 
 - 2026-07-23：从已批准的 29 项任务拆分发布；尚未授权实施。
 - 2026-07-24：目标总表数随删除云端 `dev_delivery_cycle` 调整为 83；依赖和授权状态不变。
+- 2026-07-25：F-05 审核完成后任务由 `blocked` 转为 `ready`；尚未获得 F-06 编码或
+  迁移授权。

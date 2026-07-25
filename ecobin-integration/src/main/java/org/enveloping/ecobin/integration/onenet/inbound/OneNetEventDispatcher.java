@@ -2,11 +2,11 @@ package org.enveloping.ecobin.integration.onenet.inbound;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.enveloping.ecobin.business.dto.CleanGrossRequest;
-import org.enveloping.ecobin.business.dto.CleanTareRequest;
-import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.service.CleanOrderService;
-import org.enveloping.ecobin.business.service.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanGrossCommand;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleaningEventPort;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanTareCommand;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryEventPort;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryReportCommand;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -28,8 +28,8 @@ import java.math.BigDecimal;
 @RequiredArgsConstructor
 public class OneNetEventDispatcher implements OneNetMessageHandler {
 
-    private final CleanOrderService cleanOrderService;
-    private final DeliveryOrderService deliveryOrderService;
+    private final LegacyCleaningEventPort cleaningEventPort;
+    private final LegacyDeliveryEventPort deliveryEventPort;
     private final ObjectMapper objectMapper;
 
     // 物模型事件标识符（与 docs/iot/onenet-thing-model.md §4 对齐）
@@ -86,57 +86,42 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     }
 
     private void handleCleanGross(String sn, JsonNode v) {
-        CleanGrossRequest req = new CleanGrossRequest();
-        req.setSn(sn);
-        req.setCleanOrderId(v.path("cleanOrderId").asLong());
-        req.setWeight(decimal(v, "weight"));
-        // 照片 URL：设备自定位置、直传 COS 后随本事件回传，后端原样存（可选，缺失则前端占位）
-        if (v.has("photoOpenOutside")) {
-            req.setPhotoOpenOutside(v.path("photoOpenOutside").asString());
-        }
-        if (v.has("photoOpenInside")) {
-            req.setPhotoOpenInside(v.path("photoOpenInside").asString());
-        }
-        if (v.has("photoCloseOutside")) {
-            req.setPhotoCloseOutside(v.path("photoCloseOutside").asString());
-        }
-        if (v.has("photoCloseInside")) {
-            req.setPhotoCloseInside(v.path("photoCloseInside").asString());
-        }
-        cleanOrderService.reportGross(req);
-        log.info("[OneNet·分发] cleanGross 已入账 sn={}, cleanOrderId={}", sn, req.getCleanOrderId());
+        LegacyCleanGrossCommand command = new LegacyCleanGrossCommand(
+                sn,
+                v.path("cleanOrderId").asLong(),
+                decimal(v, "weight"),
+                optionalText(v, "photoOpenOutside"),
+                optionalText(v, "photoOpenInside"),
+                optionalText(v, "photoCloseOutside"),
+                optionalText(v, "photoCloseInside"));
+        cleaningEventPort.acceptGross(command);
+        log.info("[OneNet·分发] cleanGross 已入账 sn={}, cleanOrderId={}",
+                sn, command.cleanOrderId());
     }
 
     private void handleCleanTare(String sn, JsonNode v) {
-        CleanTareRequest req = new CleanTareRequest();
-        req.setSn(sn);
-        req.setCleanOrderId(v.path("cleanOrderId").asLong());
-        req.setWeight(decimal(v, "weight"));
-        cleanOrderService.reportTare(req);
-        log.info("[OneNet·分发] cleanTare 已入账 sn={}, cleanOrderId={}", sn, req.getCleanOrderId());
+        LegacyCleanTareCommand command = new LegacyCleanTareCommand(
+                sn,
+                v.path("cleanOrderId").asLong(),
+                decimal(v, "weight"));
+        cleaningEventPort.acceptTare(command);
+        log.info("[OneNet·分发] cleanTare 已入账 sn={}, cleanOrderId={}",
+                sn, command.cleanOrderId());
     }
 
     private void handleDeliveryComplete(String sn, String msgId, JsonNode v) {
-        DeliveryReportRequest req = new DeliveryReportRequest();
-        req.setSn(sn);
-        req.setMsgId(msgId);                 // 幂等键（OneNet 消息 id / MQ messageId）
-        req.setDoorIndex(v.path("doorIndex").asInt());
-        req.setWeight(decimal(v, "weight"));
-        // 照片 URL：设备直传 COS 后随本事件回传，后端原样存（可选，缺失则前端占位）
-        if (v.has("photoOpenOutside")) {
-            req.setPhotoOpenOutside(v.path("photoOpenOutside").asString());
-        }
-        if (v.has("photoOpenInside")) {
-            req.setPhotoOpenInside(v.path("photoOpenInside").asString());
-        }
-        if (v.has("photoCloseOutside")) {
-            req.setPhotoCloseOutside(v.path("photoCloseOutside").asString());
-        }
-        if (v.has("photoCloseInside")) {
-            req.setPhotoCloseInside(v.path("photoCloseInside").asString());
-        }
-        deliveryOrderService.completeDelivery(req);
-        log.info("[OneNet·分发] deliveryComplete 已入账 sn={}, doorIndex={}", sn, req.getDoorIndex());
+        LegacyDeliveryReportCommand command = new LegacyDeliveryReportCommand(
+                sn,
+                v.path("doorIndex").asInt(),
+                msgId,
+                decimal(v, "weight"),
+                optionalText(v, "photoOpenOutside"),
+                optionalText(v, "photoOpenInside"),
+                optionalText(v, "photoCloseOutside"),
+                optionalText(v, "photoCloseInside"));
+        deliveryEventPort.completeDelivery(command);
+        log.info("[OneNet·分发] deliveryComplete 已入账 sn={}, doorIndex={}",
+                sn, command.doorIndex());
     }
 
     /** OneJSON 事件输出可能被 {@code {"value":{..},"time":..}} 包裹，兼容解出真正的字段对象。 */
@@ -149,6 +134,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static BigDecimal decimal(JsonNode v, String field) {
         return new BigDecimal(v.path(field).asString());
+    }
+
+    private static String optionalText(JsonNode node, String field) {
+        return node.has(field) ? node.path(field).asString() : null;
     }
 
     /** 返回首个非空白字符串（用于挑选幂等键：报文 id 优先，回退 MQ messageId）。 */

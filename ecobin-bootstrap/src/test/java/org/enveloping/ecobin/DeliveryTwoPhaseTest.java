@@ -1,8 +1,8 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.entity.DeliveryOrder;
-import org.enveloping.ecobin.business.service.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryReportCommand;
+import org.enveloping.ecobin.recycling.application.legacy.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.domain.legacy.DeliveryOrder;
 import org.enveloping.ecobin.device.entity.Device;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DeviceSessionService;
@@ -101,18 +101,21 @@ class DeliveryTwoPhaseTest {
         return "https://bucket.cos.ap-shanghai.myqcloud.com/" + deviceSn + "/" + doorIndex + "/dev/";
     }
 
-    private DeliveryReportRequest report(String weight) {
-        DeliveryReportRequest req = new DeliveryReportRequest();
-        req.setSn(deviceSn);
-        req.setDoorIndex(doorIndex);
-        req.setWeight(new BigDecimal(weight));
-        // 模拟设备直传 COS 后随本次称重上报回传的 4 个照片 URL
+    private LegacyDeliveryReportCommand report(String weight) {
+        return report(weight, null);
+    }
+
+    private LegacyDeliveryReportCommand report(String weight, String messageId) {
         String base = photoBase();
-        req.setPhotoOpenOutside(base + "open_outside.jpg");
-        req.setPhotoOpenInside(base + "open_inside.jpg");
-        req.setPhotoCloseOutside(base + "close_outside.jpg");
-        req.setPhotoCloseInside(base + "close_inside.jpg");
-        return req;
+        return new LegacyDeliveryReportCommand(
+                deviceSn,
+                doorIndex,
+                messageId,
+                new BigDecimal(weight),
+                base + "open_outside.jpg",
+                base + "open_inside.jpg",
+                base + "close_outside.jpg",
+                base + "close_inside.jpg");
     }
 
     /** 查该设备最新一条投递单（已去 deliveryToken，无幂等键，按 id 倒序取最新）。 */
@@ -177,10 +180,8 @@ class DeliveryTwoPhaseTest {
 
         asDevice();
         String msgId = "mq-" + System.nanoTime();
-        DeliveryReportRequest first = report("1.0");
-        first.setMsgId(msgId);
-        DeliveryReportRequest dup = report("9.9");
-        dup.setMsgId(msgId);                                  // 同 OneNet 消息 id
+        LegacyDeliveryReportCommand first = report("1.0", msgId);
+        LegacyDeliveryReportCommand dup = report("9.9", msgId);
 
         deliveryOrderService.completeDelivery(first);
         deliveryOrderService.completeDelivery(dup);           // MQ 重投，按 device+msgId 幂等忽略

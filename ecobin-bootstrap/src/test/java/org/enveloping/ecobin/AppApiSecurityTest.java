@@ -1,7 +1,7 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.business.entity.DeliveryOrder;
-import org.enveloping.ecobin.business.service.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.application.legacy.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.domain.legacy.DeliveryOrder;
 import org.enveloping.ecobin.framework.context.TrustedAudience;
 import org.enveloping.ecobin.framework.context.TrustedExecutionContext;
 import org.enveloping.ecobin.framework.context.TrustedExecutionContextHolder;

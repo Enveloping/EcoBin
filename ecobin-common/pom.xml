@@ -14,18 +14,4 @@
     <name>ecobin-common</name>
     <description>公共模块：枚举、常量、工具类、基础实体、异常</description>
 
-    <dependencies>
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-
-        <!-- MyBatis Plus 注解（@TableName, @TableId 等） -->
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-        </dependency>
-    </dependencies>
-
 </project>

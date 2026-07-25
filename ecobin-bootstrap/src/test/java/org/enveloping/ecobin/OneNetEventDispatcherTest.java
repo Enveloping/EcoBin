@@ -1,11 +1,11 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.business.dto.CleanGrossRequest;
-import org.enveloping.ecobin.business.dto.CleanTareRequest;
-import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
-import org.enveloping.ecobin.business.service.CleanOrderService;
-import org.enveloping.ecobin.business.service.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanGrossCommand;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleaningEventPort;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanTareCommand;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryEventPort;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryReportCommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -24,15 +24,15 @@ import static org.mockito.Mockito.verifyNoInteractions;
  */
 class OneNetEventDispatcherTest {
 
-    private CleanOrderService cleanOrderService;
-    private DeliveryOrderService deliveryOrderService;
+    private LegacyCleaningEventPort cleaningEventPort;
+    private LegacyDeliveryEventPort deliveryEventPort;
     private OneNetEventDispatcher dispatcher;
 
     @BeforeEach
     void setUp() {
-        cleanOrderService = mock(CleanOrderService.class);
-        deliveryOrderService = mock(DeliveryOrderService.class);
-        dispatcher = new OneNetEventDispatcher(cleanOrderService, deliveryOrderService,
+        cleaningEventPort = mock(LegacyCleaningEventPort.class);
+        deliveryEventPort = mock(LegacyDeliveryEventPort.class);
+        dispatcher = new OneNetEventDispatcher(cleaningEventPort, deliveryEventPort,
                 JsonMapper.builder().build());
     }
 
@@ -46,15 +46,16 @@ class OneNetEventDispatcherTest {
 
         dispatcher.handle(json, "mq-msg-1");
 
-        ArgumentCaptor<CleanGrossRequest> captor = ArgumentCaptor.forClass(CleanGrossRequest.class);
-        verify(cleanOrderService).reportGross(captor.capture());
-        CleanGrossRequest req = captor.getValue();
-        assertThat(req.getSn()).isEqualTo("EcoBin-SN-0001");
-        assertThat(req.getCleanOrderId()).isEqualTo(123L);
-        assertThat(req.getWeight()).isEqualByComparingTo(new BigDecimal("12.5"));
+        ArgumentCaptor<LegacyCleanGrossCommand> captor =
+                ArgumentCaptor.forClass(LegacyCleanGrossCommand.class);
+        verify(cleaningEventPort).acceptGross(captor.capture());
+        LegacyCleanGrossCommand command = captor.getValue();
+        assertThat(command.sn()).isEqualTo("EcoBin-SN-0001");
+        assertThat(command.cleanOrderId()).isEqualTo(123L);
+        assertThat(command.weight()).isEqualByComparingTo(new BigDecimal("12.5"));
         // 照片 URL（设备自定位置）随事件回传，分发器灌进 DTO
-        assertThat(req.getPhotoOpenOutside()).isEqualTo("https://b/SN/clean/x/open_outside.jpg");
-        assertThat(req.getPhotoCloseInside()).isEqualTo("https://b/SN/clean/x/close_inside.jpg");
+        assertThat(command.photoOpenOutside()).isEqualTo("https://b/SN/clean/x/open_outside.jpg");
+        assertThat(command.photoCloseInside()).isEqualTo("https://b/SN/clean/x/close_inside.jpg");
     }
 
     @Test
@@ -65,12 +66,13 @@ class OneNetEventDispatcherTest {
 
         dispatcher.handle(json, "mq-msg-1");
 
-        ArgumentCaptor<CleanTareRequest> captor = ArgumentCaptor.forClass(CleanTareRequest.class);
-        verify(cleanOrderService).reportTare(captor.capture());
-        CleanTareRequest req = captor.getValue();
-        assertThat(req.getSn()).isEqualTo("EcoBin-SN-0002");
-        assertThat(req.getCleanOrderId()).isEqualTo(456L);
-        assertThat(req.getWeight()).isEqualByComparingTo(new BigDecimal("0.30"));
+        ArgumentCaptor<LegacyCleanTareCommand> captor =
+                ArgumentCaptor.forClass(LegacyCleanTareCommand.class);
+        verify(cleaningEventPort).acceptTare(captor.capture());
+        LegacyCleanTareCommand command = captor.getValue();
+        assertThat(command.sn()).isEqualTo("EcoBin-SN-0002");
+        assertThat(command.cleanOrderId()).isEqualTo(456L);
+        assertThat(command.weight()).isEqualByComparingTo(new BigDecimal("0.30"));
     }
 
     @Test
@@ -82,16 +84,17 @@ class OneNetEventDispatcherTest {
 
         dispatcher.handle(json, "mq-msg-1");
 
-        ArgumentCaptor<DeliveryReportRequest> captor = ArgumentCaptor.forClass(DeliveryReportRequest.class);
-        verify(deliveryOrderService).completeDelivery(captor.capture());
-        DeliveryReportRequest req = captor.getValue();
-        assertThat(req.getSn()).isEqualTo("EcoBin-SN-0003");
-        assertThat(req.getMsgId()).isEqualTo("mq-msg-1");   // 报文无 id → 回退 MQ messageId 作幂等键
-        assertThat(req.getDoorIndex()).isEqualTo(2);
-        assertThat(req.getWeight()).isEqualByComparingTo(new BigDecimal("3.2"));
+        ArgumentCaptor<LegacyDeliveryReportCommand> captor =
+                ArgumentCaptor.forClass(LegacyDeliveryReportCommand.class);
+        verify(deliveryEventPort).completeDelivery(captor.capture());
+        LegacyDeliveryReportCommand command = captor.getValue();
+        assertThat(command.sn()).isEqualTo("EcoBin-SN-0003");
+        assertThat(command.messageId()).isEqualTo("mq-msg-1");
+        assertThat(command.doorIndex()).isEqualTo(2);
+        assertThat(command.weight()).isEqualByComparingTo(new BigDecimal("3.2"));
         // 照片 URL 随事件回传，分发器灌进 DTO
-        assertThat(req.getPhotoOpenOutside()).isEqualTo("https://b/a/open_outside.jpg");
-        assertThat(req.getPhotoCloseInside()).isEqualTo("https://b/a/close_inside.jpg");
+        assertThat(command.photoOpenOutside()).isEqualTo("https://b/a/open_outside.jpg");
+        assertThat(command.photoCloseInside()).isEqualTo("https://b/a/close_inside.jpg");
     }
 
     @Test
@@ -101,6 +104,6 @@ class OneNetEventDispatcherTest {
 
         dispatcher.handle(json, "mq-msg-1");
 
-        verifyNoInteractions(cleanOrderService, deliveryOrderService);
+        verifyNoInteractions(cleaningEventPort, deliveryEventPort);
     }
 }

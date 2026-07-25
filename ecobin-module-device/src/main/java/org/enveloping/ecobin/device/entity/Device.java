@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import org.enveloping.ecobin.common.base.BaseEntity;
+import org.enveloping.ecobin.framework.persistence.BaseEntity;
 
 import java.math.BigDecimal;
 

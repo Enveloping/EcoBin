@@ -4,7 +4,7 @@
 > 整理日期：2026-07-22
 > 最近确认：2026-07-24，项目负责人确认会话一单、边缘本地多轮和无门磁清运门边界；A-001～A-020 的模块/部署职责仍全部确认
 > 最终独立读者测试：2026-07-22 通过，无阻断或重大歧义
-> 当前阶段：详细设计和 29 项正式任务已发布；H-01、F-01、F-02、F-04 已完成，F-03/F-05/F-09 已 ready 但未授权，F-10 软件已完成并等待 MCU/联调验收
+> 当前阶段：详细设计和 29 项正式任务已发布；H-01、F-01、F-02、F-03、F-04、F-05 已完成，F-06/F-09 已 ready 但未授权，F-10 软件已完成并等待 MCU/联调验收，F-11 实施中
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)
 > 现状参考：[`project-context.md`](../architecture/project-context.md)、当前代码、测试与 Flyway 迁移
 > 目的：确定 P0 的系统边界、部署形态、模块职责、依赖方向和一致性机制；本文不设计数据库字段、接口 URL、消息字段或类结构。
@@ -54,9 +54,9 @@ ecobin-bootstrap
 
 配套组件包括 React Web、原生微信小程序、香橙派 Python 程序、MCU、OneNet、COS 和微信小程序登录。该总体形态可以继续使用，问题主要位于模块职责、可靠性和业务模型内部。
 
-2026-07-24 实施进展：当前 reactor 已是九个目标模块加一个 legacy business 模块；
-system 已由 F-02 迁入 identity 并退出，F-03 负责最后的 business 边界收口。独立目标
-V1～V4 的 30 张 IAM/设备表已由 F-04 验证，但旧应用仍使用原 V1～V14 运行库。
+2026-07-25 实施进展：当前 reactor 已由 F-03 收口为最终九个目标模块；system 已由
+F-02 迁入 identity 并退出，business 也已迁入 funds、recycling、operations 并退出。
+独立目标 V1～V5 的 54 张表已由 F-04/F-05 验证，但旧应用仍使用原 V1～V14 运行库。
 
 ### 3.2 当前实现不能满足 P0 的关键点
 

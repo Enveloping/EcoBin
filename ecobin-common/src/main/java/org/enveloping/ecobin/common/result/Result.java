@@ -1,15 +1,8 @@
 package org.enveloping.ecobin.common.result;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 /**
  * 统一响应结果
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class Result<T> {
 
     /** 状态码 */
@@ -20,6 +13,15 @@ public class Result<T> {
 
     /** 数据 */
     private T data;
+
+    public Result() {
+    }
+
+    public Result(int code, String message, T data) {
+        this.code = code;
+        this.message = message;
+        this.data = data;
+    }
 
     // ---------- 成功 ----------
 
@@ -61,5 +63,29 @@ public class Result<T> {
 
     public static <T> Result<T> notFound(String message) {
         return new Result<>(404, message, null);
+    }
+
+    public int getCode() {
+        return code;
+    }
+
+    public void setCode(int code) {
+        this.code = code;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public T getData() {
+        return data;
+    }
+
+    public void setData(T data) {
+        this.data = data;
     }
 }

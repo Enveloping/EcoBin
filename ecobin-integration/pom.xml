@@ -40,12 +40,6 @@
             <artifactId>ecobin-module-operations</artifactId>
         </dependency>
 
-        <!-- F-03 前的旧 OneNet 分发器仍调用 legacy business 服务。 -->
-        <dependency>
-            <groupId>org.enveloping</groupId>
-            <artifactId>ecobin-module-business</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>com.qcloud</groupId>
             <artifactId>cos-sts_api</artifactId>

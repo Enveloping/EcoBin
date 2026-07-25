@@ -1,11 +1,11 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.business.dto.CleanGrossRequest;
-import org.enveloping.ecobin.business.dto.CleanTareRequest;
-import org.enveloping.ecobin.business.entity.CleanBag;
-import org.enveloping.ecobin.business.entity.CleanOrder;
-import org.enveloping.ecobin.business.service.CleanBagService;
-import org.enveloping.ecobin.business.service.CleanOrderService;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanGrossCommand;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanTareCommand;
+import org.enveloping.ecobin.recycling.application.legacy.CleanBagService;
+import org.enveloping.ecobin.recycling.application.legacy.CleanOrderService;
+import org.enveloping.ecobin.recycling.domain.legacy.CleanBag;
+import org.enveloping.ecobin.recycling.domain.legacy.CleanOrder;
 import org.enveloping.ecobin.device.entity.Device;
 import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceService;
@@ -105,20 +105,13 @@ class CleanFlowTest {
         return cleanOrderService.openCleanDoor(doorId, newBag).getId();
     }
 
-    private CleanGrossRequest gross(Long orderId, BigDecimal weight) {
-        CleanGrossRequest req = new CleanGrossRequest();
-        req.setSn(deviceSn);
-        req.setCleanOrderId(orderId);
-        req.setWeight(weight);
-        return req;
+    private LegacyCleanGrossCommand gross(Long orderId, BigDecimal weight) {
+        return new LegacyCleanGrossCommand(
+                deviceSn, orderId, weight, null, null, null, null);
     }
 
-    private CleanTareRequest tare(Long orderId, BigDecimal weight) {
-        CleanTareRequest req = new CleanTareRequest();
-        req.setSn(deviceSn);
-        req.setCleanOrderId(orderId);
-        req.setWeight(weight);
-        return req;
+    private LegacyCleanTareCommand tare(Long orderId, BigDecimal weight) {
+        return new LegacyCleanTareCommand(deviceSn, orderId, weight);
     }
 
     @Test
@@ -145,13 +138,15 @@ class CleanFlowTest {
     void grossStoresDeviceReturnedPhotoUrls() {
         Long orderId = openOrder("BAG-001");
         asDevice();
-        CleanGrossRequest req = gross(orderId, new BigDecimal("10.000"));
-        // 设备自传 COS 后随毛重上报回传 4 个 URL（位置设备自定）
-        req.setPhotoOpenOutside("https://b/SN/clean/x/open_outside.jpg");
-        req.setPhotoOpenInside("https://b/SN/clean/x/open_inside.jpg");
-        req.setPhotoCloseOutside("https://b/SN/clean/x/close_outside.jpg");
-        req.setPhotoCloseInside("https://b/SN/clean/x/close_inside.jpg");
-        CleanOrder order = cleanOrderService.reportGross(req);
+        LegacyCleanGrossCommand command = new LegacyCleanGrossCommand(
+                deviceSn,
+                orderId,
+                new BigDecimal("10.000"),
+                "https://b/SN/clean/x/open_outside.jpg",
+                "https://b/SN/clean/x/open_inside.jpg",
+                "https://b/SN/clean/x/close_outside.jpg",
+                "https://b/SN/clean/x/close_inside.jpg");
+        CleanOrder order = cleanOrderService.reportGross(command);
 
         assertEquals("https://b/SN/clean/x/open_outside.jpg", order.getPhotoOpenOutside());
         assertEquals("https://b/SN/clean/x/open_inside.jpg", order.getPhotoOpenInside());

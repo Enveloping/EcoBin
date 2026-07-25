@@ -3,7 +3,7 @@ package org.enveloping.ecobin.device.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import org.enveloping.ecobin.common.base.BaseEntity;
+import org.enveloping.ecobin.framework.persistence.BaseEntity;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

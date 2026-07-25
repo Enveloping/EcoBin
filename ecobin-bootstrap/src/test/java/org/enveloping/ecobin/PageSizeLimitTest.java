@@ -1,8 +1,8 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.business.entity.DeliveryOrder;
-import org.enveloping.ecobin.business.service.DeliveryOrderService;
-import org.enveloping.ecobin.business.service.StatisticsService;
+import org.enveloping.ecobin.operations.application.legacy.StatisticsService;
+import org.enveloping.ecobin.recycling.application.legacy.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.domain.legacy.DeliveryOrder;
 import org.enveloping.ecobin.common.result.PageResult;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
 import org.junit.jupiter.api.AfterEach;

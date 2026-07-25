@@ -1,11 +1,8 @@
 package org.enveloping.ecobin.common.exception;
 
-import lombok.Getter;
-
 /**
  * 业务异常
  */
-@Getter
 public class BusinessException extends RuntimeException {
 
     private final int code;
@@ -23,5 +20,9 @@ public class BusinessException extends RuntimeException {
     public BusinessException(int code, String message, Throwable cause) {
         super(message, cause);
         this.code = code;
+    }
+
+    public int getCode() {
+        return code;
     }
 }

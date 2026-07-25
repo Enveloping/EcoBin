@@ -14,9 +14,9 @@
 
 ## 1. 当前阶段
 
-- 截至 2026-07-24，需求、P0 范围、业务模型、系统架构、目标数据库、目标接口和详细设计均已完成确认；投递已修订为一次 session 一单和设备本地继续，清运已按电磁阀解锁/人工关门的真实硬件边界修订。
-- 接口设计编号为 I-001～I-055。DD-004 与 PDD-001 已分别写回 I-051～I-053；29 项正式任务已经发布到 [`docs/planning/tasks/p0-controlled-loop/`](docs/planning/tasks/p0-controlled-loop/00-index.md)。项目负责人已授权并完成 H-01、F-01、F-02、F-04；F-03、F-05、F-09 已因前置完成进入 `ready`，但尚未获得编码授权。F-10 软件机器来源、MCU Registry checkpoint 和通用 Java/Python 3.11/C11 黄金样本已完成，仍缺 MCU 实际工具链与 HIL，任务级保持 `blocked`；F-11 已获授权并完成 `APPLY_CONFIGURATION` 软件纵切，继续处于 `in-progress`。当前合计 `done` 4、`ready` 3、`in-progress` 1、`blocked` 21。
-- 当前仓库是 F-02/F-04 后的过渡实现：九个目标模块已经进入 reactor，OneNet/COS/微信外部实现已进入 integration，旧 system 已迁入 identity 并退出；只剩旧 business 作为 F-03 的显式过渡模块。目标数据库 V1～V4 的独立迁移已经过 MySQL 8.4 双空库验证，但尚未接管旧应用运行库。设计文档“已冻结”不表示 V5～V10、纵向业务或设备协议已经整体完成。
+- 截至 2026-07-25，需求、P0 范围、业务模型、系统架构、目标数据库、目标接口和详细设计均已完成确认；投递已修订为一次 session 一单和设备本地继续，清运已按电磁阀解锁/人工关门的真实硬件边界修订。
+- 接口设计编号为 I-001～I-055。DD-004 与 PDD-001 已分别写回 I-051～I-053；29 项正式任务已经发布到 [`docs/planning/tasks/p0-controlled-loop/`](docs/planning/tasks/p0-controlled-loop/00-index.md)。项目负责人已授权并完成 H-01、F-01、F-02、F-03、F-04、F-05；F-06、F-09 已因前置完成进入 `ready`，但尚未获得编码授权。F-10 软件机器来源、MCU Registry checkpoint 和通用 Java/Python 3.11/C11 黄金样本已完成，仍缺 MCU 实际工具链与 HIL，任务级保持 `blocked`；F-11 已获授权并完成 `APPLY_CONFIGURATION` 软件纵切，继续处于 `in-progress`。当前合计 `done` 6、`ready` 2、`in-progress` 1、`blocked` 20。
+- 当前仓库已由 F-03 收口为最终九模块 reactor：OneNet/COS/微信外部实现位于 integration，旧 system 已迁入 identity，旧 business 的旧行为已分别迁入 funds、recycling、operations，并通过 device 公开端口协作。目标数据库 V1～V5 共 54 张表的独立迁移已经过 MySQL 8.4 双空库验证，但尚未接管旧应用运行库。设计文档“已冻结”不表示 V6～V10、纵向业务或设备协议已经整体完成。
 - 近期交付重点仍是公司自用的受控 P0：用户投递、审核返现、清运换袋、机构充值和真实微信零钱提现闭环。真实资金、物理门控、租户/机构隔离和失败恢复不能因时间紧张而省略。
 - P0 是近期承诺范围，M0 是 P0 通过受控真实验收后的里程碑，M1 才是公司自用正式上线准备；三者不能混用。
 
@@ -32,15 +32,15 @@
    5. [`database-design-draft.md`](docs/planning/database-design-draft.md)
    6. [`interface-design-draft.md`](docs/planning/interface-design-draft.md)
    7. [`detailed-design-draft.md`](docs/planning/detailed-design-draft.md)
-4. 判断“系统现在如何运行”时，以当前代码、测试、根 `pom.xml`、旧运行 Flyway V1～V14、独立目标迁移 `db/p0-migration/V1～V4`、当前 OneNet 物模型和设备程序为准。
+4. 判断“系统现在如何运行”时，以当前代码、测试、根 `pom.xml`、旧运行 Flyway V1～V14、独立目标迁移 `db/p0-migration/V1～V5`、当前 OneNet 物模型和设备程序为准。
 5. 目标基线与当前实现冲突并不代表文档错误：先明确是在描述现状、迁移过程还是目标，禁止用旧代码反向推翻已确认目标，也禁止把目标文档当作已运行事实。
 
 ## 3. 当前实现与冻结目标必须分开
 
 | 范围 | 当前运行事实 | 冻结目标 |
 |---|---|---|
-| 后端模块 | 10 个子模块的过渡 reactor：9 个目标模块均已进入 reactor，system 已退出，仅 business 暂留；外部适配已迁入 integration | 最终只保留 9 个目标模块；F-03 完成 business 退出与业务边界迁移 |
-| 数据库 | 旧应用仍运行 V1～V14、13 张主要表；独立目标迁移 V1～V4 的 30 张表已通过 MySQL 8.4 双空库验证，但尚未切换 | 新建独立目标数据库和完整 V1～V10 新纪元；旧库/旧应用成对保留用于回退，不迁移旧业务数据 |
+| 后端模块 | 最终 9 模块 reactor 已完成；system/business 已退出，跨业务模块只经 `.api`，外部适配位于 integration | 9 模块物理边界已完成；后续在冻结边界内实现目标纵向业务 |
+| 数据库 | 旧应用仍运行 V1～V14、13 张主要表；独立目标迁移 V1～V5 的 54 张表已通过 MySQL 8.4 双空库验证，但尚未切换 | 新建独立目标数据库和完整 V1～V10 新纪元；旧库/旧应用成对保留用于回退，不迁移旧业务数据 |
 | Web 会话 | `localStorage` Bearer JWT，旧角色/路由 | 同源 `Secure + HttpOnly` Cookie、SPA CSRF、服务端 `jti` 会话和实时能力复核 |
 | 小程序 | 旧普通用户/清运身份与接口 | 普通/清运 `aud=miniapp`；工作人员经 Web 人工绑定后用独立 `aud=miniapp-staff` 免密进入当前机构精简管理页 |
 | 投递 | 旧会话、旧事件字段和当前状态拼接 | 一次有效扫码 session 一单；中间继续轮次只在设备本地，最终首末重量/四图一次上报并可靠确认 |
@@ -190,9 +190,9 @@
 - 不执行 `git reset --hard`、不擅自删除旧数据库/旧应用、不改真实数据库或外部平台配置，除非用户明确授权并已核对精确目标。
 - `.env`、APIv3 密钥、私钥、设备 Key、AppSecret、COS/OneNet 凭证、服务器凭证和真实用户数据不得写入版本库或普通输出。
 - AppSecret 的产品规则允许有权限人员在 Web 配置详情中回显当前完整值；这不允许把完整值写进日志、审计、告警或普通接口示例。
-- 当前实施授权按任务范围管理：H-01、F-01、F-02、F-04 已授权并完成，F-10 软件已完成，
-  F-11 已授权且处于 `in-progress`；
-  F-03、F-05、F-09 虽为 `ready` 但未获授权，不能据此前置进展自动实施。用户说“讨论、计划、设计”时保持文档级工作；
+- 当前实施授权按任务范围管理：H-01、F-01、F-02、F-03、F-04、F-05 已授权并完成，
+  F-10 软件已完成，F-11 已授权且处于 `in-progress`；
+  F-06、F-09 虽为 `ready` 但未获授权，不能据此前置进展自动实施。用户说“讨论、计划、设计”时保持文档级工作；
   只有明确要求实施并给出范围后才修改代码和运行有副作用的迁移/外部操作。
 - 文档发生阶段推进时，同步更新 `docs/README.md`、项目上下文和各基线顶部状态，避免新会话继续沿用旧阶段。
 

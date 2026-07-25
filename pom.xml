@@ -25,8 +25,6 @@
         <module>ecobin-module-funds</module>
         <module>ecobin-module-recycling</module>
         <module>ecobin-module-operations</module>
-        <!-- F-03 完成前保留的 legacy 业务模块。 -->
-        <module>ecobin-module-business</module>
         <module>ecobin-integration</module>
         <module>ecobin-bootstrap</module>
     </modules>
@@ -73,11 +71,6 @@
             <dependency>
                 <groupId>org.enveloping</groupId>
                 <artifactId>ecobin-module-operations</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.enveloping</groupId>
-                <artifactId>ecobin-module-business</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

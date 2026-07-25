@@ -1,7 +1,5 @@
 package org.enveloping.ecobin.common.enums;
 
-import lombok.Getter;
-
 /**
  * 角色体系（硬编码，跨三张登录主体表）。
  * <p>
@@ -9,7 +7,6 @@ import lombok.Getter;
  * 平台域（9/8，sys_admin）、租户域（7，sys_tenant）、终端域（3/2/1，sys_user）。
  * 详见 docs/architecture/permission-design.md。
  */
-@Getter
 public enum UserRole {
 
     SUPER_ADMIN(9, "超级管理员"),
@@ -25,6 +22,14 @@ public enum UserRole {
     UserRole(int code, String desc) {
         this.code = code;
         this.desc = desc;
+    }
+
+    public int getCode() {
+        return code;
+    }
+
+    public String getDesc() {
+        return desc;
     }
 
     /**

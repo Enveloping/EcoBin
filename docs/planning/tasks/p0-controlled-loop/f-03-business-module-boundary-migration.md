@@ -1,20 +1,20 @@
 ---
 task_id: F-03
 title: funds、device、recycling、operations 边界搬迁
-status: ready
+status: done
 executor: agent
-owner: "TBD / backend-architecture-owner"
+owner: "Codex / backend-architecture-owner"
 effort_range: "4-7 person-days"
 earliest_start: "F-02 done 后"
 blocked_by:
   - F-02
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # F-03｜funds、device、recycling、operations 边界搬迁
 
-> `status: ready` 表示 F-02 前置依赖已经完成；`implementation_authorized: false`
-> 表示依赖解除不构成 F-03 编码授权。
+> `status: done` 表示 F-03 已按授权完成旧行为等价的模块边界搬迁；目标新业务仍由
+> 后续纵向任务实施。
 
 ## 目标
 
@@ -34,21 +34,21 @@ implementation_authorized: false
 
 ## 验收条件
 
-- [ ] 根构建最终只声明九个目标模块。
-- [ ] 旧 system/business 不再作为 Maven 模块存在。
-- [ ] 跨业务模块只导入目标模块 `.api`。
-- [ ] `UserMapper`、`DeviceMapper`、跨域 Entity 和内部 Service 的直接引用为零。
-- [ ] common 为小型纯 Java 共享内核，不依赖 Spring、MyBatis 或外部 SDK。
-- [ ] framework 只保留稳定基础设施和技术端口。
-- [ ] bootstrap 只负责组装、配置、数据库 guard、seed runner 和跨模块测试。
-- [ ] 全量构建及旧行为回归测试通过。
-- [ ] 没有在搬迁中顺带实现目标新业务。
+- [x] 根构建最终只声明九个目标模块。
+- [x] 旧 system/business 不再作为 Maven 模块存在。
+- [x] 跨业务模块只导入目标模块 `.api`。
+- [x] `UserMapper`、`DeviceMapper`、跨域 Entity 和内部 Service 的直接引用为零。
+- [x] common 为小型纯 Java 共享内核，不依赖 Spring、MyBatis 或外部 SDK。
+- [x] framework 只保留稳定基础设施和技术端口。
+- [x] bootstrap 只负责组装、配置、数据库 guard、seed runner 和跨模块测试。
+- [x] 全量构建及旧行为回归测试通过。
+- [x] 没有在搬迁中顺带实现目标新业务。
 
 ## 阻塞与最早开始
 
 - [F-02](f-02-identity-boundary-and-trusted-context.md) 已完成，identity 的公开边界和迁移
   已稳定，任务依赖已经解除。
-- 本任务仍须由项目负责人明确授权后，才能清除旧 business 并完成最终九模块收口。
+- 项目负责人已于 2026-07-25 明确授权，任务已经完成，不再存在实施阻塞。
 
 ## 排除范围
 
@@ -69,3 +69,14 @@ implementation_authorized: false
 - 2026-07-23：从已批准的 29 项任务拆分发布；尚未授权实施。
 - 2026-07-24：同步 session 一单设计，删除目标云端投递周期事实；任务依赖和授权状态不变。
 - 2026-07-24：F-02 完成后任务由 `blocked` 转为 `ready`；尚未获得 F-03 编码授权。
+- 2026-07-25：项目负责人明确授权实施 F-03，任务转为 `in-progress`。
+- 2026-07-25：旧 `business` 的钱包/提现、投递/清运和统计行为分别迁入 funds、
+  recycling、operations，device 提供窄公开查询端口；OneNet 入站只依赖 recycling
+  公开事件端口。common 收紧为纯 Java 共享内核，持久化基类移入 framework，旧
+  `ecobin-module-business` 从源码、POM 和 reactor 退出。
+- 2026-07-25：使用 JDK 21.0.10 完成最终验证：根项目加 9 个目标模块共 10 个
+  reactor project 全部成功；23 份 Surefire 报告、82 项测试
+  `failures=0`、`errors=0`、`skipped=0`；`mvn.cmd install -DskipTests` 成功。
+  新增边界测试固定九模块清单、Maven DAG、跨业务模块仅 `.api`、common 纯 Java 和
+  bootstrap 只组装五项门禁。实施证据见
+  [F-03 模块边界搬迁证据](../../../architecture/f-03-business-boundary-evidence.md)。

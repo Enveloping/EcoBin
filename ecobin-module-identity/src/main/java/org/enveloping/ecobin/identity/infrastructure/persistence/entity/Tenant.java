@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import org.enveloping.ecobin.common.base.PlatformBaseEntity;
+import org.enveloping.ecobin.framework.persistence.PlatformBaseEntity;
 
 /**
  * 租户/机构实体（sys_tenant）。

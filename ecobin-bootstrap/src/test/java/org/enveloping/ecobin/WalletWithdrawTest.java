@@ -1,15 +1,15 @@
 package org.enveloping.ecobin;
 
-import org.enveloping.ecobin.business.dto.DeliveryReportRequest;
-import org.enveloping.ecobin.business.service.DeliveryOrderService;
+import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryReportCommand;
+import org.enveloping.ecobin.recycling.application.legacy.DeliveryOrderService;
 import org.enveloping.ecobin.common.exception.BusinessException;
 import org.enveloping.ecobin.device.entity.Device;
 import org.enveloping.ecobin.device.entity.Door;
 import org.enveloping.ecobin.device.service.DeviceService;
 import org.enveloping.ecobin.device.service.DoorService;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
-import org.enveloping.ecobin.business.entity.WithdrawOrder;
-import org.enveloping.ecobin.business.service.WalletService;
+import org.enveloping.ecobin.funds.application.legacy.WalletService;
+import org.enveloping.ecobin.funds.domain.legacy.WithdrawOrder;
 import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
 import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDraft;
 import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserFinancePort;
@@ -148,14 +148,12 @@ class WalletWithdrawTest {
         deliveryOrderService.openDoor(doorId);
 
         asDevice();
-        DeliveryReportRequest report = new DeliveryReportRequest();
-        report.setSn(deviceSn);
-        report.setDoorIndex(doorIndex);
-        report.setWeight(new BigDecimal("1.500"));
-        deliveryOrderService.completeDelivery(report);
+        deliveryOrderService.completeDelivery(new LegacyDeliveryReportCommand(
+                deviceSn, doorIndex, null, new BigDecimal("1.500"),
+                null, null, null, null));
 
         return deliveryOrderService.lambdaQuery()
-                .orderByDesc(org.enveloping.ecobin.business.entity.DeliveryOrder::getId)
+                .orderByDesc(org.enveloping.ecobin.recycling.domain.legacy.DeliveryOrder::getId)
                 .last("limit 1")
                 .one().getId();
     }

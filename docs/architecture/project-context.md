@@ -4,7 +4,7 @@
 > 本文记录对话中形成、仅靠代码不容易恢复的决策。代码和更新日期更晚的专题文档若与本文冲突，以较新的事实为准。
 
 > [!IMPORTANT]
-> 2026-07-24 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-04 已获授权并完成；F-03、F-05、F-09 已 `ready` 但尚未授权。F-10 软件机器来源、MCU Registry checkpoint 和通用三语言黄金样本已完成，仍缺 MCU 实际工具链/HIL；F-11 已获授权并完成配置命令软件纵切，继续 `in-progress`。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
+> 2026-07-25 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-03、F-04、F-05 已获授权并完成；F-06、F-09 已 `ready` 但尚未授权。F-10 软件机器来源、MCU Registry checkpoint 和通用三语言黄金样本已完成，仍缺 MCU 实际工具链/HIL；F-11 已获授权并完成配置命令软件纵切，继续 `in-progress`。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
 > [`requirements-baseline.md`](../planning/requirements-baseline.md)、
 > [`p0-scope-baseline.md`](../planning/p0-scope-baseline.md) 和
 > [`business-model-baseline.md`](../planning/business-model-baseline.md)，冻结的系统结构见
@@ -18,12 +18,13 @@
 
 EcoBin 是智慧环保回收箱系统：Spring Boot 4.0.6 + Java 21 的 Maven 多模块后端，配套 Web 管理后台、微信小程序和香橙派设备程序。
 
-- `ecobin-common`：公共实体、响应、异常。
+- `ecobin-common`：极小纯 Java 共享内核，只保留响应、异常和通用角色值。
 - `ecobin-framework`：Security/JWT、多租户和通用基础设施；F-01 后不再保存外部平台实现。
 - `ecobin-module-identity`：F-02 已承接原 system 的管理员、租户、用户和认证行为，并建立可信执行上下文与公开身份边界。
-- `ecobin-module-device`：设备、投口、设备会话。
-- `ecobin-module-business`：投递、清运、钱包和统计的 legacy 过渡模块；OneNet 事件分发已迁入 integration。
-- `ecobin-module-funds`、`ecobin-module-recycling`、`ecobin-module-operations`：F-01 已建立目标骨架；funds 已参加 F-02 首次注册事务，余下旧 business 边界由 F-03 搬迁。
+- `ecobin-module-device`：设备、投口、设备会话，并通过迁移期公开端口提供设备查询与统计。
+- `ecobin-module-funds`：F-03 已承接旧钱包、提现行为，并保留 F-02 首次注册事务参与端口。
+- `ecobin-module-recycling`：F-03 已承接旧投递、审核、清运和袋行为。
+- `ecobin-module-operations`：F-03 已承接旧统计聚合，并只通过其他模块公开端口读取数据。
 - `ecobin-integration`：F-01 后承接 OneNet/Pulsar、COS 和微信适配实现。
 - `ecobin-bootstrap`：依赖组装、配置、Flyway、启动入口。
 - `frontend/web`：React 18 + TypeScript + Vite + Ant Design/ProComponents。
@@ -32,10 +33,9 @@ EcoBin 是智慧环保回收箱系统：Spring Boot 4.0.6 + Java 21 的 Maven �
 
 后端结构、命令和通用约定见根目录 `CLAUDE.md`。
 
-当前是“九个目标模块 + business 一个 legacy 模块”的 10 子模块过渡 reactor。
-冻结终态仍为 common、framework、identity、device、funds、recycling、operations、
-integration、bootstrap 共 9 个模块；跨模块只导入 `.api`，原 `system` 已在 F-02 退出，
-`business` 待 F-03 搬迁完成后退出。完整依赖和事务规则见
+当前已是 common、framework、identity、device、funds、recycling、operations、
+integration、bootstrap 共 9 个模块的终态物理 reactor；原 `system` 已在 F-02 退出，
+原 `business` 已在 F-03 搬迁并退出，跨业务模块只导入 `.api`。完整依赖和事务规则见
 [`system-architecture-draft.md`](../planning/system-architecture-draft.md) 与
 [`I-051～I-055`](../planning/interface-design/11-module-ports-machine-contracts-i051-i055.md)。
 
@@ -153,19 +153,19 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 DD-004、修订后的 PDD-001、29 项任务粒度/依赖、`status/executor` 分类和
 2026-07-30 仅作风险排序均已确认。29 项任务已发布并同步 2026-07-24 修订到
 [`p0-controlled-loop/00-index.md`](../planning/tasks/p0-controlled-loop/00-index.md)：H-01、
-F-01、F-02、F-04 已完成；F-03、F-05、F-09 因前置完成进入 `ready`，但未获实施授权；
+F-01、F-02、F-03、F-04、F-05 已完成；F-06、F-09 因前置完成进入 `ready`，但未获实施授权；
 F-10 软件阶段、MCU Registry checkpoint 和通用三语言黄金样本已完成，等待 MCU 实际
 工具链和 HIL，任务级保持 `blocked`；F-11 已获授权并完成配置命令软件纵切，继续处于
-`in-progress`。当前共 `done` 4、`ready` 3、
-`in-progress` 1、`blocked` 21。其他任务没有因前置推进而自动获得实施授权。
+`in-progress`。当前共 `done` 6、`ready` 2、
+`in-progress` 1、`blocked` 20。其他任务没有因前置推进而自动获得实施授权。
 
 实施入口已经明确：
 
-- 保持旧行为的 9 模块物理骨架和 F-02 identity 迁移已完成；下一结构步骤是获授权后执行
-  F-03，迁移 business 并收口为最终 9 模块；
-- 目标 V1～V4 的 30 张表已通过 MySQL 8.4 双空库验证；下一数据库步骤是获授权后执行
-  F-05，继续 V5，之后再推进 V6～V10、数据库身份和 epoch guard；
-- F-09 HTTP/OpenAPI 客户端传输也已 `ready`，但和 F-03、F-05 一样尚未授权；
+- 保持旧行为的最终 9 模块物理边界已经完成，后续目标业务必须在该边界内通过公开
+  `.api` 端口实现，不能恢复旧 system/business 大模块；
+- 目标 V1～V5 的 54 张表已通过 MySQL 8.4 双空库验证；下一数据库步骤是获授权后执行
+  F-06，继续 V6～V10，之后再推进数据库身份和 epoch guard；
+- F-09 HTTP/OpenAPI 客户端传输也已 `ready`，但和 F-06 一样尚未授权；
 - F-11 下一步补齐其他业务命令状态机、COS 上传、强杀/断网故障注入；真实 MCU 恢复
   `HELLO` 后立即执行配置分段和恢复 HIL；
 - 后续按投递、审核钱包、清运、满溢恢复、充值、提现和 operations 的纵向切片推进；
