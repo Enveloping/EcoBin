@@ -1,14 +1,14 @@
 ---
 task_id: F-05
 title: 目标数据库 V5 recycling
-status: ready
+status: done
 executor: agent
-owner: "TBD / database-recycling-owner"
+owner: "Codex / backend-database"
 effort_range: "3-5 person-days"
 earliest_start: "F-04 done 后"
 blocked_by:
   - F-04
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # F-05｜目标数据库 V5 recycling
@@ -32,16 +32,16 @@ implementation_authorized: false
 
 ## 验收条件
 
-- [ ] V5 可在完成的 V1～V4 上严格升级。
-- [ ] V5 准确建立 24 张 recycling 表。
-- [ ] 投递原始设备事实不会被最终认定值覆盖。
-- [ ] 一个投递 session 最多关联一笔订单和一个最终物理结果，中间本地轮次不建表、不入订单。
-- [ ] 负重量可以保存；订单 `negativeWeightAnomaly` 精确复制最终载荷布尔值，不按整场净重补判；照片使用强类型标准槽位。
-- [ ] 订单、revision、袋位置和满溢检测代际约束完整。
-- [ ] 袋没有生命周期状态字段，实体袋可重复使用。
-- [ ] 旧袋缺失可以被记录，但不会伪造旧袋或阻止普通清运的数据构造。
-- [ ] 两机构的业务关系不能通过外键、唯一范围或可空列组合串联。
-- [ ] 迁移失败不会被容错 SQL 掩盖。
+- [x] V5 可在完成的 V1～V4 上严格升级。
+- [x] V5 准确建立 24 张 recycling 表。
+- [x] 投递原始设备事实不会被最终认定值覆盖。
+- [x] 一个投递 session 最多关联一笔订单和一个最终物理结果，中间本地轮次不建表、不入订单。
+- [x] 负重量可以保存；订单 `negativeWeightAnomaly` 精确复制最终载荷布尔值，不按整场净重补判；照片使用强类型标准槽位。
+- [x] 订单、revision、袋位置和满溢检测代际约束完整。
+- [x] 袋没有生命周期状态字段，实体袋可重复使用。
+- [x] 旧袋缺失可以被记录，但不会伪造旧袋或阻止普通清运的数据构造。
+- [x] 两机构的业务关系不能通过外键、唯一范围或可空列组合串联。
+- [x] 迁移失败不会被容错 SQL 掩盖。
 
 ## 阻塞与最早开始
 
@@ -69,3 +69,17 @@ implementation_authorized: false
 - 2026-07-23：从已批准的 29 项任务拆分发布；尚未授权实施。
 - 2026-07-24：同步 session 唯一订单、整场四图和最终负重量布尔标志约束；依赖和授权状态不变。
 - 2026-07-24：F-04 完成后任务由 `blocked` 转为 `ready`；尚未获得 F-05 编码或迁移授权。
+- 2026-07-25：项目负责人授权继续推进后端并允许自行选取任务；Codex 领取 F-05，
+  在独立 `codex/f05-recycling` 分支与 `database-refactor-f05-recycling` worktree
+  开始实施。
+- 2026-07-25：完成 `V5__recycling.sql`、24 表逐表验证矩阵和
+  `verify-f05-migrations.ps1`。官方 MySQL 8.4.10 两套空库严格安装 V1～V5 后结构一致：
+  54 tables / 189 FK / 180 UQ / 258 CHECK / 186 non-unique indexes；
+  189 个外键全部有显式左前缀索引，24 张 recycling 表全部直接引用机构根，
+  16 个数据负例和负重量不补判、四照片槽、旧袋缺失清运、负容量原值及 >100% 满溢度
+  正例通过。结构 SHA-256：
+  `af3684aca14e082afa624a425f2d7aeca675b39dfd8300e66eb5b3f744c40ca7`。
+  使用项目要求的 JDK 21.0.10 执行完整 Maven reactor `.\mvnw.cmd test`，
+  退出码为 0。
+  任务进入 `in-review`，等待主审合并确认。
+- 2026-07-25：项目负责人完成审核并确认合并，任务转为 `done`。
