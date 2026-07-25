@@ -144,17 +144,18 @@ static void build_edge_hello(uint8_t *payload, uint16_t *payload_length)
 }
 
 static void build_edge_hello_ack(
-    uint8_t payload[ECOBIN_UART_HELLO_ACK_PAYLOAD_MAX_LENGTH])
+    uint8_t payload[ECOBIN_UART_HELLO_ACK_PAYLOAD_MAX_LENGTH],
+    const uint8_t referenced_sender_boot_id[8])
 {
     memset(payload, 0, ECOBIN_UART_HELLO_ACK_PAYLOAD_MAX_LENGTH);
     fill_bytes(
         payload + ECOBIN_UART_HELLO_ACK_RESPONDER_BOOT_ID_OFFSET,
         8u,
         0xA1u);
-    fill_bytes(
+    memcpy(
         payload + ECOBIN_UART_HELLO_ACK_REFERENCED_SENDER_BOOT_ID_OFFSET,
-        8u,
-        1u);
+        referenced_sender_boot_id,
+        8u);
     payload[ECOBIN_UART_HELLO_ACK_SELECTED_MAJOR_OFFSET] =
         ECOBIN_UART_PROTOCOL_MAJOR;
     payload[ECOBIN_UART_HELLO_ACK_SELECTED_MINOR_OFFSET] =
@@ -483,7 +484,7 @@ int main(void)
     ecobin_uart_frame_view_t snapshot_end;
     ecobin_transport_rx_msg_t rx_msg;
 
-    ecobin_transport_init("stm32f103rct6", "1.0.0-hil.1");
+    ecobin_transport_init("stm32f103rct6", "1.0.0-hil.2");
     CHECK(captured_count == 1u);
     CHECK(captured_view(0u, &hello_view) == 0);
     CHECK(hello_view.message_type == ECOBIN_UART_MESSAGE_HELLO);
@@ -492,13 +493,21 @@ int main(void)
         == ECOBIN_UART_SENDER_ROLE_MCU);
     CHECK(
         ecobin_uart_read_u64_be(
+            hello_view.payload + ECOBIN_UART_HELLO_SENDER_BOOT_ID_OFFSET)
+        >= UINT64_C(1));
+    CHECK(
+        ecobin_uart_read_u64_be(
+            hello_view.payload + ECOBIN_UART_HELLO_SENDER_BOOT_ID_OFFSET)
+        <= UINT64_C(9007199254740991));
+    CHECK(
+        ecobin_uart_read_u64_be(
             hello_view.payload + ECOBIN_UART_HELLO_CAPABILITY_BITMAP_OFFSET)
         == (ECOBIN_UART_CAPABILITY_CONFIG_STAGING_COMMIT
             | ECOBIN_UART_CAPABILITY_STATE_SNAPSHOT_SEGMENTS));
     index = ECOBIN_UART_HELLO_FIRMWARE_IDENTITY_OFFSET;
     CHECK(hello_view.payload[index] == strlen("stm32f103rct6"));
     index += 1u + hello_view.payload[index];
-    CHECK(hello_view.payload[index] == strlen("1.0.0-hil.1"));
+    CHECK(hello_view.payload[index] == strlen("1.0.0-hil.2"));
     CHECK(
         hello_view.payload_length
         == index + 1u + hello_view.payload[index]);
@@ -530,7 +539,9 @@ int main(void)
         == ECOBIN_UART_HELLO_STATUS_ACCEPTED);
     CHECK(ecobin_transport_get_state() == ECOBIN_TRANSPORT_HELLO_SENT);
 
-    build_edge_hello_ack(edge_hello_ack);
+    build_edge_hello_ack(
+        edge_hello_ack,
+        hello_view.payload + ECOBIN_UART_HELLO_SENDER_BOOT_ID_OFFSET);
     CHECK(
         feed_edge_frame(
             ECOBIN_UART_MESSAGE_HELLO_ACK,

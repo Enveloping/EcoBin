@@ -1477,6 +1477,32 @@ static int handle_query_state(const ecobin_uart_frame_view_t *view)
 
 /* ---- Public API ---- */
 
+static void normalize_boot_id_for_wire(uint8_t boot_id[8])
+{
+    uint8_t i;
+    uint8_t any_nonzero;
+
+    /*
+     * UART 1.0 freezes senderBootId to 1..2^53-1 so the value remains exact
+     * across the OneNet/JSON path. The current HIL firmware derives this value
+     * from the hardware UID; production still requires a persistent monotonic
+     * boot counter so that every real reboot receives a different ID.
+     */
+    boot_id[0] = 0u;
+    boot_id[1] &= 0x1Fu;
+
+    any_nonzero = 0u;
+    for (i = 0u; i < 8u; ++i) {
+        if (boot_id[i] != 0u) {
+            any_nonzero = 1u;
+            break;
+        }
+    }
+    if (any_nonzero == 0u) {
+        boot_id[7] = 1u;
+    }
+}
+
 void ecobin_transport_init(
     const char *firmware_identity,
     const char *firmware_version)
@@ -1496,6 +1522,7 @@ void ecobin_transport_init(
         g_transport.boot_id[i] = ((uint8_t *)uid)[i];
 #endif
     }
+    normalize_boot_id_for_wire(g_transport.boot_id);
     g_transport.tx_sequence       = 1u;
     g_transport.event_sequence    = 0u;
     g_transport.firmware_identity = firmware_identity;
