@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 
-/* ARM Compiler 5 (C89 mode) compatibility */
+/* ARM Compiler 5 uses __inline in C mode. */
 #if defined(__CC_ARM) && !defined(__cplusplus)
 #define inline __inline
 #endif
@@ -67,6 +67,10 @@ typedef enum ecobin_uart_message_type {
     ECOBIN_UART_MESSAGE_STATE_SNAPSHOT_PORT = 0x51u,
     ECOBIN_UART_MESSAGE_STATE_SNAPSHOT_END = 0x52u,
 } ecobin_uart_message_type_t;
+
+typedef uint8_t ecobin_uart_sender_role_t;
+#define ECOBIN_UART_SENDER_ROLE_EDGE 1u
+#define ECOBIN_UART_SENDER_ROLE_MCU 2u
 
 typedef uint8_t ecobin_uart_hello_status_t;
 #define ECOBIN_UART_HELLO_STATUS_ACCEPTED 1u
@@ -864,11 +868,6 @@ static inline void ecobin_uart_copy_sha256(uint8_t *target, const uint8_t source
     memcpy(target, source, 32u);
 }
 
-typedef enum ecobin_uart_sender_role {
-    ECOBIN_UART_SENDER_EDGE = 1,
-    ECOBIN_UART_SENDER_MCU = 2
-} ecobin_uart_sender_role_t;
-
 typedef struct ecobin_uart_frame_view {
     uint8_t message_type;
     uint8_t flags;
@@ -989,7 +988,7 @@ static inline int ecobin_uart_validate_frame(
     message_type = frame[4];
     flags = frame[5];
     tx_sequence = ecobin_uart_read_u32_be(frame + 8u);
-    if ((flags & (uint8_t)~ECOBIN_UART_FLAG_ACK_REQUIRED) != 0u
+    if ((flags & (UINT8_MAX ^ ECOBIN_UART_FLAG_ACK_REQUIRED)) != 0u
         || tx_sequence == 0u) return -6;
     ack_required = ecobin_uart_message_ack_required(message_type);
     direction = ecobin_uart_message_direction(message_type);
@@ -1015,7 +1014,7 @@ static inline int ecobin_uart_encode_frame(
     if (output == NULL || output_length == NULL
         || payload_length > ECOBIN_UART_MAX_PAYLOAD_LENGTH
         || output_capacity < length || tx_sequence == 0u) return -1;
-    if ((flags & (uint8_t)~ECOBIN_UART_FLAG_ACK_REQUIRED) != 0u) return -2;
+    if ((flags & (UINT8_MAX ^ ECOBIN_UART_FLAG_ACK_REQUIRED)) != 0u) return -2;
     output[0] = ECOBIN_UART_MAGIC_0;
     output[1] = ECOBIN_UART_MAGIC_1;
     output[2] = ECOBIN_UART_PROTOCOL_MAJOR;

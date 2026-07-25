@@ -58,7 +58,9 @@ typedef struct {
 } ecobin_transport_rx_msg_t;
 
 /* Init: call once at startup after USART1_Init + USART1_RX_IntEnable */
-void ecobin_transport_init(const char *firmware_identity);
+void ecobin_transport_init(
+    const char *firmware_identity,
+    const char *firmware_version);
 
 /* ISR: feed one received byte (call from USART1_IRQHandler) */
 void ecobin_transport_feed_byte(uint8_t byte);

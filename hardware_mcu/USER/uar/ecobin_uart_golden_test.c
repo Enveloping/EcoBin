@@ -235,16 +235,16 @@ static const stream_chunk_t trace_9_chunks[] = {
 static const uint8_t trace_9_expected[] = {0x01u};
 
 static const stream_trace_t traces[] = {
-    {"bytewise_split", ECOBIN_UART_SENDER_EDGE, trace_0_chunks, sizeof(trace_0_chunks) / sizeof(trace_0_chunks[0]), trace_0_expected, 1u, UINT32_C(0)},
-    {"sticky_frames", ECOBIN_UART_SENDER_EDGE, trace_1_chunks, sizeof(trace_1_chunks) / sizeof(trace_1_chunks[0]), trace_1_expected, 2u, UINT32_C(0)},
-    {"noise_false_magic_invalid_length", ECOBIN_UART_SENDER_EDGE, trace_2_chunks, sizeof(trace_2_chunks) / sizeof(trace_2_chunks[0]), trace_2_expected, 1u, ECOBIN_UART_DIAG_INVALID_LENGTH | ECOBIN_UART_DIAG_NOISE_DISCARDED},
-    {"crc_failure_resynchronizes", ECOBIN_UART_SENDER_EDGE, trace_3_chunks, sizeof(trace_3_chunks) / sizeof(trace_3_chunks[0]), trace_3_expected, 1u, ECOBIN_UART_DIAG_CRC_INVALID | ECOBIN_UART_DIAG_NOISE_DISCARDED},
-    {"assembly_timeout_resynchronizes", ECOBIN_UART_SENDER_EDGE, trace_4_chunks, sizeof(trace_4_chunks) / sizeof(trace_4_chunks[0]), trace_4_expected, 1u, ECOBIN_UART_DIAG_FRAME_TIMEOUT},
-    {"payload_contains_magic", ECOBIN_UART_SENDER_EDGE, trace_5_chunks, sizeof(trace_5_chunks) / sizeof(trace_5_chunks[0]), trace_5_expected, 1u, UINT32_C(0)},
-    {"unknown_type_consumes_crc_valid_frame", ECOBIN_UART_SENDER_EDGE, trace_6_chunks, sizeof(trace_6_chunks) / sizeof(trace_6_chunks[0]), trace_6_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
-    {"ack_flag_checked_after_crc", ECOBIN_UART_SENDER_EDGE, trace_7_chunks, sizeof(trace_7_chunks) / sizeof(trace_7_chunks[0]), trace_7_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
-    {"direction_checked_after_crc", ECOBIN_UART_SENDER_EDGE, trace_8_chunks, sizeof(trace_8_chunks) / sizeof(trace_8_chunks[0]), trace_8_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
-    {"bounded_noise_buffer", ECOBIN_UART_SENDER_EDGE, trace_9_chunks, sizeof(trace_9_chunks) / sizeof(trace_9_chunks[0]), trace_9_expected, 1u, ECOBIN_UART_DIAG_BUFFER_OVERFLOW | ECOBIN_UART_DIAG_NOISE_DISCARDED},
+    {"bytewise_split", ECOBIN_UART_SENDER_ROLE_EDGE, trace_0_chunks, sizeof(trace_0_chunks) / sizeof(trace_0_chunks[0]), trace_0_expected, 1u, UINT32_C(0)},
+    {"sticky_frames", ECOBIN_UART_SENDER_ROLE_EDGE, trace_1_chunks, sizeof(trace_1_chunks) / sizeof(trace_1_chunks[0]), trace_1_expected, 2u, UINT32_C(0)},
+    {"noise_false_magic_invalid_length", ECOBIN_UART_SENDER_ROLE_EDGE, trace_2_chunks, sizeof(trace_2_chunks) / sizeof(trace_2_chunks[0]), trace_2_expected, 1u, ECOBIN_UART_DIAG_INVALID_LENGTH | ECOBIN_UART_DIAG_NOISE_DISCARDED},
+    {"crc_failure_resynchronizes", ECOBIN_UART_SENDER_ROLE_EDGE, trace_3_chunks, sizeof(trace_3_chunks) / sizeof(trace_3_chunks[0]), trace_3_expected, 1u, ECOBIN_UART_DIAG_CRC_INVALID | ECOBIN_UART_DIAG_NOISE_DISCARDED},
+    {"assembly_timeout_resynchronizes", ECOBIN_UART_SENDER_ROLE_EDGE, trace_4_chunks, sizeof(trace_4_chunks) / sizeof(trace_4_chunks[0]), trace_4_expected, 1u, ECOBIN_UART_DIAG_FRAME_TIMEOUT},
+    {"payload_contains_magic", ECOBIN_UART_SENDER_ROLE_EDGE, trace_5_chunks, sizeof(trace_5_chunks) / sizeof(trace_5_chunks[0]), trace_5_expected, 1u, UINT32_C(0)},
+    {"unknown_type_consumes_crc_valid_frame", ECOBIN_UART_SENDER_ROLE_EDGE, trace_6_chunks, sizeof(trace_6_chunks) / sizeof(trace_6_chunks[0]), trace_6_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
+    {"ack_flag_checked_after_crc", ECOBIN_UART_SENDER_ROLE_EDGE, trace_7_chunks, sizeof(trace_7_chunks) / sizeof(trace_7_chunks[0]), trace_7_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
+    {"direction_checked_after_crc", ECOBIN_UART_SENDER_ROLE_EDGE, trace_8_chunks, sizeof(trace_8_chunks) / sizeof(trace_8_chunks[0]), trace_8_expected, 1u, ECOBIN_UART_DIAG_SEMANTIC_REJECTED},
+    {"bounded_noise_buffer", ECOBIN_UART_SENDER_ROLE_EDGE, trace_9_chunks, sizeof(trace_9_chunks) / sizeof(trace_9_chunks[0]), trace_9_expected, 1u, ECOBIN_UART_DIAG_BUFFER_OVERFLOW | ECOBIN_UART_DIAG_NOISE_DISCARDED},
 };
 
 static const uint8_t digest_0_preimage[] = {0x45u, 0x43u, 0x4Fu, 0x42u, 0x49u, 0x4Eu, 0x3Au, 0x55u, 0x41u, 0x52u, 0x54u, 0x3Au, 0x43u, 0x4Fu, 0x4Du, 0x4Du, 0x41u, 0x4Eu, 0x44u, 0x3Au, 0x76u, 0x31u, 0x00u, 0x27u, 0x00u, 0x35u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x41u, 0x71u, 0x81u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x71u, 0x02u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x42u, 0x72u, 0x82u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x72u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x43u, 0x73u, 0x83u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x73u, 0x00u, 0x00u, 0xAFu, 0xC8u};
@@ -274,86 +274,86 @@ static void capture_frame(
     }
 }
 
-//int main(void) {
-//    static const uint8_t check_text[] = "123456789";
-//    static const uint8_t uuid_source[16] = {
-//        0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
-//        0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0x1Fu
-//    };
-//    static const uint8_t sha_source[32] = {
-//        0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
-//        0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
-//        0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
-//        0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0x1Fu
-//    };
-//    uint8_t scalar_buffer[32];
-//    size_t index;
-//    if (ecobin_uart_crc16_ccitt_false(check_text, 9u) != UINT16_C(0x29B1)) {
-//        return 1;
-//    }
-//    ecobin_uart_write_u64_be(scalar_buffer, UINT64_C(9007199254740991));
-//    if (ecobin_uart_read_u64_be(scalar_buffer) != UINT64_C(9007199254740991)) return 10;
-//    ecobin_uart_write_i32_be(scalar_buffer, INT32_C(-500));
-//    if (ecobin_uart_read_i32_be(scalar_buffer) != INT32_C(-500)) return 11;
-//    ecobin_uart_copy_uuid(scalar_buffer, uuid_source);
-//    if (memcmp(scalar_buffer, uuid_source, 16u) != 0) return 12;
-//    ecobin_uart_copy_sha256(scalar_buffer, sha_source);
-//    if (memcmp(scalar_buffer, sha_source, 32u) != 0) return 13;
-//    for (index = 0; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
-//        const golden_vector_t *vector = &vectors[index];
-//        uint16_t expected;
-//        uint16_t actual;
-//        int invalid;
-//        if (vector->length < 14u) {
-//            return 2;
-//        }
-//        expected = ecobin_uart_read_u16_be(vector->frame + vector->length - 2u);
-//        actual = ecobin_uart_crc16_ccitt_false(
-//            vector->frame + 2u,
-//            vector->length - 4u
-//        );
-//        invalid = actual != expected;
-//        if (invalid != vector->crc_invalid) {
-//            fprintf(stderr, "CRC result differs for %s\n", vector->name);
-//            return 3;
-//        }
-//    }
-//    for (index = 0; index < sizeof(traces) / sizeof(traces[0]); ++index) {
-//        const stream_trace_t *trace = &traces[index];
-//        ecobin_uart_stream_parser_t parser;
-//        stream_capture_t capture = {{0u}, 0u};
-//        size_t chunk_index;
-//        ecobin_uart_stream_parser_init(&parser, trace->sender);
-//        for (chunk_index = 0; chunk_index < trace->chunk_count; ++chunk_index) {
-//            const stream_chunk_t *chunk = &trace->chunks[chunk_index];
-//            (void)ecobin_uart_stream_parser_feed(
-//                &parser,
-//                chunk->data,
-//                chunk->length,
-//                chunk->at_ms,
-//                capture_frame,
-//                &capture
-//            );
-//        }
-//        if (capture.count != trace->expected_count
-//            || memcmp(capture.message_types, trace->expected_types, capture.count) != 0
-//            || parser.diagnostics != trace->expected_diagnostics) {
-//            fprintf(stderr, "stream trace differs for %s\n", trace->name);
-//            return 20;
-//        }
-//    }
-//    for (index = 0; index < sizeof(digest_vectors) / sizeof(digest_vectors[0]); ++index) {
-//        const digest_vector_t *vector = &digest_vectors[index];
-//        uint8_t actual[32];
-//        ecobin_uart_sha256(vector->preimage, vector->preimage_length, actual);
-//        if (memcmp(actual, vector->expected, sizeof(actual)) != 0) {
-//            fprintf(stderr, "SHA-256 differs for %s\n", vector->name);
-//            return 30;
-//        }
-//    }
-//    printf("C UART golden vectors: %zu frames, %zu stream traces, %zu digests passed\n",
-//        sizeof(vectors) / sizeof(vectors[0]),
-//        sizeof(traces) / sizeof(traces[0]),
-//        sizeof(digest_vectors) / sizeof(digest_vectors[0]));
-//    return 0;
-//}
+int main(void) {
+    static const uint8_t check_text[] = "123456789";
+    static const uint8_t uuid_source[16] = {
+        0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+        0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0x1Fu
+    };
+    static const uint8_t sha_source[32] = {
+        0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
+        0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
+        0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+        0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0x1Fu
+    };
+    uint8_t scalar_buffer[32];
+    size_t index;
+    if (ecobin_uart_crc16_ccitt_false(check_text, 9u) != UINT16_C(0x29B1)) {
+        return 1;
+    }
+    ecobin_uart_write_u64_be(scalar_buffer, UINT64_C(9007199254740991));
+    if (ecobin_uart_read_u64_be(scalar_buffer) != UINT64_C(9007199254740991)) return 10;
+    ecobin_uart_write_i32_be(scalar_buffer, INT32_C(-500));
+    if (ecobin_uart_read_i32_be(scalar_buffer) != INT32_C(-500)) return 11;
+    ecobin_uart_copy_uuid(scalar_buffer, uuid_source);
+    if (memcmp(scalar_buffer, uuid_source, 16u) != 0) return 12;
+    ecobin_uart_copy_sha256(scalar_buffer, sha_source);
+    if (memcmp(scalar_buffer, sha_source, 32u) != 0) return 13;
+    for (index = 0; index < sizeof(vectors) / sizeof(vectors[0]); ++index) {
+        const golden_vector_t *vector = &vectors[index];
+        uint16_t expected;
+        uint16_t actual;
+        int invalid;
+        if (vector->length < 14u) {
+            return 2;
+        }
+        expected = ecobin_uart_read_u16_be(vector->frame + vector->length - 2u);
+        actual = ecobin_uart_crc16_ccitt_false(
+            vector->frame + 2u,
+            vector->length - 4u
+        );
+        invalid = actual != expected;
+        if (invalid != vector->crc_invalid) {
+            fprintf(stderr, "CRC result differs for %s\n", vector->name);
+            return 3;
+        }
+    }
+    for (index = 0; index < sizeof(traces) / sizeof(traces[0]); ++index) {
+        const stream_trace_t *trace = &traces[index];
+        ecobin_uart_stream_parser_t parser;
+        stream_capture_t capture = {{0u}, 0u};
+        size_t chunk_index;
+        ecobin_uart_stream_parser_init(&parser, trace->sender);
+        for (chunk_index = 0; chunk_index < trace->chunk_count; ++chunk_index) {
+            const stream_chunk_t *chunk = &trace->chunks[chunk_index];
+            (void)ecobin_uart_stream_parser_feed(
+                &parser,
+                chunk->data,
+                chunk->length,
+                chunk->at_ms,
+                capture_frame,
+                &capture
+            );
+        }
+        if (capture.count != trace->expected_count
+            || memcmp(capture.message_types, trace->expected_types, capture.count) != 0
+            || parser.diagnostics != trace->expected_diagnostics) {
+            fprintf(stderr, "stream trace differs for %s\n", trace->name);
+            return 20;
+        }
+    }
+    for (index = 0; index < sizeof(digest_vectors) / sizeof(digest_vectors[0]); ++index) {
+        const digest_vector_t *vector = &digest_vectors[index];
+        uint8_t actual[32];
+        ecobin_uart_sha256(vector->preimage, vector->preimage_length, actual);
+        if (memcmp(actual, vector->expected, sizeof(actual)) != 0) {
+            fprintf(stderr, "SHA-256 differs for %s\n", vector->name);
+            return 30;
+        }
+    }
+    printf("C UART golden vectors: %zu frames, %zu stream traces, %zu digests passed\n",
+        sizeof(vectors) / sizeof(vectors[0]),
+        sizeof(traces) / sizeof(traces[0]),
+        sizeof(digest_vectors) / sizeof(digest_vectors[0]));
+    return 0;
+}

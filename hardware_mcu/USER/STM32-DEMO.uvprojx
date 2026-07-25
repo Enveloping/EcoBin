@@ -338,7 +338,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls></MiscControls>
-              <Define>USE_STDPERIPH_DRIVER, STM32F10X_HD</Define>
+              <Define>USE_STDPERIPH_DRIVER, STM32F10X_HD, ECOBIN_UART_VOLATILE_CONFIG_HIL</Define>
               <Undefine></Undefine>
               <IncludePath>..\CMSIS;..\FWlib\inc;..\USER;.\uar</IncludePath>
             </VariousControls>
@@ -423,11 +423,6 @@
               <FileName>usart3.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\usart3.c</FilePath>
-            </File>
-            <File>
-              <FileName>ecobin_uart_golden_test.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\uar\ecobin_uart_golden_test.c</FilePath>
             </File>
           </Files>
         </Group>

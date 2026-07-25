@@ -349,7 +349,9 @@ int main(void)
     NVIC_Configuration();
     USART1_Init();
     USART1_RX_IntEnable();          /* 使能USART1接收中断 */
-    ecobin_transport_init("stm32f103rct6\n1.0.0");  /* ecobin 协议传输层初始化 */
+    ecobin_transport_init(
+        "stm32f103rct6",
+        "1.0.0-hil.1");  /* ecobin 协议传输层初始化 */
     USART2_int();          /* RS485 仅用于采集重量 */
     USART3_Init();         /* UART3 串口屏幕通信 */
     LIMIT_SW_Init();
