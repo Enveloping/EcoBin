@@ -17,8 +17,8 @@ implementation_authorized: true
 > `status: in-progress`：F-10 软件机器来源已经完成、MCU Registry checkpoint 已通过，
 > 且项目负责人已授权实施。当前基于 UART 1.0 Registry 软件产物和 MCU 已接受的数值边界，
 > 在 Python 3.11 上构建香橙派可靠边缘
-> 运行时。F-10 的三语言黄金样本仍未收口，因此 F-11 可以继续已授权的软件骨架工作，
-> 但在 F-10 完成前不能进入 `in-review` 或 `done`。
+> 运行时。F-10 的 MCU 实际工具链黄金程序证据仍未收口，因此 F-11 可以继续已授权的
+> 软件骨架工作，但在 F-10 完成前不能进入 `in-review` 或 `done`。
 
 ## 当前实施状态
 
@@ -29,11 +29,13 @@ implementation_authorized: true
   `CONFIG_APPLY_RESULT` 绑定；超时进入 `RECOVERY_REQUIRED`，不虚报失败或成功。
 - UART 已按 Registry 修复发送/接收角色、ACK/NACK 匹配、同帧原字节重试、事件与 ACK
   并发路由；启动 `QUERY_STATE` 分段先持久化后 ACK，缺段或查询失败进入安全锁。
-- 本地硬件测试为 70 项通过、5 个 subtests 通过；香橙派 Python 3.11 为 53 项通过，
-  启动、MQTT、命令消费者和 `Ctrl+C`/`SIGINT` 停机均已验证。
-- 当前服务保持 MCU Stub：真实 `/dev/ttyS5` 可打开，但 MCU 没有回应 UART 1.0
-  `HELLO`。其他业务命令状态机、COS 完整闭环、强杀/断网故障注入和真实 MCU HIL
-  仍未完成，不能把当前结果描述为 F-11 全部闭环。
+- 本地硬件测试为 79 项通过、5 个 subtests 通过；契约测试为 20 项、42 个 subtests
+  通过。香橙派 ARM64 GCC 严格 host build 和 Python 3.11 实机探针通过；启动、MQTT、
+  命令消费者和 `Ctrl+C`/`SIGINT` 停机也已验证。
+- 真实 `/dev/ttyS5` 已与 `1.0.0-hil.3` MCU 完成 `0x300` 能力的一投口 HELLO、配置、
+  重复配置去重和 QUERY_STATE 纵切。其他业务命令状态机、完整 `0x1fff` 能力、非易失
+  恢复、COS 完整闭环及强杀/断网/掉电故障注入仍未完成，不能把当前结果描述为 F-11
+  全部闭环。
 
 ## 目标
 
@@ -103,3 +105,8 @@ implementation_authorized: true
   SQLite v2 恢复点、UART 分段停等、MCU 事件先持久化后 ACK、结果强绑定与超时恢复。
   本地和香橙派测试全部通过，远端服务以 `ECOBIN_TEST_MODE=true` 恢复为 `READY`；
   真实 MCU `HELLO` 无响应，因此真机配置激活和其余命令族仍待继续。
+- 2026-07-25：在真实香橙派 `/dev/ttyS5` 与 `1.0.0-hil.3` MCU 上通过 `0x300`
+  一投口 HIL：配置首次应用、同配置重复 COMMIT 去重、结果事件序号复用和严格状态
+  快照均通过。联调同时修复 MCU boot ID 越界、SHA-256 栈覆盖和空事件队列范围校验。
+  详见 [UART 1.0 真机 HIL 记录](../../../../hardware/docs/review/uart-hil-2026-07-25.md)。
+  任务仍为 `in-progress`，下一阶段是持久化与其他物理命令族。

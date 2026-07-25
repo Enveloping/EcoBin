@@ -19,12 +19,14 @@ implementation_authorized: true
 
 # F-10｜OneNet Schema 与 UART Registry 冻结
 
-> 当前状态：**软件、Registry checkpoint 和通用三语言黄金样本已完成，等待 MCU
-> 实际工具链与真机联调收口**。
+> 当前状态：**软件、Registry checkpoint、通用三语言黄金样本和 `0x300` 真机 HIL
+> 纵切已完成，等待 MCU 实际工具链黄金程序证据收口**。
 >
 > `status: blocked`：MCU 负责人已经接受 UART Registry 数值、状态机边界、能力位与
 > 非易失能力；Java 21、真实 Python 3.11 和香橙派 GCC 12.2 的 C11 黄金样本也已通过。
-> 当前仍缺 MCU 实际 C 工具链和真机 UART 证据，不能据此把整个 Mixed 任务标记 `done`。
+> 真机已完成 HELLO、配置、重复配置和状态查询纵切，但仍缺 MCU 实际 C 工具链对生成
+> 黄金程序的执行证据，也未覆盖完整能力与持久恢复，不能据此把整个 Mixed 任务标记
+> `done`。
 
 ## 目标
 
@@ -59,14 +61,15 @@ implementation_authorized: true
 
 Java 黄金样本、真实 Python 3.11 生成物与测试、香橙派 GCC 12.2 的 C11 黄金程序均已
 通过；生成器中重复定义 `ecobin_uart_sender_role_t` 的问题也已修复，C 编译使用
-`-Wall -Wextra -Werror` 零告警。当前仍缺 MCU 实际 C 工具链和真机 UART 执行证据，
-因此 integration/acceptance 尚未完全收口。
+`-Wall -Wextra -Werror` 零告警。真实 MCU 的 `0x300` 配置/快照 HIL 已通过，但它没有
+在 MCU 实际 ARMCC/Keil 工具链中单独执行生成的黄金程序，也不覆盖完整能力与非易失
+边界，因此 integration/acceptance 尚未完全收口。
 
 ## 阻塞与最早开始
 
 - 软件阶段无任务依赖，可在获得正式实施授权后开始。
-- integration 阶段的 Registry 审查和通用三语言黄金样本已经完成，仍需补齐 MCU
-  实际 C 工具链与真机 UART 执行证据。
+- integration 阶段的 Registry 审查、通用三语言黄金样本和局部真机 UART HIL 已经
+  完成，仍需补齐 MCU 实际 C 工具链黄金程序证据。
 - acceptance 阶段已经取得 MCU 负责人对 Registry 的明确确认，但仍须证明三端数值和
   黄金样本一致。
 - 外部排队等待不计入 `effort_range`。
@@ -104,3 +107,8 @@ Java 黄金样本、真实 Python 3.11 生成物与测试、香橙派 GCC 12.2 �
   缺陷后，香橙派 GCC 12.2 以 C11、`-Wall -Wextra -Werror` 编译并运行黄金程序通过
   （10 帧、10 条流轨迹、3 个摘要）。`/dev/ttyS5` 可打开但 MCU 在 3 秒内没有
   `HELLO` 响应，仍缺 MCU 实际工具链与 HIL 证据，任务保持 `blocked`。
+- 2026-07-25：烧录 `1.0.0-hil.3` 并复位后，真实 MCU 在 `/dev/ttyS5` 完成 HELLO、
+  配置分段、配置结果、重复 COMMIT 去重和严格 QUERY_STATE 快照校验；能力范围为
+  `0x300`、一投口。该证据见
+  [UART 1.0 真机 HIL 记录](../../../../hardware/docs/review/uart-hil-2026-07-25.md)。
+  MCU 实际 ARMCC/Keil 尚未单独运行生成的 C 黄金程序，任务继续保持 `blocked`。

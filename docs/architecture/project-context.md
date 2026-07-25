@@ -4,7 +4,7 @@
 > 本文记录对话中形成、仅靠代码不容易恢复的决策。代码和更新日期更晚的专题文档若与本文冲突，以较新的事实为准。
 
 > [!IMPORTANT]
-> 2026-07-24 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-04 已获授权并完成；F-03、F-05、F-09 已 `ready` 但尚未授权。F-10 软件机器来源、MCU Registry checkpoint 和通用三语言黄金样本已完成，仍缺 MCU 实际工具链/HIL；F-11 已获授权并完成配置命令软件纵切，继续 `in-progress`。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
+> 2026-07-24 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-04 已获授权并完成；F-03、F-05、F-09 已 `ready` 但尚未授权。F-10 软件机器来源、MCU Registry checkpoint、通用三语言黄金样本和 `0x300` 真机 HIL 已完成，仍缺 MCU 实际工具链黄金程序；F-11 已获授权并完成配置命令软件/真机纵切，继续 `in-progress`。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
 > [`requirements-baseline.md`](../planning/requirements-baseline.md)、
 > [`p0-scope-baseline.md`](../planning/p0-scope-baseline.md) 和
 > [`business-model-baseline.md`](../planning/business-model-baseline.md)，冻结的系统结构见
@@ -121,7 +121,7 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
   的正式入口切向 UART 1.0/SQLite 新骨架，旧 AA/BB/CC/DD 与 D1 实现仍留在旧文件和测试中；
   新入口已修复协议方向、同帧原字节重试、ACK/NACK 匹配、MCU 事件先持久化后 ACK 和
   `QUERY_STATE` 缺段安全锁，并完成 `APPLY_CONFIGURATION` 分段配置软件纵切。
-- 最近一次 UART 审计见 `hardware/docs/review/uart-protocol-audit.md`，当前临时差异见 `hardware/docs/review/uart-protocol-temporary-compatibility.md`。目标 I-046～I-050 已解决设计层面的校验、严格分帧、幂等命令、关键事件、带符号重量、多投口和重启边界；香橙派 Python 3.11 与通用 C11 黄金样本已通过，但真实 MCU 当前不回应 `HELLO`，其他物理命令族、MCU 固件和跨端 HIL 仍未收口。
+- 最近一次 UART 审计见 `hardware/docs/review/uart-protocol-audit.md`，当前临时差异见 `hardware/docs/review/uart-protocol-temporary-compatibility.md`。目标 I-046～I-050 已解决设计层面的校验、严格分帧、幂等命令、关键事件、带符号重量、多投口和重启边界；香橙派 Python 3.11、通用 C11 黄金样本以及真实 MCU 的 `0x300` 配置/快照 HIL 已通过。其他物理命令族、完整 `0x1fff` 能力、MCU 非易失恢复、实际工具链黄金程序和完整跨端 HIL 仍未收口。
 - 正式实施必须由同一机器注册表生成/校验 MCU C 与 Python 3.11 编解码器，整体禁用旧 D1、AA/BB/CC/DD 和旧 gross/tare 清运路径；生产不保留失败后自动回退旧协议的双解析器。
 - 2026-07-11 迁移记忆时工作区已有用户修改：`hardware/main.py`、`hardware/pyproject.toml`，以及未跟踪的 `hardware/docs/`。这些不是 Codex 创建的，必须保留。
 
@@ -154,8 +154,9 @@ DD-004、修订后的 PDD-001、29 项任务粒度/依赖、`status/executor` �
 2026-07-30 仅作风险排序均已确认。29 项任务已发布并同步 2026-07-24 修订到
 [`p0-controlled-loop/00-index.md`](../planning/tasks/p0-controlled-loop/00-index.md)：H-01、
 F-01、F-02、F-04 已完成；F-03、F-05、F-09 因前置完成进入 `ready`，但未获实施授权；
-F-10 软件阶段、MCU Registry checkpoint 和通用三语言黄金样本已完成，等待 MCU 实际
-工具链和 HIL，任务级保持 `blocked`；F-11 已获授权并完成配置命令软件纵切，继续处于
+F-10 软件阶段、MCU Registry checkpoint、通用三语言黄金样本和 `0x300` HIL 已完成，
+等待 MCU 实际工具链黄金程序，任务级保持 `blocked`；F-11 已获授权并完成配置命令
+软件/真机纵切，继续处于
 `in-progress`。当前共 `done` 4、`ready` 3、
 `in-progress` 1、`blocked` 21。其他任务没有因前置推进而自动获得实施授权。
 
@@ -166,12 +167,12 @@ F-10 软件阶段、MCU Registry checkpoint 和通用三语言黄金样本已完
 - 目标 V1～V4 的 30 张表已通过 MySQL 8.4 双空库验证；下一数据库步骤是获授权后执行
   F-05，继续 V5，之后再推进 V6～V10、数据库身份和 epoch guard；
 - F-09 HTTP/OpenAPI 客户端传输也已 `ready`，但和 F-03、F-05 一样尚未授权；
-- F-11 下一步补齐其他业务命令状态机、COS 上传、强杀/断网故障注入；真实 MCU 恢复
-  `HELLO` 后立即执行配置分段和恢复 HIL；
+- F-11 下一步补齐非易失恢复、其他业务命令状态机、COS 上传、强杀/断网/掉电故障
+  注入，并把真机 HIL 从当前 `0x300` 一投口扩大到生产范围；
 - 后续按投递、审核钱包、清运、满溢恢复、充值、提现和 operations 的纵向切片推进；
 - MCU 固件、数据库环境、真实微信、真机验收和成对切换分别保持 HITL；
 - 完整跨端契约 CI 和自动 HIL 发布门禁按 I-055 留到共同首版形成后的升级阶段，但人工门安全、断电恢复、真实资金和真机验收不能延期。
 
-当前 OneNet MQTT 已联通，COS 仍待完整软件闭环，真实 MCU UART 无 `HELLO` 响应；
-微信支付/商家转账仍不可联调。真实条件或软件链路缺失时只能标记相应软件阶段，不能
-宣称 M0。
+当前 OneNet MQTT 已联通，真实 MCU UART 的配置/快照 HIL 已通过；COS、完整 MCU
+能力与持久恢复仍待闭环，微信支付/商家转账仍不可联调。真实条件或软件链路缺失时只能
+标记相应软件阶段，不能宣称 M0。

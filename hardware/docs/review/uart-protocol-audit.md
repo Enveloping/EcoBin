@@ -1,5 +1,11 @@
 # UART 协议审计报告
 
+> **当前状态（2026-07-25）**：正式入口已使用 UART 1.0 Registry；真实香橙派与
+> `1.0.0-hil.3` MCU 已通过 capability `0x300` 的 HELLO、配置、重复配置去重和
+> QUERY_STATE 一投口 HIL。完整能力、非易失恢复和物理动作仍未验收。当前证据见
+> [`uart-hil-2026-07-25.md`](uart-hil-2026-07-25.md)。下文保留为旧协议历史审计，
+> 不能代表当前正式入口。
+>
 > 审计日期：2026-07-04
 > 审计范围：`hardware/hardware_layer.py` SerialBridge 协议实现 + `hardware/door_flow.py` 开门闭环
 > 协议版本：A1/B1/C1/D1 逗号分隔文本帧

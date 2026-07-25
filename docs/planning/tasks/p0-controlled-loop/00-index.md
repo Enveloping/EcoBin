@@ -23,7 +23,7 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-04 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 已授权并实施中；其他任务未授权** |
+| 实施授权 | **部分授权：H-01、F-01、F-02、F-04 已授权并完成；F-10 通用三语言证据与局部 HIL 已通过但 MCU 实际工具链黄金程序未收口；F-11 已授权并实施中；其他任务未授权** |
 | 当前状态数 | `done` 4、`ready` 3、`in-progress` 1、`blocked` 21 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
@@ -79,7 +79,7 @@ agent | human | mixed
 | F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `blocked` | `agent` | F-03、F-06 |
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `blocked` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `ready` | `agent` | F-02 |
-| F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 通用三语言黄金样本已通过；等待 MCU 实际工具链与 HIL |
+| F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 通用三语言黄金样本与 `0x300` HIL 已通过；等待 MCU 实际工具链黄金程序 |
 | F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 软件实施已授权；F-10 仍是进入评审/完成门 |
 | F-12 | [完整试点 seed 编排](f-12-pilot-seed-orchestration.md) | `blocked` | `mixed` | V-01、V-03、V-07、V-10 |
 
@@ -105,7 +105,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `blocked` | `human` | F-06 |
-| H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10；尚未授权固件实施 |
+| H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10；仅完成 F-11 所需 `0x300` 挥发 HIL 切片，完整实施未授权/未验收 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
@@ -215,3 +215,7 @@ M0_COMPLETE
 - 2026-07-25：真实 Python 3.11 与香橙派 GCC 12.2 C11 黄金样本通过；F-11 完成
   OneNet 命令可靠受理和 `APPLY_CONFIGURATION` UART 配置纵切。真实 MCU 没有回应
   `HELLO`，因此 F-10、F-11 和 H-03 的任务级状态保持不变。
+- 2026-07-25：真实香橙派与 `1.0.0-hil.3` MCU 通过 `0x300` 一投口 HELLO、配置、
+  重复配置去重和 QUERY_STATE HIL，修复 boot ID 越界与 SHA 栈覆盖。F-10 仍等待 MCU
+  实际工具链黄金程序，F-11 仍缺完整能力、持久恢复、其他物理命令与故障注入，H-03
+  未完成全量授权/验收；三项任务状态和总状态数均不变。

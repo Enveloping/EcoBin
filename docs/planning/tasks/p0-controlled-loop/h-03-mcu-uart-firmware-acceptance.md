@@ -77,3 +77,8 @@ implementation_authorized: false
 - 2026-07-25：香橙派 `/dev/ttyS5` 已确认可按 115200 8N1 打开，但真实 MCU 在 3 秒内
   没有任何 UART 1.0 `HELLO` 响应；未执行固件修改。H-03 仍等待 MCU 供电/接线/固件
   和实际 MCU C 工具链证据。
+- 2026-07-25：为 F-11 联调实施并烧录了 `1.0.0-hil.3` 挥发 HIL 切片，真实板完成
+  `0x300` 能力的一投口 HELLO、配置/重复配置和 QUERY_STATE。该切片不含持久 boot
+  counter、配置/事件/危险命令非易失、完整 `0x1fff` 状态机或故障注入，也未在 MCU
+  实际工具链运行生成的 C 黄金程序，因此不视为 H-03 获得全量实施授权或通过验收。
+  证据见 [UART 1.0 真机 HIL 记录](../../../../hardware/docs/review/uart-hil-2026-07-25.md)。

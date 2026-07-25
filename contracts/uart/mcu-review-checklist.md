@@ -12,13 +12,15 @@
 | 候选版本 | `1.0.0-rc.2` |
 | 线协议 | major `1` / minor `0` |
 | 物理串口 | `115200 / 8N1 / no flow control` |
-| Registry 状态 | `MCU_REVIEW_REQUIRED` |
+| Registry 状态 | `MCU_REVIEW_ACCEPTED` |
 | 软件生成/校验 | 已完成 |
-| MCU 逐字段确认 | 待完成 |
+| MCU 逐字段确认 | 已完成 |
 | C 固件工具链黄金样本 | 待完成 |
-| 真机/HIL | 属于 H-03，尚未开始 |
+| 真机/HIL | F-11 范围 `0x300` 纵切已通过；完整 H-03 尚未开始 |
 
-在本单完成前，F-10 不能标记 `done`，H-03 不能把候选编号当成已经共同冻结的固件契约。
+Registry checkpoint 已接受，但 MCU 实际工具链黄金程序证据尚未完成，F-10 仍不能标记
+`done`。下列复选框保留为完整固件符合性清单；`0x300` 挥发 HIL 通过不代表未勾选项
+已经验证，也不能替代 H-03。
 
 ## 2. 评审输入
 
@@ -130,3 +132,15 @@ C UART golden vectors: 10 frames, 10 stream traces, 3 digests passed
 若为 `CHANGES_REQUIRED`，先修改唯一 Registry、重新生成全部制品和黄金样本，再重新评审；
 不得在 MCU 代码中私自采用另一组编号或字段偏移。若为 `APPROVED`，主审复核证据后再把
 F-10 integration/acceptance 推进，并解除 H-03/F-11 的相应契约阻塞。
+
+## 6. 2026-07-25 局部真机证据
+
+- 真实 HELLO：`stm32f103rct6` / `1.0.0-hil.3` / capability `0x300` / 一投口。
+- 配置 BEGIN/DEVICE/PORT/COMMIT、独立 APPLY_RESULT、重复 COMMIT 去重和完整
+  QUERY_STATE 摘要校验通过。
+- MCU boot ID 已限制在 `1..9007199254740991`；空关键事件队列的 oldest/latest
+  四个范围字段均严格为零。
+- 详细命令、结果和未关闭边界见
+  [UART 1.0 真机 HIL 记录](../../hardware/docs/review/uart-hil-2026-07-25.md)。
+- MCU 实际 ARMCC/Keil 尚未单独执行生成的 C 黄金程序；HELLO 的 RCT6 identity 与
+  Keil target 名称中的 C8 也待核对。因此本节只推进局部 HIL 证据，不关闭 F-10/H-03。
