@@ -13,16 +13,18 @@ blocked_by: []
 phase_progress:
   software: done
   integration: in-progress
-  acceptance: not-started
+  acceptance: in-progress
 implementation_authorized: true
 ---
 
 # F-10｜OneNet Schema 与 UART Registry 冻结
 
-> 当前状态：**软件已完成、等待 MCU 与联调验收收口**。
+> 当前状态：**软件、Registry checkpoint 和通用三语言黄金样本已完成，等待 MCU
+> 实际工具链与真机联调收口**。
 >
-> `status: blocked` 表示 Mixed 任务仍受 MCU 人工 checkpoint、真实 C 工具链验证和跨端
-> 联调证据阻塞；不得因为软件生成物已经形成而把整个任务标记为 `done`。
+> `status: blocked`：MCU 负责人已经接受 UART Registry 数值、状态机边界、能力位与
+> 非易失能力；Java 21、真实 Python 3.11 和香橙派 GCC 12.2 的 C11 黄金样本也已通过。
+> 当前仍缺 MCU 实际 C 工具链和真机 UART 证据，不能据此把整个 Mixed 任务标记 `done`。
 
 ## 目标
 
@@ -48,19 +50,25 @@ implementation_authorized: true
 - [x] 投递中间轮次不上 OneNet；最终 `negativeWeightAnomaly` 只随完成载荷出现且不携中间减少值。
 - [x] 清运电磁阀通断仅推定门状态，Registry 不定义清运门门磁或自动关门能力。
 - [x] 六投口快照使用 BEGIN/PORT/END，不能用部分快照解除安全锁。
-- [ ] Java 21、Python 3.11、C 对同一黄金样本编码和校验一致。
-- [ ] MCU 负责人确认消息号、字段偏移、能力位、错误码、状态机和非易失边界。
+- [ ] Java 21、Python 3.11、C 对同一黄金样本编码和校验一致（前三者已在通用工具链
+  通过，仍缺 MCU 实际 C 工具链证据）。
+- [x] MCU 负责人确认消息号、字段偏移、能力位、错误码、状态机和非易失边界。
 - [x] 旧 D1 与临时 AA/BB/CC/DD 不在正式 Registry。
-- [ ] 未完成人工 checkpoint 时，即使软件文件已经形成，任务也不能标记 `done`。
+- [x] Mixed 任务只有全部 integration/acceptance 证据齐全后才能标记 `done`；当前按此
+  规则保持 `blocked`。
 
-Java 黄金样本已通过，生成的 Python 代码已通过 Python 3.11 语法树校验；本机没有真实
-Python 3.11 运行时和 MCU C 工具链，因此三语言一致性仍保持未完成，等待 MCU 联调时收口。
+Java 黄金样本、真实 Python 3.11 生成物与测试、香橙派 GCC 12.2 的 C11 黄金程序均已
+通过；生成器中重复定义 `ecobin_uart_sender_role_t` 的问题也已修复，C 编译使用
+`-Wall -Wextra -Werror` 零告警。当前仍缺 MCU 实际 C 工具链和真机 UART 执行证据，
+因此 integration/acceptance 尚未完全收口。
 
 ## 阻塞与最早开始
 
 - 软件阶段无任务依赖，可在获得正式实施授权后开始。
-- integration 阶段必须等待机器草案完整，并由 MCU 负责人逐字段审查。
-- acceptance 阶段必须取得 MCU 负责人明确确认，并证明三端数值和黄金样本一致。
+- integration 阶段的 Registry 审查和通用三语言黄金样本已经完成，仍需补齐 MCU
+  实际 C 工具链与真机 UART 执行证据。
+- acceptance 阶段已经取得 MCU 负责人对 Registry 的明确确认，但仍须证明三端数值和
+  黄金样本一致。
 - 外部排队等待不计入 `effort_range`。
 
 ## 排除范围
@@ -86,5 +94,13 @@ Python 3.11 运行时和 MCU C 工具链，因此三语言一致性仍保持未�
 - 2026-07-24：同步 session 一单和清运电子锁边界；软件 `ready`、人工 checkpoint 与实施授权状态不变。
 - 2026-07-24：软件阶段完成。OneNet 候选物模型已由项目负责人确认可正常导入控制台；
   生成物检查、Schema/Registry 校验、Java 黄金样本和 20 项工具测试通过。任务进入
-  “软件已完成、等待 MCU 与联调验收收口”，真实 Python 3.11、MCU C 工具链、逐字段
+  "软件已完成、等待 MCU 与联调验收收口"，真实 Python 3.11、MCU C 工具链、逐字段
   checkpoint 和跨端真机证据仍未完成，因此任务级状态保持 `blocked`。
+- 2026-07-24：MCU 负责人已接受 UART Registry 与消息数值、状态机边界、能力位和非易失
+  能力，人工 Registry checkpoint 完成。主审复核发现 Java/Python/C 同一黄金样本证据
+  仍未齐全，因此任务整体保持 `blocked`，integration/acceptance 继续
+  `in-progress`。
+- 2026-07-25：真实 Python 3.11 契约测试通过；修复 C 生成器的 SenderRole 重复类型
+  缺陷后，香橙派 GCC 12.2 以 C11、`-Wall -Wextra -Werror` 编译并运行黄金程序通过
+  （10 帧、10 条流轨迹、3 个摘要）。`/dev/ttyS5` 可打开但 MCU 在 3 秒内没有
+  `HELLO` 响应，仍缺 MCU 实际工具链与 HIL 证据，任务保持 `blocked`。

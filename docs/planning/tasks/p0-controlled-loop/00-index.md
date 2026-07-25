@@ -13,8 +13,8 @@ implementation_authorized: false
 # EcoBin P0 受控闭环实施任务索引
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
-> F-04，并确认 F-10 软件阶段完成；其他任务仍须逐项获得授权。`status: ready` 只表示
-> 任务设计和前置依赖允许领取，不构成后续任务的自动授权。
+> F-04，并确认 F-10 软件阶段完成和 F-11 软件实施授权；其他任务仍须逐项获得授权。
+> `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
 ## Initiative 状态
 
@@ -23,8 +23,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-04 已授权并完成；F-10 软件已完成，等待 MCU 与联调验收；其他任务未授权** |
-| 当前状态数 | `done` 4、`ready` 3、`blocked` 22 |
+| 实施授权 | **部分授权：H-01、F-01、F-02、F-04 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 已授权并实施中；其他任务未授权** |
+| 当前状态数 | `done` 4、`ready` 3、`in-progress` 1、`blocked` 21 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -79,8 +79,8 @@ agent | human | mixed
 | F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `blocked` | `agent` | F-03、F-06 |
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `blocked` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `ready` | `agent` | F-02 |
-| F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 软件已完成；等待 MCU、三语言与联调验收 |
-| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `blocked` | `agent` | F-10 |
+| F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 通用三语言黄金样本已通过；等待 MCU 实际工具链与 HIL |
+| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 软件实施已授权；F-10 仍是进入评审/完成门 |
 | F-12 | [完整试点 seed 编排](f-12-pilot-seed-orchestration.md) | `blocked` | `mixed` | V-01、V-03、V-07、V-10 |
 
 ### 纵向业务任务
@@ -105,7 +105,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `blocked` | `human` | F-06 |
-| H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10 |
+| H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10；尚未授权固件实施 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
@@ -206,3 +206,12 @@ M0_COMPLETE
 - 2026-07-24：项目负责人授权并完成 F-02、F-04；F-03、F-05、F-09 的任务依赖随之
   解除并转为 `ready`，但三项均未获得实施授权。依赖图和各任务 `blocked_by` 不变，
   F-10 继续保持 `blocked`。当前共 `done` 4、`ready` 3、`blocked` 22。
+- 2026-07-24：MCU 负责人接受 UART Registry 的消息数值、状态机边界、能力位和非易失
+  能力；Java/Python/C 同一黄金样本证据仍未齐全，F-10 整体继续保持 `blocked`，H-03
+  也未获得固件实施授权。
+- 2026-07-24：项目负责人授权 F-11 基于现有机器来源开始软件实施，任务进入
+  `in-progress`；F-10 继续作为 F-11 进入评审和完成的门。当前共 `done` 4、
+  `ready` 3、`in-progress` 1、`blocked` 21。
+- 2026-07-25：真实 Python 3.11 与香橙派 GCC 12.2 C11 黄金样本通过；F-11 完成
+  OneNet 命令可靠受理和 `APPLY_CONFIGURATION` UART 配置纵切。真实 MCU 没有回应
+  `HELLO`，因此 F-10、F-11 和 H-03 的任务级状态保持不变。
