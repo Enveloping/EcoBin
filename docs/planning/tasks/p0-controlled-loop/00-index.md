@@ -13,7 +13,7 @@ implementation_authorized: false
 # EcoBin P0 受控闭环实施任务索引
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
-> F-04，并确认 F-10 软件阶段完成、F-11 软件实施授权和 F-05 后端实施授权；
+> F-04、F-05、F-06，并确认 F-10 软件阶段完成和 F-11 软件实施授权；
 > 其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
@@ -24,8 +24,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-04、F-05 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 已授权并实施中；其他任务未授权** |
-| 当前状态数 | `done` 5、`ready` 3、`in-progress` 1、`blocked` 20 |
+| 实施授权 | **部分授权：H-01、F-01、F-02、F-04、F-05、F-06 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 已授权并实施中；其他任务未授权** |
+| 当前状态数 | `done` 6、`ready` 3、`in-progress` 1、`blocked` 19 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -76,7 +76,7 @@ agent | human | mixed
 | F-03 | [funds/device/recycling/operations 边界搬迁](f-03-business-module-boundary-migration.md) | `ready` | `agent` | F-02 |
 | F-04 | [目标数据库 V1～V4](f-04-database-v1-v4-iam-device.md) | `done` | `agent` | 无；合入新应用和联合验收前需 F-01 |
 | F-05 | [目标数据库 V5 recycling](f-05-database-v5-recycling.md) | `done` | `agent` | F-04 |
-| F-06 | [目标数据库 V6～V10](f-06-database-v6-v10-funds-operations.md) | `ready` | `agent` | F-05 |
+| F-06 | [目标数据库 V6～V10](f-06-database-v6-v10-funds-operations.md) | `done` | `agent` | F-05 |
 | F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `blocked` | `agent` | F-03、F-06 |
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `blocked` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `ready` | `agent` | F-02 |
@@ -105,7 +105,7 @@ agent | human | mixed
 | ID | 任务 | status | executor | blocked by |
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
-| H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `blocked` | `human` | F-06 |
+| H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `ready` | `human` | F-06 |
 | H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10；尚未授权固件实施 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
@@ -221,3 +221,7 @@ M0_COMPLETE
   F-06 仍须等待 F-05 主审确认并变为 `done`，不提前解除依赖。
 - 2026-07-25：项目负责人完成 F-05 审核并确认合并；F-05 转为 `done`，F-06 前置依赖
   解除并转为 `ready`。当前共 `done` 5、`ready` 3、`in-progress` 1、`blocked` 20。
+- 2026-07-25：项目负责人授权 F-06；在独立 worktree 完成 V6～V10、83 表连续矩阵、
+  H-02 最小权限交接和 MySQL 8.4 双空库验收。F-06 转为 `done`，H-02 前置依赖
+  解除并转为 `ready`，但真实环境操作仍未授权。当前共 `done` 6、`ready` 3、
+  `in-progress` 1、`blocked` 19。
