@@ -1,7 +1,7 @@
 ---
 task_id: H-02
 title: 目标数据库身份与环境供应
-status: blocked
+status: ready
 executor: human
 owner: "unassigned — project owner / database provisioning operator"
 effort_range: "1-2 person-days"
@@ -39,8 +39,9 @@ implementation_authorized: false
 
 ## 阻塞与最早开始
 
-- 被 [F-06](f-06-database-v6-v10-funds-operations.md) 阻塞：需要完整 V1～V10 和权限目录作为供应与验证输入。
-- F-06 完成且项目负责人明确授权目标环境操作后才可开始。
+- 前置 [F-06](f-06-database-v6-v10-funds-operations.md) 已完成，完整 V1～V10、
+  权限目录和最小权限矩阵已经可用。
+- 当前 `ready` 仅表示任务依赖已解除；项目负责人明确授权目标环境操作后才可开始。
 - 完成后解除 H-06 的数据库环境依赖。
 
 ## 排除范围
@@ -59,3 +60,5 @@ implementation_authorized: false
 ## 进展记录
 
 - 2026-07-23：正式任务发布；等待 F-06，保持 `blocked`；尚未授权供应或修改数据库环境。
+- 2026-07-25：F-06 完成，任务依赖解除并转为 `ready`；真实环境供应仍未授权，
+  不创建账号、不执行 GRANT、不接触凭证。

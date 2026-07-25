@@ -1,20 +1,20 @@
 ---
 task_id: F-06
 title: 目标数据库 V6-V10 funds、operations 与约束
-status: ready
+status: done
 executor: agent
-owner: "TBD / database-funds-operations-owner"
+owner: "Codex / database-funds-operations-owner"
 effort_range: "5-8 person-days"
 earliest_start: "F-05 done 后"
 blocked_by:
   - F-05
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # F-06｜目标数据库 V6-V10 funds、operations 与约束
 
-> `status: ready` 表示 F-05 前置依赖已经完成；`implementation_authorized: false`
-> 表示依赖解除不构成 F-06 编码或迁移授权。
+> F-05 已完成；项目负责人已于 2026-07-25 明确授权实施。V6～V10、验证矩阵和
+> MySQL 8.4 双空库验收已经完成。
 
 ## 目标
 
@@ -33,21 +33,20 @@ implementation_authorized: false
 
 ## 验收条件
 
-- [ ] V1～V10 可从两个全新 MySQL 8.4 空库严格安装，结构一致。
-- [ ] 目标表总数准确为 83。
-- [ ] 用户钱包和机构账户双账本、充值、提现、微信转账单和平台出款闸门约束完整。
-- [ ] inbox、可靠任务、attempt、审计、隔离、告警和对账表约束完整。
-- [ ] V8 只补此前不能创建的循环或跨模块关系。
-- [ ] V9 只包含 AppID 激活和机构用户注册归因两类冻结触发器。
-- [ ] V10 只包含环境无关权限目录，不含业务实例、凭证或秘密。
-- [ ] 所有跨模块关系保持内部 `BIGINT` 复合外键和表所有权，不混用公开 UID 外键方案。
-- [ ] 任何失败迁移产生的半库都不能通过结构验收。
+- [x] V1～V10 可从两个全新 MySQL 8.4 空库严格安装，结构一致。
+- [x] 目标表总数准确为 83。
+- [x] 用户钱包和机构账户双账本、充值、提现、微信转账单和平台出款闸门约束完整。
+- [x] inbox、可靠任务、attempt、审计、隔离、告警和对账表约束完整。
+- [x] V8 只补此前不能创建的循环或跨模块关系。
+- [x] V9 只包含 AppID 激活和机构用户注册归因两类冻结触发器。
+- [x] V10 只包含环境无关权限目录，不含业务实例、凭证或秘密。
+- [x] 所有跨模块关系保持内部 `BIGINT` 复合外键和表所有权，不混用公开 UID 外键方案。
+- [x] 任何失败迁移产生的半库都不能通过结构验收。
 
 ## 阻塞与最早开始
 
-- [F-05](f-05-database-v5-recycling.md) 已完成，V5 及其验证证据已经具备，任务依赖
-  已经解除。
-- 本任务仍须由项目负责人明确授权后，才能实施 V6～V10。
+- 前置 [F-05](f-05-database-v5-recycling.md) 已完成。
+- F-06 完成后解除 H-02 的任务依赖；真实数据库身份与环境供应仍须单独获得操作授权。
 
 ## 排除范围
 
@@ -70,5 +69,17 @@ implementation_authorized: false
 
 - 2026-07-23：从已批准的 29 项任务拆分发布；尚未授权实施。
 - 2026-07-24：目标总表数随删除云端 `dev_delivery_cycle` 调整为 83；依赖和授权状态不变。
-- 2026-07-25：F-05 审核完成后任务由 `blocked` 转为 `ready`；尚未获得 F-06 编码或
-  迁移授权。
+- 2026-07-25：F-05 已完成；项目负责人明确授权实施 F-06，任务进入 `in-progress`。
+- 2026-07-25：完成 V6 的 20 张 funds 表、V7 的 9 张 operations 表、V8 的
+  29 个后置复合外键、V9 的两类不可变触发器和 V10 的 71 行权限目录；V1～V10
+  在两套 MySQL 8.4.10 空库得到相同的 83 表结构，316 个外键全部有显式索引，
+  20 个约束负例和 8 类关键正例通过。F-04/F-05 回归及合并后 Java 21 全量 82 测试通过；
+  证据见 [F-06 验证矩阵](../../database-design/f-06-v6-v10-funds-operations-verification-matrix.md)，
+  任务完成。
+- 2026-07-25：审核回归补强提现长时间未结算的 `NULL/UNKNOWN` 防绕过、暂停事件
+  的同商户与 `NOT_ENOUGH` 证据外键，并从 transfer 父候选键移除可变商户配置。
+  新增三个负例及“历史 transfer 后配置可更新、原快照不变”的正例，MySQL 8.4.10
+  双空库验证再次通过。
+- 2026-07-25：项目负责人审核确认后合入 `database-refactor`；同步 `CLAUDE.md`、
+  项目上下文、文档中心、架构/数据库/详细设计入口和任务索引，合并后 Java 21
+  23 suites、82 tests 全部通过。

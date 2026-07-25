@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05 已完成，F-06/F-09 已 ready 但未授权，F-10 软件已完成并等待 MCU/联调验收，F-11 实施中**
+> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06 已完成，F-09 与 H-02 已 ready 但仍须分别授权，F-10 软件已完成并等待 MCU/联调验收，F-11 实施中**
 >
 > 草案日期：2026-07-24
 >
@@ -597,11 +597,12 @@ M0_COMPLETE
 4. `status` 与 `executor` 两维模型已经批准，V-02/V-03/V-04/V-06/V-07/V-08 保持 `mixed`。
 5. 2026-07-30 只作为风险排序目标；正式任务已经补充角色 owner、effort range 和 earliest start，实际负责人及首批吞吐确定后仍需重排，完整 M0 不作该日期承诺。
 6. 2026-07-24 的会话级结算和清运电子锁事实已写回任务验收；任务数量和依赖图不变。
-7. 项目负责人已授权并完成 H-01、F-01、F-02、F-03、F-04、F-05；F-10 软件已完成但必须等待 MCU、真实三语言
+7. 项目负责人已授权并完成 H-01、F-01、F-02、F-03、F-04、F-05、F-06；F-10 软件已完成但必须等待 MCU、真实三语言
    工具链和联调验收，不能标记 `done`。后续任务不继承这次授权。
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
-当前 H-01、F-01、F-02、F-03、F-04、F-05 为 `done`；F-06、F-09 为 `ready` 但未授权；
-F-10 因软件完成后仍等待 MCU/联调验收而为 `blocked`，F-11 为 `in-progress`；其余任务
-保持 `blocked`。当前共 `done` 6、`ready` 2、`in-progress` 1、`blocked` 20。
+当前 H-01、F-01、F-02、F-03、F-04、F-05、F-06 为 `done`；F-09 与 H-02 为 `ready`，
+但 F-09 编码和 H-02 真实环境操作仍须分别授权；F-10 因软件完成后仍等待 MCU/联调验收
+而为 `blocked`，F-11 为 `in-progress`；其余任务保持 `blocked`。当前共 `done` 7、
+`ready` 2、`in-progress` 1、`blocked` 19。
