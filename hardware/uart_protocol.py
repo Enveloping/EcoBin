@@ -4331,6 +4331,22 @@ def validate_payload_semantics(
             or not values["cleanerPhysicalCloseConfirmed"]
         ):
             raise ProtocolError("invalid clean completion confirmation")
+    if message_name == "STATE_SNAPSHOT_END":
+        queue_fields = (
+            "oldestPendingEventBootId",
+            "oldestPendingEventSequence",
+            "latestPendingEventBootId",
+            "latestPendingEventSequence",
+        )
+        if values["pendingCriticalEventCount"] == 0:
+            if any(values[name] != 0 for name in queue_fields):
+                raise ProtocolError(
+                    "empty pending-event queue requires zero range"
+                )
+        elif any(values[name] == 0 for name in queue_fields):
+            raise ProtocolError(
+                "nonempty pending-event queue requires complete range"
+            )
     if verify_command_digest and "commandDigestSha256" in values:
         actual = values["commandDigestSha256"]
         if isinstance(actual, bytes):

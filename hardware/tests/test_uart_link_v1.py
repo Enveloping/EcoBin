@@ -8,8 +8,10 @@ from onenet_wire import decode_service_command
 from uart_link import UartError, UartLink, compute_mcu_payload_sha256
 from uart_protocol import (
     MESSAGE_TYPE,
+    ProtocolError,
     compute_command_digest,
     decode_frame,
+    decode_payload,
     encode_frame,
     encode_payload,
 )
@@ -168,6 +170,30 @@ class HandshakeSerial:
 
     def close(self):
         self.is_open = False
+
+
+def test_snapshot_end_rejects_nonzero_range_for_empty_pending_queue():
+    payload = bytearray(encode_payload("STATE_SNAPSHOT_END", {
+        "mcuBootId": 42,
+        "mcuEventSequence": 3,
+        "uptimeMs": 100,
+        "snapshotUid": str(uuid.uuid4()),
+        "partIndex": 3,
+        "partCount": 3,
+        "pendingCriticalEventCount": 0,
+        "oldestPendingEventBootId": 0,
+        "oldestPendingEventSequence": 0,
+        "latestPendingEventBootId": 0,
+        "latestPendingEventSequence": 0,
+        "snapshotSha256": bytes(32),
+    }))
+    payload[63] = 1
+
+    with pytest.raises(
+        ProtocolError,
+        match="empty pending-event queue requires zero range",
+    ):
+        decode_payload("STATE_SNAPSHOT_END", bytes(payload))
 
 
 def query_state_payload():

@@ -818,6 +818,22 @@ def validate_payload_semantics(
             or not values["cleanerPhysicalCloseConfirmed"]
         ):
             raise ProtocolError("invalid clean completion confirmation")
+    if message_name == "STATE_SNAPSHOT_END":
+        queue_fields = (
+            "oldestPendingEventBootId",
+            "oldestPendingEventSequence",
+            "latestPendingEventBootId",
+            "latestPendingEventSequence",
+        )
+        if values["pendingCriticalEventCount"] == 0:
+            if any(values[name] != 0 for name in queue_fields):
+                raise ProtocolError(
+                    "empty pending-event queue requires zero range"
+                )
+        elif any(values[name] == 0 for name in queue_fields):
+            raise ProtocolError(
+                "nonempty pending-event queue requires complete range"
+            )
     if verify_command_digest and "commandDigestSha256" in values:
         actual = values["commandDigestSha256"]
         if isinstance(actual, bytes):
@@ -1375,36 +1391,47 @@ def render_c_header(
             "        UINT32_C(0x748f82ee), UINT32_C(0x78a5636f), UINT32_C(0x84c87814), UINT32_C(0x8cc70208),",
             "        UINT32_C(0x90befffa), UINT32_C(0xa4506ceb), UINT32_C(0xbef9a3f7), UINT32_C(0xc67178f2)",
             "    };",
-            "    uint32_t words[64];",
+            "    uint32_t words[16];",
             "    uint32_t a, b, c, d, e, f, g, h;",
             "    uint32_t index;",
             "    for (index = 0u; index < 16u; ++index)",
             "        words[index] = ecobin_uart_read_u32_be(data + index * 4u);",
-            "    for (index = 16u; index < 64u; ++index) {",
-            "        uint32_t s0 = ecobin_uart_sha256_rotr(words[index - 15u], 7u)",
-            "            ^ ecobin_uart_sha256_rotr(words[index - 15u], 18u)",
-            "            ^ (words[index - 15u] >> 3u);",
-            "        uint32_t s1 = ecobin_uart_sha256_rotr(words[index - 2u], 17u)",
-            "            ^ ecobin_uart_sha256_rotr(words[index - 2u], 19u)",
-            "            ^ (words[index - 2u] >> 10u);",
-            "        words[index] = words[index - 16u] + s0",
-            "            + words[index - 7u] + s1;",
-            "    }",
             "    a = context->state[0]; b = context->state[1];",
             "    c = context->state[2]; d = context->state[3];",
             "    e = context->state[4]; f = context->state[5];",
             "    g = context->state[6]; h = context->state[7];",
             "    for (index = 0u; index < 64u; ++index) {",
-            "        uint32_t s1 = ecobin_uart_sha256_rotr(e, 6u)",
+            "        uint32_t word_index;",
+            "        uint32_t s1;",
+            "        uint32_t choice;",
+            "        uint32_t temporary1;",
+            "        uint32_t s0;",
+            "        uint32_t majority;",
+            "        uint32_t temporary2;",
+            "        word_index = index & 15u;",
+            "        if (index >= 16u) {",
+            "            uint32_t schedule_s0;",
+            "            uint32_t schedule_s1;",
+            "            schedule_s0 = ecobin_uart_sha256_rotr(words[(index + 1u) & 15u], 7u)",
+            "                ^ ecobin_uart_sha256_rotr(words[(index + 1u) & 15u], 18u)",
+            "                ^ (words[(index + 1u) & 15u] >> 3u);",
+            "            schedule_s1 = ecobin_uart_sha256_rotr(words[(index + 14u) & 15u], 17u)",
+            "                ^ ecobin_uart_sha256_rotr(words[(index + 14u) & 15u], 19u)",
+            "                ^ (words[(index + 14u) & 15u] >> 10u);",
+            "            words[word_index] = words[word_index] + schedule_s0",
+            "                + words[(index + 9u) & 15u] + schedule_s1;",
+            "        }",
+            "        s1 = ecobin_uart_sha256_rotr(e, 6u)",
             "            ^ ecobin_uart_sha256_rotr(e, 11u)",
             "            ^ ecobin_uart_sha256_rotr(e, 25u);",
-            "        uint32_t choice = (e & f) ^ ((~e) & g);",
-            "        uint32_t temporary1 = h + s1 + choice + constants[index] + words[index];",
-            "        uint32_t s0 = ecobin_uart_sha256_rotr(a, 2u)",
+            "        choice = (e & f) ^ ((~e) & g);",
+            "        temporary1 = h + s1 + choice + constants[index]",
+            "            + words[word_index];",
+            "        s0 = ecobin_uart_sha256_rotr(a, 2u)",
             "            ^ ecobin_uart_sha256_rotr(a, 13u)",
             "            ^ ecobin_uart_sha256_rotr(a, 22u);",
-            "        uint32_t majority = (a & b) ^ (a & c) ^ (b & c);",
-            "        uint32_t temporary2 = s0 + majority;",
+            "        majority = (a & b) ^ (a & c) ^ (b & c);",
+            "        temporary2 = s0 + majority;",
             "        h = g; g = f; f = e; e = d + temporary1;",
             "        d = c; c = b; b = a; a = temporary1 + temporary2;",
             "    }",
