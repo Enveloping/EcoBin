@@ -305,6 +305,18 @@ class UartLink:
         if mcu_payload.get("senderRole") != "MCU":
             raise UartError("MCU HELLO senderRole invalid")
         mcu_boot_id = mcu_payload.get("senderBootId", 0)
+        if (
+            not isinstance(mcu_boot_id, int)
+            or mcu_boot_id <= 0
+            or mcu_payload.get("supportedMajor") != PROTOCOL_MAJOR
+            or mcu_payload.get("minimumMinor", PROTOCOL_MINOR + 1)
+            > PROTOCOL_MINOR
+            or mcu_payload.get("maximumMinor", -1) < PROTOCOL_MINOR
+            or mcu_payload.get("portCount") != self.port_count
+            or mcu_payload.get("maximumFrameLength", 0)
+            < MAXIMUM_FRAME_LENGTH
+        ):
+            raise UartError("MCU HELLO 协议参数不兼容")
         mcu_capability = mcu_payload.get("capabilityBitmap", 0)
         unknown_capabilities = mcu_capability & ~EDGE_CAPABILITY_BITMAP
         missing_capabilities = (
@@ -339,27 +351,78 @@ class UartLink:
         if status == "INCOMPATIBLE":
             raise UartError(f"MCU 能力不兼容: edge=0x{EDGE_CAPABILITY_BITMAP:X} mcu=0x{mcu_capability:X}")
 
-        # Step 4: 等待 MCU HELLO_ACK
-        mcu_hello_ack = self._read_frame(timeout_ms=3000)
-        if mcu_hello_ack is None:
-            raise UartError("MCU HELLO_ACK 超时")
-        ack_msg = mcu_hello_ack.get("message_name", "")
-        ack_payload_dict = mcu_hello_ack.get("payload", {})
-        if ack_msg == "HELLO_ACK" and ack_payload_dict.get("status") == "ACCEPTED":
+        # Step 4: 等待 MCU HELLO_ACK。串口打开时可能残留 MCU 的周期
+        # HELLO，且 MCU 收到 EDGE HELLO 后会再发送一次；二者都不应让
+        # 对称握手失败。
+        deadline = time.monotonic() + 3.0
+        while True:
+            remaining_ms = max(
+                1,
+                int((deadline - time.monotonic()) * 1000),
+            )
+            if remaining_ms <= 1 and time.monotonic() >= deadline:
+                raise UartError("MCU HELLO_ACK 超时")
+            mcu_hello_ack = self._read_frame(timeout_ms=remaining_ms)
+            if mcu_hello_ack is None:
+                raise UartError("MCU HELLO_ACK 超时")
+
+            ack_msg = mcu_hello_ack.get("message_name", "")
+            ack_payload_dict = mcu_hello_ack.get("payload", {})
+            if ack_msg == "HELLO":
+                if (
+                    ack_payload_dict.get("senderRole") != "MCU"
+                    or ack_payload_dict.get("senderBootId") != mcu_boot_id
+                    or ack_payload_dict.get("capabilityBitmap")
+                    != mcu_capability
+                ):
+                    raise UartError("握手期间 MCU HELLO 身份发生变化")
+                self._send_frame("HELLO_ACK", ack_payload)
+                logger.info("握手期间收到重复 MCU HELLO，已重发 HELLO_ACK")
+                continue
+            if ack_msg != "HELLO_ACK":
+                raise UartError(f"期望 HELLO_ACK，收到 {ack_msg}")
+            if (
+                ack_payload_dict.get("status") != "ACCEPTED"
+                or ack_payload_dict.get("responderBootId") != mcu_boot_id
+                or ack_payload_dict.get("referencedSenderBootId")
+                != self.edge_boot_id
+                or ack_payload_dict.get("selectedMajor") != PROTOCOL_MAJOR
+                or ack_payload_dict.get("selectedMinor") != PROTOCOL_MINOR
+                or ack_payload_dict.get("portCount") != self.port_count
+                or ack_payload_dict.get("capabilityBitmap") != negotiated
+                or ack_payload_dict.get("maximumFrameLength", 0)
+                < MAXIMUM_FRAME_LENGTH
+                or ack_payload_dict.get("errorCode") not in (0, "NONE")
+            ):
+                raise UartError(
+                    "MCU HELLO_ACK 字段不兼容: "
+                    f"status={ack_payload_dict.get('status')}"
+                )
+
             self._mcu_boot_id = mcu_boot_id
             self._mcu_capability = negotiated
-            self._mcu_firmware_version = mcu_payload.get("firmwareVersion", "")
-            logger.info("HELLO 握手完成: mcuBoodId=%d capability=0x%X",
-                         self._mcu_boot_id, self._mcu_capability)
+            self._mcu_firmware_version = mcu_payload.get(
+                "firmwareVersion", ""
+            )
+            logger.info(
+                "HELLO 握手完成: mcuBootId=%d capability=0x%X",
+                self._mcu_boot_id,
+                self._mcu_capability,
+            )
             return {
                 "mcu_boot_id": mcu_boot_id,
                 "mcu_capability": negotiated,
                 "mcu_port_count": mcu_payload.get("portCount", 0),
-                "mcu_firmware_identity": mcu_payload.get("firmwareIdentity", ""),
-                "mcu_firmware_version": mcu_payload.get("firmwareVersion", ""),
-                "mcu_pending_critical_events": mcu_payload.get("pendingCriticalEventCount", 0),
+                "mcu_firmware_identity": mcu_payload.get(
+                    "firmwareIdentity", ""
+                ),
+                "mcu_firmware_version": mcu_payload.get(
+                    "firmwareVersion", ""
+                ),
+                "mcu_pending_critical_events": mcu_payload.get(
+                    "pendingCriticalEventCount", 0
+                ),
             }
-        raise UartError(f"MCU HELLO_ACK 失败: status={ack_payload_dict.get('status')}")
 
     # ── QUERY_STATE ──
 

@@ -88,15 +88,58 @@ class EventBeforeAckSerial(AutoAckSerial):
 
 
 class HandshakeSerial:
-    def __init__(self, edge_boot_id, mcu_boot_id, mcu_capability):
+    def __init__(
+        self,
+        edge_boot_id,
+        mcu_boot_id,
+        mcu_capability,
+        repeat_hello_before_ack=False,
+    ):
         self.edge_boot_id = edge_boot_id
         self.mcu_boot_id = mcu_boot_id
         self.mcu_capability = mcu_capability
+        self.repeat_hello_before_ack = repeat_hello_before_ack
         self.is_open = True
         self.timeout = 0.5
         self.writes = []
         self._incoming = bytearray()
         self._mcu_tx_sequence = 0
+
+    def _queue_hello(self):
+        self._mcu_tx_sequence += 1
+        hello = encode_payload("HELLO", {
+            "senderRole": "MCU",
+            "senderBootId": self.mcu_boot_id,
+            "supportedMajor": 1,
+            "minimumMinor": 0,
+            "maximumMinor": 0,
+            "portCount": 1,
+            "capabilityBitmap": self.mcu_capability,
+            "maximumFrameLength": 256,
+            "pendingCriticalEventCount": 0,
+            "firmwareIdentity": "stm32f103rct6",
+            "firmwareVersion": "1.0.0-hil.1",
+        })
+        self._incoming.extend(
+            encode_frame("HELLO", self._mcu_tx_sequence, hello)
+        )
+
+    def _queue_hello_ack(self):
+        self._mcu_tx_sequence += 1
+        hello_ack = encode_payload("HELLO_ACK", {
+            "responderBootId": self.mcu_boot_id,
+            "referencedSenderBootId": self.edge_boot_id,
+            "selectedMajor": 1,
+            "selectedMinor": 0,
+            "status": "ACCEPTED",
+            "portCount": 1,
+            "capabilityBitmap": self.mcu_capability,
+            "maximumFrameLength": 256,
+            "errorCode": "NONE",
+        })
+        self._incoming.extend(
+            encode_frame("HELLO_ACK", self._mcu_tx_sequence, hello_ack)
+        )
 
     @property
     def in_waiting(self):
@@ -106,39 +149,11 @@ class HandshakeSerial:
         self.writes.append(bytes(data))
         decoded = decode_frame(data, sender_role="EDGE")
         if decoded["messageType"] == MESSAGE_TYPE["HELLO"]:
-            self._mcu_tx_sequence += 1
-            hello = encode_payload("HELLO", {
-                "senderRole": "MCU",
-                "senderBootId": self.mcu_boot_id,
-                "supportedMajor": 1,
-                "minimumMinor": 0,
-                "maximumMinor": 0,
-                "portCount": 1,
-                "capabilityBitmap": self.mcu_capability,
-                "maximumFrameLength": 256,
-                "pendingCriticalEventCount": 0,
-                "firmwareIdentity": "stm32f103rct6",
-                "firmwareVersion": "1.0.0-hil.1",
-            })
-            self._incoming.extend(
-                encode_frame("HELLO", self._mcu_tx_sequence, hello)
-            )
+            self._queue_hello()
         elif decoded["messageType"] == MESSAGE_TYPE["HELLO_ACK"]:
-            self._mcu_tx_sequence += 1
-            hello_ack = encode_payload("HELLO_ACK", {
-                "responderBootId": self.mcu_boot_id,
-                "referencedSenderBootId": self.edge_boot_id,
-                "selectedMajor": 1,
-                "selectedMinor": 0,
-                "status": "ACCEPTED",
-                "portCount": 1,
-                "capabilityBitmap": self.mcu_capability,
-                "maximumFrameLength": 256,
-                "errorCode": "NONE",
-            })
-            self._incoming.extend(
-                encode_frame("HELLO_ACK", self._mcu_tx_sequence, hello_ack)
-            )
+            if self.repeat_hello_before_ack:
+                self._queue_hello()
+            self._queue_hello_ack()
         return len(data)
 
     def flush(self):
@@ -191,6 +206,26 @@ def test_hil_handshake_can_require_only_the_slice_under_test():
     assert result["mcu_port_count"] == 1
     assert result["mcu_firmware_identity"] == "stm32f103rct6"
     assert result["mcu_firmware_version"] == "1.0.0-hil.1"
+
+
+def test_handshake_tolerates_repeated_mcu_hello_before_hello_ack():
+    link = UartLink(
+        port="fake",
+        edge_boot_id=7,
+        port_count=1,
+        required_capability_bitmap=0x300,
+    )
+    link._ser = HandshakeSerial(
+        7,
+        42,
+        0x300,
+        repeat_hello_before_ack=True,
+    )
+
+    result = link.handshake()
+
+    assert result["mcu_boot_id"] == 42
+    assert result["mcu_capability"] == 0x300
 
 
 def test_ack_is_matched_against_boot_sequence_and_message_type():
