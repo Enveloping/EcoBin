@@ -4,7 +4,7 @@
 > 整理日期：2026-07-22
 > 最近确认：2026-07-24，项目负责人确认会话一单、边缘本地多轮和无门磁清运门边界；A-001～A-020 的模块/部署职责仍全部确认
 > 最终独立读者测试：2026-07-22 通过，无阻断或重大歧义
-> 当前阶段：详细设计和 29 项正式任务已发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06 已完成，F-09 与 H-02 已 ready 但仍须分别授权，F-10 软件已完成并等待 MCU/联调验收，F-11 实施中
+> 当前阶段：详细设计和 29 项正式任务已发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06 已完成，F-08 已实施并进入评审，F-11 实施中，F-09 与 H-02 已 ready 但仍须分别授权，F-10 软件已完成并等待 MCU/联调验收
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)
 > 现状参考：[`project-context.md`](../architecture/project-context.md)、当前代码、测试与 Flyway 迁移
 > 目的：确定 P0 的系统边界、部署形态、模块职责、依赖方向和一致性机制；本文不设计数据库字段、接口 URL、消息字段或类结构。

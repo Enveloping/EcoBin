@@ -1,21 +1,22 @@
 ---
 task_id: F-08
 title: inbox 与可靠任务 tracer
-status: blocked
+status: in-review
 executor: agent
-owner: "TBD / reliability-operations-owner"
+owner: "Codex / reliability-operations-owner"
 effort_range: "3-5 person-days"
 earliest_start: "F-03、F-06 均 done 后"
 blocked_by:
   - F-03
   - F-06
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # F-08｜inbox 与可靠任务 tracer
 
-> `status: blocked` 表示任务依赖尚未完成；`implementation_authorized: false`
-> 表示本文件的发布不构成编码授权。
+> F-03、F-06 已完成；项目负责人已于 2026-07-26 明确授权 Codex 接取并实施
+> F-08。Fake tracer、稳定技术端口和 MySQL 8.4 验收均已完成，任务处于
+> `in-review`，等待主审确认。
 
 ## 目标
 
@@ -34,21 +35,22 @@ implementation_authorized: false
 
 ## 验收条件
 
-- [ ] 首次可信收件在同一事务建立 inbox 和唯一处理任务。
-- [ ] 同稳定 ID、同摘要复用原事实；同 ID、异摘要进入隔离。
-- [ ] 收件事务提交后才可返回传输 ACK。
-- [ ] ACK 前后崩溃均可安全重投。
-- [ ] 过期租约可由另一 worker 接管，不产生第二业务意图。
-- [ ] 业务回滚不会误标 inbox、attempt 或 task 完成。
-- [ ] task 行锁不跨领域长事务或外部调用持有。
-- [ ] 迟到领域事实通过原任务 `wakeVersion` 唤醒。
-- [ ] 关键测试使用真实 MySQL 8.4，而不是以 H2 代替锁和约束语义。
+- [x] 首次可信收件在同一事务建立 inbox 和唯一处理任务。
+- [x] 同稳定 ID、同摘要复用原事实；同 ID、异摘要进入隔离。
+- [x] 收件事务提交后才可返回传输 ACK。
+- [x] ACK 前后崩溃均可安全重投。
+- [x] 过期租约可由另一 worker 接管，不产生第二业务意图。
+- [x] 业务回滚不会误标 inbox、attempt 或 task 完成。
+- [x] task 行锁不跨领域长事务或外部调用持有。
+- [x] 迟到领域事实通过原任务 `wakeVersion` 唤醒。
+- [x] 关键测试使用真实 MySQL 8.4，而不是以 H2 代替锁和约束语义。
 
 ## 阻塞与最早开始
 
-- 当前被 [F-03](f-03-business-module-boundary-migration.md) 和
-  [F-06](f-06-database-v6-v10-funds-operations.md) 阻塞。
-- operations 模块边界和 V7 可靠任务表必须同时存在，才能完成 tracer。
+- [F-03](f-03-business-module-boundary-migration.md) 和
+  [F-06](f-06-database-v6-v10-funds-operations.md) 均已完成，operations 模块边界和
+  V7 可靠任务表已经具备，任务依赖已解除。
+- 项目负责人已于 2026-07-26 明确授权实施，当前不存在领取阻塞。
 
 ## 排除范围
 
@@ -68,3 +70,16 @@ implementation_authorized: false
 ## 进展记录
 
 - 2026-07-23：从已批准的 29 项任务拆分发布；尚未授权实施。
+- 2026-07-26：F-03、F-06 均为 `done`，项目负责人明确授权 Codex 接取并实施
+  F-08；任务转为 `in-progress`，后续修改在独立 worktree
+  `database-refactor-f08-reliable-task` 的 `codex/f08-reliable-task` 分支进行。
+- 2026-07-26：完成可信 Fake 收件、规范摘要、inbox/task 原子建立、重复唤醒与冲突
+  隔离、租约/attempt/退避/blocked、旧 worker 迟到保护、业务事务共同完成、
+  `wakeVersion` 稳定端口和三类有界通道配置。Java 21 全仓回归与制品安装通过；
+  MySQL 8.4.10 专项测试全部实际执行且无跳过。验收证据见
+  [F-08 实施证据](../../../architecture/f-08-inbox-reliable-task-evidence.md)，任务转为
+  `in-review`，等待主审确认。
+- 2026-07-26：根据 review 的两个 P1 补强精确数字语义和执行容量边界：JSON 数字改用
+  `BigDecimal/BigInteger` 精确解析；runner 改为先获取通道共享在途许可，再逐任务即时
+  领取。Java 21 全仓 91 项回归通过，MySQL 8.4.10 专项 5 项全部通过，任务保持
+  `in-review`。

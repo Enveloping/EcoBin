@@ -67,6 +67,44 @@ cos:
   base-url: ${cosBaseUrl:}
   duration-seconds: ${cosDurationSeconds:1800}
 
+# 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
+ecobin:
+  operations:
+    reliable:
+      iot-device:
+        worker-count: 2
+        batch-size: 16
+        lease-duration: 30s
+        external-timeout: 10s
+        maximum-in-flight: 16
+        bounded-queue-capacity: 64
+        poll-interval: 500ms
+        initial-backoff: 1s
+        maximum-backoff: 5m
+        max-auto-attempts: 10
+      funds-wechat:
+        worker-count: 2
+        batch-size: 8
+        lease-duration: 60s
+        external-timeout: 30s
+        maximum-in-flight: 8
+        bounded-queue-capacity: 32
+        poll-interval: 1s
+        initial-backoff: 2s
+        maximum-backoff: 10m
+        max-auto-attempts: 20
+      maintenance:
+        worker-count: 1
+        batch-size: 4
+        lease-duration: 60s
+        external-timeout: 20s
+        maximum-in-flight: 4
+        bounded-queue-capacity: 16
+        poll-interval: 5s
+        initial-backoff: 5s
+        maximum-backoff: 30m
+        max-auto-attempts: 10
+
 # 服务器端口
 server:
   port: 8080

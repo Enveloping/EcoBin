@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**已批准；F-10 软件已完成，STATE_SNAPSHOT 等线级数值仍需 MCU 负责人 HITL 与跨端联调收口；F-08/F-11 尚未实施**
+> 状态：**已批准；F-08 已实施并进入评审，F-11 实施中；F-10 软件已完成，STATE_SNAPSHOT 等线级数值仍需 MCU 负责人 HITL 与跨端联调收口**
 >
 > 审查日期：2026-07-24
 >
