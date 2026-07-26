@@ -161,10 +161,14 @@ V10 已应用后，新增权限只能使用新的前向迁移。
 | 身份 | 必须拥有 | 明确禁止 |
 |---|---|---|
 | 实例初始化/恢复管理员 | 建库、创建/锁定账号、初始授权和灾难恢复；只在环境供应边界使用 | 进入应用配置、日常 Flyway 或普通运维会话 |
-| `ecobin_schema_owner` | 目标 schema 的 V1～V10 DDL/DML、Flyway history；目标 MySQL 8.4 创建指定定义者触发器所需全局 `SET_ANY_DEFINER` | 进入运行容器、访问旧库、长期在线使用、`GRANT OPTION` |
+| `ecobin_schema_owner` | 目标 schema 的 V1～V10 DDL/DML、Flyway history；目标 MySQL 8.4 创建指定定义者触发器所需全局 `SET_ANY_DEFINER` | 进入运行容器、访问旧库、长期在线使用、`GRANT OPTION`、`SUPER` |
 | `ecobin_trigger_definer` | 第 5 节三个最小授权；账号锁定 | 交互登录、业务 DML、全表读取、DDL、GRANT、旧库 |
 | `ecobin_app` | 83 表所需 `SELECT`；除权限目录外的正式用例 `INSERT`；按写类和列矩阵授予更新/删除；只读 Flyway history | schema 级 `INSERT/UPDATE/DELETE`，任何整表 `UPDATE`，DDL、REFERENCES、TRIGGER、GRANT、事实删除、旧库 |
 | `ecobin_backup` | 显式 83 表只读；备份工具确实需要的 `SHOW VIEW`；InnoDB 使用 single-transaction | 业务 DML、DDL、TRIGGER、EVENT、GRANT、旧库；不得为方便直接给管理员角色 |
+
+F-07 用真实 Flyway + schema owner 补充验证发现：MySQL 8.4 开启 binary log 时，
+仅有 `SET_ANY_DEFINER` 仍会以 1419 拒绝 V9 触发器。环境供应应显式启用受控的
+`log_bin_trust_function_creators=ON`，不能为迁移方便给 schema owner 增加 `SUPER`。
 
 `ecobin_app` 的授权生成规则：
 

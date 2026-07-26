@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.integration.wechat;
 
 import lombok.Data;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,10 +23,19 @@ public class WechatConfig {
     private String secret;
 
     @Bean
+    @ConditionalOnProperty(
+            prefix = "ecobin.external",
+            name = "mode",
+            havingValue = "real")
     public RestTemplate restTemplate() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(5000);
         return new RestTemplate(factory);
+    }
+
+    public boolean isConfigured() {
+        return appid != null && !appid.isBlank()
+                && secret != null && !secret.isBlank();
     }
 }

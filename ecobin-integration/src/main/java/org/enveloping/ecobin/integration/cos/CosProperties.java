@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 /**
  * 腾讯云 COS 对象存储配置（STS 临时密钥模式，设备直传）。
  * <p>
- * 当前字段默认留空；{@link CosStsClient} 在凭证缺失时仅记录占位日志、返回占位凭证。
+ * 字段默认留空；真实模式缺失任一必要字段时启动失败，Fake 模式不会装配真实 STS 客户端。
  */
 @Data
 @Component

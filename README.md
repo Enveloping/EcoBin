@@ -13,23 +13,28 @@
 | JWT (jjwt)      | 0.12.6 | 无状态 Token 认证                                 |
 | MySQL           | —      | 生产数据库                                        |
 | H2              | —      | 测试环境内存数据库                                    |
-| Flyway          | —      | 数据库版本迁移                                      |
+| Flyway          | —      | 独立 Maven 迁移作业；不进入后端运行制品                         |
 | Lombok          | —      | 编译期注解处理器                                     |
 | Maven           | —      | 多模块构建                                        |
 
-> **注意**：Spring Boot 4.x 与 MyBatis Plus 3.5.9 不兼容，必须使用 3.5.16 版本及 `boot4-starter`；Flyway 必须通过 `spring-boot-starter-flyway` 触发自动配置。
+> **当前阶段**：F-07 已交付目标 V10 空业务库的 Fake bootstrap。运行制品不包含
+> Flyway 运行库或迁移脚本，只做只读 epoch guard；目标迁移必须由一次性迁移作业执行。目标数据库上的
+> 纵向业务用例仍由后续任务迁移，不能把“可启动”理解为完整业务已切换。
 
 ## 项目结构
 
 ```
 EcoBin/
 ├── pom.xml                          # 父 POM（依赖管理 + 模块声明）
-├── ecobin-common/                   # 公共模块：枚举、基础实体（BaseEntity/PlatformBaseEntity）、统一响应、业务异常
-├── ecobin-framework/                # 框架模块：Security + JWT、租户隔离拦截器、Token 失效登记表、AES 加密、全局异常处理
-├── ecobin-module-system/            # 系统管理：平台管理员、租户、用户管理、登录认证
-├── ecobin-module-device/            # 设备管理：设备 CRUD、投口管理
-├── ecobin-module-business/          # 业务模块：投递订单、清运订单、数据统计
-└── ecobin-bootstrap/                # 启动模块：配置、Flyway 迁移、启动入口
+├── ecobin-common/                   # 公共值对象、响应和异常
+├── ecobin-framework/                # Security、JWT、租户隔离和基础设施
+├── ecobin-module-identity/          # 平台、租户、机构和登录身份
+├── ecobin-module-device/            # 设备、投口和设备命令公开端口
+├── ecobin-module-funds/             # 钱包与资金边界
+├── ecobin-module-recycling/         # 投递、清运和回收边界
+├── ecobin-module-operations/        # 审计、可靠任务与运营边界
+├── ecobin-integration/              # OneNet、COS、微信及 Fake 适配器
+└── ecobin-bootstrap/                # 应用组装、epoch guard 与启动入口
 ```
 
 
@@ -37,11 +42,13 @@ EcoBin/
 ### 模块依赖关系
 
 ```
-ecobin-bootstrap ──→ 组装所有模块
-  ├── ecobin-module-system   ──→ ecobin-framework ──→ ecobin-common
-  ├── ecobin-module-device   ──→ ecobin-framework
-  └── ecobin-module-business ──→ ecobin-framework
+ecobin-bootstrap → integration → operations → recycling → funds
+                 ↘ device / identity → framework → common
 ```
+
+跨业务模块只通过各模块 `.api` 包协作；完整约束见
+[`CLAUDE.md`](CLAUDE.md) 和
+[`docs/planning/detailed-design/01-foundation-modules-database.md`](docs/planning/detailed-design/01-foundation-modules-database.md)。
 
 ## API 接口
 
@@ -134,101 +141,70 @@ ecobin-bootstrap ──→ 组装所有模块
 
 ## 数据库设计
 
-所有业务表包含 `tenant_id BIGINT NOT NULL DEFAULT 1`。`tenant_id = 1` 为保留值（平台池/未分配），真实租户
-`tenant_id = sys_tenant.id 且恒 > 1`（`sys_tenant` 自增从 2 开始）。表前缀：`sys_`（系统表）、`biz_`（业务表）。
-完整设计见 [`docs/architecture/database-design.md`](docs/architecture/database-design.md)。
-
-| 表名                   | 说明                              |
-|----------------------|-----------------------------------|
-| `sys_admin`          | 平台管理员（超管/管理员，无 tenant_id）   |
-| `sys_tenant`         | 系统租户（含登录字段 + 小程序配置）         |
-| `sys_user`           | 终端用户（小程序微信 openid 登录，role=1/2/3） |
-| `biz_device`         | 设备                              |
-| `biz_door`           | 投口（关联设备）                        |
-| `biz_delivery_order` | 投递订单                            |
-| `biz_clean_order`    | 清运订单                            |
-| `biz_device_status`  | 设备实时状态                          |
-| `biz_weight_record`  | 重量变更记录                          |
-
-迁移脚本位于 `ecobin-bootstrap/src/main/resources/db/migration/`（V1 建表、V2 微信登录、V3 角色与登录主体重构）。
+目标迁移源码固定在
+`ecobin-bootstrap/src/main/resources/db/p0-migration/`，V1～V10 建立 83 张领域表，
+V10 只写 71 行环境无关权限参考数据。该目录仅由 Flyway Maven 插件从文件系统读取；
+运行制品不包含 Flyway 运行库，也不包含目标或旧纪元的任何迁移脚本。
+旧 V1～V14 只属于 H-01 保存的旧栈恢复制品，历史结构说明见
+[`docs/architecture/database-design.md`](docs/architecture/database-design.md)；目标结构见
+[`docs/planning/database-design-draft.md`](docs/planning/database-design-draft.md)。
 
 ## 快速开始
 
 ### 环境要求
 
 - JDK 21+
-- MySQL 8.0+
+- MySQL 8.4.x
 - Maven 3.8+（或使用项目自带的 `mvnw`）
+- Docker（运行真实 F-07 数据库验收时）
 
-### 1. 创建数据库
-
-```sql
-CREATE DATABASE IF NOT EXISTS ecobin DEFAULT CHARACTER SET utf8mb4;
-```
-
-### 2. 修改数据库配置
-
-编辑 `ecobin-bootstrap/src/main/resources/application.yml`：
-
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
-    username: root
-    password: your_password
-```
-
-### 3. 编译项目
-
-```bash
-./mvnw clean compile
-```
-
-### 4. 运行测试
+### 1. 编译并运行快速测试
 
 ```bash
 ./mvnw test
 ```
 
-### 5. 启动应用
+### 2. 执行 F-07 真实 MySQL 8.4 验收
+
+先按多模块约束生成最新制品，再运行临时数据库矩阵：
+
+```powershell
+mvn.cmd install -DskipTests
+.\tools\database\verify-f07-bootstrap.ps1
+```
+
+脚本使用随机密码和随机容器名，结束后自动清理；它验证正确 V10 可就绪、错误纪元
+严格失败、启动前后 schema/history 不变、无业务实例 seed、Fake 入站/出站闩锁，
+以及运行身份不能执行 DDL 或删除事实。
+
+### 3. 手动启动 Fake bootstrap
+
+手动启动前必须由环境供应者完成以下工作：
+
+- 以一次性 `ecobin_schema_owner` 在全新 MySQL 8.4 目标库执行 V1～V10；
+- 创建并限权 `ecobin_app`，只读 Flyway history 且不授予 DDL、TRIGGER 或 owner 权限；
+- 不向 Fake 环境注入任何 OneNet、COS 或微信真实凭证。
+
+随后通过环境变量传入数据库连接：
 
 ```bash
 ./mvnw spring-boot:run -pl ecobin-bootstrap
 ```
 
-启动后 Flyway 自动建表并初始化数据，应用运行在 `http://localhost:8080`。
-
-### 6. 登录验证
-
-```bash
-curl -X POST http://localhost:8080/api/system/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"userType":"admin","username":"admin","password":"admin123"}'
-```
-
-> `userType` 取 `admin`（平台管理员，查 `sys_admin`）或 `tenant`（租户，查 `sys_tenant`），缺省按 `admin` 处理。
+必须提供 `dbUrl`、`dbUsername=ecobin_app`、`dbPassword`；配置没有默认 root 或
+自动建库，运行制品在物理上不具备 baseline/migrate 能力。就绪探针为
+`GET /actuator/health/readiness`。
 
 ### 微信小程序配置
 
-如需启用微信登录，在 `application.yml` 中配置真实的小程序参数：
-
-```yaml
-wechat:
-  miniapp:
-    appid: your_appid     # 替换为真实 AppID
-    secret: your_secret   # 替换为真实 AppSecret
-```
-
-微信登录接口为 `POST /api/system/auth/wx-login`，请求体 `{"code": "wx.login()返回的临时code", "appid": "租户小程序AppID"}`。
-后端按 `appid` 定位租户并用其（AES 解密后的）secret 调微信换取 openid，首次登录在该租户下自动注册用户（role=1 普通用户）。
-每个租户绑定独立小程序，`sys_tenant.miniapp_appid`/`miniapp_secret` 在租户管理中配置；`application.yml` 中的
-`wechat.miniapp` 仅作全局默认/兜底。
+F-07 默认 `externalMode=fake`，只接受 `fake:` 前缀的测试 code；真实 OneNet、COS、
+微信配置只允许在后续受控验收中与 `externalMode=real` 成套供应。Fake 模式混入任一
+真实渠道配置会直接启动失败。
 
 ### 默认账号
 
-| 用户名   | 密码       | 角色          | 表          | 登录 userType |
-|-------|----------|-------------|------------|-------------|
-| admin | admin123 | 超级管理员(9) | `sys_admin` | admin |
+目标 V1～V10 和 F-07 bootstrap 不创建任何默认账号、租户、机构、设备、袋、钱包或业务配置。
+完整试点 seed 属于 F-12。
 
 ## 架构设计
 
@@ -278,19 +254,19 @@ org.enveloping.ecobin.{module}
 # 编译
 ./mvnw compile
 
-# 编译单个模块
-./mvnw compile -pl ecobin-module-system
+# 编译单个模块及依赖
+./mvnw compile -pl ecobin-module-identity -am
 
 # 运行测试
 ./mvnw test
 
-# 运行单个测试类
-./mvnw test -Dtest=EcoBinApplicationTests -pl ecobin-bootstrap
+# 运行 F-07 纯规则测试
+./mvnw test -Dtest=P0DatabaseEpochPolicyTest -pl ecobin-bootstrap -am
 
 # 打包（跳过测试）
 ./mvnw package -DskipTests
 
-# 启动
+# 启动（必须先提供目标 V10 数据源）
 ./mvnw spring-boot:run -pl ecobin-bootstrap
 
 # 清理

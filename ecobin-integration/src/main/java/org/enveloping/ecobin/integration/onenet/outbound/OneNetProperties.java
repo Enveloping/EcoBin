@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component;
 /**
  * 中国移动 OneNet 物联网平台配置（设备命令<strong>下行</strong>：物模型服务调用 API）。
  * <p>
- * 下行所需的平台 API 凭证（{@code productId} + {@code accessKey}）需设备端配合、暂未到位：
- * 缺失时 {@link OneNetClient} 仅记录占位日志、不发起真实请求，不阻塞业务主流程。
+ * 下行所需的平台 API 凭证为 {@code productId + accessKey}。真实模式缺失任一字段
+ * 会被启动边界拒绝；Fake 模式不装配 {@link OneNetClient}。
  * <p>
  * 鉴权与端点细节（token 版本、{@code res} 资源串、调用路径）以 OneNet 官方「平台 API 安全鉴权 / 设备服务调用」
  * 文档为准，<strong>联调时校验</strong>；此处给出标准 OneNET token 算法的默认实现。

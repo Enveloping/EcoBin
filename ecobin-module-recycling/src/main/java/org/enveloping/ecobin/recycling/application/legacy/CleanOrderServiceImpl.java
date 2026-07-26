@@ -90,7 +90,7 @@ public class CleanOrderServiceImpl extends ServiceImpl<CleanOrderMapper, CleanOr
 
         // 照片位置由设备自定（与投递一致）：开门只下发凭证、不预存 key/URL，照片 URL 待设备随 cleanGross 回传
 
-        // 下发开清运门指令（携带 doorIndex 物理控制 + cleanOrderId），经 OneNet；凭证未到位时为占位日志，不阻塞主流程
+        // 下发开清运门指令（携带 doorIndex + cleanOrderId）；FAKE 只记录意图，不触发物理动作
         deviceAccessPort.openCleanDoor(device.sn(), door.doorIndex(), order.getId());
         return order;
     }
