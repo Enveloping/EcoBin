@@ -1,0 +1,9 @@
+{
+  "code": "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+  "message": "相同操作标识已绑定到不同请求",
+  "requestId": "01J3EXAMPLE00000000000002",
+  "retryable": false,
+  "details": {
+    "operationId": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e001"
+  }
+}

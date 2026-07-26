@@ -1,0 +1,22 @@
+{
+  "code": "OK",
+  "data": {
+    "accessToken": "header.payload.signature-example-not-a-real-token",
+    "tokenType": "Bearer",
+    "audience": "miniapp",
+    "entryMode": "USER",
+    "expiresAt": "2026-07-26T05:15:20.123Z",
+    "organization": {
+      "organizationCode": "HZ-PILOT",
+      "displayName": "湖州试点机构"
+    },
+    "subjectUid": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e004",
+    "displayName": "微信用户",
+    "capabilities": [
+      "delivery.create",
+      "wallet.read"
+    ],
+    "isNewRegistration": true
+  },
+  "requestId": "01J3EXAMPLE00000000000006"
+}

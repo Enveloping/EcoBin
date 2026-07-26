@@ -1,56 +1,34 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import type { LoginResponse } from '@/types';
+import type { LoginResponse, WebLoginDomain } from '@/types';
+
+export type AuthStatus = 'checking' | 'authenticated' | 'anonymous';
 
 interface AuthState {
-  token: string | null;
-  role: number | null;
-  userId: number | null;
-  tenantId: number | null;
-  username: string | null;
-  realName: string | null;
-  /** 登录成功后写入 */
-  setAuth: (data: LoginResponse) => void;
-  /** 登出 / 失效：清空 */
+  status: AuthStatus;
+  session: LoginResponse | null;
+  domain: WebLoginDomain | null;
+  setChecking: () => void;
+  setSession: (session: LoginResponse, domain: WebLoginDomain) => void;
   clear: () => void;
-  isLoggedIn: () => boolean;
+  hasCapability: (capability: string) => boolean;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      token: null,
-      role: null,
-      userId: null,
-      tenantId: null,
-      username: null,
-      realName: null,
-      setAuth: (data) =>
-        set({
-          token: data.token,
-          role: data.role,
-          userId: data.userId,
-          tenantId: data.tenantId,
-          username: data.username,
-          realName: data.realName,
-        }),
-      clear: () =>
-        set({
-          token: null,
-          role: null,
-          userId: null,
-          tenantId: null,
-          username: null,
-          realName: null,
-        }),
-      isLoggedIn: () => !!get().token,
-    }),
-    { name: 'ecobin-auth' },
-  ),
-);
+/**
+ * Web credentials never enter this store. The only credential is the server-set
+ * Secure + HttpOnly Cookie; this in-memory state is a reloadable UI projection.
+ */
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  status: 'checking',
+  session: null,
+  domain: null,
+  setChecking: () => set({ status: 'checking' }),
+  setSession: (session, domain) =>
+    set({ status: 'authenticated', session, domain }),
+  clear: () => set({ status: 'anonymous', session: null, domain: null }),
+  hasCapability: (capability) =>
+    get().session?.capabilities.includes(capability) ?? false,
+}));
 
-/** 非组件环境（axios 拦截器）读取/清理登录态 */
 export const authActions = {
-  getToken: () => useAuthStore.getState().token,
   clear: () => useAuthStore.getState().clear(),
 };

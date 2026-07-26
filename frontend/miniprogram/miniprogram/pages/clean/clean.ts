@@ -1,7 +1,6 @@
 import { deviceList, deviceDoors } from '../../api/device'
 import { openClean, myCleans } from '../../api/clean'
-import { requireRole } from '../../utils/guard'
-import { ROLE } from '../../config/roleTabs'
+import { requireEntryMode } from '../../utils/guard'
 import type { Device, Door, CleanOrder } from '../../types/api'
 
 interface CleanRow extends CleanOrder {
@@ -23,8 +22,7 @@ Page({
   },
 
   onLoad() {
-    // 角色守卫：仅清运员/设备管理员可进入
-    if (!requireRole([ROLE.CLEANER, ROLE.DEVICE_ADMIN])) return
+    if (!requireEntryMode(['CLEANING'])) return
     this.loadDevices()
     this.loadCleans()
   },
@@ -52,7 +50,7 @@ Page({
       this.setData({
         cleans: res.records.map((o) => ({
           ...o,
-          netText: ((o.netWeight ?? o.weight ?? 0) as number).toString(),
+          netText: o.netWeight ?? o.weight ?? '0.00',
         })),
       })
     } catch (e) {

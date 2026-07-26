@@ -12,7 +12,7 @@
 6. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
 7. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
 8. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
-9. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、F-01、F-02、F-03、F-04、F-05、F-06 已完成，F-09 与 H-02 已 `ready` 但仍须分别授权；F-10 通用三语言黄金样本已通过但 MCU 实际工具链/HIL 未收口，F-11 已完成配置命令软件纵切并继续 `in-progress`。
+9. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-09 已完成，F-11 继续 `in-progress`，H-02 为 `ready` 但真实环境操作仍须授权；F-10 通用三语言黄金样本已通过但 MCU 实际工具链/HIL 未收口。
 10. [权限与角色设计](architecture/permission-design.md)：当前旧实现的三类登录主体、多租户隔离和接口鉴权。
 11. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构、迁移版本和业务数据关系；独立目标 V1～V5 尚未切换旧应用。
 
@@ -24,6 +24,7 @@
 - [F-01 九模块骨架与过渡退出清单](architecture/f-01-module-transition-inventory.md)
 - [F-02 identity 边界与可信上下文实施证据](architecture/f-02-identity-boundary-evidence.md)
 - [F-03 业务模块边界搬迁实施证据](architecture/f-03-business-boundary-evidence.md)
+- [F-09 HTTP OpenAPI 与客户端传输基础实施证据](architecture/f-09-http-client-transport-evidence.md)
 - [权限与角色设计](architecture/permission-design.md)
 - [数据库设计](architecture/database-design.md)
 

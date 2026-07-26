@@ -13,7 +13,7 @@ implementation_authorized: false
 # EcoBin P0 受控闭环实施任务索引
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
-> F-03、F-04、F-05、F-06，并确认 F-10 软件阶段完成和 F-11 软件实施授权；
+> F-03、F-04、F-05、F-06、F-09，并确认 F-10 软件阶段完成和 F-11 软件实施授权；
 > 其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
@@ -24,8 +24,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 已授权并实施中；其他任务未授权** |
-| 当前状态数 | `done` 7、`ready` 2、`in-progress` 1、`blocked` 19 |
+| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-09 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 已授权并实施中；其他任务未授权** |
+| 当前状态数 | `done` 8、`ready` 1、`in-progress` 1、`blocked` 19 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -79,7 +79,7 @@ agent | human | mixed
 | F-06 | [目标数据库 V6～V10](f-06-database-v6-v10-funds-operations.md) | `done` | `agent` | F-05 |
 | F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `blocked` | `agent` | F-03、F-06 |
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `blocked` | `agent` | F-03、F-06 |
-| F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `ready` | `agent` | F-02 |
+| F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `done` | `agent` | F-02 |
 | F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 通用三语言黄金样本已通过；等待 MCU 实际工具链与 HIL |
 | F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 软件实施已授权；F-10 仍是进入评审/完成门 |
 | F-12 | [完整试点 seed 编排](f-12-pilot-seed-orchestration.md) | `blocked` | `mixed` | V-01、V-03、V-07、V-10 |
@@ -231,3 +231,10 @@ M0_COMPLETE
 - 2026-07-25：项目负责人完成 F-06 审核并确认合并；审核补强项、V6～V10、验证矩阵
   和阶段入口文档已合入 `database-refactor`，合并后 MySQL 8.4 双空库验证及 Java 21
   全量 82 项测试通过。任务状态数不变。
+- 2026-07-26：项目负责人授权 Codex 接取 F-09，任务由 `ready` 转为 `in-progress`，
+  并建立独立分支和 worktree。当前共 `done` 7、`ready` 1、`in-progress` 2、
+  `blocked` 19。
+- 2026-07-26：F-09 完成机器契约、Web/小程序传输基础与自动验证，转为 `in-review`。
+  当前共 `done` 7、`ready` 1、`in-progress` 1、`in-review` 1、`blocked` 19。
+- 2026-07-26：项目负责人确认 F-09 完成，任务转为 `done`。当前共 `done` 8、
+  `ready` 1、`in-progress` 1、`blocked` 19。

@@ -11,7 +11,7 @@ import {
   WalletOutlined,
   BarChartOutlined,
 } from '@ant-design/icons';
-import { ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_TENANT } from '@/constants';
+import type { LoginResponse, WebAccountType } from '@/types';
 
 import Dashboard from '@/pages/dashboard';
 import AdminPage from '@/pages/admin';
@@ -27,16 +27,15 @@ import StatisticsPage from '@/pages/statistics';
 
 export interface AppRoute {
   path: string;
-  /** 有 name 才进菜单；无则为隐藏路由 */
   name?: string;
   icon?: ReactNode;
   element: ReactNode;
-  roles: number[];
+  capability: string;
+  accountTypes?: WebAccountType[];
 }
 
-const SUPER = ROLE_SUPER_ADMIN;
-const ADMIN = ROLE_ADMIN;
-const TENANT = ROLE_TENANT;
+const PLATFORM: WebAccountType[] = ['PLATFORM_ADMIN'];
+const TENANT_WEB: WebAccountType[] = ['TENANT_PRINCIPAL', 'STAFF'];
 
 export const appRoutes: AppRoute[] = [
   {
@@ -44,87 +43,98 @@ export const appRoutes: AppRoute[] = [
     name: '仪表盘',
     icon: <DashboardOutlined />,
     element: <Dashboard />,
-    roles: [SUPER, TENANT],
+    capability: 'overview.read',
   },
   {
     path: '/admin',
     name: '管理员管理',
     icon: <SafetyCertificateOutlined />,
     element: <AdminPage />,
-    roles: [SUPER],
+    capability: 'platform-admin.read',
+    accountTypes: PLATFORM,
   },
   {
     path: '/tenant',
     name: '租户管理',
     icon: <ApartmentOutlined />,
     element: <TenantPage />,
-    roles: [SUPER, ADMIN],
+    capability: 'tenant.read',
+    accountTypes: PLATFORM,
   },
   {
     path: '/my-tenant',
     name: '我的租户',
     icon: <IdcardOutlined />,
     element: <MyTenantPage />,
-    roles: [TENANT],
+    capability: 'tenant.read',
+    accountTypes: TENANT_WEB,
   },
   {
     path: '/user',
     name: '用户管理',
     icon: <TeamOutlined />,
     element: <UserPage />,
-    roles: [SUPER, TENANT],
+    capability: 'user.read',
   },
   {
     path: '/device',
     name: '设备管理',
     icon: <HddOutlined />,
     element: <DevicePage />,
-    roles: [SUPER, ADMIN, TENANT],
+    capability: 'device.read',
   },
   {
-    // 投口管理：从设备页进入，不在菜单
     path: '/device/:deviceId/doors',
     element: <DoorPage />,
-    roles: [SUPER, ADMIN, TENANT],
+    capability: 'device.read',
   },
   {
     path: '/delivery',
     name: '投递订单',
     icon: <InboxOutlined />,
     element: <DeliveryPage />,
-    roles: [SUPER, TENANT],
+    capability: 'delivery.read',
   },
   {
     path: '/clean',
-    name: '清运审核',
+    name: '清运记录',
     icon: <CarOutlined />,
     element: <CleanPage />,
-    roles: [SUPER, TENANT],
+    capability: 'clean.read',
   },
   {
     path: '/withdraw',
     name: '提现审核',
     icon: <WalletOutlined />,
     element: <WithdrawPage />,
-    roles: [SUPER, TENANT],
+    capability: 'withdrawal.read',
   },
   {
     path: '/statistics',
     name: '业务统计',
     icon: <BarChartOutlined />,
     element: <StatisticsPage />,
-    roles: [SUPER, TENANT],
+    capability: 'overview.read',
   },
 ];
 
-/** 当前角色可见的菜单项（有 name 的） */
-export function menuRoutesFor(role: number | null): AppRoute[] {
-  if (role == null) return [];
-  return appRoutes.filter((r) => r.name && r.roles.includes(role));
+export function canAccessRoute(
+  session: LoginResponse | null,
+  route: Pick<AppRoute, 'capability' | 'accountTypes'>,
+): boolean {
+  if (!session) return false;
+  if (route.accountTypes && !route.accountTypes.includes(session.accountType)) {
+    return false;
+  }
+  return session.capabilities.includes(route.capability);
 }
 
-/** 当前角色的默认落地路由 */
-export function defaultPathFor(role: number | null): string {
-  const menus = menuRoutesFor(role);
-  return menus[0]?.path ?? '/dashboard';
+export function menuRoutesFor(session: LoginResponse | null): AppRoute[] {
+  return appRoutes.filter(
+    (route) => route.name && canAccessRoute(session, route),
+  );
+}
+
+export function defaultPathFor(session: LoginResponse | null): string {
+  return menuRoutesFor(session)[0]?.path ?? '/dashboard';
 }

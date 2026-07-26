@@ -1,37 +1,105 @@
 /**
- * 网络请求封装：基于 wx.request 的 Promise 化工具。
- *
- * 职责：
- *  - 自动拼接 baseURL、注入 Authorization: Bearer <token>
- *  - 按统一响应 Result<T> 解包，成功返回 data，失败 toast 并 reject
- *  - 401 清理登录态并跳登录页
+ * 小程序统一 HTTP 传输：
+ * - 只注入当前单一 audience 的 Bearer Token
+ * - 错误按 ProblemDetail 映射，HTTP 状态码保持权威
+ * - 401 只重登录一次；写请求必须携带原始 Idempotency-Key 才能重放
  */
-import { BASE_URL, TIMEOUT, STORAGE_KEYS } from '../config/index'
-import { refreshToken } from './auth'
-import type { Result } from '../types/api'
+import { BASE_URL, TIMEOUT } from '../config/index'
+import {
+  clearSession,
+  getAccessToken,
+  getSession,
+  refreshSession,
+  routeToEntry,
+} from './auth'
+import { sessionEntryChanged } from './session-transition'
+import type { ProblemDetail, Result } from '../types/api'
 
-type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
+type Method = 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'DELETE'
 
-interface RequestOptions {
+export interface RequestOptions {
   url: string
   method?: Method
-  data?: Record<string, any>
-  /** 是否需要鉴权头，默认 true */
+  data?: Record<string, unknown>
+  /** 是否需要鉴权头，默认 true。 */
   auth?: boolean
-  /** 失败时是否自动 toast，默认 true */
+  /** 失败时是否自动 toast，默认 true。 */
   toast?: boolean
-  /** 内部标记：是否已为 401 静默刷新并重试过一次，防止无限重试 */
+  /** 同一用户意图创建一次，所有重试均复用。 */
+  idempotencyKey?: string
+  /** 查询投影或异步状态时禁止客户端缓存。 */
+  noStore?: boolean
+  /** 401 后是否允许受控重登录，默认 true。 */
+  retryAfterLogin?: boolean
+  /** 内部标记：最多重登录并重试一次。 */
   _retried?: boolean
 }
 
-/** 跳登录页（避免重复跳转） */
+interface Execution<T> {
+  data: T
+  statusCode: number
+  headers: WechatMiniprogram.IAnyObject
+}
+
+export class MiniappApiProblem extends Error {
+  readonly status: number
+  readonly code: string
+  readonly requestId: string
+  readonly retryable: boolean
+  readonly details: Record<string, unknown>
+
+  constructor(status: number, problem: ProblemDetail) {
+    super(problem.message)
+    this.name = 'MiniappApiProblem'
+    this.status = status
+    this.code = problem.code
+    this.requestId = problem.requestId
+    this.retryable = problem.retryable
+    this.details = problem.details
+  }
+
+  get isIdempotencyConflict(): boolean {
+    return this.code === 'COMMON.IDEMPOTENCY_KEY_CONFLICT'
+  }
+
+  get isVersionConflict(): boolean {
+    return this.status === 409
+      && (this.code.includes('VERSION') || this.code.includes('REVISION'))
+  }
+}
+
+function isProblemDetail(value: unknown): value is ProblemDetail {
+  if (!value || typeof value !== 'object') return false
+  const problem = value as Partial<ProblemDetail>
+  return typeof problem.code === 'string'
+    && typeof problem.message === 'string'
+    && typeof problem.requestId === 'string'
+    && typeof problem.retryable === 'boolean'
+    && !!problem.details
+    && typeof problem.details === 'object'
+}
+
+function toProblem(status: number, value: unknown): MiniappApiProblem {
+  if (value instanceof MiniappApiProblem) return value
+  if (isProblemDetail(value)) return new MiniappApiProblem(status, value)
+  return new MiniappApiProblem(status, {
+    code: status === 0 ? 'COMMON.NETWORK_ERROR' : 'COMMON.INVALID_RESPONSE',
+    message: status === 0 ? '网络异常，请稍后重试' : `请求失败(${status})`,
+    requestId: '',
+    retryable: status === 0 || status >= 500,
+    details: {},
+  })
+}
+
+function isSafeMethod(method: Method): boolean {
+  return method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+}
+
 let redirecting = false
-function gotoLogin() {
+function gotoLogin(): void {
   if (redirecting) return
   redirecting = true
-  wx.removeStorageSync(STORAGE_KEYS.token)
-  wx.removeStorageSync(STORAGE_KEYS.role)
-  wx.removeStorageSync(STORAGE_KEYS.userInfo)
+  clearSession()
   wx.reLaunch({
     url: '/pages/login/login',
     complete: () => {
@@ -40,85 +108,177 @@ function gotoLogin() {
   })
 }
 
-export function request<T>(options: RequestOptions): Promise<T> {
-  const { url, method = 'GET', data, auth = true, toast = true, _retried = false } = options
-
-  const header: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (auth) {
-    const token = wx.getStorageSync(STORAGE_KEYS.token)
-    if (token) {
-      header['Authorization'] = `Bearer ${token}`
-    }
-  }
-
-  return new Promise<T>((resolve, reject) => {
+function requestOnce<T>(
+  options: RequestOptions,
+  headers: Record<string, string>,
+): Promise<Execution<T>> {
+  return new Promise((resolve, reject) => {
     wx.request({
-      url: BASE_URL + url,
-      method,
-      data,
-      header,
+      url: BASE_URL + options.url,
+      method: options.method ?? 'GET',
+      data: options.data,
+      header: headers,
       timeout: TIMEOUT,
-      success: (res) => {
-        const statusCode = res.statusCode
-        const body = res.data as Result<T>
-
-        // HTTP 401 或业务 code 401：token 过期/失效
-        if (statusCode === 401 || (body && body.code === 401)) {
-          // 需鉴权且未重试过：静默 wx.login 换新 token，再用新 token 重试一次原请求，用户无感
-          if (auth && !_retried) {
-            refreshToken()
-              .then(() => resolve(request<T>({ ...options, _retried: true })))
-              .catch(() => {
-                // 静默刷新失败（wx.login 失败 / 用户或租户已被禁用）：清登录态跳登录页
-                if (toast) wx.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
-                gotoLogin()
-                reject(new Error('unauthorized'))
-              })
-            return
-          }
-          // 不需鉴权 或 刷新后仍 401：放弃，跳登录页
-          if (toast) wx.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
-          gotoLogin()
-          reject(new Error('unauthorized'))
-          return
-        }
-
+      success: (response) => {
+        const statusCode = response.statusCode
         if (statusCode < 200 || statusCode >= 300) {
-          const msg = (body && body.message) || `请求失败(${statusCode})`
-          if (toast) wx.showToast({ title: msg, icon: 'none' })
-          reject(new Error(msg))
+          reject(toProblem(statusCode, response.data))
           return
         }
-
-        // 业务码判断（后端成功为 200）
-        if (body && body.code === 200) {
-          resolve(body.data)
-        } else {
-          const msg = (body && body.message) || '请求失败'
-          if (toast) wx.showToast({ title: msg, icon: 'none' })
-          reject(new Error(msg))
+        if (statusCode === 204) {
+          resolve({
+            data: undefined as T,
+            statusCode,
+            headers: response.header,
+          })
+          return
         }
+        const body = response.data as Result<T>
+        if (!body || body.code !== 'OK') {
+          reject(toProblem(statusCode, response.data))
+          return
+        }
+        resolve({ data: body.data, statusCode, headers: response.header })
       },
-      fail: (err) => {
-        if (toast) wx.showToast({ title: '网络异常，请稍后重试', icon: 'none' })
-        reject(err)
+      fail: (error) => {
+        reject(new MiniappApiProblem(0, {
+          code: 'COMMON.NETWORK_ERROR',
+          message: error.errMsg || '网络异常，请稍后重试',
+          requestId: '',
+          retryable: true,
+          details: {},
+        }))
       },
     })
   })
 }
 
-/** 便捷方法 */
+async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
+  const method = options.method ?? 'GET'
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (options.noStore) {
+    headers['Cache-Control'] = 'no-store'
+    headers.Pragma = 'no-cache'
+  }
+  if (options.idempotencyKey) {
+    headers['Idempotency-Key'] = options.idempotencyKey
+  }
+  if (options.auth !== false) {
+    const token = getAccessToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+
+  try {
+    return await requestOnce<T>({ ...options, method }, headers)
+  } catch (error) {
+    const problem = toProblem(
+      error instanceof MiniappApiProblem ? error.status : 0,
+      error,
+    )
+    const mayReplay = isSafeMethod(method) || !!options.idempotencyKey
+    if (
+      problem.status === 401
+      && options.auth !== false
+      && options.retryAfterLogin !== false
+      && !options._retried
+      && mayReplay
+    ) {
+      const previousSession = getSession()
+      try {
+        const renewed = await refreshSession()
+        if (sessionEntryChanged(previousSession, renewed)) {
+          routeToEntry(renewed)
+          throw new MiniappApiProblem(401, {
+            code: 'SECURITY.SESSION_ENTRY_CHANGED',
+            message: '登录入口已变化，已切换到正确入口',
+            requestId: problem.requestId,
+            retryable: false,
+            details: {
+              previousAudience: previousSession?.audience,
+              previousEntryMode: previousSession?.entryMode,
+              currentAudience: renewed.audience,
+              currentEntryMode: renewed.entryMode,
+            },
+          })
+        }
+        return execute<T>({ ...options, method, _retried: true })
+      } catch (renewError) {
+        if (
+          renewError instanceof MiniappApiProblem
+          && renewError.code === 'SECURITY.SESSION_ENTRY_CHANGED'
+        ) {
+          throw renewError
+        }
+        gotoLogin()
+        throw problem
+      }
+    }
+    if (problem.status === 401) gotoLogin()
+    throw problem
+  }
+}
+
+async function run<T>(options: RequestOptions): Promise<Execution<T>> {
+  try {
+    return await execute<T>(options)
+  } catch (error) {
+    const problem = toProblem(
+      error instanceof MiniappApiProblem ? error.status : 0,
+      error,
+    )
+    if (options.toast !== false) {
+      wx.showToast({ title: problem.message, icon: 'none' })
+    }
+    throw problem
+  }
+}
+
+export async function request<T>(options: RequestOptions): Promise<T> {
+  return (await run<T>(options)).data
+}
+
+/** 要求真实 HTTP 202，并校验 Location 与 body.statusUrl 一致。 */
+export async function requestAccepted<T extends { statusUrl: string }>(
+  options: RequestOptions,
+): Promise<T> {
+  const result = await run<T>(options)
+  if (result.statusCode !== 202) {
+    throw new Error(`Expected HTTP 202, received ${result.statusCode}`)
+  }
+  const location = result.headers.Location ?? result.headers.location
+  if (typeof location === 'string' && location !== result.data.statusUrl) {
+    throw new Error('HTTP Location differs from accepted operation statusUrl')
+  }
+  return result.data
+}
+
 export const http = {
-  get<T>(url: string, data?: Record<string, any>, opts?: Partial<RequestOptions>) {
-    return request<T>({ url, method: 'GET', data, ...opts })
+  get<T>(
+    url: string,
+    data?: Record<string, unknown>,
+    options?: Partial<RequestOptions>,
+  ) {
+    return request<T>({ url, method: 'GET', data, ...options })
   },
-  post<T>(url: string, data?: Record<string, any>, opts?: Partial<RequestOptions>) {
-    return request<T>({ url, method: 'POST', data, ...opts })
+  post<T>(
+    url: string,
+    data?: Record<string, unknown>,
+    options?: Partial<RequestOptions>,
+  ) {
+    return request<T>({ url, method: 'POST', data, ...options })
   },
-  put<T>(url: string, data?: Record<string, any>, opts?: Partial<RequestOptions>) {
-    return request<T>({ url, method: 'PUT', data, ...opts })
+  put<T>(
+    url: string,
+    data?: Record<string, unknown>,
+    options?: Partial<RequestOptions>,
+  ) {
+    return request<T>({ url, method: 'PUT', data, ...options })
   },
-  del<T>(url: string, data?: Record<string, any>, opts?: Partial<RequestOptions>) {
-    return request<T>({ url, method: 'DELETE', data, ...opts })
+  del<T>(
+    url: string,
+    data?: Record<string, unknown>,
+    options?: Partial<RequestOptions>,
+  ) {
+    return request<T>({ url, method: 'DELETE', data, ...options })
   },
 }

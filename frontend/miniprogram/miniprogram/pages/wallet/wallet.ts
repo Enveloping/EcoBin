@@ -1,5 +1,10 @@
 import { myWallet, applyWithdraw, myWithdraws } from '../../api/wallet'
 import type { WithdrawOrder } from '../../types/api'
+import {
+  compareMoneyCny,
+  formatMoneyCny,
+  normalizeMoneyInput,
+} from '../../utils/decimal'
 
 interface Row extends WithdrawOrder {
   statusText: string
@@ -31,8 +36,8 @@ Page({
     try {
       const w = await myWallet()
       this.setData({
-        balance: Number(w.balance || 0).toFixed(2),
-        pendingBalance: Number(w.pendingBalance || 0).toFixed(2),
+        balance: formatMoneyCny(w.balance),
+        pendingBalance: formatMoneyCny(w.pendingBalance),
       })
     } catch (e) {
       /* request 已 toast */
@@ -55,12 +60,12 @@ Page({
   },
 
   async onWithdraw() {
-    const amount = Number(this.data.amount)
-    if (!amount || amount <= 0) {
+    const amount = normalizeMoneyInput(this.data.amount)
+    if (!amount || amount === '0.00') {
       wx.showToast({ title: '请输入正确的提现金额', icon: 'none' })
       return
     }
-    if (amount > Number(this.data.balance)) {
+    if (compareMoneyCny(amount, this.data.balance) > 0) {
       wx.showToast({ title: '余额不足', icon: 'none' })
       return
     }

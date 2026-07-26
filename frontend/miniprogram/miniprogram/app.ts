@@ -1,8 +1,10 @@
-// app.ts
+import { migrateLegacyMiniappCredentials } from './utils/legacy-session-migration'
+
 App<IAppOption>({
   globalData: {
-    token: undefined,
-    role: undefined,
-    userInfo: undefined,
+    session: undefined,
+  },
+  onLaunch() {
+    migrateLegacyMiniappCredentials(wx)
   },
 })

@@ -1,10 +1,31 @@
 // ===== 通用响应 =====
 
-/** 后端统一响应包裹 Result<T> */
+/** 目标 /api/v1 成功信封；错误使用 application/problem+json。 */
 export interface Result<T = unknown> {
-  code: number;
-  message: string;
+  code: 'OK';
   data: T;
+  requestId: string;
+}
+
+export interface ProblemDetail {
+  code: string;
+  message: string;
+  requestId: string;
+  retryable: boolean;
+  details: Record<string, unknown>;
+}
+
+export interface PageData<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface CursorPageData<T> {
+  items: T[];
+  nextCursor: string | null;
+  asOf: string;
 }
 
 /** 分页响应 PageResult<T> */
@@ -24,23 +45,31 @@ export interface PageParams {
 
 // ===== 认证 =====
 
-export type UserType = 'admin' | 'tenant';
+export type WebLoginDomain = 'platform' | 'tenant';
 
 export interface LoginRequest {
-  userType: UserType;
-  username: string;
+  loginName: string;
   password: string;
 }
 
+export type WebAccountType = 'PLATFORM_ADMIN' | 'TENANT_PRINCIPAL' | 'STAFF';
+
+export interface OrganizationSummary {
+  organizationCode: string;
+  displayName: string;
+}
+
 export interface LoginResponse {
-  token: string;
-  userId: number;
-  tenantId: number;
-  username: string;
-  realName: string;
-  role: number;
-  nickname?: string;
-  avatar?: string;
+  sessionUid: string;
+  accountType: WebAccountType;
+  subjectUid: string;
+  displayName: string;
+  tenantCode?: string | null;
+  capabilities: string[];
+  organizations: OrganizationSummary[];
+  expiresAt: string;
+  version: number;
+  authVersion: number;
 }
 
 // ===== 系统域实体 =====
@@ -88,8 +117,8 @@ export interface User {
   avatar?: string;
   role: number;
   status: number;
-  balance?: number;
-  pendingBalance?: number;
+  balance?: string;
+  pendingBalance?: string;
   createTime?: string;
 }
 
@@ -116,7 +145,7 @@ export interface Door {
   name?: string;
   wasteType1: number;
   wasteType2?: number;
-  price?: number;
+  price?: string;
   enabled?: number;
   sortOrder?: number;
   createTime?: string;
@@ -134,8 +163,8 @@ export interface DeliveryOrder {
   userId: number;
   wasteType1: number;
   wasteType2?: number;
-  weight?: number;
-  price?: number;
+  weight?: string;
+  price?: string;
   score?: number;
   loginType?: number;
   status: number;
@@ -158,7 +187,7 @@ export interface CleanOrder {
   userId: number;
   wasteType1: number;
   wasteType2?: number;
-  weight?: number;
+  weight?: string;
   auditStatus: number;
   status: number;
   createTime?: string;
@@ -168,7 +197,7 @@ export interface CleanOrder {
 export interface WithdrawOrder {
   id: number;
   userId: number;
-  amount: number;
+  amount: string;
   status: number;
   auditBy?: number;
   auditTime?: string;

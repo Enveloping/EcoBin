@@ -1,0 +1,32 @@
+{
+  "examples": [
+    {
+      "file": "accepted-operation.json",
+      "schemaRef": "#/components/schemas/AcceptedOperationEnvelope"
+    },
+    {
+      "file": "idempotency-conflict.problem.json",
+      "schemaRef": "#/components/schemas/ProblemDetail"
+    },
+    {
+      "file": "version-conflict.problem.json",
+      "schemaRef": "#/components/schemas/ProblemDetail"
+    },
+    {
+      "file": "session-invalid.problem.json",
+      "schemaRef": "#/components/schemas/ProblemDetail"
+    },
+    {
+      "file": "web-session.json",
+      "schemaRef": "#/components/schemas/WebSessionEnvelope"
+    },
+    {
+      "file": "miniapp-session.json",
+      "schemaRef": "#/components/schemas/MiniappSessionCreatedEnvelope"
+    },
+    {
+      "file": "miniapp-session-view.json",
+      "schemaRef": "#/components/schemas/MiniappSessionViewEnvelope"
+    }
+  ]
+}

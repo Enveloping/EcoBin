@@ -2,6 +2,7 @@
   "pages": [
     "pages/login/login",
     "pages/home/home",
+    "pages/clean/clean",
     "pages/profile/profile",
     "pages/nearby/nearby",
     "pages/orders/orders",

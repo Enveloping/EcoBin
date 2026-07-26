@@ -1,0 +1,7 @@
+{
+  "code": "AUTH.SESSION_INVALID",
+  "message": "登录状态已失效",
+  "requestId": "01J3EXAMPLE00000000000004",
+  "retryable": false,
+  "details": {}
+}

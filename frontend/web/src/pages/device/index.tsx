@@ -18,7 +18,6 @@ import { pageHeader, proTableConfig, DANGER_COLOR } from '@/utils/pageStyle';
 import {
   DEVICE_TYPE,
   DEVICE_STATUS,
-  ROLE_TENANT,
   toValueEnum,
   toOptions,
 } from '@/constants';
@@ -29,8 +28,8 @@ export default function DevicePage() {
   const actionRef = useRef<ActionType>(null);
   const navigate = useNavigate();
   const { message } = App.useApp();
-  const currentRole = useAuthStore((s) => s.role);
-  const isPlatform = currentRole !== ROLE_TENANT; // 平台域可改归属(tenantId)
+  const accountType = useAuthStore((state) => state.session?.accountType);
+  const isPlatform = accountType === 'PLATFORM_ADMIN';
   const [editing, setEditing] = useState<Device | null>(null);
   const [open, setOpen] = useState(false);
 

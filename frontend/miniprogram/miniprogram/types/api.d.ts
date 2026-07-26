@@ -3,11 +3,27 @@
  * 仅类型声明，编译期擦除，不产生运行时代码。
  */
 
-/** 统一响应包装：org.enveloping.ecobin.common.result.Result */
+/** 目标 /api/v1 成功信封；错误使用 ProblemDetail。 */
 export interface Result<T> {
-  code: number
-  message: string
+  code: 'OK'
   data: T
+  requestId: string
+}
+
+export interface ProblemDetail {
+  code: string
+  message: string
+  requestId: string
+  retryable: boolean
+  details: Record<string, unknown>
+}
+
+export type MiniappAudience = 'miniapp' | 'miniapp-staff'
+export type EntryMode = 'USER' | 'CLEANING' | 'MANAGEMENT'
+
+export interface OrganizationSummary {
+  organizationCode: string
+  displayName: string
 }
 
 /** 分页结果：org.enveloping.ecobin.common.result.PageResult（注意字段是 records 不是 list） */
@@ -18,23 +34,28 @@ export interface PageResult<T> {
   pageSize: number
 }
 
-/** 登录响应：org.enveloping.ecobin.system.dto.LoginResponse */
-export interface LoginResponse {
-  token: string
-  userId: number
-  tenantId: number
-  username: string
-  realName?: string
-  /** 角色：1-普通用户 2-清运员 3-设备管理员 7-租户 8-管理员 9-超管 */
-  role: number
-  nickname?: string
-  avatar?: string
+/** 当前会话安全投影不再次返回 Bearer Token。 */
+export interface MiniappSessionView {
+  audience: MiniappAudience
+  entryMode: EntryMode
+  expiresAt: string
+  organization: OrganizationSummary
+  subjectUid: string
+  displayName: string
+  capabilities: string[]
+}
+
+/** 一次 wx.login 只返回一种 audience 的短期凭据。 */
+export interface LoginResponse extends MiniappSessionView {
+  accessToken: string
+  tokenType: 'Bearer'
+  isNewRegistration: boolean
 }
 
 /** 钱包视图：org.enveloping.ecobin.business.dto.WalletVO */
 export interface WalletVO {
-  balance: number
-  pendingBalance: number
+  balance: string
+  pendingBalance: string
 }
 
 /** 个人信息视图：org.enveloping.ecobin.system.dto.UserProfileVO */
@@ -61,8 +82,10 @@ export interface DeliveryOrder {
   userId: number
   wasteType1?: number
   wasteType2?: number
-  weight?: number
-  price?: number
+  weight?: string
+  price?: string
+  rawAmountYuan?: string | null
+  finalAmountYuan?: string | null
   score?: number
   loginType?: number
   status?: number
@@ -87,13 +110,13 @@ export interface CleanOrder {
   wasteType1?: number
   wasteType2?: number
   /** 实际清运量（kg），等同 netWeight，兼容旧字段 */
-  weight?: number
+  weight?: string
   /** 清运毛重（kg，设备上报的满袋重量） */
-  grossWeight?: number
+  grossWeight?: string
   /** 去皮重量（kg，该投口当前垃圾袋去皮） */
-  tareWeight?: number
+  tareWeight?: string
   /** 实际清运量（kg）= 毛重 - 去皮 */
-  netWeight?: number
+  netWeight?: string
   /** @deprecated 审核流程已废弃 */
   auditStatus?: number
   status?: number
@@ -111,7 +134,7 @@ export interface WithdrawOrder {
   tenantId: number
   createTime: string
   userId: number
-  amount: number
+  amount: string
   /** 状态：0-待审核 1-已通过 2-已驳回 */
   status?: number
   auditTime?: string
@@ -142,7 +165,7 @@ export interface Door {
   name?: string
   wasteType1: number
   wasteType2?: number
-  price?: number
+  price?: string
   enabled?: number
   sortOrder?: number
 }
