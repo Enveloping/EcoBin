@@ -15,7 +15,7 @@
 ## 1. 当前阶段
 
 - 截至 2026-07-26，需求、P0 范围、业务模型、系统架构、目标数据库、目标接口和详细设计均已完成确认；投递已修订为一次 session 一单和设备本地继续，清运已按电磁阀解锁/人工关门的真实硬件边界修订。
-- 接口设计编号为 I-001～I-055。DD-004 与 PDD-001 已分别写回 I-051～I-053；29 项正式任务已经发布到 [`docs/planning/tasks/p0-controlled-loop/`](docs/planning/tasks/p0-controlled-loop/00-index.md)。项目负责人已授权并完成 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09；F-08 已完成 Fake 可靠任务 tracer 和 MySQL 8.4 验收，处于 `in-review`；F-11 已获授权并完成 `APPLY_CONFIGURATION` 软件纵切，继续处于 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权。F-10 软件机器来源、MCU Registry checkpoint 和通用 Java/Python 3.11/C11 黄金样本已完成，仍缺 MCU 实际工具链与 HIL，任务级保持 `blocked`。当前合计 `done` 9、`ready` 1、`in-progress` 1、`in-review` 1、`blocked` 17。
+- 接口设计编号为 I-001～I-055。DD-004 与 PDD-001 已分别写回 I-051～I-053；29 项正式任务已经发布到 [`docs/planning/tasks/p0-controlled-loop/`](docs/planning/tasks/p0-controlled-loop/00-index.md)。项目负责人已授权并完成 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09；F-08 的 Fake 可靠任务 tracer、MySQL 8.4 验收和两项 P1 复审均已收口；F-11 已获授权并完成 `APPLY_CONFIGURATION` 软件纵切，继续处于 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权。F-10 软件机器来源、MCU Registry checkpoint 和通用 Java/Python 3.11/C11 黄金样本已完成，仍缺 MCU 实际工具链与 HIL，任务级保持 `blocked`。当前合计 `done` 10、`ready` 1、`in-progress` 1、`blocked` 17。
 - 当前仓库已由 F-03 收口为最终九模块 reactor：OneNet/COS/微信外部实现位于 integration，旧 system 已迁入 identity，旧 business 的旧行为已分别迁入 funds、recycling、operations，并通过 device 公开端口协作。目标数据库 V1～V10 共 83 张表的独立迁移已经过 MySQL 8.4 双空库验证，但尚未接管旧应用运行库。设计文档“已冻结”和完整目标 DDL 已具备，不表示纵向业务、真实环境供应或设备协议已经整体完成。
 - 近期交付重点仍是公司自用的受控 P0：用户投递、审核返现、清运换袋、机构充值和真实微信零钱提现闭环。真实资金、物理门控、租户/机构隔离和失败恢复不能因时间紧张而省略。
 - P0 是近期承诺范围，M0 是 P0 通过受控真实验收后的里程碑，M1 才是公司自用正式上线准备；三者不能混用。
@@ -190,8 +190,8 @@
 - 不执行 `git reset --hard`、不擅自删除旧数据库/旧应用、不改真实数据库或外部平台配置，除非用户明确授权并已核对精确目标。
 - `.env`、APIv3 密钥、私钥、设备 Key、AppSecret、COS/OneNet 凭证、服务器凭证和真实用户数据不得写入版本库或普通输出。
 - AppSecret 的产品规则允许有权限人员在 Web 配置详情中回显当前完整值；这不允许把完整值写进日志、审计、告警或普通接口示例。
-- 当前实施授权按任务范围管理：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 已授权并完成，
-  F-10 软件已完成，F-08 已授权实施并处于 `in-review`，F-11 已授权且处于 `in-progress`；
+- 当前实施授权按任务范围管理：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已授权并完成，
+  F-10 软件已完成，F-11 已授权且处于 `in-progress`；
   H-02 为 `ready` 但未获真实环境操作授权，不能据此前置进展自动实施。用户说“讨论、计划、设计”时保持文档级工作；
   只有明确要求实施并给出范围后才修改代码和运行有副作用的迁移/外部操作。
 - 文档发生阶段推进时，同步更新 `docs/README.md`、项目上下文和各基线顶部状态，避免新会话继续沿用旧阶段。

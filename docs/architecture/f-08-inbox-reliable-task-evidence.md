@@ -3,6 +3,9 @@
 > 验证日期：2026-07-26
 >
 > 任务：[F-08 inbox 与可靠任务 tracer](../planning/tasks/p0-controlled-loop/f-08-inbox-reliable-task-tracer.md)
+>
+> 结论：两项 P1 复审补强及全部验收通过，实施提交 `ed5341b` 已合入
+> `database-refactor`，任务状态为 `done`。
 
 ## 1. 实施结果
 

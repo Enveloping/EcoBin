@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 已完成，F-08 已实施并进入评审，F-11 实施中，H-02 已 ready 但真实环境操作仍须授权，F-10 软件已完成并等待 MCU/联调验收**
+> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已完成，F-11 实施中，H-02 已 ready 但真实环境操作仍须授权，F-10 软件已完成并等待 MCU/联调验收**
 >
 > 草案日期：2026-07-24
 >
@@ -535,7 +535,7 @@ blocked_by:
 - 目标 9 模块 reactor 已由 F-03 收口，旧 system/business 均已迁移退出，跨模块边界门禁已建立；
 - 目标 V1～V10 的 83 张表已实施并通过 MySQL 8.4 双空库验证；F-07 已完成
   epoch/readiness guard、最小运行身份空业务库启动和 Fake 外联硬阻断并通过复审；
-- F-08 中心 Fake 可信收件与可靠任务 tracer 已实施并进入评审，具体纵向处理器仍待后续任务；
+- F-08 中心 Fake 可信收件与可靠任务 tracer 已实施、复审并完成，具体纵向处理器仍待后续任务；
 - F-10 OneNet/UART 机器契约的软件生成物已完成；F-11 已完成香橙派配置命令软件纵切，其他 SQLite/COS/UART 可靠链仍在实施；
 - MCU UART 1.0 需要另一负责人并行；
 - 微信支付/商家转账不能联调。
@@ -608,10 +608,13 @@ M0_COMPLETE
    F-08 转为 `in-progress`，该授权不扩展到 F-08 排除范围或其他任务。
 9. 2026-07-26，F-08 完成 Fake 可靠任务 tracer、稳定完成/唤醒端口和 MySQL 8.4
    真实并发/故障验收，转为 `in-review`，等待主审确认。
+10. 2026-07-26，F-08 根据复审修复精确 JSON 数字摘要和租约前置领取两个 P1，
+    Java 21 全仓 91 项及 MySQL 8.4.10 专项 5 项通过；项目负责人确认完成并将
+    `ed5341b` 合入 `database-refactor`，任务转为 `done`。
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
-当前 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 为 `done`；F-08 为
-`in-review`、F-11 为 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权；
+当前 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 为 `done`；
+F-11 为 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权；
 F-10 因软件完成后仍等待 MCU/联调验收而为 `blocked`，其余任务保持 `blocked`。当前共
-`done` 9、`ready` 1、`in-progress` 1、`in-review` 1、`blocked` 17。
+`done` 10、`ready` 1、`in-progress` 1、`blocked` 17。

@@ -4,7 +4,7 @@
 > 本文记录对话中形成、仅靠代码不容易恢复的决策。代码和更新日期更晚的专题文档若与本文冲突，以较新的事实为准。
 
 > [!IMPORTANT]
-> 2026-07-26 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 已获授权并完成；F-08 已完成 Fake 可靠任务 tracer 和 MySQL 8.4 验收，处于 `in-review`；F-11 已获授权并完成配置命令软件纵切，继续处于 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权。F-10 软件机器来源、MCU Registry checkpoint 和通用三语言黄金样本已完成，仍缺 MCU 实际工具链/HIL。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
+> 2026-07-26 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已获授权并完成；F-08 的 Fake 可靠任务 tracer、MySQL 8.4 验收和两项 P1 复审均已收口；F-11 已获授权并完成配置命令软件纵切，继续处于 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权。F-10 软件机器来源、MCU Registry checkpoint 和通用 Java/Python 3.11/C11 黄金样本已完成，仍缺 MCU 实际工具链/HIL。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
 > [`requirements-baseline.md`](../planning/requirements-baseline.md)、
 > [`p0-scope-baseline.md`](../planning/p0-scope-baseline.md) 和
 > [`business-model-baseline.md`](../planning/business-model-baseline.md)，冻结的系统结构见
@@ -156,10 +156,10 @@ DD-004、修订后的 PDD-001、29 项任务粒度/依赖、`status/executor` �
 F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 已完成；H-02 因前置完成进入 `ready`，
 但真实环境操作仍须单独授权；
 F-10 软件阶段、MCU Registry checkpoint 和通用三语言黄金样本已完成，等待 MCU 实际
-工具链和 HIL，任务级保持 `blocked`；F-08 已完成 Fake 可靠任务 tracer 和 MySQL 8.4
-验收，处于 `in-review`；F-11 已获授权并完成配置命令软件纵切，继续处于
-`in-progress`。当前共 `done` 9、`ready` 1、`in-progress` 1、`in-review` 1、
-`blocked` 17。其他任务没有因前置推进而自动获得实施授权。
+工具链和 HIL，任务级保持 `blocked`；F-08 已完成 Fake 可靠任务 tracer、MySQL 8.4
+验收和两项 P1 复审；F-11 已获授权并完成配置命令软件纵切，继续处于
+`in-progress`。当前共 `done` 10、`ready` 1、`in-progress` 1、`blocked` 17。
+其他任务没有因前置推进而自动获得实施授权。
 
 实施入口已经明确：
 

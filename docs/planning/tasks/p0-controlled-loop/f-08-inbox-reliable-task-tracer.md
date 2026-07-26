@@ -1,7 +1,7 @@
 ---
 task_id: F-08
 title: inbox 与可靠任务 tracer
-status: in-review
+status: done
 executor: agent
 owner: "Codex / reliability-operations-owner"
 effort_range: "3-5 person-days"
@@ -15,8 +15,8 @@ implementation_authorized: true
 # F-08｜inbox 与可靠任务 tracer
 
 > F-03、F-06 已完成；项目负责人已于 2026-07-26 明确授权 Codex 接取并实施
-> F-08。Fake tracer、稳定技术端口和 MySQL 8.4 验收均已完成，任务处于
-> `in-review`，等待主审确认。
+> F-08。Fake tracer、稳定技术端口、两项 P1 复审补强和 MySQL 8.4 验收均已完成；
+> 项目负责人已确认并将任务转为 `done`。
 
 ## 目标
 
@@ -83,3 +83,5 @@ implementation_authorized: true
   `BigDecimal/BigInteger` 精确解析；runner 改为先获取通道共享在途许可，再逐任务即时
   领取。Java 21 全仓 91 项回归通过，MySQL 8.4.10 专项 5 项全部通过，任务保持
   `in-review`。
+- 2026-07-26：项目负责人确认 F-08 完成；实施提交 `ed5341b` 已 fast-forward 合入
+  `database-refactor`，任务由 `in-review` 转为 `done`。
