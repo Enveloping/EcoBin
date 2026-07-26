@@ -30,7 +30,7 @@
           "mcuFirmwareVersionPresent": true,
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "c693ffe152816f2f54ef14388400c6306c370df34fd25c0801bba44cd720a8f8",
+          "payloadSha256": "754c170c8b901684d2640ff0c2573e06725a700edfc753ebcce7cbe5810edf23",
           "pendingReliableEventCount": 2,
           "ports": [
             {
@@ -44,7 +44,6 @@
               "fullnessSensorKind": 1,
               "fullnessSensorValue": 1,
               "fullnessValidSampleCount": 5,
-              "lastDeliveryDoorActualOutputMs": 1000,
               "lastDeliveryDoorCommand": 3,
               "lastDeliveryDoorOutputStatus": 2,
               "measurementElapsedMs": 1200,
@@ -81,7 +80,6 @@
               "fullnessSensorKind": 1,
               "fullnessSensorValue": 1,
               "fullnessValidSampleCount": 5,
-              "lastDeliveryDoorActualOutputMs": 1000,
               "lastDeliveryDoorCommand": 3,
               "lastDeliveryDoorOutputStatus": 2,
               "measurementElapsedMs": 1200,

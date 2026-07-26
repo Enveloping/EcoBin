@@ -215,7 +215,7 @@
       "values": {
         "NOT_DISPATCHED": 0,
         "COMMAND_DISPATCHED": 1,
-        "PARTIAL_OUTPUT_INTERRUPTED": 2,
+        "COMMAND_SUPERSEDED_BEFORE_DISPATCH": 2,
         "COALESCED_WITH_EXISTING_CLOSE": 3,
         "OUTPUT_REJECTED": 4
       }
@@ -395,7 +395,6 @@
         "NONE": 0,
         "UART_PROTOCOL": 256,
         "UART_STORAGE": 257,
-        "DELIVERY_DOOR_OUTPUT_INTERRUPTED": 512,
         "DELIVERY_DOOR_OUTPUT_REJECTED": 513,
         "DELIVERY_DOOR_HIL_NOT_QUALIFIED": 514,
         "CLEAN_SOLENOID_DRIVER": 768,
@@ -538,8 +537,6 @@
         "negativeWeightThresholdGrams:u32_be",
         "deliveryAutoCloseMs:u32_be",
         "weightMeasurementTimeoutMs:u32_be",
-        "deliveryDoorOpenCommandSignalMs:u32_be",
-        "deliveryDoorCloseCommandSignalMs:u32_be",
         "deliveryDoorTravelWaitMs:u32_be",
         "cleanSolenoidPulseMs:u32_be",
         "smokeMonitoringEnabled:bool",
@@ -800,9 +797,7 @@
         { "name": "negativeWeightThresholdGrams", "type": "u32", "minimum": 1, "unit": "g" },
         { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "maximum": 600000, "unit": "ms", "notes": "V1 默认 120000；触摸屏可无限次重置该倒计时" },
         { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms", "notes": "V1 默认 6000" },
-        { "name": "deliveryDoorOpenCommandSignalMs", "type": "u32", "minimum": 1, "maximum": 45000, "unit": "ms", "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递" },
-        { "name": "deliveryDoorCloseCommandSignalMs", "type": "u32", "minimum": 1, "maximum": 45000, "unit": "ms", "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递" },
-        { "name": "deliveryDoorTravelWaitMs", "type": "u32", "minimum": 30000, "maximum": 45000, "unit": "ms", "notes": "V1 默认和硬下限 30000；这是固定行程等待，不是门位故障超时" },
+        { "name": "deliveryDoorTravelWaitMs", "type": "u32", "minimum": 30000, "maximum": 45000, "unit": "ms", "notes": "V1 默认和硬下限 30000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时" },
         { "name": "cleanSolenoidPulseMs", "type": "u32", "minimum": 1, "maximum": 5000, "unit": "ms", "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000" },
         { "name": "smokeMonitoringEnabled", "type": "bool" }
       ]
@@ -1050,7 +1045,6 @@
         { "name": "roundIndex", "type": "u16", "minimum": 1 },
         { "name": "command", "type": "u8", "enum": "DeliveryDoorCommand" },
         { "name": "outputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
-        { "name": "actualOutputMs", "type": "u32", "unit": "ms" },
         { "name": "physicalDoorStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
         { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
       ]
@@ -1260,7 +1254,6 @@
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "command", "type": "u8", "enum": "DeliveryDoorCommand" },
         { "name": "outputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
-        { "name": "actualOutputMs", "type": "u32", "unit": "ms" },
         { "name": "physicalDoorStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
         { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
       ]
@@ -1355,7 +1348,6 @@
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "lastDeliveryDoorCommand", "type": "u8", "enum": "DeliveryDoorCommand" },
         { "name": "lastDeliveryDoorOutputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
-        { "name": "lastDeliveryDoorActualOutputMs", "type": "u32", "unit": "ms" },
         { "name": "deliveryDoorPhysicalStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
         { "name": "cleanLockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
         { "name": "cleanSolenoidHealth", "type": "u8", "enum": "SolenoidHealth" },
@@ -1455,7 +1447,7 @@
         "DELIVERY_DOOR_COMMAND_RESULT",
         "SAFE_CLOSE_RESULT"
       ],
-      "notes": "physicalDoorStateBasis 恒为 NOT_OBSERVABLE。COMMAND_DISPATCHED/COALESCED_WITH_EXISTING_CLOSE 使用 faultCode=NONE；PARTIAL_OUTPUT_INTERRUPTED 对应 DELIVERY_DOOR_OUTPUT_INTERRUPTED；OUTPUT_REJECTED 对应 DELIVERY_DOOR_OUTPUT_REJECTED 或 DELIVERY_DOOR_HIL_NOT_QUALIFIED。actualOutputMs 始终报告真实输出时长。"
+      "notes": "physicalDoorStateBasis 恒为 NOT_OBSERVABLE。COMMAND_DISPATCHED 表示经过 100 ms 的 0/0 换向死区后，目标 OPEN/CLOSE 方向已经锁存并将保持到相反命令或复位；它不证明机械动作完成。COMMAND_SUPERSEDED_BEFORE_DISPATCH 表示尚在死区中的命令被更高优先级 CLOSE 取代；COMMAND_DISPATCHED、COMMAND_SUPERSEDED_BEFORE_DISPATCH 与 COALESCED_WITH_EXISTING_CLOSE 使用 faultCode=NONE。OUTPUT_REJECTED 对应 DELIVERY_DOOR_OUTPUT_REJECTED 或 DELIVERY_DOOR_HIL_NOT_QUALIFIED。"
     },
     {
       "id": "UART_FAULT_COMPONENT_CODE",

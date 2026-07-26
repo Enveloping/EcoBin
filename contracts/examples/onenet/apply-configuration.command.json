@@ -16,8 +16,6 @@
       "cleanSolenoidPulseMs": 1000,
       "continueDeliveryWaitMs": 30000,
       "deliveryAutoCloseMs": 120000,
-      "deliveryDoorCloseCommandSignalMs": 1000,
-      "deliveryDoorOpenCommandSignalMs": 1000,
       "deliveryDoorTravelWaitMs": 30000,
       "negativeWeightThresholdGrams": 500,
       "smokeMonitoringEnabled": true,
@@ -69,7 +67,7 @@
     ]
   },
   "payloadSchemaVersion": 1,
-  "payloadSha256": "1c7bc5d61ee89721316e8101e17f87aee1658e3c3693f9dfce92a7602bac613d",
+  "payloadSha256": "13e51cebfdb5db942183cf722c9c5bf72cb9327672a5565db4e67ed0c97de956",
   "schemaVersion": 1,
   "target": {
     "type": "CONFIGURATION_APPLICATION",

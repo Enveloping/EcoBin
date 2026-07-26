@@ -19,9 +19,9 @@
 | 真机/HIL | F-11 范围 `0x300` 纵切已通过；完整 H-03 尚未开始 |
 
 rc.3 已同步本轮 MCU Firmware Design，但消息布局变更后仍须重新完成 MCU 逐字段确认。
-MCU 实际工具链黄金程序、门控 HIL、清运锁脉冲和超声波阈值实测尚未完成，F-10 仍不能
-标记 `done`。下列复选框保留为完整固件符合性清单；rc.2 时期的 `0x300` 挥发 HIL
-不代表 rc.3 新布局已经验证，也不能替代 H-03。
+MCU 实际工具链黄金程序、持续锁存门控 HIL、清运锁脉冲和超声波阈值实测尚未完成，
+F-10 仍不能标记 `done`。下列复选框保留为完整固件符合性清单；旧脉冲布局或 rc.2
+时期的 `0x300` 挥发 HIL 不代表现行 rc.3 新布局已经验证，也不能替代 H-03。
 
 ## 2. 评审输入
 
@@ -87,8 +87,13 @@ MCU 负责人应取得同一份仓库状态中的：
   MCU 负责人确认该独立消息与屏幕状态机匹配。
 - [ ] `UNSTABLE` 必须携带最后四次或全部可用样本均值，允许投递；其他故障只要仍有
   数据也必须携带，数值存在性和可信度不得混为一谈。
-- [ ] `DELIVERY_DOOR_COMMAND_RESULT` 和 `SAFE_CLOSE_RESULT` 只报告方向、输出结果和
-  实际输出时长，物理门位始终 `NOT_OBSERVABLE`。
+- [ ] 投递门 OPEN 固定为 `PB6=0、PB7=1`，CLOSE 固定为 `PB6=1、PB7=0`；
+  换向先进入 `PB6=0、PB7=0` 100 ms 死区，再持续保持新方向直到相反命令或复位。
+- [ ] `DELIVERY_DOOR_COMMAND_RESULT` 和 `SAFE_CLOSE_RESULT` 只报告方向与输出结果，
+  不携带脉冲时长；物理门位始终 `NOT_OBSERVABLE`。
+- [ ] 已受理但尚未实际下发的旧方向命令被新方向取代时报告
+  `COMMAND_SUPERSEDED_BEFORE_DISPATCH`，不得再使用
+  `PARTIAL_OUTPUT_INTERRUPTED`。
 - [ ] `SAFE_CLOSE` 只控制投递门；清运恢复最多令电磁阀断电并等待原清运员现场确认。
 
 ### 3.4 首版挥发状态与重启
@@ -154,3 +159,14 @@ F-10 integration/acceptance 推进，并解除 H-03/F-11 的相应契约阻塞�
   [UART 1.0 真机 HIL 记录](../../hardware/docs/review/uart-hil-2026-07-25.md)。
 - MCU 实际 ARMCC/Keil 尚未单独执行生成的 C 黄金程序；HELLO 的 RCT6 identity 与
   Keil target 名称中的 C8 也待核对。因此本节只推进局部 HIL 证据，不关闭 F-10/H-03。
+
+## 7. 2026-07-26 持续锁存门控破坏性变更
+
+- `CONFIG_DEVICE_BLOCK` 已删除 `deliveryDoorOpenCommandSignalMs` 和
+  `deliveryDoorCloseCommandSignalMs`，固定 payload 长度为 163 字节。
+- `DELIVERY_DOOR_COMMAND_RESULT`、`SAFE_CLOSE_RESULT` 已删除 `actualOutputMs`，
+  固定 payload 长度分别为 60 和 43 字节；`STATE_SNAPSHOT_PORT` 已删除
+  `lastDeliveryDoorActualOutputMs`，固定 payload 长度为 81 字节。
+- `mcuPayloadSha256` 摘要输入、UART 黄金向量、OneNet 配置/事件投影和三端生成物已随
+  上述布局重建。旧香橙派与新 MCU（或新香橙派与旧 MCU）不得混用，否则配置长度、
+  摘要或门结果解码会不一致。

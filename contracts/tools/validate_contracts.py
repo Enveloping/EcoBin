@@ -787,7 +787,6 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         fault_codes_by_component = {
             "UART": {"UART_PROTOCOL", "UART_STORAGE"},
             "DELIVERY_DOOR": {
-                "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
                 "DELIVERY_DOOR_OUTPUT_REJECTED",
                 "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
             },
@@ -862,16 +861,6 @@ def _validate_command_semantics(
     command_type = instance["commandType"]
     payload = instance["payload"]
     if command_type == "APPLY_CONFIGURATION":
-        device_config = payload["deviceConfig"]
-        if (
-            device_config["deliveryDoorOpenCommandSignalMs"]
-            >= device_config["deliveryDoorTravelWaitMs"]
-            or device_config["deliveryDoorCloseCommandSignalMs"]
-            >= device_config["deliveryDoorTravelWaitMs"]
-        ):
-            raise ContractError(
-                "APPLY_CONFIGURATION door signal duration must be below travel wait"
-            )
         ports = payload["ports"]
         port_numbers = [port["portNo"] for port in ports]
         if port_numbers != list(range(1, len(ports) + 1)):

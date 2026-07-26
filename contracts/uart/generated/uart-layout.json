@@ -88,9 +88,9 @@
       "values": {
         "COALESCED_WITH_EXISTING_CLOSE": 3,
         "COMMAND_DISPATCHED": 1,
+        "COMMAND_SUPERSEDED_BEFORE_DISPATCH": 2,
         "NOT_DISPATCHED": 0,
-        "OUTPUT_REJECTED": 4,
-        "PARTIAL_OUTPUT_INTERRUPTED": 2
+        "OUTPUT_REJECTED": 4
       },
       "wireType": "u8"
     },
@@ -104,7 +104,6 @@
       "values": {
         "CLEAN_SOLENOID_DRIVER": 768,
         "DELIVERY_DOOR_HIL_NOT_QUALIFIED": 514,
-        "DELIVERY_DOOR_OUTPUT_INTERRUPTED": 512,
         "DELIVERY_DOOR_OUTPUT_REJECTED": 513,
         "FULLNESS_SENSOR_DIAGNOSTIC": 1280,
         "MCU_INTERNAL": 2048,
@@ -1493,33 +1492,11 @@
         {
           "maximum": 45000,
           "maximumSize": 4,
-          "minimum": 1,
-          "minimumSize": 4,
-          "name": "deliveryDoorOpenCommandSignalMs",
-          "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递",
-          "offset": 154,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximum": 45000,
-          "maximumSize": 4,
-          "minimum": 1,
-          "minimumSize": 4,
-          "name": "deliveryDoorCloseCommandSignalMs",
-          "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递",
-          "offset": 158,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximum": 45000,
-          "maximumSize": 4,
           "minimum": 30000,
           "minimumSize": 4,
           "name": "deliveryDoorTravelWaitMs",
-          "notes": "V1 默认和硬下限 30000；这是固定行程等待，不是门位故障超时",
-          "offset": 162,
+          "notes": "V1 默认和硬下限 30000；OPEN/CLOSE 方向电平持续锁存直到相反命令或复位，本字段仅是固定机械行程等待，不控制 GPIO 释放，也不是门位故障超时",
+          "offset": 154,
           "type": "u32",
           "unit": "ms"
         },
@@ -1530,7 +1507,7 @@
           "minimumSize": 4,
           "name": "cleanSolenoidPulseMs",
           "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000",
-          "offset": 166,
+          "offset": 158,
           "type": "u32",
           "unit": "ms"
         },
@@ -1538,13 +1515,13 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeMonitoringEnabled",
-          "offset": 170,
+          "offset": 162,
           "type": "bool"
         }
       ],
       "id": 17,
-      "maximumPayloadLength": 171,
-      "minimumPayloadLength": 171
+      "maximumPayloadLength": 163,
+      "minimumPayloadLength": 163
     },
     "CONFIG_PORT_BLOCK": {
       "ackRequired": true,
@@ -1901,19 +1878,11 @@
           "type": "u8"
         },
         {
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "actualOutputMs",
-          "offset": 57,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
           "enum": "DoorPhysicalStateBasis",
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "physicalDoorStateBasis",
-          "offset": 61,
+          "offset": 57,
           "type": "u8"
         },
         {
@@ -1921,13 +1890,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 62,
+          "offset": 58,
           "type": "u16"
         }
       ],
       "id": 49,
-      "maximumPayloadLength": 64,
-      "minimumPayloadLength": 64
+      "maximumPayloadLength": 60,
+      "minimumPayloadLength": 60
     },
     "DELIVERY_SELECTION": {
       "ackRequired": true,
@@ -3012,19 +2981,11 @@
           "type": "u8"
         },
         {
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "actualOutputMs",
-          "offset": 40,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
           "enum": "DoorPhysicalStateBasis",
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "physicalDoorStateBasis",
-          "offset": 44,
+          "offset": 40,
           "type": "u8"
         },
         {
@@ -3032,13 +2993,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 45,
+          "offset": 41,
           "type": "u16"
         }
       ],
       "id": 61,
-      "maximumPayloadLength": 47,
-      "minimumPayloadLength": 47
+      "maximumPayloadLength": 43,
+      "minimumPayloadLength": 43
     },
     "SAMPLE_FULLNESS": {
       "ackRequired": true,
@@ -3733,19 +3694,11 @@
           "type": "u8"
         },
         {
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastDeliveryDoorActualOutputMs",
-          "offset": 41,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
           "enum": "DoorPhysicalStateBasis",
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "deliveryDoorPhysicalStateBasis",
-          "offset": 45,
+          "offset": 41,
           "type": "u8"
         },
         {
@@ -3753,7 +3706,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanLockPowerState",
-          "offset": 46,
+          "offset": 42,
           "type": "u8"
         },
         {
@@ -3761,7 +3714,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanSolenoidHealth",
-          "offset": 47,
+          "offset": 43,
           "type": "u8"
         },
         {
@@ -3769,14 +3722,14 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanDoorStateBasis",
-          "offset": 48,
+          "offset": 44,
           "type": "u8"
         },
         {
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanerPhysicalCloseConfirmed",
-          "offset": 49,
+          "offset": 45,
           "type": "bool"
         },
         {
@@ -3784,7 +3737,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "measurementStatus",
-          "offset": 50,
+          "offset": 46,
           "type": "u8"
         },
         {
@@ -3792,7 +3745,7 @@
           "minimumSize": 1,
           "name": "weightValuePresent",
           "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
-          "offset": 51,
+          "offset": 47,
           "type": "bool"
         },
         {
@@ -3801,7 +3754,7 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "reportedWeightGrams",
-          "offset": 52,
+          "offset": 48,
           "type": "i32",
           "unit": "g"
         },
@@ -3811,14 +3764,14 @@
           "minimumSize": 1,
           "name": "weightValueKind",
           "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
-          "offset": 56,
+          "offset": 52,
           "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 57,
+          "offset": 53,
           "type": "u32",
           "unit": "ms"
         },
@@ -3826,14 +3779,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 61,
+          "offset": 57,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 63,
+          "offset": 59,
           "type": "u32"
         },
         {
@@ -3841,7 +3794,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 67,
+          "offset": 63,
           "type": "u8"
         },
         {
@@ -3849,7 +3802,7 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 68,
+          "offset": 64,
           "type": "u16"
         },
         {
@@ -3857,7 +3810,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "fullnessSensorKind",
-          "offset": 70,
+          "offset": 66,
           "type": "u8"
         },
         {
@@ -3865,7 +3818,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "fullnessSensorValue",
-          "offset": 71,
+          "offset": 67,
           "type": "u8"
         },
         {
@@ -3873,14 +3826,14 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "fullnessSampleBasis",
-          "offset": 72,
+          "offset": 68,
           "type": "u8"
         },
         {
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "representativeDistancePresent",
-          "offset": 73,
+          "offset": 69,
           "type": "bool"
         },
         {
@@ -3889,7 +3842,7 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "representativeDistanceMm",
-          "offset": 74,
+          "offset": 70,
           "type": "u32",
           "unit": "mm"
         },
@@ -3897,7 +3850,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "fullnessValidSampleCount",
-          "offset": 78,
+          "offset": 74,
           "type": "u8"
         },
         {
@@ -3905,7 +3858,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeState",
-          "offset": 79,
+          "offset": 75,
           "type": "u8"
         },
         {
@@ -3913,7 +3866,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeSensorHealth",
-          "offset": 80,
+          "offset": 76,
           "type": "u8"
         },
         {
@@ -3921,13 +3874,13 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "faultBitmap",
-          "offset": 81,
+          "offset": 77,
           "type": "u32"
         }
       ],
       "id": 81,
-      "maximumPayloadLength": 85,
-      "minimumPayloadLength": 85
+      "maximumPayloadLength": 81,
+      "minimumPayloadLength": 81
     },
     "UNLOCK_CLEAN_DOOR": {
       "ackRequired": true,
@@ -4480,6 +4433,6 @@
     "minor": 0,
     "receiveBufferLimit": 512
   },
-  "registrySha256": "f8a8e69b9857ed88f567a63ee1a28387ea4400c12eec286f02e66f89046fc283",
+  "registrySha256": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2",
   "registryVersion": "1.0.0-rc.3"
 }

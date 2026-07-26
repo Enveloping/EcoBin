@@ -1,6 +1,6 @@
 {
   "parserAlgorithm": "BOUNDED_MAGIC_SCAN_CRC_FIRST",
-  "registrySha256": "f8a8e69b9857ed88f567a63ee1a28387ea4400c12eec286f02e66f89046fc283",
+  "registrySha256": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2",
   "registryVersion": "1.0.0-rc.3",
   "traces": [
     {

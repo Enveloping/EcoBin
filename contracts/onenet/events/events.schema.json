@@ -805,7 +805,6 @@
         "portNo",
         "lastDeliveryDoorCommand",
         "lastDeliveryDoorOutputStatus",
-        "lastDeliveryDoorActualOutputMs",
         "deliveryDoorPhysicalStateBasis",
         "cleanLockPowerState",
         "solenoidHealth",
@@ -844,13 +843,10 @@
           "enum": [
             "NOT_DISPATCHED",
             "COMMAND_DISPATCHED",
+            "COMMAND_SUPERSEDED_BEFORE_DISPATCH",
             "COALESCED_WITH_EXISTING_CLOSE",
-            "PARTIAL_OUTPUT_INTERRUPTED",
             "OUTPUT_REJECTED"
           ]
-        },
-        "lastDeliveryDoorActualOutputMs": {
-          "$ref": "../common.schema.json#/$defs/durationMs"
         },
         "deliveryDoorPhysicalStateBasis": {
           "const": "NOT_OBSERVABLE"

@@ -1,5 +1,5 @@
 // Generated from contracts/uart/uart-registry.yaml.
-// DO NOT EDIT. Registry SHA-256: f8a8e69b9857ed88f567a63ee1a28387ea4400c12eec286f02e66f89046fc283
+// DO NOT EDIT. Registry SHA-256: 11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 public final class EcobinUartProtocol {
-    public static final String REGISTRY_SHA256 = "f8a8e69b9857ed88f567a63ee1a28387ea4400c12eec286f02e66f89046fc283";
+    public static final String REGISTRY_SHA256 = "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2";
     public static final int BAUD_RATE = 115200;
     public static final int DATA_BITS = 8;
     public static final int STOP_BITS = 1;
@@ -121,8 +121,8 @@ public final class EcobinUartProtocol {
     public static final int CONFIG_BEGIN_PART_INDEX_OFFSET = 136;
     public static final int CONFIG_BEGIN_PART_COUNT_OFFSET = 137;
     public static final int CONFIG_BEGIN_EXPECTED_PORT_COUNT_OFFSET = 138;
-    public static final int CONFIG_DEVICE_BLOCK_PAYLOAD_MIN_LENGTH = 171;
-    public static final int CONFIG_DEVICE_BLOCK_PAYLOAD_MAX_LENGTH = 171;
+    public static final int CONFIG_DEVICE_BLOCK_PAYLOAD_MIN_LENGTH = 163;
+    public static final int CONFIG_DEVICE_BLOCK_PAYLOAD_MAX_LENGTH = 163;
     public static final int CONFIG_DEVICE_BLOCK_MCU_COMMAND_UID_OFFSET = 0;
     public static final int CONFIG_DEVICE_BLOCK_COMMAND_DIGEST_SHA256_OFFSET = 16;
     public static final int CONFIG_DEVICE_BLOCK_APPLICATION_UID_OFFSET = 48;
@@ -135,11 +135,9 @@ public final class EcobinUartProtocol {
     public static final int CONFIG_DEVICE_BLOCK_NEGATIVE_WEIGHT_THRESHOLD_GRAMS_OFFSET = 142;
     public static final int CONFIG_DEVICE_BLOCK_DELIVERY_AUTO_CLOSE_MS_OFFSET = 146;
     public static final int CONFIG_DEVICE_BLOCK_WEIGHT_MEASUREMENT_TIMEOUT_MS_OFFSET = 150;
-    public static final int CONFIG_DEVICE_BLOCK_DELIVERY_DOOR_OPEN_COMMAND_SIGNAL_MS_OFFSET = 154;
-    public static final int CONFIG_DEVICE_BLOCK_DELIVERY_DOOR_CLOSE_COMMAND_SIGNAL_MS_OFFSET = 158;
-    public static final int CONFIG_DEVICE_BLOCK_DELIVERY_DOOR_TRAVEL_WAIT_MS_OFFSET = 162;
-    public static final int CONFIG_DEVICE_BLOCK_CLEAN_SOLENOID_PULSE_MS_OFFSET = 166;
-    public static final int CONFIG_DEVICE_BLOCK_SMOKE_MONITORING_ENABLED_OFFSET = 170;
+    public static final int CONFIG_DEVICE_BLOCK_DELIVERY_DOOR_TRAVEL_WAIT_MS_OFFSET = 154;
+    public static final int CONFIG_DEVICE_BLOCK_CLEAN_SOLENOID_PULSE_MS_OFFSET = 158;
+    public static final int CONFIG_DEVICE_BLOCK_SMOKE_MONITORING_ENABLED_OFFSET = 162;
     public static final int CONFIG_PORT_BLOCK_PAYLOAD_MIN_LENGTH = 190;
     public static final int CONFIG_PORT_BLOCK_PAYLOAD_MAX_LENGTH = 190;
     public static final int CONFIG_PORT_BLOCK_MCU_COMMAND_UID_OFFSET = 0;
@@ -300,8 +298,8 @@ public final class EcobinUartProtocol {
     public static final int WORK_PREOPEN_WEIGHT_READY_CALIBRATION_VERSION_OFFSET = 84;
     public static final int WORK_PREOPEN_WEIGHT_READY_WEIGHT_SENSOR_HEALTH_OFFSET = 88;
     public static final int WORK_PREOPEN_WEIGHT_READY_FAULT_CODE_OFFSET = 89;
-    public static final int DELIVERY_DOOR_COMMAND_RESULT_PAYLOAD_MIN_LENGTH = 64;
-    public static final int DELIVERY_DOOR_COMMAND_RESULT_PAYLOAD_MAX_LENGTH = 64;
+    public static final int DELIVERY_DOOR_COMMAND_RESULT_PAYLOAD_MIN_LENGTH = 60;
+    public static final int DELIVERY_DOOR_COMMAND_RESULT_PAYLOAD_MAX_LENGTH = 60;
     public static final int DELIVERY_DOOR_COMMAND_RESULT_MCU_BOOT_ID_OFFSET = 0;
     public static final int DELIVERY_DOOR_COMMAND_RESULT_MCU_EVENT_SEQUENCE_OFFSET = 8;
     public static final int DELIVERY_DOOR_COMMAND_RESULT_UPTIME_MS_OFFSET = 12;
@@ -311,9 +309,8 @@ public final class EcobinUartProtocol {
     public static final int DELIVERY_DOOR_COMMAND_RESULT_ROUND_INDEX_OFFSET = 53;
     public static final int DELIVERY_DOOR_COMMAND_RESULT_COMMAND_OFFSET = 55;
     public static final int DELIVERY_DOOR_COMMAND_RESULT_OUTPUT_STATUS_OFFSET = 56;
-    public static final int DELIVERY_DOOR_COMMAND_RESULT_ACTUAL_OUTPUT_MS_OFFSET = 57;
-    public static final int DELIVERY_DOOR_COMMAND_RESULT_PHYSICAL_DOOR_STATE_BASIS_OFFSET = 61;
-    public static final int DELIVERY_DOOR_COMMAND_RESULT_FAULT_CODE_OFFSET = 62;
+    public static final int DELIVERY_DOOR_COMMAND_RESULT_PHYSICAL_DOOR_STATE_BASIS_OFFSET = 57;
+    public static final int DELIVERY_DOOR_COMMAND_RESULT_FAULT_CODE_OFFSET = 58;
     public static final int WORK_POSTCLOSE_WEIGHT_READY_PAYLOAD_MIN_LENGTH = 91;
     public static final int WORK_POSTCLOSE_WEIGHT_READY_PAYLOAD_MAX_LENGTH = 91;
     public static final int WORK_POSTCLOSE_WEIGHT_READY_MCU_BOOT_ID_OFFSET = 0;
@@ -473,8 +470,8 @@ public final class EcobinUartProtocol {
     public static final int SAFETY_SENSOR_EVENT_WORK_TYPE_OFFSET = 24;
     public static final int SAFETY_SENSOR_EVENT_WORK_UID_OFFSET = 25;
     public static final int SAFETY_SENSOR_EVENT_PORT_NO_OFFSET = 41;
-    public static final int SAFE_CLOSE_RESULT_PAYLOAD_MIN_LENGTH = 47;
-    public static final int SAFE_CLOSE_RESULT_PAYLOAD_MAX_LENGTH = 47;
+    public static final int SAFE_CLOSE_RESULT_PAYLOAD_MIN_LENGTH = 43;
+    public static final int SAFE_CLOSE_RESULT_PAYLOAD_MAX_LENGTH = 43;
     public static final int SAFE_CLOSE_RESULT_MCU_BOOT_ID_OFFSET = 0;
     public static final int SAFE_CLOSE_RESULT_MCU_EVENT_SEQUENCE_OFFSET = 8;
     public static final int SAFE_CLOSE_RESULT_UPTIME_MS_OFFSET = 12;
@@ -483,9 +480,8 @@ public final class EcobinUartProtocol {
     public static final int SAFE_CLOSE_RESULT_PORT_NO_OFFSET = 37;
     public static final int SAFE_CLOSE_RESULT_COMMAND_OFFSET = 38;
     public static final int SAFE_CLOSE_RESULT_OUTPUT_STATUS_OFFSET = 39;
-    public static final int SAFE_CLOSE_RESULT_ACTUAL_OUTPUT_MS_OFFSET = 40;
-    public static final int SAFE_CLOSE_RESULT_PHYSICAL_DOOR_STATE_BASIS_OFFSET = 44;
-    public static final int SAFE_CLOSE_RESULT_FAULT_CODE_OFFSET = 45;
+    public static final int SAFE_CLOSE_RESULT_PHYSICAL_DOOR_STATE_BASIS_OFFSET = 40;
+    public static final int SAFE_CLOSE_RESULT_FAULT_CODE_OFFSET = 41;
     public static final int CLEAN_COMPLETION_CONFIRMED_PAYLOAD_MIN_LENGTH = 59;
     public static final int CLEAN_COMPLETION_CONFIRMED_PAYLOAD_MAX_LENGTH = 59;
     public static final int CLEAN_COMPLETION_CONFIRMED_MCU_BOOT_ID_OFFSET = 0;
@@ -541,8 +537,8 @@ public final class EcobinUartProtocol {
     public static final int STATE_SNAPSHOT_BEGIN_PART_INDEX_OFFSET = 226;
     public static final int STATE_SNAPSHOT_BEGIN_PART_COUNT_OFFSET = 227;
     public static final int STATE_SNAPSHOT_BEGIN_RESET_REASON_OFFSET = 228;
-    public static final int STATE_SNAPSHOT_PORT_PAYLOAD_MIN_LENGTH = 85;
-    public static final int STATE_SNAPSHOT_PORT_PAYLOAD_MAX_LENGTH = 85;
+    public static final int STATE_SNAPSHOT_PORT_PAYLOAD_MIN_LENGTH = 81;
+    public static final int STATE_SNAPSHOT_PORT_PAYLOAD_MAX_LENGTH = 81;
     public static final int STATE_SNAPSHOT_PORT_MCU_BOOT_ID_OFFSET = 0;
     public static final int STATE_SNAPSHOT_PORT_MCU_EVENT_SEQUENCE_OFFSET = 8;
     public static final int STATE_SNAPSHOT_PORT_UPTIME_MS_OFFSET = 12;
@@ -552,30 +548,29 @@ public final class EcobinUartProtocol {
     public static final int STATE_SNAPSHOT_PORT_PORT_NO_OFFSET = 38;
     public static final int STATE_SNAPSHOT_PORT_LAST_DELIVERY_DOOR_COMMAND_OFFSET = 39;
     public static final int STATE_SNAPSHOT_PORT_LAST_DELIVERY_DOOR_OUTPUT_STATUS_OFFSET = 40;
-    public static final int STATE_SNAPSHOT_PORT_LAST_DELIVERY_DOOR_ACTUAL_OUTPUT_MS_OFFSET = 41;
-    public static final int STATE_SNAPSHOT_PORT_DELIVERY_DOOR_PHYSICAL_STATE_BASIS_OFFSET = 45;
-    public static final int STATE_SNAPSHOT_PORT_CLEAN_LOCK_POWER_STATE_OFFSET = 46;
-    public static final int STATE_SNAPSHOT_PORT_CLEAN_SOLENOID_HEALTH_OFFSET = 47;
-    public static final int STATE_SNAPSHOT_PORT_CLEAN_DOOR_STATE_BASIS_OFFSET = 48;
-    public static final int STATE_SNAPSHOT_PORT_CLEANER_PHYSICAL_CLOSE_CONFIRMED_OFFSET = 49;
-    public static final int STATE_SNAPSHOT_PORT_MEASUREMENT_STATUS_OFFSET = 50;
-    public static final int STATE_SNAPSHOT_PORT_WEIGHT_VALUE_PRESENT_OFFSET = 51;
-    public static final int STATE_SNAPSHOT_PORT_REPORTED_WEIGHT_GRAMS_OFFSET = 52;
-    public static final int STATE_SNAPSHOT_PORT_WEIGHT_VALUE_KIND_OFFSET = 56;
-    public static final int STATE_SNAPSHOT_PORT_MEASUREMENT_ELAPSED_MS_OFFSET = 57;
-    public static final int STATE_SNAPSHOT_PORT_SAMPLE_COUNT_OFFSET = 61;
-    public static final int STATE_SNAPSHOT_PORT_CALIBRATION_VERSION_OFFSET = 63;
-    public static final int STATE_SNAPSHOT_PORT_WEIGHT_SENSOR_HEALTH_OFFSET = 67;
-    public static final int STATE_SNAPSHOT_PORT_FAULT_CODE_OFFSET = 68;
-    public static final int STATE_SNAPSHOT_PORT_FULLNESS_SENSOR_KIND_OFFSET = 70;
-    public static final int STATE_SNAPSHOT_PORT_FULLNESS_SENSOR_VALUE_OFFSET = 71;
-    public static final int STATE_SNAPSHOT_PORT_FULLNESS_SAMPLE_BASIS_OFFSET = 72;
-    public static final int STATE_SNAPSHOT_PORT_REPRESENTATIVE_DISTANCE_PRESENT_OFFSET = 73;
-    public static final int STATE_SNAPSHOT_PORT_REPRESENTATIVE_DISTANCE_MM_OFFSET = 74;
-    public static final int STATE_SNAPSHOT_PORT_FULLNESS_VALID_SAMPLE_COUNT_OFFSET = 78;
-    public static final int STATE_SNAPSHOT_PORT_SMOKE_STATE_OFFSET = 79;
-    public static final int STATE_SNAPSHOT_PORT_SMOKE_SENSOR_HEALTH_OFFSET = 80;
-    public static final int STATE_SNAPSHOT_PORT_FAULT_BITMAP_OFFSET = 81;
+    public static final int STATE_SNAPSHOT_PORT_DELIVERY_DOOR_PHYSICAL_STATE_BASIS_OFFSET = 41;
+    public static final int STATE_SNAPSHOT_PORT_CLEAN_LOCK_POWER_STATE_OFFSET = 42;
+    public static final int STATE_SNAPSHOT_PORT_CLEAN_SOLENOID_HEALTH_OFFSET = 43;
+    public static final int STATE_SNAPSHOT_PORT_CLEAN_DOOR_STATE_BASIS_OFFSET = 44;
+    public static final int STATE_SNAPSHOT_PORT_CLEANER_PHYSICAL_CLOSE_CONFIRMED_OFFSET = 45;
+    public static final int STATE_SNAPSHOT_PORT_MEASUREMENT_STATUS_OFFSET = 46;
+    public static final int STATE_SNAPSHOT_PORT_WEIGHT_VALUE_PRESENT_OFFSET = 47;
+    public static final int STATE_SNAPSHOT_PORT_REPORTED_WEIGHT_GRAMS_OFFSET = 48;
+    public static final int STATE_SNAPSHOT_PORT_WEIGHT_VALUE_KIND_OFFSET = 52;
+    public static final int STATE_SNAPSHOT_PORT_MEASUREMENT_ELAPSED_MS_OFFSET = 53;
+    public static final int STATE_SNAPSHOT_PORT_SAMPLE_COUNT_OFFSET = 57;
+    public static final int STATE_SNAPSHOT_PORT_CALIBRATION_VERSION_OFFSET = 59;
+    public static final int STATE_SNAPSHOT_PORT_WEIGHT_SENSOR_HEALTH_OFFSET = 63;
+    public static final int STATE_SNAPSHOT_PORT_FAULT_CODE_OFFSET = 64;
+    public static final int STATE_SNAPSHOT_PORT_FULLNESS_SENSOR_KIND_OFFSET = 66;
+    public static final int STATE_SNAPSHOT_PORT_FULLNESS_SENSOR_VALUE_OFFSET = 67;
+    public static final int STATE_SNAPSHOT_PORT_FULLNESS_SAMPLE_BASIS_OFFSET = 68;
+    public static final int STATE_SNAPSHOT_PORT_REPRESENTATIVE_DISTANCE_PRESENT_OFFSET = 69;
+    public static final int STATE_SNAPSHOT_PORT_REPRESENTATIVE_DISTANCE_MM_OFFSET = 70;
+    public static final int STATE_SNAPSHOT_PORT_FULLNESS_VALID_SAMPLE_COUNT_OFFSET = 74;
+    public static final int STATE_SNAPSHOT_PORT_SMOKE_STATE_OFFSET = 75;
+    public static final int STATE_SNAPSHOT_PORT_SMOKE_SENSOR_HEALTH_OFFSET = 76;
+    public static final int STATE_SNAPSHOT_PORT_FAULT_BITMAP_OFFSET = 77;
     public static final int STATE_SNAPSHOT_END_PAYLOAD_MIN_LENGTH = 96;
     public static final int STATE_SNAPSHOT_END_PAYLOAD_MAX_LENGTH = 96;
     public static final int STATE_SNAPSHOT_END_MCU_BOOT_ID_OFFSET = 0;

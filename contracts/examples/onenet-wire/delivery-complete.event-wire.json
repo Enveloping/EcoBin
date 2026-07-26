@@ -17,7 +17,6 @@
           "eventType": 1,
           "eventUid": "30000000-0000-4000-8000-000000000006",
           "finalDoorCommand": {
-            "actualOutputMs": 1000,
             "command": 3,
             "outputStatus": 2,
             "physicalStateBasis": 1
@@ -66,7 +65,7 @@
           "negativeWeightAnomaly": false,
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "0f215788e648491f4e822449d4f335976761fff2e967ce7a7bfcc725f7fd001a",
+          "payloadSha256": "427ffe8ec4d4c6ec17729339142da80b86521b8dc37930f23ae998f8da7b2d01",
           "photos": [
             {
               "capturedAt": "",

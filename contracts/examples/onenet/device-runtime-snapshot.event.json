@@ -33,7 +33,6 @@
         "fullnessSensorKind": "ULTRASONIC",
         "fullnessSensorValue": "CLEAR",
         "fullnessValidSampleCount": 5,
-        "lastDeliveryDoorActualOutputMs": 1000,
         "lastDeliveryDoorCommand": "CLOSE",
         "lastDeliveryDoorOutputStatus": "COMMAND_DISPATCHED",
         "measurementElapsedMs": 1200,
@@ -64,7 +63,6 @@
         "fullnessSensorKind": "ULTRASONIC",
         "fullnessSensorValue": "CLEAR",
         "fullnessValidSampleCount": 5,
-        "lastDeliveryDoorActualOutputMs": 1000,
         "lastDeliveryDoorCommand": "CLOSE",
         "lastDeliveryDoorOutputStatus": "COMMAND_DISPATCHED",
         "measurementElapsedMs": 1200,
@@ -89,7 +87,7 @@
     "uartProtocolMinor": 0,
     "uartState": "READY"
   },
-  "payloadSha256": "c693ffe152816f2f54ef14388400c6306c370df34fd25c0801bba44cd720a8f8",
+  "payloadSha256": "754c170c8b901684d2640ff0c2573e06725a700edfc753ebcce7cbe5810edf23",
   "schemaVersion": 1,
   "target": {
     "type": "DEVICE_DEPLOYMENT",

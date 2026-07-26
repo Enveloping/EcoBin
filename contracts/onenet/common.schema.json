@@ -100,7 +100,6 @@
       "enum": [
         "UART_PROTOCOL",
         "UART_STORAGE",
-        "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
         "DELIVERY_DOOR_OUTPUT_REJECTED",
         "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
         "CLEAN_SOLENOID_DRIVER",
@@ -127,7 +126,6 @@
       "enum": [
         "UART_PROTOCOL",
         "UART_STORAGE",
-        "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
         "DELIVERY_DOOR_OUTPUT_REJECTED",
         "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
         "CLEAN_SOLENOID_DRIVER",
@@ -310,7 +308,6 @@
       "required": [
         "command",
         "outputStatus",
-        "actualOutputMs",
         "physicalStateBasis"
       ],
       "additionalProperties": false,
@@ -320,12 +317,11 @@
           "enum": [
             "NOT_DISPATCHED",
             "COMMAND_DISPATCHED",
+            "COMMAND_SUPERSEDED_BEFORE_DISPATCH",
             "COALESCED_WITH_EXISTING_CLOSE",
-            "PARTIAL_OUTPUT_INTERRUPTED",
             "OUTPUT_REJECTED"
           ]
         },
-        "actualOutputMs": { "$ref": "#/$defs/durationMs" },
         "physicalStateBasis": { "const": "NOT_OBSERVABLE" }
       }
     },

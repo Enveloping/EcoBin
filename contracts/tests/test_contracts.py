@@ -153,7 +153,54 @@ class UartRegistryTests(unittest.TestCase):
             for field in self.specs["DELIVERY_DOOR_COMMAND_RESULT"]["fields"]
         }
         self.assertIn("physicalDoorStateBasis", fields)
-        self.assertIn("actualOutputMs", fields)
+        self.assertNotIn("actualOutputMs", fields)
+
+    def test_latched_door_output_uses_the_breaking_compact_layout(self) -> None:
+        device_fields = {
+            field["name"]
+            for field in self.specs["CONFIG_DEVICE_BLOCK"]["fields"]
+        }
+        self.assertNotIn("deliveryDoorOpenCommandSignalMs", device_fields)
+        self.assertNotIn("deliveryDoorCloseCommandSignalMs", device_fields)
+
+        expected_lengths = {
+            "CONFIG_DEVICE_BLOCK": 163,
+            "DELIVERY_DOOR_COMMAND_RESULT": 60,
+            "SAFE_CLOSE_RESULT": 43,
+            "STATE_SNAPSHOT_PORT": 81,
+        }
+        for message_name, expected_length in expected_lengths.items():
+            with self.subTest(message=message_name):
+                spec = self.specs[message_name]
+                self.assertEqual(expected_length, spec["minimumPayloadLength"])
+                self.assertEqual(expected_length, spec["maximumPayloadLength"])
+
+        for message_name in (
+            "DELIVERY_DOOR_COMMAND_RESULT",
+            "SAFE_CLOSE_RESULT",
+        ):
+            result_fields = {
+                field["name"] for field in self.specs[message_name]["fields"]
+            }
+            self.assertNotIn("actualOutputMs", result_fields)
+        snapshot_fields = {
+            field["name"]
+            for field in self.specs["STATE_SNAPSHOT_PORT"]["fields"]
+        }
+        self.assertNotIn("lastDeliveryDoorActualOutputMs", snapshot_fields)
+
+        output_statuses = self.registry["enums"]["DoorCommandOutputStatus"][
+            "values"
+        ]
+        self.assertEqual(
+            2,
+            output_statuses["COMMAND_SUPERSEDED_BEFORE_DISPATCH"],
+        )
+        self.assertNotIn("PARTIAL_OUTPUT_INTERRUPTED", output_statuses)
+        self.assertNotIn(
+            "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
+            self.registry["enums"]["FaultCode"]["values"],
+        )
 
     def test_delivery_door_result_reports_output_not_position(self) -> None:
         values = {
@@ -166,7 +213,6 @@ class UartRegistryTests(unittest.TestCase):
             "roundIndex": 1,
             "command": "CLOSE",
             "outputStatus": "COMMAND_DISPATCHED",
-            "actualOutputMs": 1000,
             "physicalDoorStateBasis": "NOT_OBSERVABLE",
             "faultCode": "NONE",
         }
@@ -184,14 +230,13 @@ class UartRegistryTests(unittest.TestCase):
             ),
         )
 
-        rejected_with_output = copy.deepcopy(values)
-        rejected_with_output["outputStatus"] = "OUTPUT_REJECTED"
-        rejected_with_output["faultCode"] = "DELIVERY_DOOR_OUTPUT_REJECTED"
+        rejected_without_fault = copy.deepcopy(values)
+        rejected_without_fault["outputStatus"] = "OUTPUT_REJECTED"
         with self.assertRaises(ContractError):
             encode_uart_payload(
                 self.registry,
                 "DELIVERY_DOOR_COMMAND_RESULT",
-                rejected_with_output,
+                rejected_without_fault,
             )
 
     def test_v1_baseline_does_not_require_mcu_persistence(self) -> None:
@@ -247,6 +292,45 @@ class UartRegistryTests(unittest.TestCase):
 
 
 class OneNetSchemaTests(unittest.TestCase):
+    def test_onenet_projection_matches_latched_door_contract(self) -> None:
+        commands = load_json(
+            CONTRACTS_ROOT
+            / "onenet"
+            / "commands"
+            / "commands.schema.json"
+        )
+        common = load_json(
+            CONTRACTS_ROOT / "onenet" / "common.schema.json"
+        )
+        events = load_json(
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json"
+        )
+
+        device_config = commands["$defs"]["deviceConfig"]
+        for removed in (
+            "deliveryDoorOpenCommandSignalMs",
+            "deliveryDoorCloseCommandSignalMs",
+        ):
+            self.assertNotIn(removed, device_config["required"])
+            self.assertNotIn(removed, device_config["properties"])
+
+        door_fact = common["$defs"]["deliveryDoorCommandFact"]
+        self.assertNotIn("actualOutputMs", door_fact["required"])
+        self.assertNotIn("actualOutputMs", door_fact["properties"])
+        statuses = set(door_fact["properties"]["outputStatus"]["enum"])
+        self.assertIn("COMMAND_SUPERSEDED_BEFORE_DISPATCH", statuses)
+        self.assertNotIn("PARTIAL_OUTPUT_INTERRUPTED", statuses)
+
+        runtime_port = events["$defs"]["runtimePort"]
+        self.assertNotIn(
+            "lastDeliveryDoorActualOutputMs",
+            runtime_port["required"],
+        )
+        self.assertNotIn(
+            "lastDeliveryDoorActualOutputMs",
+            runtime_port["properties"],
+        )
+
     def test_uart_fault_codes_are_losslessly_representable_in_onenet(self) -> None:
         registry = load_uart_registry()
         common = load_json(
@@ -509,18 +593,6 @@ class OneNetSchemaTests(unittest.TestCase):
         self.assertEqual(3, port["fullnessMinimumValidSampleCount"])
 
         from contractlib import payload_sha256
-
-        invalid_door_timing = copy.deepcopy(command)
-        invalid_door_timing["payload"]["deviceConfig"][
-            "deliveryDoorOpenCommandSignalMs"
-        ] = invalid_door_timing["payload"]["deviceConfig"][
-            "deliveryDoorTravelWaitMs"
-        ]
-        invalid_door_timing["payloadSha256"] = payload_sha256(
-            invalid_door_timing["payload"]
-        )
-        with self.assertRaises(ContractError):
-            _validate_command_semantics(invalid_door_timing)
 
         invalid_sample_counts = copy.deepcopy(command)
         invalid_sample_counts["payload"]["ports"][0][

@@ -43,8 +43,6 @@
         "negativeWeightThresholdGrams",
         "deliveryAutoCloseMs",
         "weightMeasurementTimeoutMs",
-        "deliveryDoorOpenCommandSignalMs",
-        "deliveryDoorCloseCommandSignalMs",
         "deliveryDoorTravelWaitMs",
         "cleanSolenoidPulseMs",
         "smokeMonitoringEnabled"
@@ -70,16 +68,6 @@
           "type": "integer",
           "minimum": 1000,
           "maximum": 6000
-        },
-        "deliveryDoorOpenCommandSignalMs": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 45000
-        },
-        "deliveryDoorCloseCommandSignalMs": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 45000
         },
         "deliveryDoorTravelWaitMs": {
           "type": "integer",

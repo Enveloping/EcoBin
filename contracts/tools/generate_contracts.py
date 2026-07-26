@@ -372,8 +372,6 @@ def build_uart_digest_vectors(
         "negativeWeightThresholdGrams": 500,
         "deliveryAutoCloseMs": 120000,
         "weightMeasurementTimeoutMs": 6000,
-        "deliveryDoorOpenCommandSignalMs": 1000,
-        "deliveryDoorCloseCommandSignalMs": 1000,
         "deliveryDoorTravelWaitMs": 30000,
         "cleanSolenoidPulseMs": 1000,
         "smokeMonitoringEnabled": True,
@@ -406,8 +404,6 @@ def build_uart_digest_vectors(
         "negativeWeightThresholdGrams",
         "deliveryAutoCloseMs",
         "weightMeasurementTimeoutMs",
-        "deliveryDoorOpenCommandSignalMs",
-        "deliveryDoorCloseCommandSignalMs",
         "deliveryDoorTravelWaitMs",
         "cleanSolenoidPulseMs",
         "smokeMonitoringEnabled",
@@ -503,7 +499,6 @@ def build_uart_digest_vectors(
                 "portNo": port_no,
                 "lastDeliveryDoorCommand": "NONE",
                 "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
-                "lastDeliveryDoorActualOutputMs": 0,
                 "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
                 "cleanLockPowerState": "DEENERGIZED",
                 "cleanSolenoidHealth": "OK",
@@ -857,33 +852,22 @@ def validate_payload_semantics(
             raise ProtocolError("door command NONE is snapshot-only")
         status = values["outputStatus"]
         if status == "COMMAND_DISPATCHED":
-            if values["faultCode"] != "NONE" or values["actualOutputMs"] == 0:
+            if values["faultCode"] != "NONE":
                 raise ProtocolError("successful door output has a fault")
         elif status == "COALESCED_WITH_EXISTING_CLOSE":
-            if values["faultCode"] != "NONE" or values["actualOutputMs"] != 0:
-                raise ProtocolError("coalesced close has unexpected new output")
-        elif status == "PARTIAL_OUTPUT_INTERRUPTED":
-            if (
-                values["faultCode"] != "DELIVERY_DOOR_OUTPUT_INTERRUPTED"
-                or values["actualOutputMs"] == 0
-            ):
-                raise ProtocolError("interrupted door output has the wrong fault")
+            if values["faultCode"] != "NONE":
+                raise ProtocolError("coalesced close has a fault")
+        elif status == "COMMAND_SUPERSEDED_BEFORE_DISPATCH":
+            if values["faultCode"] != "NONE":
+                raise ProtocolError("superseded door command has a fault")
         elif status == "OUTPUT_REJECTED":
             if values["faultCode"] not in (
                 "DELIVERY_DOOR_OUTPUT_REJECTED",
                 "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
-            ) or values["actualOutputMs"] != 0:
+            ):
                 raise ProtocolError("rejected door output has the wrong fault")
         else:
             raise ProtocolError("NOT_DISPATCHED is reserved for snapshots")
-    if message_name == "CONFIG_DEVICE_BLOCK":
-        if (
-            values["deliveryDoorOpenCommandSignalMs"]
-            >= values["deliveryDoorTravelWaitMs"]
-            or values["deliveryDoorCloseCommandSignalMs"]
-            >= values["deliveryDoorTravelWaitMs"]
-        ):
-            raise ProtocolError("door signal duration must be below travel wait")
     if message_name == "CONFIG_PORT_BLOCK":
         if (
             values["fullnessMinimumValidSampleCount"]
@@ -905,10 +889,7 @@ def validate_payload_semantics(
         if values["deliveryDoorPhysicalStateBasis"] != "NOT_OBSERVABLE":
             raise ProtocolError("delivery-door physical state is not observable")
         no_command = values["lastDeliveryDoorCommand"] == "NONE"
-        no_result = (
-            values["lastDeliveryDoorOutputStatus"] == "NOT_DISPATCHED"
-            and values["lastDeliveryDoorActualOutputMs"] == 0
-        )
+        no_result = values["lastDeliveryDoorOutputStatus"] == "NOT_DISPATCHED"
         if no_command != no_result:
             raise ProtocolError("inconsistent last door command/result tuple")
     if message_name == "CLEAN_COMPLETION_CONFIRMED":
@@ -2686,8 +2667,6 @@ def build_onenet_examples() -> dict[str, Any]:
             "negativeWeightThresholdGrams": 500,
             "deliveryAutoCloseMs": 120000,
             "weightMeasurementTimeoutMs": 6000,
-            "deliveryDoorOpenCommandSignalMs": 1000,
-            "deliveryDoorCloseCommandSignalMs": 1000,
             "deliveryDoorTravelWaitMs": 30000,
             "cleanSolenoidPulseMs": 1000,
             "smokeMonitoringEnabled": True,
@@ -2759,7 +2738,6 @@ def build_onenet_examples() -> dict[str, Any]:
         "finalDoorCommand": {
             "command": "CLOSE",
             "outputStatus": "COMMAND_DISPATCHED",
-            "actualOutputMs": 1000,
             "physicalStateBasis": "NOT_OBSERVABLE",
         },
         "completionReason": "USER_ENDED",
@@ -3192,7 +3170,6 @@ def build_onenet_examples() -> dict[str, Any]:
                     "portNo": port_no,
                     "lastDeliveryDoorCommand": "CLOSE",
                     "lastDeliveryDoorOutputStatus": "COMMAND_DISPATCHED",
-                    "lastDeliveryDoorActualOutputMs": 1000,
                     "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
                     "cleanLockPowerState": "DEENERGIZED",
                     "solenoidHealth": "OK",

@@ -9,8 +9,9 @@
 - OneNet：Draft 2020-12 JSON Schema 候选版已同步 rc.3 的配置、命令、可靠事件和
   运行快照；香橙派使用同一生成模型投影 OneJSON，最终冻结仍等待控制台重新导入和真机联调。
 - UART：协议 `1.0` Registry `1.0.0-rc.3` 已同步 MCU Firmware Design，并通过
-  Python 3.11、Java 和生成 C 黄金样本的软件校验；最终冻结仍等待 MCU 工具链编译、
-  门控 HIL，以及清运锁 1000 ms/侧置超声波 600 mm 的实机验证。
+  Python 3.11、Java 和生成 C 黄金样本的软件校验；投递门已改为 OPEN/CLOSE 方向
+  电平持续锁存，旧脉冲版两端不得混用。最终冻结仍等待 MCU 工具链编译、现行门控 HIL，
+  以及清运锁 1000 ms/侧置超声波 600 mm 的实机验证。
 - HTTP：属于 F-09，不在 F-10 中创建。
 
 候选版不是生产切换授权。现有 OneNet 物模型、AA/BB/CC/DD 临时帧和旧 D1 清运链只有

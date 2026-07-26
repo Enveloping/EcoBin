@@ -1041,8 +1041,6 @@ def validate_uart_registry(
         field["name"] for field in specs["CONFIG_PORT_BLOCK"]["fields"]
     }
     required_device_config_fields = {
-        "deliveryDoorOpenCommandSignalMs",
-        "deliveryDoorCloseCommandSignalMs",
         "deliveryDoorTravelWaitMs",
     }
     required_port_config_fields = {
@@ -1346,23 +1344,15 @@ def validate_uart_payload_semantics(
                 raise ContractError(
                     f"{message_name}: successful output result requires faultCode NONE"
                 )
-            if values["actualOutputMs"] == 0:
-                raise ContractError(
-                    f"{message_name}: dispatched output must report nonzero duration"
-                )
         elif status == "COALESCED_WITH_EXISTING_CLOSE":
-            if values["faultCode"] != "NONE" or values["actualOutputMs"] != 0:
+            if values["faultCode"] != "NONE":
                 raise ContractError(
-                    f"{message_name}: coalesced close must report zero new output"
+                    f"{message_name}: coalesced close requires faultCode NONE"
                 )
-        elif status == "PARTIAL_OUTPUT_INTERRUPTED":
-            if values["faultCode"] != "DELIVERY_DOOR_OUTPUT_INTERRUPTED":
+        elif status == "COMMAND_SUPERSEDED_BEFORE_DISPATCH":
+            if values["faultCode"] != "NONE":
                 raise ContractError(
-                    f"{message_name}: interrupted output has the wrong fault"
-                )
-            if values["actualOutputMs"] == 0:
-                raise ContractError(
-                    f"{message_name}: partial output must report nonzero duration"
+                    f"{message_name}: superseded command requires faultCode NONE"
                 )
         elif status == "OUTPUT_REJECTED":
             if values["faultCode"] not in {
@@ -1371,10 +1361,6 @@ def validate_uart_payload_semantics(
             }:
                 raise ContractError(
                     f"{message_name}: rejected output has the wrong fault"
-                )
-            if values["actualOutputMs"] != 0:
-                raise ContractError(
-                    f"{message_name}: rejected output must report zero duration"
                 )
         elif status == "NOT_DISPATCHED":
             raise ContractError(
@@ -1389,17 +1375,6 @@ def validate_uart_payload_semantics(
     if message_name == "CONFIG_BEGIN":
         if values["partCount"] != values["expectedPortCount"] + 3:
             raise ContractError("CONFIG_BEGIN partCount must equal expectedPortCount+3")
-
-    if message_name == "CONFIG_DEVICE_BLOCK":
-        if (
-            values["deliveryDoorOpenCommandSignalMs"]
-            >= values["deliveryDoorTravelWaitMs"]
-            or values["deliveryDoorCloseCommandSignalMs"]
-            >= values["deliveryDoorTravelWaitMs"]
-        ):
-            raise ContractError(
-                "CONFIG_DEVICE_BLOCK door signal duration must be below travel wait"
-            )
 
     if message_name == "CONFIG_PORT_BLOCK":
         if values["partIndex"] != values["portNo"] + 2:
@@ -1431,7 +1406,6 @@ def validate_uart_payload_semantics(
         faults_by_component = {
             "UART": {"UART_PROTOCOL", "UART_STORAGE"},
             "DELIVERY_DOOR": {
-                "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
                 "DELIVERY_DOOR_OUTPUT_REJECTED",
                 "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
             },
@@ -1569,16 +1543,12 @@ def validate_uart_payload_semantics(
         no_door_command = values["lastDeliveryDoorCommand"] == "NONE"
         if no_door_command != (
             values["lastDeliveryDoorOutputStatus"] == "NOT_DISPATCHED"
-            and values["lastDeliveryDoorActualOutputMs"] == 0
         ):
             raise ContractError(
                 "STATE_SNAPSHOT_PORT last door command/result tuple is inconsistent"
             )
         expected_fault_bitmap = 0
-        if values["lastDeliveryDoorOutputStatus"] in {
-            "PARTIAL_OUTPUT_INTERRUPTED",
-            "OUTPUT_REJECTED",
-        }:
+        if values["lastDeliveryDoorOutputStatus"] == "OUTPUT_REJECTED":
             expected_fault_bitmap |= (
                 1 << bitmap["bits"]["DELIVERY_DOOR_OUTPUT_FAULT"]
             )

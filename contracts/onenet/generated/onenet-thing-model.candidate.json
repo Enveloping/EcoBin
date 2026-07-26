@@ -813,22 +813,21 @@
                 "dataType": {
                   "specs": {
                     "1": "UART_PROTOCOL",
-                    "10": "WEIGHT_OVERLOAD",
-                    "11": "WEIGHT_PROTOCOL",
-                    "12": "WEIGHT_CONFIG",
-                    "13": "WEIGHT_DISCONNECTED",
-                    "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                    "15": "SMOKE_SENSOR",
-                    "16": "MCU_STORAGE",
-                    "17": "MCU_INTERNAL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
                     "2": "UART_STORAGE",
-                    "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                    "4": "DELIV_DOOR_OUT_REJECTED",
-                    "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                    "6": "CLEAN_SOL_DRIVER",
-                    "7": "WEIGHT_UNSTABLE",
-                    "8": "WEIGHT_TIMEOUT",
-                    "9": "WEIGHT_SENSOR"
+                    "3": "DELIV_DOOR_OUT_REJECTED",
+                    "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
                   },
                   "type": "enum"
                 },
@@ -1028,22 +1027,21 @@
                 "dataType": {
                   "specs": {
                     "1": "UART_PROTOCOL",
-                    "10": "WEIGHT_OVERLOAD",
-                    "11": "WEIGHT_PROTOCOL",
-                    "12": "WEIGHT_CONFIG",
-                    "13": "WEIGHT_DISCONNECTED",
-                    "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                    "15": "SMOKE_SENSOR",
-                    "16": "MCU_STORAGE",
-                    "17": "MCU_INTERNAL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
                     "2": "UART_STORAGE",
-                    "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                    "4": "DELIV_DOOR_OUT_REJECTED",
-                    "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                    "6": "CLEAN_SOL_DRIVER",
-                    "7": "WEIGHT_UNSTABLE",
-                    "8": "WEIGHT_TIMEOUT",
-                    "9": "WEIGHT_SENSOR"
+                    "3": "DELIV_DOOR_OUT_REJECTED",
+                    "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
                   },
                   "type": "enum"
                 },
@@ -1137,27 +1135,14 @@
                   "specs": {
                     "1": "NOT_DISPATCHED",
                     "2": "COMMAND_DISPATCHED",
-                    "3": "COALESCED_WITH_EXISTING_CLOSE",
-                    "4": "PARTIAL_OUTPUT_INTERRUPTED",
+                    "3": "COMMAND_SUPERSEDED_BEFORE_DISPATCH",
+                    "4": "COALESCED_WITH_EXISTING_CLOSE",
                     "5": "OUTPUT_REJECTED"
                   },
                   "type": "enum"
                 },
                 "identifier": "outputStatus",
                 "name": "outputStatus"
-              },
-              {
-                "dataType": {
-                  "specs": {
-                    "max": "4294967295",
-                    "min": "0",
-                    "step": "1",
-                    "unit": ""
-                  },
-                  "type": "int64"
-                },
-                "identifier": "actualOutputMs",
-                "name": "actualOutputMs"
               },
               {
                 "dataType": {
@@ -1787,22 +1772,21 @@
                 "dataType": {
                   "specs": {
                     "1": "UART_PROTOCOL",
-                    "10": "WEIGHT_OVERLOAD",
-                    "11": "WEIGHT_PROTOCOL",
-                    "12": "WEIGHT_CONFIG",
-                    "13": "WEIGHT_DISCONNECTED",
-                    "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                    "15": "SMOKE_SENSOR",
-                    "16": "MCU_STORAGE",
-                    "17": "MCU_INTERNAL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
                     "2": "UART_STORAGE",
-                    "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                    "4": "DELIV_DOOR_OUT_REJECTED",
-                    "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                    "6": "CLEAN_SOL_DRIVER",
-                    "7": "WEIGHT_UNSTABLE",
-                    "8": "WEIGHT_TIMEOUT",
-                    "9": "WEIGHT_SENSOR"
+                    "3": "DELIV_DOOR_OUT_REJECTED",
+                    "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
                   },
                   "type": "enum"
                 },
@@ -1991,22 +1975,21 @@
                 "dataType": {
                   "specs": {
                     "1": "UART_PROTOCOL",
-                    "10": "WEIGHT_OVERLOAD",
-                    "11": "WEIGHT_PROTOCOL",
-                    "12": "WEIGHT_CONFIG",
-                    "13": "WEIGHT_DISCONNECTED",
-                    "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                    "15": "SMOKE_SENSOR",
-                    "16": "MCU_STORAGE",
-                    "17": "MCU_INTERNAL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
                     "2": "UART_STORAGE",
-                    "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                    "4": "DELIV_DOOR_OUT_REJECTED",
-                    "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                    "6": "CLEAN_SOL_DRIVER",
-                    "7": "WEIGHT_UNSTABLE",
-                    "8": "WEIGHT_TIMEOUT",
-                    "9": "WEIGHT_SENSOR"
+                    "3": "DELIV_DOOR_OUT_REJECTED",
+                    "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
                   },
                   "type": "enum"
                 },
@@ -2824,22 +2807,21 @@
                 "dataType": {
                   "specs": {
                     "1": "UART_PROTOCOL",
-                    "10": "WEIGHT_OVERLOAD",
-                    "11": "WEIGHT_PROTOCOL",
-                    "12": "WEIGHT_CONFIG",
-                    "13": "WEIGHT_DISCONNECTED",
-                    "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                    "15": "SMOKE_SENSOR",
-                    "16": "MCU_STORAGE",
-                    "17": "MCU_INTERNAL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
                     "2": "UART_STORAGE",
-                    "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                    "4": "DELIV_DOOR_OUT_REJECTED",
-                    "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                    "6": "CLEAN_SOL_DRIVER",
-                    "7": "WEIGHT_UNSTABLE",
-                    "8": "WEIGHT_TIMEOUT",
-                    "9": "WEIGHT_SENSOR"
+                    "3": "DELIV_DOOR_OUT_REJECTED",
+                    "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
                   },
                   "type": "enum"
                 },
@@ -3268,22 +3250,21 @@
                 "dataType": {
                   "specs": {
                     "1": "UART_PROTOCOL",
-                    "10": "WEIGHT_OVERLOAD",
-                    "11": "WEIGHT_PROTOCOL",
-                    "12": "WEIGHT_CONFIG",
-                    "13": "WEIGHT_DISCONNECTED",
-                    "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                    "15": "SMOKE_SENSOR",
-                    "16": "MCU_STORAGE",
-                    "17": "MCU_INTERNAL",
+                    "10": "WEIGHT_PROTOCOL",
+                    "11": "WEIGHT_CONFIG",
+                    "12": "WEIGHT_DISCONNECTED",
+                    "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                    "14": "SMOKE_SENSOR",
+                    "15": "MCU_STORAGE",
+                    "16": "MCU_INTERNAL",
                     "2": "UART_STORAGE",
-                    "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                    "4": "DELIV_DOOR_OUT_REJECTED",
-                    "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                    "6": "CLEAN_SOL_DRIVER",
-                    "7": "WEIGHT_UNSTABLE",
-                    "8": "WEIGHT_TIMEOUT",
-                    "9": "WEIGHT_SENSOR"
+                    "3": "DELIV_DOOR_OUT_REJECTED",
+                    "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                    "5": "CLEAN_SOL_DRIVER",
+                    "6": "WEIGHT_UNSTABLE",
+                    "7": "WEIGHT_TIMEOUT",
+                    "8": "WEIGHT_SENSOR",
+                    "9": "WEIGHT_OVERLOAD"
                   },
                   "type": "enum"
                 },
@@ -3600,27 +3581,26 @@
           "dataType": {
             "specs": {
               "1": "UART_PROTOCOL",
-              "10": "WEIGHT_OVERLOAD",
-              "11": "WEIGHT_PROTOCOL",
-              "12": "WEIGHT_CONFIG",
-              "13": "WEIGHT_DISCONNECTED",
-              "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-              "15": "SMOKE_SENSOR",
-              "16": "MCU_STORAGE",
-              "17": "MCU_INTERNAL",
-              "18": "EDGE_STORAGE",
-              "19": "CAMERA_CAPTURE",
+              "10": "WEIGHT_PROTOCOL",
+              "11": "WEIGHT_CONFIG",
+              "12": "WEIGHT_DISCONNECTED",
+              "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+              "14": "SMOKE_SENSOR",
+              "15": "MCU_STORAGE",
+              "16": "MCU_INTERNAL",
+              "17": "EDGE_STORAGE",
+              "18": "CAMERA_CAPTURE",
+              "19": "CAMERA_STORAGE",
               "2": "UART_STORAGE",
-              "20": "CAMERA_STORAGE",
-              "21": "NETWORK_CONNECTIVITY",
-              "22": "CLOCK_UNSYNCED",
-              "3": "DELIV_DOOR_OUT_INTERRUPTED",
-              "4": "DELIV_DOOR_OUT_REJECTED",
-              "5": "DELIV_DOOR_HIL_NOT_QUAL",
-              "6": "CLEAN_SOL_DRIVER",
-              "7": "WEIGHT_UNSTABLE",
-              "8": "WEIGHT_TIMEOUT",
-              "9": "WEIGHT_SENSOR"
+              "20": "NETWORK_CONNECTIVITY",
+              "21": "CLOCK_UNSYNCED",
+              "3": "DELIV_DOOR_OUT_REJECTED",
+              "4": "DELIV_DOOR_HIL_NOT_QUAL",
+              "5": "CLEAN_SOL_DRIVER",
+              "6": "WEIGHT_UNSTABLE",
+              "7": "WEIGHT_TIMEOUT",
+              "8": "WEIGHT_SENSOR",
+              "9": "WEIGHT_OVERLOAD"
             },
             "type": "enum"
           },
@@ -3911,27 +3891,26 @@
           "dataType": {
             "specs": {
               "1": "UART_PROTOCOL",
-              "10": "WEIGHT_OVERLOAD",
-              "11": "WEIGHT_PROTOCOL",
-              "12": "WEIGHT_CONFIG",
-              "13": "WEIGHT_DISCONNECTED",
-              "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-              "15": "SMOKE_SENSOR",
-              "16": "MCU_STORAGE",
-              "17": "MCU_INTERNAL",
-              "18": "EDGE_STORAGE",
-              "19": "CAMERA_CAPTURE",
+              "10": "WEIGHT_PROTOCOL",
+              "11": "WEIGHT_CONFIG",
+              "12": "WEIGHT_DISCONNECTED",
+              "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+              "14": "SMOKE_SENSOR",
+              "15": "MCU_STORAGE",
+              "16": "MCU_INTERNAL",
+              "17": "EDGE_STORAGE",
+              "18": "CAMERA_CAPTURE",
+              "19": "CAMERA_STORAGE",
               "2": "UART_STORAGE",
-              "20": "CAMERA_STORAGE",
-              "21": "NETWORK_CONNECTIVITY",
-              "22": "CLOCK_UNSYNCED",
-              "3": "DELIV_DOOR_OUT_INTERRUPTED",
-              "4": "DELIV_DOOR_OUT_REJECTED",
-              "5": "DELIV_DOOR_HIL_NOT_QUAL",
-              "6": "CLEAN_SOL_DRIVER",
-              "7": "WEIGHT_UNSTABLE",
-              "8": "WEIGHT_TIMEOUT",
-              "9": "WEIGHT_SENSOR"
+              "20": "NETWORK_CONNECTIVITY",
+              "21": "CLOCK_UNSYNCED",
+              "3": "DELIV_DOOR_OUT_REJECTED",
+              "4": "DELIV_DOOR_HIL_NOT_QUAL",
+              "5": "CLEAN_SOL_DRIVER",
+              "6": "WEIGHT_UNSTABLE",
+              "7": "WEIGHT_TIMEOUT",
+              "8": "WEIGHT_SENSOR",
+              "9": "WEIGHT_OVERLOAD"
             },
             "type": "enum"
           },
@@ -4209,22 +4188,21 @@
           "dataType": {
             "specs": {
               "1": "UART_PROTOCOL",
-              "10": "WEIGHT_OVERLOAD",
-              "11": "WEIGHT_PROTOCOL",
-              "12": "WEIGHT_CONFIG",
-              "13": "WEIGHT_DISCONNECTED",
-              "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-              "15": "SMOKE_SENSOR",
-              "16": "MCU_STORAGE",
-              "17": "MCU_INTERNAL",
+              "10": "WEIGHT_PROTOCOL",
+              "11": "WEIGHT_CONFIG",
+              "12": "WEIGHT_DISCONNECTED",
+              "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+              "14": "SMOKE_SENSOR",
+              "15": "MCU_STORAGE",
+              "16": "MCU_INTERNAL",
               "2": "UART_STORAGE",
-              "3": "DELIV_DOOR_OUT_INTERRUPTED",
-              "4": "DELIV_DOOR_OUT_REJECTED",
-              "5": "DELIV_DOOR_HIL_NOT_QUAL",
-              "6": "CLEAN_SOL_DRIVER",
-              "7": "WEIGHT_UNSTABLE",
-              "8": "WEIGHT_TIMEOUT",
-              "9": "WEIGHT_SENSOR"
+              "3": "DELIV_DOOR_OUT_REJECTED",
+              "4": "DELIV_DOOR_HIL_NOT_QUAL",
+              "5": "CLEAN_SOL_DRIVER",
+              "6": "WEIGHT_UNSTABLE",
+              "7": "WEIGHT_TIMEOUT",
+              "8": "WEIGHT_SENSOR",
+              "9": "WEIGHT_OVERLOAD"
             },
             "type": "enum"
           },
@@ -5470,27 +5448,14 @@
                     "specs": {
                       "1": "NOT_DISPATCHED",
                       "2": "COMMAND_DISPATCHED",
-                      "3": "COALESCED_WITH_EXISTING_CLOSE",
-                      "4": "PARTIAL_OUTPUT_INTERRUPTED",
+                      "3": "COMMAND_SUPERSEDED_BEFORE_DISPATCH",
+                      "4": "COALESCED_WITH_EXISTING_CLOSE",
                       "5": "OUTPUT_REJECTED"
                     },
                     "type": "enum"
                   },
                   "identifier": "lastDeliveryDoorOutputStatus",
                   "name": "lastDeliveryDoorOutputStatus"
-                },
-                {
-                  "dataType": {
-                    "specs": {
-                      "max": "4294967295",
-                      "min": "0",
-                      "step": "1",
-                      "unit": ""
-                    },
-                    "type": "int64"
-                  },
-                  "identifier": "lastDeliveryDoorActualOutputMs",
-                  "name": "lastDeliveryDoorActualOutputMs"
                 },
                 {
                   "dataType": {
@@ -5707,22 +5672,21 @@
                   "dataType": {
                     "specs": {
                       "1": "UART_PROTOCOL",
-                      "10": "WEIGHT_OVERLOAD",
-                      "11": "WEIGHT_PROTOCOL",
-                      "12": "WEIGHT_CONFIG",
-                      "13": "WEIGHT_DISCONNECTED",
-                      "14": "FULLNESS_SENSOR_DIAGNOSTIC",
-                      "15": "SMOKE_SENSOR",
-                      "16": "MCU_STORAGE",
-                      "17": "MCU_INTERNAL",
+                      "10": "WEIGHT_PROTOCOL",
+                      "11": "WEIGHT_CONFIG",
+                      "12": "WEIGHT_DISCONNECTED",
+                      "13": "FULLNESS_SENSOR_DIAGNOSTIC",
+                      "14": "SMOKE_SENSOR",
+                      "15": "MCU_STORAGE",
+                      "16": "MCU_INTERNAL",
                       "2": "UART_STORAGE",
-                      "3": "DELIV_DOOR_OUT_INTERRUPTED",
-                      "4": "DELIV_DOOR_OUT_REJECTED",
-                      "5": "DELIV_DOOR_HIL_NOT_QUAL",
-                      "6": "CLEAN_SOL_DRIVER",
-                      "7": "WEIGHT_UNSTABLE",
-                      "8": "WEIGHT_TIMEOUT",
-                      "9": "WEIGHT_SENSOR"
+                      "3": "DELIV_DOOR_OUT_REJECTED",
+                      "4": "DELIV_DOOR_HIL_NOT_QUAL",
+                      "5": "CLEAN_SOL_DRIVER",
+                      "6": "WEIGHT_UNSTABLE",
+                      "7": "WEIGHT_TIMEOUT",
+                      "8": "WEIGHT_SENSOR",
+                      "9": "WEIGHT_OVERLOAD"
                     },
                     "type": "enum"
                   },
@@ -6125,32 +6089,6 @@
                 },
                 "identifier": "weightMeasurementTimeoutMs",
                 "name": "weightMeasurementTimeoutMs"
-              },
-              {
-                "dataType": {
-                  "specs": {
-                    "max": "45000",
-                    "min": "1",
-                    "step": "1",
-                    "unit": ""
-                  },
-                  "type": "int32"
-                },
-                "identifier": "deliveryDoorOpenCommandSignalMs",
-                "name": "deliveryDoorOpenCommandSignalM"
-              },
-              {
-                "dataType": {
-                  "specs": {
-                    "max": "45000",
-                    "min": "1",
-                    "step": "1",
-                    "unit": ""
-                  },
-                  "type": "int32"
-                },
-                "identifier": "deliveryDoorCloseCommandSignalMs",
-                "name": "deliveryDoorCloseCommandSignal"
               },
               {
                 "dataType": {

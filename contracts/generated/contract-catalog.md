@@ -3,7 +3,7 @@
 > 本文件由 `contracts/tools/generate_contracts.py` 生成，请勿直接编辑。
 
 - UART Registry：`1.0.0-rc.3`
-- UART Registry SHA-256：`f8a8e69b9857ed88f567a63ee1a28387ea4400c12eec286f02e66f89046fc283`
+- UART Registry SHA-256：`11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2`
 - UART 状态：`MCU_REVIEW_REQUIRED`
 - UART 物理链路：`115200 baud / 8N1 / no flow control`
 - OneNet Mapping：`1.0.0-rc.3` / `IMPLEMENTATION_CANDIDATE`
@@ -19,7 +19,7 @@
 | `0x05` | `QUERY_STATE` | `EDGE_TO_MCU` | 是 | `64` |
 | `0x06` | `SAFE_CLOSE` | `EDGE_TO_MCU` | 是 | `54` |
 | `0x10` | `CONFIG_BEGIN` | `EDGE_TO_MCU` | 是 | `139` |
-| `0x11` | `CONFIG_DEVICE_BLOCK` | `EDGE_TO_MCU` | 是 | `171` |
+| `0x11` | `CONFIG_DEVICE_BLOCK` | `EDGE_TO_MCU` | 是 | `163` |
 | `0x12` | `CONFIG_PORT_BLOCK` | `EDGE_TO_MCU` | 是 | `190` |
 | `0x13` | `CONFIG_COMMIT` | `EDGE_TO_MCU` | 是 | `138` |
 | `0x14` | `CONFIG_APPLY_RESULT` | `MCU_TO_EDGE` | 是 | `127` |
@@ -33,7 +33,7 @@
 | `0x27` | `AUTHORIZE_DELIVERY_FIRST_OPEN` | `EDGE_TO_MCU` | 是 | `101` |
 | `0x28` | `CONFIRM_NO_ACTIVE_WORK` | `EDGE_TO_MCU` | 是 | `88` |
 | `0x30` | `WORK_PREOPEN_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `91` |
-| `0x31` | `DELIVERY_DOOR_COMMAND_RESULT` | `MCU_TO_EDGE` | 是 | `64` |
+| `0x31` | `DELIVERY_DOOR_COMMAND_RESULT` | `MCU_TO_EDGE` | 是 | `60` |
 | `0x32` | `WORK_POSTCLOSE_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `91` |
 | `0x33` | `DELIVERY_SELECTION` | `MCU_TO_EDGE` | 是 | `56` |
 | `0x34` | `WORK_PREUNLOCK_WEIGHT_READY` | `MCU_TO_EDGE` | 是 | `89` |
@@ -45,11 +45,11 @@
 | `0x3A` | `BASELINE_MEASUREMENT_RESULT` | `MCU_TO_EDGE` | 是 | `89` |
 | `0x3B` | `FAULT_OBSERVED` | `MCU_TO_EDGE` | 是 | `59` |
 | `0x3C` | `SAFETY_SENSOR_EVENT` | `MCU_TO_EDGE` | 是 | `42` |
-| `0x3D` | `SAFE_CLOSE_RESULT` | `MCU_TO_EDGE` | 是 | `47` |
+| `0x3D` | `SAFE_CLOSE_RESULT` | `MCU_TO_EDGE` | 是 | `43` |
 | `0x3E` | `CLEAN_COMPLETION_CONFIRMED` | `MCU_TO_EDGE` | 是 | `59` |
 | `0x3F` | `BOOT_RECONCILIATION_RESULT` | `MCU_TO_EDGE` | 是 | `64` |
 | `0x50` | `STATE_SNAPSHOT_BEGIN` | `MCU_TO_EDGE` | 是 | `229` |
-| `0x51` | `STATE_SNAPSHOT_PORT` | `MCU_TO_EDGE` | 是 | `85` |
+| `0x51` | `STATE_SNAPSHOT_PORT` | `MCU_TO_EDGE` | 是 | `81` |
 | `0x52` | `STATE_SNAPSHOT_END` | `MCU_TO_EDGE` | 是 | `96` |
 
 ## OneNet 下行

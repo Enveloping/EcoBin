@@ -15,7 +15,7 @@
           "edgeEventSequence": 1049,
           "eventType": 1,
           "eventUid": "87000000-0000-4000-8000-000000000002",
-          "faultCode": 9,
+          "faultCode": 8,
           "faultUid": "87000000-0000-4000-8000-000000000001",
           "mcuBootId": 101,
           "mcuBootIdPresent": true,
