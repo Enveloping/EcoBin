@@ -96,11 +96,13 @@ class HandshakeSerial:
         mcu_boot_id,
         mcu_capability,
         repeat_hello_before_ack=False,
+        event_before_hello_ack=False,
     ):
         self.edge_boot_id = edge_boot_id
         self.mcu_boot_id = mcu_boot_id
         self.mcu_capability = mcu_capability
         self.repeat_hello_before_ack = repeat_hello_before_ack
+        self.event_before_hello_ack = event_before_hello_ack
         self.is_open = True
         self.timeout = 0.5
         self.writes = []
@@ -143,6 +145,28 @@ class HandshakeSerial:
             encode_frame("HELLO_ACK", self._mcu_tx_sequence, hello_ack)
         )
 
+    def _queue_config_result(self):
+        self._mcu_tx_sequence += 1
+        payload = encode_payload("CONFIG_APPLY_RESULT", {
+            "mcuBootId": self.mcu_boot_id,
+            "mcuEventSequence": 1,
+            "uptimeMs": 100,
+            "mcuCommandUid": "30000000-0000-4000-8000-000000000001",
+            "applicationUid": "40000000-0000-4000-8000-000000000001",
+            "status": "APPLIED",
+            "configVersion": 8,
+            "contentSha256": "a" * 64,
+            "mcuPayloadSha256": "b" * 64,
+            "faultCode": "NONE",
+        })
+        self._incoming.extend(
+            encode_frame(
+                "CONFIG_APPLY_RESULT",
+                self._mcu_tx_sequence,
+                payload,
+            )
+        )
+
     @property
     def in_waiting(self):
         return len(self._incoming)
@@ -155,6 +179,8 @@ class HandshakeSerial:
         elif decoded["messageType"] == MESSAGE_TYPE["HELLO_ACK"]:
             if self.repeat_hello_before_ack:
                 self._queue_hello()
+            if self.event_before_hello_ack:
+                self._queue_config_result()
             self._queue_hello_ack()
         return len(data)
 
@@ -250,6 +276,31 @@ def test_handshake_tolerates_repeated_mcu_hello_before_hello_ack():
     assert result["mcu_capability"] == 0x300
 
 
+def test_renegotiation_preserves_event_arriving_before_hello_ack():
+    link = UartLink(
+        port="fake",
+        edge_boot_id=7,
+        port_count=1,
+        required_capability_bitmap=0x300,
+    )
+    serial = HandshakeSerial(
+        7,
+        42,
+        0x300,
+        event_before_hello_ack=True,
+    )
+    link._ser = serial
+    serial._queue_hello()
+    hello = link.read_mcu_event(timeout_ms=20)
+
+    result = link.renegotiate_from_mcu_hello(hello)
+    event = link.read_mcu_event(timeout_ms=1)
+
+    assert result["mcu_boot_id"] == 42
+    assert event["message_name"] == "CONFIG_APPLY_RESULT"
+    assert event["payload"]["mcuEventSequence"] == 1
+
+
 def test_online_mcu_hello_can_reestablish_the_uart_session():
     link = UartLink(
         port="fake",
@@ -285,7 +336,10 @@ def test_online_mcu_hello_can_reestablish_the_uart_session():
         decode_frame(frame, sender_role="EDGE")["messageType"]
         for frame in serial.writes
     ]
-    assert sent_types == [MESSAGE_TYPE["HELLO_ACK"]]
+    assert sent_types == [
+        MESSAGE_TYPE["HELLO"],
+        MESSAGE_TYPE["HELLO_ACK"],
+    ]
 
 
 def test_ack_is_matched_against_boot_sequence_and_message_type():

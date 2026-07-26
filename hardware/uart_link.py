@@ -272,6 +272,16 @@ class UartLink:
                 return frame
         return None
 
+    def _pop_pending_frame_named(
+        self,
+        message_names: tuple[str, ...],
+    ) -> Optional[dict]:
+        for index, frame in enumerate(self._pending_frames):
+            if frame.get("message_name") in message_names:
+                del self._pending_frames[index]
+                return frame
+        return None
+
     def _ack_matches(self, frame: dict, tx_sequence: int, message_type: int) -> bool:
         payload = frame.get("payload", {})
         if payload.get("referencedSenderBootId") != self.edge_boot_id:
@@ -309,14 +319,30 @@ class UartLink:
         logger.info("发送 HELLO: bootId=%d ports=%d capability=0x%X",
                      self.edge_boot_id, self.port_count, EDGE_CAPABILITY_BITMAP)
 
-        # Step 2: 等待 MCU HELLO 响应
-        mcu_hello = self._read_frame(timeout_ms=3000)
-        if mcu_hello is None:
-            raise UartError("MCU HELLO 超时（3 秒无响应）")
-
-        mcu_msg = mcu_hello.get("message_name", "")
-        if mcu_msg != "HELLO":
-            raise UartError(f"期望 HELLO，收到 {mcu_msg}")
+        # Step 2: 等待 MCU HELLO 响应。关键事件可能在重新协商期间
+        # 重发，必须保留给正常事件消费者，不能让它们打断握手。
+        deadline = time.monotonic() + 3.0
+        while True:
+            remaining_ms = max(
+                1,
+                int((deadline - time.monotonic()) * 1000),
+            )
+            if remaining_ms <= 1 and time.monotonic() >= deadline:
+                raise UartError("MCU HELLO 超时（3 秒无响应）")
+            mcu_hello = self._pop_pending_frame_named(("HELLO",))
+            if mcu_hello is None:
+                mcu_hello = self._read_serial_frame(
+                    timeout_ms=remaining_ms
+                )
+            if mcu_hello is None:
+                raise UartError("MCU HELLO 超时（3 秒无响应）")
+            if mcu_hello.get("message_name") == "HELLO":
+                break
+            self._pending_frames.append(mcu_hello)
+            logger.info(
+                "握手期间暂存非握手消息，继续等待 HELLO: %s",
+                mcu_hello.get("message_name", ""),
+            )
 
         return self._complete_handshake_from_mcu_hello(mcu_hello)
 
@@ -327,7 +353,9 @@ class UartLink:
         self._mcu_boot_id = None
         if mcu_hello.get("message_name") != "HELLO":
             raise UartError("online renegotiation requires MCU HELLO")
-        return self._complete_handshake_from_mcu_hello(mcu_hello)
+        # 双方都必须发送自己的 HELLO 并收到对端 HELLO_ACK。已经收到的
+        # MCU HELLO 只是触发恢复，不能用“仅回复 HELLO_ACK”代替完整协商。
+        return self.handshake()
 
     def _complete_handshake_from_mcu_hello(self, mcu_hello: dict) -> dict:
         mcu_payload = mcu_hello.get("payload", {})
@@ -391,7 +419,13 @@ class UartLink:
             )
             if remaining_ms <= 1 and time.monotonic() >= deadline:
                 raise UartError("MCU HELLO_ACK 超时")
-            mcu_hello_ack = self._read_frame(timeout_ms=remaining_ms)
+            mcu_hello_ack = self._pop_pending_frame_named(
+                ("HELLO", "HELLO_ACK")
+            )
+            if mcu_hello_ack is None:
+                mcu_hello_ack = self._read_serial_frame(
+                    timeout_ms=remaining_ms
+                )
             if mcu_hello_ack is None:
                 raise UartError("MCU HELLO_ACK 超时")
 
@@ -409,7 +443,12 @@ class UartLink:
                 logger.info("握手期间收到重复 MCU HELLO，已重发 HELLO_ACK")
                 continue
             if ack_msg != "HELLO_ACK":
-                raise UartError(f"期望 HELLO_ACK，收到 {ack_msg}")
+                self._pending_frames.append(mcu_hello_ack)
+                logger.info(
+                    "握手期间暂存非握手消息，继续等待 HELLO_ACK: %s",
+                    ack_msg,
+                )
+                continue
             if (
                 ack_payload_dict.get("status") != "ACCEPTED"
                 or ack_payload_dict.get("responderBootId") != mcu_boot_id
