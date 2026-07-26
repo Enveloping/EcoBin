@@ -7,6 +7,7 @@ import org.enveloping.ecobin.recycling.api.legacy.LegacyCleaningEventPort;
 import org.enveloping.ecobin.recycling.api.legacy.LegacyCleanTareCommand;
 import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryEventPort;
 import org.enveloping.ecobin.recycling.api.legacy.LegacyDeliveryReportCommand;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -25,6 +26,10 @@ import java.math.BigDecimal;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(
+        prefix = "ecobin.external",
+        name = "mode",
+        havingValue = "real")
 @RequiredArgsConstructor
 public class OneNetEventDispatcher implements OneNetMessageHandler {
 

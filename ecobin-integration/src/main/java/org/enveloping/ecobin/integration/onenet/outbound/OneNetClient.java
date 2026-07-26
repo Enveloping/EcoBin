@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,8 +18,9 @@ import java.util.Map;
 /**
  * 中国移动 OneNet 物联网平台客户端（设备命令下行 = 物模型服务调用）。
  * <p>
- * 凭证（productId + accessKey）未到位前为占位实现：仅记录指令意图、不发起真实请求、不阻塞业务主流程。
- * 凭证齐全（{@link OneNetProperties#isConfigured()}）后才按标准 OneNET token 鉴权调用「设备服务调用」API。
+ * 仅在 {@code ecobin.external.mode=real} 时装配，并要求
+ * {@link OneNetProperties#isConfigured()} 为真；Fake 模式使用无网络替身。
+ * 真实实现按标准 OneNET token 鉴权调用「设备服务调用」API。
  * <p>
  * ⚠ 下行链路<strong>本地不测试</strong>（无设备、无下发凭证），鉴权/端点细节联调时校验。
  *
@@ -26,6 +28,10 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(
+        prefix = "ecobin.external",
+        name = "mode",
+        havingValue = "real")
 @RequiredArgsConstructor
 public class OneNetClient implements DeviceCommandGateway {
 
@@ -75,12 +81,12 @@ public class OneNetClient implements DeviceCommandGateway {
     }
 
     /**
-     * 调用 OneNet「设备服务调用」API（async）。凭证缺失时走占位日志。
+     * 调用 OneNet「设备服务调用」API（async）。
      */
     private void invokeService(String devSn, String identifier, Map<String, Object> input) {
         if (!properties.isConfigured()) {
-            log.info("[OneNet·占位] 服务调用 {} devSn={}, input={}（凭证未配置，跳过真实下发）", identifier, devSn, input);
-            return;
+            throw new IllegalStateException(
+                    "REAL mode requires complete OneNet outbound configuration");
         }
         try {
             Map<String, Object> body = new LinkedHashMap<>();

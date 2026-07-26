@@ -28,8 +28,8 @@ public class OneNetSubscriptionProperties {
     /** 订阅名称（OneNet 控制台配置） */
     private String subscriptionName;
 
-    /** 是否启用消费者（测试环境置 false） */
-    private boolean enabled = true;
+    /** 是否启用消费者；默认关闭，REAL 模式必须显式开启。 */
+    private boolean enabled;
 
     /** 凭证是否齐全（齐全才会真正连 OneNet MQ） */
     public boolean isConfigured() {

@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 注意：正式投递/清运流程里，临时密钥是随「开门命令」的 {@code cosToken} 由 OneNet
  * <strong>下发</strong>给设备的（见 {@code docs/iot/onenet-thing-model.md} §3.4），设备不必主动拉。
  * 本端点是为「设备侧脚本联调 / 密钥中途刷新」提供的主动拉取通道，复用同一份
- * {@link CosUploadCredentialPort}，凭证未配置时返回占位值。
+ * {@link CosUploadCredentialPort}；Fake 环境返回不可用于真实网络的保留域名凭证。
  */
 @RestController
 @RequestMapping("/api/iot/cos")

@@ -3,7 +3,7 @@ package org.enveloping.ecobin.device.service;
 /**
  * 设备下行指令服务。
  * <p>
- * 当前项目尚无设备下行通道（MQTT/长连接），实现为占位：仅记录指令意图，不阻塞业务主流程。
+ * 真实环境经 OneNet 下行；Fake 环境只记录指令意图，不建立网络连接或触发物理动作。
  * 后续对接 IoT 网关后在此补充真实下发逻辑。
  */
 public interface DeviceCommandService {

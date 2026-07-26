@@ -4,18 +4,20 @@ spring:
     username: sa
     password:
     driver-class-name: org.h2.Driver
-  flyway:
-    enabled: false
   sql:
     init:
       mode: always
       schema-locations: classpath:schema-h2.sql
 
-# 微信小程序配置（测试环境占位）
-wechat:
-  miniapp:
-    appid: test_appid
-    secret: test_secret
+ecobin:
+  database:
+    epoch:
+      test-bypass: true
+  external:
+    mode: fake
+    fake:
+      # 旧 H2 Web 测试仍需直接调用 /api/iot；生产 profile 禁止关闭。
+      block-inbound: false
 
 # 应用加密配置（测试占位）
 app:

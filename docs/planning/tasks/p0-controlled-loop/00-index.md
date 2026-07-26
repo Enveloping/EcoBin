@@ -13,7 +13,7 @@ implementation_authorized: false
 # EcoBin P0 受控闭环实施任务索引
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
-> F-03、F-04、F-05、F-06，并确认 F-10 软件阶段完成；F-08 已完成实施并处于
+> F-03、F-04、F-05、F-06、F-07，并确认 F-10 软件阶段完成；F-08 已完成实施并处于
 > `in-review`，F-11 已获软件实施授权并处于 `in-progress`；
 > 其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
@@ -25,8 +25,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-08 已实施并等待主审，F-11 实施中；其他任务未授权** |
-| 当前状态数 | `done` 7、`ready` 2、`in-progress` 1、`in-review` 1、`blocked` 18 |
+| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-08 已实施并等待主审，F-11 实施中；其他任务未授权** |
+| 当前状态数 | `done` 8、`ready` 2、`in-progress` 1、`in-review` 1、`blocked` 17 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -78,7 +78,7 @@ agent | human | mixed
 | F-04 | [目标数据库 V1～V4](f-04-database-v1-v4-iam-device.md) | `done` | `agent` | 无；合入新应用和联合验收前需 F-01 |
 | F-05 | [目标数据库 V5 recycling](f-05-database-v5-recycling.md) | `done` | `agent` | F-04 |
 | F-06 | [目标数据库 V6～V10](f-06-database-v6-v10-funds-operations.md) | `done` | `agent` | F-05 |
-| F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `blocked` | `agent` | F-03、F-06 |
+| F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `done` | `agent` | 两项 P1 补强后通过复审并合入 |
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `in-review` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `ready` | `agent` | F-02 |
 | F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 通用三语言黄金样本已通过；等待 MCU 实际工具链与 HIL |
@@ -241,3 +241,16 @@ M0_COMPLETE
 - 2026-07-26：F-08 根据 review 补强精确 JSON 数字语义、逐任务即时领取和通道共享
   最大在途限制；Java 21 全仓 91 项回归及 MySQL 8.4.10 专项 5 项通过，状态保持
   `in-review`。
+- 2026-07-26：复核 F-07 的 F-03、F-06 前置均已完成；项目负责人明确授权 Codex
+  实施 F-07，任务进入 `in-progress`。当前共 `done` 7、`ready` 2、
+  `in-progress` 2、`blocked` 18。
+- 2026-07-26：F-07 完成 epoch/readiness guard、Fake 外联硬阻断和 MySQL 8.4.10
+  真实启动矩阵，转为 `in-review`。当前共 `done` 7、`ready` 2、
+  `in-progress` 1、`in-review` 1、`blocked` 18；F-07 仍须项目负责人确认后
+  才能转为 `done`，其下游依赖暂不解除。
+- 2026-07-26：F-07 根据评审移除生产 JAR 中的 Flyway 运行库/全部迁移脚本，并修复
+  servlet context path 对 Fake 入站闩锁的绕过；F-07 独立分支 Java 21 全量 103 项
+  测试通过，合入含 F-08 的 `database-refactor` 后 `mvn clean test` 共 112 项、
+  0 failure、0 error（5 项 F-08 真实 MySQL 验收按设计跳过），MySQL 8.4.10
+  生产 JAR 矩阵再次通过。项目负责人确认更新文档、提交并合入，F-07 转为 `done`。
+  当前共 `done` 8、`ready` 2、`in-progress` 1、`in-review` 1、`blocked` 17。

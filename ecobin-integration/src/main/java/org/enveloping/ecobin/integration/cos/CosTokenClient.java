@@ -8,16 +8,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.TreeMap;
 
 /**
  * 腾讯云 COS STS 临时密钥客户端（设备直传模式）。
  * <p>
- * 凭证未到位前为占位实现：仅记录指令意图、返回占位凭证（设备端可用其联调，但无法真实上传）。
- * 待 {@link CosProperties} 配置齐全后，{@link #getRealTempCredentials} 会调用
+ * 仅在 {@code ecobin.external.mode=real} 时装配，并要求 {@link CosProperties}
+ * 配置完整；Fake 模式使用只返回 {@code .invalid} 域名的无网络替身。
+ * 真实实现通过 {@link #getRealTempCredentials} 调用
  * {@code com.tencent.cloud.CosStsClient.getCredential} 获取真实临时凭证。
  * <p>
  * 使用方式：开门命令只下发<strong>凭证</strong>（不含照片 key）；照片对象 key 由<strong>设备自定</strong>
@@ -25,13 +26,14 @@ import java.util.TreeMap;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(
+        prefix = "ecobin.external",
+        name = "mode",
+        havingValue = "real")
 @RequiredArgsConstructor
 public class CosTokenClient implements CosUploadCredentialPort {
 
     private final CosProperties properties;
-
-    /** 占位 baseUrl（凭证未配置时用于联调） */
-    private static final String PLACEHOLDER_BASE_URL = "https://placeholder.cos.ap-guangzhou.myqcloud.com";
 
     /**
      * 获取设备直传 COS 所需的 STS 临时凭证。
@@ -43,18 +45,8 @@ public class CosTokenClient implements CosUploadCredentialPort {
     @Override
     public CosUploadCredential issue(String deviceSn, Integer doorIndex) {
         if (!properties.isConfigured()) {
-            log.info("[COS·占位] 请求临时凭证 deviceSn={}, doorIndex={}（凭证未配置，返回占位值）",
-                    deviceSn, doorIndex);
-            long startTime = Instant.now().getEpochSecond();
-            return new CosUploadCredential(
-                    "PLACEHOLDER_TMP_SECRET_ID",
-                    "PLACEHOLDER_TMP_SECRET_KEY",
-                    "PLACEHOLDER_SESSION_TOKEN",
-                    startTime,
-                    startTime + properties.getDurationSeconds(),
-                    nullToDefault(properties.getBucketName(), "placeholder-bucket-1234567890"),
-                    nullToDefault(properties.getRegion(), "ap-guangzhou"),
-                    nullToDefault(properties.getBaseUrl(), PLACEHOLDER_BASE_URL));
+            throw new IllegalStateException(
+                    "REAL mode requires complete COS configuration");
         }
 
         return getRealTempCredentials();
@@ -111,9 +103,5 @@ public class CosTokenClient implements CosUploadCredentialPort {
             log.error("[COS] 获取临时凭证失败", e);
             throw new RuntimeException("获取 COS 临时凭证失败: " + e.getMessage(), e);
         }
-    }
-
-    private static String nullToDefault(String value, String defaultValue) {
-        return value != null && !value.isBlank() ? value : defaultValue;
     }
 }

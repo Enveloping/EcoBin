@@ -7,6 +7,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -29,6 +30,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(
+        prefix = "ecobin.external",
+        name = "mode",
+        havingValue = "real")
 public class OneNetMqConsumer implements SmartLifecycle {
 
     private final OneNetSubscriptionProperties properties;

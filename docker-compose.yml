@@ -5,14 +5,18 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: 123456
-      MYSQL_DATABASE: ecobin
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ecobin}
       TZ: Asia/Shanghai
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     volumes:
       - ecobin-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p123456"]
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -25,10 +29,12 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      # 数据库连接交给运行环境决定：Docker 里连容器服务名 mysql（本机 IDEA 跑则走 application.yml 的 localhost 默认）
-      - "dbUrl=jdbc:mysql://mysql:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true"
-      - dbUsername=root
-      - dbPassword=123456
+      # F-07 后应用只连接已迁移到目标 V10 的数据库；不会自动建库或迁移。
+      - "dbUrl=jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ecobin}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
+      - dbUsername=${DB_RUNTIME_USERNAME:-ecobin_app}
+      - dbPassword=${DB_RUNTIME_PASSWORD:?set DB_RUNTIME_PASSWORD in .env}
+      - externalMode=fake
+      - onenetSubscriptionEnabled=false
     ports:
       - "8080:8080"
     volumes:

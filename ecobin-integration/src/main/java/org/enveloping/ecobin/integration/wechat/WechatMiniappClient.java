@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.identity.api.port.WechatSessionPort;
 import org.enveloping.ecobin.identity.api.result.WechatSession;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -13,6 +14,10 @@ import tools.jackson.databind.ObjectMapper;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(
+        prefix = "ecobin.external",
+        name = "mode",
+        havingValue = "real")
 @RequiredArgsConstructor
 public class WechatMiniappClient implements WechatSessionPort {
 

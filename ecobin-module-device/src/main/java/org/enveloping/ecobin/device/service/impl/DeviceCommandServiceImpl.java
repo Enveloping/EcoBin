@@ -26,7 +26,7 @@ public class DeviceCommandServiceImpl implements DeviceCommandService {
 
     @Override
     public void sendOpenCleanDoor(String deviceSn, Integer doorIndex, Long cleanOrderId) {
-        // 经 OneNet 下发；凭证未配置时 OneNetClient 内部记占位日志，不阻塞开清运门主流程
+        // REAL 经 OneNet 下发；FAKE 只记录意图，不建立网络连接或触发物理动作
         deviceCommandGateway.openCleanDoor(deviceSn, doorIndex, cleanOrderId);
     }
 }
