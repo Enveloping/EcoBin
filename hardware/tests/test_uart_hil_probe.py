@@ -16,6 +16,8 @@ class FakeUartLink:
     def __init__(self, repeat=False):
         self.applied = []
         self.acks = []
+        self.renegotiated = []
+        self.session_ready = True
         event = {
             "message_name": "CONFIG_APPLY_RESULT",
             "message_type": 20,
@@ -38,6 +40,8 @@ class FakeUartLink:
             )
 
     def apply_configuration(self, command, part_uids):
+        if not self.session_ready:
+            return {"acked": False, "error": "UART_NOT_READY"}
         self.applied.append((command, list(part_uids)))
         for event in self.events:
             if event["message_name"] == "CONFIG_APPLY_RESULT":
@@ -57,7 +61,17 @@ class FakeUartLink:
 
     def read_mcu_event(self, timeout_ms):
         del timeout_ms
-        return self.events.pop(0) if self.events else None
+        if not self.events:
+            return None
+        frame = self.events.pop(0)
+        if frame["message_name"] == "HELLO":
+            self.session_ready = False
+        return frame
+
+    def renegotiate_from_mcu_hello(self, frame):
+        self.renegotiated.append(frame)
+        self.session_ready = True
+        return {"mcu_boot_id": frame["payload"]["senderBootId"]}
 
     def send_ack(
         self,
@@ -290,6 +304,29 @@ def test_repeat_sample_configuration_reuses_identities_and_event_sequence():
         (42, 9, 20, "ACCEPTED"),
         (42, 10, 20, "ACCEPTED"),
     ]
+
+
+def test_repeat_configuration_renegotiates_interleaved_mcu_hello():
+    link = FakeUartLink(repeat=True)
+    hello = {
+        "message_name": "HELLO",
+        "message_type": 1,
+        "tx_sequence": 8,
+        "payload": {
+            "senderRole": "MCU",
+            "senderBootId": 42,
+        },
+    }
+    link.events.insert(0, hello)
+
+    result = _apply_sample_configuration(
+        link,
+        _sample_configuration(23),
+        repeat=True,
+    )
+
+    assert result["duplicateReplay"]["delivery"]["acked"] is True
+    assert link.renegotiated == [hello]
 
 
 def test_door_hil_cycle_waits_for_travel_before_safe_close(monkeypatch):

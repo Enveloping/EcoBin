@@ -238,6 +238,13 @@ def _wait_for_event(
         frame = link.read_mcu_event(timeout_ms=remaining_ms)
         if frame is None:
             break
+        if frame.get("message_name") == "HELLO":
+            logger.info(
+                "等待 %s 时收到 MCU HELLO，先重新协商 UART 会话",
+                expected_name,
+            )
+            link.renegotiate_from_mcu_hello(frame)
+            continue
         payload = frame.get("payload") or {}
         if "mcuBootId" in payload and "mcuEventSequence" in payload:
             _ack_hil_frame(link, frame)
