@@ -39,6 +39,18 @@ class CommandProcessor:
             validate_command_envelope(command)
             if command["commandType"] == "APPLY_CONFIGURATION":
                 self._apply_configuration(command)
+            elif command["commandType"] == "START_DELIVERY_SESSION":
+                self._start_delivery_session(command)
+            elif command["commandType"] == "START_CLEAN_OPERATION":
+                self._start_clean_operation(command)
+            elif command["commandType"] == "SAMPLE_FULLNESS":
+                self._sample_fullness(command)
+            elif command["commandType"] == "MEASURE_EMPTY_BAG_BASELINE":
+                self._measure_empty_bag_baseline(command)
+            elif command["commandType"] == "END_CLEAN_BEFORE_UNLOCK":
+                self._end_clean_before_unlock(command)
+            elif command["commandType"] == "RESUME_CLEAN_OPERATION":
+                self._resume_clean_operation(command)
             else:
                 self._store.fail_command(command_uid, "COMMAND_NOT_IMPLEMENTED")
                 logger.warning(
@@ -49,6 +61,88 @@ class CommandProcessor:
             self._store.fail_command(command_uid, error_code)
             logger.error("command %s failed: %s", command_uid, error)
         return True
+
+    def _start_delivery_session(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.start_delivery_command(command)
+        if not self._accept_dispatch_result(command, result):
+            return
+        self._store.mark_command_waiting_mcu(
+            command["commandUid"],
+            result["mcu_command_uid"],
+            result,
+        )
+
+    def _start_clean_operation(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.start_clean_command(command)
+        if not self._accept_dispatch_result(command, result):
+            return
+        self._store.mark_command_waiting_mcu(
+            command["commandUid"],
+            result["mcu_command_uid"],
+            result,
+        )
+
+    def _sample_fullness(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.start_fullness_command(command)
+        if not self._accept_dispatch_result(command, result):
+            return
+        self._store.mark_command_waiting_mcu(
+            command["commandUid"],
+            result["mcu_command_uid"],
+            result,
+        )
+
+    def _measure_empty_bag_baseline(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.start_baseline_command(command)
+        if not self._accept_dispatch_result(command, result):
+            return
+        self._store.mark_command_waiting_mcu(
+            command["commandUid"],
+            result["mcu_command_uid"],
+            result,
+        )
+
+    def _end_clean_before_unlock(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.end_clean_before_unlock_command(command)
+        self._accept_dispatch_result(command, result)
+
+    def _resume_clean_operation(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.resume_clean_command(command)
+        if not self._accept_dispatch_result(command, result):
+            return
+        if not result.get("already_recovered"):
+            self._store.mark_command_waiting_mcu(
+                command["commandUid"],
+                result["mcu_command_uid"],
+                result,
+            )
+
+    def _accept_dispatch_result(self, command: dict, result: dict) -> bool:
+        if result.get("acked"):
+            return True
+        error = _symbol(str(result.get("error") or "UART_FAILURE"))
+        if error == "TIMEOUT":
+            self._store.mark_command_recovery_required(
+                command["commandUid"],
+                "UART_ACK_RESULT_UNKNOWN",
+                result.get("mcu_command_uid"),
+                result,
+            )
+        else:
+            self._store.fail_command(command["commandUid"], error)
+        return False
 
     def _apply_configuration(self, command: dict) -> None:
         payload = command["payload"]

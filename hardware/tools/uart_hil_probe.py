@@ -20,7 +20,7 @@ if str(HARDWARE_DIR) not in sys.path:
     sys.path.insert(0, str(HARDWARE_DIR))
 
 from uart_link import (  # noqa: E402
-    EDGE_CAPABILITY_BITMAP,
+    REQUIRED_MCU_CAPABILITY_BITMAP,
     UartError,
     UartLink,
     compute_mcu_payload_sha256,
@@ -36,8 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--required-capabilities",
         type=lambda value: int(value, 0),
-        default=EDGE_CAPABILITY_BITMAP,
-        help="required MCU capability bitmap; defaults to strict P0 mask 0x1fff",
+        default=REQUIRED_MCU_CAPABILITY_BITMAP,
+        help="required MCU baseline capability bitmap; defaults to Registry mask 0x300",
     )
     parser.add_argument(
         "--query-state",
@@ -78,9 +78,12 @@ def _sample_configuration(version: int) -> dict:
         "deviceConfig": {
             "continueDeliveryWaitMs": 30000,
             "negativeWeightThresholdGrams": 500,
-            "deliveryAutoCloseMs": 60000,
-            "weightMeasurementTimeoutMs": 10000,
-            "cleanSolenoidPulseMs": 1500,
+            "deliveryAutoCloseMs": 120000,
+            "weightMeasurementTimeoutMs": 6000,
+            "deliveryDoorOpenCommandSignalMs": 1000,
+            "deliveryDoorCloseCommandSignalMs": 1000,
+            "deliveryDoorTravelWaitMs": 30000,
+            "cleanSolenoidPulseMs": 1000,
             "smokeMonitoringEnabled": True,
         },
         "ports": [
@@ -91,16 +94,18 @@ def _sample_configuration(version: int) -> dict:
                 "fullnessMode": 3,
                 "configuredFullWeightGrams": 50000,
                 "fullnessSettleWaitMs": 5000,
-                "fullnessConfirmationWaitMs": 10000,
-                "weightStableWindowMs": 1000,
+                "fullnessSensorKind": 1,
+                "fullnessDistanceThresholdMm": 600,
+                "fullnessSampleCount": 5,
+                "fullnessMinimumValidSampleCount": 3,
+                "fullnessEchoTimeoutUs": 30000,
+                "weightStableWindowMs": 1500,
                 "weightMaximumFluctuationGrams": 20,
                 "weightRequiredSampleCount": 10,
-                "weightMeasurementTimeoutMs": 10000,
+                "weightMeasurementTimeoutMs": 6000,
                 "weightMinimumGrams": -5000,
                 "weightMaximumGrams": 100000,
                 "calibrationVersion": 4,
-                "infraredSampleTimeoutMs": 2000,
-                "deliveryDoorOperationTimeoutMs": 5000,
             }
         ],
     }

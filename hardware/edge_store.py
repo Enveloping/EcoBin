@@ -18,6 +18,7 @@ from typing import Any, Optional
 from onenet_wire import (
     build_business_confirmation_receipt,
     build_configuration_progress_event,
+    build_event_envelope,
     canonical_payload_sha256,
 )
 
@@ -27,6 +28,8 @@ CURRENT_SCHEMA_VERSION = 2
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
+WORK_TYPE_FULLNESS = "FULLNESS"
+WORK_TYPE_BASELINE = "BASELINE"
 EVENT_PENDING = "PENDING"
 EVENT_SENDING = "SENDING"
 EVENT_CONFIRMED = "CONFIRMED"
@@ -359,6 +362,30 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def mark_command_recovery_required(
+        self,
+        command_uid: str,
+        error_code: str,
+        mcu_command_uid: Optional[str] = None,
+        result: Optional[dict] = None,
+    ) -> bool:
+        """Keep an indeterminate physical command locked for reconciliation."""
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='RECOVERY_REQUIRED', mcu_command_uid=?,
+                       result_json=?, processing_started_at=NULL,
+                       processed_at=NULL, last_error=?
+                   WHERE command_uid=?""",
+                (
+                    mcu_command_uid,
+                    _json.dumps(result, ensure_ascii=False) if result else None,
+                    error_code,
+                    command_uid,
+                ),
+            )
+            return cur.rowcount == 1
+
     def complete_command(self, command_uid: str, result: Optional[dict] = None) -> bool:
         with self.transaction():
             cur = self._conn.execute(
@@ -502,6 +529,22 @@ class EdgeStore:
             row = self._conn.execute(
                 "SELECT * FROM configuration_state WHERE application_uid=?",
                 (application_uid,),
+            ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["payload"] = _json.loads(result.pop("payload_json"))
+        result["part_command_uids"] = _json.loads(
+            result.pop("part_command_uids_json")
+        )
+        return result
+
+    def get_latest_applied_configuration(self) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT * FROM configuration_state
+                   WHERE state='APPLIED'
+                   ORDER BY config_version DESC LIMIT 1"""
             ).fetchone()
         if not row:
             return None
@@ -865,6 +908,11 @@ class EdgeStore:
     def get_edge_event_sequence(self) -> int:
         return int(self.get_state("edge_event_sequence", "0"))
 
+    def reserve_edge_event_sequence(self) -> int:
+        """Atomically reserve one sequence for a direct telemetry event."""
+        with self.transaction():
+            return self._next_seq(self._conn)
+
     def save_mqtt_persistent_state(self, session_present: bool, reason_code: int) -> None:
         with self.transaction():
             now = self._now()
@@ -882,13 +930,35 @@ class EdgeStore:
     # ── 故障操作 ──
 
     def record_fault(self, component: str, fault_code: int, severity: str,
-                     detail: Optional[dict] = None) -> str:
-        fault_uid = self._new_uid()
+                     detail: Optional[dict] = None, *,
+                     fault_uid: Optional[str] = None,
+                     lifecycle: str = FAULT_OBSERVED) -> str:
+        fault_uid = fault_uid or self._new_uid()
+        recovered_at = self._now() if lifecycle == FAULT_RECOVERED else None
         with self.transaction():
             self._conn.execute(
-                "INSERT INTO faults (fault_uid, component, fault_code, severity, lifecycle, detail_json) VALUES (?,?,?,?,'OBSERVED',?)",
-                (fault_uid, component, fault_code, severity,
-                 _json.dumps(detail, ensure_ascii=False) if detail else None),
+                """INSERT INTO faults
+                   (fault_uid, component, fault_code, severity, lifecycle,
+                    detail_json, recovered_at)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(fault_uid) DO UPDATE SET
+                     component=excluded.component,
+                     fault_code=excluded.fault_code,
+                     severity=excluded.severity,
+                     lifecycle=excluded.lifecycle,
+                     detail_json=excluded.detail_json,
+                     recovered_at=excluded.recovered_at""",
+                (
+                    fault_uid,
+                    component,
+                    fault_code,
+                    severity,
+                    lifecycle,
+                    _json.dumps(detail, ensure_ascii=False)
+                    if detail
+                    else None,
+                    recovered_at,
+                ),
             )
         return fault_uid
 
@@ -1238,7 +1308,13 @@ class EdgeStore:
 
     def create_edge_event(self, event_uid: str, event_type: str, payload: dict,
                           work_uid: Optional[str] = None,
-                          work_state_update: Optional[dict] = None) -> str:
+                          work_state_update: Optional[dict] = None,
+                          *,
+                          deployment_code: Optional[str] = None,
+                          target_type: Optional[str] = None,
+                          target_uid: Optional[str] = None,
+                          command_uid: Optional[str] = None,
+                          delivery_class: str = "RELIABLE_FACT") -> str:
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -1247,9 +1323,28 @@ class EdgeStore:
             if existing:
                 return "DUPLICATE"
             seq = self._next_seq(conn)
+            stored_payload = payload
+            if deployment_code and target_type:
+                stored_payload = build_event_envelope(
+                    event_uid=event_uid,
+                    deployment_code=deployment_code,
+                    edge_event_sequence=seq,
+                    event_type=event_type,
+                    target_type=target_type,
+                    target_uid=target_uid or work_uid or event_uid,
+                    command_uid=command_uid,
+                    delivery_class=delivery_class,
+                    payload=payload,
+                )
             conn.execute(
                 "INSERT INTO event_outbox (event_uid, edge_event_sequence, event_type, payload_json, work_uid) VALUES (?,?,?,?,?)",
-                (event_uid, seq, event_type, _json.dumps(payload, ensure_ascii=False), work_uid),
+                (
+                    event_uid,
+                    seq,
+                    event_type,
+                    _json.dumps(stored_payload, ensure_ascii=False),
+                    work_uid,
+                ),
             )
             if work_state_update and work_uid:
                 ctx = work_state_update.get("context", {})

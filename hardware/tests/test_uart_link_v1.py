@@ -208,30 +208,26 @@ def query_state_payload():
     return encode_payload("QUERY_STATE", values)
 
 
-def test_handshake_requires_full_registry_capability_by_default():
+def test_handshake_requires_registry_baseline_by_default():
     link = UartLink(port="fake", edge_boot_id=7, port_count=1)
-    link._ser = HandshakeSerial(7, 42, 0x300)
-
-    with pytest.raises(UartError, match="能力不兼容"):
-        link.handshake()
-
-
-def test_hil_handshake_can_require_only_the_slice_under_test():
-    link = UartLink(
-        port="fake",
-        edge_boot_id=7,
-        port_count=1,
-        required_capability_bitmap=0x300,
-    )
     link._ser = HandshakeSerial(7, 42, 0x300)
 
     result = link.handshake()
 
-    assert result["mcu_boot_id"] == 42
     assert result["mcu_capability"] == 0x300
-    assert result["mcu_port_count"] == 1
-    assert result["mcu_firmware_identity"] == "stm32f103rct6"
-    assert result["mcu_firmware_version"] == "1.0.0-hil.1"
+
+
+def test_hil_handshake_can_require_a_stricter_slice():
+    link = UartLink(
+        port="fake",
+        edge_boot_id=7,
+        port_count=1,
+        required_capability_bitmap=0x301,
+    )
+    link._ser = HandshakeSerial(7, 42, 0x300)
+
+    with pytest.raises(UartError, match="能力不兼容"):
+        link.handshake()
 
 
 def test_handshake_tolerates_repeated_mcu_hello_before_hello_ack():
@@ -252,6 +248,44 @@ def test_handshake_tolerates_repeated_mcu_hello_before_hello_ack():
 
     assert result["mcu_boot_id"] == 42
     assert result["mcu_capability"] == 0x300
+
+
+def test_online_mcu_hello_can_reestablish_the_uart_session():
+    link = UartLink(
+        port="fake",
+        edge_boot_id=7,
+        port_count=1,
+        required_capability_bitmap=0x300,
+    )
+    serial = HandshakeSerial(7, 43, 0x300)
+    link._ser = serial
+    serial._queue_hello()
+    hello = link.read_mcu_event(timeout_ms=20)
+
+    assert hello["message_name"] == "HELLO"
+    assert link.mcu_session_ready is False
+    blocked = link._send_and_wait_ack(
+        "QUERY_STATE",
+        query_state_payload(),
+        ack_timeout_ms=5,
+        max_retries=1,
+    )
+    assert blocked == {
+        "acked": False,
+        "error": "UART_NOT_READY",
+        "fatal": False,
+    }
+    assert serial.writes == []
+
+    result = link.renegotiate_from_mcu_hello(hello)
+
+    assert result["mcu_boot_id"] == 43
+    assert link.mcu_session_ready is True
+    sent_types = [
+        decode_frame(frame, sender_role="EDGE")["messageType"]
+        for frame in serial.writes
+    ]
+    assert sent_types == [MESSAGE_TYPE["HELLO_ACK"]]
 
 
 def test_ack_is_matched_against_boot_sequence_and_message_type():
@@ -364,3 +398,36 @@ def test_apply_configuration_sends_registry_segments_in_order():
         MESSAGE_TYPE["CONFIG_PORT_BLOCK"],
         MESSAGE_TYPE["CONFIG_COMMIT"],
     ]
+
+
+def test_send_command_adds_stable_identity_and_valid_digest():
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42
+    link._ser = AutoAckSerial(7, 42)
+    command_uid = "50000000-0000-4000-8000-000000000001"
+
+    result = link.send_command(
+        "START_DELIVERY_SESSION",
+        {
+            "sessionUid": "51000000-0000-4000-8000-000000000001",
+            "portNo": 1,
+            "configVersion": 8,
+            "configContentSha256": "a" * 64,
+            "unitPriceTenThousandths": 10000,
+            "continueDeliveryWaitMs": 30000,
+            "negativeWeightThresholdGrams": 500,
+            "startExecutionWindowMs": 45000,
+            "deliveryAutoCloseMs": 120000,
+        },
+        mcu_command_uid=command_uid,
+    )
+
+    assert result["acked"] is True
+    assert result["mcu_command_uid"] == command_uid
+    frame = decode_frame(link._ser.writes[0], sender_role="EDGE")
+    assert frame["messageType"] == MESSAGE_TYPE["START_DELIVERY_SESSION"]
+    payload = decode_payload("START_DELIVERY_SESSION", frame["payload"])
+    assert payload["mcuCommandUid"] == command_uid
+    assert payload["commandDigestSha256"] == compute_command_digest(
+        "START_DELIVERY_SESSION", payload
+    )

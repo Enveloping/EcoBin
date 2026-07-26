@@ -102,7 +102,7 @@ def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
         "ports",
     }
     assert command["payloadSha256"] == (
-        "320a55772a17584e388870feea4d992f20d0b8e36d4faa67af1f9353f78f3c82"
+        "1c7bc5d61ee89721316e8101e17f87aee1658e3c3693f9dfce92a7602bac613d"
     )
 
 
@@ -170,6 +170,41 @@ def test_encode_configuration_progress_presence_and_enum_fields():
     assert value["mcuCommandUid"] == ""
     assert value["errorCodePresent"] is False
     assert value["errorCode"] == ""
+
+
+def test_all_event_wire_examples_match_runtime_projection():
+    root = Path(__file__).resolve().parents[2] / "contracts" / "examples"
+    for wire_path in (root / "onenet-wire").glob("*.event-wire.json"):
+        canonical_path = root / "onenet" / wire_path.name.replace(
+            ".event-wire.json",
+            ".event.json",
+        )
+        with canonical_path.open(encoding="utf-8") as source:
+            event = json.load(source)
+        with wire_path.open(encoding="utf-8") as source:
+            expected = json.load(source)["oneJsonPayload"]
+
+        actual = encode_event_post(event["eventType"], event)
+
+        assert actual["version"] == expected["version"], wire_path.name
+        assert actual["params"] == expected["params"], wire_path.name
+
+
+def test_nullable_measurement_uses_presence_flag_and_typed_placeholder():
+    root = Path(__file__).resolve().parents[2] / "contracts" / "examples"
+    with (root / "onenet" / "delivery-complete.event.json").open(
+        encoding="utf-8"
+    ) as source:
+        event = json.load(source)
+    event["payload"]["finalPostCloseMeasurement"] = None
+
+    value = encode_event_post("DELIVERY_COMPLETE", event)["params"][
+        "deliveryComplete"
+    ]["value"]
+
+    assert value["finalPostCloseMeasurementPresent"] is False
+    assert value["finalPostCloseMeasurement"]["reportedWeightGramsPresent"] is False
+    assert value["finalPostCloseMeasurement"]["faultCodePresent"] is False
 
 
 def test_store_confirmation_creates_receipt_event(tmp_path):

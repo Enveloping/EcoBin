@@ -47,12 +47,18 @@ from uart_protocol import (
     MESSAGE_TYPE,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
+    REGISTRY,
 )
 
 logger = logging.getLogger("uart-link")
 
 # ── 常量 ──
-EDGE_CAPABILITY_BITMAP = 0x1FFF  # 全部 13 个能力位
+EDGE_CAPABILITY_BITMAP = int(
+    REGISTRY["capabilityPolicy"]["knownMaskHex"], 16
+)
+REQUIRED_MCU_CAPABILITY_BITMAP = int(
+    REGISTRY["capabilityPolicy"]["requiredMcuMaskHex"], 16
+)
 FIRMWARE_IDENTITY = "orangepi"
 FIRMWARE_VERSION = "1.0.0-rc.1"
 
@@ -75,7 +81,7 @@ class UartLink:
 
     def __init__(self, port: str, edge_boot_id: int, port_count: int = 6,
                  baudrate: int = 115200, timeout_s: float = 0.5,
-                 required_capability_bitmap: int = EDGE_CAPABILITY_BITMAP):
+                 required_capability_bitmap: int = REQUIRED_MCU_CAPABILITY_BITMAP):
         self.port = port
         self.edge_boot_id = edge_boot_id
         self.port_count = port_count
@@ -99,6 +105,10 @@ class UartLink:
     @property
     def is_open(self) -> bool:
         return self._ser is not None and self._ser.is_open
+
+    @property
+    def mcu_session_ready(self) -> bool:
+        return self._mcu_boot_id is not None
 
     def open(self) -> bool:
         if serial is None:
@@ -194,6 +204,12 @@ class UartLink:
         with self._io_lock:
             if not self.is_open:
                 return {"acked": False, "error": "UART_CLOSED", "fatal": False}
+            if self._mcu_boot_id is None:
+                return {
+                    "acked": False,
+                    "error": "UART_NOT_READY",
+                    "fatal": False,
+                }
             tx_seq = self._next_tx_sequence()
             raw_frame = encode_frame(message_name, tx_seq, payload)
             if not raw_frame[5] & ACK_REQUIRED:
@@ -273,6 +289,7 @@ class UartLink:
         """执行 HELLO 握手。返回 MCU 信息 dict 或抛出 UartError。"""
         if not self.is_open:
             raise UartError("串口未打开")
+        self._mcu_boot_id = None
 
         # Step 1: 发送 EDGE HELLO
         hello_payload = encode_payload("HELLO", {
@@ -301,6 +318,18 @@ class UartLink:
         if mcu_msg != "HELLO":
             raise UartError(f"期望 HELLO，收到 {mcu_msg}")
 
+        return self._complete_handshake_from_mcu_hello(mcu_hello)
+
+    def renegotiate_from_mcu_hello(self, mcu_hello: dict) -> dict:
+        """Re-establish a session after an MCU-initiated HELLO."""
+        if not self.is_open:
+            raise UartError("串口未打开")
+        self._mcu_boot_id = None
+        if mcu_hello.get("message_name") != "HELLO":
+            raise UartError("online renegotiation requires MCU HELLO")
+        return self._complete_handshake_from_mcu_hello(mcu_hello)
+
+    def _complete_handshake_from_mcu_hello(self, mcu_hello: dict) -> dict:
         mcu_payload = mcu_hello.get("payload", {})
         if mcu_payload.get("senderRole") != "MCU":
             raise UartError("MCU HELLO senderRole invalid")
@@ -468,6 +497,33 @@ class UartLink:
 
     # ── 命令发送 ──
 
+    def send_command(
+        self,
+        message_name: str,
+        values: dict[str, Any],
+        *,
+        mcu_command_uid: Optional[str] = None,
+    ) -> dict:
+        """Send one Registry command with a stable command identity."""
+        command_uid = str(_uuid.UUID(mcu_command_uid or str(_uuid.uuid4())))
+        command_values = {
+            "mcuCommandUid": command_uid,
+            "commandDigestSha256": bytes(32),
+            **values,
+        }
+        command_values["commandDigestSha256"] = bytes.fromhex(
+            compute_command_digest(message_name, command_values)
+        )
+        result = self._send_and_wait_ack(
+            message_name,
+            encode_payload(message_name, command_values),
+        )
+        return {
+            **result,
+            "message_name": message_name,
+            "mcu_command_uid": command_uid,
+        }
+
     def apply_configuration(self, command: dict, part_command_uids: list[str]) -> dict:
         """Send BEGIN/device/ports/COMMIT using stable per-part identities."""
         payload = command["payload"]
@@ -510,11 +566,12 @@ class UartLink:
         port_fields = (
             "portNo", "enabled", "unitPriceTenThousandths", "fullnessMode",
             "configuredFullWeightGrams", "fullnessSettleWaitMs",
-            "fullnessConfirmationWaitMs", "weightStableWindowMs",
+            "fullnessSensorKind", "fullnessDistanceThresholdMm",
+            "fullnessSampleCount", "fullnessMinimumValidSampleCount",
+            "fullnessEchoTimeoutUs", "weightStableWindowMs",
             "weightMaximumFluctuationGrams", "weightRequiredSampleCount",
             "weightMeasurementTimeoutMs", "weightMinimumGrams",
             "weightMaximumGrams", "calibrationVersion",
-            "infraredSampleTimeoutMs", "deliveryDoorOperationTimeoutMs",
         )
         for index, port in enumerate(ports, start=3):
             segments.append((
@@ -587,25 +644,6 @@ class UartLink:
         payload = encode_payload("AUTHORIZE_DELIVERY_FIRST_OPEN", values)
         return self._send_and_wait_ack("AUTHORIZE_DELIVERY_FIRST_OPEN", payload)
 
-    def send_authorize_delivery_local_continue(
-        self, session_uid: str, port_no: int, round_index: int,
-        postclose_measurement_uid: str,
-    ) -> dict:
-        """发送 AUTHORIZE_DELIVERY_LOCAL_CONTINUE。"""
-        command_uid = str(_uuid.uuid4())
-        values = {
-            "mcuCommandUid": _uuid_str_to_bytes(command_uid),
-            "commandDigestSha256": bytes(32),
-            "sessionUid": _uuid_str_to_bytes(session_uid),
-            "portNo": port_no,
-            "roundIndex": round_index,
-            "postCloseMeasurementUid": _uuid_str_to_bytes(postclose_measurement_uid),
-        }
-        digest = compute_command_digest("AUTHORIZE_DELIVERY_LOCAL_CONTINUE", values)
-        values["commandDigestSha256"] = bytes.fromhex(digest)
-        payload = encode_payload("AUTHORIZE_DELIVERY_LOCAL_CONTINUE", values)
-        return self._send_and_wait_ack("AUTHORIZE_DELIVERY_LOCAL_CONTINUE", payload)
-
     def send_unlock_clean_door(
         self, operation_uid: str, port_no: int, action_sequence: int,
         preunlock_measurement_uid: str,
@@ -624,22 +662,6 @@ class UartLink:
         values["commandDigestSha256"] = bytes.fromhex(digest)
         payload = encode_payload("UNLOCK_CLEAN_DOOR", values)
         return self._send_and_wait_ack("UNLOCK_CLEAN_DOOR", payload)
-
-    def send_clean_finish(self, operation_uid: str, port_no: int,
-                          action_sequence: int) -> dict:
-        """发送 CLEAN_FINISH_REQUESTED。"""
-        command_uid = str(_uuid.uuid4())
-        values = {
-            "mcuCommandUid": _uuid_str_to_bytes(command_uid),
-            "commandDigestSha256": bytes(32),
-            "operationUid": _uuid_str_to_bytes(operation_uid),
-            "portNo": port_no,
-            "cleanActionSequence": action_sequence,
-        }
-        digest = compute_command_digest("CLEAN_FINISH_REQUESTED", values)
-        values["commandDigestSha256"] = bytes.fromhex(digest)
-        payload = encode_payload("CLEAN_FINISH_REQUESTED", values)
-        return self._send_and_wait_ack("CLEAN_FINISH_REQUESTED", payload)
 
     def send_safe_close_all(self) -> dict:
         """发送 SAFE_CLOSE（全部投递门）。"""
@@ -662,7 +684,12 @@ class UartLink:
         """非阻塞读取一个 MCU 事件帧。"""
         if not self.is_open:
             return None
-        return self._read_frame(timeout_ms=timeout_ms)
+        frame = self._read_frame(timeout_ms=timeout_ms)
+        if frame and frame.get("message_name") == "HELLO":
+            # Block new commands immediately. The caller must renegotiate and
+            # run QUERY_STATE before physical dispatch can resume.
+            self._mcu_boot_id = None
+        return frame
 
     def send_ack(self, referenced_boot_id: int, referenced_tx_sequence: int,
                  referenced_message_type: int, disposition: str = "ACCEPTED") -> None:
@@ -713,12 +740,19 @@ def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
     preimage.extend(int(device["negativeWeightThresholdGrams"]).to_bytes(4, "big"))
     preimage.extend(int(device["deliveryAutoCloseMs"]).to_bytes(4, "big"))
     preimage.extend(int(device["weightMeasurementTimeoutMs"]).to_bytes(4, "big"))
+    preimage.extend(int(device["deliveryDoorOpenCommandSignalMs"]).to_bytes(4, "big"))
+    preimage.extend(int(device["deliveryDoorCloseCommandSignalMs"]).to_bytes(4, "big"))
+    preimage.extend(int(device["deliveryDoorTravelWaitMs"]).to_bytes(4, "big"))
     preimage.extend(int(device["cleanSolenoidPulseMs"]).to_bytes(4, "big"))
     preimage.extend((1 if device["smokeMonitoringEnabled"] else 0).to_bytes(1, "big"))
     fullness_modes = {
-        "INFRARED_ONLY": 1,
+        "SENSOR_ONLY": 1,
         "WEIGHT_ONLY": 2,
-        "INFRARED_OR_WEIGHT": 3,
+        "SENSOR_OR_WEIGHT": 3,
+    }
+    fullness_sensor_kinds = {
+        "ULTRASONIC": 1,
+        "DIGITAL_INFRARED": 2,
     }
     for expected_port_no, port in enumerate(ports, start=1):
         if port["portNo"] != expected_port_no:
@@ -732,7 +766,16 @@ def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
         preimage.extend(int(mode).to_bytes(1, "big"))
         preimage.extend(int(port["configuredFullWeightGrams"]).to_bytes(4, "big"))
         preimage.extend(int(port["fullnessSettleWaitMs"]).to_bytes(4, "big"))
-        preimage.extend(int(port["fullnessConfirmationWaitMs"]).to_bytes(4, "big"))
+        sensor_kind = port["fullnessSensorKind"]
+        if isinstance(sensor_kind, str):
+            sensor_kind = fullness_sensor_kinds[sensor_kind]
+        preimage.extend(int(sensor_kind).to_bytes(1, "big"))
+        preimage.extend(int(port["fullnessDistanceThresholdMm"]).to_bytes(4, "big"))
+        preimage.extend(int(port["fullnessSampleCount"]).to_bytes(1, "big"))
+        preimage.extend(
+            int(port["fullnessMinimumValidSampleCount"]).to_bytes(1, "big")
+        )
+        preimage.extend(int(port["fullnessEchoTimeoutUs"]).to_bytes(4, "big"))
         preimage.extend(int(port["weightStableWindowMs"]).to_bytes(4, "big"))
         preimage.extend(int(port["weightMaximumFluctuationGrams"]).to_bytes(4, "big"))
         preimage.extend(int(port["weightRequiredSampleCount"]).to_bytes(2, "big"))
@@ -740,8 +783,6 @@ def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
         preimage.extend(int(port["weightMinimumGrams"]).to_bytes(4, "big", signed=True))
         preimage.extend(int(port["weightMaximumGrams"]).to_bytes(4, "big", signed=True))
         preimage.extend(int(port["calibrationVersion"]).to_bytes(4, "big"))
-        preimage.extend(int(port["infraredSampleTimeoutMs"]).to_bytes(4, "big"))
-        preimage.extend(int(port["deliveryDoorOperationTimeoutMs"]).to_bytes(4, "big"))
     return hashlib.sha256(preimage).hexdigest()
 
 

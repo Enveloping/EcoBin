@@ -19,7 +19,7 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_SERIAL_BAUDRATE— 串口波特率（默认: 115200）
     ECOBIN_UART_PORT_COUNT— UART 握手端口数（默认: 6）
     ECOBIN_UART_HIL_REQUIRED_CAPABILITIES
-                          — 仅 HIL 使用的最小能力位图；未设置时严格要求 0x1fff
+                          — 可选 HIL 能力位覆盖；未设置时使用 Registry 基线 0x300
     ECOBIN_DOOR_STATE_TIMEOUT— 等待 MCU 开关盖状态秒数（默认: 5）
     ECOBIN_DELIVERY_WEIGHT_TIMEOUT— 等待投递重量秒数（默认: 120）
     ECOBIN_DEVICE_CONFIG_PATH— 设备持久化配置路径

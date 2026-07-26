@@ -6,7 +6,7 @@
   - UART 1.0 二进制协议 (CRC/ACK/NACK/HELLO/QUERY_STATE)
   - MQTT QoS 1 + SQLite 驱动事件中继
   - 投递 session 一单 + 边缘本地多轮
-  - 清运单次 complete + 电磁阀通断推定 + 人工关门确认
+  - 清运单次 complete + 锁输出事实 + 人工关门确认
   - 启动恢复: SQLite/MCU 双事实对照
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ from mqtt_client import MqttClient
 from photo_manager import PhotoManager
 from work_manager import WorkManager
 from command_processor import CommandProcessor
-from edge_boot import boot_sequence
+from edge_boot import boot_sequence, recover_after_online_mcu_hello
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +50,7 @@ class EcoBinEdge:
 
     def __init__(self):
         self._exit_flag = threading.Event()
+        self._uart_recovering = threading.Event()
 
         config_validate()
         if TEST_MODE:
@@ -162,6 +163,9 @@ class EcoBinEdge:
             try:
                 frame = self.uart.read_mcu_event(timeout_ms=500)
                 if frame:
+                    if frame.get("message_name") == "HELLO":
+                        self._recover_online_mcu(frame)
+                        continue
                     payload = frame.get("payload") or {}
                     result = self.store.receive_mcu_frame(frame)
                     if result in ("ACCEPTED", "DUPLICATE"):
@@ -191,6 +195,41 @@ class EcoBinEdge:
                 time.sleep(0.1)
         logger.info("UART event reader stopped")
 
+    def _recover_online_mcu(self, hello_frame):
+        self._uart_recovering.set()
+        try:
+            previous = getattr(self.uart, "_mcu_boot_id", None)
+            result = recover_after_online_mcu_hello(
+                self.store,
+                self.uart,
+                hello_frame,
+            )
+            logger.warning(
+                "MCU UART session recovered: previous=%s current=%s",
+                previous,
+                result["mcu_info"]["mcu_boot_id"],
+            )
+            self.commands.wake()
+        except Exception as error:
+            logger.critical("online MCU recovery failed: %s", error)
+            self.store.record_fault(
+                "MCU_INTERNAL",
+                2048,
+                "BLOCK_DEVICE",
+                {"reason": str(error), "phase": "ONLINE_RESTART_RECOVERY"},
+            )
+            self._exit_flag.set()
+            try:
+                self.mqtt.disconnect()
+            except Exception:
+                pass
+            try:
+                self.uart.close()
+            except Exception:
+                pass
+        finally:
+            self._uart_recovering.clear()
+
     def _command_loop(self):
         logger.info("command consumer started")
         while not self._exit_flag.is_set():
@@ -216,7 +255,10 @@ class EcoBinEdge:
                             error,
                         )
                         break
-                if self.commands.process_next():
+                if (
+                    not self._uart_recovering.is_set()
+                    and self.commands.process_next()
+                ):
                     progressed = True
             except Exception as error:
                 logger.error("command consumer error: %s", error)

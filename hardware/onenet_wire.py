@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -25,40 +27,13 @@ COMMAND_IDENTIFIERS = {
     "providePhotoUploadGrant": "PROVIDE_PHOTO_UPLOAD_GRANT",
 }
 
-EVENT_IDENTIFIERS = {
-    "BASELINE_MEASUREMENT_COMPLETE": "baselineMeasurementComplete",
-    "BUSINESS_CONFIRMATION_RECEIPT": "businessConfirmationReceipt",
-    "CLEAN_COMPLETE": "cleanComplete",
-    "CONFIGURATION_PROGRESS": "configurationProgress",
-    "DELIVERY_COMPLETE": "deliveryComplete",
-    "DEVICE_COMMAND_OBSERVED": "deviceCommandObserved",
-    "DEVICE_FAULT_OBSERVED": "deviceFaultObserved",
-    "DEVICE_FAULT_RECOVERED": "deviceFaultRecovered",
-    "DEVICE_RUNTIME_SNAPSHOT": "deviceRuntimeSnapshot",
-    "FULLNESS_SAMPLE_COMPLETE": "fullnessSampleComplete",
-    "PHOTO_STATUS_REPORTED": "photoStatusReported",
-    "PHOTO_UPLOAD_GRANT_REQUESTED": "photoUploadGrantRequested",
-}
-
 COMMAND_TYPE_BY_CODE = {
     1: None,  # one enum per OneNet function; use topic identifier as authority.
 }
 
-EVENT_TYPE_TO_CODE = {name: 1 for name in EVENT_IDENTIFIERS}
-DELIVERY_CLASS_TO_CODE = {
-    "RELIABLE_FACT": 1,
-    "CONTROL_RECEIPT": 1,
-    "TELEMETRY_SNAPSHOT": 1,
-}
 OUTCOME_BY_CODE = {
     1: "BUSINESS_APPLIED",
     2: "EVENT_QUARANTINED",
-}
-OUTCOME_TO_CODE = {v: k for k, v in OUTCOME_BY_CODE.items()}
-CONFIGURATION_STAGE_TO_CODE = {
-    "EDGE_SAVED": 1,
-    "APPLIED": 2,
-    "FAILED": 3,
 }
 EFFECT_KIND_BY_CODE = {
     1: "CREATED",
@@ -81,9 +56,13 @@ FULLNESS_TRIGGER_BY_CODE = {
     3: "MANUAL_RECHECK",
 }
 FULLNESS_MODE_BY_CODE = {
-    1: "INFRARED_ONLY",
+    1: "SENSOR_ONLY",
     2: "WEIGHT_ONLY",
-    3: "INFRARED_OR_WEIGHT",
+    3: "SENSOR_OR_WEIGHT",
+}
+FULLNESS_SENSOR_KIND_BY_CODE = {
+    1: "ULTRASONIC",
+    2: "DIGITAL_INFRARED",
 }
 WORK_TYPE_BY_CODE = {
     1: "DELIVERY_SESSION",
@@ -111,10 +90,14 @@ RECEIPT_STATE_TO_CODE = {
     "DUPLICATE_ACCEPTED": 2,
     "REJECTED": 3,
 }
-CLOCK_QUALITY_TO_CODE = {
-    "SYNCED": 1,
-    "ESTIMATED": 2,
-    "UNAVAILABLE": 3,
+_PROJECTION_MODEL = json.loads(
+    Path(__file__).with_name("onenet_projection_model.json").read_text(
+        encoding="utf-8"
+    )
+)
+_EVENT_PROJECTIONS = {
+    definition["eventType"]: (identifier, definition)
+    for identifier, definition in _PROJECTION_MODEL["events"].items()
 }
 
 
@@ -277,48 +260,226 @@ def build_configuration_progress_event(
     }
 
 
+def build_event_envelope(
+    *,
+    event_uid: str,
+    deployment_code: str,
+    edge_event_sequence: int,
+    event_type: str,
+    target_type: str,
+    target_uid: str,
+    payload: dict[str, Any],
+    command_uid: str | None = None,
+    delivery_class: str = "RELIABLE_FACT",
+) -> dict[str, Any]:
+    """Build the stable reliable envelope persisted before OneNet publish."""
+    return {
+        "schemaVersion": 1,
+        "eventUid": event_uid,
+        "deploymentCode": deployment_code,
+        "edgeEventSequence": edge_event_sequence,
+        "eventType": event_type,
+        "deliveryClass": delivery_class,
+        "target": {"type": target_type, "uid": target_uid},
+        "commandUid": command_uid,
+        "occurredAt": utc_now_rfc3339(),
+        "clockQuality": "SYNCED",
+        "payloadSha256": canonical_payload_sha256(payload),
+        "payload": payload,
+    }
+
+
 def encode_event_post(event_type: str, event: dict[str, Any]) -> dict[str, Any]:
     """Project an event envelope into OneNet OneJSON event/post payload."""
 
-    identifier = EVENT_IDENTIFIERS.get(event_type)
-    if not identifier:
+    projection = _EVENT_PROJECTIONS.get(event_type)
+    if projection is None:
         raise ValueError(f"unsupported OneNet event type: {event_type}")
-    value = dict(event)
-    payload = dict(value.pop("payload", {}) or {})
-    value.update(payload)
-
-    if "eventType" in value:
-        value["eventType"] = EVENT_TYPE_TO_CODE.get(str(value["eventType"]), value["eventType"])
-    if "deliveryClass" in value:
-        value["deliveryClass"] = DELIVERY_CLASS_TO_CODE.get(
-            str(value["deliveryClass"]), value["deliveryClass"]
-        )
-    if "clockQuality" in value:
-        value["clockQuality"] = CLOCK_QUALITY_TO_CODE.get(
-            str(value["clockQuality"]), value["clockQuality"]
-        )
-    if "outcome" in value:
-        value["outcome"] = OUTCOME_TO_CODE.get(str(value["outcome"]), value["outcome"])
-    if event_type == "CONFIGURATION_PROGRESS":
-        value["stage"] = CONFIGURATION_STAGE_TO_CODE.get(
-            str(value.get("stage")), value.get("stage")
-        )
-        value["mcuCommandUidPresent"] = value.get("mcuCommandUid") is not None
-        value["mcuCommandUid"] = value.get("mcuCommandUid") or ""
-        value["errorCodePresent"] = value.get("errorCode") is not None
-        value["errorCode"] = value.get("errorCode") or ""
-    if value.get("occurredAt") is None:
-        value["occurredAtPresent"] = False
-        value["occurredAt"] = ""
-    else:
-        value["occurredAtPresent"] = True
-    value["target"] = _encode_target(value.get("target"))
+    identifier, definition = projection
+    value = _encode_function_parameters(
+        definition["outputData"],
+        definition["outputMappings"],
+        event,
+        _PROJECTION_MODEL.get("enumDisplay", {}),
+    )
 
     return {
         "id": str(event.get("eventUid") or event.get("event_uid") or uuid.uuid4()),
         "version": "1.0",
         "params": {identifier: {"value": value}},
     }
+
+
+def _json_path_value(instance: Any, json_path: str) -> Any:
+    if not json_path.startswith("$."):
+        raise ValueError(f"unsupported generated JSON path {json_path!r}")
+    current = instance
+    for token in json_path[2:].split("."):
+        if current is None:
+            return None
+        current = current[token]
+    return current
+
+
+def _upper_camel(value: str) -> str:
+    return value[:1].upper() + value[1:]
+
+
+def _flatten_json_members(
+    value: Mapping[str, Any],
+    *,
+    prefix: str = "",
+) -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+    for key, child in value.items():
+        identifier = f"{prefix}{_upper_camel(key)}" if prefix else key
+        if isinstance(child, dict):
+            flattened.update(_flatten_json_members(child, prefix=identifier))
+        else:
+            flattened[identifier] = child
+    return flattened
+
+
+def _one_net_placeholder(data_type: Mapping[str, Any]) -> Any:
+    type_name = data_type["type"]
+    specs = data_type["specs"]
+    if type_name == "bool":
+        return False
+    if type_name == "string":
+        return ""
+    if type_name in {"int32", "int64"}:
+        return int(specs["min"])
+    if type_name == "enum":
+        return int(next(iter(specs)))
+    if type_name == "array":
+        return []
+    if type_name == "struct":
+        return {
+            member["identifier"]: _one_net_placeholder(member["dataType"])
+            for member in specs
+        }
+    raise ValueError(f"unsupported OneNet placeholder type {type_name}")
+
+
+def _encode_one_net_value(
+    data_type: Mapping[str, Any],
+    value: Any,
+    enum_display: Mapping[str, str],
+) -> Any:
+    if value is None:
+        return _one_net_placeholder(data_type)
+    type_name = data_type["type"]
+    specs = data_type["specs"]
+    if type_name == "enum":
+        expected = str(value)
+        for wire_value, symbol in specs.items():
+            if symbol == expected:
+                return int(wire_value)
+        abbreviated = enum_display.get(expected)
+        if abbreviated is not None:
+            for wire_value, symbol in specs.items():
+                if symbol == abbreviated:
+                    return int(wire_value)
+        raise ValueError(
+            f"enum symbol {value!r} is absent from generated OneNet model"
+        )
+    if type_name == "bool":
+        return bool(value)
+    if type_name in {"int32", "int64"}:
+        return int(value)
+    if type_name == "string":
+        return str(value)
+    if type_name == "struct":
+        if not isinstance(value, dict):
+            raise ValueError("OneNet struct source must be an object")
+        flattened = _flatten_json_members(value)
+        encoded: dict[str, Any] = {}
+        for member in specs:
+            identifier = member["identifier"]
+            if identifier.endswith("Present"):
+                source_name = identifier.removesuffix("Present")
+                encoded[identifier] = flattened.get(source_name) is not None
+            else:
+                encoded[identifier] = _encode_one_net_value(
+                    member["dataType"],
+                    flattened.get(identifier),
+                    enum_display,
+                )
+        return encoded
+    if type_name == "array":
+        if not isinstance(value, list):
+            raise ValueError("OneNet array source must be a list")
+        item_type = specs["type"]
+        if item_type == "struct":
+            item_descriptor = {"type": "struct", "specs": specs["specs"]}
+        else:
+            item_descriptor = {
+                "type": item_type,
+                "specs": {
+                    key: child
+                    for key, child in specs.items()
+                    if key not in ("length", "type")
+                },
+            }
+        return [
+            _encode_one_net_value(item_descriptor, item, enum_display)
+            for item in value
+        ]
+    raise ValueError(f"unsupported OneNet data type {type_name}")
+
+
+def _encode_function_parameters(
+    descriptors: list[Mapping[str, Any]],
+    field_mappings: list[Mapping[str, Any]],
+    instance: Mapping[str, Any],
+    enum_display: Mapping[str, str],
+) -> dict[str, Any]:
+    mapping_by_identifier = {
+        item["wireIdentifier"]: item for item in field_mappings
+    }
+    encoded: dict[str, Any] = {}
+    for descriptor in descriptors:
+        identifier = descriptor["identifier"]
+        direct_mapping = mapping_by_identifier.get(identifier)
+        if direct_mapping and direct_mapping.get("encoding") == "GROUPED_SCALARS":
+            member_mappings = {
+                member["wireIdentifier"]: member
+                for member in direct_mapping["members"]
+            }
+            encoded_members: dict[str, Any] = {}
+            for member_descriptor in descriptor["dataType"]["specs"]:
+                member_identifier = member_descriptor["identifier"]
+                member_mapping = member_mappings[member_identifier]
+                source_value = _json_path_value(
+                    instance,
+                    member_mapping["jsonPath"],
+                )
+                if member_mapping["presenceFlag"]:
+                    encoded_members[member_identifier] = source_value is not None
+                else:
+                    encoded_members[member_identifier] = _encode_one_net_value(
+                        member_descriptor["dataType"],
+                        source_value,
+                        enum_display,
+                    )
+            encoded[identifier] = encoded_members
+            continue
+        source_identifier = (
+            identifier.removesuffix("Present")
+            if identifier.endswith("Present")
+            else identifier
+        )
+        field_mapping = mapping_by_identifier[source_identifier]
+        source_value = _json_path_value(instance, field_mapping["jsonPath"])
+        if identifier.endswith("Present"):
+            encoded[identifier] = source_value is not None
+        else:
+            encoded[identifier] = _encode_one_net_value(
+                descriptor["dataType"],
+                source_value,
+                enum_display,
+            )
+    return encoded
 
 
 def _merge_scalar_fields(params: dict[str, Any]) -> dict[str, Any]:
@@ -339,6 +500,9 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
             port = dict(item)
             port["fullnessMode"] = FULLNESS_MODE_BY_CODE.get(
                 port.get("fullnessMode"), port.get("fullnessMode")
+            )
+            port["fullnessSensorKind"] = FULLNESS_SENSOR_KIND_BY_CODE.get(
+                port.get("fullnessSensorKind"), port.get("fullnessSensorKind")
             )
             ports.append(port)
         return {
@@ -506,14 +670,6 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "PROVIDE_PHOTO_UPLOAD_GRANT": "PHOTO_GRANT_REQUEST",
     }
     return mapping.get(command_type, str(wire_value))
-
-
-def _encode_target(target: Any) -> dict[str, Any]:
-    if not isinstance(target, dict):
-        return {"type": 1, "uid": ""}
-    encoded = dict(target)
-    encoded["type"] = 1
-    return encoded
 
 
 def _validate_apply_configuration(command: dict[str, Any]) -> None:
