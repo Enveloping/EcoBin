@@ -102,7 +102,7 @@ def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
         "ports",
     }
     assert command["payloadSha256"] == (
-        "1c7bc5d61ee89721316e8101e17f87aee1658e3c3693f9dfce92a7602bac613d"
+        "13e51cebfdb5db942183cf722c9c5bf72cb9327672a5565db4e67ed0c97de956"
     )
 
 

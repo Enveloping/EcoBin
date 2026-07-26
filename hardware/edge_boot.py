@@ -516,10 +516,6 @@ def _runtime_ports_from_snapshots(snapshots):
                 "lastDeliveryDoorOutputStatus",
                 "NOT_DISPATCHED",
             ),
-            "lastDeliveryDoorActualOutputMs": p.get(
-                "lastDeliveryDoorActualOutputMs",
-                0,
-            ),
             "deliveryDoorPhysicalStateBasis": p.get(
                 "deliveryDoorPhysicalStateBasis",
                 "NOT_OBSERVABLE",
@@ -570,7 +566,6 @@ def _unknown_runtime_port(port_no):
         "portNo": port_no,
         "lastDeliveryDoorCommand": "NONE",
         "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
-        "lastDeliveryDoorActualOutputMs": 0,
         "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
         "cleanLockPowerState": "UNKNOWN",
         "solenoidHealth": "UNKNOWN",

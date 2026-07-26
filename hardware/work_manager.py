@@ -708,9 +708,6 @@ class WorkManager:
         ctx["last_delivery_door_output_status"] = payload.get(
             "outputStatus"
         )
-        ctx["last_delivery_door_actual_output_ms"] = payload.get(
-            "actualOutputMs"
-        )
         ctx["delivery_door_physical_state_basis"] = payload.get(
             "physicalDoorStateBasis"
         )
@@ -855,10 +852,6 @@ class WorkManager:
                     "outputStatus": ctx.get(
                         "last_delivery_door_output_status",
                         "COMMAND_DISPATCHED",
-                    ),
-                    "actualOutputMs": ctx.get(
-                        "last_delivery_door_actual_output_ms",
-                        0,
                     ),
                     "physicalStateBasis": ctx.get(
                         "delivery_door_physical_state_basis",

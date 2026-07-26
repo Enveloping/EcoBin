@@ -461,10 +461,11 @@ class UartLink:
             raise UartError("尚未完成 HELLO 握手")
 
         command_uid = str(_uuid.uuid4())
+        snapshot_uid = str(_uuid.uuid4())
         values = {
             "mcuCommandUid": command_uid,
             "commandDigestSha256": bytes(32),
-            "snapshotUid": str(_uuid.uuid4()),
+            "snapshotUid": snapshot_uid,
         }
         values["commandDigestSha256"] = bytes.fromhex(
             compute_command_digest("QUERY_STATE", values)
@@ -476,22 +477,45 @@ class UartLink:
 
         # 收集分段快照
         segments: list[dict] = []
-        timeout_ms = 10000  # 10 秒总超时
+        deadline = time.monotonic() + 10.0
         while True:
-            frame = self._read_frame(timeout_ms=timeout_ms)
+            remaining_ms = max(
+                1,
+                int((deadline - time.monotonic()) * 1000),
+            )
+            if remaining_ms <= 1 and time.monotonic() >= deadline:
+                raise UartError("QUERY_STATE 快照收集超时")
+            frame = self._read_frame(timeout_ms=remaining_ms)
             if frame is None:
                 raise UartError("QUERY_STATE 快照收集超时")
             msg_name = frame.get("message_name", "")
             p = frame.get("payload", {})
-            if msg_name in ("STATE_SNAPSHOT_BEGIN", "STATE_SNAPSHOT_PORT", "STATE_SNAPSHOT_END"):
+            if msg_name in (
+                "STATE_SNAPSHOT_BEGIN",
+                "STATE_SNAPSHOT_PORT",
+                "STATE_SNAPSHOT_END",
+            ):
                 if on_segment is not None:
                     on_segment(frame)
+                if p.get("snapshotUid") != snapshot_uid:
+                    logger.info(
+                        "ACK 并忽略旧快照分段: expected=%s actual=%s msg=%s",
+                        snapshot_uid,
+                        p.get("snapshotUid"),
+                        msg_name,
+                    )
+                    continue
                 segments.append(frame)
                 if msg_name == "STATE_SNAPSHOT_END":
                     break
             elif msg_name == "ACK":
                 continue  # ACK 重发忽略
             else:
+                if (
+                    frame.get("flags", 0) & ACK_REQUIRED
+                    and on_segment is not None
+                ):
+                    on_segment(frame)
                 logger.warning("QUERY_STATE 期间收到意外消息: %s", msg_name)
         return segments
 
@@ -622,6 +646,50 @@ class UartLink:
             "commit_mcu_command_uid": part_command_uids[-1],
         }
 
+    def send_confirm_no_active_work(
+        self,
+        config_version: int,
+        config_content_sha256: str,
+    ) -> dict:
+        """Confirm that Edge has no recoverable work after boot reconciliation."""
+        return self.send_command(
+            "CONFIRM_NO_ACTIVE_WORK",
+            {
+                "configVersion": config_version,
+                "configContentSha256": config_content_sha256,
+            },
+        )
+
+    def send_start_delivery_session(
+        self,
+        session_uid: str,
+        port_no: int,
+        config_version: int,
+        config_content_sha256: str,
+        unit_price_ten_thousandths: int,
+        continue_delivery_wait_ms: int,
+        negative_weight_threshold_grams: int,
+        start_execution_window_ms: int,
+        delivery_auto_close_ms: int,
+    ) -> dict:
+        """Create an MCU delivery session and begin its pre-open weighing."""
+        return self.send_command(
+            "START_DELIVERY_SESSION",
+            {
+                "sessionUid": session_uid,
+                "portNo": port_no,
+                "configVersion": config_version,
+                "configContentSha256": config_content_sha256,
+                "unitPriceTenThousandths": unit_price_ten_thousandths,
+                "continueDeliveryWaitMs": continue_delivery_wait_ms,
+                "negativeWeightThresholdGrams": (
+                    negative_weight_threshold_grams
+                ),
+                "startExecutionWindowMs": start_execution_window_ms,
+                "deliveryAutoCloseMs": delivery_auto_close_ms,
+            },
+        )
+
     def send_authorize_delivery_first_open(
         self, session_uid: str, port_no: int,
         preopen_measurement_uid: str,
@@ -642,7 +710,11 @@ class UartLink:
         digest = compute_command_digest("AUTHORIZE_DELIVERY_FIRST_OPEN", values)
         values["commandDigestSha256"] = bytes.fromhex(digest)
         payload = encode_payload("AUTHORIZE_DELIVERY_FIRST_OPEN", values)
-        return self._send_and_wait_ack("AUTHORIZE_DELIVERY_FIRST_OPEN", payload)
+        result = self._send_and_wait_ack(
+            "AUTHORIZE_DELIVERY_FIRST_OPEN",
+            payload,
+        )
+        return {"mcu_command_uid": command_uid, **result}
 
     def send_unlock_clean_door(
         self, operation_uid: str, port_no: int, action_sequence: int,
@@ -676,7 +748,8 @@ class UartLink:
         digest = compute_command_digest("SAFE_CLOSE", values)
         values["commandDigestSha256"] = bytes.fromhex(digest)
         payload = encode_payload("SAFE_CLOSE", values)
-        return self._send_and_wait_ack("SAFE_CLOSE", payload)
+        result = self._send_and_wait_ack("SAFE_CLOSE", payload)
+        return {"mcu_command_uid": command_uid, **result}
 
     # ── 事件接收 ──
 
@@ -740,8 +813,6 @@ def compute_mcu_payload_sha256(configuration_payload: dict) -> str:
     preimage.extend(int(device["negativeWeightThresholdGrams"]).to_bytes(4, "big"))
     preimage.extend(int(device["deliveryAutoCloseMs"]).to_bytes(4, "big"))
     preimage.extend(int(device["weightMeasurementTimeoutMs"]).to_bytes(4, "big"))
-    preimage.extend(int(device["deliveryDoorOpenCommandSignalMs"]).to_bytes(4, "big"))
-    preimage.extend(int(device["deliveryDoorCloseCommandSignalMs"]).to_bytes(4, "big"))
     preimage.extend(int(device["deliveryDoorTravelWaitMs"]).to_bytes(4, "big"))
     preimage.extend(int(device["cleanSolenoidPulseMs"]).to_bytes(4, "big"))
     preimage.extend((1 if device["smokeMonitoringEnabled"] else 0).to_bytes(1, "big"))

@@ -220,6 +220,7 @@ def test_publish_runtime_snapshot_uses_valid_edge_boot_id_and_event_uid(tmp_path
     assert payload["eventUid"]
     assert payload["payload"]["edgeBootId"] == 123
     assert payload["payload"]["mcuBootId"] == 456
+    assert "lastDeliveryDoorActualOutputMs" not in payload["payload"]["ports"][0]
 
 
 def test_non_uart_fault_does_not_misreport_uart_link_as_faulted(tmp_path):

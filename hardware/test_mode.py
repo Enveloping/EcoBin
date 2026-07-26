@@ -273,7 +273,6 @@ class MockUartLink:
                         "portNo": port_no,
                         "lastDeliveryDoorCommand": "NONE",
                         "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
-                        "lastDeliveryDoorActualOutputMs": 0,
                         "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
                         "cleanLockPowerState": "DEENERGIZED",
                         "solenoidHealth": "OK",

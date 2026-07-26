@@ -362,6 +362,65 @@ def test_received_frame_is_normalized_and_payload_decoded():
     assert frame["payload"]["status"] == "APPLIED"
 
 
+def test_query_state_acks_but_does_not_mix_stale_snapshot_segments(
+    monkeypatch,
+):
+    command_uid = uuid.UUID("10000000-0000-4000-8000-000000000001")
+    current_snapshot_uid = uuid.UUID(
+        "20000000-0000-4000-8000-000000000001"
+    )
+    stale_snapshot_uid = "30000000-0000-4000-8000-000000000001"
+    generated_uids = iter((command_uid, current_snapshot_uid))
+    monkeypatch.setattr(
+        "uart_link._uuid.uuid4",
+        lambda: next(generated_uids),
+    )
+
+    def segment(name, snapshot_uid):
+        return {
+            "message_name": name,
+            "message_type": MESSAGE_TYPE[name],
+            "tx_sequence": 10,
+            "payload": {
+                "snapshotUid": snapshot_uid,
+                "mcuBootId": 42,
+                "mcuEventSequence": 1,
+            },
+        }
+
+    frames = [
+        segment("STATE_SNAPSHOT_BEGIN", stale_snapshot_uid),
+        segment("STATE_SNAPSHOT_PORT", stale_snapshot_uid),
+        segment("STATE_SNAPSHOT_END", stale_snapshot_uid),
+        segment("STATE_SNAPSHOT_BEGIN", str(current_snapshot_uid)),
+        segment("STATE_SNAPSHOT_PORT", str(current_snapshot_uid)),
+        segment("STATE_SNAPSHOT_END", str(current_snapshot_uid)),
+    ]
+    acknowledged = []
+    link = UartLink(port="fake", edge_boot_id=7, port_count=1)
+    link._mcu_boot_id = 42
+    monkeypatch.setattr(
+        link,
+        "_send_and_wait_ack",
+        lambda message_name, payload: {"acked": True},
+    )
+    monkeypatch.setattr(
+        link,
+        "_read_frame",
+        lambda timeout_ms: frames.pop(0) if frames else None,
+    )
+
+    result = link.query_state(
+        on_segment=lambda frame: acknowledged.append(frame)
+    )
+
+    assert len(acknowledged) == 6
+    assert len(result) == 3
+    assert {
+        frame["payload"]["snapshotUid"] for frame in result
+    } == {str(current_snapshot_uid)}
+
+
 def test_apply_configuration_sends_registry_segments_in_order():
     example = (
         Path(__file__).resolve().parents[2]
@@ -431,3 +490,68 @@ def test_send_command_adds_stable_identity_and_valid_digest():
     assert payload["commandDigestSha256"] == compute_command_digest(
         "START_DELIVERY_SESSION", payload
     )
+
+
+def _last_edge_command_payload(link, message_name):
+    frame = decode_frame(link._ser.writes[-1], sender_role="EDGE")
+    assert frame["messageType"] == MESSAGE_TYPE[message_name]
+    return decode_payload(message_name, frame["payload"])
+
+
+def test_confirm_no_active_work_sends_config_identity():
+    link = UartLink(port="fake", edge_boot_id=7)
+    link._mcu_boot_id = 42
+    link._ser = AutoAckSerial(7, 42)
+
+    result = link.send_confirm_no_active_work(23, "a" * 64)
+    payload = _last_edge_command_payload(link, "CONFIRM_NO_ACTIVE_WORK")
+
+    assert result["acked"] is True
+    assert uuid.UUID(result["mcu_command_uid"])
+    assert payload["configVersion"] == 23
+    assert payload["configContentSha256"] == "a" * 64
+
+
+def test_start_delivery_session_sends_frozen_runtime_values():
+    link = UartLink(port="fake", edge_boot_id=7)
+    link._mcu_boot_id = 42
+    link._ser = AutoAckSerial(7, 42)
+    session_uid = str(uuid.uuid4())
+
+    result = link.send_start_delivery_session(
+        session_uid=session_uid,
+        port_no=1,
+        config_version=23,
+        config_content_sha256="b" * 64,
+        unit_price_ten_thousandths=4500,
+        continue_delivery_wait_ms=30000,
+        negative_weight_threshold_grams=500,
+        start_execution_window_ms=45000,
+        delivery_auto_close_ms=120000,
+    )
+    payload = _last_edge_command_payload(link, "START_DELIVERY_SESSION")
+
+    assert result["acked"] is True
+    assert uuid.UUID(result["mcu_command_uid"])
+    assert payload["sessionUid"] == session_uid
+    assert payload["configVersion"] == 23
+    assert payload["continueDeliveryWaitMs"] == 30000
+    assert payload["deliveryAutoCloseMs"] == 120000
+
+
+def test_door_helpers_return_the_dispatched_command_uid():
+    link = UartLink(port="fake", edge_boot_id=7)
+    link._mcu_boot_id = 42
+    link._ser = AutoAckSerial(7, 42)
+
+    authorize = link.send_authorize_delivery_first_open(
+        session_uid=str(uuid.uuid4()),
+        port_no=1,
+        preopen_measurement_uid=str(uuid.uuid4()),
+        parent_start_command_uid=str(uuid.uuid4()),
+        remaining_ms=45000,
+    )
+    safe_close = link.send_safe_close_all()
+
+    assert uuid.UUID(authorize["mcu_command_uid"])
+    assert uuid.UUID(safe_close["mcu_command_uid"])

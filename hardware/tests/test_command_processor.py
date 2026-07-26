@@ -59,6 +59,13 @@ class FakePhotoManager:
             "OPEN_INSIDE": {"status": "OK"},
         }
 
+    def capture_close_photos(self, work_uid):
+        self.captured.append(("close", work_uid))
+        return {
+            "CLOSE_OUTSIDE": {"status": "OK"},
+            "CLOSE_INSIDE": {"status": "OK"},
+        }
+
     def capture_clean_photos(self, work_uid):
         self.captured.append(("clean", work_uid))
         return {"CLOSE_OUTSIDE": {"status": "OK"}}
@@ -319,6 +326,85 @@ def test_unstable_preopen_weight_still_authorizes_first_open(tmp_path):
     assert values["firstPreOpenMeasurementUid"] == measurement_uid
     assert values["parentStartCommandUid"] == start_mcu_command_uid
     assert values["remainingStartAuthorizationMs"] > 0
+    store.close()
+
+
+def test_delivery_complete_reports_latched_command_without_pulse_duration(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    session_uid = "53000000-0000-4000-8000-000000000001"
+    measurement_uid = "53000000-0000-4000-8000-000000000002"
+    measurement = {
+        "measurementUid": measurement_uid,
+        "measurementStatus": "STABLE",
+        "weightValuePresent": True,
+        "reportedWeightGrams": 1500,
+        "weightValueKind": "STABLE_WINDOW_MEAN",
+        "measurementElapsedMs": 1000,
+        "sampleCount": 10,
+        "calibrationVersion": 1,
+        "weightSensorHealth": "OK",
+        "faultCode": "NONE",
+        "mcuBootId": 42,
+        "mcuEventSequence": 7,
+    }
+    assert store.acquire_work_slot(
+        "DELIVERY",
+        session_uid,
+        1,
+        {
+            "session_uid": session_uid,
+            "port_no": 1,
+            "start_command_uid": (
+                "53000000-0000-4000-8000-000000000003"
+            ),
+            "deployment_code": "Dp_demo_01",
+            "unit_price_ten_thousandths": 4500,
+            "config": {
+                "version": 8,
+                "contentSha256": "a" * 64,
+                "mcuPayloadSha256": "b" * 64,
+            },
+            "first_measurement": measurement,
+            "final_measurement": measurement,
+            "first_weight_grams": 1000,
+            "final_weight_grams": 1500,
+            "round_index": 1,
+            "round_1_measurement_uid": measurement_uid,
+            "last_delivery_door_command": "CLOSE",
+            "last_delivery_door_output_status": "COMMAND_DISPATCHED",
+            "delivery_door_physical_state_basis": "NOT_OBSERVABLE",
+            "negative_weight_anomaly": False,
+        },
+    )
+    work = WorkManager(
+        store,
+        FakeUart(),
+        None,
+        FakePhotoManager(),
+    )
+
+    work.handle_mcu_event(
+        {
+            "message_name": "DELIVERY_SELECTION",
+            "payload": {
+                "sessionUid": session_uid,
+                "portNo": 1,
+                "roundIndex": 1,
+                "postCloseMeasurementUid": measurement_uid,
+                "selection": "END",
+            },
+        }
+    )
+
+    envelope = json.loads(store.list_pending_events()[-1]["payload_json"])
+    door_fact = envelope["payload"]["finalDoorCommand"]
+    assert door_fact == {
+        "command": "CLOSE",
+        "outputStatus": "COMMAND_DISPATCHED",
+        "physicalStateBasis": "NOT_OBSERVABLE",
+    }
     store.close()
 
 
