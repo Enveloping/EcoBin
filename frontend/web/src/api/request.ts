@@ -1,73 +1,301 @@
-import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  type AxiosRequestConfig,
+  type AxiosResponse,
+} from 'axios';
 import { message } from 'antd';
-import type { Result } from '@/types';
 import { authActions } from '@/stores/authStore';
 
-const instance = axios.create({
-  baseURL: (import.meta.env.VITE_API_BASE || '') + '/api',
-  timeout: 15000,
-});
+export interface ApiEnvelope<T> {
+  code: 'OK';
+  data: T;
+  requestId: string;
+}
 
-// 请求拦截器：注入 Bearer token
-instance.interceptors.request.use((config) => {
-  const token = authActions.getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+export interface ProblemDetail {
+  code: string;
+  message: string;
+  requestId: string;
+  retryable: boolean;
+  details: Record<string, unknown>;
+}
+
+export interface RequestTrace {
+  requestId?: string;
+  correlationId?: string;
+}
+
+export type UnauthorizedBehavior = 'redirect' | 'ignore';
+
+export interface ApiRequestConfig<D = unknown> extends AxiosRequestConfig<D> {
+  idempotencyKey?: string;
+  noStore?: boolean;
+  silent?: boolean;
+  csrf?: boolean;
+  unauthorized?: UnauthorizedBehavior;
+}
+
+interface InternalRequestConfig<D = unknown> extends ApiRequestConfig<D> {
+  csrfRetried?: boolean;
+}
+
+interface ApiExecution<T> {
+  data: T;
+  status: number;
+  location?: string;
+  trace: RequestTrace;
+}
+
+interface CsrfTokenResponse {
+  token: string;
+  headerName: 'X-CSRF-TOKEN';
+}
+
+export class ApiProblem extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly requestId: string;
+  readonly retryable: boolean;
+  readonly details: Record<string, unknown>;
+
+  constructor(status: number, problem: ProblemDetail) {
+    super(problem.message);
+    this.name = 'ApiProblem';
+    this.status = status;
+    this.code = problem.code;
+    this.requestId = problem.requestId;
+    this.retryable = problem.retryable;
+    this.details = problem.details;
   }
-  return config;
-});
 
-let redirecting = false;
+  get isIdempotencyConflict(): boolean {
+    return this.code === 'COMMON.IDEMPOTENCY_KEY_CONFLICT';
+  }
 
-// 响应拦截器：解包 Result<T>，统一错误处理
-instance.interceptors.response.use(
-  (response: AxiosResponse<Result>) => {
-    const res = response.data;
-    if (res.code === 200) {
-      // 直接返回 data，业务层拿到的就是 T
-      return res.data as unknown as AxiosResponse;
-    }
-    if (res.code === 401) {
-      handleUnauthorized();
-      return Promise.reject(new Error(res.message || '登录失效'));
-    }
-    if (res.code === 403) {
-      message.error(res.message || '无权限访问');
-      return Promise.reject(new Error(res.message || '无权限访问'));
-    }
-    // 其它业务异常：统一弹 message
-    message.error(res.message || '请求失败');
-    return Promise.reject(new Error(res.message || '请求失败'));
-  },
-  (error) => {
-    // HTTP 层错误（网络/超时/非 2xx）
-    const status = error?.response?.status;
-    if (status === 401) {
-      handleUnauthorized();
-    } else {
-      const msg =
-        error?.response?.data?.message || error?.message || '网络异常，请稍后重试';
-      message.error(msg);
-    }
-    return Promise.reject(error);
-  },
-);
-
-function handleUnauthorized() {
-  message.error('登录失效，请重新登录');
-  authActions.clear();
-  if (!redirecting && location.pathname !== '/login') {
-    redirecting = true;
-    setTimeout(() => {
-      location.href = '/login';
-      redirecting = false;
-    }, 300);
+  get isVersionConflict(): boolean {
+    return (
+      this.status === 409
+      && (this.code.includes('VERSION') || this.code.includes('REVISION'))
+    );
   }
 }
 
-/** 泛型请求：resolve 出的就是后端 Result.data（即 T） */
-export function request<T>(config: AxiosRequestConfig): Promise<T> {
-  return instance.request<T, T>(config);
+const instance = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE || '',
+  timeout: 15000,
+  withCredentials: true,
+});
+
+let csrfToken: string | null = null;
+let csrfBootstrap: Promise<string> | null = null;
+let lastTrace: RequestTrace = {};
+let redirecting = false;
+
+function normalizeApiUrl(url: string | undefined): string | undefined {
+  if (!url || /^https?:\/\//i.test(url) || url.startsWith('//')) return url;
+  if (url.startsWith('/api/')) return url;
+  if (url.startsWith('/')) return `/api${url}`;
+  return `/api/${url}`;
+}
+
+function isUnsafe(method: string | undefined): boolean {
+  return !['GET', 'HEAD', 'OPTIONS'].includes((method || 'GET').toUpperCase());
+}
+
+function captureTrace(response: AxiosResponse<ApiEnvelope<unknown>>): RequestTrace {
+  const requestId = response.data?.requestId || response.headers['x-request-id'];
+  const correlationId = response.headers['x-correlation-id'];
+  lastTrace = {
+    requestId: typeof requestId === 'string' ? requestId : undefined,
+    correlationId: typeof correlationId === 'string' ? correlationId : undefined,
+  };
+  return lastTrace;
+}
+
+function isProblemDetail(value: unknown): value is ProblemDetail {
+  if (!value || typeof value !== 'object') return false;
+  const problem = value as Partial<ProblemDetail>;
+  return (
+    typeof problem.code === 'string'
+    && typeof problem.message === 'string'
+    && typeof problem.requestId === 'string'
+    && typeof problem.retryable === 'boolean'
+    && !!problem.details
+    && typeof problem.details === 'object'
+  );
+}
+
+function networkProblem(error: AxiosError): ApiProblem {
+  const status = error.response?.status || 0;
+  const hasResponse = !!error.response;
+  return new ApiProblem(status, {
+    code: hasResponse ? 'COMMON.INVALID_RESPONSE' : 'COMMON.NETWORK_ERROR',
+    message: hasResponse
+      ? `服务端返回了无法识别的错误响应(${status})`
+      : error.message || '网络异常，请稍后重试',
+    requestId: '',
+    retryable: !hasResponse || status >= 500,
+    details: {},
+  });
+}
+
+function parseProblem(error: unknown): ApiProblem {
+  if (error instanceof ApiProblem) return error;
+  if (!axios.isAxiosError(error)) {
+    return new ApiProblem(0, {
+      code: 'COMMON.CLIENT_ERROR',
+      message: error instanceof Error ? error.message : '客户端请求失败',
+      requestId: '',
+      retryable: false,
+      details: {},
+    });
+  }
+  if (isProblemDetail(error.response?.data)) {
+    return new ApiProblem(error.response?.status || 0, error.response.data);
+  }
+  return networkProblem(error);
+}
+
+async function getCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  if (!csrfBootstrap) {
+    csrfBootstrap = instance
+      .get<ApiEnvelope<CsrfTokenResponse>>('/api/v1/web/auth/csrf-token', {
+        headers: {
+          'Cache-Control': 'no-store',
+          Pragma: 'no-cache',
+        },
+      })
+      .then((response) => {
+        captureTrace(response);
+        if (response.data?.code !== 'OK') {
+          throw new Error('CSRF bootstrap returned an invalid response envelope');
+        }
+        if (response.data.data.headerName !== 'X-CSRF-TOKEN') {
+          throw new Error('CSRF bootstrap returned an unexpected header name');
+        }
+        csrfToken = response.data.data.token;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfBootstrap = null;
+      });
+  }
+  return csrfBootstrap;
+}
+
+export function invalidateCsrfToken(): void {
+  csrfToken = null;
+  csrfBootstrap = null;
+}
+
+export function getLastRequestTrace(): Readonly<RequestTrace> {
+  return lastTrace;
+}
+
+function handleUnauthorized(): void {
+  authActions.clear();
+  invalidateCsrfToken();
+  if (!redirecting && location.pathname !== '/login') {
+    redirecting = true;
+    location.assign('/login');
+  }
+}
+
+async function execute<T, D = unknown>(
+  original: InternalRequestConfig<D>,
+): Promise<ApiExecution<T>> {
+  const config: InternalRequestConfig<D> = {
+    ...original,
+    url: normalizeApiUrl(original.url),
+  };
+  const headers = AxiosHeaders.from(
+    original.headers as AxiosHeaders | undefined,
+  );
+  if (config.noStore) {
+    headers.set('Cache-Control', 'no-store');
+    headers.set('Pragma', 'no-cache');
+  }
+  if (config.idempotencyKey) {
+    headers.set('Idempotency-Key', config.idempotencyKey);
+  }
+  const needsCsrf = config.csrf ?? isUnsafe(config.method);
+  if (needsCsrf) {
+    headers.set('X-CSRF-TOKEN', await getCsrfToken());
+  }
+  config.headers = headers;
+
+  delete config.idempotencyKey;
+  delete config.noStore;
+  delete config.silent;
+  delete config.csrf;
+  delete config.unauthorized;
+  delete config.csrfRetried;
+
+  try {
+    const response = await instance.request<ApiEnvelope<T>>(config);
+    const trace = captureTrace(response);
+    if (response.status === 204) {
+      return {
+        data: undefined as T,
+        status: response.status,
+        trace,
+      };
+    }
+    if (!response.data || response.data.code !== 'OK') {
+      throw new Error('HTTP success response does not match the EcoBin envelope');
+    }
+    const locationHeader = response.headers.location;
+    return {
+      data: response.data.data,
+      status: response.status,
+      location: typeof locationHeader === 'string' ? locationHeader : undefined,
+      trace,
+    };
+  } catch (error) {
+    const problem = parseProblem(error);
+    if (
+      problem.code === 'SECURITY.CSRF_INVALID'
+      && needsCsrf
+      && !original.csrfRetried
+    ) {
+      invalidateCsrfToken();
+      return execute<T, D>({ ...original, csrfRetried: true });
+    }
+    if (problem.status === 401 && original.unauthorized !== 'ignore') {
+      handleUnauthorized();
+    }
+    if (
+      !original.silent
+      && (problem.status !== 401 || original.unauthorized === 'ignore')
+    ) {
+      message.error(problem.message);
+    }
+    throw problem;
+  }
+}
+
+/** Resolve with the successful envelope data. HTTP status remains authoritative. */
+export async function request<T, D = unknown>(
+  config: ApiRequestConfig<D>,
+): Promise<T> {
+  return (await execute<T, D>(config)).data;
+}
+
+/** Require a real 202 and verify Location agrees with the body statusUrl. */
+export async function requestAccepted<
+  T extends { statusUrl: string },
+  D = unknown,
+>(config: ApiRequestConfig<D>): Promise<T> {
+  const result = await execute<T, D>(config);
+  if (result.status !== 202) {
+    throw new Error(`Expected HTTP 202, received ${result.status}`);
+  }
+  if (result.location && result.location !== result.data.statusUrl) {
+    throw new Error('HTTP Location differs from the accepted operation statusUrl');
+  }
+  return result.data;
 }
 
 export default request;

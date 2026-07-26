@@ -1,4 +1,4 @@
-import { ensureLoggedIn } from '../../utils/auth'
+import { ensureLoggedIn, routeToEntry } from '../../utils/auth'
 
 Page({
   data: {
@@ -13,15 +13,11 @@ Page({
   async doLogin() {
     this.setData({ loading: true, error: '' })
     try {
-      await ensureLoggedIn()
-      this.toHome()
+      const session = await ensureLoggedIn()
+      routeToEntry(session)
     } catch (e) {
       this.setData({ loading: false, error: '登录失败，请重试' })
     }
-  },
-
-  toHome() {
-    wx.reLaunch({ url: '/pages/home/home' })
   },
 
   onRetry() {

@@ -4,24 +4,28 @@ import { Dropdown } from 'antd';
 import { LogoutOutlined, UserOutlined, SettingOutlined } from '@ant-design/icons';
 import { useAuthStore } from '@/stores/authStore';
 import { menuRoutesFor } from '@/router/routes';
-import { ROLE } from '@/constants';
+import { logout } from '@/api/auth';
 import { palette, alpha } from '@/theme';
 import EcoBinLogo from '@/components/Logo';
 
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { role, realName, username, clear } = useAuthStore();
+  const { session, domain, clear } = useAuthStore();
 
-  const menuData = menuRoutesFor(role).map((r) => ({
+  const menuData = menuRoutesFor(session).map((r) => ({
     path: r.path,
     name: r.name,
     icon: r.icon,
   }));
 
-  const handleLogout = () => {
-    clear();
-    navigate('/login', { replace: true });
+  const handleLogout = async () => {
+    try {
+      if (domain) await logout(domain);
+    } finally {
+      clear();
+      navigate('/login', { replace: true });
+    }
   };
 
   return (
@@ -65,7 +69,7 @@ export default function MainLayout() {
       // 右上角用户头像
       avatarProps={{
         icon: <UserOutlined style={{ color: palette.primary }} />,
-        title: realName || username || '用户',
+        title: session?.displayName || '用户',
         size: 'small',
         style: { cursor: 'pointer' },
         render: (_props, dom) => (
@@ -76,7 +80,7 @@ export default function MainLayout() {
                   key: 'role',
                   disabled: true,
                   icon: <SettingOutlined />,
-                  label: `角色：${role != null ? ROLE[role]?.label ?? role : '-'}`,
+                  label: `账号类型：${session?.accountType ?? '-'}`,
                 },
                 { type: 'divider' },
                 {

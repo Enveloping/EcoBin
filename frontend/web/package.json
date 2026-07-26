@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test:http-foundation": "node --no-warnings --experimental-strip-types --test ../tests/http-foundation.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

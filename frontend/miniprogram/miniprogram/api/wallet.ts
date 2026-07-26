@@ -7,7 +7,7 @@ export function myWallet() {
 }
 
 /** 发起提现 */
-export function applyWithdraw(amount: number) {
+export function applyWithdraw(amount: string) {
   return http.post<WithdrawOrder>('/api/app/wallet/withdraw', { amount })
 }
 

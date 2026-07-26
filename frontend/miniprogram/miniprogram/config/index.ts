@@ -17,7 +17,6 @@ export const TIMEOUT = 15000
 
 /** 本地存储 key */
 export const STORAGE_KEYS = {
-  token: 'ecobin_token',
-  role: 'ecobin_role',
-  userInfo: 'ecobin_user_info',
+  session: 'ecobin_miniapp_session',
+  pendingOperationPrefix: 'ecobin_pending_operation_',
 } as const

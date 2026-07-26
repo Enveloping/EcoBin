@@ -1,4 +1,4 @@
-"""Validate EcoBin F-10 OneNet and UART machine contracts."""
+"""Validate EcoBin HTTP, OneNet, and UART machine contracts."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ from contractlib import (  # noqa: E402
     validate_uart_registry,
 )
 from generate_contracts import apply_outputs, build_outputs  # noqa: E402
+from http_contract import validate_http_contract  # noqa: E402
 
 
 class ValidationSummary:
@@ -1283,6 +1284,8 @@ def run_validation(
 ) -> ValidationSummary:
     summary = ValidationSummary()
     validate_generation(summary)
+    for check in validate_http_contract():
+        summary.passed(check)
     validate_sources(summary)
     validate_onenet_thing_model(summary)
     validate_onenet_wire_examples(summary)

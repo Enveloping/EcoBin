@@ -1,0 +1,11 @@
+{
+  "code": "OK",
+  "data": {
+    "operationId": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e001",
+    "resourceId": "WD-20260726-000001",
+    "status": "PROCESSING",
+    "statusUrl": "/api/v1/web/withdrawals/WD-20260726-000001",
+    "recommendedPollAfterMs": 1500
+  },
+  "requestId": "01J3EXAMPLE00000000000001"
+}

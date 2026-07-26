@@ -11,7 +11,7 @@ import { App } from 'antd';
 import { pageUsers, updateUserRole } from '@/api/user';
 import { toProTableResult } from '@/utils/proTable';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
-import { ROLE, STATUS, ROLE_TENANT, toValueEnum } from '@/constants';
+import { ROLE, STATUS, toValueEnum } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
@@ -24,8 +24,9 @@ const editableRoleOptions = [
 export default function UserPage() {
   const actionRef = useRef<ActionType>(null);
   const { message } = App.useApp();
-  const currentRole = useAuthStore((s) => s.role);
-  const canEditRole = currentRole === ROLE_TENANT; // 仅租户可改角色
+  const session = useAuthStore((state) => state.session);
+  const canEditRole = session?.accountType === 'TENANT_PRINCIPAL'
+    && session.capabilities.includes('user.write');
   const [editing, setEditing] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
 

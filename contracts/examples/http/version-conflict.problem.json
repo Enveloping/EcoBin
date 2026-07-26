@@ -1,0 +1,10 @@
+{
+  "code": "COMMON.VERSION_CONFLICT",
+  "message": "资源已发生变化，请刷新后重新确认",
+  "requestId": "01J3EXAMPLE00000000000003",
+  "retryable": false,
+  "details": {
+    "expectedVersion": 3,
+    "currentVersion": 4
+  }
+}

@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { defaultPathFor } from '@/router/routes';
 import { loginGradient, palette } from '@/theme';
 import ParticleBackground from '@/components/ParticleBackground';
-import type { UserType } from '@/types';
+import type { WebLoginDomain } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -15,18 +15,18 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { message } = App.useApp();
-  const setAuth = useAuthStore((s) => s.setAuth);
-  const [userType, setUserType] = useState<UserType>('admin');
+  const setSession = useAuthStore((state) => state.setSession);
+  const [domain, setDomain] = useState<WebLoginDomain>('tenant');
   const [loading, setLoading] = useState(false);
 
-  const onFinish = async (values: { username: string; password: string }) => {
+  const onFinish = async (values: { loginName: string; password: string }) => {
     setLoading(true);
     try {
-      const res = await login({ userType, ...values });
-      setAuth(res);
+      const session = await login(domain, values);
+      setSession(session, domain);
       message.success('登录成功');
       const from = (location.state as { from?: string })?.from;
-      navigate(from || defaultPathFor(res.role), { replace: true });
+      navigate(from || defaultPathFor(session), { replace: true });
     } catch {
       // 错误已由拦截器统一弹窗
     } finally {
@@ -123,22 +123,22 @@ export default function Login() {
           <Text type="secondary">智慧环保回收箱管理系统</Text>
         </div>
 
-        <Segmented<UserType>
+        <Segmented<WebLoginDomain>
           block
-          value={userType}
-          onChange={setUserType}
+          value={domain}
+          onChange={setDomain}
           options={[
-            { label: '平台管理员', value: 'admin' },
-            { label: '租户', value: 'tenant' },
+            { label: '租户与工作人员', value: 'tenant' },
+            { label: '平台管理员', value: 'platform' },
           ]}
           style={{ marginBottom: 24 }}
         />
 
-        <Form onFinish={onFinish} size="large" initialValues={{ username: '', password: '' }}>
-          <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
+        <Form onFinish={onFinish} size="large" initialValues={{ loginName: '', password: '' }}>
+          <Form.Item name="loginName" rules={[{ required: true, message: '请输入登录名' }]}>
             <Input
               prefix={<UserOutlined style={{ color: '#94A3B8' }} />}
-              placeholder="用户名"
+              placeholder="登录名"
               autoComplete="username"
             />
           </Form.Item>

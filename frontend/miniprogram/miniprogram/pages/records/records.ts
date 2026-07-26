@@ -1,5 +1,6 @@
 import { myDeliveries } from '../../api/delivery'
 import type { DeliveryOrder } from '../../types/api'
+import { formatBusinessWeight, formatMoneyCny } from '../../utils/decimal'
 
 const AUDIT_STATUS: Record<number, string> = {
   0: '待审核',
@@ -73,8 +74,9 @@ Page({
     const audit = o.auditStatus ?? 0
     // 金额仅在审核通过后显示「已到账」，待审核/驳回时弱化提示，避免误以为已入账
     let amountText = ''
-    if (o.price != null && o.weight != null) {
-      const money = (o.price * o.weight).toFixed(2)
+    const settledAmount = o.finalAmountYuan ?? o.rawAmountYuan
+    if (settledAmount != null) {
+      const money = formatMoneyCny(settledAmount)
       if (audit === 1) amountText = `+¥${money}`
       else if (audit === 2) amountText = '未返现'
       else amountText = `待审核 ¥${money}`
@@ -83,7 +85,7 @@ Page({
       ...o,
       statusText: o.deliveryStatus === 1 ? '已完成' : '进行中',
       auditStatusText: AUDIT_STATUS[audit] || '待审核',
-      weightText: o.weight != null ? `${o.weight} kg` : '—',
+      weightText: o.weight != null ? formatBusinessWeight(o.weight) : '—',
       amountText,
     }
   },

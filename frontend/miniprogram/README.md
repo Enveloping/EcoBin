@@ -1,55 +1,58 @@
-# EcoBin 微信小程序（终端用户端）
+# EcoBin 微信小程序
 
-微信原生小程序（TypeScript）。当前页面主要根据产品设计稿制作，登录、扫码/填写投口 ID 开门等核心入口已接入后端；AppID：`wx1e05b648c1d16f52`。
+微信原生小程序（TypeScript）。F-09 已建立目标 `/api/v1` 客户端传输基础；具体投递、
+清运、钱包等业务 path 仍由后续纵向任务按 OpenAPI 增量迁移，现有 `/api/app/**` 调用只
+代表旧页面联调入口。
 
-## 当前页面
+## 会话与入口
 
-底部导航固定为“首页 · 扫码开门 · 我的”。页面还包括附近设备、订单列表、预约记录、上门回收、绑定号码、故障上报、联系客服、招商加盟、优选商城和统一占位页。
+- 冷启动通过 `wx.login` 调用精确匿名入口
+  `POST /api/v1/miniapp/auth/sessions`。
+- 本地只保存一份会话和一个短期 Bearer Token，不存在 Refresh Token、数字角色 Token
+  或第二套模式 Token。
+- 每次启动先删除旧版 `ecobin_token/ecobin_role/ecobin_user_info`；登录创建响应返回
+  Token，`GET .../sessions/current` 的安全投影不再次返回 Token。
+- 服务端返回唯一 `audience`（`miniapp` / `miniapp-staff`）和唯一 `entryMode`
+  （`USER` / `CLEANING` / `MANAGEMENT`）；客户端只据此路由，不自行推导权限。
+- `401` 最多重新执行一次 `wx.login`。安全查询可以重试；写请求只有携带原始
+  `Idempotency-Key` 时才允许重放。重登录后的 audience 或 entryMode 任一变化时立即
+  切换入口，不在原入口重放请求。
 
-`miniprogram/config/index.ts` 中的 `test` 控制扫码入口：`true` 时可选择扫码或填写投口 ID，`false` 时直接扫码。识别成功后调用 `POST /api/app/delivery/open`，后端激活设备用户会话并经 OneNet 下发开门指令；订单在设备完成称重并上报后生成。
+## 传输基础
 
-## 目录结构
-
-```
+```text
 miniprogram/
-├── app.ts / app.json            # 入口；app.json 启用 custom tabBar + 全局 TDesign 组件
-├── config/index.ts              # baseURL、超时、storage key
-├── config/roleTabs.ts           # 角色 → tab 列表（扩展点）
-├── utils/request.ts             # wx.request 封装：Bearer 头 / Result 解包 / 401 跳登录
-├── utils/auth.ts                # 微信静默登录、token/role 读写、logout
-├── utils/guard.ts               # 页面级角色守卫 requireRole
-├── api/                         # auth/delivery/clean/wallet/profile/device
-├── types/api.d.ts               # 与后端 DTO 对齐的类型
-├── custom-tab-bar/              # 首页 · 中央扫码 · 我的
+├── app.ts / app.json
+├── config/index.ts
+├── utils/
+│   ├── request.ts          # Bearer、ProblemDetail、受控 401 重登录
+│   ├── auth.ts             # 单会话、单 audience、入口路由
+│   ├── command-intent.ts   # UUIDv4 幂等意图与 expectedVersion
+│   ├── async-operation.ts  # 202 状态持久化与同源轮询
+│   ├── decimal.ts          # 金额/单价/重量字符串格式化与比较
+│   └── guard.ts            # entryMode / capability 页面守卫
+├── api/
+├── types/api.d.ts
 └── pages/
-    ├── home/     设计稿首页与扫码入口
-    ├── profile/  设计稿“我的”页面
-    ├── pickup/   上门回收三步流程
-    └── ...       其他设计稿页面
 ```
 
-## 登录与接口接入
-
-小程序冷启动先进入 `pages/login/login`：本地 JWT 仍有效时直接进入首页；没有 Token 或 Token 已过期时，调用 `wx.login` 获取临时 code，再请求 `POST /api/system/auth/wx-login`。后端按 AppID 定位租户、按 openid 查找用户，首次登录会自动注册普通用户并返回 JWT。扫码或填写投口 ID 开门前也会复用同一登录检查，避免未登录请求业务接口。
+金额固定两位、单价固定四位、业务重量固定两位，均以字符串传输和展示。资金比较不经过
+JavaScript 浮点运算；原始克重使用整数。
 
 ## 本地运行
 
-1. **改后端地址**：`miniprogram/config/index.ts` 的 `BASE_URL`（默认 `http://localhost:8080`）。
-2. **构建 npm**：开发者工具 → 工具 → 构建 npm（已 `npm install tdesign-miniprogram`）。
-3. **关闭域名校验**：开发者工具 → 详情 → 本地设置 → 勾选「不校验合法域名…」（开发期）。
-4. **启动后端**：`./mvnw spring-boot:run -pl ecobin-bootstrap`（改过非 bootstrap 模块需先 `mvn install`）。
-5. **后端数据前置**：该租户 `sys_tenant.miniapp_appid` 必须 = `wx1e05b648c1d16f52`，且配好 `miniapp_secret`，否则 wx-login 无法定位租户。
-
-## 角色分流验证
-
-在 DB 改 `sys_user.role`（1/2）后重新进入小程序：
-- role=1：tabBar 无「清运」；手动进 `pages/clean` 被守卫弹回首页。
-- role=2：tabBar 出现「清运」；可选设备/投口并提交清运。
+1. 修改 `miniprogram/config/index.ts` 的 `BASE_URL`。真机必须使用已备案 HTTPS 合法
+   域名；`http://localhost:8080` 只用于开发者工具。
+2. 在微信开发者工具执行“工具 → 构建 npm”。
+3. 开发期可在“详情 → 本地设置”关闭合法域名校验。
+4. 改过后端非 bootstrap 模块时，先执行 `./mvnw install -DskipTests`，再启动
+   `ecobin-bootstrap`。
 
 ## 类型检查
 
-```bash
+```powershell
+npm ci
 npx tsc --noEmit -p tsconfig.json
 ```
 
-（`tsconfig.json` 已开启 `skipLibCheck`，跳过 wx 官方 typings 自身的声明告警。）
+`tsconfig.json` 开启严格检查，并仅通过 `skipLibCheck` 跳过微信官方声明文件内部告警。

@@ -1,20 +1,20 @@
 ---
 task_id: F-09
 title: HTTP OpenAPI 3.1 与客户端传输基础
-status: ready
+status: done
 executor: agent
-owner: "TBD / api-client-platform-owner"
+owner: "Codex / api-client-platform-owner"
 effort_range: "3-6 person-days"
 earliest_start: "F-02 done 后"
 blocked_by:
   - F-02
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # F-09｜HTTP OpenAPI 3.1 与客户端传输基础
 
-> `status: ready` 表示 F-02 前置依赖已经完成；`implementation_authorized: false`
-> 表示依赖解除不构成 F-09 编码授权。
+> `status: done`：机器契约、两端传输基础、首轮 review 修复和自动验证均已完成，
+> 项目负责人已确认验收通过。
 
 ## 目标
 
@@ -35,14 +35,17 @@ implementation_authorized: false
 
 ## 验收条件
 
-- [ ] OpenAPI 3.1 文件可以通过机器校验。
-- [ ] Web Cookie+CSRF、小程序 Bearer 和外部签名安全方案均被明确表达。
-- [ ] 401、409、202、ProblemDetail、`statusUrl` 和建议轮询间隔行为一致。
-- [ ] Web 不从 localStorage 读取、保存或刷新会话 Token。
-- [ ] 同一用户意图重试复用幂等键，同键异摘要显示明确冲突。
-- [ ] 页面刷新后可以按稳定资源身份恢复异步状态查询。
-- [ ] 金额和单价不使用 JavaScript `number` 计算。
-- [ ] 当前页面可以使用 Stub 契约继续开发；后续 V 任务可增量增加业务 paths/schema/examples。
+- [x] OpenAPI 3.1 文件可以通过机器校验。
+- [x] Web Cookie+CSRF、小程序 Bearer 和外部签名安全方案均被明确表达。
+- [x] 401、409、202、ProblemDetail、`statusUrl` 和建议轮询间隔行为一致。
+- [x] Web 不从 localStorage 读取、保存或刷新会话 Token。
+- [x] 同一用户意图重试复用幂等键，同键异摘要显示明确冲突。
+- [x] 页面刷新后可以按稳定资源身份恢复异步状态查询。
+- [x] 金额和单价不使用 JavaScript `number` 计算。
+- [x] 当前页面可以使用 Stub 契约继续开发；后续 V 任务可增量增加业务 paths/schema/examples。
+
+实施和复验证据见
+[F-09 HTTP OpenAPI 与客户端传输基础实施证据](../../../architecture/f-09-http-client-transport-evidence.md)。
 
 ## 阻塞与最早开始
 
@@ -69,3 +72,12 @@ implementation_authorized: false
 
 - 2026-07-23：从已批准的 29 项任务拆分发布；尚未授权实施。
 - 2026-07-24：F-02 完成后任务由 `blocked` 转为 `ready`；尚未获得 F-09 编码授权。
+- 2026-07-26：项目负责人授权 Codex 接取 F-09；任务转为 `in-progress`，后续实施限定在
+  `codex/f09-http-openapi-client-transport` 独立分支和 worktree。
+- 2026-07-26：完成 OpenAPI 3.1、七份契约样例、HTTP 自动门禁、Web Cookie/CSRF 客户端、
+  小程序单 audience 会话、两端幂等/版本/202/十进制基础；Web build、小程序严格类型检查、
+  25 项契约测试和独立 Redocly 校验通过，任务转为 `in-review`。
+- 2026-07-26：根据首轮 review 修正 UUIDv4 契约、拆分小程序登录创建/当前会话模型，
+  增加 Web/小程序旧 Bearer 存储启动清理及服务端切换失效策略，并让 audience 或
+  entryMode 任一变化都切换入口且不重放；新增 4 项契约反例和 3 项客户端回归测试。
+- 2026-07-26：项目负责人确认 F-09 完成，任务由 `in-review` 转为 `done`。

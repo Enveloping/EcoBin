@@ -1,0 +1,25 @@
+{
+  "code": "OK",
+  "data": {
+    "sessionUid": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e002",
+    "accountType": "STAFF",
+    "subjectUid": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e003",
+    "displayName": "试点运营员",
+    "tenantCode": "HZ-RECYCLE",
+    "capabilities": [
+      "overview.read",
+      "device.read",
+      "delivery.read"
+    ],
+    "organizations": [
+      {
+        "organizationCode": "HZ-PILOT",
+        "displayName": "湖州试点机构"
+      }
+    ],
+    "expiresAt": "2026-07-26T11:15:20.123Z",
+    "version": 3,
+    "authVersion": 8
+  },
+  "requestId": "01J3EXAMPLE00000000000005"
+}

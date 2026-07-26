@@ -1,0 +1,18 @@
+{
+  "code": "OK",
+  "data": {
+    "audience": "miniapp",
+    "entryMode": "CLEANING",
+    "expiresAt": "2026-07-26T05:15:20.123Z",
+    "organization": {
+      "organizationCode": "HZ-PILOT",
+      "displayName": "湖州试点机构"
+    },
+    "subjectUid": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e004",
+    "displayName": "清运员",
+    "capabilities": [
+      "clean.execute"
+    ]
+  },
+  "requestId": "01J3EXAMPLE00000000000007"
+}

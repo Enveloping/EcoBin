@@ -4,7 +4,7 @@
 > 本文记录对话中形成、仅靠代码不容易恢复的决策。代码和更新日期更晚的专题文档若与本文冲突，以较新的事实为准。
 
 > [!IMPORTANT]
-> 2026-07-26 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07 已获授权并完成；F-08 已完成 Fake 可靠任务 tracer 和 MySQL 8.4 验收，处于 `in-review`；F-11 已获授权并完成配置命令软件纵切，继续处于 `in-progress`；F-09 与 H-02 已 `ready`，但 F-09 编码和 H-02 真实环境操作仍须分别授权。F-10 软件机器来源、MCU Registry checkpoint 和通用三语言黄金样本已完成，仍缺 MCU 实际工具链/HIL。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
+> 2026-07-26 已完成需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订；投递改为一次 session 一单/设备本地继续，清运改为电磁阀解锁/人工关门确认。DD-004 与修订后的 PDD-001 已写回基线，29 项正式 Markdown 任务也已同步。H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 已获授权并完成；F-08 已完成 Fake 可靠任务 tracer 和 MySQL 8.4 验收，处于 `in-review`；F-11 已获授权并完成配置命令软件纵切，继续处于 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权。F-10 软件机器来源、MCU Registry checkpoint 和通用三语言黄金样本已完成，仍缺 MCU 实际工具链/HIL。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
 > [`requirements-baseline.md`](../planning/requirements-baseline.md)、
 > [`p0-scope-baseline.md`](../planning/p0-scope-baseline.md) 和
 > [`business-model-baseline.md`](../planning/business-model-baseline.md)，冻结的系统结构见
@@ -153,14 +153,13 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 DD-004、修订后的 PDD-001、29 项任务粒度/依赖、`status/executor` 分类和
 2026-07-30 仅作风险排序均已确认。29 项任务已发布并同步 2026-07-24 修订到
 [`p0-controlled-loop/00-index.md`](../planning/tasks/p0-controlled-loop/00-index.md)：H-01、
-F-01、F-02、F-03、F-04、F-05、F-06、F-07 已完成；F-09 与 H-02 因前置完成进入 `ready`，
-但 F-09 编码和 H-02 真实环境操作仍须分别授权；
+F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-09 已完成；H-02 因前置完成进入 `ready`，
+但真实环境操作仍须单独授权；
 F-10 软件阶段、MCU Registry checkpoint 和通用三语言黄金样本已完成，等待 MCU 实际
 工具链和 HIL，任务级保持 `blocked`；F-08 已完成 Fake 可靠任务 tracer 和 MySQL 8.4
 验收，处于 `in-review`；F-11 已获授权并完成配置命令软件纵切，继续处于
-`in-progress`。当前共 `done` 8、`ready` 2、`in-progress` 1、`in-review` 1、
-`blocked` 17。其他任务没有因
-前置推进而自动获得实施授权。
+`in-progress`。当前共 `done` 9、`ready` 1、`in-progress` 1、`in-review` 1、
+`blocked` 17。其他任务没有因前置推进而自动获得实施授权。
 
 实施入口已经明确：
 
@@ -169,7 +168,7 @@ F-10 软件阶段、MCU Registry checkpoint 和通用三语言黄金样本已完
 - 目标 V1～V10 的 83 张表已通过 MySQL 8.4 双空库验证；F-07 又完成固定 V1 marker、
   V10 epoch/readiness guard、最小 `ecobin_app` 空业务库启动和 Fake 外联硬阻断，
   并在两项 P1 补强后通过复审；H-02 的真实数据库身份与环境供应仍须单独获得操作授权；
-- F-09 HTTP/OpenAPI 客户端传输已 `ready`，但尚未获得编码授权；
+- F-09 HTTP/OpenAPI 客户端传输已完成复审并由项目负责人确认；
 - F-11 下一步补齐其他业务命令状态机、COS 上传、强杀/断网故障注入；真实 MCU 恢复
   `HELLO` 后立即执行配置分段和恢复 HIL；
 - 后续按投递、审核钱包、清运、满溢恢复、充值、提现和 operations 的纵向切片推进；
