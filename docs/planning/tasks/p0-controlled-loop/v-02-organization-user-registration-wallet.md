@@ -1,7 +1,7 @@
 ---
 task_id: V-02
 title: 机构用户首次注册并获得独立零余额钱包
-status: blocked
+status: ready
 executor: mixed
 owner: "待指派 - 机构用户与小程序端到端切片负责人"
 effort_range: "6-10 person-days"
@@ -53,7 +53,9 @@ implementation_authorized: false
 | integration | software 完成，且试点机构 AppID/AppSecret、真实小程序和指定测试用户可用 |
 | acceptance | integration 完成，并能采集真实 `wx.login`、`getPhoneNumber` 和 Web 人工绑定证据 |
 
-任务整体仍受 `V-01、F-06、F-09` 阻塞，三个阶段全部通过后才可以标记 `done`。发布本任务不代表已经授权修改代码或外部配置。
+`V-01、F-06、F-09` 已全部完成，软件阶段依赖已经解除；任务转为 `ready`，但尚未获得
+实施授权。集成和验收阶段仍须满足表中真实小程序、机构凭据和指定测试用户条件，三个阶段
+全部通过后才可以标记 `done`。
 
 ## 排除范围
 
@@ -77,3 +79,5 @@ implementation_authorized: false
 ## 进展记录
 
 - 2026-07-23：发布任务文件；仅完成设计与任务拆分，尚未授权实施。
+- 2026-07-27：V-01 完成复审并转为 `done`，V-02 的软件前置 V-01、F-06、F-09
+  全部解除，任务由 `blocked` 转为 `ready`；这不构成实施或外部配置授权。

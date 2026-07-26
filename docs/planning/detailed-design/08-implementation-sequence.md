@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已完成，F-11 实施中，V-01 已进入复审，H-02 已 ready 但真实环境操作仍须授权，F-10 软件已完成并等待 MCU/联调验收**
+> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、V-01 已完成，F-11 实施中，H-02 与 V-02 已 ready 但仍须单独授权，F-10 软件已完成并等待 MCU/联调验收**
 >
 > 草案日期：2026-07-24
 >
@@ -615,10 +615,13 @@ M0_COMPLETE
     Codex 在独立 worktree 接取并实施 V-01，任务转为 `in-progress`。
 12. 2026-07-26，V-01 完成目标 Web 会话、identity 目录/审计、管理页面、OpenAPI、
     全仓回归和真实 MySQL 验收，转为 `in-review`，等待项目负责人复审确认。
+13. 2026-07-27，V-01 完成六项 P1 复审修复并通过真实 MySQL 八项专项、全仓、
+    HTTP 契约和 Web 回归；项目负责人要求提交并合入，任务转为 `done`。V-02 的软件
+    前置全部解除，转为 `ready`，但仍须单独授权。
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
-当前 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 为 `done`；
-F-11 为 `in-progress`，V-01 为 `in-review`；H-02 为 `ready`，但真实环境操作仍须单独授权；
+当前 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、V-01 为 `done`；
+F-11 为 `in-progress`；H-02 与 V-02 为 `ready`，但仍须单独授权；
 F-10 因软件完成后仍等待 MCU/联调验收而为 `blocked`，其余任务保持 `blocked`。当前共
-`done` 10、`ready` 1、`in-progress` 1、`in-review` 1、`blocked` 16。
+`done` 11、`ready` 2、`in-progress` 1、`blocked` 15。

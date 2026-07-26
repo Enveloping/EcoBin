@@ -1,7 +1,7 @@
 ---
 task_id: V-01
 title: 租户、机构和工作人员可以安全登录管理
-status: in-review
+status: done
 executor: agent
 owner: "Codex / identity-web-slice-owner"
 effort_range: "6-10 person-days"
@@ -16,8 +16,8 @@ implementation_authorized: true
 
 # V-01｜租户、机构和工作人员可以安全登录管理
 
-> `status: in-review`：V-01 目标后端、Web、OpenAPI、审计及真实 MySQL 验收均已完成，
-> 等待项目负责人复审和合入确认。
+> `status: done`：V-01 目标后端、Web、OpenAPI、审计、真实 MySQL 验收及六项 P1
+> 复审修复均已完成，项目负责人已要求提交并合入。
 
 ## 目标
 
@@ -80,3 +80,5 @@ worktree 中实施 V-01；授权不扩展到本任务排除范围或下游 V-02/
   有效权限、恢复必填字段的 null 校验、将目标资源纳入幂等摘要、脱敏审计摘要，以及补齐
   平台跨租户读取和拒绝/失败请求审计。真实 MySQL 专项扩展至八项；全仓、契约和 Web
   回归通过，保持 `in-review` 等待复审。
+- 2026-07-27：项目负责人要求更新文档、提交修复并合入 `database-refactor`，V-01
+  由 `in-review` 转为 `done`。
