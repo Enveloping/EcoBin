@@ -459,9 +459,15 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.payload.cleanLockAndInferredDoor",
+          "jsonPath": "$.payload.cleanActionSequence",
           "nullable": false,
-          "wireIdentifier": "cleanLockAndInferredDoor"
+          "wireIdentifier": "cleanActionSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cleanLockAndManualDoorConfirmation",
+          "nullable": false,
+          "wireIdentifier": "cleanLockAndManualDoorConfirmati"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -838,13 +844,13 @@
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.firstPreOpenMeasurement",
-          "nullable": false,
+          "nullable": true,
           "wireIdentifier": "firstPreOpenMeasurement"
         },
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.finalPostCloseMeasurement",
-          "nullable": false,
+          "nullable": true,
           "wireIdentifier": "finalPostCloseMeasurement"
         },
         {
@@ -855,15 +861,21 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.payload.finalDeliveryDoor",
-          "nullable": false,
-          "wireIdentifier": "finalDeliveryDoor"
+          "jsonPath": "$.payload.finalDoorCommand",
+          "nullable": true,
+          "wireIdentifier": "finalDoorCommand"
         },
         {
           "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.completionReason",
           "nullable": false,
           "wireIdentifier": "completionReason"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.manualReviewRequired",
+          "nullable": false,
+          "wireIdentifier": "manualReviewRequired"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -1583,15 +1595,51 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.payload.infraredValue",
+          "jsonPath": "$.payload.triggerType",
           "nullable": false,
-          "wireIdentifier": "infraredValue"
+          "wireIdentifier": "triggerType"
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.payload.infraredHealth",
+          "jsonPath": "$.payload.fullnessMode",
           "nullable": false,
-          "wireIdentifier": "infraredHealth"
+          "wireIdentifier": "fullnessMode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessSensorKind",
+          "nullable": false,
+          "wireIdentifier": "fullnessSensorKind"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessSensorValue",
+          "nullable": false,
+          "wireIdentifier": "fullnessSensorValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessSampleBasis",
+          "nullable": false,
+          "wireIdentifier": "fullnessSampleBasis"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.representativeDistanceMm",
+          "nullable": true,
+          "wireIdentifier": "representativeDistanceMm"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.requestedSampleCount",
+          "nullable": false,
+          "wireIdentifier": "requestedSampleCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.validSampleCount",
+          "nullable": false,
+          "wireIdentifier": "validSampleCount"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -2284,6 +2332,128 @@
       "outputSchemaRef": "command-receipt.schema.json",
       "schemaRef": "commands/commands.schema.json#/$defs/resumeCleanOperationCommand"
     },
+    "safetySensorStateChanged": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "SAFETY_SENSOR_STATE_CHANGED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": true,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.smokeState",
+          "nullable": false,
+          "wireIdentifier": "smokeState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.smokeSensorHealth",
+          "nullable": false,
+          "wireIdentifier": "smokeSensorHealth"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.faultCode",
+          "nullable": true,
+          "wireIdentifier": "faultCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.workType",
+          "nullable": false,
+          "wireIdentifier": "workType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.workUid",
+          "nullable": true,
+          "wireIdentifier": "workUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuBootId",
+          "nullable": false,
+          "wireIdentifier": "mcuBootId"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuEventSequence",
+          "nullable": false,
+          "wireIdentifier": "mcuEventSequence"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/safetySensorStateChangedEvent"
+    },
     "sampleFullness": {
       "commandType": "SAMPLE_FULLNESS",
       "inputMappings": [
@@ -2829,7 +2999,7 @@
     }
   },
   "generated": true,
-  "mappingVersion": "1.0.0-rc.2",
+  "mappingVersion": "1.0.0-rc.3",
   "projection": {
     "dataProtocol": "OneJSON",
     "enumEncoding": "JSON string enums are encoded as OneNet integer enums; generated wire mapping is authoritative for integer-to-symbol conversion.",

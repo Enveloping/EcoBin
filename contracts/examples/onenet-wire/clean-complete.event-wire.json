@@ -6,28 +6,29 @@
     "params": {
       "cleanComplete": {
         "value": {
-          "cleanLockAndInferredDoor": {
-            "inferredDoorState": 1,
+          "cleanActionSequence": 3,
+          "cleanLockAndManualDoorConfirmati": {
+            "cleanerPhysicalCloseConfirmed": true,
             "lockPowerState": 1,
-            "solenoidHealth": 1,
-            "stateBasis": 1
+            "physicalDoorStateBasis": 1,
+            "solenoidHealth": 1
           },
           "cleanerCompletionConfirmed": true,
           "cleanerConfirmedFinalMeasurement": {
             "calibrationVersion": 4,
             "faultCode": 1,
             "faultCodePresent": false,
-            "lastObservedWeightGrams": 1200,
-            "lastObservedWeightGramsPresent": true,
             "mcuBootId": 101,
             "mcuEventSequence": 42,
             "measurementElapsedMs": 1200,
             "measurementUid": "40000000-0000-4000-8000-000000000004",
+            "reportedWeightGrams": 1200,
+            "reportedWeightGramsPresent": true,
             "sampleCount": 12,
             "sensorHealth": 1,
-            "stableWeightGrams": 1200,
-            "stableWeightGramsPresent": true,
-            "status": 1
+            "status": 1,
+            "weightValueAvailable": true,
+            "weightValueKind": 2
           },
           "clockQuality": 1,
           "commandUid": "40000000-0000-4000-8000-000000000005",
@@ -49,7 +50,7 @@
           "oldBagUid": "",
           "oldBagUidPresent": false,
           "operationUid": "40000000-0000-4000-8000-000000000001",
-          "payloadSha256": "2d9e096d7851a9f974a4d16c404ad1fed3dd5c5671ade4aef502653b6634cd9c",
+          "payloadSha256": "48e6fa8c38b8f875773c3b2f5f1bfc14c5d0dc5e4b11053d14a600de0dec0d5a",
           "photos": [
             {
               "capturedAt": "",
@@ -119,17 +120,19 @@
           "portNo": 2,
           "preUnlockMeasurement": {
             "calibrationVersion": 4,
+            "faultCode": 1,
             "faultCodePresent": false,
-            "lastObservedWeightGrams": 20000,
-            "lastObservedWeightGramsPresent": true,
             "mcuBootId": 101,
             "mcuEventSequence": 31,
             "measurementElapsedMs": 1200,
             "measurementUid": "40000000-0000-4000-8000-000000000003",
+            "reportedWeightGrams": 20000,
+            "reportedWeightGramsPresent": true,
             "sampleCount": 12,
             "sensorHealth": 1,
-            "stableWeightGrams": 20000,
-            "status": 1
+            "status": 1,
+            "weightValueAvailable": true,
+            "weightValueKind": 2
           },
           "removedNetWeightGrams": 18800,
           "removedNetWeightGramsPresent": true,

@@ -1,17 +1,19 @@
 {
   "capabilities": {
+    "BOOT_RECONCILIATION": 13,
     "CLEAN_MANUAL_CONFIRMATION": 12,
     "CLEAN_SOLENOID_CONTROL": 2,
     "CONFIG_STAGING_COMMIT": 8,
+    "DELIVERY_DOOR_COMMAND_RESULT": 1,
     "DELIVERY_DOOR_CONTROL": 0,
-    "DELIVERY_DOOR_POSITION_FEEDBACK": 1,
+    "DELIVERY_DOOR_HIL_QUALIFIED": 14,
     "DELIVERY_LOCAL_CONTINUE": 10,
     "DELIVERY_SAFE_CLOSE": 11,
-    "INFRARED_SAMPLING": 4,
+    "FULLNESS_SENSOR_SAMPLING": 4,
     "PERSISTENT_COMMAND_DEDUP": 6,
     "PERSISTENT_CRITICAL_EVENTS": 7,
+    "SIGNED_WEIGHT_WITH_QUALITY": 3,
     "SMOKE_MONITORING": 5,
-    "STABLE_SIGNED_WEIGHT": 3,
     "STATE_SNAPSHOT_SEGMENTS": 9
   },
   "enums": {
@@ -22,9 +24,24 @@
       },
       "wireType": "u8"
     },
+    "BootReconciliationDecision": {
+      "values": {
+        "CONFIRM_NO_ACTIVE_WORK": 1,
+        "RESUME_CLEAN_OPERATION": 2
+      },
+      "wireType": "u8"
+    },
+    "BootReconciliationStatus": {
+      "values": {
+        "ACCEPTED": 1,
+        "REJECTED": 2
+      },
+      "wireType": "u8"
+    },
     "CleanDoorStateBasis": {
       "values": {
-        "INFERRED_FROM_LOCK_POWER": 1
+        "CLEANER_CONFIRMATION": 2,
+        "NOT_OBSERVABLE": 1
       },
       "wireType": "u8"
     },
@@ -51,24 +68,11 @@
       },
       "wireType": "u8"
     },
-    "DeliveryDoorHealth": {
+    "DeliveryDoorCommand": {
       "values": {
-        "ACTUATOR_FAULT": 3,
-        "DISCONNECTED": 5,
-        "OK": 1,
-        "SWITCH_FAULT": 4,
-        "TIMEOUT": 2
-      },
-      "wireType": "u8"
-    },
-    "DeliveryDoorState": {
-      "values": {
-        "CLOSED": 1,
-        "CLOSING": 4,
-        "JAMMED": 5,
-        "OPEN": 3,
-        "OPENING": 2,
-        "UNKNOWN": 6
+        "CLOSE": 2,
+        "NONE": 0,
+        "OPEN": 1
       },
       "wireType": "u8"
     },
@@ -80,21 +84,39 @@
       },
       "wireType": "u8"
     },
+    "DoorCommandOutputStatus": {
+      "values": {
+        "COALESCED_WITH_EXISTING_CLOSE": 3,
+        "COMMAND_DISPATCHED": 1,
+        "NOT_DISPATCHED": 0,
+        "OUTPUT_REJECTED": 4,
+        "PARTIAL_OUTPUT_INTERRUPTED": 2
+      },
+      "wireType": "u8"
+    },
+    "DoorPhysicalStateBasis": {
+      "values": {
+        "NOT_OBSERVABLE": 1
+      },
+      "wireType": "u8"
+    },
     "FaultCode": {
       "values": {
         "CLEAN_SOLENOID_DRIVER": 768,
-        "DELIVERY_DOOR_ACTUATOR": 513,
-        "DELIVERY_DOOR_SWITCH": 514,
-        "DELIVERY_DOOR_TIMEOUT": 512,
-        "INFRARED_SENSOR": 1281,
-        "INFRARED_TIMEOUT": 1280,
+        "DELIVERY_DOOR_HIL_NOT_QUALIFIED": 514,
+        "DELIVERY_DOOR_OUTPUT_INTERRUPTED": 512,
+        "DELIVERY_DOOR_OUTPUT_REJECTED": 513,
+        "FULLNESS_SENSOR_DIAGNOSTIC": 1280,
         "MCU_INTERNAL": 2048,
         "MCU_STORAGE": 1792,
         "NONE": 0,
         "SMOKE_SENSOR": 1536,
         "UART_PROTOCOL": 256,
         "UART_STORAGE": 257,
+        "WEIGHT_CONFIG": 1029,
+        "WEIGHT_DISCONNECTED": 1030,
         "WEIGHT_OVERLOAD": 1027,
+        "WEIGHT_PROTOCOL": 1028,
         "WEIGHT_SENSOR": 1026,
         "WEIGHT_TIMEOUT": 1025,
         "WEIGHT_UNSTABLE": 1024
@@ -105,7 +127,7 @@
       "values": {
         "CLEAN_SOLENOID": 3,
         "DELIVERY_DOOR": 2,
-        "INFRARED_SENSOR": 5,
+        "FULLNESS_SENSOR": 5,
         "MCU_INTERNAL": 8,
         "MCU_STORAGE": 7,
         "SMOKE_SENSOR": 6,
@@ -131,9 +153,31 @@
     },
     "FullnessMode": {
       "values": {
-        "INFRARED_ONLY": 1,
-        "INFRARED_OR_WEIGHT": 3,
+        "SENSOR_ONLY": 1,
+        "SENSOR_OR_WEIGHT": 3,
         "WEIGHT_ONLY": 2
+      },
+      "wireType": "u8"
+    },
+    "FullnessSampleBasis": {
+      "values": {
+        "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK": 3,
+        "MEASURED_MEDIAN": 1,
+        "NO_ECHO_CLEAR_FALLBACK": 2
+      },
+      "wireType": "u8"
+    },
+    "FullnessSensorKind": {
+      "values": {
+        "DIGITAL_INFRARED": 2,
+        "ULTRASONIC": 1
+      },
+      "wireType": "u8"
+    },
+    "FullnessSensorValue": {
+      "values": {
+        "BLOCKED": 2,
+        "CLEAR": 1
       },
       "wireType": "u8"
     },
@@ -144,39 +188,31 @@
       },
       "wireType": "u8"
     },
-    "InferredCleanDoorState": {
-      "values": {
-        "CLOSED": 1,
-        "OPEN": 2,
-        "UNKNOWN": 3
-      },
-      "wireType": "u8"
-    },
-    "InfraredValue": {
-      "values": {
-        "BLOCKED": 2,
-        "CLEAR": 1,
-        "UNKNOWN": 3
-      },
-      "wireType": "u8"
-    },
     "McuWorkPhase": {
       "values": {
         "BASELINE_MEASURING": 49,
-        "CLEAN_ACTIVE": 34,
-        "CLEAN_FINAL_MEASURING": 35,
+        "BOOT_RECOVERY": 2,
+        "CLEAN_ACTIVE": 36,
+        "CLEAN_FINALIZING": 39,
+        "CLEAN_FINAL_MEASURING": 37,
         "CLEAN_PREPARING": 32,
         "CLEAN_PREUNLOCK_MEASURING": 33,
-        "CLEAN_RECOVERY_REQUIRED": 36,
+        "CLEAN_RECOVERY_REQUIRED": 40,
+        "CLEAN_RESULT_CONFIRMATION": 38,
+        "CLEAN_UNLOCK_PULSE": 35,
+        "CLEAN_WAIT_FIRST_UNLOCK": 34,
         "CONFIG_STAGING": 1,
-        "DELIVERY_CLOSING": 20,
-        "DELIVERY_FINALIZING": 23,
-        "DELIVERY_OPEN": 19,
-        "DELIVERY_OPENING": 18,
-        "DELIVERY_POSTCLOSE_MEASURING": 21,
-        "DELIVERY_PREOPEN_MEASURING": 17,
+        "DELIVERY_CLOSE_COMMAND": 22,
+        "DELIVERY_CLOSE_TRAVEL_WAIT": 23,
+        "DELIVERY_FINALIZING": 26,
+        "DELIVERY_FIRST_PREOPEN_MEASURING": 17,
+        "DELIVERY_OPEN_COMMAND": 19,
+        "DELIVERY_OPEN_COUNTDOWN": 21,
+        "DELIVERY_OPEN_TRAVEL_WAIT": 20,
+        "DELIVERY_POSTCLOSE_MEASURING": 24,
         "DELIVERY_PREPARING": 16,
-        "DELIVERY_WAIT_SELECTION": 22,
+        "DELIVERY_WAIT_FIRST_OPEN_AUTH": 18,
+        "DELIVERY_WAIT_SELECTION": 25,
         "FULLNESS_SAMPLING": 48,
         "IDLE": 0,
         "SAFETY_LOCKED": 64
@@ -185,7 +221,10 @@
     },
     "MeasurementStatus": {
       "values": {
+        "CONFIG_ERROR": 7,
+        "DISCONNECTED": 8,
         "OVERLOAD": 5,
+        "PROTOCOL_ERROR": 6,
         "SENSOR_FAULT": 4,
         "STABLE": 1,
         "TIMEOUT": 3,
@@ -245,8 +284,11 @@
     },
     "SensorHealth": {
       "values": {
+        "CONFIG_ERROR": 7,
         "DISCONNECTED": 4,
         "OK": 1,
+        "OVERLOAD": 8,
+        "PROTOCOL_ERROR": 6,
         "SENSOR_FAULT": 3,
         "TIMEOUT": 2,
         "UNKNOWN": 5
@@ -267,6 +309,16 @@
         "DRIVER_FAULT": 2,
         "OK": 1,
         "UNKNOWN": 4
+      },
+      "wireType": "u8"
+    },
+    "WeightValueKind": {
+      "values": {
+        "AVAILABLE_SAMPLES_MEAN": 3,
+        "LAST_FOUR_MEAN": 2,
+        "LAST_OBSERVED": 4,
+        "NONE": 0,
+        "STABLE_WINDOW_MEAN": 1
       },
       "wireType": "u8"
     },
@@ -473,43 +525,35 @@
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
           "offset": 70,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
+          "name": "reportedWeightGrams",
           "offset": 71,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
           "offset": 75,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 76,
-          "type": "i32",
-          "unit": "g"
+          "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 80,
+          "offset": 76,
           "type": "u32",
           "unit": "ms"
         },
@@ -517,14 +561,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 84,
+          "offset": 80,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 86,
+          "offset": 82,
           "type": "u32"
         },
         {
@@ -532,7 +576,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 90,
+          "offset": 86,
           "type": "u8"
         },
         {
@@ -540,13 +584,121 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 91,
+          "offset": 87,
           "type": "u16"
         }
       ],
       "id": 58,
-      "maximumPayloadLength": 93,
-      "minimumPayloadLength": 93
+      "maximumPayloadLength": 89,
+      "minimumPayloadLength": 89
+    },
+    "BOOT_RECONCILIATION_RESULT": {
+      "ackRequired": true,
+      "category": "EVENT",
+      "criticalEvent": true,
+      "direction": "MCU_TO_EDGE",
+      "fields": [
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "mcuBootId",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "mcuEventSequence",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimumSize": 8,
+          "name": "uptimeMs",
+          "offset": 12,
+          "type": "u64",
+          "unit": "ms"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 20,
+          "type": "uuid"
+        },
+        {
+          "enum": "BootReconciliationDecision",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "decision",
+          "offset": 36,
+          "type": "u8"
+        },
+        {
+          "enum": "BootReconciliationStatus",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "status",
+          "offset": 37,
+          "type": "u8"
+        },
+        {
+          "enum": "WorkType",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "activeWorkType",
+          "offset": 38,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "activeWorkUid",
+          "notes": "CONFIRM_NO_ACTIVE_WORK 成功时为全零；RESUME_CLEAN_OPERATION 时为原 operationUid",
+          "offset": 39,
+          "type": "uuid",
+          "zeroAllowedWhen": "activeWorkType=NONE"
+        },
+        {
+          "maximum": 6,
+          "maximumSize": 1,
+          "minimum": 0,
+          "minimumSize": 1,
+          "name": "activePortNo",
+          "offset": 55,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "recoveryGeneration",
+          "offset": 56,
+          "type": "u32"
+        },
+        {
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "nextCleanActionSequence",
+          "offset": 60,
+          "type": "u16"
+        },
+        {
+          "enum": "FaultCode",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "faultCode",
+          "offset": 62,
+          "type": "u16"
+        }
+      ],
+      "id": 63,
+      "maximumPayloadLength": 64,
+      "minimumPayloadLength": 64
     },
     "CLEAN_COMPLETION_CONFIRMED": {
       "ackRequired": true,
@@ -628,19 +780,11 @@
           "type": "u8"
         },
         {
-          "enum": "InferredCleanDoorState",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "inferredCleanDoorState",
-          "offset": 57,
-          "type": "u8"
-        },
-        {
           "enum": "CleanDoorStateBasis",
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanDoorStateBasis",
-          "offset": 58,
+          "offset": 57,
           "type": "u8"
         },
         {
@@ -648,13 +792,13 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanerPhysicalCloseConfirmed",
-          "offset": 59,
+          "offset": 58,
           "type": "bool"
         }
       ],
       "id": 62,
-      "maximumPayloadLength": 60,
-      "minimumPayloadLength": 60
+      "maximumPayloadLength": 59,
+      "minimumPayloadLength": 59
     },
     "CLEAN_FINAL_WEIGHT_READY": {
       "ackRequired": true,
@@ -730,43 +874,35 @@
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
           "offset": 56,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
+          "name": "reportedWeightGrams",
           "offset": 57,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
           "offset": 61,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 62,
-          "type": "i32",
-          "unit": "g"
+          "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 66,
+          "offset": 62,
           "type": "u32",
           "unit": "ms"
         },
@@ -774,14 +910,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 70,
+          "offset": 66,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 72,
+          "offset": 68,
           "type": "u32"
         },
         {
@@ -789,7 +925,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 76,
+          "offset": 72,
           "type": "u8"
         },
         {
@@ -797,13 +933,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 77,
+          "offset": 73,
           "type": "u16"
         }
       ],
       "id": 56,
-      "maximumPayloadLength": 79,
-      "minimumPayloadLength": 79
+      "maximumPayloadLength": 75,
+      "minimumPayloadLength": 75
     },
     "CLEAN_FINISH_REQUESTED": {
       "ackRequired": true,
@@ -1333,29 +1469,68 @@
           "unit": "g"
         },
         {
+          "maximum": 600000,
           "maximumSize": 4,
           "minimum": 1000,
           "minimumSize": 4,
           "name": "deliveryAutoCloseMs",
+          "notes": "V1 默认 120000；触摸屏可无限次重置该倒计时",
           "offset": 146,
           "type": "u32",
           "unit": "ms"
         },
         {
+          "maximum": 6000,
           "maximumSize": 4,
-          "minimum": 1,
+          "minimum": 1000,
           "minimumSize": 4,
           "name": "weightMeasurementTimeoutMs",
+          "notes": "V1 默认 6000",
           "offset": 150,
           "type": "u32",
           "unit": "ms"
         },
         {
+          "maximum": 45000,
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "deliveryDoorOpenCommandSignalMs",
+          "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递",
+          "offset": 154,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "maximum": 45000,
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "deliveryDoorCloseCommandSignalMs",
+          "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递",
+          "offset": 158,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "maximum": 45000,
+          "maximumSize": 4,
+          "minimum": 30000,
+          "minimumSize": 4,
+          "name": "deliveryDoorTravelWaitMs",
+          "notes": "V1 默认和硬下限 30000；这是固定行程等待，不是门位故障超时",
+          "offset": 162,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "maximum": 5000,
           "maximumSize": 4,
           "minimum": 1,
           "minimumSize": 4,
           "name": "cleanSolenoidPulseMs",
-          "offset": 154,
+          "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000",
+          "offset": 166,
           "type": "u32",
           "unit": "ms"
         },
@@ -1363,13 +1538,13 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeMonitoringEnabled",
-          "offset": 158,
+          "offset": 170,
           "type": "bool"
         }
       ],
       "id": 17,
-      "maximumPayloadLength": 159,
-      "minimumPayloadLength": 159
+      "maximumPayloadLength": 171,
+      "minimumPayloadLength": 171
     },
     "CONFIG_PORT_BLOCK": {
       "ackRequired": true,
@@ -1490,19 +1665,62 @@
           "unit": "ms"
         },
         {
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "fullnessConfirmationWaitMs",
+          "enum": "FullnessSensorKind",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessSensorKind",
           "offset": 153,
-          "type": "u32",
-          "unit": "ms"
+          "type": "u8"
         },
         {
+          "maximum": 4000,
+          "maximumSize": 4,
+          "minimum": 1,
+          "minimumSize": 4,
+          "name": "fullnessDistanceThresholdMm",
+          "notes": "侧置超声波 BLOCKED 判定为距离小于该阈值；候选默认 600，须经真实桶体校准后调优",
+          "offset": 154,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimum": 3,
+          "minimumSize": 1,
+          "name": "fullnessSampleCount",
+          "notes": "V1 默认 5",
+          "offset": 158,
+          "type": "u8"
+        },
+        {
+          "maximum": 9,
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "fullnessMinimumValidSampleCount",
+          "notes": "V1 默认 3，且不得大于 fullnessSampleCount",
+          "offset": 159,
+          "type": "u8"
+        },
+        {
+          "maximum": 100000,
+          "maximumSize": 4,
+          "minimum": 100,
+          "minimumSize": 4,
+          "name": "fullnessEchoTimeoutUs",
+          "offset": 160,
+          "type": "u32",
+          "unit": "us"
+        },
+        {
+          "maximum": 6000,
           "maximumSize": 4,
           "minimum": 1,
           "minimumSize": 4,
           "name": "weightStableWindowMs",
-          "offset": 157,
+          "notes": "V1 默认 1500",
+          "offset": 164,
           "type": "u32",
           "unit": "ms"
         },
@@ -1510,7 +1728,7 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "weightMaximumFluctuationGrams",
-          "offset": 161,
+          "offset": 168,
           "type": "u32",
           "unit": "g"
         },
@@ -1519,15 +1737,17 @@
           "minimum": 1,
           "minimumSize": 2,
           "name": "weightRequiredSampleCount",
-          "offset": 165,
+          "offset": 172,
           "type": "u16"
         },
         {
+          "maximum": 6000,
           "maximumSize": 4,
-          "minimum": 1,
+          "minimum": 1000,
           "minimumSize": 4,
           "name": "weightMeasurementTimeoutMs",
-          "offset": 167,
+          "notes": "V1 默认 6000",
+          "offset": 174,
           "type": "u32",
           "unit": "ms"
         },
@@ -1535,7 +1755,7 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "weightMinimumGrams",
-          "offset": 171,
+          "offset": 178,
           "type": "i32",
           "unit": "g"
         },
@@ -1544,7 +1764,7 @@
           "minimum": 1,
           "minimumSize": 4,
           "name": "weightMaximumGrams",
-          "offset": 175,
+          "offset": 182,
           "type": "i32",
           "unit": "g"
         },
@@ -1552,33 +1772,56 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 179,
+          "offset": 186,
           "type": "u32"
-        },
-        {
-          "maximumSize": 4,
-          "minimum": 1,
-          "minimumSize": 4,
-          "name": "infraredSampleTimeoutMs",
-          "offset": 183,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 4,
-          "minimum": 1,
-          "minimumSize": 4,
-          "name": "deliveryDoorOperationTimeoutMs",
-          "offset": 187,
-          "type": "u32",
-          "unit": "ms"
         }
       ],
       "id": 18,
-      "maximumPayloadLength": 191,
-      "minimumPayloadLength": 191
+      "maximumPayloadLength": 190,
+      "minimumPayloadLength": 190
     },
-    "DELIVERY_DOOR_STATE_CHANGED": {
+    "CONFIRM_NO_ACTIVE_WORK": {
+      "ackRequired": true,
+      "category": "COMMAND",
+      "criticalEvent": false,
+      "direction": "EDGE_TO_MCU",
+      "fields": [
+        {
+          "maximumSize": 16,
+          "minimumSize": 16,
+          "name": "mcuCommandUid",
+          "offset": 0,
+          "type": "uuid"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "commandDigestSha256",
+          "offset": 16,
+          "type": "sha256"
+        },
+        {
+          "maximum": 9007199254740991,
+          "maximumSize": 8,
+          "minimum": 1,
+          "minimumSize": 8,
+          "name": "configVersion",
+          "offset": 48,
+          "type": "u64"
+        },
+        {
+          "maximumSize": 32,
+          "minimumSize": 32,
+          "name": "configContentSha256",
+          "offset": 56,
+          "type": "sha256"
+        }
+      ],
+      "id": 40,
+      "maximumPayloadLength": 88,
+      "minimumPayloadLength": 88
+    },
+    "DELIVERY_DOOR_COMMAND_RESULT": {
       "ackRequired": true,
       "category": "EVENT",
       "criticalEvent": true,
@@ -1642,25 +1885,49 @@
           "type": "u16"
         },
         {
-          "enum": "DeliveryDoorState",
+          "enum": "DeliveryDoorCommand",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "doorState",
+          "name": "command",
           "offset": 55,
           "type": "u8"
         },
         {
-          "enum": "DeliveryDoorHealth",
+          "enum": "DoorCommandOutputStatus",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "doorHealth",
+          "name": "outputStatus",
           "offset": 56,
           "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "actualOutputMs",
+          "offset": 57,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "enum": "DoorPhysicalStateBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "physicalDoorStateBasis",
+          "offset": 61,
+          "type": "u8"
+        },
+        {
+          "enum": "FaultCode",
+          "maximumSize": 2,
+          "minimumSize": 2,
+          "name": "faultCode",
+          "offset": 62,
+          "type": "u16"
         }
       ],
       "id": 49,
-      "maximumPayloadLength": 57,
-      "minimumPayloadLength": 57
+      "maximumPayloadLength": 64,
+      "minimumPayloadLength": 64
     },
     "DELIVERY_SELECTION": {
       "ackRequired": true,
@@ -1976,26 +2243,66 @@
           "type": "u8"
         },
         {
-          "enum": "InfraredValue",
+          "enum": "FullnessSensorKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "infraredValue",
+          "name": "fullnessSensorKind",
           "offset": 54,
           "type": "u8"
         },
         {
-          "enum": "SensorHealth",
+          "enum": "FullnessSensorValue",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "infraredHealth",
+          "name": "fullnessSensorValue",
           "offset": 55,
+          "type": "u8"
+        },
+        {
+          "enum": "FullnessSampleBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessSampleBasis",
+          "offset": 56,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "representativeDistancePresent",
+          "offset": 57,
+          "type": "bool"
+        },
+        {
+          "invalidEncoding": "all-zero bytes",
+          "invalidWhen": "representativeDistancePresent=false",
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "representativeDistanceMm",
+          "offset": 58,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "maximumSize": 1,
+          "minimum": 1,
+          "minimumSize": 1,
+          "name": "requestedSampleCount",
+          "offset": 62,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "validSampleCount",
+          "offset": 63,
           "type": "u8"
         },
         {
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "measurementUid",
-          "offset": 56,
+          "offset": 64,
           "type": "uuid"
         },
         {
@@ -2003,49 +2310,41 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "measurementStatus",
-          "offset": 72,
+          "offset": 80,
           "type": "u8"
         },
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
-          "offset": 73,
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
+          "offset": 81,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
-          "offset": 74,
+          "name": "reportedWeightGrams",
+          "offset": 82,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
-          "offset": 78,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 79,
-          "type": "i32",
-          "unit": "g"
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
+          "offset": 86,
+          "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 83,
+          "offset": 87,
           "type": "u32",
           "unit": "ms"
         },
@@ -2053,14 +2352,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 87,
+          "offset": 91,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 89,
+          "offset": 93,
           "type": "u32"
         },
         {
@@ -2068,7 +2367,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 93,
+          "offset": 97,
           "type": "u8"
         },
         {
@@ -2076,13 +2375,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 94,
+          "offset": 98,
           "type": "u16"
         }
       ],
       "id": 57,
-      "maximumPayloadLength": 96,
-      "minimumPayloadLength": 96
+      "maximumPayloadLength": 100,
+      "minimumPayloadLength": 100
     },
     "HELLO": {
       "ackRequired": false,
@@ -2330,8 +2629,9 @@
           "unit": "ms"
         },
         {
+          "maximum": 6000,
           "maximumSize": 4,
-          "minimum": 1,
+          "minimum": 1000,
           "minimumSize": 4,
           "name": "measurementTimeoutMs",
           "offset": 109,
@@ -2472,43 +2772,34 @@
           "type": "u32"
         },
         {
+          "maximumSize": 2,
+          "minimum": 1,
+          "minimumSize": 2,
+          "name": "nextCleanActionSequence",
+          "notes": "必须大于该 operationUid 已接受的任何动作序号",
+          "offset": 69,
+          "type": "u16"
+        },
+        {
           "maximum": 9007199254740991,
           "maximumSize": 8,
           "minimum": 1,
           "minimumSize": 8,
           "name": "configVersion",
-          "offset": 69,
+          "offset": 71,
           "type": "u64"
         },
         {
           "maximumSize": 32,
           "minimumSize": 32,
           "name": "configContentSha256",
-          "offset": 77,
+          "offset": 79,
           "type": "sha256"
-        },
-        {
-          "maximumSize": 4,
-          "minimum": 1,
-          "minimumSize": 4,
-          "name": "startExecutionWindowMs",
-          "offset": 109,
-          "type": "u32",
-          "unit": "ms"
-        },
-        {
-          "maximumSize": 4,
-          "minimum": 1,
-          "minimumSize": 4,
-          "name": "operationWindowMs",
-          "offset": 113,
-          "type": "u32",
-          "unit": "ms"
         }
       ],
       "id": 35,
-      "maximumPayloadLength": 117,
-      "minimumPayloadLength": 117
+      "maximumPayloadLength": 111,
+      "minimumPayloadLength": 111
     },
     "SAFETY_SENSOR_EVENT": {
       "ackRequired": true,
@@ -2705,19 +2996,35 @@
           "type": "u8"
         },
         {
-          "enum": "DeliveryDoorState",
+          "enum": "DeliveryDoorCommand",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "doorState",
+          "name": "command",
           "offset": 38,
           "type": "u8"
         },
         {
-          "enum": "DeliveryDoorHealth",
+          "enum": "DoorCommandOutputStatus",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "doorHealth",
+          "name": "outputStatus",
           "offset": 39,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "actualOutputMs",
+          "offset": 40,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "enum": "DoorPhysicalStateBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "physicalDoorStateBasis",
+          "offset": 44,
           "type": "u8"
         },
         {
@@ -2725,13 +3032,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 40,
+          "offset": 45,
           "type": "u16"
         }
       ],
       "id": 61,
-      "maximumPayloadLength": 42,
-      "minimumPayloadLength": 42
+      "maximumPayloadLength": 47,
+      "minimumPayloadLength": 47
     },
     "SAMPLE_FULLNESS": {
       "ackRequired": true,
@@ -2811,8 +3118,9 @@
           "unit": "ms"
         },
         {
+          "maximum": 6000,
           "maximumSize": 4,
-          "minimum": 1,
+          "minimum": 1000,
           "minimumSize": 4,
           "name": "measurementTimeoutMs",
           "offset": 114,
@@ -3108,7 +3416,7 @@
           "maximumSize": 16,
           "minimumSize": 16,
           "name": "latestMcuCommandUid",
-          "notes": "全零 UUID 表示 MCU 尚未持久接收过任何命令；否则为最后一次持久接收的非零命令 UUID",
+          "notes": "全零 UUID 表示当前上电周期尚未接受命令；首版不保证跨重启保留",
           "offset": 77,
           "type": "uuid",
           "zeroAllowed": true
@@ -3193,7 +3501,7 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "stagingReceivedPartBitmap",
-          "notes": "stagingValid=true 时 bit n 表示 partIndex=n+1 已完整持久化；bit 0 必须为 1；索引大于 stagingPartCount 的位必须为 0",
+          "notes": "stagingValid=true 时 bit n 表示 partIndex=n+1 已在 RAM 完整接受；bit 0 必须为 1；索引大于 stagingPartCount 的位必须为 0",
           "offset": 223,
           "type": "u16"
         },
@@ -3409,19 +3717,35 @@
           "type": "u8"
         },
         {
-          "enum": "DeliveryDoorState",
+          "enum": "DeliveryDoorCommand",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "deliveryDoorState",
+          "name": "lastDeliveryDoorCommand",
           "offset": 39,
           "type": "u8"
         },
         {
-          "enum": "DeliveryDoorHealth",
+          "enum": "DoorCommandOutputStatus",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "deliveryDoorHealth",
+          "name": "lastDeliveryDoorOutputStatus",
           "offset": 40,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "lastDeliveryDoorActualOutputMs",
+          "offset": 41,
+          "type": "u32",
+          "unit": "ms"
+        },
+        {
+          "enum": "DoorPhysicalStateBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "deliveryDoorPhysicalStateBasis",
+          "offset": 45,
           "type": "u8"
         },
         {
@@ -3429,7 +3753,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanLockPowerState",
-          "offset": 41,
+          "offset": 46,
           "type": "u8"
         },
         {
@@ -3437,15 +3761,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanSolenoidHealth",
-          "offset": 42,
-          "type": "u8"
-        },
-        {
-          "enum": "InferredCleanDoorState",
-          "maximumSize": 1,
-          "minimumSize": 1,
-          "name": "inferredCleanDoorState",
-          "offset": 43,
+          "offset": 47,
           "type": "u8"
         },
         {
@@ -3453,14 +3769,14 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanDoorStateBasis",
-          "offset": 44,
+          "offset": 48,
           "type": "u8"
         },
         {
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "cleanerPhysicalCloseConfirmed",
-          "offset": 45,
+          "offset": 49,
           "type": "bool"
         },
         {
@@ -3468,43 +3784,35 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "measurementStatus",
-          "offset": 46,
+          "offset": 50,
           "type": "u8"
         },
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
-          "offset": 47,
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
+          "offset": 51,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
-          "offset": 48,
+          "name": "reportedWeightGrams",
+          "offset": 52,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
-          "offset": 52,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 53,
-          "type": "i32",
-          "unit": "g"
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
+          "offset": 56,
+          "type": "u8"
         },
         {
           "maximumSize": 4,
@@ -3545,19 +3853,51 @@
           "type": "u16"
         },
         {
-          "enum": "InfraredValue",
+          "enum": "FullnessSensorKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "infraredValue",
+          "name": "fullnessSensorKind",
           "offset": 70,
           "type": "u8"
         },
         {
-          "enum": "SensorHealth",
+          "enum": "FullnessSensorValue",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "infraredHealth",
+          "name": "fullnessSensorValue",
           "offset": 71,
+          "type": "u8"
+        },
+        {
+          "enum": "FullnessSampleBasis",
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessSampleBasis",
+          "offset": 72,
+          "type": "u8"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "representativeDistancePresent",
+          "offset": 73,
+          "type": "bool"
+        },
+        {
+          "invalidEncoding": "all-zero bytes",
+          "invalidWhen": "representativeDistancePresent=false",
+          "maximumSize": 4,
+          "minimumSize": 4,
+          "name": "representativeDistanceMm",
+          "offset": 74,
+          "type": "u32",
+          "unit": "mm"
+        },
+        {
+          "maximumSize": 1,
+          "minimumSize": 1,
+          "name": "fullnessValidSampleCount",
+          "offset": 78,
           "type": "u8"
         },
         {
@@ -3565,7 +3905,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeState",
-          "offset": 72,
+          "offset": 79,
           "type": "u8"
         },
         {
@@ -3573,7 +3913,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "smokeSensorHealth",
-          "offset": 73,
+          "offset": 80,
           "type": "u8"
         },
         {
@@ -3581,13 +3921,13 @@
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "faultBitmap",
-          "offset": 74,
+          "offset": 81,
           "type": "u32"
         }
       ],
       "id": 81,
-      "maximumPayloadLength": 78,
-      "minimumPayloadLength": 78
+      "maximumPayloadLength": 85,
+      "minimumPayloadLength": 85
     },
     "UNLOCK_CLEAN_DOOR": {
       "ackRequired": true,
@@ -3752,43 +4092,35 @@
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
           "offset": 72,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
+          "name": "reportedWeightGrams",
           "offset": 73,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
           "offset": 77,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 78,
-          "type": "i32",
-          "unit": "g"
+          "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 82,
+          "offset": 78,
           "type": "u32",
           "unit": "ms"
         },
@@ -3796,14 +4128,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 86,
+          "offset": 82,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 88,
+          "offset": 84,
           "type": "u32"
         },
         {
@@ -3811,7 +4143,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 92,
+          "offset": 88,
           "type": "u8"
         },
         {
@@ -3819,13 +4151,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 93,
+          "offset": 89,
           "type": "u16"
         }
       ],
       "id": 50,
-      "maximumPayloadLength": 95,
-      "minimumPayloadLength": 95
+      "maximumPayloadLength": 91,
+      "minimumPayloadLength": 91
     },
     "WORK_PREOPEN_WEIGHT_READY": {
       "ackRequired": true,
@@ -3908,43 +4240,35 @@
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
           "offset": 72,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
+          "name": "reportedWeightGrams",
           "offset": 73,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
           "offset": 77,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 78,
-          "type": "i32",
-          "unit": "g"
+          "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 82,
+          "offset": 78,
           "type": "u32",
           "unit": "ms"
         },
@@ -3952,14 +4276,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 86,
+          "offset": 82,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 88,
+          "offset": 84,
           "type": "u32"
         },
         {
@@ -3967,7 +4291,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 92,
+          "offset": 88,
           "type": "u8"
         },
         {
@@ -3975,13 +4299,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 93,
+          "offset": 89,
           "type": "u16"
         }
       ],
       "id": 48,
-      "maximumPayloadLength": 95,
-      "minimumPayloadLength": 95
+      "maximumPayloadLength": 91,
+      "minimumPayloadLength": 91
     },
     "WORK_PREUNLOCK_WEIGHT_READY": {
       "ackRequired": true,
@@ -4056,43 +4380,35 @@
         {
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "stableWeightValid",
-          "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实",
+          "name": "weightValuePresent",
+          "notes": "只表示是否存在可上报数值，不表示该值稳定或可信",
           "offset": 70,
           "type": "bool"
         },
         {
           "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "stableWeightValid=false",
+          "invalidWhen": "weightValuePresent=false",
           "maximumSize": 4,
           "minimumSize": 4,
-          "name": "stableWeightGrams",
+          "name": "reportedWeightGrams",
           "offset": 71,
           "type": "i32",
           "unit": "g"
         },
         {
+          "enum": "WeightValueKind",
           "maximumSize": 1,
           "minimumSize": 1,
-          "name": "lastObservedWeightValid",
+          "name": "weightValueKind",
+          "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留",
           "offset": 75,
-          "type": "bool"
-        },
-        {
-          "invalidEncoding": "all-zero bytes",
-          "invalidWhen": "lastObservedWeightValid=false",
-          "maximumSize": 4,
-          "minimumSize": 4,
-          "name": "lastObservedWeightGrams",
-          "offset": 76,
-          "type": "i32",
-          "unit": "g"
+          "type": "u8"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "measurementElapsedMs",
-          "offset": 80,
+          "offset": 76,
           "type": "u32",
           "unit": "ms"
         },
@@ -4100,14 +4416,14 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "sampleCount",
-          "offset": 84,
+          "offset": 80,
           "type": "u16"
         },
         {
           "maximumSize": 4,
           "minimumSize": 4,
           "name": "calibrationVersion",
-          "offset": 86,
+          "offset": 82,
           "type": "u32"
         },
         {
@@ -4115,7 +4431,7 @@
           "maximumSize": 1,
           "minimumSize": 1,
           "name": "weightSensorHealth",
-          "offset": 90,
+          "offset": 86,
           "type": "u8"
         },
         {
@@ -4123,13 +4439,13 @@
           "maximumSize": 2,
           "minimumSize": 2,
           "name": "faultCode",
-          "offset": 91,
+          "offset": 87,
           "type": "u16"
         }
       ],
       "id": 52,
-      "maximumPayloadLength": 93,
-      "minimumPayloadLength": 93
+      "maximumPayloadLength": 89,
+      "minimumPayloadLength": 89
     }
   },
   "physicalLink": {
@@ -4164,6 +4480,6 @@
     "minor": 0,
     "receiveBufferLimit": 512
   },
-  "registrySha256": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705",
-  "registryVersion": "1.0.0-rc.2"
+  "registrySha256": "f8a8e69b9857ed88f567a63ee1a28387ea4400c12eec286f02e66f89046fc283",
+  "registryVersion": "1.0.0-rc.3"
 }

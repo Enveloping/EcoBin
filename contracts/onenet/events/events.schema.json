@@ -11,6 +11,7 @@
     { "$ref": "#/$defs/baselineMeasurementCompleteEvent" },
     { "$ref": "#/$defs/deviceFaultObservedEvent" },
     { "$ref": "#/$defs/deviceFaultRecoveredEvent" },
+    { "$ref": "#/$defs/safetySensorStateChangedEvent" },
     { "$ref": "#/$defs/photoStatusReportedEvent" },
     { "$ref": "#/$defs/photoUploadGrantRequestedEvent" },
     { "$ref": "#/$defs/businessConfirmationReceiptEvent" },
@@ -212,8 +213,9 @@
         "firstPreOpenMeasurement",
         "finalPostCloseMeasurement",
         "deliveryNetWeightGrams",
-        "finalDeliveryDoor",
+        "finalDoorCommand",
         "completionReason",
+        "manualReviewRequired",
         "negativeWeightAnomaly",
         "frozenConfig",
         "unitPriceTenThousandths",
@@ -228,32 +230,41 @@
           "$ref": "../common.schema.json#/$defs/portNo"
         },
         "firstPreOpenMeasurement": {
-          "$ref": "../common.schema.json#/$defs/measurementStable"
+          "oneOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/measurementWithQuality"
+            },
+            { "type": "null" }
+          ]
         },
         "finalPostCloseMeasurement": {
-          "$ref": "../common.schema.json#/$defs/measurement"
+          "oneOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/measurementWithQuality"
+            },
+            { "type": "null" }
+          ]
         },
         "deliveryNetWeightGrams": {
           "$ref": "../common.schema.json#/$defs/nullableSafeSignedIntegerGrams"
         },
-        "finalDeliveryDoor": {
-          "allOf": [
-            { "$ref": "../common.schema.json#/$defs/deliveryDoor" },
+        "finalDoorCommand": {
+          "oneOf": [
             {
-              "properties": {
-                "state": { "const": "CLOSED" },
-                "health": { "const": "OK" }
-              }
-            }
+              "$ref": "../common.schema.json#/$defs/deliveryDoorCommandFact"
+            },
+            { "type": "null" }
           ]
         },
         "completionReason": {
           "enum": [
             "USER_ENDED",
             "SELECTION_WINDOW_EXPIRED",
-            "TERMINAL_WEIGHT_FAILURE"
+            "TERMINAL_WEIGHT_FAILURE",
+            "DEVICE_INTERRUPTED"
           ]
         },
+        "manualReviewRequired": { "type": "boolean" },
         "negativeWeightAnomaly": {
           "type": "boolean"
         },
@@ -267,46 +278,26 @@
           "$ref": "#/$defs/deliveryPhotos"
         }
       },
-      "oneOf": [
+      "allOf": [
         {
-          "properties": {
-            "completionReason": {
-              "enum": ["USER_ENDED", "SELECTION_WINDOW_EXPIRED"]
+          "if": {
+            "properties": {
+              "completionReason": { "const": "DEVICE_INTERRUPTED" }
             },
-            "finalPostCloseMeasurement": {
-              "$ref": "../common.schema.json#/$defs/measurementStable"
-            },
-            "deliveryNetWeightGrams": {
-              "$ref": "../common.schema.json#/$defs/safeSignedIntegerGrams"
+            "required": ["completionReason"]
+          },
+          "then": {
+            "properties": {
+              "manualReviewRequired": { "const": true }
             }
-          }
-        },
-        {
-          "properties": {
-            "completionReason": { "const": "TERMINAL_WEIGHT_FAILURE" },
-            "finalPostCloseMeasurement": {
-              "$ref": "../common.schema.json#/$defs/measurementFailure"
-            },
-            "deliveryNetWeightGrams": { "type": "null" }
+          },
+          "else": {
+            "properties": {
+              "manualReviewRequired": { "const": false }
+            }
           }
         }
       ]
-    },
-    "cleanCompletionLock": {
-      "type": "object",
-      "required": [
-        "lockPowerState",
-        "solenoidHealth",
-        "inferredDoorState",
-        "stateBasis"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "lockPowerState": { "const": "DEENERGIZED" },
-        "solenoidHealth": { "const": "OK" },
-        "inferredDoorState": { "const": "CLOSED" },
-        "stateBasis": { "const": "INFERRED_FROM_LOCK_POWER" }
-      }
     },
     "cleanCompletePayload": {
       "type": "object",
@@ -320,7 +311,8 @@
         "removedNetWeightGrams",
         "newBaselineWeightGrams",
         "cleanerCompletionConfirmed",
-        "cleanLockAndInferredDoor",
+        "cleanActionSequence",
+        "cleanLockAndManualDoorConfirmation",
         "frozenConfig",
         "photos"
       ],
@@ -342,10 +334,10 @@
           "$ref": "../common.schema.json#/$defs/uuid"
         },
         "preUnlockMeasurement": {
-          "$ref": "../common.schema.json#/$defs/measurementStable"
+          "$ref": "../common.schema.json#/$defs/measurementWithQuality"
         },
         "cleanerConfirmedFinalMeasurement": {
-          "$ref": "../common.schema.json#/$defs/measurement"
+          "$ref": "../common.schema.json#/$defs/measurementWithQuality"
         },
         "removedNetWeightGrams": {
           "$ref": "../common.schema.json#/$defs/nullableSafeSignedIntegerGrams"
@@ -356,8 +348,26 @@
         "cleanerCompletionConfirmed": {
           "const": true
         },
-        "cleanLockAndInferredDoor": {
-          "$ref": "#/$defs/cleanCompletionLock"
+        "cleanActionSequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "cleanLockAndManualDoorConfirmation": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/cleanLockAndManualDoorConfirmation"
+            },
+            {
+              "properties": {
+                "lockPowerState": { "const": "DEENERGIZED" },
+                "physicalDoorStateBasis": {
+                  "const": "CLEANER_CONFIRMATION"
+                },
+                "cleanerPhysicalCloseConfirmed": { "const": true }
+              }
+            }
+          ]
         },
         "frozenConfig": {
           "$ref": "#/$defs/configSnapshot"
@@ -365,31 +375,7 @@
         "photos": {
           "$ref": "#/$defs/cleanPhotos"
         }
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "cleanerConfirmedFinalMeasurement": {
-              "$ref": "../common.schema.json#/$defs/measurementStable"
-            },
-            "removedNetWeightGrams": {
-              "$ref": "../common.schema.json#/$defs/safeSignedIntegerGrams"
-            },
-            "newBaselineWeightGrams": {
-              "$ref": "../common.schema.json#/$defs/signedInt32Grams"
-            }
-          }
-        },
-        {
-          "properties": {
-            "cleanerConfirmedFinalMeasurement": {
-              "$ref": "../common.schema.json#/$defs/measurementFailure"
-            },
-            "removedNetWeightGrams": { "type": "null" },
-            "newBaselineWeightGrams": { "type": "null" }
-          }
-        }
-      ]
+      }
     },
     "fullnessSampleCompletePayload": {
       "type": "object",
@@ -397,8 +383,14 @@
         "detectionUid",
         "portNo",
         "sampleRole",
-        "infraredValue",
-        "infraredHealth",
+        "triggerType",
+        "fullnessMode",
+        "fullnessSensorKind",
+        "fullnessSensorValue",
+        "fullnessSampleBasis",
+        "representativeDistanceMm",
+        "requestedSampleCount",
+        "validSampleCount",
         "totalWeightMeasurement",
         "frozenConfig"
       ],
@@ -413,31 +405,73 @@
         "sampleRole": {
           "enum": ["INITIAL", "CONFIRMATION", "MANUAL_RECHECK"]
         },
-        "infraredValue": {
-          "enum": ["CLEAR", "BLOCKED", "UNKNOWN"]
+        "triggerType": {
+          "enum": ["DELIVERY_COMPLETE", "CLEAN_COMPLETE", "MANUAL_RECHECK"]
         },
-        "infraredHealth": {
-          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        "fullnessMode": {
+          "enum": ["SENSOR_ONLY", "WEIGHT_ONLY", "SENSOR_OR_WEIGHT"]
+        },
+        "fullnessSensorKind": {
+          "enum": ["ULTRASONIC", "DIGITAL_INFRARED"]
+        },
+        "fullnessSensorValue": {
+          "enum": ["CLEAR", "BLOCKED"]
+        },
+        "fullnessSampleBasis": {
+          "enum": [
+            "MEASURED_MEDIAN",
+            "NO_ECHO_CLEAR_FALLBACK",
+            "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK",
+            "NOT_SAMPLED"
+          ]
+        },
+        "representativeDistanceMm": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            { "type": "null" }
+          ]
+        },
+        "requestedSampleCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "validSampleCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
         },
         "totalWeightMeasurement": {
-          "$ref": "../common.schema.json#/$defs/measurement"
+          "$ref": "../common.schema.json#/$defs/measurementWithQuality"
         },
         "frozenConfig": {
           "$ref": "#/$defs/configSnapshot"
         }
       },
-      "oneOf": [
+      "allOf": [
         {
-          "properties": {
-            "infraredValue": { "enum": ["CLEAR", "BLOCKED"] },
-            "infraredHealth": { "const": "OK" }
-          }
-        },
-        {
-          "properties": {
-            "infraredValue": { "const": "UNKNOWN" },
-            "infraredHealth": {
-              "enum": ["TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+          "if": {
+            "properties": {
+              "fullnessSampleBasis": { "const": "MEASURED_MEDIAN" }
+            },
+            "required": ["fullnessSampleBasis"]
+          },
+          "then": {
+            "properties": {
+              "representativeDistanceMm": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "representativeDistanceMm": { "type": "null" }
             }
           }
         }
@@ -468,7 +502,7 @@
           "const": true
         },
         "totalWeightMeasurement": {
-          "$ref": "../common.schema.json#/$defs/measurement"
+          "$ref": "../common.schema.json#/$defs/measurementWithQuality"
         },
         "frozenConfig": {
           "$ref": "#/$defs/configSnapshot"
@@ -500,7 +534,7 @@
             "DELIVERY_DOOR",
             "CLEAN_SOLENOID",
             "WEIGHT_SENSOR",
-            "INFRARED_SENSOR",
+            "FULLNESS_SENSOR",
             "SMOKE_SENSOR",
             "EDGE_STORAGE",
             "MCU_STORAGE",
@@ -527,6 +561,87 @@
           "maximum": 4294967295
         }
       }
+    },
+    "safetySensorStateChangedPayload": {
+      "type": "object",
+      "required": [
+        "portNo",
+        "smokeState",
+        "smokeSensorHealth",
+        "faultCode",
+        "workType",
+        "workUid",
+        "mcuBootId",
+        "mcuEventSequence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/nullablePortNo"
+        },
+        "smokeState": {
+          "enum": ["NORMAL", "ALARM", "UNKNOWN"]
+        },
+        "smokeSensorHealth": {
+          "enum": [
+            "OK",
+            "TIMEOUT",
+            "SENSOR_FAULT",
+            "DISCONNECTED",
+            "UNKNOWN",
+            "PROTOCOL_ERROR",
+            "CONFIG_ERROR",
+            "OVERLOAD"
+          ]
+        },
+        "faultCode": {
+          "$ref": "../common.schema.json#/$defs/nullableFaultCodeSymbol"
+        },
+        "workType": {
+          "enum": [
+            "NONE",
+            "CONFIG_APPLICATION",
+            "DELIVERY_SESSION",
+            "CLEAN_OPERATION",
+            "FULLNESS_DETECTION",
+            "BASELINE_MEASUREMENT"
+          ]
+        },
+        "workUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "mcuBootId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mcuEventSequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "workType": { "const": "NONE" } },
+            "required": ["workType"]
+          },
+          "then": {
+            "properties": { "workUid": { "type": "null" } }
+          },
+          "else": {
+            "properties": {
+              "workUid": {
+                "$ref": "../common.schema.json#/$defs/uuid"
+              }
+            }
+          }
+        }
+      ]
     },
     "photoStatusReportedPayload": {
       "type": "object",
@@ -688,39 +803,185 @@
       "type": "object",
       "required": [
         "portNo",
-        "deliveryDoor",
-        "cleanLockAndInferredDoor",
+        "lastDeliveryDoorCommand",
+        "lastDeliveryDoorOutputStatus",
+        "lastDeliveryDoorActualOutputMs",
+        "deliveryDoorPhysicalStateBasis",
+        "cleanLockPowerState",
+        "solenoidHealth",
+        "cleanDoorStateBasis",
+        "cleanerPhysicalCloseConfirmed",
+        "weightMeasurementUid",
+        "weightMeasurementStatus",
+        "weightValueAvailable",
+        "reportedWeightGrams",
+        "weightValueKind",
+        "measurementElapsedMs",
+        "weightSampleCount",
+        "calibrationVersion",
         "weightSensorHealth",
-        "infraredValue",
-        "infraredHealth",
+        "weightFaultCode",
+        "weightMcuBootId",
+        "weightMcuEventSequence",
+        "fullnessSensorKind",
+        "fullnessSensorValue",
+        "fullnessSampleBasis",
+        "representativeDistanceMm",
+        "fullnessValidSampleCount",
         "smokeState",
-        "smokeSensorHealth"
+        "smokeSensorHealth",
+        "faultBitmap"
       ],
       "additionalProperties": false,
       "properties": {
         "portNo": {
           "$ref": "../common.schema.json#/$defs/portNo"
         },
-        "deliveryDoor": {
-          "$ref": "../common.schema.json#/$defs/deliveryDoor"
+        "lastDeliveryDoorCommand": {
+          "enum": ["NONE", "OPEN", "CLOSE"]
         },
-        "cleanLockAndInferredDoor": {
-          "$ref": "../common.schema.json#/$defs/cleanLockAndInferredDoor"
+        "lastDeliveryDoorOutputStatus": {
+          "enum": [
+            "NOT_DISPATCHED",
+            "COMMAND_DISPATCHED",
+            "COALESCED_WITH_EXISTING_CLOSE",
+            "PARTIAL_OUTPUT_INTERRUPTED",
+            "OUTPUT_REJECTED"
+          ]
+        },
+        "lastDeliveryDoorActualOutputMs": {
+          "$ref": "../common.schema.json#/$defs/durationMs"
+        },
+        "deliveryDoorPhysicalStateBasis": {
+          "const": "NOT_OBSERVABLE"
+        },
+        "cleanLockPowerState": {
+          "enum": ["ENERGIZED", "DEENERGIZED", "UNKNOWN"]
+        },
+        "solenoidHealth": {
+          "enum": ["OK", "DRIVER_FAULT", "DISCONNECTED", "UNKNOWN"]
+        },
+        "cleanDoorStateBasis": {
+          "enum": ["NOT_OBSERVABLE", "CLEANER_CONFIRMATION"]
+        },
+        "cleanerPhysicalCloseConfirmed": { "type": "boolean" },
+        "weightMeasurementUid": {
+          "oneOf": [
+            { "$ref": "../common.schema.json#/$defs/uuid" },
+            { "type": "null" }
+          ]
+        },
+        "weightMeasurementStatus": {
+          "enum": [
+            "STABLE",
+            "UNSTABLE",
+            "TIMEOUT",
+            "SENSOR_FAULT",
+            "OVERLOAD",
+            "PROTOCOL_ERROR",
+            "CONFIG_ERROR",
+            "DISCONNECTED"
+          ]
+        },
+        "weightValueAvailable": { "type": "boolean" },
+        "reportedWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSignedInt32Grams"
+        },
+        "weightValueKind": {
+          "enum": [
+            "NONE",
+            "STABLE_WINDOW_MEAN",
+            "LAST_FOUR_MEAN",
+            "AVAILABLE_SAMPLES_MEAN",
+            "LAST_OBSERVED"
+          ]
+        },
+        "measurementElapsedMs": {
+          "$ref": "../common.schema.json#/$defs/durationMs"
+        },
+        "weightSampleCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "calibrationVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
         },
         "weightSensorHealth": {
-          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+          "enum": [
+            "OK",
+            "TIMEOUT",
+            "SENSOR_FAULT",
+            "DISCONNECTED",
+            "UNKNOWN",
+            "PROTOCOL_ERROR",
+            "CONFIG_ERROR",
+            "OVERLOAD"
+          ]
         },
-        "infraredValue": {
-          "enum": ["CLEAR", "BLOCKED", "UNKNOWN"]
+        "weightFaultCode": {
+          "$ref": "../common.schema.json#/$defs/nullableFaultCodeSymbol"
         },
-        "infraredHealth": {
-          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+        "weightMcuBootId": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "weightMcuEventSequence": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "fullnessSensorKind": {
+          "enum": ["ULTRASONIC", "DIGITAL_INFRARED"]
+        },
+        "fullnessSensorValue": {
+          "enum": ["CLEAR", "BLOCKED"]
+        },
+        "fullnessSampleBasis": {
+          "enum": [
+            "MEASURED_MEDIAN",
+            "NO_ECHO_CLEAR_FALLBACK",
+            "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK",
+            "NOT_SAMPLED"
+          ]
+        },
+        "representativeDistanceMm": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            { "type": "null" }
+          ]
+        },
+        "fullnessValidSampleCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
         },
         "smokeState": {
           "enum": ["NORMAL", "ALARM", "UNKNOWN"]
         },
         "smokeSensorHealth": {
-          "enum": ["OK", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+          "enum": [
+            "OK",
+            "TIMEOUT",
+            "SENSOR_FAULT",
+            "DISCONNECTED",
+            "UNKNOWN",
+            "PROTOCOL_ERROR",
+            "CONFIG_ERROR",
+            "OVERLOAD"
+          ]
+        },
+        "faultBitmap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
         }
       }
     },
@@ -1011,6 +1272,33 @@
             },
             "payload": {
               "$ref": "#/$defs/deviceFaultPayload"
+            }
+          }
+        }
+      ]
+    },
+    "safetySensorStateChangedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": {
+              "const": "SAFETY_SENSOR_STATE_CHANGED"
+            },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "type": "null" },
+            "payload": {
+              "$ref": "#/$defs/safetySensorStateChangedPayload"
             }
           }
         }

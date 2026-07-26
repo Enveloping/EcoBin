@@ -716,8 +716,9 @@ def validate_uart_registry(
         "END_CLEAN_BEFORE_UNLOCK",
         "SAMPLE_FULLNESS",
         "MEASURE_BASELINE",
+        "CONFIRM_NO_ACTIVE_WORK",
         "WORK_PREOPEN_WEIGHT_READY",
-        "DELIVERY_DOOR_STATE_CHANGED",
+        "DELIVERY_DOOR_COMMAND_RESULT",
         "WORK_POSTCLOSE_WEIGHT_READY",
         "DELIVERY_SELECTION",
         "WORK_PREUNLOCK_WEIGHT_READY",
@@ -731,6 +732,7 @@ def validate_uart_registry(
         "SAFETY_SENSOR_EVENT",
         "SAFE_CLOSE_RESULT",
         "CLEAN_COMPLETION_CONFIRMED",
+        "BOOT_RECONCILIATION_RESULT",
         "STATE_SNAPSHOT_BEGIN",
         "STATE_SNAPSHOT_PORT",
         "STATE_SNAPSHOT_END",
@@ -986,7 +988,8 @@ def validate_uart_registry(
         "RESUME_CLEAN_OPERATION": {
             "configVersion",
             "configContentSha256",
-            "startExecutionWindowMs",
+            "recoveryGeneration",
+            "nextCleanActionSequence",
         },
         "END_CLEAN_BEFORE_UNLOCK": {
             "parentCommandUid",
@@ -1030,6 +1033,29 @@ def validate_uart_registry(
     }
     if not required_queue_range <= queue_range_fields:
         raise ContractError("state snapshot must preserve pending event boot/sequence range")
+
+    config_device_fields = {
+        field["name"] for field in specs["CONFIG_DEVICE_BLOCK"]["fields"]
+    }
+    config_port_fields = {
+        field["name"] for field in specs["CONFIG_PORT_BLOCK"]["fields"]
+    }
+    required_device_config_fields = {
+        "deliveryDoorOpenCommandSignalMs",
+        "deliveryDoorCloseCommandSignalMs",
+        "deliveryDoorTravelWaitMs",
+    }
+    required_port_config_fields = {
+        "fullnessDistanceThresholdMm",
+        "fullnessSampleCount",
+        "fullnessMinimumValidSampleCount",
+    }
+    if not required_device_config_fields <= config_device_fields or (
+        not required_port_config_fields <= config_port_fields
+    ):
+        raise ContractError(
+            "configuration blocks miss configurable fullness/door timing fields"
+        )
     return report
 
 
@@ -1159,27 +1185,43 @@ def _validate_measurement_semantics(
     if "measurementStatus" not in values:
         return
     status = values["measurementStatus"]
-    stable_valid = values["stableWeightValid"]
+    value_present = values["weightValuePresent"]
+    value_kind = values["weightValueKind"]
     health = values["weightSensorHealth"]
     fault = values["faultCode"]
     if status == "STABLE":
-        if not stable_valid or health != "OK" or fault != "NONE":
+        if (
+            not value_present
+            or value_kind != "STABLE_WINDOW_MEAN"
+            or health != "OK"
+            or fault != "NONE"
+        ):
             raise ContractError(
-                f"{message_name}: STABLE requires valid weight, OK health and NONE fault"
+                f"{message_name}: STABLE requires a stable-window value, OK health "
+                "and NONE fault"
             )
         if values["sampleCount"] < 1:
             raise ContractError(f"{message_name}: STABLE requires at least one sample")
         return
-    if stable_valid:
-        raise ContractError(f"{message_name}: non-STABLE measurement cannot expose stable weight")
+    if value_present == (value_kind == "NONE"):
+        raise ContractError(
+            f"{message_name}: weightValuePresent must be the inverse of WeightValueKind.NONE"
+        )
+    if status == "UNSTABLE" and (
+        not value_present
+        or value_kind not in {"LAST_FOUR_MEAN", "AVAILABLE_SAMPLES_MEAN"}
+    ):
+        raise ContractError(
+            f"{message_name}: UNSTABLE must preserve a fallback mean"
+        )
     expected: dict[str, tuple[set[str], str]] = {
         "UNSTABLE": ({"OK"}, "WEIGHT_UNSTABLE"),
         "TIMEOUT": ({"TIMEOUT"}, "WEIGHT_TIMEOUT"),
-        "SENSOR_FAULT": (
-            {"SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"},
-            "WEIGHT_SENSOR",
-        ),
-        "OVERLOAD": ({"OK"}, "WEIGHT_OVERLOAD"),
+        "SENSOR_FAULT": ({"SENSOR_FAULT", "UNKNOWN"}, "WEIGHT_SENSOR"),
+        "OVERLOAD": ({"OVERLOAD"}, "WEIGHT_OVERLOAD"),
+        "PROTOCOL_ERROR": ({"PROTOCOL_ERROR"}, "WEIGHT_PROTOCOL"),
+        "CONFIG_ERROR": ({"CONFIG_ERROR"}, "WEIGHT_CONFIG"),
+        "DISCONNECTED": ({"DISCONNECTED"}, "WEIGHT_DISCONNECTED"),
     }
     allowed_health, expected_fault = expected[status]
     if health not in allowed_health or fault != expected_fault:
@@ -1189,49 +1231,23 @@ def _validate_measurement_semantics(
         )
 
 
-def _validate_clean_lock_inference(
+def _validate_clean_manual_confirmation(
     message_name: str,
     values: Mapping[str, Any],
 ) -> None:
-    power_name = (
-        "cleanLockPowerState"
-        if "cleanLockPowerState" in values
-        else "lockPowerState"
-    )
-    health_name = (
-        "cleanSolenoidHealth"
-        if "cleanSolenoidHealth" in values
-        else "solenoidHealth"
-    )
-    inferred_name = (
-        "inferredCleanDoorState"
-        if "inferredCleanDoorState" in values
-        else None
-    )
-    basis_name = "cleanDoorStateBasis" if "cleanDoorStateBasis" in values else None
     if (
-        power_name not in values
-        or health_name not in values
-        or inferred_name is None
-        or basis_name is None
+        "cleanDoorStateBasis" not in values
+        or "cleanerPhysicalCloseConfirmed" not in values
     ):
         return
-    power = values[power_name]
-    health = values[health_name]
-    if health == "OK" and power == "ENERGIZED":
-        expected = "OPEN"
-    elif health == "OK" and power == "DEENERGIZED":
-        expected = "CLOSED"
-    else:
-        expected = "UNKNOWN"
-    if values[inferred_name] != expected:
+    expected_basis = (
+        "CLEANER_CONFIRMATION"
+        if values["cleanerPhysicalCloseConfirmed"]
+        else "NOT_OBSERVABLE"
+    )
+    if values["cleanDoorStateBasis"] != expected_basis:
         raise ContractError(
-            f"{message_name}: inferred clean door must be {expected} for "
-            f"{power}/{health}"
-        )
-    if values[basis_name] != "INFERRED_FROM_LOCK_POWER":
-        raise ContractError(
-            f"{message_name}: clean door state basis must be lock-power inference"
+            f"{message_name}: clean door basis must be {expected_basis}"
         )
 
 
@@ -1277,7 +1293,7 @@ def validate_uart_payload_semantics(
     if "measurementStatus" in values:
         _validate_measurement_semantics(message_name, values)
     if message_name in {"STATE_SNAPSHOT_PORT", "CLEAN_COMPLETION_CONFIRMED"}:
-        _validate_clean_lock_inference(message_name, values)
+        _validate_clean_manual_confirmation(message_name, values)
 
     if message_name == "HELLO":
         bitmap = values["capabilityBitmap"]
@@ -1317,29 +1333,73 @@ def validate_uart_payload_semantics(
         if values["scope"] == "SINGLE_DELIVERY_DOOR" and values["portNo"] == 0:
             raise ContractError("SAFE_CLOSE SINGLE_DELIVERY_DOOR requires a port")
 
-    if message_name == "SAFE_CLOSE_RESULT":
-        health_to_fault = {
-            "TIMEOUT": "DELIVERY_DOOR_TIMEOUT",
-            "ACTUATOR_FAULT": "DELIVERY_DOOR_ACTUATOR",
-            "SWITCH_FAULT": "DELIVERY_DOOR_SWITCH",
-            "DISCONNECTED": "DELIVERY_DOOR_SWITCH",
-        }
-        if values["doorHealth"] == "OK":
-            if (
-                values["doorState"] != "CLOSED"
-                or values["faultCode"] != "NONE"
-            ):
-                raise ContractError(
-                    "SAFE_CLOSE_RESULT success requires CLOSED/OK/NONE"
-                )
-        elif values["faultCode"] != health_to_fault[values["doorHealth"]]:
+    if message_name in {"DELIVERY_DOOR_COMMAND_RESULT", "SAFE_CLOSE_RESULT"}:
+        if values["physicalDoorStateBasis"] != "NOT_OBSERVABLE":
             raise ContractError(
-                "SAFE_CLOSE_RESULT fault differs from delivery-door health"
+                f"{message_name}: delivery-door physical state is not observable"
             )
+        if values["command"] == "NONE":
+            raise ContractError(f"{message_name}: command NONE is snapshot-only")
+        status = values["outputStatus"]
+        if status == "COMMAND_DISPATCHED":
+            if values["faultCode"] != "NONE":
+                raise ContractError(
+                    f"{message_name}: successful output result requires faultCode NONE"
+                )
+            if values["actualOutputMs"] == 0:
+                raise ContractError(
+                    f"{message_name}: dispatched output must report nonzero duration"
+                )
+        elif status == "COALESCED_WITH_EXISTING_CLOSE":
+            if values["faultCode"] != "NONE" or values["actualOutputMs"] != 0:
+                raise ContractError(
+                    f"{message_name}: coalesced close must report zero new output"
+                )
+        elif status == "PARTIAL_OUTPUT_INTERRUPTED":
+            if values["faultCode"] != "DELIVERY_DOOR_OUTPUT_INTERRUPTED":
+                raise ContractError(
+                    f"{message_name}: interrupted output has the wrong fault"
+                )
+            if values["actualOutputMs"] == 0:
+                raise ContractError(
+                    f"{message_name}: partial output must report nonzero duration"
+                )
+        elif status == "OUTPUT_REJECTED":
+            if values["faultCode"] not in {
+                "DELIVERY_DOOR_OUTPUT_REJECTED",
+                "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
+            }:
+                raise ContractError(
+                    f"{message_name}: rejected output has the wrong fault"
+                )
+            if values["actualOutputMs"] != 0:
+                raise ContractError(
+                    f"{message_name}: rejected output must report zero duration"
+                )
+        elif status == "NOT_DISPATCHED":
+            raise ContractError(
+                f"{message_name}: NOT_DISPATCHED is reserved for snapshots"
+            )
+        if (
+            message_name == "SAFE_CLOSE_RESULT"
+            and values["command"] != "CLOSE"
+        ):
+            raise ContractError("SAFE_CLOSE_RESULT must report a CLOSE command")
 
     if message_name == "CONFIG_BEGIN":
         if values["partCount"] != values["expectedPortCount"] + 3:
             raise ContractError("CONFIG_BEGIN partCount must equal expectedPortCount+3")
+
+    if message_name == "CONFIG_DEVICE_BLOCK":
+        if (
+            values["deliveryDoorOpenCommandSignalMs"]
+            >= values["deliveryDoorTravelWaitMs"]
+            or values["deliveryDoorCloseCommandSignalMs"]
+            >= values["deliveryDoorTravelWaitMs"]
+        ):
+            raise ContractError(
+                "CONFIG_DEVICE_BLOCK door signal duration must be below travel wait"
+            )
 
     if message_name == "CONFIG_PORT_BLOCK":
         if values["partIndex"] != values["portNo"] + 2:
@@ -1347,6 +1407,13 @@ def validate_uart_payload_semantics(
         if values["weightMinimumGrams"] >= values["weightMaximumGrams"]:
             raise ContractError(
                 "CONFIG_PORT_BLOCK weightMinimumGrams must be below maximum"
+            )
+        if (
+            values["fullnessMinimumValidSampleCount"]
+            > values["fullnessSampleCount"]
+        ):
+            raise ContractError(
+                "CONFIG_PORT_BLOCK minimum valid fullness samples exceed total samples"
             )
 
     if message_name == "CONFIG_COMMIT":
@@ -1364,9 +1431,9 @@ def validate_uart_payload_semantics(
         faults_by_component = {
             "UART": {"UART_PROTOCOL", "UART_STORAGE"},
             "DELIVERY_DOOR": {
-                "DELIVERY_DOOR_TIMEOUT",
-                "DELIVERY_DOOR_ACTUATOR",
-                "DELIVERY_DOOR_SWITCH",
+                "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
+                "DELIVERY_DOOR_OUTPUT_REJECTED",
+                "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
             },
             "CLEAN_SOLENOID": {"CLEAN_SOLENOID_DRIVER"},
             "WEIGHT_SENSOR": {
@@ -1374,8 +1441,11 @@ def validate_uart_payload_semantics(
                 "WEIGHT_TIMEOUT",
                 "WEIGHT_SENSOR",
                 "WEIGHT_OVERLOAD",
+                "WEIGHT_PROTOCOL",
+                "WEIGHT_CONFIG",
+                "WEIGHT_DISCONNECTED",
             },
-            "INFRARED_SENSOR": {"INFRARED_TIMEOUT", "INFRARED_SENSOR"},
+            "FULLNESS_SENSOR": {"FULLNESS_SENSOR_DIAGNOSTIC"},
             "SMOKE_SENSOR": {"SMOKE_SENSOR"},
             "MCU_STORAGE": {"MCU_STORAGE"},
             "MCU_INTERNAL": {"MCU_INTERNAL"},
@@ -1384,11 +1454,26 @@ def validate_uart_payload_semantics(
             raise ContractError("FAULT_OBSERVED faultCode differs from component")
 
     if message_name in {"FULLNESS_SAMPLE_RESULT", "STATE_SNAPSHOT_PORT"}:
-        if values["infraredHealth"] == "OK":
-            if values["infraredValue"] == "UNKNOWN":
-                raise ContractError("healthy infrared sample cannot be UNKNOWN")
-        elif values["infraredValue"] != "UNKNOWN":
-            raise ContractError("failed infrared sample must be UNKNOWN")
+        basis = values["fullnessSampleBasis"]
+        distance_present = values["representativeDistancePresent"]
+        if basis == "MEASURED_MEDIAN":
+            if not distance_present:
+                raise ContractError(
+                    f"{message_name}: measured fullness requires representative distance"
+                )
+        elif (
+            values["fullnessSensorValue"] != "CLEAR"
+            or distance_present
+        ):
+            raise ContractError(
+                f"{message_name}: no-echo/insufficient fullness fallback must be CLEAR "
+                "without a distance"
+            )
+        if message_name == "FULLNESS_SAMPLE_RESULT":
+            if values["validSampleCount"] > values["requestedSampleCount"]:
+                raise ContractError(
+                    "FULLNESS_SAMPLE_RESULT valid samples exceed requested samples"
+                )
 
     if message_name in {"SAFETY_SENSOR_EVENT", "STATE_SNAPSHOT_PORT"}:
         smoke_health_name = (
@@ -1477,12 +1562,29 @@ def validate_uart_payload_semantics(
         bitmap = registry["bitmaps"]["PortFaultBitmap"]
         if values["faultBitmap"] & ~int(bitmap["knownMaskHex"], 16):
             raise ContractError("STATE_SNAPSHOT_PORT faultBitmap contains reserved bits")
+        if values["deliveryDoorPhysicalStateBasis"] != "NOT_OBSERVABLE":
+            raise ContractError(
+                "STATE_SNAPSHOT_PORT cannot claim delivery-door physical state"
+            )
+        no_door_command = values["lastDeliveryDoorCommand"] == "NONE"
+        if no_door_command != (
+            values["lastDeliveryDoorOutputStatus"] == "NOT_DISPATCHED"
+            and values["lastDeliveryDoorActualOutputMs"] == 0
+        ):
+            raise ContractError(
+                "STATE_SNAPSHOT_PORT last door command/result tuple is inconsistent"
+            )
         expected_fault_bitmap = 0
+        if values["lastDeliveryDoorOutputStatus"] in {
+            "PARTIAL_OUTPUT_INTERRUPTED",
+            "OUTPUT_REJECTED",
+        }:
+            expected_fault_bitmap |= (
+                1 << bitmap["bits"]["DELIVERY_DOOR_OUTPUT_FAULT"]
+            )
         health_fields = (
-            ("DELIVERY_DOOR_FAULT", "deliveryDoorHealth"),
             ("CLEAN_SOLENOID_FAULT", "cleanSolenoidHealth"),
             ("WEIGHT_SENSOR_FAULT", "weightSensorHealth"),
-            ("INFRARED_SENSOR_FAULT", "infraredHealth"),
             ("SMOKE_SENSOR_FAULT", "smokeSensorHealth"),
         )
         for bit_name, health_name in health_fields:
@@ -1495,6 +1597,38 @@ def validate_uart_payload_semantics(
         if values["partIndex"] != values["portNo"] + 1:
             raise ContractError(
                 "STATE_SNAPSHOT_PORT partIndex must equal portNo+1"
+            )
+
+    if message_name == "BOOT_RECONCILIATION_RESULT":
+        no_work = values["decision"] == "CONFIRM_NO_ACTIVE_WORK"
+        if no_work:
+            if (
+                values["activeWorkType"] != "NONE"
+                or values["activePortNo"] != 0
+                or values["recoveryGeneration"] != 0
+                or values["nextCleanActionSequence"] != 0
+            ):
+                raise ContractError(
+                    "CONFIRM_NO_ACTIVE_WORK result must not expose active work"
+                )
+        elif (
+            values["activeWorkType"] != "CLEAN_OPERATION"
+            or values["activePortNo"] == 0
+            or values["recoveryGeneration"] == 0
+            or values["nextCleanActionSequence"] == 0
+        ):
+            raise ContractError(
+                "RESUME_CLEAN_OPERATION result lacks clean recovery context"
+            )
+        if (
+            values["status"] == "ACCEPTED"
+            and values["faultCode"] != "NONE"
+        ) or (
+            values["status"] == "REJECTED"
+            and values["faultCode"] == "NONE"
+        ):
+            raise ContractError(
+                "BOOT_RECONCILIATION_RESULT status/faultCode mismatch"
             )
 
     if message_name == "STATE_SNAPSHOT_END":
@@ -1523,13 +1657,12 @@ def validate_uart_payload_semantics(
     if message_name == "CLEAN_COMPLETION_CONFIRMED":
         if (
             values["lockPowerState"] != "DEENERGIZED"
-            or values["solenoidHealth"] != "OK"
-            or values["inferredCleanDoorState"] != "CLOSED"
+            or values["cleanDoorStateBasis"] != "CLEANER_CONFIRMATION"
             or not values["cleanerPhysicalCloseConfirmed"]
         ):
             raise ContractError(
-                "CLEAN_COMPLETION_CONFIRMED requires manual confirmation and healthy "
-                "deenergized lock inference"
+                "CLEAN_COMPLETION_CONFIRMED requires a deenergized output and explicit "
+                "cleaner confirmation"
             )
 
     if verify_command_digest and "commandDigestSha256" in values:

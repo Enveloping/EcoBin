@@ -43,6 +43,9 @@
         "negativeWeightThresholdGrams",
         "deliveryAutoCloseMs",
         "weightMeasurementTimeoutMs",
+        "deliveryDoorOpenCommandSignalMs",
+        "deliveryDoorCloseCommandSignalMs",
+        "deliveryDoorTravelWaitMs",
         "cleanSolenoidPulseMs",
         "smokeMonitoringEnabled"
       ],
@@ -61,13 +64,32 @@
         "deliveryAutoCloseMs": {
           "type": "integer",
           "minimum": 1000,
-          "maximum": 4294967295
+          "maximum": 600000
         },
         "weightMeasurementTimeoutMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 6000
+        },
+        "deliveryDoorOpenCommandSignalMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 45000
+        },
+        "deliveryDoorCloseCommandSignalMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 45000
+        },
+        "deliveryDoorTravelWaitMs": {
+          "type": "integer",
+          "minimum": 30000,
+          "maximum": 45000
         },
         "cleanSolenoidPulseMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
         },
         "smokeMonitoringEnabled": {
           "type": "boolean"
@@ -84,16 +106,18 @@
         "fullnessMode",
         "configuredFullWeightGrams",
         "fullnessSettleWaitMs",
-        "fullnessConfirmationWaitMs",
+        "fullnessSensorKind",
+        "fullnessDistanceThresholdMm",
+        "fullnessSampleCount",
+        "fullnessMinimumValidSampleCount",
+        "fullnessEchoTimeoutUs",
         "weightStableWindowMs",
         "weightMaximumFluctuationGrams",
         "weightRequiredSampleCount",
         "weightMeasurementTimeoutMs",
         "weightMinimumGrams",
         "weightMaximumGrams",
-        "calibrationVersion",
-        "infraredSampleTimeoutMs",
-        "deliveryDoorOperationTimeoutMs"
+        "calibrationVersion"
       ],
       "additionalProperties": false,
       "properties": {
@@ -112,7 +136,7 @@
           "$ref": "../common.schema.json#/$defs/unitPriceTenThousandths"
         },
         "fullnessMode": {
-          "enum": ["INFRARED_ONLY", "WEIGHT_ONLY", "INFRARED_OR_WEIGHT"]
+          "enum": ["SENSOR_ONLY", "WEIGHT_ONLY", "SENSOR_OR_WEIGHT"]
         },
         "configuredFullWeightGrams": {
           "type": "integer",
@@ -122,11 +146,33 @@
         "fullnessSettleWaitMs": {
           "$ref": "../common.schema.json#/$defs/durationMs"
         },
-        "fullnessConfirmationWaitMs": {
-          "$ref": "../common.schema.json#/$defs/durationMs"
+        "fullnessSensorKind": {
+          "enum": ["ULTRASONIC", "DIGITAL_INFRARED"]
+        },
+        "fullnessDistanceThresholdMm": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4000
+        },
+        "fullnessSampleCount": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 9
+        },
+        "fullnessMinimumValidSampleCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "fullnessEchoTimeoutUs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 100000
         },
         "weightStableWindowMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6000
         },
         "weightMaximumFluctuationGrams": {
           "type": "integer",
@@ -139,7 +185,9 @@
           "maximum": 65535
         },
         "weightMeasurementTimeoutMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 6000
         },
         "weightMinimumGrams": {
           "$ref": "../common.schema.json#/$defs/signedInt32Grams"
@@ -153,12 +201,6 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295
-        },
-        "infraredSampleTimeoutMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
-        },
-        "deliveryDoorOperationTimeoutMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
         }
       }
     },
@@ -371,7 +413,7 @@
           "enum": ["DELIVERY_COMPLETE", "CLEAN_COMPLETE", "MANUAL_RECHECK"]
         },
         "fullnessMode": {
-          "enum": ["INFRARED_ONLY", "WEIGHT_ONLY", "INFRARED_OR_WEIGHT"]
+          "enum": ["SENSOR_ONLY", "WEIGHT_ONLY", "SENSOR_OR_WEIGHT"]
         },
         "currentBaselineWeightGrams": {
           "$ref": "../common.schema.json#/$defs/nullableSignedInt32Grams"
@@ -385,7 +427,9 @@
           "$ref": "../common.schema.json#/$defs/durationMs"
         },
         "measurementTimeoutMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 6000
         },
         "config": {
           "$ref": "#/$defs/configIdentity"
@@ -417,7 +461,9 @@
           "const": true
         },
         "measurementTimeoutMs": {
-          "$ref": "../common.schema.json#/$defs/positiveDurationMs"
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 6000
         },
         "config": {
           "$ref": "#/$defs/configIdentity"

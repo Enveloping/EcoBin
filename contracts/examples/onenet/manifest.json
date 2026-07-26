@@ -77,6 +77,10 @@
       "schema": "../../onenet/events/events.schema.json"
     },
     {
+      "file": "safety-sensor-state-changed.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
       "file": "photo-status-reported.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },

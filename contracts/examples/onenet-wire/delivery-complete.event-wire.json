@@ -16,49 +16,57 @@
           "edgeEventSequence": 1042,
           "eventType": 1,
           "eventUid": "30000000-0000-4000-8000-000000000006",
-          "finalDeliveryDoor": {
-            "health": 1,
-            "state": 1
+          "finalDoorCommand": {
+            "actualOutputMs": 1000,
+            "command": 3,
+            "outputStatus": 2,
+            "physicalStateBasis": 1
           },
+          "finalDoorCommandPresent": true,
           "finalPostCloseMeasurement": {
             "calibrationVersion": 4,
             "faultCode": 1,
             "faultCodePresent": false,
-            "lastObservedWeightGrams": 13250,
-            "lastObservedWeightGramsPresent": true,
             "mcuBootId": 101,
             "mcuEventSequence": 29,
             "measurementElapsedMs": 1200,
             "measurementUid": "30000000-0000-4000-8000-000000000005",
+            "reportedWeightGrams": 13250,
+            "reportedWeightGramsPresent": true,
             "sampleCount": 12,
             "sensorHealth": 1,
-            "stableWeightGrams": 13250,
-            "stableWeightGramsPresent": true,
-            "status": 1
+            "status": 1,
+            "weightValueAvailable": true,
+            "weightValueKind": 2
           },
+          "finalPostCloseMeasurementPresent": true,
           "firstPreOpenMeasurement": {
             "calibrationVersion": 4,
+            "faultCode": 1,
             "faultCodePresent": false,
-            "lastObservedWeightGrams": 12000,
-            "lastObservedWeightGramsPresent": true,
             "mcuBootId": 101,
             "mcuEventSequence": 11,
             "measurementElapsedMs": 1200,
             "measurementUid": "30000000-0000-4000-8000-000000000004",
+            "reportedWeightGrams": 12000,
+            "reportedWeightGramsPresent": true,
             "sampleCount": 12,
             "sensorHealth": 1,
-            "stableWeightGrams": 12000,
-            "status": 1
+            "status": 1,
+            "weightValueAvailable": true,
+            "weightValueKind": 2
           },
+          "firstPreOpenMeasurementPresent": true,
           "frozenConfig": {
             "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "version": 8
           },
+          "manualReviewRequired": false,
           "negativeWeightAnomaly": false,
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+          "payloadSha256": "0f215788e648491f4e822449d4f335976761fff2e967ce7a7bfcc725f7fd001a",
           "photos": [
             {
               "capturedAt": "",

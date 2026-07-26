@@ -57,6 +57,24 @@ GENERATED_UART_ROOT = CONTRACTS_ROOT / "uart" / "generated"
 GENERATED_ONENET_ROOT = CONTRACTS_ROOT / "onenet" / "generated"
 GENERATED_EXAMPLES_ROOT = CONTRACTS_ROOT / "examples"
 GENERATED_DOC_ROOT = CONTRACTS_ROOT / "generated"
+HARDWARE_UART_PROTOCOL = CONTRACTS_ROOT.parent / "hardware" / "uart_protocol.py"
+HARDWARE_ONENET_PROJECTION_MODEL = (
+    CONTRACTS_ROOT.parent / "hardware" / "onenet_projection_model.json"
+)
+HARDWARE_MCU_UART_HEADER = (
+    CONTRACTS_ROOT.parent
+    / "hardware_mcu"
+    / "USER"
+    / "uar"
+    / "ecobin_uart_protocol.h"
+)
+HARDWARE_MCU_UART_GOLDEN_TEST = (
+    CONTRACTS_ROOT.parent
+    / "hardware_mcu"
+    / "USER"
+    / "uar"
+    / "ecobin_uart_golden_test.c"
+)
 
 
 def json_text(value: Any) -> str:
@@ -352,8 +370,11 @@ def build_uart_digest_vectors(
     device_values = {
         "continueDeliveryWaitMs": 30000,
         "negativeWeightThresholdGrams": 500,
-        "deliveryAutoCloseMs": 60000,
-        "weightMeasurementTimeoutMs": 10000,
+        "deliveryAutoCloseMs": 120000,
+        "weightMeasurementTimeoutMs": 6000,
+        "deliveryDoorOpenCommandSignalMs": 1000,
+        "deliveryDoorCloseCommandSignalMs": 1000,
+        "deliveryDoorTravelWaitMs": 30000,
         "cleanSolenoidPulseMs": 1000,
         "smokeMonitoringEnabled": True,
     }
@@ -362,19 +383,21 @@ def build_uart_digest_vectors(
             "portNo": port_no,
             "enabled": True,
             "unitPriceTenThousandths": 4500 + port_no,
-            "fullnessMode": "INFRARED_OR_WEIGHT",
+            "fullnessMode": "SENSOR_OR_WEIGHT",
             "configuredFullWeightGrams": 50000,
             "fullnessSettleWaitMs": 5000,
-            "fullnessConfirmationWaitMs": 10000,
+            "fullnessSensorKind": "ULTRASONIC",
+            "fullnessDistanceThresholdMm": 600,
+            "fullnessSampleCount": 5,
+            "fullnessMinimumValidSampleCount": 3,
+            "fullnessEchoTimeoutUs": 30000,
             "weightStableWindowMs": 1500,
             "weightMaximumFluctuationGrams": 20,
             "weightRequiredSampleCount": 10,
-            "weightMeasurementTimeoutMs": 10000,
+            "weightMeasurementTimeoutMs": 6000,
             "weightMinimumGrams": -5000,
             "weightMaximumGrams": 100000,
             "calibrationVersion": 4,
-            "infraredSampleTimeoutMs": 2000,
-            "deliveryDoorOperationTimeoutMs": 5000,
         }
         for port_no in (1, 2)
     ]
@@ -383,6 +406,9 @@ def build_uart_digest_vectors(
         "negativeWeightThresholdGrams",
         "deliveryAutoCloseMs",
         "weightMeasurementTimeoutMs",
+        "deliveryDoorOpenCommandSignalMs",
+        "deliveryDoorCloseCommandSignalMs",
+        "deliveryDoorTravelWaitMs",
         "cleanSolenoidPulseMs",
         "smokeMonitoringEnabled",
     ]
@@ -393,7 +419,11 @@ def build_uart_digest_vectors(
         "fullnessMode",
         "configuredFullWeightGrams",
         "fullnessSettleWaitMs",
-        "fullnessConfirmationWaitMs",
+        "fullnessSensorKind",
+        "fullnessDistanceThresholdMm",
+        "fullnessSampleCount",
+        "fullnessMinimumValidSampleCount",
+        "fullnessEchoTimeoutUs",
         "weightStableWindowMs",
         "weightMaximumFluctuationGrams",
         "weightRequiredSampleCount",
@@ -401,8 +431,6 @@ def build_uart_digest_vectors(
         "weightMinimumGrams",
         "weightMaximumGrams",
         "calibrationVersion",
-        "infraredSampleTimeoutMs",
-        "deliveryDoorOperationTimeoutMs",
     ]
     config_preimage = bytearray(
         bytes.fromhex(
@@ -473,25 +501,29 @@ def build_uart_digest_vectors(
                 "partIndex": 1 + port_no,
                 "partCount": 4,
                 "portNo": port_no,
-                "deliveryDoorState": "CLOSED",
-                "deliveryDoorHealth": "OK",
+                "lastDeliveryDoorCommand": "NONE",
+                "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
+                "lastDeliveryDoorActualOutputMs": 0,
+                "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
                 "cleanLockPowerState": "DEENERGIZED",
                 "cleanSolenoidHealth": "OK",
-                "inferredCleanDoorState": "CLOSED",
-                "cleanDoorStateBasis": "INFERRED_FROM_LOCK_POWER",
+                "cleanDoorStateBasis": "NOT_OBSERVABLE",
                 "cleanerPhysicalCloseConfirmed": False,
                 "measurementStatus": "STABLE",
-                "stableWeightValid": True,
-                "stableWeightGrams": weight,
-                "lastObservedWeightValid": True,
-                "lastObservedWeightGrams": weight,
+                "weightValuePresent": True,
+                "reportedWeightGrams": weight,
+                "weightValueKind": "STABLE_WINDOW_MEAN",
                 "measurementElapsedMs": 1000,
                 "sampleCount": 10,
                 "calibrationVersion": 4,
                 "weightSensorHealth": "OK",
                 "faultCode": "NONE",
-                "infraredValue": "CLEAR",
-                "infraredHealth": "OK",
+                "fullnessSensorKind": "ULTRASONIC",
+                "fullnessSensorValue": "CLEAR",
+                "fullnessSampleBasis": "MEASURED_MEDIAN",
+                "representativeDistancePresent": True,
+                "representativeDistanceMm": 800,
+                "fullnessValidSampleCount": 5,
                 "smokeState": "NORMAL",
                 "smokeSensorHealth": "OK",
                 "faultBitmap": 0,
@@ -748,43 +780,51 @@ def _validate_measurement(message_name: str, values: Mapping[str, Any]) -> None:
     if "measurementStatus" not in values:
         return
     status = values["measurementStatus"]
-    valid = values["stableWeightValid"]
+    value_present = values["weightValuePresent"]
+    value_kind = values["weightValueKind"]
     health = values["weightSensorHealth"]
     fault = values["faultCode"]
     if status == "STABLE":
-        if not valid or health != "OK" or fault != "NONE" or values["sampleCount"] < 1:
+        if (
+            not value_present
+            or value_kind != "STABLE_WINDOW_MEAN"
+            or health != "OK"
+            or fault != "NONE"
+            or values["sampleCount"] < 1
+        ):
             raise ProtocolError(message_name + ": invalid STABLE measurement")
         return
+    if value_present == (value_kind == "NONE"):
+        raise ProtocolError(message_name + ": inconsistent weight value presence")
+    if status == "UNSTABLE" and (
+        not value_present
+        or value_kind not in ("LAST_FOUR_MEAN", "AVAILABLE_SAMPLES_MEAN")
+    ):
+        raise ProtocolError(message_name + ": UNSTABLE needs a fallback mean")
     expected = {{
         "UNSTABLE": (("OK",), "WEIGHT_UNSTABLE"),
         "TIMEOUT": (("TIMEOUT",), "WEIGHT_TIMEOUT"),
-        "SENSOR_FAULT": (
-            ("SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"),
-            "WEIGHT_SENSOR",
-        ),
-        "OVERLOAD": (("OK",), "WEIGHT_OVERLOAD"),
+        "SENSOR_FAULT": (("SENSOR_FAULT", "UNKNOWN"), "WEIGHT_SENSOR"),
+        "OVERLOAD": (("OVERLOAD",), "WEIGHT_OVERLOAD"),
+        "PROTOCOL_ERROR": (("PROTOCOL_ERROR",), "WEIGHT_PROTOCOL"),
+        "CONFIG_ERROR": (("CONFIG_ERROR",), "WEIGHT_CONFIG"),
+        "DISCONNECTED": (("DISCONNECTED",), "WEIGHT_DISCONNECTED"),
     }}
     allowed_health, expected_fault = expected[status]
-    if valid or health not in allowed_health or fault != expected_fault:
+    if health not in allowed_health or fault != expected_fault:
         raise ProtocolError(message_name + ": invalid failed measurement")
 
 
-def _validate_lock_inference(message_name: str, values: Mapping[str, Any]) -> None:
+def _validate_manual_close(message_name: str, values: Mapping[str, Any]) -> None:
     if message_name not in ("STATE_SNAPSHOT_PORT", "CLEAN_COMPLETION_CONFIRMED"):
         return
-    power = values.get("cleanLockPowerState", values.get("lockPowerState"))
-    health = values.get("cleanSolenoidHealth", values.get("solenoidHealth"))
-    if health == "OK" and power == "ENERGIZED":
-        expected = "OPEN"
-    elif health == "OK" and power == "DEENERGIZED":
-        expected = "CLOSED"
-    else:
-        expected = "UNKNOWN"
-    if (
-        values["inferredCleanDoorState"] != expected
-        or values["cleanDoorStateBasis"] != "INFERRED_FROM_LOCK_POWER"
-    ):
-        raise ProtocolError(message_name + ": invalid clean-lock inference")
+    expected = (
+        "CLEANER_CONFIRMATION"
+        if values["cleanerPhysicalCloseConfirmed"]
+        else "NOT_OBSERVABLE"
+    )
+    if values["cleanDoorStateBasis"] != expected:
+        raise ProtocolError(message_name + ": invalid cleaner confirmation basis")
 
 
 def validate_payload_semantics(
@@ -802,7 +842,7 @@ def validate_payload_semantics(
             ):
                 raise ProtocolError(field["name"] + ": invalid slot is not zero")
     _validate_measurement(message_name, values)
-    _validate_lock_inference(message_name, values)
+    _validate_manual_close(message_name, values)
     if message_name == "NACK" and values["errorCode"] == "NONE":
         raise ProtocolError("NACK cannot use NONE")
     if message_name == "SAFE_CLOSE":
@@ -810,11 +850,71 @@ def validate_payload_semantics(
             raise ProtocolError("ALL_DELIVERY_DOORS requires portNo=0")
         if values["scope"] == "SINGLE_DELIVERY_DOOR" and values["portNo"] == 0:
             raise ProtocolError("SINGLE_DELIVERY_DOOR requires a port")
+    if message_name in ("DELIVERY_DOOR_COMMAND_RESULT", "SAFE_CLOSE_RESULT"):
+        if values["physicalDoorStateBasis"] != "NOT_OBSERVABLE":
+            raise ProtocolError("delivery-door physical state is not observable")
+        if values["command"] == "NONE":
+            raise ProtocolError("door command NONE is snapshot-only")
+        status = values["outputStatus"]
+        if status == "COMMAND_DISPATCHED":
+            if values["faultCode"] != "NONE" or values["actualOutputMs"] == 0:
+                raise ProtocolError("successful door output has a fault")
+        elif status == "COALESCED_WITH_EXISTING_CLOSE":
+            if values["faultCode"] != "NONE" or values["actualOutputMs"] != 0:
+                raise ProtocolError("coalesced close has unexpected new output")
+        elif status == "PARTIAL_OUTPUT_INTERRUPTED":
+            if (
+                values["faultCode"] != "DELIVERY_DOOR_OUTPUT_INTERRUPTED"
+                or values["actualOutputMs"] == 0
+            ):
+                raise ProtocolError("interrupted door output has the wrong fault")
+        elif status == "OUTPUT_REJECTED":
+            if values["faultCode"] not in (
+                "DELIVERY_DOOR_OUTPUT_REJECTED",
+                "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
+            ) or values["actualOutputMs"] != 0:
+                raise ProtocolError("rejected door output has the wrong fault")
+        else:
+            raise ProtocolError("NOT_DISPATCHED is reserved for snapshots")
+    if message_name == "CONFIG_DEVICE_BLOCK":
+        if (
+            values["deliveryDoorOpenCommandSignalMs"]
+            >= values["deliveryDoorTravelWaitMs"]
+            or values["deliveryDoorCloseCommandSignalMs"]
+            >= values["deliveryDoorTravelWaitMs"]
+        ):
+            raise ProtocolError("door signal duration must be below travel wait")
+    if message_name == "CONFIG_PORT_BLOCK":
+        if (
+            values["fullnessMinimumValidSampleCount"]
+            > values["fullnessSampleCount"]
+        ):
+            raise ProtocolError("minimum valid fullness samples exceed total")
+    if message_name in ("FULLNESS_SAMPLE_RESULT", "STATE_SNAPSHOT_PORT"):
+        measured = values["fullnessSampleBasis"] == "MEASURED_MEDIAN"
+        if measured != values["representativeDistancePresent"]:
+            raise ProtocolError("fullness sample basis/distance mismatch")
+        if not measured and values["fullnessSensorValue"] != "CLEAR":
+            raise ProtocolError("fullness fallback must be CLEAR")
+        if (
+            message_name == "FULLNESS_SAMPLE_RESULT"
+            and values["validSampleCount"] > values["requestedSampleCount"]
+        ):
+            raise ProtocolError("valid fullness samples exceed requested samples")
+    if message_name == "STATE_SNAPSHOT_PORT":
+        if values["deliveryDoorPhysicalStateBasis"] != "NOT_OBSERVABLE":
+            raise ProtocolError("delivery-door physical state is not observable")
+        no_command = values["lastDeliveryDoorCommand"] == "NONE"
+        no_result = (
+            values["lastDeliveryDoorOutputStatus"] == "NOT_DISPATCHED"
+            and values["lastDeliveryDoorActualOutputMs"] == 0
+        )
+        if no_command != no_result:
+            raise ProtocolError("inconsistent last door command/result tuple")
     if message_name == "CLEAN_COMPLETION_CONFIRMED":
         if (
             values["lockPowerState"] != "DEENERGIZED"
-            or values["solenoidHealth"] != "OK"
-            or values["inferredCleanDoorState"] != "CLOSED"
+            or values["cleanDoorStateBasis"] != "CLEANER_CONFIRMATION"
             or not values["cleanerPhysicalCloseConfirmed"]
         ):
             raise ProtocolError("invalid clean completion confirmation")
@@ -834,6 +934,26 @@ def validate_payload_semantics(
             raise ProtocolError(
                 "nonempty pending-event queue requires complete range"
             )
+    if message_name == "BOOT_RECONCILIATION_RESULT":
+        no_work = values["decision"] == "CONFIRM_NO_ACTIVE_WORK"
+        if no_work:
+            valid_context = (
+                values["activeWorkType"] == "NONE"
+                and values["activePortNo"] == 0
+                and values["recoveryGeneration"] == 0
+                and values["nextCleanActionSequence"] == 0
+            )
+        else:
+            valid_context = (
+                values["activeWorkType"] == "CLEAN_OPERATION"
+                and values["activePortNo"] > 0
+                and values["recoveryGeneration"] > 0
+                and values["nextCleanActionSequence"] > 0
+            )
+        if not valid_context:
+            raise ProtocolError("invalid boot reconciliation context")
+        if (values["status"] == "ACCEPTED") != (values["faultCode"] == "NONE"):
+            raise ProtocolError("boot reconciliation status/fault mismatch")
     if verify_command_digest and "commandDigestSha256" in values:
         actual = values["commandDigestSha256"]
         if isinstance(actual, bytes):
@@ -2470,8 +2590,9 @@ def _measurement(
     return {
         "measurementUid": uid,
         "status": "STABLE",
-        "stableWeightGrams": weight,
-        "lastObservedWeightGrams": weight,
+        "weightValueAvailable": True,
+        "reportedWeightGrams": weight,
+        "weightValueKind": "STABLE_WINDOW_MEAN",
         "measurementElapsedMs": 1200,
         "sampleCount": 12,
         "calibrationVersion": 4,
@@ -2563,9 +2684,12 @@ def build_onenet_examples() -> dict[str, Any]:
         "deviceConfig": {
             "continueDeliveryWaitMs": 30000,
             "negativeWeightThresholdGrams": 500,
-            "deliveryAutoCloseMs": 60000,
-            "weightMeasurementTimeoutMs": 10000,
-            "cleanSolenoidPulseMs": 1500,
+            "deliveryAutoCloseMs": 120000,
+            "weightMeasurementTimeoutMs": 6000,
+            "deliveryDoorOpenCommandSignalMs": 1000,
+            "deliveryDoorCloseCommandSignalMs": 1000,
+            "deliveryDoorTravelWaitMs": 30000,
+            "cleanSolenoidPulseMs": 1000,
             "smokeMonitoringEnabled": True,
         },
         "ports": [
@@ -2574,19 +2698,21 @@ def build_onenet_examples() -> dict[str, Any]:
                 "displayName": f"投口{port_no}",
                 "enabled": True,
                 "unitPriceTenThousandths": 4500,
-                "fullnessMode": "INFRARED_OR_WEIGHT",
+                "fullnessMode": "SENSOR_OR_WEIGHT",
                 "configuredFullWeightGrams": 50000,
                 "fullnessSettleWaitMs": 5000,
-                "fullnessConfirmationWaitMs": 10000,
-                "weightStableWindowMs": 1000,
+                "fullnessSensorKind": "ULTRASONIC",
+                "fullnessDistanceThresholdMm": 600,
+                "fullnessSampleCount": 5,
+                "fullnessMinimumValidSampleCount": 3,
+                "fullnessEchoTimeoutUs": 30000,
+                "weightStableWindowMs": 1500,
                 "weightMaximumFluctuationGrams": 20,
                 "weightRequiredSampleCount": 10,
-                "weightMeasurementTimeoutMs": 10000,
+                "weightMeasurementTimeoutMs": 6000,
                 "weightMinimumGrams": -5000,
                 "weightMaximumGrams": 100000,
                 "calibrationVersion": 4,
-                "infraredSampleTimeoutMs": 2000,
-                "deliveryDoorOperationTimeoutMs": 5000,
             }
             for port_no in (1, 2)
         ],
@@ -2609,7 +2735,7 @@ def build_onenet_examples() -> dict[str, Any]:
         "unitPriceTenThousandths": 4500,
         "continueDeliveryWaitMs": 30000,
         "negativeWeightThresholdGrams": 500,
-        "deliveryAutoCloseMs": 60000,
+        "deliveryAutoCloseMs": 120000,
     }
     start_delivery_uid = "30000000-0000-4000-8000-000000000003"
     start_delivery_command = _command(
@@ -2630,8 +2756,14 @@ def build_onenet_examples() -> dict[str, Any]:
             "30000000-0000-4000-8000-000000000005", 13250, 101, 29
         ),
         "deliveryNetWeightGrams": 1250,
-        "finalDeliveryDoor": {"state": "CLOSED", "health": "OK"},
+        "finalDoorCommand": {
+            "command": "CLOSE",
+            "outputStatus": "COMMAND_DISPATCHED",
+            "actualOutputMs": 1000,
+            "physicalStateBasis": "NOT_OBSERVABLE",
+        },
         "completionReason": "USER_ENDED",
+        "manualReviewRequired": False,
         "negativeWeightAnomaly": False,
         "frozenConfig": config,
         "unitPriceTenThousandths": 4500,
@@ -2669,11 +2801,12 @@ def build_onenet_examples() -> dict[str, Any]:
         "removedNetWeightGrams": 18800,
         "newBaselineWeightGrams": 1200,
         "cleanerCompletionConfirmed": True,
-        "cleanLockAndInferredDoor": {
+        "cleanActionSequence": 3,
+        "cleanLockAndManualDoorConfirmation": {
             "lockPowerState": "DEENERGIZED",
             "solenoidHealth": "OK",
-            "inferredDoorState": "CLOSED",
-            "stateBasis": "INFERRED_FROM_LOCK_POWER",
+            "physicalDoorStateBasis": "CLEANER_CONFIRMATION",
+            "cleanerPhysicalCloseConfirmed": True,
         },
         "frozenConfig": config,
         "photos": [
@@ -2700,8 +2833,14 @@ def build_onenet_examples() -> dict[str, Any]:
         "detectionUid": detection_uid,
         "portNo": 2,
         "sampleRole": "INITIAL",
-        "infraredValue": "CLEAR",
-        "infraredHealth": "OK",
+        "triggerType": "DELIVERY_COMPLETE",
+        "fullnessMode": "SENSOR_OR_WEIGHT",
+        "fullnessSensorKind": "ULTRASONIC",
+        "fullnessSensorValue": "CLEAR",
+        "fullnessSampleBasis": "MEASURED_MEDIAN",
+        "representativeDistanceMm": 720,
+        "requestedSampleCount": 5,
+        "validSampleCount": 5,
         "totalWeightMeasurement": _measurement(
             "50000000-0000-4000-8000-000000000002", 13250, 101, 45
         ),
@@ -2830,11 +2969,11 @@ def build_onenet_examples() -> dict[str, Any]:
             "portNo": 2,
             "sampleRole": "INITIAL",
             "triggerType": "DELIVERY_COMPLETE",
-            "fullnessMode": "INFRARED_OR_WEIGHT",
+            "fullnessMode": "SENSOR_OR_WEIGHT",
             "currentBaselineWeightGrams": 1200,
             "configuredFullWeightGrams": 50000,
             "settleWaitMs": 5000,
-            "measurementTimeoutMs": 10000,
+            "measurementTimeoutMs": 6000,
             "config": config,
         },
     )
@@ -2850,7 +2989,7 @@ def build_onenet_examples() -> dict[str, Any]:
             "portNo": 2,
             "bagUid": clean_payload["newBagUid"],
             "emptyBagConfirmed": True,
-            "measurementTimeoutMs": 10000,
+            "measurementTimeoutMs": 6000,
             "config": config,
         },
     )
@@ -2966,6 +3105,25 @@ def build_onenet_examples() -> dict[str, Any]:
         recovered_payload,
         command_uid=None,
     )
+    safety_sensor_event = _event(
+        "87500000-0000-4000-8000-000000000001",
+        1054,
+        "SAFETY_SENSOR_STATE_CHANGED",
+        "RELIABLE_FACT",
+        "DEVICE_DEPLOYMENT",
+        "Dp_demo_01",
+        {
+            "portNo": 2,
+            "smokeState": "ALARM",
+            "smokeSensorHealth": "OK",
+            "faultCode": None,
+            "workType": "DELIVERY_SESSION",
+            "workUid": session_uid,
+            "mcuBootId": 101,
+            "mcuEventSequence": 50,
+        },
+        command_uid=None,
+    )
     photo_uid = "88000000-0000-4000-8000-000000000001"
     photo_status_event = _event(
         "88000000-0000-4000-8000-000000000002",
@@ -3018,9 +3176,9 @@ def build_onenet_examples() -> dict[str, Any]:
         "Dp_demo_01",
         {
             "edgeBootId": 9001,
-            "edgeVersion": "1.0.0-rc.1",
+            "edgeVersion": "1.0.0-rc.3",
             "mcuBootId": 101,
-            "mcuFirmwareVersion": "1.0.0-rc.1",
+            "mcuFirmwareVersion": "1.0.0-rc.3",
             "uartState": "READY",
             "uartProtocolMajor": 1,
             "uartProtocolMinor": 0,
@@ -3032,18 +3190,36 @@ def build_onenet_examples() -> dict[str, Any]:
             "ports": [
                 {
                     "portNo": port_no,
-                    "deliveryDoor": {"state": "CLOSED", "health": "OK"},
-                    "cleanLockAndInferredDoor": {
-                        "lockPowerState": "DEENERGIZED",
-                        "solenoidHealth": "OK",
-                        "inferredDoorState": "CLOSED",
-                        "stateBasis": "INFERRED_FROM_LOCK_POWER",
-                    },
+                    "lastDeliveryDoorCommand": "CLOSE",
+                    "lastDeliveryDoorOutputStatus": "COMMAND_DISPATCHED",
+                    "lastDeliveryDoorActualOutputMs": 1000,
+                    "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
+                    "cleanLockPowerState": "DEENERGIZED",
+                    "solenoidHealth": "OK",
+                    "cleanDoorStateBasis": "NOT_OBSERVABLE",
+                    "cleanerPhysicalCloseConfirmed": False,
+                    "weightMeasurementUid": (
+                        f"89500000-0000-4000-8000-{port_no:012d}"
+                    ),
+                    "weightMeasurementStatus": "STABLE",
+                    "weightValueAvailable": True,
+                    "reportedWeightGrams": 13250,
+                    "weightValueKind": "STABLE_WINDOW_MEAN",
+                    "measurementElapsedMs": 1200,
+                    "weightSampleCount": 12,
+                    "calibrationVersion": 4,
                     "weightSensorHealth": "OK",
-                    "infraredValue": "CLEAR",
-                    "infraredHealth": "OK",
+                    "weightFaultCode": None,
+                    "weightMcuBootId": 101,
+                    "weightMcuEventSequence": 50 + port_no,
+                    "fullnessSensorKind": "ULTRASONIC",
+                    "fullnessSensorValue": "CLEAR",
+                    "fullnessSampleBasis": "MEASURED_MEDIAN",
+                    "representativeDistanceMm": 720,
+                    "fullnessValidSampleCount": 5,
                     "smokeState": "NORMAL",
                     "smokeSensorHealth": "OK",
+                    "faultBitmap": 0,
                 }
                 for port_no in (1, 2)
             ],
@@ -3126,6 +3302,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "device-fault-recovered.event.json": (
             fault_recovered_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "safety-sensor-state-changed.event.json": (
+            safety_sensor_event,
             "../../onenet/events/events.schema.json",
         ),
         "photo-status-reported.event.json": (
@@ -4819,8 +4999,11 @@ def render_catalog(
             "- [ ] capability bit 与当前 MCU 硬件能力一致。",
             "- [ ] `CLEAN_FINAL_WEIGHT_READY` 作为人工完成请求后的独立称重结果可实现。",
             "- [ ] 清运只存在电磁阀通断；没有门磁、自动关门或清运 `SAFE_CLOSE`。",
-            "- [ ] 不可逆动作的命令去重、关键事件队列和 boot/event 序号可掉电保存。",
-            "- [ ] 配置 staging/COMMIT 可原子切换并跨重启报告进度。",
+            "- [ ] 投递门事件只报告命令输出，物理门位始终 `NOT_OBSERVABLE`。",
+            "- [ ] `UNSTABLE` 和带数据的故障测量保留 `reportedWeightGrams` 与质量标志。",
+            "- [ ] 配置 staging/COMMIT 在 RAM 中原子切换；重启后由香橙派重新同步。",
+            "- [ ] 启动对账可显式确认无旧作业或续接原清运，且不重启清运窗口。",
+            "- [ ] 未实现时不得宣称持久命令去重、持久事件队列或门控 HIL 能力。",
             "- [ ] C 工具链编译并通过同一份 `ecobin_uart_golden_test.c`。",
             "- [ ] 真机对 CRC、ACK 丢失、重发、重启和投递门独立超时关门留存证据。",
             "",
@@ -4850,6 +5033,18 @@ def build_outputs() -> dict[Path, str]:
         onenet_wire_mapping,
         mapping.get("enumDisplay", {}),
     )
+    event_descriptors = {
+        event["identifier"]: {
+            "eventType": onenet_wire_mapping["functions"][event["identifier"]][
+                "eventType"
+            ],
+            "outputData": event["outputData"],
+            "outputMappings": onenet_wire_mapping["functions"][
+                event["identifier"]
+            ]["outputMappings"],
+        }
+        for event in thing_model["events"]
+    }
 
     expanded_layout = {
         "generatedFrom": "contracts/uart/uart-registry.yaml",
@@ -4861,20 +5056,30 @@ def build_outputs() -> dict[Path, str]:
         "enums": registry["enums"],
         "messages": specs,
     }
+    generated_python = render_python_module(registry, specs, registry_digest)
+    generated_c_header = render_c_header(registry, specs, registry_digest)
+    generated_c_golden_test = render_c_golden_test(
+        registry,
+        vectors,
+        stream_traces,
+        digest_vectors,
+    )
     outputs: dict[Path, str] = {
         GENERATED_UART_ROOT / "uart-layout.json": json_text(expanded_layout),
-        GENERATED_UART_ROOT / "python" / "ecobin_uart_protocol.py": render_python_module(
-            registry, specs, registry_digest
+        GENERATED_UART_ROOT / "python" / "ecobin_uart_protocol.py": generated_python,
+        HARDWARE_UART_PROTOCOL: generated_python,
+        HARDWARE_ONENET_PROJECTION_MODEL: json_text(
+            {
+                "generated": True,
+                "mappingVersion": mapping["mappingVersion"],
+                "enumDisplay": mapping.get("enumDisplay", {}),
+                "events": event_descriptors,
+            }
         ),
-        GENERATED_UART_ROOT / "c" / "ecobin_uart_protocol.h": render_c_header(
-            registry, specs, registry_digest
-        ),
-        GENERATED_UART_ROOT / "c" / "ecobin_uart_golden_test.c": render_c_golden_test(
-            registry,
-            vectors,
-            stream_traces,
-            digest_vectors,
-        ),
+        GENERATED_UART_ROOT / "c" / "ecobin_uart_protocol.h": generated_c_header,
+        GENERATED_UART_ROOT / "c" / "ecobin_uart_golden_test.c": generated_c_golden_test,
+        HARDWARE_MCU_UART_HEADER: generated_c_header,
+        HARDWARE_MCU_UART_GOLDEN_TEST: generated_c_golden_test,
         GENERATED_UART_ROOT / "java" / "EcobinUartProtocol.java": render_java_protocol(
             registry, specs, registry_digest
         ),

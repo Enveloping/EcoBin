@@ -18,6 +18,7 @@
     "photo-upload-grant-requested.event-wire.json",
     "provide-photo-upload-grant.service-wire.json",
     "resume-clean-operation.service-wire.json",
+    "safety-sensor-state-changed.event-wire.json",
     "sample-fullness.service-wire.json",
     "start-clean-operation.service-wire.json",
     "start-delivery-session.service-wire.json"

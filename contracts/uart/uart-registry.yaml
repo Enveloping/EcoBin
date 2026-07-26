@@ -1,5 +1,5 @@
 {
-  "registryVersion": "1.0.0-rc.2",
+  "registryVersion": "1.0.0-rc.3",
   "status": "MCU_REVIEW_REQUIRED",
   "physicalLink": {
     "baudRate": 115200,
@@ -161,19 +161,27 @@
       "values": {
         "IDLE": 0,
         "CONFIG_STAGING": 1,
+        "BOOT_RECOVERY": 2,
         "DELIVERY_PREPARING": 16,
-        "DELIVERY_PREOPEN_MEASURING": 17,
-        "DELIVERY_OPENING": 18,
-        "DELIVERY_OPEN": 19,
-        "DELIVERY_CLOSING": 20,
-        "DELIVERY_POSTCLOSE_MEASURING": 21,
-        "DELIVERY_WAIT_SELECTION": 22,
-        "DELIVERY_FINALIZING": 23,
+        "DELIVERY_FIRST_PREOPEN_MEASURING": 17,
+        "DELIVERY_WAIT_FIRST_OPEN_AUTH": 18,
+        "DELIVERY_OPEN_COMMAND": 19,
+        "DELIVERY_OPEN_TRAVEL_WAIT": 20,
+        "DELIVERY_OPEN_COUNTDOWN": 21,
+        "DELIVERY_CLOSE_COMMAND": 22,
+        "DELIVERY_CLOSE_TRAVEL_WAIT": 23,
+        "DELIVERY_POSTCLOSE_MEASURING": 24,
+        "DELIVERY_WAIT_SELECTION": 25,
+        "DELIVERY_FINALIZING": 26,
         "CLEAN_PREPARING": 32,
         "CLEAN_PREUNLOCK_MEASURING": 33,
-        "CLEAN_ACTIVE": 34,
-        "CLEAN_FINAL_MEASURING": 35,
-        "CLEAN_RECOVERY_REQUIRED": 36,
+        "CLEAN_WAIT_FIRST_UNLOCK": 34,
+        "CLEAN_UNLOCK_PULSE": 35,
+        "CLEAN_ACTIVE": 36,
+        "CLEAN_FINAL_MEASURING": 37,
+        "CLEAN_RESULT_CONFIRMATION": 38,
+        "CLEAN_FINALIZING": 39,
+        "CLEAN_RECOVERY_REQUIRED": 40,
         "FULLNESS_SAMPLING": 48,
         "BASELINE_MEASURING": 49,
         "SAFETY_LOCKED": 64
@@ -189,30 +197,33 @@
     "FullnessMode": {
       "wireType": "u8",
       "values": {
-        "INFRARED_ONLY": 1,
+        "SENSOR_ONLY": 1,
         "WEIGHT_ONLY": 2,
-        "INFRARED_OR_WEIGHT": 3
+        "SENSOR_OR_WEIGHT": 3
       }
     },
-    "DeliveryDoorState": {
+    "DeliveryDoorCommand": {
       "wireType": "u8",
       "values": {
-        "CLOSED": 1,
-        "OPENING": 2,
-        "OPEN": 3,
-        "CLOSING": 4,
-        "JAMMED": 5,
-        "UNKNOWN": 6
+        "NONE": 0,
+        "OPEN": 1,
+        "CLOSE": 2
       }
     },
-    "DeliveryDoorHealth": {
+    "DoorCommandOutputStatus": {
       "wireType": "u8",
       "values": {
-        "OK": 1,
-        "TIMEOUT": 2,
-        "ACTUATOR_FAULT": 3,
-        "SWITCH_FAULT": 4,
-        "DISCONNECTED": 5
+        "NOT_DISPATCHED": 0,
+        "COMMAND_DISPATCHED": 1,
+        "PARTIAL_OUTPUT_INTERRUPTED": 2,
+        "COALESCED_WITH_EXISTING_CLOSE": 3,
+        "OUTPUT_REJECTED": 4
+      }
+    },
+    "DoorPhysicalStateBasis": {
+      "wireType": "u8",
+      "values": {
+        "NOT_OBSERVABLE": 1
       }
     },
     "CleanLockPowerState": {
@@ -232,18 +243,11 @@
         "UNKNOWN": 4
       }
     },
-    "InferredCleanDoorState": {
-      "wireType": "u8",
-      "values": {
-        "CLOSED": 1,
-        "OPEN": 2,
-        "UNKNOWN": 3
-      }
-    },
     "CleanDoorStateBasis": {
       "wireType": "u8",
       "values": {
-        "INFERRED_FROM_LOCK_POWER": 1
+        "NOT_OBSERVABLE": 1,
+        "CLEANER_CONFIRMATION": 2
       }
     },
     "MeasurementStatus": {
@@ -253,7 +257,10 @@
         "UNSTABLE": 2,
         "TIMEOUT": 3,
         "SENSOR_FAULT": 4,
-        "OVERLOAD": 5
+        "OVERLOAD": 5,
+        "PROTOCOL_ERROR": 6,
+        "CONFIG_ERROR": 7,
+        "DISCONNECTED": 8
       }
     },
     "SensorHealth": {
@@ -263,15 +270,42 @@
         "TIMEOUT": 2,
         "SENSOR_FAULT": 3,
         "DISCONNECTED": 4,
-        "UNKNOWN": 5
+        "UNKNOWN": 5,
+        "PROTOCOL_ERROR": 6,
+        "CONFIG_ERROR": 7,
+        "OVERLOAD": 8
       }
     },
-    "InfraredValue": {
+    "WeightValueKind": {
+      "wireType": "u8",
+      "values": {
+        "NONE": 0,
+        "STABLE_WINDOW_MEAN": 1,
+        "LAST_FOUR_MEAN": 2,
+        "AVAILABLE_SAMPLES_MEAN": 3,
+        "LAST_OBSERVED": 4
+      }
+    },
+    "FullnessSensorKind": {
+      "wireType": "u8",
+      "values": {
+        "ULTRASONIC": 1,
+        "DIGITAL_INFRARED": 2
+      }
+    },
+    "FullnessSensorValue": {
       "wireType": "u8",
       "values": {
         "CLEAR": 1,
-        "BLOCKED": 2,
-        "UNKNOWN": 3
+        "BLOCKED": 2
+      }
+    },
+    "FullnessSampleBasis": {
+      "wireType": "u8",
+      "values": {
+        "MEASURED_MEDIAN": 1,
+        "NO_ECHO_CLEAR_FALLBACK": 2,
+        "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK": 3
       }
     },
     "SmokeState": {
@@ -313,6 +347,20 @@
         "SINGLE_DELIVERY_DOOR": 2
       }
     },
+    "BootReconciliationDecision": {
+      "wireType": "u8",
+      "values": {
+        "CONFIRM_NO_ACTIVE_WORK": 1,
+        "RESUME_CLEAN_OPERATION": 2
+      }
+    },
+    "BootReconciliationStatus": {
+      "wireType": "u8",
+      "values": {
+        "ACCEPTED": 1,
+        "REJECTED": 2
+      }
+    },
     "FaultComponent": {
       "wireType": "u8",
       "values": {
@@ -320,7 +368,7 @@
         "DELIVERY_DOOR": 2,
         "CLEAN_SOLENOID": 3,
         "WEIGHT_SENSOR": 4,
-        "INFRARED_SENSOR": 5,
+        "FULLNESS_SENSOR": 5,
         "SMOKE_SENSOR": 6,
         "MCU_STORAGE": 7,
         "MCU_INTERNAL": 8
@@ -347,16 +395,18 @@
         "NONE": 0,
         "UART_PROTOCOL": 256,
         "UART_STORAGE": 257,
-        "DELIVERY_DOOR_TIMEOUT": 512,
-        "DELIVERY_DOOR_ACTUATOR": 513,
-        "DELIVERY_DOOR_SWITCH": 514,
+        "DELIVERY_DOOR_OUTPUT_INTERRUPTED": 512,
+        "DELIVERY_DOOR_OUTPUT_REJECTED": 513,
+        "DELIVERY_DOOR_HIL_NOT_QUALIFIED": 514,
         "CLEAN_SOLENOID_DRIVER": 768,
         "WEIGHT_UNSTABLE": 1024,
         "WEIGHT_TIMEOUT": 1025,
         "WEIGHT_SENSOR": 1026,
         "WEIGHT_OVERLOAD": 1027,
-        "INFRARED_TIMEOUT": 1280,
-        "INFRARED_SENSOR": 1281,
+        "WEIGHT_PROTOCOL": 1028,
+        "WEIGHT_CONFIG": 1029,
+        "WEIGHT_DISCONNECTED": 1030,
+        "FULLNESS_SENSOR_DIAGNOSTIC": 1280,
         "SMOKE_SENSOR": 1536,
         "MCU_STORAGE": 1792,
         "MCU_INTERNAL": 2048
@@ -377,23 +427,22 @@
     "PortFaultBitmap": {
       "wireType": "u32",
       "bits": {
-        "DELIVERY_DOOR_FAULT": 0,
+        "DELIVERY_DOOR_OUTPUT_FAULT": 0,
         "CLEAN_SOLENOID_FAULT": 1,
         "WEIGHT_SENSOR_FAULT": 2,
-        "INFRARED_SENSOR_FAULT": 3,
         "SMOKE_SENSOR_FAULT": 4
       },
-      "knownMaskHex": "0000001f",
+      "knownMaskHex": "00000017",
       "unknownBitDisposition": "REJECT_RESERVED_BITS",
-      "notes": "STATE_SNAPSHOT_PORT 的派生故障摘要：对应 health 不为 OK 时该位为 1，等于 OK 时为 0；bit 5..31 保留并必须为 0。权威故障细节仍为同一快照段中的类型化 health/fault 字段。"
+      "notes": "STATE_SNAPSHOT_PORT 的派生故障摘要：投递门位只反映最近一次命令输出失败，不表示机械门位；清运锁、称重、烟雾位由类型化 health 派生。侧置满溢传感器无回波或有效样本不足按 CLEAR 处理，不形成故障位。未登记位必须为 0。"
     }
   },
   "capabilities": {
     "DELIVERY_DOOR_CONTROL": 0,
-    "DELIVERY_DOOR_POSITION_FEEDBACK": 1,
+    "DELIVERY_DOOR_COMMAND_RESULT": 1,
     "CLEAN_SOLENOID_CONTROL": 2,
-    "STABLE_SIGNED_WEIGHT": 3,
-    "INFRARED_SAMPLING": 4,
+    "SIGNED_WEIGHT_WITH_QUALITY": 3,
+    "FULLNESS_SENSOR_SAMPLING": 4,
     "SMOKE_MONITORING": 5,
     "PERSISTENT_COMMAND_DEDUP": 6,
     "PERSISTENT_CRITICAL_EVENTS": 7,
@@ -401,45 +450,57 @@
     "STATE_SNAPSHOT_SEGMENTS": 9,
     "DELIVERY_LOCAL_CONTINUE": 10,
     "DELIVERY_SAFE_CLOSE": 11,
-    "CLEAN_MANUAL_CONFIRMATION": 12
+    "CLEAN_MANUAL_CONFIRMATION": 12,
+    "BOOT_RECONCILIATION": 13,
+    "DELIVERY_DOOR_HIL_QUALIFIED": 14
   },
   "capabilityPolicy": {
-    "knownMaskHex": "0000000000001fff",
-    "requiredEdgeMaskHex": "0000000000001fff",
-    "requiredMcuMaskHex": "0000000000001fff",
+    "knownMaskHex": "0000000000007fff",
+    "requiredEdgeMaskHex": "0000000000000300",
+    "requiredMcuMaskHex": "0000000000000300",
     "unknownBitDisposition": "HELLO_INCOMPATIBLE",
     "negotiation": "INTERSECTION_AFTER_REQUIRED_MASK_CHECK",
     "messageRequirements": {
       "START_DELIVERY_SESSION": [
         "DELIVERY_DOOR_CONTROL",
-        "DELIVERY_DOOR_POSITION_FEEDBACK",
-        "STABLE_SIGNED_WEIGHT",
-        "PERSISTENT_COMMAND_DEDUP",
-        "PERSISTENT_CRITICAL_EVENTS",
-        "DELIVERY_LOCAL_CONTINUE"
+        "DELIVERY_DOOR_COMMAND_RESULT",
+        "SIGNED_WEIGHT_WITH_QUALITY",
+        "DELIVERY_LOCAL_CONTINUE",
+        "DELIVERY_DOOR_HIL_QUALIFIED"
+      ],
+      "AUTHORIZE_DELIVERY_FIRST_OPEN": [
+        "DELIVERY_DOOR_CONTROL",
+        "DELIVERY_DOOR_COMMAND_RESULT",
+        "DELIVERY_DOOR_HIL_QUALIFIED"
       ],
       "START_CLEAN_OPERATION": [
         "CLEAN_SOLENOID_CONTROL",
-        "STABLE_SIGNED_WEIGHT",
-        "PERSISTENT_COMMAND_DEDUP",
-        "PERSISTENT_CRITICAL_EVENTS",
+        "SIGNED_WEIGHT_WITH_QUALITY",
         "CLEAN_MANUAL_CONFIRMATION"
       ],
       "CONFIG_BEGIN": [
-        "CONFIG_STAGING_COMMIT",
-        "PERSISTENT_COMMAND_DEDUP"
+        "CONFIG_STAGING_COMMIT"
       ],
       "SAMPLE_FULLNESS": [
-        "STABLE_SIGNED_WEIGHT",
-        "INFRARED_SAMPLING"
+        "SIGNED_WEIGHT_WITH_QUALITY",
+        "FULLNESS_SENSOR_SAMPLING"
       ],
       "QUERY_STATE": [
-        "STATE_SNAPSHOT_SEGMENTS",
-        "PERSISTENT_CRITICAL_EVENTS"
+        "STATE_SNAPSHOT_SEGMENTS"
       ],
       "SAFE_CLOSE": [
         "DELIVERY_SAFE_CLOSE",
-        "DELIVERY_DOOR_POSITION_FEEDBACK"
+        "DELIVERY_DOOR_CONTROL",
+        "DELIVERY_DOOR_COMMAND_RESULT",
+        "DELIVERY_DOOR_HIL_QUALIFIED"
+      ],
+      "CONFIRM_NO_ACTIVE_WORK": [
+        "BOOT_RECONCILIATION"
+      ],
+      "RESUME_CLEAN_OPERATION": [
+        "BOOT_RECONCILIATION",
+        "CLEAN_SOLENOID_CONTROL",
+        "CLEAN_MANUAL_CONFIRMATION"
       ]
     }
   },
@@ -477,9 +538,12 @@
         "negativeWeightThresholdGrams:u32_be",
         "deliveryAutoCloseMs:u32_be",
         "weightMeasurementTimeoutMs:u32_be",
+        "deliveryDoorOpenCommandSignalMs:u32_be",
+        "deliveryDoorCloseCommandSignalMs:u32_be",
+        "deliveryDoorTravelWaitMs:u32_be",
         "cleanSolenoidPulseMs:u32_be",
         "smokeMonitoringEnabled:bool",
-        "for each port: portNo:u8, enabled:bool, unitPriceTenThousandths:u32_be, fullnessMode:u8, configuredFullWeightGrams:u32_be, fullnessSettleWaitMs:u32_be, fullnessConfirmationWaitMs:u32_be, weightStableWindowMs:u32_be, weightMaximumFluctuationGrams:u32_be, weightRequiredSampleCount:u16_be, weightMeasurementTimeoutMs:u32_be, weightMinimumGrams:i32_be, weightMaximumGrams:i32_be, calibrationVersion:u32_be, infraredSampleTimeoutMs:u32_be, deliveryDoorOperationTimeoutMs:u32_be"
+        "for each port: portNo:u8, enabled:bool, unitPriceTenThousandths:u32_be, fullnessMode:u8, configuredFullWeightGrams:u32_be, fullnessSettleWaitMs:u32_be, fullnessSensorKind:u8, fullnessDistanceThresholdMm:u32_be, fullnessSampleCount:u8, fullnessMinimumValidSampleCount:u8, fullnessEchoTimeoutUs:u32_be, weightStableWindowMs:u32_be, weightMaximumFluctuationGrams:u32_be, weightRequiredSampleCount:u16_be, weightMeasurementTimeoutMs:u32_be, weightMinimumGrams:i32_be, weightMaximumGrams:i32_be, calibrationVersion:u32_be"
       ],
       "ordering": [
         "exactly expectedPortCount port blocks",
@@ -575,27 +639,22 @@
         "enum": "MeasurementStatus"
       },
       {
-        "name": "stableWeightValid",
+        "name": "weightValuePresent",
         "type": "bool",
-        "notes": "false 表示 stableWeightGrams 字节槽不构成重量事实"
+        "notes": "只表示是否存在可上报数值，不表示该值稳定或可信"
       },
       {
-        "name": "stableWeightGrams",
+        "name": "reportedWeightGrams",
         "type": "i32",
         "unit": "g",
-        "invalidWhen": "stableWeightValid=false",
+        "invalidWhen": "weightValuePresent=false",
         "invalidEncoding": "all-zero bytes"
       },
       {
-        "name": "lastObservedWeightValid",
-        "type": "bool"
-      },
-      {
-        "name": "lastObservedWeightGrams",
-        "type": "i32",
-        "unit": "g",
-        "invalidWhen": "lastObservedWeightValid=false",
-        "invalidEncoding": "all-zero bytes"
+        "name": "weightValueKind",
+        "type": "u8",
+        "enum": "WeightValueKind",
+        "notes": "STABLE 使用稳定窗口均值；UNSTABLE 优先使用超时前最后 4 次均值，不足 4 次时使用全部可用样本均值；故障时只要仍有数据就保留"
       },
       {
         "name": "measurementElapsedMs",
@@ -706,7 +765,7 @@
       "direction": "EDGE_TO_MCU",
       "category": "CONTROL",
       "ackRequired": true,
-      "notes": "只允许关闭有真实执行器与门位反馈的投递门，不适用于清运门",
+      "notes": "只向投递门控制器调度关门命令，不证明门已物理关闭；不适用于清运门",
       "payload": [
         { "group": "commandIdentity" },
         { "name": "scope", "type": "u8", "enum": "SafeCloseScope" },
@@ -739,9 +798,12 @@
         { "name": "partCount", "type": "u8", "minimum": 4, "maximum": 9 },
         { "name": "continueDeliveryWaitMs", "type": "u32", "minimum": 1000, "unit": "ms" },
         { "name": "negativeWeightThresholdGrams", "type": "u32", "minimum": 1, "unit": "g" },
-        { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "unit": "ms" },
-        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" },
-        { "name": "cleanSolenoidPulseMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "deliveryAutoCloseMs", "type": "u32", "minimum": 1000, "maximum": 600000, "unit": "ms", "notes": "V1 默认 120000；触摸屏可无限次重置该倒计时" },
+        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms", "notes": "V1 默认 6000" },
+        { "name": "deliveryDoorOpenCommandSignalMs", "type": "u32", "minimum": 1, "maximum": 45000, "unit": "ms", "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递" },
+        { "name": "deliveryDoorCloseCommandSignalMs", "type": "u32", "minimum": 1, "maximum": 45000, "unit": "ms", "notes": "V1 单投口设备级候选配置；默认值和最终硬边界须由门控 HIL 冻结，未通过 HIL 时禁止投递" },
+        { "name": "deliveryDoorTravelWaitMs", "type": "u32", "minimum": 30000, "maximum": 45000, "unit": "ms", "notes": "V1 默认和硬下限 30000；这是固定行程等待，不是门位故障超时" },
+        { "name": "cleanSolenoidPulseMs", "type": "u32", "minimum": 1, "maximum": 5000, "unit": "ms", "notes": "候选默认 1000；须经实机验证后调优，不得超过固件硬上限 5000" },
         { "name": "smokeMonitoringEnabled", "type": "bool" }
       ]
     },
@@ -761,16 +823,18 @@
         { "name": "fullnessMode", "type": "u8", "enum": "FullnessMode" },
         { "name": "configuredFullWeightGrams", "type": "u32", "minimum": 1, "unit": "g" },
         { "name": "fullnessSettleWaitMs", "type": "u32", "unit": "ms" },
-        { "name": "fullnessConfirmationWaitMs", "type": "u32", "unit": "ms" },
-        { "name": "weightStableWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "fullnessSensorKind", "type": "u8", "enum": "FullnessSensorKind" },
+        { "name": "fullnessDistanceThresholdMm", "type": "u32", "minimum": 1, "maximum": 4000, "unit": "mm", "notes": "侧置超声波 BLOCKED 判定为距离小于该阈值；候选默认 600，须经真实桶体校准后调优" },
+        { "name": "fullnessSampleCount", "type": "u8", "minimum": 3, "maximum": 9, "notes": "V1 默认 5" },
+        { "name": "fullnessMinimumValidSampleCount", "type": "u8", "minimum": 1, "maximum": 9, "notes": "V1 默认 3，且不得大于 fullnessSampleCount" },
+        { "name": "fullnessEchoTimeoutUs", "type": "u32", "minimum": 100, "maximum": 100000, "unit": "us" },
+        { "name": "weightStableWindowMs", "type": "u32", "minimum": 1, "maximum": 6000, "unit": "ms", "notes": "V1 默认 1500" },
         { "name": "weightMaximumFluctuationGrams", "type": "u32", "unit": "g" },
         { "name": "weightRequiredSampleCount", "type": "u16", "minimum": 1 },
-        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" },
+        { "name": "weightMeasurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms", "notes": "V1 默认 6000" },
         { "name": "weightMinimumGrams", "type": "i32", "unit": "g" },
         { "name": "weightMaximumGrams", "type": "i32", "minimum": 1, "unit": "g" },
-        { "name": "calibrationVersion", "type": "u32" },
-        { "name": "infraredSampleTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" },
-        { "name": "deliveryDoorOperationTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" }
+        { "name": "calibrationVersion", "type": "u32" }
       ]
     },
     {
@@ -863,15 +927,15 @@
       "direction": "EDGE_TO_MCU",
       "category": "COMMAND",
       "ackRequired": true,
+      "notes": "仅用于 MCU 重启后的原清运续接；不重启任何操作窗口，续接后进入 CLEAN_RECOVERY_REQUIRED 等待清运员显式动作",
       "payload": [
         { "group": "commandIdentity" },
         { "name": "operationUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "recoveryGeneration", "type": "u32", "minimum": 1 },
+        { "name": "nextCleanActionSequence", "type": "u16", "minimum": 1, "notes": "必须大于该 operationUid 已接受的任何动作序号" },
         { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
-        { "name": "configContentSha256", "type": "sha256" },
-        { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
-        { "name": "operationWindowMs", "type": "u32", "minimum": 1, "unit": "ms" }
+        { "name": "configContentSha256", "type": "sha256" }
       ]
     },
     {
@@ -905,7 +969,7 @@
         { "name": "configContentSha256", "type": "sha256" },
         { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
         { "name": "settleWaitMs", "type": "u32", "unit": "ms" },
-        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" }
+        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms" }
       ]
     },
     {
@@ -921,7 +985,7 @@
         { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
         { "name": "configContentSha256", "type": "sha256" },
         { "name": "startExecutionWindowMs", "type": "u32", "minimum": 1, "unit": "ms" },
-        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1, "unit": "ms" }
+        { "name": "measurementTimeoutMs", "type": "u32", "minimum": 1000, "maximum": 6000, "unit": "ms" }
       ]
     },
     {
@@ -930,7 +994,7 @@
       "direction": "EDGE_TO_MCU",
       "category": "COMMAND",
       "ackRequired": true,
-      "notes": "香橙派仅在首次前置重量与两张开门前照片均已可靠写入 SQLite 且开始授权仍有效后发送；ACK 只表示受理，真实开门由 DELIVERY_DOOR_STATE_CHANGED 证明",
+      "notes": "香橙派仅在首次前置重量与两张开门前照片均已可靠写入 SQLite 且开始授权仍有效后发送；ACK 只表示受理，命令输出由 DELIVERY_DOOR_COMMAND_RESULT 记录，物理门位不可观测",
       "payload": [
         { "group": "commandIdentity" },
         { "name": "sessionUid", "type": "uuid" },
@@ -941,12 +1005,26 @@
       ]
     },
     {
+      "name": "CONFIRM_NO_ACTIVE_WORK",
+      "id": 40,
+      "direction": "EDGE_TO_MCU",
+      "category": "COMMAND",
+      "ackRequired": true,
+      "notes": "仅在当前 HELLO 已完成、配置已同步且启动安全复位等待结束后确认香橙派没有可恢复作业；它不证明投递门物理关闭",
+      "payload": [
+        { "group": "commandIdentity" },
+        { "name": "configVersion", "type": "u64", "minimum": 1, "maximum": 9007199254740991 },
+        { "name": "configContentSha256", "type": "sha256" }
+      ]
+    },
+    {
       "name": "WORK_PREOPEN_WEIGHT_READY",
       "id": 48,
       "direction": "MCU_TO_EDGE",
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
+      "notes": "表达投递门开/关命令输出结果；MCU 不具备门位反馈，不能把本事件解释为物理 OPEN/CLOSED",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
@@ -958,7 +1036,7 @@
       ]
     },
     {
-      "name": "DELIVERY_DOOR_STATE_CHANGED",
+      "name": "DELIVERY_DOOR_COMMAND_RESULT",
       "id": 49,
       "direction": "MCU_TO_EDGE",
       "category": "EVENT",
@@ -970,8 +1048,11 @@
         { "name": "sessionUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "roundIndex", "type": "u16", "minimum": 1 },
-        { "name": "doorState", "type": "u8", "enum": "DeliveryDoorState" },
-        { "name": "doorHealth", "type": "u8", "enum": "DeliveryDoorHealth" }
+        { "name": "command", "type": "u8", "enum": "DeliveryDoorCommand" },
+        { "name": "outputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
+        { "name": "actualOutputMs", "type": "u32", "unit": "ms" },
+        { "name": "physicalDoorStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
       ]
     },
     {
@@ -1101,8 +1182,13 @@
         { "name": "detectionUid", "type": "uuid" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "sampleRole", "type": "u8", "enum": "SampleRole" },
-        { "name": "infraredValue", "type": "u8", "enum": "InfraredValue" },
-        { "name": "infraredHealth", "type": "u8", "enum": "SensorHealth" },
+        { "name": "fullnessSensorKind", "type": "u8", "enum": "FullnessSensorKind" },
+        { "name": "fullnessSensorValue", "type": "u8", "enum": "FullnessSensorValue" },
+        { "name": "fullnessSampleBasis", "type": "u8", "enum": "FullnessSampleBasis" },
+        { "name": "representativeDistancePresent", "type": "bool" },
+        { "name": "representativeDistanceMm", "type": "u32", "unit": "mm", "invalidWhen": "representativeDistancePresent=false", "invalidEncoding": "all-zero bytes" },
+        { "name": "requestedSampleCount", "type": "u8", "minimum": 1 },
+        { "name": "validSampleCount", "type": "u8" },
         { "name": "measurementUid", "type": "uuid" },
         { "group": "measurementResult" }
       ]
@@ -1166,13 +1252,16 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
+      "notes": "仅报告关门命令输出；COMMAND_DISPATCHED 或合并既有 CLOSE 均不证明门已物理关闭",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "mcuCommandUid", "type": "uuid" },
         { "name": "scope", "type": "u8", "enum": "SafeCloseScope" },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
-        { "name": "doorState", "type": "u8", "enum": "DeliveryDoorState" },
-        { "name": "doorHealth", "type": "u8", "enum": "DeliveryDoorHealth" },
+        { "name": "command", "type": "u8", "enum": "DeliveryDoorCommand" },
+        { "name": "outputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
+        { "name": "actualOutputMs", "type": "u32", "unit": "ms" },
+        { "name": "physicalDoorStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
         { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
       ]
     },
@@ -1183,7 +1272,7 @@
       "category": "EVENT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "只在同代 CLEAN_FINAL_WEIGHT_READY 已持久 ACK、屏幕展示结果且清运员再次明确确认安装与人工关门完成后产生；之后更大 cleanActionSequence 的再次解锁会使本确认与候选重量一起作废",
+      "notes": "只在同代 CLEAN_FINAL_WEIGHT_READY 已获 ACK、屏幕展示结果且清运员再次明确确认安装与人工关门完成后产生；最终称重可以失败。锁断电不等于门已关闭，人工确认是唯一完成依据",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "operationUid", "type": "uuid" },
@@ -1192,9 +1281,29 @@
         { "name": "finalMeasurementUid", "type": "uuid" },
         { "name": "lockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
         { "name": "solenoidHealth", "type": "u8", "enum": "SolenoidHealth" },
-        { "name": "inferredCleanDoorState", "type": "u8", "enum": "InferredCleanDoorState" },
         { "name": "cleanDoorStateBasis", "type": "u8", "enum": "CleanDoorStateBasis" },
         { "name": "cleanerPhysicalCloseConfirmed", "type": "bool", "const": true }
+      ]
+    },
+    {
+      "name": "BOOT_RECONCILIATION_RESULT",
+      "id": 63,
+      "direction": "MCU_TO_EDGE",
+      "category": "EVENT",
+      "ackRequired": true,
+      "criticalEvent": true,
+      "notes": "绑定本次启动对账命令；只有 ACCEPTED 且本事件获 ACK 后 MCU 才离开 BOOT_RECOVERY。首版事件只在当前上电周期内重试，不宣称掉电持久化",
+      "payload": [
+        { "group": "criticalEventIdentity" },
+        { "name": "mcuCommandUid", "type": "uuid" },
+        { "name": "decision", "type": "u8", "enum": "BootReconciliationDecision" },
+        { "name": "status", "type": "u8", "enum": "BootReconciliationStatus" },
+        { "name": "activeWorkType", "type": "u8", "enum": "WorkType" },
+        { "name": "activeWorkUid", "type": "uuid", "zeroAllowedWhen": "activeWorkType=NONE", "notes": "CONFIRM_NO_ACTIVE_WORK 成功时为全零；RESUME_CLEAN_OPERATION 时为原 operationUid" },
+        { "name": "activePortNo", "type": "u8", "minimum": 0, "maximum": 6 },
+        { "name": "recoveryGeneration", "type": "u32" },
+        { "name": "nextCleanActionSequence", "type": "u16" },
+        { "name": "faultCode", "type": "u16", "enum": "FaultCode" }
       ]
     },
     {
@@ -1215,7 +1324,7 @@
         { "name": "activeWorkUid", "type": "uuid", "zeroAllowedWhen": "activeWorkType=NONE", "notes": "仅 activeWorkType=NONE 时为全零 UUID" },
         { "name": "activePortNo", "type": "u8", "minimum": 0, "maximum": 6 },
         { "name": "activeWorkPhase", "type": "u8", "enum": "McuWorkPhase" },
-        { "name": "latestMcuCommandUid", "type": "uuid", "zeroAllowed": true, "notes": "全零 UUID 表示 MCU 尚未持久接收过任何命令；否则为最后一次持久接收的非零命令 UUID" },
+        { "name": "latestMcuCommandUid", "type": "uuid", "zeroAllowed": true, "notes": "全零 UUID 表示当前上电周期尚未接受命令；首版不保证跨重启保留" },
         { "name": "appliedConfigVersion", "type": "u64", "maximum": 9007199254740991, "notes": "0 表示从未应用配置且两个 applied SHA-256 必须全零；大于 0 时两个 applied SHA-256 必须非零" },
         { "name": "appliedContentSha256", "type": "sha256", "notes": "与 appliedConfigVersion 构成全有或全无三元组" },
         { "name": "appliedMcuPayloadSha256", "type": "sha256", "notes": "与 appliedConfigVersion 构成全有或全无三元组" },
@@ -1224,7 +1333,7 @@
         { "name": "stagingConfigVersion", "type": "u64", "maximum": 9007199254740991, "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时范围为 1..9007199254740991" },
         { "name": "stagingMcuPayloadSha256", "type": "sha256", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时必须非零" },
         { "name": "stagingPartCount", "type": "u8", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时等于本快照 portCount+3（即已接受 CONFIG_BEGIN 的 expectedPortCount+3），范围为 4..9" },
-        { "name": "stagingReceivedPartBitmap", "type": "u16", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时 bit n 表示 partIndex=n+1 已完整持久化；bit 0 必须为 1；索引大于 stagingPartCount 的位必须为 0" },
+        { "name": "stagingReceivedPartBitmap", "type": "u16", "invalidWhen": "stagingValid=false", "invalidEncoding": "all-zero bytes", "notes": "stagingValid=true 时 bit n 表示 partIndex=n+1 已在 RAM 完整接受；bit 0 必须为 1；索引大于 stagingPartCount 的位必须为 0" },
         { "name": "portCount", "type": "u8", "minimum": 1, "maximum": 6 },
         { "name": "partIndex", "type": "u8", "const": 1 },
         { "name": "partCount", "type": "u8", "minimum": 3, "maximum": 8 },
@@ -1244,16 +1353,21 @@
         { "name": "partIndex", "type": "u8", "minimum": 2, "maximum": 7 },
         { "name": "partCount", "type": "u8", "minimum": 3, "maximum": 8 },
         { "name": "portNo", "type": "u8", "minimum": 1, "maximum": 6 },
-        { "name": "deliveryDoorState", "type": "u8", "enum": "DeliveryDoorState" },
-        { "name": "deliveryDoorHealth", "type": "u8", "enum": "DeliveryDoorHealth" },
+        { "name": "lastDeliveryDoorCommand", "type": "u8", "enum": "DeliveryDoorCommand" },
+        { "name": "lastDeliveryDoorOutputStatus", "type": "u8", "enum": "DoorCommandOutputStatus" },
+        { "name": "lastDeliveryDoorActualOutputMs", "type": "u32", "unit": "ms" },
+        { "name": "deliveryDoorPhysicalStateBasis", "type": "u8", "enum": "DoorPhysicalStateBasis" },
         { "name": "cleanLockPowerState", "type": "u8", "enum": "CleanLockPowerState" },
         { "name": "cleanSolenoidHealth", "type": "u8", "enum": "SolenoidHealth" },
-        { "name": "inferredCleanDoorState", "type": "u8", "enum": "InferredCleanDoorState" },
         { "name": "cleanDoorStateBasis", "type": "u8", "enum": "CleanDoorStateBasis" },
         { "name": "cleanerPhysicalCloseConfirmed", "type": "bool" },
         { "group": "measurementResult" },
-        { "name": "infraredValue", "type": "u8", "enum": "InfraredValue" },
-        { "name": "infraredHealth", "type": "u8", "enum": "SensorHealth" },
+        { "name": "fullnessSensorKind", "type": "u8", "enum": "FullnessSensorKind" },
+        { "name": "fullnessSensorValue", "type": "u8", "enum": "FullnessSensorValue" },
+        { "name": "fullnessSampleBasis", "type": "u8", "enum": "FullnessSampleBasis" },
+        { "name": "representativeDistancePresent", "type": "bool" },
+        { "name": "representativeDistanceMm", "type": "u32", "unit": "mm", "invalidWhen": "representativeDistancePresent=false", "invalidEncoding": "all-zero bytes" },
+        { "name": "fullnessValidSampleCount", "type": "u8" },
         { "name": "smokeState", "type": "u8", "enum": "SmokeState" },
         { "name": "smokeSensorHealth", "type": "u8", "enum": "SensorHealth" },
         { "name": "faultBitmap", "type": "u32", "bitmap": "PortFaultBitmap" }
@@ -1266,7 +1380,7 @@
       "category": "SNAPSHOT",
       "ackRequired": true,
       "criticalEvent": true,
-      "notes": "pendingCriticalEventCount=0 时四个最早/最新身份字段必须全零；非零时必须给出原事件各自 bootId，允许跨 MCU 重启",
+      "notes": "pendingCriticalEventCount=0 时四个最早/最新身份字段必须全零；非零时必须给出当前上电周期内待 ACK 事件的身份。首版不保证队列跨 MCU 重启保留",
       "payload": [
         { "group": "criticalEventIdentity" },
         { "name": "snapshotUid", "type": "uuid" },
@@ -1294,16 +1408,16 @@
         "BASELINE_MEASUREMENT_RESULT",
         "STATE_SNAPSHOT_PORT"
       ],
-      "notes": "STABLE 当且仅当 stableWeightValid=true、weightSensorHealth=OK、faultCode=NONE；无效固定槽全零。失败状态必须 stableWeightValid=false 且使用相匹配的 health/fault；lastObservedWeightValid=false 时固定槽全零。"
+      "notes": "weightValuePresent 与可信度分离：STABLE 必须携带 STABLE_WINDOW_MEAN；UNSTABLE 仍必须携带 LAST_FOUR_MEAN 或 AVAILABLE_SAMPLES_MEAN。其他故障状态只要取得过数据也必须携带，不得用状态替代数值；没有数据时 reportedWeightGrams 固定槽清零且 weightValueKind=NONE。health/fault 必须与状态匹配。"
     },
     {
-      "id": "CLEAN_LOCK_POWER_INFERENCE",
-      "kind": "CLEAN_LOCK_INFERENCE",
+      "id": "CLEAN_MANUAL_CLOSE_CONFIRMATION",
+      "kind": "CLEAN_MANUAL_CONFIRMATION",
       "messages": [
         "STATE_SNAPSHOT_PORT",
         "CLEAN_COMPLETION_CONFIRMED"
       ],
-      "notes": "health=OK 且 ENERGIZED 推定 OPEN，health=OK 且 DEENERGIZED 推定 CLOSED；锁状态未知或 health 非 OK 只能推定 UNKNOWN；stateBasis 恒为 INFERRED_FROM_LOCK_POWER。"
+      "notes": "清运锁输出与清运门物理状态完全分离。cleanerPhysicalCloseConfirmed=true 时 basis=CLEANER_CONFIRMATION；false 时 basis=NOT_OBSERVABLE。CLEAN_COMPLETION_CONFIRMED 必须为人工确认；DEENERGIZED 不推导 CLOSED。"
     },
     {
       "id": "HELLO_AND_NACK_OUTCOME",
@@ -1335,12 +1449,13 @@
       "notes": "ALL_DELIVERY_DOORS 只在命令中使用 portNo=0；SINGLE_DELIVERY_DOOR 与每条结果均使用真实 1..portCount。"
     },
     {
-      "id": "SAFE_CLOSE_RESULT_MATRIX",
-      "kind": "SAFE_CLOSE_RESULT_OUTCOME",
+      "id": "DELIVERY_DOOR_COMMAND_OUTPUT_MATRIX",
+      "kind": "DOOR_COMMAND_RESULT",
       "messages": [
+        "DELIVERY_DOOR_COMMAND_RESULT",
         "SAFE_CLOSE_RESULT"
       ],
-      "notes": "成功结果必须为 doorState=CLOSED、doorHealth=OK、faultCode=NONE；TIMEOUT 对应 DELIVERY_DOOR_TIMEOUT，ACTUATOR_FAULT 对应 DELIVERY_DOOR_ACTUATOR，SWITCH_FAULT 或 DISCONNECTED 对应 DELIVERY_DOOR_SWITCH，故障结果不得声称 CLOSED+OK。"
+      "notes": "physicalDoorStateBasis 恒为 NOT_OBSERVABLE。COMMAND_DISPATCHED/COALESCED_WITH_EXISTING_CLOSE 使用 faultCode=NONE；PARTIAL_OUTPUT_INTERRUPTED 对应 DELIVERY_DOOR_OUTPUT_INTERRUPTED；OUTPUT_REJECTED 对应 DELIVERY_DOOR_OUTPUT_REJECTED 或 DELIVERY_DOOR_HIL_NOT_QUALIFIED。actualOutputMs 始终报告真实输出时长。"
     },
     {
       "id": "UART_FAULT_COMPONENT_CODE",
@@ -1348,17 +1463,16 @@
       "messages": [
         "FAULT_OBSERVED"
       ],
-      "notes": "faultCode 禁止 NONE，且必须属于 component：UART→UART_PROTOCOL/UART_STORAGE；DELIVERY_DOOR→DELIVERY_DOOR_TIMEOUT/ACTUATOR/SWITCH；CLEAN_SOLENOID→CLEAN_SOLENOID_DRIVER；WEIGHT_SENSOR→WEIGHT_UNSTABLE/TIMEOUT/SENSOR/OVERLOAD；INFRARED_SENSOR→INFRARED_TIMEOUT/SENSOR；SMOKE_SENSOR→SMOKE_SENSOR；MCU_STORAGE→MCU_STORAGE；MCU_INTERNAL→MCU_INTERNAL。"
+      "notes": "faultCode 禁止 NONE，且必须属于 component：UART→UART_PROTOCOL/UART_STORAGE；DELIVERY_DOOR→OUTPUT_INTERRUPTED/OUTPUT_REJECTED/HIL_NOT_QUALIFIED；CLEAN_SOLENOID→CLEAN_SOLENOID_DRIVER；WEIGHT_SENSOR→UNSTABLE/TIMEOUT/SENSOR/OVERLOAD/PROTOCOL/CONFIG/DISCONNECTED；FULLNESS_SENSOR 仅允许真正的驱动诊断，不得把无回波或样本不足上升为故障；SMOKE_SENSOR→SMOKE_SENSOR；MCU_STORAGE→MCU_STORAGE；MCU_INTERNAL→MCU_INTERNAL。"
     },
     {
-      "id": "SENSOR_VALUE_HEALTH_MATRIX",
-      "kind": "SENSOR_VALUE_HEALTH",
+      "id": "FULLNESS_CLEAR_FALLBACK",
+      "kind": "FULLNESS_SAMPLE_FALLBACK",
       "messages": [
         "FULLNESS_SAMPLE_RESULT",
-        "SAFETY_SENSOR_EVENT",
         "STATE_SNAPSHOT_PORT"
       ],
-      "notes": "infraredHealth=OK 时 infraredValue 只能 CLEAR/BLOCKED，非 OK 时必须 UNKNOWN；smokeSensorHealth=OK 时 smokeState 只能 NORMAL/ALARM，非 OK 时必须 UNKNOWN。SAFETY_SENSOR_EVENT 的健康正常值使用 faultCode=NONE，传感器非 OK 使用 faultCode=SMOKE_SENSOR。FULLNESS_SAMPLE_RESULT 的 faultCode 仍只描述同消息的称重结果，不用红外故障覆盖。"
+      "notes": "MEASURED_MEDIAN 必须有代表距离；距离小于配置阈值为 BLOCKED，否则 CLEAR。NO_ECHO_CLEAR_FALLBACK 或 INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK 必须为 CLEAR 且代表距离槽无效，不形成故障。满溢事件中的 faultCode 只描述同消息的称重结果。MQ-2 的报警和故障始终只上报，不阻断作业。"
     },
     {
       "id": "CONFIG_SEGMENT_SET",
@@ -1379,7 +1493,7 @@
         "STATE_SNAPSHOT_PORT",
         "STATE_SNAPSHOT_END"
       ],
-      "notes": "同一 snapshotUid 恰有 BEGIN、portCount 个连续有序 PORT 与 END；partCount=portCount+2；仅完整集合且 snapshotSha256 一致可用于恢复。appliedConfigVersion=0 当且仅当两个 applied SHA 全零；大于 0 时二者均非零。stagingValid=false 时全部 staging 字段全零；为 true 时 applicationUid/SHA 非零、configVersion>=1、stagingPartCount=portCount+3 且为 4..9，bitmap 的 bit n 对应 partIndex=n+1、bit0=1、超出 stagingPartCount 的位为 0。"
+      "notes": "同一 snapshotUid 恰有 BEGIN、portCount 个连续有序 PORT 与 END；partCount=portCount+2；仅完整集合且 snapshotSha256 一致可用于当前连接恢复。appliedConfigVersion=0 当且仅当两个 applied SHA 全零；大于 0 时二者均非零。stagingValid=false 时全部 staging 字段全零；为 true 时 applicationUid/SHA 非零、configVersion>=1、stagingPartCount=portCount+3 且为 4..9，bitmap 的 bit n 对应 partIndex=n+1、bit0=1、超出 stagingPartCount 的位为 0。首版不宣称这些状态跨掉电保留。"
     },
     {
       "id": "SNAPSHOT_PORT_FAULT_SUMMARY",
@@ -1387,7 +1501,7 @@
       "messages": [
         "STATE_SNAPSHOT_PORT"
       ],
-      "notes": "faultBitmap 仅使用 PortFaultBitmap 已登记的 bit 0..4，保留位必须为 0；每一位严格由对应 health 是否为 OK 派生，不代替类型化 health/fault 事实。"
+      "notes": "faultBitmap 仅使用 PortFaultBitmap 已登记位，其他位必须为 0。投递门位由最近命令输出状态派生；清运锁、称重和烟雾位由 health 派生。满溢无回波/有效样本不足不形成故障位。"
     },
     {
       "id": "CLEAN_FINISH_GENERATION",
@@ -1409,6 +1523,17 @@
         "DELIVERY_SELECTION"
       ],
       "notes": "选择事件必须精确绑定已持久 ACK 的 postCloseMeasurementUid；END/WINDOW_EXPIRED 固化最终重量，CONTINUE 获 ACK 后才允许再次开门。"
+    },
+    {
+      "id": "BOOT_RECONCILIATION_DECISION",
+      "kind": "BOOT_RECONCILIATION",
+      "messages": [
+        "CONFIRM_NO_ACTIVE_WORK",
+        "RESUME_CLEAN_OPERATION",
+        "BOOT_RECONCILIATION_RESULT",
+        "STATE_SNAPSHOT_BEGIN"
+      ],
+      "notes": "MCU 重启后先安全复位、HELLO、配置同步，再显式接受无活动作业或原清运恢复。恢复命令携 recoveryGeneration 与 nextCleanActionSequence，不能重启操作窗口；投递中断不恢复。结果事件获 ACK 前保持 BOOT_RECOVERY。"
     }
   ],
   "goldenVectors": [
@@ -1424,7 +1549,7 @@
         "minimumMinor": 0,
         "maximumMinor": 0,
         "portCount": 6,
-        "capabilityBitmap": 8191,
+        "capabilityBitmap": 32767,
         "maximumFrameLength": 256,
         "pendingCriticalEventCount": 0,
         "firmwareIdentity": "orangepi",
@@ -1477,10 +1602,9 @@
         "roundIndex": 3,
         "measurementUid": "33333333-3333-4333-8333-333333333333",
         "measurementStatus": "STABLE",
-        "stableWeightValid": true,
-        "stableWeightGrams": -500,
-        "lastObservedWeightValid": true,
-        "lastObservedWeightGrams": -500,
+        "weightValuePresent": true,
+        "reportedWeightGrams": -500,
+        "weightValueKind": "STABLE_WINDOW_MEAN",
         "measurementElapsedMs": 1250,
         "sampleCount": 12,
         "calibrationVersion": 4,
@@ -1507,6 +1631,32 @@
       "expected": "VALID"
     },
     {
+      "name": "unstable_weight_keeps_fallback_value",
+      "message": "WORK_POSTCLOSE_WEIGHT_READY",
+      "flags": ["ACK_REQUIRED"],
+      "txSequence": 15,
+      "payload": {
+        "mcuBootId": 101,
+        "mcuEventSequence": 204,
+        "uptimeMs": 309000,
+        "mcuCommandUid": "11111111-1111-4111-8111-111111111111",
+        "sessionUid": "22222222-2222-4222-8222-222222222222",
+        "portNo": 2,
+        "roundIndex": 3,
+        "measurementUid": "34343434-3434-4434-8434-343434343434",
+        "measurementStatus": "UNSTABLE",
+        "weightValuePresent": true,
+        "reportedWeightGrams": -480,
+        "weightValueKind": "LAST_FOUR_MEAN",
+        "measurementElapsedMs": 6000,
+        "sampleCount": 60,
+        "calibrationVersion": 4,
+        "weightSensorHealth": "OK",
+        "faultCode": "WEIGHT_UNSTABLE"
+      },
+      "expected": "VALID"
+    },
+    {
       "name": "clean_completion_confirmed",
       "message": "CLEAN_COMPLETION_CONFIRMED",
       "flags": ["ACK_REQUIRED"],
@@ -1521,8 +1671,7 @@
         "finalMeasurementUid": "62626262-6262-4262-8262-626262626262",
         "lockPowerState": "DEENERGIZED",
         "solenoidHealth": "OK",
-        "inferredCleanDoorState": "CLOSED",
-        "cleanDoorStateBasis": "INFERRED_FROM_LOCK_POWER",
+        "cleanDoorStateBasis": "CLEANER_CONFIRMATION",
         "cleanerPhysicalCloseConfirmed": true
       },
       "expected": "VALID"
@@ -1565,14 +1714,15 @@
       "expected": "CRC_INVALID"
     }
   ],
-  "nonVolatileRequirements": [
-    "MCU 每次真实重启必须改变非零 mcuBootId，并优先使用持久单调启动计数器。",
-    "所有关键 MCU 事件在香橙派 SQLite 持久 ACK 前必须保留原 mcuBootId、mcuEventSequence 和原始内容。",
-    "不可逆开门或电磁阀通电命令的 mcuCommandUid、摘要和既有处置必须跨看门狗/掉电保留，避免重放再次驱动。",
-    "已应用配置版本、完整摘要、MCU 子集摘要及非活动 staging 进度必须跨重启保存。",
-    "当前作业、投递门安全阶段和清运电磁阀可能通电边界必须具有掉电后可恢复证据。",
-    "START_DELIVERY_SESSION 与首次开门授权必须分离；MCU 在收到 AUTHORIZE_DELIVERY_FIRST_OPEN 前不得首次开门。",
-    "清运 cleanActionSequence、与其绑定的最终称重以及后续再次解锁造成的作废边界必须可恢复。",
-    "正式 Registry 不定义清运门门磁、清运门自动关门或清运门 SAFE_CLOSE 能力。"
+  "recoveryPolicy": [
+    "首版不要求 MCU 对命令去重、关键事件、配置、作业状态或 mcuBootId 做掉电持久化；对应持久化能力位是可选后续能力，未实现时不得宣称支持。",
+    "MCU 每次重启先令 PB6/PB7/PB8 回到安全输出，进入 BOOT_RECOVERY；投递门物理状态始终 NOT_OBSERVABLE。",
+    "香橙派必须在 HELLO、QUERY_STATE 和配置重同步后显式发送 CONFIRM_NO_ACTIVE_WORK 或 RESUME_CLEAN_OPERATION；结果事件获 ACK 后 MCU 才离开 BOOT_RECOVERY。",
+    "重启打断的投递不恢复，香橙派将进行中订单标记为硬件异常并交由人工审核；本 Registry 不定义前后端修复流程。",
+    "重启打断的清运只能用原 operationUid、递增 recoveryGeneration 和 nextCleanActionSequence 续接；恢复不得重启操作窗口。",
+    "当前上电周期内关键 MCU 事件在香橙派 SQLite ACK 前保留相同 mcuBootId、mcuEventSequence 和内容；掉电后允许丢失。",
+    "START_DELIVERY_SESSION 与首次开门授权保持分离；AUTHORIZE_DELIVERY_FIRST_OPEN 只允许调度开门信号，不证明物理门位。",
+    "清运锁断电不推导清运门关闭；清运完成只认清运员在屏幕上的明确人工确认。",
+    "targetMcuBootId、跨重启 exactly-once 和持久事件队列属于后续升级，不在首版契约内。"
   ]
 }

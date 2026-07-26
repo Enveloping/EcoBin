@@ -1,0 +1,42 @@
+{
+  "identifier": "safetySensorStateChanged",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "109",
+    "params": {
+      "safetySensorStateChanged": {
+        "value": {
+          "clockQuality": 1,
+          "commandUidPresent": false,
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1054,
+          "eventType": 1,
+          "eventUid": "87500000-0000-4000-8000-000000000001",
+          "faultCode": 1,
+          "faultCodePresent": false,
+          "mcuBootId": 101,
+          "mcuEventSequence": 50,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "66c7fa664f86e3095a27a2b4e1e28b58278ab7adf069af745a92c27ef8724af0",
+          "portNo": 2,
+          "portNoPresent": true,
+          "schemaVersion": 1,
+          "smokeSensorHealth": 1,
+          "smokeState": 2,
+          "target": {
+            "type": 1,
+            "uid": "Dp_demo_01"
+          },
+          "workType": 3,
+          "workUid": "30000000-0000-4000-8000-000000000001",
+          "workUidPresent": true
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

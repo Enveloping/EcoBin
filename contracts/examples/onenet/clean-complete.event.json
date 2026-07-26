@@ -8,25 +8,27 @@
   "eventUid": "40000000-0000-4000-8000-000000000006",
   "occurredAt": "2026-07-24T01:00:30.000Z",
   "payload": {
-    "cleanLockAndInferredDoor": {
-      "inferredDoorState": "CLOSED",
+    "cleanActionSequence": 3,
+    "cleanLockAndManualDoorConfirmation": {
+      "cleanerPhysicalCloseConfirmed": true,
       "lockPowerState": "DEENERGIZED",
-      "solenoidHealth": "OK",
-      "stateBasis": "INFERRED_FROM_LOCK_POWER"
+      "physicalDoorStateBasis": "CLEANER_CONFIRMATION",
+      "solenoidHealth": "OK"
     },
     "cleanerCompletionConfirmed": true,
     "cleanerConfirmedFinalMeasurement": {
       "calibrationVersion": 4,
       "faultCode": null,
-      "lastObservedWeightGrams": 1200,
       "mcuBootId": 101,
       "mcuEventSequence": 42,
       "measurementElapsedMs": 1200,
       "measurementUid": "40000000-0000-4000-8000-000000000004",
+      "reportedWeightGrams": 1200,
       "sampleCount": 12,
       "sensorHealth": "OK",
-      "stableWeightGrams": 1200,
-      "status": "STABLE"
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
     },
     "frozenConfig": {
       "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -83,19 +85,20 @@
     "preUnlockMeasurement": {
       "calibrationVersion": 4,
       "faultCode": null,
-      "lastObservedWeightGrams": 20000,
       "mcuBootId": 101,
       "mcuEventSequence": 31,
       "measurementElapsedMs": 1200,
       "measurementUid": "40000000-0000-4000-8000-000000000003",
+      "reportedWeightGrams": 20000,
       "sampleCount": 12,
       "sensorHealth": "OK",
-      "stableWeightGrams": 20000,
-      "status": "STABLE"
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
     },
     "removedNetWeightGrams": 18800
   },
-  "payloadSha256": "2d9e096d7851a9f974a4d16c404ad1fed3dd5c5671ade4aef502653b6634cd9c",
+  "payloadSha256": "48e6fa8c38b8f875773c3b2f5f1bfc14c5d0dc5e4b11053d14a600de0dec0d5a",
   "schemaVersion": 1,
   "target": {
     "type": "CLEAN_OPERATION",

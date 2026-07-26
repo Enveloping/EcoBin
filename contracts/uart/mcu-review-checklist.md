@@ -9,18 +9,19 @@
 
 | 项目 | 当前值 |
 |---|---|
-| 候选版本 | `1.0.0-rc.2` |
+| 候选版本 | `1.0.0-rc.3` |
 | 线协议 | major `1` / minor `0` |
 | 物理串口 | `115200 / 8N1 / no flow control` |
-| Registry 状态 | `MCU_REVIEW_ACCEPTED` |
+| Registry 状态 | `MCU_REVIEW_REQUIRED` |
 | 软件生成/校验 | 已完成 |
 | MCU 逐字段确认 | 已完成 |
 | C 固件工具链黄金样本 | 待完成 |
 | 真机/HIL | F-11 范围 `0x300` 纵切已通过；完整 H-03 尚未开始 |
 
-Registry checkpoint 已接受，但 MCU 实际工具链黄金程序证据尚未完成，F-10 仍不能标记
-`done`。下列复选框保留为完整固件符合性清单；`0x300` 挥发 HIL 通过不代表未勾选项
-已经验证，也不能替代 H-03。
+rc.3 已同步本轮 MCU Firmware Design，但消息布局变更后仍须重新完成 MCU 逐字段确认。
+MCU 实际工具链黄金程序、门控 HIL、清运锁脉冲和超声波阈值实测尚未完成，F-10 仍不能
+标记 `done`。下列复选框保留为完整固件符合性清单；rc.2 时期的 `0x300` 挥发 HIL
+不代表 rc.3 新布局已经验证，也不能替代 H-03。
 
 ## 2. 评审输入
 
@@ -54,20 +55,21 @@ MCU 负责人应取得同一份仓库状态中的：
 
 ### 3.2 消息、字段与能力
 
-- [ ] 37 个 message type 的编号、方向和 ACK 规则无冲突。
+- [ ] 39 个 message type 的编号、方向和 ACK 规则无冲突。
 - [ ] 每条固定 payload 的字段顺序、偏移、宽度、符号和范围可由 MCU 实现。
 - [ ] UUID 为 16 字节网络顺序，SHA-256 为 32 字节原值，重量为带符号 `int32` 克。
 - [ ] UUID 默认禁止全零；仅 Registry 明示的可空作业、最新命令和 staging sentinel
   按条件使用全零编码。
 - [ ] 单价为“元/千克 × 10000”的 `uint32`，所有时长为整数毫秒。
-- [ ] capability bit 0～12 与目标板能力一致，没有清运门门磁、清运门自动关门或清运
-  `SAFE_CLOSE` 能力。
+- [ ] capability bit 0～14 与目标板能力一致；握手基线是 `0x300`，完整已知掩码是
+  `0x7fff`。未实现时不得宣称持久去重/事件或 `DELIVERY_DOOR_HIL_QUALIFIED`，也没有
+  清运门门磁、清运门自动关门或清运 `SAFE_CLOSE` 能力。
 - [ ] 配置分段固定为 `BEGIN(1) → DEVICE(2) → PORT(3..N+2) → COMMIT(N+3)`，
   `partCount=N+3`，N 为投口数。
 - [ ] 状态快照固定为 `BEGIN(1) → PORT(2..N+1) → END(N+2)`，
   `partCount=N+2`，整份摘要通过后才可应用。
-- [ ] `PortFaultBitmap` 只使用 bit 0～4，bit 5～31 必须为 0，且每一位与对应 health
-  字段是否为 `OK` 严格一致。
+- [ ] `PortFaultBitmap` 只登记 bit 0、1、2、4，其他位必须为 0；bit 0 来自最近门命令
+  输出失败，bit 1/2/4 来自对应 health。超声波无回波/样本不足不形成故障位。
 - [ ] 快照 applied 配置使用“version=0 + 两个全零摘要”或“version>0 + 两个非零摘要”；
   staging 有效时 `stagingPartCount=portCount+3`、bit 0 已置位且高于 partCount 的位为 0。
 
@@ -80,20 +82,28 @@ MCU 负责人应取得同一份仓库状态中的：
 - [ ] `CLEAN_LOCK_POWER_CHANGED` 只表达电磁阀 `ENERGIZED/DEENERGIZED`，不能生成
   `DOOR_OPENED/DOOR_CLOSED`。
 - [ ] `CLEAN_FINISH_REQUESTED` 只是清运员按钮/确认请求，不是完成事实。
-- [ ] `CLEAN_FINAL_WEIGHT_READY` 用于完成请求后的最终稳定重量或明确终态称重失败；
+- [ ] `CLEAN_FINAL_WEIGHT_READY` 用于完成请求后的最终称重结果（含 `UNSTABLE` 兜底值）
+  或明确终态称重失败；
   MCU 负责人确认该独立消息与屏幕状态机匹配。
+- [ ] `UNSTABLE` 必须携带最后四次或全部可用样本均值，允许投递；其他故障只要仍有
+  数据也必须携带，数值存在性和可信度不得混为一谈。
+- [ ] `DELIVERY_DOOR_COMMAND_RESULT` 和 `SAFE_CLOSE_RESULT` 只报告方向、输出结果和
+  实际输出时长，物理门位始终 `NOT_OBSERVABLE`。
 - [ ] `SAFE_CLOSE` 只控制投递门；清运恢复最多令电磁阀断电并等待原清运员现场确认。
 
-### 3.4 非易失与重启
+### 3.4 首版挥发状态与重启
 
-- [ ] `mcuBootId` 每次真实重启改变且非零，首选持久单调启动计数器。
-- [ ] 关键事件在香橙派 SQLite 持久 ACK 前保存原
-  `(mcuBootId, mcuEventSequence, payload)`。
-- [ ] 可能导致开门/解锁的命令 UID、摘要和既有处置可跨看门狗/掉电去重。
-- [ ] 当前作业、安全门阶段、清运锁可能通电边界和配置摘要可在重启后查询。
-- [ ] 配置 staging 与 COMMIT 原子切换，半份配置重启后不会成为 `APPLIED`。
-- [ ] MCU/香橙派重启后先 HELLO、QUERY_STATE 和补交关键事件，绝不自动重放旧开门。
-- [ ] 负责人说明非易失介质、可用容量、擦写寿命、队列上限及满队列安全行为。
+- [ ] `mcuBootId` 在每次真实重启后改变且非零；首版不要求持久单调。
+- [ ] 当前上电周期内，关键事件在香橙派 SQLite ACK 前保存原
+  `(mcuBootId, mcuEventSequence, payload)`；掉电后允许丢失。
+- [ ] 配置 staging 与 COMMIT 在 RAM 中原子切换，半份配置不会成为 `APPLIED`；重启后
+  配置回到 `EMPTY` 并由香橙派重新下发。
+- [ ] MCU 重启先复位 PB6/PB7/PB8 并进入 `BOOT_RECOVERY`；投递中断不恢复。
+- [ ] 香橙派在 HELLO、QUERY_STATE 和配置同步后显式发送
+  `CONFIRM_NO_ACTIVE_WORK` 或带 `nextCleanActionSequence` 的
+  `RESUME_CLEAN_OPERATION`；恢复不得重启清运窗口。
+- [ ] 持久命令去重、持久事件队列、持久单调 boot ID、`targetMcuBootId` 和跨重启
+  exactly-once 均列为后续升级，当前能力位不得误报。
 
 ## 4. C 黄金样本
 
@@ -109,7 +119,7 @@ MCU 负责人应取得同一份仓库状态中的：
 预期输出：
 
 ```text
-C UART golden vectors: 10 frames, 10 stream traces, 3 digests passed
+C UART golden vectors: 11 frames, 10 stream traces, 3 digests passed
 ```
 
 还需记录编译器名称/版本、目标架构、命令、输出和 Registry SHA-256。仅在普通 PC
@@ -133,11 +143,11 @@ C UART golden vectors: 10 frames, 10 stream traces, 3 digests passed
 不得在 MCU 代码中私自采用另一组编号或字段偏移。若为 `APPROVED`，主审复核证据后再把
 F-10 integration/acceptance 推进，并解除 H-03/F-11 的相应契约阻塞。
 
-## 6. 2026-07-25 局部真机证据
+## 6. 2026-07-25 rc.2 局部真机证据
 
 - 真实 HELLO：`stm32f103rct6` / `1.0.0-hil.3` / capability `0x300` / 一投口。
-- 配置 BEGIN/DEVICE/PORT/COMMIT、独立 APPLY_RESULT、重复 COMMIT 去重和完整
-  QUERY_STATE 摘要校验通过。
+- 当时的配置 BEGIN/DEVICE/PORT/COMMIT、独立 APPLY_RESULT、重复 COMMIT 去重和完整
+  QUERY_STATE 摘要校验通过；rc.3 已改变配置字段、摘要和快照布局，必须重新执行。
 - MCU boot ID 已限制在 `1..9007199254740991`；空关键事件队列的 oldest/latest
   四个范围字段均严格为零。
 - 详细命令、结果和未关闭边界见
