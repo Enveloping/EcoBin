@@ -33,6 +33,9 @@ import java.util.UUID;
 
 public class TargetWebAuthenticationFilter extends OncePerRequestFilter {
 
+    public static final String ACTOR_REQUEST_ATTRIBUTE =
+            TargetWebAuthenticationFilter.class.getName() + ".actor";
+
     private final TargetWebSessionService sessionService;
     private final ObjectMapper objectMapper;
 
@@ -85,6 +88,7 @@ public class TargetWebAuthenticationFilter extends OncePerRequestFilter {
 
     private void establish(HttpServletRequest request, TargetWebActor actor) {
         TargetWebActorContext.set(actor);
+        request.setAttribute(ACTOR_REQUEST_ATTRIBUTE, actor);
         TenantContextHolder.setIgnore(actor.platform());
         TenantContextHolder.setTenantId(actor.platform() ? null : actor.tenantId());
         TrustedExecutionContextHolder.set(new TrustedExecutionContext(

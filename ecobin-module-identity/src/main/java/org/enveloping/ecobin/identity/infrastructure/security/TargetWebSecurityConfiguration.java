@@ -3,8 +3,10 @@ package org.enveloping.ecobin.identity.infrastructure.security;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.enveloping.ecobin.identity.application.web.TargetWebSessionService;
+import org.enveloping.ecobin.identity.application.web.TargetWebRequestAuditService;
 import org.enveloping.ecobin.identity.web.v1.TargetProblemDetail;
 import org.enveloping.ecobin.identity.web.v1.TargetRequestIds;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -14,6 +16,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -43,8 +46,11 @@ public class TargetWebSecurityConfiguration {
     public SecurityFilterChain targetWebSecurityFilterChain(
             HttpSecurity http,
             TargetWebSessionService sessionService,
+            TargetWebRequestAuditService auditService,
             ObjectMapper objectMapper,
-            CookieCsrfTokenRepository csrfRepository) throws Exception {
+            CookieCsrfTokenRepository csrfRepository,
+            @Value("${ecobin.database.epoch.test-bypass:false}")
+            boolean epochTestBypass) throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler =
                 new CsrfTokenRequestAttributeHandler();
         csrfHandler.setCsrfRequestAttributeName(null);
@@ -102,6 +108,11 @@ public class TargetWebSecurityConfiguration {
                 .addFilterBefore(
                         authenticationFilter,
                         AnonymousAuthenticationFilter.class);
+        if (!epochTestBypass) {
+            http.addFilterBefore(
+                    new TargetWebAuditFilter(auditService),
+                    CsrfFilter.class);
+        }
         return http.build();
     }
 

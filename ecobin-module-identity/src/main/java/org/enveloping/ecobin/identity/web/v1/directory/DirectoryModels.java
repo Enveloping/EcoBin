@@ -117,7 +117,7 @@ public final class DirectoryModels {
             @Size(max = 100) String contactName,
             @Size(max = 32) String contactPhone,
             @Size(max = 500) String contactAddress,
-            @PositiveOrZero long expectedVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion) {
     }
 
     public record CreatePrincipalAccountRequest(
@@ -128,7 +128,7 @@ public final class DirectoryModels {
             @NotBlank @Size(min = 8, max = 256) String initialPassword,
             @NotBlank @Size(max = 100) String displayName,
             @Size(max = 32) String contactPhone,
-            @PositiveOrZero long expectedVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion) {
     }
 
     public record CreateOrganizationRequest(
@@ -145,17 +145,17 @@ public final class DirectoryModels {
             @NotBlank @Size(max = 200) String organizationName,
             @Size(max = 32) String contactPhone,
             @Size(max = 500) String contactAddress,
-            @PositiveOrZero long expectedVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion) {
     }
 
     public record VersionCommand(
-            @PositiveOrZero long expectedVersion,
+            @NotNull @PositiveOrZero Long expectedVersion,
             @Size(max = 500) String reason) {
     }
 
     public record AccountVersionCommand(
-            @PositiveOrZero long expectedVersion,
-            @PositiveOrZero long expectedAuthVersion,
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotNull @PositiveOrZero Long expectedAuthVersion,
             @Size(max = 500) String reason) {
     }
 
@@ -171,7 +171,7 @@ public final class DirectoryModels {
 
         public CreateStaffAccountRequest {
             permissionCodes = permissionCodes == null
-                    ? List.of() : List.copyOf(permissionCodes);
+                    ? null : List.copyOf(permissionCodes);
         }
     }
 
@@ -183,12 +183,12 @@ public final class DirectoryModels {
             @NotBlank @Size(min = 8, max = 256) String initialPassword,
             @NotBlank @Size(max = 100) String displayName,
             @Size(max = 32) String contactPhone,
-            boolean manager,
+            @NotNull Boolean manager,
             @NotNull List<@NotBlank String> permissionCodes) {
 
         public ProvisionOrganizationStaffRequest {
             permissionCodes = permissionCodes == null
-                    ? List.of() : List.copyOf(permissionCodes);
+                    ? null : List.copyOf(permissionCodes);
         }
     }
 
@@ -200,66 +200,66 @@ public final class DirectoryModels {
     public record UpdateStaffProfileRequest(
             @NotBlank @Size(max = 100) String displayName,
             @Size(max = 32) String contactPhone,
-            @PositiveOrZero long expectedVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion) {
     }
 
     public record ResetPasswordRequest(
             @NotBlank @Size(min = 8, max = 256) String newPassword,
-            @PositiveOrZero long expectedVersion,
-            @PositiveOrZero long expectedAuthVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotNull @PositiveOrZero Long expectedAuthVersion) {
     }
 
     public record ChangeOwnPasswordRequest(
             @NotBlank @Size(max = 256) String currentPassword,
             @NotBlank @Size(min = 8, max = 256) String newPassword,
-            @PositiveOrZero long expectedVersion,
-            @PositiveOrZero long expectedAuthVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotNull @PositiveOrZero Long expectedAuthVersion) {
     }
 
     public record ReplaceTenantPermissionsRequest(
             @NotNull List<@NotBlank String> permissionCodes,
-            @PositiveOrZero long expectedAuthVersion) {
+            @NotNull @PositiveOrZero Long expectedAuthVersion) {
 
         public ReplaceTenantPermissionsRequest {
             permissionCodes = permissionCodes == null
-                    ? List.of() : List.copyOf(permissionCodes);
+                    ? null : List.copyOf(permissionCodes);
         }
     }
 
     public record CreateMembershipRequest(
             @NotNull UUID staffAccountUid,
-            boolean manager,
+            @NotNull Boolean manager,
             @NotNull List<@NotBlank String> permissionCodes,
-            @PositiveOrZero long expectedAuthVersion) {
+            @NotNull @PositiveOrZero Long expectedAuthVersion) {
 
         public CreateMembershipRequest {
             permissionCodes = permissionCodes == null
-                    ? List.of() : List.copyOf(permissionCodes);
+                    ? null : List.copyOf(permissionCodes);
         }
     }
 
     public record MembershipAuthorizationRequest(
-            boolean manager,
+            @NotNull Boolean manager,
             @NotNull List<@NotBlank String> permissionCodes,
-            @PositiveOrZero long expectedVersion,
-            @PositiveOrZero long expectedAuthVersion) {
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotNull @PositiveOrZero Long expectedAuthVersion) {
 
         public MembershipAuthorizationRequest {
             permissionCodes = permissionCodes == null
-                    ? List.of() : List.copyOf(permissionCodes);
+                    ? null : List.copyOf(permissionCodes);
         }
     }
 
     public record ActivateMembershipRequest(
-            boolean manager,
+            @NotNull Boolean manager,
             @NotNull List<@NotBlank String> permissionCodes,
-            @PositiveOrZero long expectedVersion,
-            @PositiveOrZero long expectedAuthVersion,
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotNull @PositiveOrZero Long expectedAuthVersion,
             @Size(max = 500) String reason) {
 
         public ActivateMembershipRequest {
             permissionCodes = permissionCodes == null
-                    ? List.of() : List.copyOf(permissionCodes);
+                    ? null : List.copyOf(permissionCodes);
         }
     }
 
@@ -267,7 +267,6 @@ public final class DirectoryModels {
             String fingerprint,
             Object before,
             Object after,
-            Object response,
             Map<String, Object> metadata) {
     }
 }

@@ -8,6 +8,7 @@ import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
 import org.enveloping.ecobin.identity.application.web.OrganizationAccess;
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
 import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
+import org.enveloping.ecobin.identity.application.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.identity.application.web.WebAccountType;
 import org.enveloping.ecobin.identity.infrastructure.persistence.v1.TargetIdentitySessionRepository;
 import org.enveloping.ecobin.identity.web.v1.TargetApiException;
@@ -46,6 +47,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -150,8 +152,9 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.tenant.create",
+                "tenant:" + code,
                 request,
-                TenantView.class,
+                () -> replayTenant(code),
                 () -> {
                     try {
                         jdbc.update("""
@@ -200,8 +203,9 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.tenant.profile.update",
+                "tenant:" + code,
                 request,
-                TenantView.class,
+                () -> replayTenant(code),
                 () -> {
                     TenantRow tenant = tenantByCode(code, true);
                     if (!actor.platform()) {
@@ -249,8 +253,9 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.tenant.principal.create",
+                "tenant:" + code,
                 request,
-                StaffAccountView.class,
+                () -> replayPrincipal(code),
                 () -> {
                     TenantRow tenant = tenantByCode(code, true);
                     requireVersion(tenant.version(), request.expectedVersion());
@@ -338,8 +343,9 @@ public class TargetIdentityDirectoryService {
                 desiredStatus.equals("ENABLED")
                         ? "identity.tenant.activate"
                         : "identity.tenant.deactivate",
+                "tenant:" + code,
                 request,
-                TenantView.class,
+                () -> replayTenant(code),
                 () -> {
                     TenantRow tenant = tenantByCode(code, true);
                     requireVersion(tenant.version(), request.expectedVersion());
@@ -393,8 +399,9 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.tenant.principal.password-reset",
+                "tenant:" + code,
                 request,
-                StaffAccountView.class,
+                () -> replayPrincipal(code),
                 () -> {
                     TenantRow tenant = tenantByCode(code, true);
                     StaffRow principal = principalForTenant(tenant.id());
@@ -498,8 +505,10 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.organization.create",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|organization:" + organizationCode,
                 request,
-                OrganizationView.class,
+                () -> replayOrganization(tenantCode, organizationCode),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     if (!actor.platform()) {
@@ -554,8 +563,10 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.organization.profile.update",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|organization:" + code,
                 request,
-                OrganizationView.class,
+                () -> replayOrganization(tenantCode, code),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     OrganizationRow organization = organizationByCode(
@@ -636,8 +647,10 @@ public class TargetIdentityDirectoryService {
                 desiredStatus.equals("ENABLED")
                         ? "identity.organization.activate"
                         : "identity.organization.deactivate",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|organization:" + code,
                 request,
-                OrganizationView.class,
+                () -> replayOrganization(tenantCode, code),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     OrganizationRow organization = organizationByCode(
@@ -749,8 +762,10 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.staff.create",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|login:" + normalizeLogin(request.loginName()),
                 request,
-                StaffAccountView.class,
+                () -> replayStaffByLogin(tenantCode, request.loginName()),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     requireTenantCapabilityUnlessPlatform(
@@ -823,8 +838,14 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.organization.staff.provision",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|organization:" + normalizedOrganizationCode
+                        + "|login:" + normalizeLogin(request.loginName()),
                 request,
-                ProvisionedOrganizationStaffView.class,
+                () -> replayProvisionedStaff(
+                        tenantCode,
+                        normalizedOrganizationCode,
+                        request.loginName()),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     OrganizationRow organization = organizationByCode(
@@ -925,8 +946,10 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.staff.profile.update",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|staff:" + staffUid,
                 request,
-                StaffAccountView.class,
+                () -> replayStaff(tenantCode, staffUid),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     StaffRow target = staffByUid(tenant.id(), staffUid, true);
@@ -981,8 +1004,10 @@ public class TargetIdentityDirectoryService {
                 enabled
                         ? "identity.staff.activate"
                         : "identity.staff.deactivate",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|staff:" + staffUid,
                 request,
-                StaffAccountView.class,
+                () -> replayStaff(tenantCode, staffUid),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     requireTenantCapabilityUnlessPlatform(
@@ -1042,8 +1067,10 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.staff.password-reset",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|staff:" + staffUid,
                 request,
-                StaffAccountView.class,
+                () -> replayStaff(tenantCode, staffUid),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     requireTenantCapabilityUnlessPlatform(
@@ -1079,8 +1106,11 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.staff.password-change",
+                "tenant:" + normalizeCode(actor.tenantCode())
+                        + "|staff:" + actor.principalUid(),
                 request,
-                StaffAccountView.class,
+                () -> replayStaff(
+                        actor.tenantCode(), actor.principalUid()),
                 () -> {
                     TenantRow tenant = tenantById(actor.tenantId(), true);
                     StaffRow target = staffByUid(
@@ -1150,10 +1180,35 @@ public class TargetIdentityDirectoryService {
             }
         } else if (!actor.platform()) {
             requireStaffVisible(actor, tenant.id(), target.id());
-            if (!actor.hasTenantCapability("permission.read")
-                    && !actor.effectiveCapabilities().contains(
-                    "permission.read")) {
+            boolean tenantAccess =
+                    actor.hasTenantCapability("permission.read")
+                            || actor.hasTenantCapability("permission.manage");
+            if (!tenantAccess
+                    && actor.organizations().stream().noneMatch(access ->
+                    access.manager()
+                            || access.capabilities().contains("permission.read")
+                            || access.capabilities().contains(
+                            "permission.manage"))) {
                 throw forbidden();
+            }
+            EffectiveAccessView full = effectiveAccessView(tenant, target);
+            if (!tenantAccess) {
+                Set<String> visibleOrganizations = actor.organizations().stream()
+                        .filter(access -> access.manager()
+                                || access.capabilities().contains(
+                                "permission.read")
+                                || access.capabilities().contains(
+                                "permission.manage"))
+                        .map(OrganizationAccess::organizationCode)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                return new EffectiveAccessView(
+                        full.staffAccountUid(),
+                        List.of(),
+                        full.organizations().stream()
+                                .filter(access -> visibleOrganizations.contains(
+                                        access.organizationCode()))
+                                .toList(),
+                        full.authVersion());
             }
         }
         return effectiveAccessView(tenant, target);
@@ -1169,8 +1224,10 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.staff.tenant-permissions.replace",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|staff:" + staffUid,
                 request,
-                EffectiveAccessView.class,
+                () -> replayEffectiveAccess(tenantCode, staffUid),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     requireTenantCapabilityUnlessPlatform(
@@ -1291,8 +1348,14 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 "identity.membership.create",
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|organization:" + normalizeCode(organizationCode)
+                        + "|staff:" + request.staffAccountUid(),
                 request,
-                MembershipView.class,
+                () -> replayMembership(
+                        tenantCode,
+                        organizationCode,
+                        request.staffAccountUid()),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     OrganizationRow organization = organizationByCode(
@@ -1302,6 +1365,7 @@ public class TargetIdentityDirectoryService {
                     StaffRow target = staffByUid(
                             tenant.id(), request.staffAccountUid(), true);
                     protectPrincipal(target);
+                    forbidSelfAuthorization(actor, target.uid());
                     if (target.authVersion()
                             != request.expectedAuthVersion()) {
                         throw versionConflict(target.authVersion());
@@ -1443,8 +1507,12 @@ public class TargetIdentityDirectoryService {
         return command(
                 operationUid,
                 action,
+                "tenant:" + normalizeCode(tenantCode)
+                        + "|organization:" + normalizeCode(organizationCode)
+                        + "|staff:" + staffUid,
                 request,
-                MembershipView.class,
+                () -> replayMembership(
+                        tenantCode, organizationCode, staffUid),
                 () -> {
                     TenantRow tenant = tenantForRequest(actor, tenantCode, true);
                     OrganizationRow organization = organizationByCode(
@@ -1453,12 +1521,7 @@ public class TargetIdentityDirectoryService {
                             actor, organization, "staff.manage");
                     StaffRow target = staffByUid(tenant.id(), staffUid, true);
                     protectPrincipal(target);
-                    if (!actor.platform()
-                            && actor.principalUid().equals(staffUid)) {
-                        throw conflict(
-                                "IDENTITY.NATURAL_AUTHORITY_IMMUTABLE",
-                                "不能修改自己的任职或授权");
-                    }
+                    forbidSelfAuthorization(actor, staffUid);
                     MembershipRow membership = membership(
                             tenant.id(), organization.id(), target.id(), true);
                     if (membership.version() != expectedVersion) {
@@ -1758,13 +1821,16 @@ public class TargetIdentityDirectoryService {
     private <T> T command(
             UUID operationUid,
             String actionCode,
+            String targetIdentity,
             Object request,
-            Class<T> responseType,
+            Supplier<T> replayWork,
             Supplier<CommandResult<T>> work) {
         validateOperationUid(operationUid);
+        TargetWebAuditRequestContext.describe(actionCode, targetIdentity);
         TargetWebActor actor = TargetWebActorContext.required();
         lockAndRevalidateActor(actor);
-        String fingerprint = fingerprint(actor, actionCode, request);
+        String fingerprint = fingerprint(
+                actor, actionCode, targetIdentity, request);
         Optional<SuccessfulAudit> prior =
                 auditPort.findSuccessful(operationUid);
         if (prior.isPresent()) {
@@ -1773,14 +1839,13 @@ public class TargetIdentityDirectoryService {
                     actor,
                     actionCode,
                     fingerprint,
-                    responseType);
+                    replayWork);
         }
         CommandResult<T> result = work.get();
         String safeSummary = writeJson(new SafeChange(
                 fingerprint,
-                result.before(),
-                result.after(),
-                result.response(),
+                safeAuditSnapshot(result.before()),
+                safeAuditSnapshot(result.after()),
                 Map.of("reasonPresent",
                         result.reason() != null && !result.reason().isBlank())));
         auditPort.append(new AuditEntry(
@@ -1871,7 +1936,7 @@ public class TargetIdentityDirectoryService {
             TargetWebActor actor,
             String actionCode,
             String fingerprint,
-            Class<T> responseType) {
+            Supplier<T> replayWork) {
         boolean sameActor = actor.platform()
                 ? audit.actorKind() == AuditActorKind.PLATFORM_ADMIN
                 && Objects.equals(audit.platformAdminId(), actor.principalId())
@@ -1885,17 +1950,13 @@ public class TargetIdentityDirectoryService {
                     "COMMON.IDEMPOTENCY_KEY_CONFLICT",
                     "相同操作标识已绑定到不同请求");
         }
-        try {
-            return objectMapper.treeToValue(summary.get("response"), responseType);
-        } catch (Exception exception) {
-            throw new IllegalStateException(
-                    "stored idempotent response cannot be decoded", exception);
-        }
+        return replayWork.get();
     }
 
     private String fingerprint(
             TargetWebActor actor,
             String actionCode,
+            String targetIdentity,
             Object request) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -1903,6 +1964,8 @@ public class TargetIdentityDirectoryService {
                     .getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(actionCode.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(targetIdentity.getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(objectMapper.writeValueAsBytes(request));
             return HexFormat.of().formatHex(digest.digest());
@@ -1920,6 +1983,49 @@ public class TargetIdentityDirectoryService {
         }
     }
 
+    private JsonNode safeAuditSnapshot(Object value) {
+        JsonNode snapshot = objectMapper.valueToTree(value);
+        redactSensitiveAuditFields(snapshot);
+        return snapshot;
+    }
+
+    private void redactSensitiveAuditFields(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isArray()) {
+            for (int index = 0; index < node.size(); index++) {
+                redactSensitiveAuditFields(node.get(index));
+            }
+            return;
+        }
+        if (!node.isObject()) {
+            return;
+        }
+        ObjectNode object = (ObjectNode) node;
+        for (String name : List.copyOf(object.propertyNames())) {
+            if (sensitiveAuditField(name)) {
+                object.put(name, "[REDACTED]");
+            } else {
+                redactSensitiveAuditFields(object.get(name));
+            }
+        }
+    }
+
+    private static boolean sensitiveAuditField(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT)
+                .replace("_", "")
+                .replace("-", "");
+        return normalized.contains("password")
+                || normalized.contains("phone")
+                || normalized.contains("address")
+                || normalized.contains("openid")
+                || normalized.contains("token")
+                || normalized.contains("secret")
+                || normalized.contains("credential")
+                || normalized.endsWith("url");
+    }
+
     private JsonNode readJson(String value) {
         try {
             return objectMapper.readTree(value);
@@ -1927,6 +2033,80 @@ public class TargetIdentityDirectoryService {
             throw new IllegalStateException(
                     "safe audit summary cannot be decoded", exception);
         }
+    }
+
+    private TenantView replayTenant(String tenantCode) {
+        return tenantView(tenantByCode(normalizeCode(tenantCode), false));
+    }
+
+    private StaffAccountView replayPrincipal(String tenantCode) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        StaffRow principal = principalForTenant(tenant.id());
+        if (principal == null) {
+            throw notFound();
+        }
+        return staffView(principal);
+    }
+
+    private OrganizationView replayOrganization(
+            String tenantCode,
+            String organizationCode) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        return organizationView(organizationByCode(
+                tenant.id(), normalizeCode(organizationCode), false));
+    }
+
+    private StaffAccountView replayStaff(
+            String tenantCode,
+            UUID staffUid) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        return staffView(staffByUid(tenant.id(), staffUid, false));
+    }
+
+    private StaffAccountView replayStaffByLogin(
+            String tenantCode,
+            String loginName) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        return staffView(staffByLogin(
+                tenant.id(), normalizeLogin(loginName), false));
+    }
+
+    private ProvisionedOrganizationStaffView replayProvisionedStaff(
+            String tenantCode,
+            String organizationCode,
+            String loginName) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        OrganizationRow organization = organizationByCode(
+                tenant.id(), normalizeCode(organizationCode), false);
+        StaffRow staff = staffByLogin(
+                tenant.id(), normalizeLogin(loginName), false);
+        return new ProvisionedOrganizationStaffView(
+                staffView(staff),
+                membershipView(membership(
+                        tenant.id(),
+                        organization.id(),
+                        staff.id(),
+                        false)));
+    }
+
+    private EffectiveAccessView replayEffectiveAccess(
+            String tenantCode,
+            UUID staffUid) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        return effectiveAccessView(
+                tenant, staffByUid(tenant.id(), staffUid, false));
+    }
+
+    private MembershipView replayMembership(
+            String tenantCode,
+            String organizationCode,
+            UUID staffUid) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        OrganizationRow organization = organizationByCode(
+                tenant.id(), normalizeCode(organizationCode), false);
+        StaffRow staff = staffByUid(tenant.id(), staffUid, false);
+        return membershipView(membership(
+                tenant.id(), organization.id(), staff.id(), false));
     }
 
     private TenantRow tenantForRequest(
@@ -2039,6 +2219,25 @@ public class TargetIdentityDirectoryService {
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
                 (rs, ignored) -> staffRow(rs),
                 tenantId, uid.toString()).stream().findFirst().orElseThrow(
+                TargetIdentityDirectoryService::notFound);
+    }
+
+    private StaffRow staffByLogin(
+            long tenantId,
+            String loginName,
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT id, tenant_id, staff_account_uid, account_kind,
+                               login_name, password_hash, display_name,
+                               contact_phone, enabled, auth_version,
+                               lock_version, created_at, updated_at
+                        FROM iam_staff_account
+                        WHERE tenant_id = ?
+                          AND login_name = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> staffRow(rs),
+                tenantId, loginName).stream().findFirst().orElseThrow(
                 TargetIdentityDirectoryService::notFound);
     }
 
@@ -2474,6 +2673,16 @@ public class TargetIdentityDirectoryService {
             throw conflict(
                     "IDENTITY.TENANT_PRINCIPAL_PROTECTED",
                     "租户主体账号只能通过平台主体专用入口变更");
+        }
+    }
+
+    private static void forbidSelfAuthorization(
+            TargetWebActor actor,
+            UUID staffUid) {
+        if (!actor.platform() && actor.principalUid().equals(staffUid)) {
+            throw conflict(
+                    "IDENTITY.NATURAL_AUTHORITY_IMMUTABLE",
+                    "不能修改自己的任职或授权");
         }
     }
 

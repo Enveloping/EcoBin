@@ -497,6 +497,415 @@ class TargetWebIdentityMysqlIntegrationTest {
                 403);
     }
 
+    @Test
+    void requiredDirectoryFieldsCannotDisappearOrClearAuthorization()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("required");
+        write(
+                platform,
+                post("/api/v1/web/platform/tenants"),
+                UUID.randomUUID(),
+                Map.of(
+                        "tenantCode", tenantCode,
+                        "enterpriseName", "Required fields tenant"),
+                201);
+
+        write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/activations"),
+                UUID.randomUUID(),
+                Map.of(),
+                400);
+
+        JsonNode staff = createStaff(
+                platform,
+                tenantCode,
+                "required-worker-" + run,
+                new String[]{"tenant.read"});
+        Map<String, Object> nullPermissions = new LinkedHashMap<>();
+        nullPermissions.put("permissionCodes", null);
+        nullPermissions.put(
+                "expectedAuthVersion",
+                staff.path("authVersion").asLong());
+        write(
+                platform,
+                put("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/staff-accounts/"
+                        + staff.path("staffAccountUid").asText()
+                        + "/tenant-permissions"),
+                UUID.randomUUID(),
+                nullPermissions,
+                400);
+
+        String organizationCode = code("required-org");
+        createOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Required fields organization");
+        Map<String, Object> missingManager = new LinkedHashMap<>();
+        missingManager.put(
+                "staffAccountUid",
+                staff.path("staffAccountUid").asText());
+        missingManager.put("permissionCodes", new String[0]);
+        missingManager.put(
+                "expectedAuthVersion",
+                staff.path("authVersion").asLong());
+        write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/organizations/" + organizationCode
+                        + "/staff-memberships"),
+                UUID.randomUUID(),
+                missingManager,
+                400);
+
+        JsonNode effectiveAccess = data(read(
+                platform,
+                "/api/v1/web/platform/tenants/" + tenantCode
+                        + "/staff-accounts/"
+                        + staff.path("staffAccountUid").asText()
+                        + "/effective-access",
+                200));
+        assertTrue(effectiveAccess.path("tenantPermissionCodes")
+                .valueStream()
+                .anyMatch(node -> "tenant.read".equals(node.asText())));
+    }
+
+    @Test
+    void idempotencyFingerprintIncludesTheTargetResource()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String firstTenant = code("idem-a");
+        String secondTenant = code("idem-b");
+        createTenant(platform, firstTenant, null);
+        createTenant(platform, secondTenant, null);
+        String organizationCode = code("same-org");
+        UUID operationUid = UUID.randomUUID();
+        Map<String, Object> body = Map.of(
+                "organizationCode", organizationCode,
+                "organizationName", "Same request body");
+
+        write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + firstTenant
+                        + "/organizations"),
+                operationUid,
+                body,
+                201);
+        MvcResult conflict = write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + secondTenant
+                        + "/organizations"),
+                operationUid,
+                body,
+                409);
+
+        assertEquals(
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                json(conflict).path("code").asText());
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM iam_organization o
+                        JOIN iam_tenant t ON t.id = o.tenant_id
+                        WHERE t.tenant_code = ?
+                          AND o.organization_code = ?
+                        """,
+                Integer.class,
+                secondTenant,
+                organizationCode));
+    }
+
+    @Test
+    void auditIsRedactedAndCoversPrivilegedReadsAndLoginDenials()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("audit");
+        String forbiddenPhone = "13977778888";
+        createTenant(platform, tenantCode, forbiddenPhone);
+
+        read(
+                platform,
+                "/api/v1/web/platform/tenants/" + tenantCode,
+                200);
+        login(
+                new BrowserClient(),
+                "/api/v1/web/platform/auth/sessions",
+                "missing-" + run,
+                "WrongPassword123!",
+                401);
+
+        String summaries = jdbc.queryForObject("""
+                        SELECT COALESCE(
+                            CAST(JSON_ARRAYAGG(safe_change_summary) AS CHAR),
+                            '[]'
+                        )
+                        FROM ops_audit_log
+                        WHERE target_stable_key = ?
+                        """, String.class, tenantCode);
+        assertFalse(summaries.contains(forbiddenPhone));
+        assertTrue(jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_audit_log
+                        WHERE action_code =
+                              'identity.platform.privileged-read'
+                          AND result = 'SUCCEEDED'
+                          AND target_stable_key = ?
+                        """, Integer.class, tenantCode) >= 1);
+        assertTrue(jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_audit_log
+                        WHERE action_code = 'identity.auth.platform.login'
+                          AND actor_kind = 'UNAUTHENTICATED'
+                          AND result = 'DENIED'
+                        """, Integer.class) >= 1);
+    }
+
+    @Test
+    void staffCannotCreateTheirOwnManagerMembership()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("self");
+        createEnabledTenant(platform, tenantCode);
+        String organizationCode = code("self-org");
+        createAndActivateOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Self authorization organization");
+        String attackerLogin = "self-worker-" + run;
+        JsonNode attacker = createStaff(
+                platform,
+                tenantCode,
+                attackerLogin,
+                new String[]{"staff.manage", "organization-manager.manage"});
+
+        BrowserClient attackerClient = new BrowserClient();
+        login(
+                attackerClient,
+                "/api/v1/web/auth/sessions",
+                attackerLogin,
+                WORKER_PASSWORD,
+                201);
+        MvcResult denied = write(
+                attackerClient,
+                post("/api/v1/web/organizations/" + organizationCode
+                        + "/staff-memberships"),
+                UUID.randomUUID(),
+                Map.of(
+                        "staffAccountUid",
+                        attacker.path("staffAccountUid").asText(),
+                        "manager", true,
+                        "permissionCodes", new String[0],
+                        "expectedAuthVersion",
+                        attacker.path("authVersion").asLong()),
+                409);
+
+        assertEquals(
+                "IDENTITY.NATURAL_AUTHORITY_IMMUTABLE",
+                json(denied).path("code").asText());
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM iam_organization_staff_membership m
+                        JOIN iam_staff_account s
+                          ON s.tenant_id = m.tenant_id
+                         AND s.id = m.staff_account_id
+                        WHERE s.staff_account_uid = ?
+                        """,
+                Integer.class,
+                attacker.path("staffAccountUid").asText()));
+        assertTrue(jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_audit_log
+                        WHERE result = 'DENIED'
+                          AND actor_kind = 'STAFF_ACCOUNT'
+                          AND action_code = 'identity.membership.create'
+                          AND target_stable_key = ?
+                        """,
+                Integer.class,
+                "tenant:" + tenantCode
+                        + "|organization:" + organizationCode
+                        + "|staff:"
+                        + attacker.path("staffAccountUid").asText()) >= 1);
+    }
+
+    @Test
+    void organizationPermissionReaderSeesOnlyTheSharedOrganization()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("access");
+        createEnabledTenant(platform, tenantCode);
+        String organizationA = code("access-a");
+        String organizationB = code("access-b");
+        createAndActivateOrganization(
+                platform, tenantCode, organizationA, "Access A");
+        createAndActivateOrganization(
+                platform, tenantCode, organizationB, "Access B");
+
+        JsonNode target = createStaff(
+                platform,
+                tenantCode,
+                "access-target-" + run,
+                new String[]{"tenant.read"});
+        long authVersion = target.path("authVersion").asLong();
+        createMembership(
+                platform,
+                tenantCode,
+                organizationA,
+                target.path("staffAccountUid").asText(),
+                false,
+                new String[]{"organization.read"},
+                authVersion);
+        createMembership(
+                platform,
+                tenantCode,
+                organizationB,
+                target.path("staffAccountUid").asText(),
+                false,
+                new String[]{"staff.read"},
+                authVersion + 1);
+
+        String readerLogin = "access-reader-" + run;
+        write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/organizations/" + organizationA
+                        + "/staff-account-provisionings"),
+                UUID.randomUUID(),
+                Map.of(
+                        "loginName", readerLogin,
+                        "initialPassword", WORKER_PASSWORD,
+                        "displayName", "Organization reader",
+                        "manager", true,
+                        "permissionCodes", new String[0]),
+                201);
+        BrowserClient reader = new BrowserClient();
+        login(
+                reader,
+                "/api/v1/web/auth/sessions",
+                readerLogin,
+                WORKER_PASSWORD,
+                201);
+
+        JsonNode access = data(read(
+                reader,
+                "/api/v1/web/staff-accounts/"
+                        + target.path("staffAccountUid").asText()
+                        + "/effective-access",
+                200));
+        assertEquals(0, access.path("tenantPermissionCodes").size());
+        assertEquals(1, access.path("organizations").size());
+        assertEquals(
+                organizationA,
+                access.path("organizations").get(0)
+                        .path("organizationCode").asText());
+    }
+
+    private BrowserClient platformClient() throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(
+                platform,
+                "/api/v1/web/platform/auth/sessions",
+                platformLogin,
+                PLATFORM_PASSWORD,
+                201);
+        return platform;
+    }
+
+    private JsonNode createTenant(
+            BrowserClient platform,
+            String tenantCode,
+            String contactPhone) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("tenantCode", tenantCode);
+        body.put("enterpriseName", "Tenant " + tenantCode);
+        if (contactPhone != null) {
+            body.put("contactPhone", contactPhone);
+        }
+        return data(write(
+                platform,
+                post("/api/v1/web/platform/tenants"),
+                UUID.randomUUID(),
+                body,
+                201));
+    }
+
+    private void createEnabledTenant(
+            BrowserClient platform,
+            String tenantCode) throws Exception {
+        createTenant(platform, tenantCode, null);
+        write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/principal-account"),
+                UUID.randomUUID(),
+                Map.of(
+                        "loginName", "principal-" + tenantCode,
+                        "initialPassword", PRINCIPAL_PASSWORD,
+                        "displayName", "Principal " + tenantCode,
+                        "expectedVersion", 0),
+                201);
+        activateTenant(platform, tenantCode);
+    }
+
+    private JsonNode createOrganization(
+            BrowserClient platform,
+            String tenantCode,
+            String organizationCode,
+            String name) throws Exception {
+        return data(write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/organizations"),
+                UUID.randomUUID(),
+                Map.of(
+                        "organizationCode", organizationCode,
+                        "organizationName", name),
+                201));
+    }
+
+    private JsonNode createStaff(
+            BrowserClient platform,
+            String tenantCode,
+            String loginName,
+            String[] permissions) throws Exception {
+        return data(write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/staff-accounts"),
+                UUID.randomUUID(),
+                Map.of(
+                        "loginName", loginName,
+                        "initialPassword", WORKER_PASSWORD,
+                        "displayName", loginName,
+                        "permissionCodes", permissions),
+                201));
+    }
+
+    private JsonNode createMembership(
+            BrowserClient platform,
+            String tenantCode,
+            String organizationCode,
+            String staffUid,
+            boolean manager,
+            String[] permissions,
+            long expectedAuthVersion) throws Exception {
+        return data(write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/organizations/" + organizationCode
+                        + "/staff-memberships"),
+                UUID.randomUUID(),
+                Map.of(
+                        "staffAccountUid", staffUid,
+                        "manager", manager,
+                        "permissionCodes", permissions,
+                        "expectedAuthVersion", expectedAuthVersion),
+                201));
+    }
+
     private void activateTenant(BrowserClient client, String tenantCode)
             throws Exception {
         long version = data(read(
@@ -517,15 +926,8 @@ class TargetWebIdentityMysqlIntegrationTest {
             String tenantCode,
             String organizationCode,
             String name) throws Exception {
-        JsonNode organization = data(write(
-                client,
-                post("/api/v1/web/platform/tenants/" + tenantCode
-                        + "/organizations"),
-                UUID.randomUUID(),
-                Map.of(
-                        "organizationCode", organizationCode,
-                        "organizationName", name),
-                201));
+        JsonNode organization = createOrganization(
+                client, tenantCode, organizationCode, name);
         write(
                 client,
                 post("/api/v1/web/platform/tenants/" + tenantCode
