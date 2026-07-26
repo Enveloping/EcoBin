@@ -14,7 +14,7 @@ implementation_authorized: false
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
 > F-03、F-04、F-05、F-06、F-07、F-08、F-09，并确认 F-10 软件阶段完成；
-> F-11 已获软件实施授权并处于 `in-progress`；
+> F-11 已获软件实施授权并处于 `in-progress`；V-01 已完成实施并处于 `in-review`；
 > 其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
@@ -25,8 +25,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 实施中；其他任务未授权** |
-| 当前状态数 | `done` 10、`ready` 1、`in-progress` 1、`blocked` 17 |
+| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 实施中，V-01 等待复审；其他任务未授权** |
+| 当前状态数 | `done` 10、`ready` 1、`in-progress` 1、`in-review` 1、`blocked` 16 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -89,7 +89,7 @@ agent | human | mixed
 
 | ID | 任务 | status | executor | blocked by |
 |---|---|---|---|---|
-| V-01 | [租户、机构和工作人员可以安全登录管理](v-01-tenant-organization-staff-login.md) | `blocked` | `agent` | F-02、F-03、F-04、F-09 |
+| V-01 | [租户、机构和工作人员可以安全登录管理](v-01-tenant-organization-staff-login.md) | `in-review` | `agent` | F-02、F-03、F-04、F-09 |
 | V-02 | [机构用户首次注册并获得独立零余额钱包](v-02-organization-user-registration-wallet.md) | `blocked` | `mixed` | V-01、F-06、F-09 |
 | V-03 | [试点设备从库存到配置可用](v-03-pilot-device-deployment-configuration.md) | `blocked` | `mixed` | V-01、F-07、F-08、F-11、H-03 |
 | V-04 | [一次真实投递形成待审核订单](v-04-real-delivery-pending-review.md) | `blocked` | `mixed` | V-02、V-03 |
@@ -266,3 +266,10 @@ M0_COMPLETE
   8.4.10 专项 5 项验证；项目负责人确认完成，实施提交 `ed5341b` 已合入
   `database-refactor`。F-08 转为 `done`，当前共 `done` 10、`ready` 1、
   `in-progress` 1、`blocked` 17。
+- 2026-07-26：复核 V-01 的 F-02、F-03、F-04、F-09 前置均已完成；项目负责人授权
+  Codex 在独立 worktree 接取并编码实施 V-01，任务转为 `in-progress`。当前共
+  `done` 10、`ready` 1、`in-progress` 2、`blocked` 16。
+- 2026-07-26：V-01 完成目标 Web 会话、identity 目录/审计、管理页面、OpenAPI 和真实
+  MySQL 验收，转为 `in-review`。当前共 `done` 10、`ready` 1、`in-progress` 1、
+  `in-review` 1、`blocked` 16；V-02/V-03 等下游仍待项目负责人确认 V-01 完成后再
+  解除依赖。

@@ -236,6 +236,11 @@ async function execute<T, D = unknown>(
   try {
     const response = await instance.request<ApiEnvelope<T>>(config);
     const trace = captureTrace(response);
+    if (needsCsrf) {
+      // The target security chain may rotate the readable CSRF cookie after
+      // an authenticated unsafe request. Never reuse the pre-request header.
+      invalidateCsrfToken();
+    }
     if (response.status === 204) {
       return {
         data: undefined as T,

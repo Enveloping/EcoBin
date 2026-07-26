@@ -1,55 +1,111 @@
 import { useEffect, useState } from 'react';
-import { PageContainer, ProDescriptions } from '@ant-design/pro-components';
-import { Spin } from 'antd';
-import { getMyTenant } from '@/api/tenant';
-import EnumTag from '@/components/EnumTag';
+import {
+  ModalForm,
+  PageContainer,
+  ProDescriptions,
+  ProFormText,
+} from '@ant-design/pro-components';
+import { App, Button, Spin, Tag } from 'antd';
+import {
+  getCurrentTenant,
+  updateCurrentTenant,
+  type TenantProfileInput,
+} from '@/api/identityDirectory';
+import { useAuthStore } from '@/stores/authStore';
 import { pageHeader } from '@/utils/pageStyle';
-import { STATUS } from '@/constants';
-import type { Tenant } from '@/types';
+import type { IdentityTenant } from '@/types';
 
 export default function MyTenant() {
-  const [data, setData] = useState<Tenant | null>(null);
+  const { message } = App.useApp();
+  const canManage = useAuthStore((state) =>
+    state.hasCapability('tenant.manage'));
+  const [data, setData] = useState<IdentityTenant | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      setData(await getCurrentTenant());
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    getMyTenant()
-      .then(setData)
-      .finally(() => setLoading(false));
+    void load();
   }, []);
 
+  const submit = async (
+    values: Omit<TenantProfileInput, 'expectedVersion'>,
+  ) => {
+    if (!data) return false;
+    const updated = await updateCurrentTenant({
+      ...values,
+      expectedVersion: data.version,
+    });
+    setData(updated);
+    setEditing(false);
+    message.success('租户资料已更新');
+    return true;
+  };
+
   return (
-    <PageContainer {...pageHeader('我的租户', '当前登录租户的资料信息')}>
+    <PageContainer
+      {...pageHeader('我的租户', '资料来自当前服务端会话租户，客户端不能切换作用域。')}
+      extra={
+        canManage
+          ? [<Button key="edit" onClick={() => setEditing(true)}>编辑资料</Button>]
+          : undefined
+      }
+    >
       <Spin spinning={loading}>
         {data && (
-          <ProDescriptions
-            column={2}
-            title="租户资料"
-            bordered
-            labelStyle={{ width: 140, background: '#F8FAFC', fontWeight: 500 }}
-            contentStyle={{ paddingInline: 16 }}
-          >
-            <ProDescriptions.Item label="租户名称">{data.name}</ProDescriptions.Item>
-            <ProDescriptions.Item label="租户编码">{data.code || '-'}</ProDescriptions.Item>
-            <ProDescriptions.Item label="登录用户名">
-              {data.username || '-'}
+          <ProDescriptions column={2} title="租户资料" bordered>
+            <ProDescriptions.Item label="租户编码">
+              {data.tenantCode}
             </ProDescriptions.Item>
-            <ProDescriptions.Item label="小程序 AppID">
-              {data.miniappAppid || '-'}
+            <ProDescriptions.Item label="企业名称">
+              {data.enterpriseName}
             </ProDescriptions.Item>
-            <ProDescriptions.Item label="微信商户号">
-              {data.merchantNo || '-'}
+            <ProDescriptions.Item label="联系人">
+              {data.contactName || '-'}
             </ProDescriptions.Item>
-            <ProDescriptions.Item label="联系人">{data.contactName || '-'}</ProDescriptions.Item>
             <ProDescriptions.Item label="联系电话">
               {data.contactPhone || '-'}
             </ProDescriptions.Item>
-            <ProDescriptions.Item label="地址">{data.address || '-'}</ProDescriptions.Item>
+            <ProDescriptions.Item label="地址">
+              {data.contactAddress || '-'}
+            </ProDescriptions.Item>
             <ProDescriptions.Item label="状态">
-              <EnumTag map={STATUS} value={data.status} />
+              <Tag color={data.status === 'ENABLED' ? 'green' : 'default'}>
+                {data.status === 'ENABLED' ? '已启用' : '已停用'}
+              </Tag>
+            </ProDescriptions.Item>
+            <ProDescriptions.Item label="资源版本">
+              {data.version}
             </ProDescriptions.Item>
           </ProDescriptions>
         )}
       </Spin>
+
+      <ModalForm<Omit<TenantProfileInput, 'expectedVersion'>>
+        title="编辑租户资料"
+        open={editing}
+        onOpenChange={setEditing}
+        initialValues={data ?? undefined}
+        modalProps={{ destroyOnClose: true }}
+        onFinish={submit}
+      >
+        <ProFormText
+          name="enterpriseName"
+          label="企业名称"
+          rules={[{ required: true }]}
+        />
+        <ProFormText name="contactName" label="联系人" />
+        <ProFormText name="contactPhone" label="联系电话" />
+        <ProFormText name="contactAddress" label="联系地址" />
+      </ModalForm>
     </PageContainer>
   );
 }

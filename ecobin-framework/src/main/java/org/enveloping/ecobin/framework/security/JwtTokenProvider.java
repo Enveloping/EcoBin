@@ -11,6 +11,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -76,6 +77,59 @@ public class JwtTokenProvider {
                 claims.getIssuedAt().toInstant());
     }
 
+    public String generateTargetWebToken(
+            UUID principalUid,
+            UUID sessionUid,
+            TrustedAudience audience,
+            Instant issuedAt,
+            Instant expiresAt) {
+        if (audience != TrustedAudience.WEB_PLATFORM
+                && audience != TrustedAudience.WEB_STAFF) {
+            throw new IllegalArgumentException("target Web token requires a Web audience");
+        }
+        return Jwts.builder()
+                .issuer("ecobin")
+                .subject(principalUid.toString())
+                .id(sessionUid.toString())
+                .audience()
+                    .add(audienceName(audience))
+                    .and()
+                .issuedAt(Date.from(issuedAt))
+                .expiration(Date.from(expiresAt))
+                .signWith(secretKey)
+                .compact();
+    }
+
+    public TargetWebSessionClaims parseTargetWebSession(String token) {
+        Claims claims = parseClaims(token);
+        if (!"ecobin".equals(claims.getIssuer())) {
+            throw new IllegalArgumentException("target token issuer mismatch");
+        }
+        Set<String> audiences = claims.getAudience();
+        if (audiences == null || audiences.size() != 1) {
+            throw new IllegalArgumentException("target token requires one audience");
+        }
+        TrustedAudience audience = switch (audiences.iterator().next()) {
+            case "web-platform" -> TrustedAudience.WEB_PLATFORM;
+            case "web-staff" -> TrustedAudience.WEB_STAFF;
+            default -> throw new IllegalArgumentException(
+                    "target token audience mismatch");
+        };
+        if (claims.getSubject() == null
+                || claims.getId() == null
+                || claims.getIssuedAt() == null
+                || claims.getExpiration() == null) {
+            throw new IllegalArgumentException(
+                    "target token is missing required claims");
+        }
+        return new TargetWebSessionClaims(
+                UUID.fromString(claims.getSubject()),
+                UUID.fromString(claims.getId()),
+                audience,
+                claims.getIssuedAt().toInstant(),
+                claims.getExpiration().toInstant());
+    }
+
     /**
      * 从 Token 中获取用户名
      */
@@ -139,5 +193,14 @@ public class JwtTokenProvider {
             return TrustedAudience.WEB_STAFF;
         }
         return TrustedAudience.MINIAPP;
+    }
+
+    private static String audienceName(TrustedAudience audience) {
+        return switch (audience) {
+            case WEB_PLATFORM -> "web-platform";
+            case WEB_STAFF -> "web-staff";
+            default -> throw new IllegalArgumentException(
+                    "unsupported target Web audience");
+        };
     }
 }

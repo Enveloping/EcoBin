@@ -56,7 +56,7 @@ export type WebAccountType = 'PLATFORM_ADMIN' | 'TENANT_PRINCIPAL' | 'STAFF';
 
 export interface OrganizationSummary {
   organizationCode: string;
-  displayName: string;
+  organizationName: string;
 }
 
 export interface LoginResponse {
@@ -64,12 +64,99 @@ export interface LoginResponse {
   accountType: WebAccountType;
   subjectUid: string;
   displayName: string;
+  contactPhone?: string | null;
   tenantCode?: string | null;
   capabilities: string[];
   organizations: OrganizationSummary[];
   expiresAt: string;
   version: number;
   authVersion: number;
+}
+
+// ===== V-01 目标身份目录 =====
+
+export type DirectoryStatus = 'ENABLED' | 'DISABLED';
+
+export interface PrincipalAccountSummary {
+  staffAccountUid: string;
+  status: DirectoryStatus;
+  version: number;
+  authVersion: number;
+}
+
+export interface IdentityTenant {
+  tenantCode: string;
+  enterpriseName: string;
+  status: DirectoryStatus;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactAddress?: string | null;
+  version: number;
+  principalAccount?: PrincipalAccountSummary | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IdentityOrganization {
+  organizationCode: string;
+  organizationName: string;
+  status: DirectoryStatus;
+  contactPhone?: string | null;
+  contactAddress?: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StaffAccountKind = 'TENANT_PRINCIPAL' | 'STAFF';
+
+export interface StaffAccount {
+  staffAccountUid: string;
+  accountKind: StaffAccountKind;
+  loginName: string;
+  displayName: string;
+  contactPhone?: string | null;
+  status: DirectoryStatus;
+  version: number;
+  authVersion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PermissionScopeKind = 'TENANT' | 'ORGANIZATION';
+
+export interface PermissionDefinition {
+  permissionCode: string;
+  scopeKind: PermissionScopeKind;
+  permissionName: string;
+  description?: string | null;
+}
+
+export interface OrganizationEffectiveAccess {
+  organizationCode: string;
+  organizationName: string;
+  manager: boolean;
+  permissionCodes: string[];
+}
+
+export interface EffectiveAccess {
+  staffAccountUid: string;
+  tenantPermissionCodes: string[];
+  organizations: OrganizationEffectiveAccess[];
+  authVersion: number;
+}
+
+export interface StaffMembership {
+  organizationCode: string;
+  staffAccountUid: string;
+  displayName: string;
+  manager: boolean;
+  status: DirectoryStatus;
+  permissionCodes: string[];
+  version: number;
+  authVersion: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ===== 系统域实体 =====

@@ -29,6 +29,10 @@
       "description": "Cookie-backed Web sessions and anonymous CSRF bootstrap."
     },
     {
+      "name": "Identity directory",
+      "description": "V-01 tenant, organization, staff, membership and authorization management. Scope is always derived from the persisted Web session."
+    },
+    {
       "name": "Miniapp authentication",
       "description": "Single-audience Bearer sessions created from one-time wx.login codes."
     },
@@ -245,6 +249,1193 @@
           "403": {
             "$ref": "#/components/responses/CsrfProblem"
           }
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants": {
+      "get": {
+        "operationId": "listIdentityTenants",
+        "tags": ["Identity directory"],
+        "summary": "List tenants as a platform administrator",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {"$ref": "#/components/parameters/DirectoryStatusFilter"},
+          {"$ref": "#/components/parameters/DirectoryQuery"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createIdentityTenant",
+        "tags": ["Identity directory"],
+        "summary": "Create one disabled tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateTenantRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}],
+      "get": {
+        "operationId": "getIdentityTenant",
+        "tags": ["Identity directory"],
+        "summary": "Read one tenant through the platform privilege boundary",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/profile": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "updateIdentityTenantProfile",
+        "tags": ["Identity directory"],
+        "summary": "Replace tenant profile with optimistic concurrency",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TenantProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/principal-account": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "createTenantPrincipalAccount",
+        "tags": ["Identity directory"],
+        "summary": "Create the protected tenant-principal account",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreatePrincipalAccountRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/principal-account/password-resets": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "resetTenantPrincipalPassword",
+        "tags": ["Identity directory"],
+        "summary": "Reset the protected tenant-principal password and revoke sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResetPasswordRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activateIdentityTenant",
+        "tags": ["Identity directory"],
+        "summary": "Enable a tenant after its principal exists",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivateIdentityTenant",
+        "tags": ["Identity directory"],
+        "summary": "Disable a tenant and revoke every tenant session",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/tenants/current": {
+      "get": {
+        "operationId": "getCurrentIdentityTenant",
+        "tags": ["Identity directory"],
+        "summary": "Read the tenant derived from the current staff session",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
+    "/api/v1/web/tenants/current/profile": {
+      "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+      "put": {
+        "operationId": "updateCurrentIdentityTenantProfile",
+        "tags": ["Identity directory"],
+        "summary": "Replace the current session tenant profile",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TenantProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}],
+      "get": {
+        "operationId": "listPlatformIdentityOrganizations",
+        "tags": ["Identity directory"],
+        "summary": "List organizations in one explicit platform target tenant",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {"$ref": "#/components/parameters/DirectoryStatusFilter"},
+          {"$ref": "#/components/parameters/DirectoryQuery"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformIdentityOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Create a disabled organization in one explicit platform target tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateOrganizationRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "getPlatformIdentityOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Read an organization in one explicit platform target tenant",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/profile": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "updatePlatformIdentityOrganizationProfile",
+        "tags": ["Identity directory"],
+        "summary": "Replace an organization profile in an explicit tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrganizationProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activatePlatformIdentityOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Activate an organization in an explicit tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivatePlatformIdentityOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Deactivate an organization and remove its live access",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations": {
+      "get": {
+        "operationId": "listCurrentTenantOrganizations",
+        "tags": ["Identity directory"],
+        "summary": "List only organizations visible from the current tenant session",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {"$ref": "#/components/parameters/DirectoryStatusFilter"},
+          {"$ref": "#/components/parameters/DirectoryQuery"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createCurrentTenantOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Create an organization in the session tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateOrganizationRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "getCurrentTenantOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Read one visible organization in the session tenant",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/profile": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "updateCurrentTenantOrganizationProfile",
+        "tags": ["Identity directory"],
+        "summary": "Replace one visible organization profile",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OrganizationProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activateCurrentTenantOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Activate one organization in the session tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivateCurrentTenantOrganization",
+        "tags": ["Identity directory"],
+        "summary": "Deactivate one organization and remove live access",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}],
+      "get": {
+        "operationId": "listPlatformStaffAccounts",
+        "tags": ["Identity directory"],
+        "summary": "List staff in one explicit platform target tenant",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {"$ref": "#/components/parameters/DirectoryStatusFilter"},
+          {"$ref": "#/components/parameters/DirectoryQuery"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Create tenant-scoped staff through a platform privilege use case",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateStaffAccountRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-account-provisionings": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "provisionPlatformOrganizationStaff",
+        "tags": ["Identity directory"],
+        "summary": "Atomically create staff, membership and organization grants",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProvisionOrganizationStaffRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"}
+      ],
+      "get": {
+        "operationId": "getPlatformStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Read staff only inside one explicit tenant",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}/profile": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "updatePlatformStaffProfile",
+        "tags": ["Identity directory"],
+        "summary": "Replace staff profile through a platform privilege use case",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StaffProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activatePlatformStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Enable staff through a platform privilege use case",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivatePlatformStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Disable staff and revoke all sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}/password-resets": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "resetPlatformStaffPassword",
+        "tags": ["Identity directory"],
+        "summary": "Reset staff password and revoke all sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResetPasswordRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts": {
+      "get": {
+        "operationId": "listCurrentTenantStaffAccounts",
+        "tags": ["Identity directory"],
+        "summary": "List only staff visible from the current tenant and organization grants",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {"$ref": "#/components/parameters/DirectoryStatusFilter"},
+          {"$ref": "#/components/parameters/DirectoryQuery"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createCurrentTenantStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Create staff in the session tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateStaffAccountRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-account-provisionings": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "provisionCurrentOrganizationStaff",
+        "tags": ["Identity directory"],
+        "summary": "Atomically create staff and one visible organization membership",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProvisionOrganizationStaffRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}": {
+      "parameters": [{"$ref": "#/components/parameters/StaffAccountUid"}],
+      "get": {
+        "operationId": "getCurrentTenantStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Read staff only when visible from current grants",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}/profile": {
+      "parameters": [
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "updateCurrentTenantStaffProfile",
+        "tags": ["Identity directory"],
+        "summary": "Replace staff profile inside current tenant management scope",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StaffProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activateCurrentTenantStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Enable non-principal staff inside the session tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivateCurrentTenantStaffAccount",
+        "tags": ["Identity directory"],
+        "summary": "Disable non-principal staff and revoke sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}/password-resets": {
+      "parameters": [
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "resetCurrentTenantStaffPassword",
+        "tags": ["Identity directory"],
+        "summary": "Reset non-principal staff password and revoke sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResetPasswordRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/current/profile": {
+      "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+      "put": {
+        "operationId": "updateOwnStaffProfile",
+        "tags": ["Identity directory"],
+        "summary": "Update the authenticated staff profile",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StaffProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/current/password-changes": {
+      "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+      "post": {
+        "operationId": "changeOwnStaffPassword",
+        "tags": ["Identity directory"],
+        "summary": "Verify the current password, change it and revoke every session",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ChangeOwnPasswordRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/permission-definitions": {
+      "get": {
+        "operationId": "listPlatformPermissionDefinitions",
+        "tags": ["Identity directory"],
+        "summary": "List immutable permission definitions as a platform administrator",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"}
+        }
+      }
+    },
+    "/api/v1/web/permission-definitions": {
+      "get": {
+        "operationId": "listCurrentPermissionDefinitions",
+        "tags": ["Identity directory"],
+        "summary": "List immutable permission definitions visible to the current session",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}/effective-access": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"}
+      ],
+      "get": {
+        "operationId": "getPlatformStaffEffectiveAccess",
+        "tags": ["Identity directory"],
+        "summary": "Read effective access within one explicit platform target tenant",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/staff-accounts/{staffUid}/tenant-permissions": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "replacePlatformStaffTenantPermissions",
+        "tags": ["Identity directory"],
+        "summary": "Replace tenant permissions and revoke stale sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReplaceTenantPermissionsRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/current/effective-access": {
+      "get": {
+        "operationId": "getOwnStaffEffectiveAccess",
+        "tags": ["Identity directory"],
+        "summary": "Read live effective access for the authenticated staff account",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}/effective-access": {
+      "parameters": [{"$ref": "#/components/parameters/StaffAccountUid"}],
+      "get": {
+        "operationId": "getCurrentTenantStaffEffectiveAccess",
+        "tags": ["Identity directory"],
+        "summary": "Read only the target staff access visible from current grants",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-accounts/{staffUid}/tenant-permissions": {
+      "parameters": [
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "replaceCurrentTenantStaffPermissions",
+        "tags": ["Identity directory"],
+        "summary": "Replace tenant permissions in the session tenant",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReplaceTenantPermissionsRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-memberships": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "listPlatformOrganizationMemberships",
+        "tags": ["Identity directory"],
+        "summary": "List memberships in one explicit platform target organization",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Create a membership in one explicit platform target organization",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateMembershipRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-memberships/{staffUid}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"}
+      ],
+      "get": {
+        "operationId": "getPlatformOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Read one membership through explicit tenant and organization scope",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-memberships/{staffUid}/authorization": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "replacePlatformMembershipAuthorization",
+        "tags": ["Identity directory"],
+        "summary": "Replace manager status and direct grants, then revoke stale sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MembershipAuthorizationRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-memberships/{staffUid}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activatePlatformOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Reactivate membership with an explicit authorization projection",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActivateMembershipRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-memberships/{staffUid}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivatePlatformOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Deactivate membership and remove live organization access",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-memberships": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "listCurrentOrganizationMemberships",
+        "tags": ["Identity directory"],
+        "summary": "List memberships only in a visible organization",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createCurrentOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Create a membership only inside a visible organization",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateMembershipRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-memberships/{staffUid}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"}
+      ],
+      "get": {
+        "operationId": "getCurrentOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Read one membership only inside a visible organization",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-memberships/{staffUid}/authorization": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "put": {
+        "operationId": "replaceCurrentMembershipAuthorization",
+        "tags": ["Identity directory"],
+        "summary": "Replace authorization only inside a visible organization",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MembershipAuthorizationRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-memberships/{staffUid}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activateCurrentOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Reactivate one visible organization membership",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActivateMembershipRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-memberships/{staffUid}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/StaffAccountUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivateCurrentOrganizationMembership",
+        "tags": ["Identity directory"],
+        "summary": "Deactivate one visible organization membership",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
         }
       }
     },
@@ -500,6 +1691,47 @@
           "$ref": "#/components/schemas/UuidV4"
         }
       },
+      "TenantCode": {
+        "name": "tenantCode",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/TenantCode"
+        }
+      },
+      "OrganizationCode": {
+        "name": "organizationCode",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/OrganizationCode"
+        }
+      },
+      "StaffAccountUid": {
+        "name": "staffUid",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/PublicUid"
+        }
+      },
+      "DirectoryStatusFilter": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/DirectoryStatus"
+        }
+      },
+      "DirectoryQuery": {
+        "name": "query",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
       "Page": {
         "name": "page",
         "in": "query",
@@ -569,6 +1801,45 @@
       }
     },
     "responses": {
+      "DirectoryOk": {
+        "description": "V-01 identity directory projection returned from current database facts",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DirectoryEnvelope"
+            }
+          }
+        }
+      },
+      "DirectoryCreated": {
+        "description": "V-01 directory resource was atomically created",
+        "headers": {
+          "Location": {
+            "$ref": "#/components/headers/Location"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DirectoryEnvelope"
+            }
+          }
+        }
+      },
       "WebSessionCreated": {
         "description": "A new server-side Web session was created and the HttpOnly cookie was set",
         "headers": {
@@ -708,6 +1979,16 @@
           }
         }
       },
+      "NotFoundProblem": {
+        "description": "The resource does not exist or is outside the caller's current visible scope",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetail"
+            }
+          }
+        }
+      },
       "CsrfProblem": {
         "description": "The Web CSRF token is missing, stale, or invalid",
         "content": {
@@ -782,6 +2063,857 @@
       }
     },
     "schemas": {
+      "TenantCode": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32,
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      },
+      "OrganizationCode": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32,
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      },
+      "DirectoryStatus": {
+        "type": "string",
+        "enum": [
+          "ENABLED",
+          "DISABLED"
+        ]
+      },
+      "PrincipalAccountSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staffAccountUid",
+          "status",
+          "version",
+          "authVersion"
+        ],
+        "properties": {
+          "staffAccountUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DirectoryStatus"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "authVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "IdentityTenant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantCode",
+          "enterpriseName",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "tenantCode": {
+            "$ref": "#/components/schemas/TenantCode"
+          },
+          "enterpriseName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "$ref": "#/components/schemas/DirectoryStatus"
+          },
+          "contactName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "contactPhone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 32
+          },
+          "contactAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "principalAccount": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PrincipalAccountSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "IdentityOrganization": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationCode",
+          "organizationName",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "organizationCode": {
+            "$ref": "#/components/schemas/OrganizationCode"
+          },
+          "organizationName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "$ref": "#/components/schemas/DirectoryStatus"
+          },
+          "contactPhone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 32
+          },
+          "contactAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "StaffAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staffAccountUid",
+          "accountKind",
+          "loginName",
+          "displayName",
+          "status",
+          "version",
+          "authVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "staffAccountUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "accountKind": {
+            "type": "string",
+            "enum": [
+              "TENANT_PRINCIPAL",
+              "STAFF"
+            ]
+          },
+          "loginName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "contactPhone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 32
+          },
+          "status": {
+            "$ref": "#/components/schemas/DirectoryStatus"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "authVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "OrganizationMembership": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationCode",
+          "staffAccountUid",
+          "displayName",
+          "manager",
+          "status",
+          "permissionCodes",
+          "version",
+          "authVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "organizationCode": {
+            "$ref": "#/components/schemas/OrganizationCode"
+          },
+          "staffAccountUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "manager": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DirectoryStatus"
+          },
+          "permissionCodes": {
+            "$ref": "#/components/schemas/PermissionCodes"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "authVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "updatedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "PermissionCodes": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
+        }
+      },
+      "PermissionDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "permissionCode",
+          "scopeKind",
+          "permissionName"
+        ],
+        "properties": {
+          "permissionCode": {
+            "type": "string"
+          },
+          "scopeKind": {
+            "type": "string",
+            "enum": [
+              "TENANT",
+              "ORGANIZATION"
+            ]
+          },
+          "permissionName": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EffectiveAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staffAccountUid",
+          "tenantPermissionCodes",
+          "organizations",
+          "authVersion"
+        ],
+        "properties": {
+          "staffAccountUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "tenantPermissionCodes": {
+            "$ref": "#/components/schemas/PermissionCodes"
+          },
+          "organizations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "organizationCode",
+                "organizationName",
+                "manager",
+                "permissionCodes"
+              ],
+              "properties": {
+                "organizationCode": {
+                  "$ref": "#/components/schemas/OrganizationCode"
+                },
+                "organizationName": {
+                  "type": "string"
+                },
+                "manager": {
+                  "type": "boolean"
+                },
+                "permissionCodes": {
+                  "$ref": "#/components/schemas/PermissionCodes"
+                }
+              }
+            }
+          },
+          "authVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "DirectoryPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IdentityTenant"
+                },
+                {
+                  "$ref": "#/components/schemas/IdentityOrganization"
+                },
+                {
+                  "$ref": "#/components/schemas/StaffAccount"
+                },
+                {
+                  "$ref": "#/components/schemas/OrganizationMembership"
+                }
+              ]
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ProvisionedOrganizationStaff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staffAccount",
+          "membership"
+        ],
+        "properties": {
+          "staffAccount": {
+            "$ref": "#/components/schemas/StaffAccount"
+          },
+          "membership": {
+            "$ref": "#/components/schemas/OrganizationMembership"
+          }
+        }
+      },
+      "DirectoryEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "data",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IdentityTenant"
+              },
+              {
+                "$ref": "#/components/schemas/IdentityOrganization"
+              },
+              {
+                "$ref": "#/components/schemas/StaffAccount"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationMembership"
+              },
+              {
+                "$ref": "#/components/schemas/EffectiveAccess"
+              },
+              {
+                "$ref": "#/components/schemas/ProvisionedOrganizationStaff"
+              },
+              {
+                "$ref": "#/components/schemas/DirectoryPage"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PermissionDefinition"
+                }
+              }
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "CreateTenantRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantCode",
+          "enterpriseName"
+        ],
+        "properties": {
+          "tenantCode": {
+            "$ref": "#/components/schemas/TenantCode"
+          },
+          "enterpriseName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "contactName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "contactAddress": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "TenantProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enterpriseName",
+          "expectedVersion"
+        ],
+        "properties": {
+          "enterpriseName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "contactName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "contactAddress": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "CreateOrganizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationCode",
+          "organizationName"
+        ],
+        "properties": {
+          "organizationCode": {
+            "$ref": "#/components/schemas/OrganizationCode"
+          },
+          "organizationName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "contactAddress": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "OrganizationProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationName",
+          "expectedVersion"
+        ],
+        "properties": {
+          "organizationName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "contactAddress": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "CreatePrincipalAccountRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateStaffAccountCore"
+          },
+          {
+            "type": "object",
+            "required": [
+              "expectedVersion"
+            ],
+            "properties": {
+              "expectedVersion": {
+                "$ref": "#/components/schemas/ExpectedVersion"
+              }
+            }
+          }
+        ]
+      },
+      "CreateStaffAccountCore": {
+        "type": "object",
+        "required": [
+          "loginName",
+          "initialPassword",
+          "displayName"
+        ],
+        "properties": {
+          "loginName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$"
+          },
+          "initialPassword": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 32
+          }
+        }
+      },
+      "CreateStaffAccountRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateStaffAccountCore"
+          },
+          {
+            "type": "object",
+            "required": [
+              "permissionCodes"
+            ],
+            "properties": {
+              "permissionCodes": {
+                "$ref": "#/components/schemas/PermissionCodes"
+              }
+            }
+          }
+        ]
+      },
+      "ProvisionOrganizationStaffRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateStaffAccountCore"
+          },
+          {
+            "type": "object",
+            "required": [
+              "manager",
+              "permissionCodes"
+            ],
+            "properties": {
+              "manager": {
+                "type": "boolean"
+              },
+              "permissionCodes": {
+                "$ref": "#/components/schemas/PermissionCodes"
+              }
+            }
+          }
+        ]
+      },
+      "VersionCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedVersion"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "AccountVersionCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedVersion",
+          "expectedAuthVersion"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "expectedAuthVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "StaffProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "displayName",
+          "expectedVersion"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "contactPhone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "ResetPasswordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "newPassword",
+          "expectedVersion",
+          "expectedAuthVersion"
+        ],
+        "properties": {
+          "newPassword": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "expectedAuthVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "ChangeOwnPasswordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword",
+          "newPassword",
+          "expectedVersion",
+          "expectedAuthVersion"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "expectedAuthVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "ReplaceTenantPermissionsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "permissionCodes",
+          "expectedAuthVersion"
+        ],
+        "properties": {
+          "permissionCodes": {
+            "$ref": "#/components/schemas/PermissionCodes"
+          },
+          "expectedAuthVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "CreateMembershipRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staffAccountUid",
+          "manager",
+          "permissionCodes",
+          "expectedAuthVersion"
+        ],
+        "properties": {
+          "staffAccountUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "manager": {
+            "type": "boolean"
+          },
+          "permissionCodes": {
+            "$ref": "#/components/schemas/PermissionCodes"
+          },
+          "expectedAuthVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "MembershipAuthorizationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "manager",
+          "permissionCodes",
+          "expectedVersion",
+          "expectedAuthVersion"
+        ],
+        "properties": {
+          "manager": {
+            "type": "boolean"
+          },
+          "permissionCodes": {
+            "$ref": "#/components/schemas/PermissionCodes"
+          },
+          "expectedVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          },
+          "expectedAuthVersion": {
+            "$ref": "#/components/schemas/ExpectedVersion"
+          }
+        }
+      },
+      "ActivateMembershipRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MembershipAuthorizationRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          }
+        ]
+      },
       "UuidV4": {
         "type": "string",
         "format": "uuid",
@@ -1141,6 +3273,17 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "contactPhone": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "tenantCode": {
             "oneOf": [
