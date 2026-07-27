@@ -45,6 +45,21 @@ class RuntimeSafetyConfigurationTest {
         assertEquals(
                 "${dbUsername}",
                 property(sources, "spring.datasource.username"));
+        assertEquals(
+                "${dbPassword}",
+                property(sources, "spring.datasource.password"));
+        assertEquals(
+                "${jwtSecret}",
+                property(sources, "jwt.secret"));
+        assertEquals(
+                "${appAesKey}",
+                property(sources, "app.crypto.aes-key"));
+        assertEquals(
+                "optional:file:./.env[.properties]",
+                property(sources, "spring.config.import[0]"));
+        assertEquals(
+                "optional:configtree:/run/secrets/",
+                property(sources, "spring.config.import[1]"));
 
         String yaml = new ClassPathResource("application.yml")
                 .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);

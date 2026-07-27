@@ -36,6 +36,18 @@ build/
 *.log
 
 .env
+.env.*
+!.env.example
+.ecobin/
+secrets/
+*.kdbx
+*.key
+*.pem
+*.p12
+*.pfx
+*.cms
+*.age
+*.gpg
 
 ### 前端小程序（纳入版本管理）###
 #frontend/miniprogram/

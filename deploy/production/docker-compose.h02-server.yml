@@ -1,0 +1,57 @@
+name: ${H02_COMPOSE_PROJECT_NAME:-ecobin-target}
+
+services:
+  mysql-target:
+    image: ${H02_MYSQL_IMAGE:?set H02_MYSQL_IMAGE}
+    container_name: ${H02_CONTAINER_NAME:-ecobin-target-mysql84}
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+      - --transaction-isolation=READ-COMMITTED
+      - --log-bin-trust-function-creators=ON
+      - --sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+      - --innodb-buffer-pool-size=536870912
+      - --max-connections=100
+    secrets:
+      - mysql_root_password
+    volumes:
+      - target-data:/var/lib/mysql
+    networks:
+      - target-db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "MYSQL_PWD=\"$$(cat /run/secrets/mysql_root_password)\" mysqladmin ping -h 127.0.0.1 -uroot --silent"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 1152m
+    mem_reservation: 768m
+    cpus: 1.5
+    pids_limit: 256
+    restart: unless-stopped
+
+secrets:
+  mysql_root_password:
+    file: ${H02_ROOT_PASSWORD_FILE:?set H02_ROOT_PASSWORD_FILE}
+
+volumes:
+  target-data:
+    name: ${H02_VOLUME_NAME:-ecobin-target-mysql84-data}
+
+networks:
+  target-db:
+    name: ${H02_NETWORK_NAME:-ecobin-target-db}
+    internal: true

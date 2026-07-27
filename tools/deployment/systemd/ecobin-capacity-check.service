@@ -1,0 +1,14 @@
+[Unit]
+Description=Check EcoBin host disk, memory and swap capacity
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ecobin-host-capacity-check
+StateDirectory=ecobin-monitoring
+StateDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=-/var/lib/ecobin-monitoring

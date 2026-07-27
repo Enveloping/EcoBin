@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已完成，F-11 实施中，H-02 已 ready 但真实环境操作仍须授权，F-10 软件已完成并等待 MCU/联调验收**
+> 状态：**29 项任务已批准并发布；H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 已完成，F-11 实施中，F-10 软件已完成并等待 MCU/联调验收**
 >
 > 草案日期：2026-07-24
 >
@@ -614,7 +614,8 @@ M0_COMPLETE
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
-当前 H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 为 `done`；
-F-11 为 `in-progress`；H-02 为 `ready`，但真实环境操作仍须单独授权；
+当前 H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09 为
+`done`；F-11 为 `in-progress`；H-02 已通过本地演练及服务器整改阶段 0～3 验收，
+当前试验期 `.ecobin` 凭证保管例外已由项目负责人接受；
 F-10 因软件完成后仍等待 MCU/联调验收而为 `blocked`，其余任务保持 `blocked`。当前共
-`done` 10、`ready` 1、`in-progress` 1、`blocked` 17。
+`done` 11、`ready` 0、`in-progress` 1、`blocked` 17。

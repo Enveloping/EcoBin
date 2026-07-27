@@ -1,0 +1,180 @@
+# H-02 目标数据库环境供应手册
+
+> 当前状态：`done`
+>
+> 操作人：`enveloping`
+>
+> 当前用途：Windows 本地开发演练与服务器阶段 3 供应手册；两处均已验证独立
+> MySQL 8.4.10 容器/卷、五类身份、V1～V10 和脱敏权限探针。服务器阶段 3 结果另见
+> [单机试验期生产整改计划](single-host-production-remediation-plan.md)。
+
+## 1. 本手册不会做什么
+
+- 不连接或修改旧 V1～V14 数据库；
+- 不导入旧余额、订单、设备状态或其他业务数据；
+- 不执行试点 seed；
+- 不启动后端，不开放真实 API、OneNet、COS 或微信入口；
+- 不切换 Web、设备、MQ 或可靠任务所有权；
+- 失败时不自动 `repair`、删库、删容器或删数据卷。
+
+H-02 只供应目标空库。试点 seed 属于 F-12，入口切换和回退签署属于 H-06。
+
+## 2. 固定对象
+
+| 对象 | 固定值 |
+|---|---|
+| Compose project | `ecobin-h02` |
+| 容器 | `ecobin-h02-mysql84` |
+| 数据卷 | `ecobin-h02-mysql84-data` |
+| 内部网络 | `ecobin-h02-network` |
+| 本机端口 | `127.0.0.1:13306` |
+| 数据库 | `ecobin` |
+| MySQL | `8.4.10` |
+| 镜像 digest / ID | `sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6` |
+
+容器只把数据库端口绑定到本机回环地址，不能从局域网直接访问。Compose 使用独立
+bridge 网络供后续目标应用容器接入；数据卷与旧栈没有共享关系。
+
+## 3. 秘密与证据位置
+
+供应脚本在仓库外创建：
+
+```text
+C:\tmp\ecobin-h02-secrets
+C:\tmp\ecobin-h02-evidence\<UTC run id>
+```
+
+秘密目录保存初始化管理员、`ecobin_app` 和 `ecobin_backup` 的密码文件。脚本会收紧
+Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner 密码只在单次迁移
+进程中存在，迁移后配置文件被删除且账号锁定。触发器 definer 从创建起就是锁定账号。
+
+`C:\tmp` 不是长期秘密管理系统，也不是生产秘密来源。本地三个密码只服务本次开发
+演练；服务器生产密码已重新生成。2026-07-27 项目负责人接受当前前期受控试验把
+操作机 ACL 受限的 `.ecobin` 作为长期原件位置，服务器保留 root-only 运行副本；
+加密密码库和异机密码库密文副本延期到下一版本。任务文档只记录位置类别，不记录
+秘密值。
+
+证据目录只包含版本、配置、迁移标记、计数、脱敏 `SHOW GRANTS` 和权限结论。
+
+## 4. 执行
+
+在 H-02 worktree 的 PowerShell 中运行：
+
+```powershell
+.\tools\database\provision-h02-target.ps1
+```
+
+脚本在产生副作用前检查：
+
+- Docker Desktop 可用；
+- 固定 JDK 21.0.10 可用且 `mvn.cmd` 实际使用 Java 21；
+- 已审计镜像 digest/ID 一致；
+- 容器、数据卷和网络名称尚不存在；
+- `13306` 端口可用；
+- 秘密目录尚不存在，避免覆盖已有凭证。
+
+迁移按以下顺序执行：
+
+1. 创建独立容器、网络和数据卷；
+2. 创建目标数据库和五类身份；
+3. schema owner 安装 V1～V8；
+4. 为锁定 trigger definer 授予两个触发器需要的精确读取权限；
+5. schema owner 安装 V9～V10；
+6. 锁定 schema owner；
+7. 应用当前已冻结的表级/列级运行权限；
+8. 执行正向 DML 和 DDL/GRANT/TRIGGER/事实删除/系统库访问负测；
+9. 归档脱敏证据。
+
+首次安装失败时，脚本保留容器和数据卷用于诊断。不得对半库执行 Flyway `repair`。
+确认诊断证据后，如需丢弃半库并重装，必须再次明确批准要删除的容器、网络、数据卷和
+秘密目录。
+
+若迁移尚未创建任何表，只因 `internal` 网络导致宿主机迁移器无法访问，可保留数据卷
+并恢复：
+
+```powershell
+.\tools\database\provision-h02-target.ps1 `
+  -ResumeExistingEmptyEnvironment
+```
+
+恢复模式只接受目标数据库存在且表数为 0 的环境；它用 `docker compose down`
+重建容器和网络但不删除数据卷，重新生成一次性 schema owner 密码后继续首次迁移。
+
+若 V1～V10 已成功、owner 已锁定，只是后续权限验收脚本中断，则使用：
+
+```powershell
+.\tools\database\provision-h02-target.ps1 `
+  -ResumeExistingMigratedEnvironment
+```
+
+该模式要求 83 张领域表和 10 条成功迁移完整存在，不解锁 owner、不重复迁移。
+
+## 5. 列级权限完成门
+
+H-02 实施审查发现 F-04/F-05 原矩阵只有表和写类，没有把 identity/device/recycling
+34 张 P/O 表落到精确更新列。本 worktree 已按冻结状态机、不可变边界和实际 DDL 将其
+补入 F-04/F-05 矩阵，并与 F-06 合成完整 grants 目录。
+
+脚本只生成：
+
+- 83 张领域表显式 `SELECT`；
+- 除权限目录外显式 `INSERT`；
+- 四张当前槽位表显式 `DELETE`；
+- 对 52 张 P/O 表只授予矩阵明确列出的列级 `UPDATE`。
+
+验收对每张 P/O 表执行一条获准列空集更新正测，并选择该表首个未授权列执行负测；
+四张槽位表逐表验证 `DELETE`，备份身份以 `single-transaction` 数据读取探针验证。
+任何 schema 级或整表 `UPDATE/DELETE` 仍视为失败。
+
+## 6. 日常启停
+
+使用秘密目录中的 `compose.env`：
+
+```powershell
+docker compose `
+  --project-name ecobin-h02 `
+  --env-file C:\tmp\ecobin-h02-secrets\compose.env `
+  --file .\docker-compose.h02.yml `
+  stop
+
+docker compose `
+  --project-name ecobin-h02 `
+  --env-file C:\tmp\ecobin-h02-secrets\compose.env `
+  --file .\docker-compose.h02.yml `
+  start
+```
+
+停止容器不会删除数据。不要执行 `docker compose down -v`，也不要直接删除
+`ecobin-h02-mysql84-data`。
+
+## 7. 服务器阶段 3 固定对象
+
+2026-07-27 供应并验证的服务器对象为：
+
+| 对象 | 固定值 |
+|---|---|
+| Compose project | `ecobin-target` |
+| 容器 | `ecobin-target-mysql84` |
+| 数据卷 | `ecobin-target-mysql84-data` |
+| 内部网络 | `ecobin-target-db` |
+| 宿主机 MySQL 端口 | 无 |
+| Compose 文件 | `/etc/ecobin/h02/docker-compose.h02-server.yml` |
+| 非秘密 Compose 环境 | `/etc/ecobin/h02/compose.env` |
+| root secret | `/etc/ecobin/secrets/mysql-root-password`，`root:root 0600` |
+
+服务器 Compose 模板是
+[`deploy/production/docker-compose.h02-server.yml`](../../deploy/production/docker-compose.h02-server.yml)。
+它没有 `ports`，数据库只在 internal Docker 网络内可达。日常只读检查可用：
+
+```bash
+sudo docker inspect ecobin-target-mysql84
+sudo docker compose \
+  --project-name ecobin-target \
+  --env-file /etc/ecobin/h02/compose.env \
+  --file /etc/ecobin/h02/docker-compose.h02-server.yml \
+  ps
+```
+
+不要为方便管理临时发布 3306/13306；需要执行受控迁移时使用一次性 SSH 隧道并在操作
+结束后验证宿主机没有监听。停止目标 MySQL 不会自动授权启动旧栈，阶段 4 应继续等待
+单独授权。
