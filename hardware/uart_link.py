@@ -534,9 +534,17 @@ class UartLink:
                 "STATE_SNAPSHOT_PORT",
                 "STATE_SNAPSHOT_END",
             ):
-                if on_segment is not None:
-                    on_segment(frame)
                 if p.get("snapshotUid") != snapshot_uid:
+                    # A preceding QUERY_STATE can be retransmitted while a
+                    # new snapshot is in flight.  It must be ACKed so the MCU
+                    # can retire it, but it must not enter the reliable event
+                    # inbox because its snapshot identity belongs to a
+                    # superseded query.
+                    self.send_ack(
+                        p["mcuBootId"],
+                        frame["tx_sequence"],
+                        frame["message_type"],
+                    )
                     logger.info(
                         "ACK 并忽略旧快照分段: expected=%s actual=%s msg=%s",
                         snapshot_uid,
@@ -544,6 +552,8 @@ class UartLink:
                         msg_name,
                     )
                     continue
+                if on_segment is not None:
+                    on_segment(frame)
                 segments.append(frame)
                 if msg_name == "STATE_SNAPSHOT_END":
                     break

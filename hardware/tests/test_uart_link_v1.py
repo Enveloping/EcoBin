@@ -451,6 +451,7 @@ def test_query_state_acks_but_does_not_mix_stale_snapshot_segments(
         segment("STATE_SNAPSHOT_END", str(current_snapshot_uid)),
     ]
     acknowledged = []
+    stale_acks = []
     link = UartLink(port="fake", edge_boot_id=7, port_count=1)
     link._mcu_boot_id = 42
     monkeypatch.setattr(
@@ -463,12 +464,20 @@ def test_query_state_acks_but_does_not_mix_stale_snapshot_segments(
         "_read_frame",
         lambda timeout_ms: frames.pop(0) if frames else None,
     )
+    monkeypatch.setattr(
+        link,
+        "send_ack",
+        lambda boot_id, tx_sequence, message_type: stale_acks.append(
+            (boot_id, tx_sequence, message_type)
+        ),
+    )
 
     result = link.query_state(
         on_segment=lambda frame: acknowledged.append(frame)
     )
 
-    assert len(acknowledged) == 6
+    assert len(acknowledged) == 3
+    assert len(stale_acks) == 3
     assert len(result) == 3
     assert {
         frame["payload"]["snapshotUid"] for frame in result
