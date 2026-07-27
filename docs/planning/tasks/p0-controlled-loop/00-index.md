@@ -14,8 +14,10 @@ implementation_authorized: false
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
 > F-03、F-04、F-05、F-06、F-07、F-08、F-09，并确认 F-10 软件阶段完成；
-> F-11 已获软件实施授权并处于 `in-progress`；V-01 已完成；H-02 与 V-02 为
-> `ready` 但仍须单独授权；其他任务仍须逐项获得授权。
+> F-11 已获软件实施授权并处于 `in-progress`；V-01 已完成；H-02 已通过本地 MySQL 8.4
+> 开发演练及服务器整改阶段 0～3 验收，项目负责人接受当前试验期使用 ACL 受限
+> `.ecobin` 保管长期凭证原件，任务已转为 `done`；
+> V-02 为 `ready` 但仍须单独授权；其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
 ## Initiative 状态
@@ -25,8 +27,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、V-01 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 实施中；H-02 与 V-02 已 ready 但未授权；其他任务未授权** |
-| 当前状态数 | `done` 11、`ready` 2、`in-progress` 1、`blocked` 15 |
+| 实施授权 | **部分授权：H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、V-01 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 实施中；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 已 ready 但未授权；阶段 4 及其他任务未授权** |
+| 当前状态数 | `done` 12、`ready` 1、`in-progress` 1、`blocked` 15 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -106,7 +108,7 @@ agent | human | mixed
 | ID | 任务 | status | executor | blocked by |
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
-| H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `ready` | `human` | F-06 |
+| H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `done` | `human` | F-06 |
 | H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10；尚未授权固件实施 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
@@ -267,13 +269,29 @@ M0_COMPLETE
   `database-refactor`。F-08 转为 `done`，当前共 `done` 10、`ready` 1、
   `in-progress` 1、`blocked` 17。
 - 2026-07-26：复核 V-01 的 F-02、F-03、F-04、F-09 前置均已完成；项目负责人授权
-  Codex 在独立 worktree 接取并编码实施 V-01，任务转为 `in-progress`。当前共
-  `done` 10、`ready` 1、`in-progress` 2、`blocked` 16。
+  Codex 在独立 worktree 接取并编码实施 V-01，任务转为 `in-progress`。
 - 2026-07-26：V-01 完成目标 Web 会话、identity 目录/审计、管理页面、OpenAPI 和真实
-  MySQL 验收，转为 `in-review`。当前共 `done` 10、`ready` 1、`in-progress` 1、
-  `in-review` 1、`blocked` 16；V-02/V-03 等下游仍待项目负责人确认 V-01 完成后再
-  解除依赖。
+  MySQL 验收，转为 `in-review`；V-02/V-03 等下游仍待项目负责人确认 V-01 完成后
+  再解除依赖。
 - 2026-07-27：V-01 完成六项 P1 复审修复，真实 MySQL 八项专项、全仓、HTTP 契约和
   Web 回归全部通过；项目负责人要求提交并合入，V-01 转为 `done`。V-02 的软件前置
-  全部完成，转为 `ready`，但未获得实施授权。当前共 `done` 11、`ready` 2、
-  `in-progress` 1、`blocked` 15。
+  全部完成，转为 `ready`，但未获得实施授权。
+- 2026-07-26：项目负责人 `enveloping` 明确授权 H-02 并担任人工操作人，选择独立
+  MySQL 8.4 容器与独立数据卷供应目标环境；H-02 转为 `in-progress`。
+- 2026-07-26：H-02 完成独立 MySQL 8.4.10 容器/数据卷、V1～V10、五类身份、
+  完整列级 grants 和脱敏正负测；后续确认该环境只属于本地开发演练，服务器生产供应
+  仍未实施。项目负责人决定试验期继续使用当前单机并允许停掉旧后端，H-02 保持
+  `in-progress`。
+- 2026-07-27：项目负责人授权 H-02 阶段 3；服务器独立目标 MySQL 8.4.10、V1～V10、
+  五类身份、最小 grants、正负权限探针、零业务数据和公网 3306/13306 隔离均通过，
+  CMS 加密备份完成异机复制、解密读取及一次性独立容器恢复验证，临时恢复资源已删除，
+  旧栈和旧卷保留。阶段 3 技术门完成，密码库导入和异机密文副本开启验证仍待操作人
+  确认，H-02 保持 `in-progress`。
+- 2026-07-27：项目负责人重新裁定当前前期受控试验的凭证保管门：操作机 ACL 受限
+  `.ecobin` 明文目录作为当前长期原件位置，明确接受操作机失陷、损坏或丢失导致的
+  保密性与可恢复性风险；加密密码库和异机密码库密文副本延期到下一版本加固，不再
+  阻断 H-02。主审复核服务器目标数据库、身份、权限、公网隔离、加密备份、隔离恢复
+  和仓库秘密扫描均无 P0/P1 问题；三项非阻断改进按负责人决定不在本轮处理。H-02
+  转为 `done`。合并 V-01 与 H-02 两条并行工作线后，当前共 `done` 12、`ready` 1、
+  `in-progress` 1、`blocked` 15；
+  阶段 4、seed、应用部署和成对切换仍未授权。

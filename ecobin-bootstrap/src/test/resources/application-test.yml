@@ -24,6 +24,9 @@ app:
   crypto:
     aes-key: test_aes_key
 
+jwt:
+  secret: test_jwt_secret_at_least_32_bytes_long
+
 # OneNet 北向消费者测试环境强制关闭（绝不连真实 MQ）
 onenet:
   subscription:

@@ -5,7 +5,7 @@
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
 > 当前运行结构：H-01 保留的旧栈仍对应 [`../architecture/database-design.md`](../architecture/database-design.md) 与 Flyway V1～V14；目标 V1～V10 只供独立迁移作业使用，新运行制品不含 Flyway 运行库或迁移脚本并通过 F-07 epoch/Fake bootstrap 验证，但尚未执行成对切换
 > 历史字段讨论：[`../architecture/database-refactor-fields-draft.md`](../architecture/database-refactor-fields-draft.md)
-> 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01 已使用目标身份表完成首个纵切；其他纵向业务和真实环境供应仍不能当作已经实施。
+> 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01 已使用目标身份表完成首个纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，但其他纵向业务仍不能当作已经实施。
 > 文档结构：本文件保存总状态、审计、表族概览、分章导航和后续顺序；各决策正文位于 [`database-design/`](database-design/) 下。
 
 ## 1. 文档效力与边界
@@ -97,8 +97,8 @@ DD-004 只修订 Java 模块在同线程、同事务内构造跨模块复合外�
 1. D-001～D-045 已完成目标表、字段语义、约束、索引、事务锁序、迁移纪元、账号、切换和验收边界收口。F-04/F-05/F-06 已在独立迁移纪元实现 V1～V10 的 83 张目标表并通过 MySQL 8.4 双空库验证；F-07 已从新运行制品物理移除 Flyway 运行库和全部迁移脚本，并通过目标 epoch/Fake 空业务库启动矩阵。旧部署栈和真实业务数据库尚未执行成对切换。
 2. 接口和详细设计均已完成，数据库施工已映射到
    [F-04～F-07、H-02 等正式任务](tasks/p0-controlled-loop/00-index.md)。F-04/F-05/F-06
-   已授权并完成，F-07 已通过复审并完成；H-02 前置依赖已解除并进入
-   `ready`，但真实环境操作仍未授权。
+   已授权并完成，F-07 已通过复审并完成；H-02 已通过本地开发演练和服务器阶段 0～3
+   验收，当前试验期 `.ecobin` 凭证保管例外已由项目负责人接受，任务为 `done`。
 
 ## 15. 变更记录
 

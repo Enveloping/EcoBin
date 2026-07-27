@@ -45,6 +45,28 @@
 | `rec_fullness_sample` / A | `id` | 同检测；物理结果必须以本 sample 为目标 | 检测+角色、物理结果唯一；红外/重量来源、负原始净重、百分比和综合结论字段组 |
 | `rec_fullness_event` / O | `id`；事件 UUIDv4 | 同投口的首次、确认、最近、最近满溢和恢复检测 | 活动投口槽；active/recovered 形状；机构活动满溢和首次确认时间 |
 
+## 2.1 H-02 运行账号列级更新矩阵
+
+下表补齐 P/O 写类的精确运行列。未列出的作用域、稳定身份、设备/配置/袋/重量来源
+快照、首次证据和创建时间不可更新；A 表没有 `UPDATE/DELETE`，当前袋槽只允许
+`SELECT/INSERT/DELETE`。
+
+| 表 / 写类 | `ecobin_app` 可更新列 |
+|---|---|
+| `rec_organization_delivery_config_head` / P | `current_config_id, current_version_no, lock_version, switched_at, updated_at` |
+| `rec_organization_order_counter` / P | `last_visibility_sequence_no, lock_version, updated_at` |
+| `rec_delivery_order` / P | `review_status, current_revision_no, current_revision_id, final_business_weight_kg, final_amount_cent, first_approved_at, updated_at` |
+| `rec_delivery_photo` / O | `photo_uid, status, object_url, sha256, size_bytes, captured_at, linked_at, missing_reason, updated_at` |
+| `rec_organization_clean_config_head` / P | `current_config_id, current_version_no, lock_version, switched_at, updated_at` |
+| `rec_organization_clean_record_counter` / P | `last_visibility_sequence_no, lock_version, updated_at` |
+| `rec_clean_operation` / P | `pre_unlock_weight_status, pre_unlock_weight_g, pre_unlock_weight_fault_code, status, edge_saved_at, first_possible_unlock_at, solenoid_powered_off_at, cleaner_confirmed_closed_at, pre_unlock_end_requested_at, recovery_requested_at, reopen_count, recovery_count, completion_record_id, ended_at, end_reason, lock_version, updated_at` |
+| `rec_clean_record` / P | `recalculated_removed_net_weight_status, recalculated_removed_net_weight_g, review_status, review_revision_no, review_revision_id, final_recognized_net_weight_kg, updated_at` |
+| `rec_clean_photo` / O | `photo_uid, status, object_url, sha256, size_bytes, captured_at, linked_at, missing_reason, updated_at` |
+| `rec_port_baseline_measurement` / P | `status, physical_result_id, stable_total_weight_g, fault_code, result_baseline_id, started_at, completed_at, lock_version, updated_at` |
+| `rec_port_capacity_state` / P | `baseline_state, current_baseline_id, current_baseline_weight_g, latest_stable_total_weight_g, raw_net_weight_g, displayed_fullness_percent, detection_gate, current_detection_id, current_rule_fingerprint, confirmed_fullness_state, last_detection_id, current_fullness_event_id, lock_version, updated_at` |
+| `rec_fullness_detection` / P | `status, final_result, failure_code, disposition, initial_sample_id, initial_sample_conclusion, terminal_sample_id, terminal_sample_conclusion, next_sample_at, completed_at, lock_version, updated_at` |
+| `rec_fullness_event` / O | `status, confirmed_detection_id, confirmed_at, current_reason, latest_detection_id, latest_full_detection_id, detection_count, recovered_by_detection_id, recovered_at, updated_at` |
+
 ## 3. V5 对 V1～V4 的候选键补强
 
 V5 不修改已经发布的 V1～V4 文件，而是在本迁移内以前向 `ALTER TABLE` 增加：

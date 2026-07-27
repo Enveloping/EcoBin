@@ -2,8 +2,20 @@
 target/
 **/target/
 
-# 机密文件！绝不进镜像（.env 在运行时通过 volume 挂载，不打进镜像层）
+# 机密文件！绝不进镜像（生产运行时使用只读 config tree）
 .env
+.env.*
+!.env.example
+.ecobin/
+secrets/
+*.kdbx
+*.key
+*.pem
+*.p12
+*.pfx
+*.cms
+*.age
+*.gpg
 hardware/
 
 # 与后端镜像无关的大目录

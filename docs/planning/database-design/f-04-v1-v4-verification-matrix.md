@@ -81,6 +81,36 @@ F-04 为后续父表预留非空或可空的强类型列，但不建立不存在
 
 这些关系必须由 V8 使用完整作用域和强类型候选键闭合；不得只补裸 ID 外键。
 
+## 6.1 H-02 运行账号列级更新矩阵
+
+下表补齐 D-035 已冻结的 P/O 写类到实际 V1～V4 列。未列出的身份、作用域、稳定
+业务键、来源快照、首次证据和创建时间均不得获得 `UPDATE`。四张当前槽位表继续只按
+D-035 使用 `SELECT/INSERT/DELETE`；A/R 表没有 `UPDATE/DELETE`。
+
+| 表 / 写类 | `ecobin_app` 可更新列 |
+|---|---|
+| `iam_platform_admin` / P | `password_hash, display_name, enabled, failed_login_count, locked_until, auth_version, password_changed_at, lock_version, updated_at` |
+| `iam_tenant` / P | `enterprise_name, status, contact_name, contact_phone, contact_address, lock_version, updated_at` |
+| `iam_organization` / P | `organization_name, status, contact_phone, contact_address, lock_version, updated_at` |
+| `iam_organization_miniapp` / P | `appid, display_name, login_enabled, secret_ref, activated_at, lock_version, configured_at, updated_at`；V9 继续阻断激活后 AppID/作用域/激活时间变化 |
+| `iam_staff_account` / P | `password_hash, display_name, contact_phone, enabled, failed_login_count, locked_until, auth_version, password_changed_at, lock_version, updated_at` |
+| `iam_organization_staff_membership` / P | `is_manager, enabled, lock_version, updated_at` |
+| `iam_staff_permission_grant` / O | `revoked_at` |
+| `iam_staff_miniapp_binding` / O | `status, revoked_at, revocation_reason, lock_version` |
+| `iam_organization_user` / P | `phone_e164, phone_bound_at, nickname, avatar_url, status, auth_version, lock_version, frozen_at, updated_at`；V9 继续阻断注册身份和来源变化 |
+| `iam_organization_user_capability` / P | `enabled, revoked_at, lock_version, updated_at` |
+| `iam_platform_login_session` / O | `revoked_at, revocation_reason` |
+| `iam_staff_login_session` / O | `revoked_at, revocation_reason` |
+| `iam_organization_user_session` / O | `revoked_at, revocation_reason` |
+| `dev_device_asset` / P | `lifecycle_status, retired_at, retirement_reason, lock_version, updated_at` |
+| `dev_device_deployment` / P | `lifecycle_status, business_enabled, enabled_at, ended_at, end_method, end_reason, lock_version, updated_at` |
+| `dev_config_application` / P | `status, reported_version_no, reported_content_sha256, reported_mcu_payload_sha256, edge_persisted_at, mcu_synced_at, applied_at, last_failure_at, last_failure_code, lock_version, updated_at` |
+| `dev_deployment_runtime_state` / P | `edge_connection_status, mcu_link_status, safety_status, aggregate_weight_health, camera_health, local_storage_health, clock_sync_health, edge_boot_id, edge_software_version, mcu_firmware_version, mcu_boot_id, uart_state, uart_protocol_major, uart_protocol_minor, capability_bitmap_hex, last_mcu_reset_reason, applied_config_version_no, applied_config_content_sha256, applied_mcu_payload_sha256, local_storage_state, clock_state, pending_reliable_event_count, last_heartbeat_at, last_device_event_at, lock_version, updated_at` |
+| `dev_port_runtime_state` / P | `delivery_door_state, delivery_door_actuator_health, delivery_door_contact_state, clean_lock_power_state, clean_solenoid_health, clean_door_inferred_state, clean_door_state_basis, weight_sensor_health, infrared_value, infrared_sensor_health, smoke_state, smoke_sensor_health, safety_status, pending_delivery_result_session_id, last_observed_at, lock_version, updated_at` |
+| `dev_device_fault_event` / O | `status, last_detected_at, discovery_count, recovery_source_kind, recovery_source_edge_event_id, recovery_source_edge_event_type, recovery_method, recovery_audit_log_id, recovered_at, recovered_by_staff_account_id, recovery_reason, lock_version` |
+| `dev_delivery_session` / P | `status, first_edge_accepted_at, first_physical_progress_at, device_completed_at, ended_at, end_reason, lock_version, updated_at` |
+| `dev_device_command` / P | `physical_state, edge_accepted_at, physical_started_at, physical_ended_at, lock_version, updated_at` |
+
 ## 7. 自动验证
 
 运行：

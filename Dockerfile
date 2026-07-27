@@ -12,20 +12,21 @@ COPY ecobin-module-operations/pom.xml ecobin-module-operations/
 COPY ecobin-integration/pom.xml ecobin-integration/
 COPY ecobin-bootstrap/pom.xml ecobin-bootstrap/
 
-# 预下载依赖到本地仓库。多模块项目里 go-offline 偶尔会因模块间依赖未安装而报警告，
-# 故加 "|| true" 让它即使不完整也不中断（缺的依赖会在下面 package 时补下）。
-RUN mvn -B dependency:go-offline || true
-
 COPY . .
-RUN mvn -B clean package -DskipTests
+RUN --mount=type=cache,id=ecobin-maven,target=/root/.m2 \
+    mvn -B clean package -Dmaven.test.skip=true
 
 FROM eclipse-temurin:21-jre AS runtime
 WORKDIR /app
 
 COPY --from=build /build/ecobin-bootstrap/target/ecobin-bootstrap-*.jar /app/app.jar
 
+RUN groupadd --gid 10001 ecobin \
+    && useradd --uid 10001 --gid 10001 --no-create-home \
+        --home-dir /nonexistent --shell /usr/sbin/nologin ecobin
+
 EXPOSE 8080
 
-USER 10001
+USER 10001:10001
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
