@@ -4,6 +4,19 @@
 SQLite `command_inbox`。正在运行的 `main.py` 会继续完成命令校验、工作槽
 占用、UART 下发和 MCU 状态机处理。脚本本身不会打开串口。
 
+## 初始化联调配置
+
+新建的边缘数据库还没有已生效配置时，可将 UART HIL 使用的单投口配置
+通过正常网关链路下发。配置版本必须大于 MCU 已有的最高版本：
+
+```bash
+python3 tools/apply_sample_configuration.py --config-version 24
+```
+
+输出中的 `inboxState` 必须为 `COMPLETED`，才能开始投递。该配置使用
+120 秒投递关门倒计时、30 秒门行程等待、6000 ms 称重超时和 1000 ms
+清运锁脉冲。
+
 ## 开启投递流程
 
 在 `hardware/` 目录中执行：

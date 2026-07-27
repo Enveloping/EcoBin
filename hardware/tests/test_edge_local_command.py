@@ -10,9 +10,12 @@ from edge_store import EdgeStore
 from onenet_wire import canonical_payload_sha256
 from tools.edge_local_command import (
     LocalCommandError,
+    build_sample_configuration_command,
     build_start_delivery_command,
+    queue_sample_configuration,
     queue_start_delivery,
 )
+from tools.uart_hil_probe import _sample_configuration
 
 
 EXAMPLE_PATH = (
@@ -93,6 +96,44 @@ def test_queue_start_delivery_writes_normal_command_inbox_row(tmp_path):
     assert row["state"] == "PENDING"
     assert row["command_type"] == "START_DELIVERY_SESSION"
     assert row["payload"] == command
+    store.close()
+
+
+def test_sample_configuration_matches_uart_hil_payload():
+    command = build_sample_configuration_command(
+        deployment_code="Dp_demo_01",
+        config_version=24,
+        command_uid="51000000-0000-4000-8000-000000000001",
+        application_uid="51000000-0000-4000-8000-000000000002",
+        now=datetime(2099, 7, 27, 1, 2, 3, tzinfo=timezone.utc),
+    )
+
+    expected = _sample_configuration(24)["payload"]
+    expected["applicationUid"] = command["payload"]["applicationUid"]
+    assert command["payload"] == expected
+    assert command["target"] == {
+        "type": "CONFIGURATION_APPLICATION",
+        "uid": "51000000-0000-4000-8000-000000000002",
+    }
+    assert command["payloadSha256"] == canonical_payload_sha256(
+        command["payload"]
+    )
+
+
+def test_queue_sample_configuration_does_not_require_applied_config(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+
+    disposition, command = queue_sample_configuration(
+        store,
+        deployment_code="Dp_demo_01",
+        config_version=24,
+    )
+
+    assert disposition == "ACCEPTED"
+    row = store.get_command(command["commandUid"])
+    assert row["state"] == "PENDING"
+    assert row["command_type"] == "APPLY_CONFIGURATION"
     store.close()
 
 

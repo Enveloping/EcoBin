@@ -9,6 +9,7 @@ usual CommandProcessor -> WorkManager -> MCU path.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -21,9 +22,10 @@ HARDWARE_DIR = Path(__file__).resolve().parents[1]
 if str(HARDWARE_DIR) not in sys.path:
     sys.path.insert(0, str(HARDWARE_DIR))
 
-from config import EDGE_STORE_PATH  # noqa: E402
+from config import DEPLOYMENT_CODE, EDGE_STORE_PATH  # noqa: E402
 from edge_store import EdgeStore  # noqa: E402
 from onenet_wire import canonical_payload_sha256, validate_command_envelope  # noqa: E402
+from uart_link import compute_mcu_payload_sha256  # noqa: E402
 
 DEFAULT_COMMAND_TTL_SECONDS = 30
 DEFAULT_WAIT_SECONDS = 3.0
@@ -122,6 +124,146 @@ def build_start_delivery_command(
     return command
 
 
+def build_sample_configuration_command(
+    *,
+    deployment_code: str,
+    config_version: int,
+    door_travel_wait_ms: int = 30000,
+    command_uid: str | None = None,
+    application_uid: str | None = None,
+    ttl_seconds: int = DEFAULT_COMMAND_TTL_SECONDS,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Build the one-port configuration used by the UART HIL probe."""
+
+    if not deployment_code:
+        raise LocalCommandError("deployment_code is required")
+    if not 1 <= config_version <= 9_007_199_254_740_991:
+        raise LocalCommandError(
+            "config_version must be in 1..9007199254740991"
+        )
+    if not 30000 <= door_travel_wait_ms <= 45000:
+        raise LocalCommandError(
+            "door_travel_wait_ms must be in 30000..45000"
+        )
+    if ttl_seconds <= 0:
+        raise LocalCommandError("ttl_seconds must be greater than zero")
+
+    config_fingerprint = json.dumps(
+        {
+            "version": config_version,
+            "doorTravelWaitMs": door_travel_wait_ms,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    application_uid = application_uid or _new_uid()
+    payload = {
+        "applicationUid": application_uid,
+        "config": {
+            "version": config_version,
+            "contentSha256": hashlib.sha256(
+                config_fingerprint.encode()
+            ).hexdigest(),
+            "mcuPayloadSha256": "0" * 64,
+        },
+        "deviceConfig": {
+            "continueDeliveryWaitMs": 30000,
+            "negativeWeightThresholdGrams": 500,
+            "deliveryAutoCloseMs": 120000,
+            "weightMeasurementTimeoutMs": 6000,
+            "deliveryDoorTravelWaitMs": door_travel_wait_ms,
+            "cleanSolenoidPulseMs": 1000,
+            "smokeMonitoringEnabled": True,
+        },
+        "ports": [
+            {
+                "portNo": 1,
+                "enabled": True,
+                "unitPriceTenThousandths": 4500,
+                "fullnessMode": 3,
+                "configuredFullWeightGrams": 50000,
+                "fullnessSettleWaitMs": 5000,
+                "fullnessSensorKind": 1,
+                "fullnessDistanceThresholdMm": 600,
+                "fullnessSampleCount": 5,
+                "fullnessMinimumValidSampleCount": 3,
+                "fullnessEchoTimeoutUs": 30000,
+                "weightStableWindowMs": 1500,
+                "weightMaximumFluctuationGrams": 20,
+                "weightRequiredSampleCount": 10,
+                "weightMeasurementTimeoutMs": 6000,
+                "weightMinimumGrams": -5000,
+                "weightMaximumGrams": 100000,
+                "calibrationVersion": 4,
+            }
+        ],
+    }
+    payload["config"]["mcuPayloadSha256"] = compute_mcu_payload_sha256(
+        payload
+    )
+    command_uid = command_uid or _new_uid()
+    now = now or datetime.now(timezone.utc)
+    command = {
+        "commandType": "APPLY_CONFIGURATION",
+        "commandUid": command_uid,
+        "cosGrant": None,
+        "deploymentCode": deployment_code,
+        "expiresAt": _rfc3339(now + timedelta(seconds=ttl_seconds)),
+        "issuedAt": _rfc3339(now),
+        "payload": payload,
+        "payloadSchemaVersion": 1,
+        "payloadSha256": canonical_payload_sha256(payload),
+        "schemaVersion": 1,
+        "target": {
+            "type": "CONFIGURATION_APPLICATION",
+            "uid": application_uid,
+        },
+    }
+    validate_command_envelope(command)
+    return command
+
+
+def queue_sample_configuration(
+    store: EdgeStore,
+    *,
+    deployment_code: str,
+    config_version: int,
+    door_travel_wait_ms: int = 30000,
+    command_uid: str | None = None,
+    application_uid: str | None = None,
+    ttl_seconds: int = DEFAULT_COMMAND_TTL_SECONDS,
+    dry_run: bool = False,
+) -> tuple[str, dict[str, Any]]:
+    """Build and optionally queue one sample APPLY_CONFIGURATION command."""
+
+    active = store.get_work_slot()
+    if active:
+        raise LocalCommandError(
+            "device is busy: "
+            f"{active['work_type']} {active['work_uid']} "
+            f"(state={active.get('work_state')})"
+        )
+    command = build_sample_configuration_command(
+        deployment_code=deployment_code,
+        config_version=config_version,
+        door_travel_wait_ms=door_travel_wait_ms,
+        command_uid=command_uid,
+        application_uid=application_uid,
+        ttl_seconds=ttl_seconds,
+    )
+    if dry_run:
+        return "DRY_RUN", command
+    disposition = store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    if disposition not in ("ACCEPTED", "DUPLICATE"):
+        raise LocalCommandError(f"command inbox rejected the command: {disposition}")
+    return disposition, command
+
+
 def queue_start_delivery(
     store: EdgeStore,
     *,
@@ -177,6 +319,28 @@ def wait_for_command_claim(
     deadline = time.monotonic() + max(timeout_seconds, 0)
     row = store.get_command(command_uid)
     while row and row["state"] == "PENDING" and time.monotonic() < deadline:
+        time.sleep(0.1)
+        row = store.get_command(command_uid)
+    return row
+
+
+def _wait_for_configuration_result(
+    store: EdgeStore,
+    command_uid: str,
+    timeout_seconds: float,
+) -> dict[str, Any] | None:
+    deadline = time.monotonic() + max(timeout_seconds, 0)
+    transient_states = {
+        "PENDING",
+        "PROCESSING",
+        "WAITING_MCU_RESULT",
+    }
+    row = store.get_command(command_uid)
+    while (
+        row
+        and row["state"] in transient_states
+        and time.monotonic() < deadline
+    ):
         time.sleep(0.1)
         row = store.get_command(command_uid)
     return row
@@ -238,6 +402,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="print the command without adding it to the inbox",
     )
 
+    apply_config = subparsers.add_parser(
+        "apply-sample-configuration",
+        help="queue the one-port UART HIL configuration through the gateway",
+    )
+    _add_db_argument(apply_config)
+    apply_config.add_argument(
+        "--deployment-code",
+        default=DEPLOYMENT_CODE,
+        help="defaults to ECOBIN_DEPLOYMENT_CODE",
+    )
+    apply_config.add_argument("--config-version", type=int, required=True)
+    apply_config.add_argument(
+        "--door-travel-wait-ms",
+        type=int,
+        default=30000,
+    )
+    apply_config.add_argument("--command-uid")
+    apply_config.add_argument("--application-uid")
+    apply_config.add_argument(
+        "--ttl-seconds",
+        type=int,
+        default=DEFAULT_COMMAND_TTL_SECONDS,
+    )
+    apply_config.add_argument(
+        "--wait-seconds",
+        type=float,
+        default=10.0,
+        help="wait for the MCU configuration result",
+    )
+    apply_config.add_argument("--dry-run", action="store_true")
+
     status = subparsers.add_parser("status", help="show one command inbox row")
     _add_db_argument(status)
     status.add_argument("--command-uid", required=True)
@@ -266,6 +461,37 @@ def run(argv: list[str] | None = None) -> int:
                 raise LocalCommandError(f"command not found: {args.command_uid}")
             _print_json(row)
             return 0
+
+        if args.action == "apply-sample-configuration":
+            disposition, command = queue_sample_configuration(
+                store,
+                deployment_code=args.deployment_code,
+                config_version=args.config_version,
+                door_travel_wait_ms=args.door_travel_wait_ms,
+                command_uid=args.command_uid,
+                application_uid=args.application_uid,
+                ttl_seconds=args.ttl_seconds,
+                dry_run=args.dry_run,
+            )
+            if args.dry_run:
+                _print_json({"disposition": disposition, "command": command})
+                return 0
+            row = _wait_for_configuration_result(
+                store,
+                command["commandUid"],
+                args.wait_seconds,
+            )
+            _print_json(
+                {
+                    "disposition": disposition,
+                    "commandUid": command["commandUid"],
+                    "applicationUid": command["payload"]["applicationUid"],
+                    "configVersion": command["payload"]["config"]["version"],
+                    "inboxState": row["state"] if row else "NOT_FOUND",
+                    "lastError": row.get("last_error") if row else None,
+                }
+            )
+            return 0 if row and row["state"] == "COMPLETED" else 3
 
         disposition, command = queue_start_delivery(
             store,
