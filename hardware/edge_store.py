@@ -24,7 +24,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -84,6 +84,10 @@ class EdgeStore:
         if current < 2:
             self._migrate_v2()
             conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+            current = 2
+        if current < 3:
+            self._migrate_v3()
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -250,6 +254,66 @@ class EdgeStore:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mcu_event_state "
             "ON mcu_event_inbox(state, rowid)"
+        )
+
+    def _migrate_v3(self) -> None:
+        """Add an Edge-owned receive generation for fixed MCU boot IDs."""
+        conn = self._conn
+        columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(mcu_event_inbox)"
+            ).fetchall()
+        }
+        if "mcu_receive_generation" not in columns:
+            conn.execute(
+                "ALTER TABLE mcu_event_inbox RENAME TO mcu_event_inbox_v2"
+            )
+            conn.execute("DROP INDEX IF EXISTS idx_mcu_event_state")
+            conn.execute("""CREATE TABLE mcu_event_inbox (
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                mcu_receive_generation INTEGER NOT NULL,
+                mcu_boot_id INTEGER NOT NULL,
+                mcu_event_sequence INTEGER NOT NULL,
+                message_name TEXT NOT NULL,
+                message_type INTEGER NOT NULL,
+                source_tx_sequence INTEGER NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'PENDING',
+                received_at TEXT NOT NULL DEFAULT (datetime('now')),
+                processed_at TEXT,
+                last_error TEXT,
+                UNIQUE(
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence
+                )
+            )""")
+            conn.execute(
+                """INSERT INTO mcu_event_inbox
+                   (rowid, mcu_receive_generation, mcu_boot_id,
+                    mcu_event_sequence, message_name, message_type,
+                    source_tx_sequence, content_sha256, payload_json,
+                    state, received_at, processed_at, last_error)
+                   SELECT rowid, 0, mcu_boot_id, mcu_event_sequence,
+                          message_name, message_type, source_tx_sequence,
+                          content_sha256, payload_json, state, received_at,
+                          processed_at, last_error
+                   FROM mcu_event_inbox_v2"""
+            )
+            conn.execute("DROP TABLE mcu_event_inbox_v2")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mcu_event_state "
+            "ON mcu_event_inbox(state, rowid)"
+        )
+        conn.executemany(
+            """INSERT OR IGNORE INTO device_state
+               (state_key, state_value) VALUES (?, ?)""",
+            [
+                ("mcu_receive_generation", "0"),
+                ("active_mcu_boot_id", ""),
+            ],
         )
 
     # ── 事务辅助 ──
@@ -739,6 +803,35 @@ class EdgeStore:
 
     # ── MCU 关键事件可靠收件 ──
 
+    def begin_mcu_receive_generation(self, mcu_boot_id: int) -> int:
+        """Start a new Edge-local UART receive generation after HELLO."""
+        if not isinstance(mcu_boot_id, int) or mcu_boot_id <= 0:
+            raise ValueError("mcu_boot_id must be a positive integer")
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='mcu_receive_generation'"""
+            ).fetchone()
+            generation = int(row["state_value"] if row else 0) + 1
+            now = self._now()
+            self._upsert_state(
+                self._conn,
+                "mcu_receive_generation",
+                str(generation),
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                "active_mcu_boot_id",
+                str(mcu_boot_id),
+                now,
+            )
+            return generation
+
+    def get_mcu_receive_generation(self) -> int:
+        value = self.get_state("mcu_receive_generation", "0")
+        return int(value or 0)
+
     def receive_mcu_frame(self, frame: dict) -> str:
         payload = frame.get("payload") or {}
         mcu_boot_id = payload.get("mcuBootId")
@@ -751,10 +844,27 @@ class EdgeStore:
         }
         content_sha256 = canonical_payload_sha256(stable)
         with self.transaction():
+            generation_row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='mcu_receive_generation'"""
+            ).fetchone()
+            generation = int(
+                generation_row["state_value"] if generation_row else 0
+            )
+            active_boot_row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='active_mcu_boot_id'"""
+            ).fetchone()
+            active_boot_id = (
+                active_boot_row["state_value"] if active_boot_row else ""
+            )
+            if active_boot_id and int(active_boot_id) != mcu_boot_id:
+                return "REJECTED"
             existing = self._conn.execute(
                 """SELECT content_sha256 FROM mcu_event_inbox
-                   WHERE mcu_boot_id=? AND mcu_event_sequence=?""",
-                (mcu_boot_id, event_sequence),
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?""",
+                (generation, mcu_boot_id, event_sequence),
             ).fetchone()
             if existing:
                 return (
@@ -762,12 +872,23 @@ class EdgeStore:
                     if existing["content_sha256"] == content_sha256
                     else "CONFLICT"
                 )
+            historical_duplicate = self._conn.execute(
+                """SELECT 1 FROM mcu_event_inbox
+                   WHERE mcu_boot_id=? AND mcu_event_sequence=?
+                     AND content_sha256=?
+                   LIMIT 1""",
+                (mcu_boot_id, event_sequence, content_sha256),
+            ).fetchone()
+            if historical_duplicate:
+                return "DUPLICATE"
             self._conn.execute(
                 """INSERT INTO mcu_event_inbox
-                   (mcu_boot_id, mcu_event_sequence, message_name, message_type,
-                    source_tx_sequence, content_sha256, payload_json)
-                   VALUES (?,?,?,?,?,?,?)""",
+                   (mcu_receive_generation, mcu_boot_id, mcu_event_sequence,
+                    message_name, message_type, source_tx_sequence,
+                    content_sha256, payload_json)
+                   VALUES (?,?,?,?,?,?,?,?)""",
                 (
+                    generation,
                     mcu_boot_id,
                     event_sequence,
                     frame["message_name"],
@@ -797,13 +918,22 @@ class EdgeStore:
         self,
         mcu_boot_id: int,
         mcu_event_sequence: int,
+        mcu_receive_generation: Optional[int] = None,
     ) -> bool:
         with self.transaction():
+            if mcu_receive_generation is None:
+                mcu_receive_generation = self.get_mcu_receive_generation()
             cur = self._conn.execute(
                 """UPDATE mcu_event_inbox
                    SET state='PROCESSED', processed_at=?, last_error=NULL
-                   WHERE mcu_boot_id=? AND mcu_event_sequence=?""",
-                (self._now(), mcu_boot_id, mcu_event_sequence),
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?""",
+                (
+                    self._now(),
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                ),
             )
             return cur.rowcount == 1
 
@@ -812,12 +942,21 @@ class EdgeStore:
         mcu_boot_id: int,
         mcu_event_sequence: int,
         error: str,
+        mcu_receive_generation: Optional[int] = None,
     ) -> bool:
         with self.transaction():
+            if mcu_receive_generation is None:
+                mcu_receive_generation = self.get_mcu_receive_generation()
             cur = self._conn.execute(
                 """UPDATE mcu_event_inbox SET state='FAILED', last_error=?
-                   WHERE mcu_boot_id=? AND mcu_event_sequence=?""",
-                (error, mcu_boot_id, mcu_event_sequence),
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?""",
+                (
+                    error,
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                ),
             )
             return cur.rowcount == 1
 

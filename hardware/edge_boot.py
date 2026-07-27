@@ -29,7 +29,14 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
         return {"status": "SAFETY_LOCKED", "reason": "uart_open_failed"}
     try:
         mcu_info = uart_link.handshake()
-        logger.info("BOOT: HELLO complete: mcu_boot=%d", mcu_info["mcu_boot_id"])
+        mcu_info["mcu_receive_generation"] = (
+            store.begin_mcu_receive_generation(mcu_info["mcu_boot_id"])
+        )
+        logger.info(
+            "BOOT: HELLO complete: mcu_boot=%d receive_generation=%d",
+            mcu_info["mcu_boot_id"],
+            mcu_info["mcu_receive_generation"],
+        )
     except Exception as e:
         logger.error("BOOT: HELLO failed: %s", e)
         store.record_fault("UART", 256, "BLOCK_DEVICE")
@@ -100,6 +107,9 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
 def recover_after_online_mcu_hello(store, uart_link, hello_frame):
     """Re-negotiate and reconcile an MCU that restarted while edge stays up."""
     mcu_info = uart_link.renegotiate_from_mcu_hello(hello_frame)
+    mcu_info["mcu_receive_generation"] = (
+        store.begin_mcu_receive_generation(mcu_info["mcu_boot_id"])
+    )
     snapshots = uart_link.query_state(
         on_segment=lambda frame: _persist_and_ack_mcu_frame(
             store,

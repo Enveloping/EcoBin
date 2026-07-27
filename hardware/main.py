@@ -184,7 +184,9 @@ class EcoBinEdge:
                             "IDEMPOTENCY_CONFLICT",
                         )
                         logger.critical(
-                            "MCU event identity conflict: boot=%s seq=%s",
+                            "MCU event identity conflict: generation=%s "
+                            "boot=%s seq=%s",
+                            self.store.get_mcu_receive_generation(),
                             payload.get("mcuBootId"),
                             payload.get("mcuEventSequence"),
                         )
@@ -205,9 +207,11 @@ class EcoBinEdge:
                 hello_frame,
             )
             logger.warning(
-                "MCU UART session recovered: previous=%s current=%s",
+                "MCU UART session recovered: previous=%s current=%s "
+                "receive_generation=%s",
                 previous,
                 result["mcu_info"]["mcu_boot_id"],
+                result["mcu_info"]["mcu_receive_generation"],
             )
             self.commands.wake()
         except Exception as error:
@@ -239,7 +243,9 @@ class EcoBinEdge:
                     try:
                         self.commands.process_mcu_event(event)
                         self.store.mark_mcu_event_processed(
-                            event["mcu_boot_id"], event["mcu_event_sequence"]
+                            event["mcu_boot_id"],
+                            event["mcu_event_sequence"],
+                            event["mcu_receive_generation"],
                         )
                         progressed = True
                     except Exception as error:
@@ -247,6 +253,7 @@ class EcoBinEdge:
                             event["mcu_boot_id"],
                             event["mcu_event_sequence"],
                             str(error),
+                            event["mcu_receive_generation"],
                         )
                         logger.error(
                             "MCU event processing failed: boot=%d seq=%d: %s",

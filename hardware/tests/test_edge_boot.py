@@ -259,6 +259,7 @@ def test_boot_recovery_reapplies_ram_config_before_confirming_no_work(
     result = boot_sequence(store, uart, mqtt, None, None)
 
     assert result["status"] == "READY"
+    assert store.get_mcu_receive_generation() == 1
     assert uart.commands == [
         "APPLY_CONFIGURATION",
         "CONFIRM_NO_ACTIVE_WORK",
@@ -284,6 +285,8 @@ def test_online_mcu_restart_runs_state_and_configuration_recovery(tmp_path):
 
     assert result["status"] == "READY"
     assert result["mcu_info"]["mcu_boot_id"] == 42
+    assert result["mcu_info"]["mcu_receive_generation"] == 1
+    assert store.get_mcu_receive_generation() == 1
     assert uart.commands == [
         "APPLY_CONFIGURATION",
         "CONFIRM_NO_ACTIVE_WORK",
