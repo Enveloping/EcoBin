@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 COMMAND_IDENTIFIERS = {
@@ -82,6 +83,14 @@ PHOTO_SLOT_BY_CODE = {
         4: "FINAL_CLOSE_OUTER",
     },
 }
+WORK_PHOTO_SLOTS = {
+    work_type: tuple(slots[index] for index in sorted(slots))
+    for work_type, slots in PHOTO_SLOT_BY_CODE.items()
+}
+WORK_TYPE_PATH = {
+    "DELIVERY_SESSION": "delivery-session",
+    "CLEAN_OPERATION": "clean-operation",
+}
 TARGET_TYPE_BY_CODE = {
     1: None,  # decoded from command/event context where OneNet enum is local.
 }
@@ -146,7 +155,11 @@ def decode_service_command(identifier: str, params: dict[str, Any]) -> dict[str,
     }
 
 
-def validate_command_envelope(command: dict[str, Any]) -> None:
+def validate_command_envelope(
+    command: dict[str, Any],
+    *,
+    trusted_environment: dict[str, str] | None = None,
+) -> None:
     """Validate stable command facts before reliable inbox acceptance."""
 
     if command.get("schemaVersion") != 1:
@@ -177,6 +190,168 @@ def validate_command_envelope(command: dict[str, Any]) -> None:
         raise ValueError("command expired")
     if command_type == "APPLY_CONFIGURATION":
         _validate_apply_configuration(command)
+    elif command_type == "PROVIDE_PHOTO_UPLOAD_GRANT":
+        _validate_photo_upload_grant_command(
+            command,
+            trusted_environment=trusted_environment,
+        )
+    elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
+        validate_cos_grant(
+            command["cosGrant"],
+            deployment_code=deployment_code,
+            work_type="DELIVERY_SESSION",
+            work_uid=payload.get("sessionUid"),
+            trusted_environment=trusted_environment,
+        )
+    elif command_type in {
+        "START_CLEAN_OPERATION",
+        "RESUME_CLEAN_OPERATION",
+    } and command.get("cosGrant"):
+        validate_cos_grant(
+            command["cosGrant"],
+            deployment_code=deployment_code,
+            work_type="CLEAN_OPERATION",
+            work_uid=payload.get("operationUid"),
+            trusted_environment=trusted_environment,
+        )
+
+
+def validate_cos_grant(
+    grant: dict[str, Any],
+    *,
+    deployment_code: str,
+    work_type: str,
+    work_uid: str,
+    trusted_environment: dict[str, str] | None = None,
+) -> None:
+    """Validate a scoped STS grant without retaining any secret fields."""
+    if not isinstance(grant, dict):
+        raise ValueError("cosGrant is required")
+    required = {
+        "grantUid",
+        "tmpSecretId",
+        "tmpSecretKey",
+        "sessionTokenParts",
+        "bucket",
+        "region",
+        "baseUrl",
+        "keyPrefix",
+        "expiresAt",
+    }
+    if set(grant) != required:
+        raise ValueError("cosGrant fields are invalid")
+    _require_uuid4(grant["grantUid"], "cosGrant.grantUid")
+    for field, maximum in (
+        ("tmpSecretId", 128),
+        ("tmpSecretKey", 128),
+        ("bucket", 128),
+        ("region", 32),
+    ):
+        value = grant[field]
+        if not isinstance(value, str) or not 1 <= len(value) <= maximum:
+            raise ValueError(f"cosGrant.{field} is invalid")
+    parts = grant["sessionTokenParts"]
+    if (
+        not isinstance(parts, list)
+        or not 1 <= len(parts) <= 8
+        or any(
+            not isinstance(part, str) or not 1 <= len(part) <= 512
+            for part in parts
+        )
+    ):
+        raise ValueError("cosGrant.sessionTokenParts is invalid")
+    _require_uuid4(work_uid, "photo workUid")
+    work_path = WORK_TYPE_PATH.get(work_type)
+    if work_path is None:
+        raise ValueError("photo workType is invalid")
+    expected_prefix = (
+        f"ecobin/{deployment_code}/{work_path}/{work_uid}/"
+    )
+    if grant["keyPrefix"] != expected_prefix:
+        raise ValueError("cosGrant.keyPrefix differs from work identity")
+    expected_base_url = (
+        f"https://{grant['bucket']}.cos."
+        f"{grant['region']}.myqcloud.com"
+    )
+    if grant["baseUrl"] != expected_base_url:
+        raise ValueError("cosGrant.baseUrl differs from bucket and region")
+    if trusted_environment is not None:
+        trusted = {
+            "bucket": trusted_environment.get("bucket"),
+            "region": trusted_environment.get("region"),
+            "baseUrl": trusted_environment.get("baseUrl"),
+        }
+        if not all(trusted.values()):
+            raise ValueError(
+                "trusted runtime environment is incomplete"
+            )
+        actual = {
+            "bucket": grant["bucket"],
+            "region": grant["region"],
+            "baseUrl": grant["baseUrl"],
+        }
+        if actual != trusted:
+            raise ValueError(
+                "cosGrant differs from trusted runtime environment"
+            )
+    parsed = urlsplit(grant["baseUrl"])
+    if (
+        parsed.scheme != "https"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("cosGrant.baseUrl is not a canonical HTTPS origin")
+    if _parse_utc_instant(
+        grant["expiresAt"],
+        "cosGrant.expiresAt",
+    ) <= datetime.now(timezone.utc):
+        raise ValueError("cosGrant expired")
+
+
+def _validate_photo_upload_grant_command(
+    command: dict[str, Any],
+    *,
+    trusted_environment: dict[str, str] | None = None,
+) -> None:
+    payload = command["payload"]
+    required = {
+        "grantRequestEventUid",
+        "workType",
+        "workUid",
+        "authorizedSlots",
+    }
+    if set(payload) != required:
+        raise ValueError("photo grant payload fields are invalid")
+    request_uid = _require_uuid4(
+        payload["grantRequestEventUid"],
+        "grantRequestEventUid",
+    )
+    if command["target"] != {
+        "type": "PHOTO_GRANT_REQUEST",
+        "uid": request_uid,
+    }:
+        raise ValueError("photo grant target differs from request")
+    work_type = payload["workType"]
+    slots = WORK_PHOTO_SLOTS.get(work_type)
+    authorized_slots = payload["authorizedSlots"]
+    if (
+        slots is None
+        or not isinstance(authorized_slots, list)
+        or len(authorized_slots) != len(slots)
+        or set(authorized_slots) != set(slots)
+    ):
+        raise ValueError("photo grant authorizedSlots are invalid")
+    validate_cos_grant(
+        command.get("cosGrant"),
+        deployment_code=command["deploymentCode"],
+        work_type=work_type,
+        work_uid=payload["workUid"],
+        trusted_environment=trusted_environment,
+    )
 
 
 def encode_command_receipt(command_uid: str, receipt_state: str, edge_boot_id: int,
@@ -622,13 +797,30 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
 
 
 def _extract_cos_grant(scalars: dict[str, Any], params: dict[str, Any]) -> dict[str, Any] | None:
-    if not scalars.get("cosGrantPresent"):
+    presence = scalars.get("cosGrantPresent")
+    if presence is False:
+        return None
+    grant_fields_present = any(
+        scalars.get(field) is not None
+        for field in (
+            "cosGrantGrantUid",
+            "cosGrantTmpSecretId",
+            "cosGrantTmpSecretKey",
+            "cosGrantBucket",
+            "cosGrantRegion",
+            "cosGrantBaseUrl",
+            "cosGrantKeyPrefix",
+            "cosGrantExpiresAt",
+        )
+    )
+    token_parts = params.get("cosGrantSessionTokenParts") or []
+    if presence is not True and not grant_fields_present and not token_parts:
         return None
     return {
         "grantUid": scalars.get("cosGrantGrantUid"),
         "tmpSecretId": scalars.get("cosGrantTmpSecretId"),
         "tmpSecretKey": scalars.get("cosGrantTmpSecretKey"),
-        "sessionTokenParts": params.get("cosGrantSessionTokenParts") or [],
+        "sessionTokenParts": token_parts,
         "bucket": scalars.get("cosGrantBucket"),
         "region": scalars.get("cosGrantRegion"),
         "baseUrl": scalars.get("cosGrantBaseUrl"),

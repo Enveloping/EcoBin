@@ -71,6 +71,7 @@ class MqttClient:
         edge_store, mqtt_host: str = "mqtts.heclouds.com", mqtt_port: int = 1883,
         deployment_code: str = "", edge_boot_id: int = 0,
         clean_session: bool = True,
+        trusted_cos_environment=None,
     ):
         self.product_id = product_id
         self.device_name = device_name
@@ -81,6 +82,7 @@ class MqttClient:
         self.deployment_code = deployment_code
         self.edge_boot_id = edge_boot_id
         self.clean_session = clean_session
+        self._trusted_cos_environment = trusted_cos_environment
         self._connected = False
         self._connect_event = threading.Event()
         self._mid_to_event_uid: dict[int, str] = {}
@@ -103,6 +105,9 @@ class MqttClient:
         return self._connected
 
     def connect(self) -> bool:
+        if self._connected:
+            return True
+        self.client.loop_stop()
         self._connect_event.clear()
         token = _build_onenet_token(self.product_id, self.device_name, self.device_key)
         self.client.username_pw_set(self.product_id, token)
@@ -137,10 +142,25 @@ class MqttClient:
         self._connected = False
 
     def loop_forever(self) -> None:
-        if not self._connected:
-            self.connect()
+        retry_seconds = 1
         try:
             while not self._exit_flag.is_set():
+                if not self._connected:
+                    if self.connect():
+                        retry_seconds = 1
+                    else:
+                        logger.warning(
+                            "MQTT will retry initial connection in %ds",
+                            retry_seconds,
+                        )
+                        self._exit_flag.wait(retry_seconds)
+                        retry_seconds = min(
+                            retry_seconds * 2,
+                            30,
+                        )
+                        continue
+                if self._exit_flag.is_set():
+                    break
                 self._exit_flag.wait(1)
         except KeyboardInterrupt:
             pass
@@ -289,7 +309,12 @@ class MqttClient:
                     deployment_code=self.deployment_code or command.get("deploymentCode", ""),
                 )
             else:
-                validate_command_envelope(command)
+                validate_command_envelope(
+                    command,
+                    trusted_environment=(
+                        self._trusted_cos_environment
+                    ),
+                )
                 result = self._store.receive_command(command_uid, command["commandType"], command)
             receipt_state = "DUPLICATE_ACCEPTED" if result == "DUPLICATE" else result
             if receipt_state not in ("ACCEPTED", "DUPLICATE_ACCEPTED"):
@@ -309,7 +334,15 @@ class MqttClient:
                     error_code,
                 ),
             )
-            if result == "ACCEPTED" and command["commandType"] != "CONFIRM_EDGE_EVENT":
+            should_dispatch = result == "ACCEPTED" or (
+                result == "DUPLICATE"
+                and command["commandType"]
+                == "PROVIDE_PHOTO_UPLOAD_GRANT"
+            )
+            if (
+                should_dispatch
+                and command["commandType"] != "CONFIRM_EDGE_EVENT"
+            ):
                 if self.on_command_received:
                     self.on_command_received(command_uid, command["commandType"], command)
             if result == "ACCEPTED" and command["commandType"] == "CONFIRM_EDGE_EVENT":

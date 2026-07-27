@@ -22,9 +22,13 @@ from config import (
     TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
     UART_HIL_REQUIRED_CAPABILITIES, EDGE_STORE_PATH,
     EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
-    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE,
+    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE, CAMERA_OUTSIDE, CAMERA_INSIDE,
+    EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
+    PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
+    TRUSTED_COS_ENVIRONMENT,
     validate as config_validate,
 )
+from cos_photo_uploader import CosPhotoUploader
 from edge_store import EdgeStore
 from edge_identity import (
     is_valid_edge_boot_id,
@@ -85,14 +89,34 @@ class EcoBinEdge:
             mqtt_host=MQTT_HOST, mqtt_port=MQTT_PORT,
             deployment_code=DEPLOYMENT_CODE, edge_boot_id=self._edge_boot_id,
             clean_session=MQTT_CLEAN_SESSION,
+            trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
         )
 
         # -- Photo Manager --
-        self.photo = PhotoManager(self.store)
+        self.photo = PhotoManager(
+            self.store,
+            photo_dir=EDGE_PHOTO_DIR,
+            outside_camera_index=CAMERA_OUTSIDE,
+            inside_camera_index=CAMERA_INSIDE,
+            deployment_code=DEPLOYMENT_CODE,
+            uploader=CosPhotoUploader(),
+            upload_poll_seconds=PHOTO_UPLOAD_POLL_SECONDS,
+            grant_expiry_skew_seconds=(
+                PHOTO_GRANT_EXPIRY_SKEW_SECONDS
+            ),
+            retention_hours=PHOTO_RETENTION_HOURS,
+            simulate_camera=TEST_MODE,
+            trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
+        )
 
         # -- Work Manager --
         self.work = WorkManager(self.store, self.uart, self.mqtt, self.photo)
-        self.commands = CommandProcessor(self.store, self.uart, self.work)
+        self.commands = CommandProcessor(
+            self.store,
+            self.uart,
+            self.work,
+            trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
+        )
 
         # -- Wire callbacks --
         self.mqtt.on_command_received = self._on_command
@@ -116,6 +140,10 @@ class EcoBinEdge:
 
     def _on_command(self, cmd_id, cmd_type, payload):
         logger.info("command received: type=%s id=%s", cmd_type, cmd_id)
+        self.commands.offer_cos_grant(
+            cmd_id,
+            payload.get("cosGrant"),
+        )
         self.commands.wake()
 
     def _on_confirmation(self, topic, payload):
@@ -349,6 +377,10 @@ class EcoBinEdge:
             pass
         try:
             self.mqtt.disconnect()
+        except Exception:
+            pass
+        try:
+            self.photo.close()
         except Exception:
             pass
         try:

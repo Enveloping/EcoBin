@@ -1,6 +1,10 @@
 import json
 import os
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from edge_store import EdgeStore
 from onenet_wire import (
@@ -9,6 +13,7 @@ from onenet_wire import (
     decode_service_command,
     encode_command_receipt,
     encode_event_post,
+    validate_cos_grant,
 )
 
 
@@ -77,6 +82,82 @@ def test_decode_confirm_edge_event_wire_example():
     assert command["payload"]["resultReferences"] == [
         {"key": "DO202607240001", "type": "DELIVERY_ORDER"}
     ]
+
+
+def test_decode_required_photo_grant_without_presence_flag():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "provide-photo-upload-grant.service-wire.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        body = json.load(source)["callServiceApiBodyTemplate"]
+
+    command = decode_service_command(
+        body["identifier"],
+        body["params"],
+    )
+
+    assert command["commandType"] == "PROVIDE_PHOTO_UPLOAD_GRANT"
+    assert command["cosGrant"]["tmpSecretId"] == "TMP_SECRET_ID_5"
+    assert command["cosGrant"]["sessionTokenParts"] == [
+        "TOKEN_5_PART_1",
+        "TOKEN_5_PART_2",
+    ]
+
+
+def test_cos_grant_must_match_trusted_runtime_environment():
+    work_uid = str(uuid.uuid4())
+    grant = {
+        "grantUid": str(uuid.uuid4()),
+        "tmpSecretId": "temporary-id",
+        "tmpSecretKey": "temporary-key",
+        "sessionTokenParts": ["temporary-token"],
+        "bucket": "untrusted-1250000000",
+        "region": "ap-beijing",
+        "baseUrl": (
+            "https://untrusted-1250000000.cos."
+            "ap-beijing.myqcloud.com"
+        ),
+        "keyPrefix": (
+            f"ecobin/Dp_demo_01/delivery-session/{work_uid}/"
+        ),
+        "expiresAt": (
+            datetime.now(timezone.utc) + timedelta(minutes=10)
+        ).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+    }
+    validate_cos_grant(
+        grant,
+        deployment_code="Dp_demo_01",
+        work_type="DELIVERY_SESSION",
+        work_uid=work_uid,
+        trusted_environment={
+            "bucket": grant["bucket"],
+            "region": grant["region"],
+            "baseUrl": grant["baseUrl"],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="trusted runtime environment",
+    ):
+        validate_cos_grant(
+            grant,
+            deployment_code="Dp_demo_01",
+            work_type="DELIVERY_SESSION",
+            work_uid=work_uid,
+            trusted_environment={
+                "bucket": "ecobin-1258140596",
+                "region": "ap-shanghai",
+                "baseUrl": (
+                    "https://ecobin-1258140596.cos."
+                    "ap-shanghai.myqcloud.com"
+                ),
+            },
+        )
 
 
 def test_decode_apply_configuration_excludes_envelope_fields_from_payload():

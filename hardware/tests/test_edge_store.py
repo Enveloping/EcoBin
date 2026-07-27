@@ -6,6 +6,7 @@
 import os
 import sqlite3
 import tempfile
+from datetime import datetime, timezone
 
 from edge_store import (
     CURRENT_SCHEMA_VERSION,
@@ -450,6 +451,38 @@ class TestEventOutboxOperations:
         assert row["retry_count"] == 1
         store.close()
 
+    def test_iso_retry_timestamp_becomes_due(self):
+        store = make_store()
+        store.receive_mcu_event("evt-1", "E1", {})
+        store._conn.execute(
+            """UPDATE event_outbox
+               SET next_retry_at=strftime(
+                   '%Y-%m-%dT%H:%M:%S', 'now', '-1 second'
+               )
+               WHERE event_uid='evt-1'"""
+        )
+        store._conn.commit()
+
+        assert [
+            row["event_uid"] for row in store.list_pending_events()
+        ] == ["evt-1"]
+        store.close()
+
+    def test_retry_timestamp_is_utc(self):
+        store = make_store()
+        store.receive_mcu_event("evt-1", "E1", {})
+        before = datetime.now(timezone.utc)
+
+        store.mark_event_pending_retry("evt-1")
+
+        row = store.get_event("evt-1")
+        retry_at = datetime.fromisoformat(
+            row["next_retry_at"]
+        ).replace(tzinfo=timezone.utc)
+        assert before <= retry_at
+        assert (retry_at - before).total_seconds() <= 61
+        store.close()
+
     def test_mark_event_dead(self):
         store = make_store()
         store.receive_mcu_event("evt-1", "E1", {})
@@ -481,6 +514,23 @@ class TestPhotoOutboxOperations:
         ).fetchone()
         assert row["state"] == PHOTO_UPLOADED
         assert row["cos_key"] == "cos/key/p1.jpg"
+        store.close()
+
+    def test_iso_retry_timestamp_becomes_due(self):
+        store = make_store()
+        store.register_photo("p1", "OPEN_OUTSIDE", "/tmp/p1.jpg")
+        store._conn.execute(
+            """UPDATE photo_outbox
+               SET next_retry_at=strftime(
+                   '%Y-%m-%dT%H:%M:%S', 'now', '-1 second'
+               )
+               WHERE photo_uid='p1'"""
+        )
+        store._conn.commit()
+
+        assert [
+            row["photo_uid"] for row in store.list_pending_photos()
+        ] == ["p1"]
         store.close()
 
 

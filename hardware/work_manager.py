@@ -184,6 +184,31 @@ class WorkManager:
                 work_uid,
             )
 
+    def _offer_initial_photo_grant(
+        self,
+        command: dict[str, Any],
+        work_type: str,
+        work_uid: str,
+    ) -> None:
+        grant = command.get("cosGrant")
+        if grant is None or self._photo is None:
+            return
+        method = getattr(self._photo, "offer_initial_grant", None)
+        if method is None:
+            return
+        method(work_type, work_uid, grant)
+
+    def accept_photo_upload_grant(
+        self,
+        command: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._photo is None:
+            raise RuntimeError("photo manager is required")
+        method = getattr(self._photo, "offer_upload_grant", None)
+        if method is None:
+            raise RuntimeError("photo upload is not supported")
+        return method(command)
+
     @property
     def active_delivery_session(self) -> Optional[dict]:
         slot = self._store.get_work_slot()
@@ -237,6 +262,11 @@ class WorkManager:
             ctx,
         ):
             return {"acked": False, "error": "DEVICE_BUSY"}
+        self._offer_initial_photo_grant(
+            command,
+            "DELIVERY_SESSION",
+            session_uid,
+        )
         compatibility_mode = getattr(
             self._uart,
             "compatibility_mode",
@@ -329,6 +359,11 @@ class WorkManager:
             ctx,
         ):
             return {"acked": False, "error": "DEVICE_BUSY"}
+        self._offer_initial_photo_grant(
+            command,
+            "CLEAN_OPERATION",
+            operation_uid,
+        )
         result = self._uart.send_command(
             "START_CLEAN_OPERATION",
             {
@@ -631,6 +666,11 @@ class WorkManager:
         ctx = slot["context"]
         if ctx.get("new_bag_uid") not in (None, payload["newBagUid"]):
             return {"acked": False, "error": "IDEMPOTENCY_CONFLICT"}
+        self._offer_initial_photo_grant(
+            command,
+            "CLEAN_OPERATION",
+            payload["operationUid"],
+        )
         current_generation = int(ctx.get("recovery_generation", 0))
         requested_generation = payload["recoveryGeneration"]
         if current_generation > requested_generation:

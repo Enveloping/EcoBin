@@ -16,11 +16,48 @@ logger = logging.getLogger("command-processor")
 class CommandProcessor:
     """Consume command_inbox rows without doing physical work in MQTT callbacks."""
 
-    def __init__(self, store, uart_link, work_manager=None):
+    def __init__(
+        self,
+        store,
+        uart_link,
+        work_manager=None,
+        *,
+        trusted_cos_environment=None,
+    ):
         self._store = store
         self._uart = uart_link
         self._work = work_manager
+        self._trusted_cos_environment = trusted_cos_environment
         self._wake_event = threading.Event()
+        self._grant_lock = threading.Lock()
+        self._volatile_cos_grants: dict[str, dict] = {}
+
+    def offer_cos_grant(
+        self,
+        command_uid: str,
+        grant: Optional[dict],
+    ) -> bool:
+        """Retain a temporary STS grant only until command execution."""
+        if not isinstance(grant, dict):
+            return False
+        row = self._store.get_command(command_uid)
+        if not row or row["state"] == "COMPLETED":
+            return False
+        if row["state"] == "FAILED":
+            if not self._store.requeue_failed_command(
+                command_uid,
+                "PHOTO_GRANT_NOT_AVAILABLE",
+            ):
+                return False
+        with self._grant_lock:
+            self._volatile_cos_grants[command_uid] = {
+                **grant,
+                "sessionTokenParts": list(
+                    grant.get("sessionTokenParts") or []
+                ),
+            }
+        self.wake()
+        return True
 
     def wake(self) -> None:
         self._wake_event.set()
@@ -36,7 +73,23 @@ class CommandProcessor:
         command = row["payload"]
         command_uid = row["command_uid"]
         try:
-            validate_command_envelope(command)
+            with self._grant_lock:
+                grant = self._volatile_cos_grants.pop(
+                    command_uid,
+                    None,
+                )
+            if grant is not None:
+                command = {**command, "cosGrant": grant}
+            if (
+                command.get("commandType")
+                == "PROVIDE_PHOTO_UPLOAD_GRANT"
+                and not command.get("cosGrant")
+            ):
+                raise ValueError("photo grant not available")
+            validate_command_envelope(
+                command,
+                trusted_environment=self._trusted_cos_environment,
+            )
             if command["commandType"] == "APPLY_CONFIGURATION":
                 self._apply_configuration(command)
             elif command["commandType"] == "START_DELIVERY_SESSION":
@@ -51,6 +104,11 @@ class CommandProcessor:
                 self._end_clean_before_unlock(command)
             elif command["commandType"] == "RESUME_CLEAN_OPERATION":
                 self._resume_clean_operation(command)
+            elif (
+                command["commandType"]
+                == "PROVIDE_PHOTO_UPLOAD_GRANT"
+            ):
+                self._provide_photo_upload_grant(command)
             else:
                 self._store.fail_command(command_uid, "COMMAND_NOT_IMPLEMENTED")
                 logger.warning(
@@ -61,6 +119,12 @@ class CommandProcessor:
             self._store.fail_command(command_uid, error_code)
             logger.error("command %s failed: %s", command_uid, error)
         return True
+
+    def _provide_photo_upload_grant(self, command: dict) -> None:
+        if self._work is None:
+            raise RuntimeError("work manager is required")
+        result = self._work.accept_photo_upload_grant(command)
+        self._store.complete_command(command["commandUid"], result)
 
     def _start_delivery_session(self, command: dict) -> None:
         if self._work is None:
@@ -246,6 +310,8 @@ def _last_part_uid(result: dict) -> Optional[str]:
 
 def _error_code(error: Exception) -> str:
     message = str(error).upper()
+    if "PHOTO GRANT NOT AVAILABLE" in message:
+        return "PHOTO_GRANT_NOT_AVAILABLE"
     if "EXPIRED" in message:
         return "COMMAND_EXPIRED"
     if "MCUPAYLOADSHA256" in message:
