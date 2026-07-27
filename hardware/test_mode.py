@@ -17,6 +17,7 @@ import os
 import random
 import threading
 import time
+import uuid
 from collections import deque
 from typing import Optional, Callable
 try:
@@ -183,7 +184,7 @@ class MockUartLink:
     def __init__(self, port="mock", edge_boot_id=1, baudrate=115200):
         self._open = False
         self._mcu_boot_id = None
-        self._mcu_capability = 0x1FFF
+        self._mcu_capability = 0x7FFF
         self._mcu_firmware_version = "stub-1.0"
         self._mcu_port_count = 6
         self.edge_boot_id = edge_boot_id
@@ -193,6 +194,10 @@ class MockUartLink:
     @property
     def is_open(self):
         return self._open
+
+    @property
+    def mcu_session_ready(self):
+        return self._mcu_boot_id is not None
 
     def open(self):
         self._open = True
@@ -213,8 +218,130 @@ class MockUartLink:
             "mcu_pending_critical_events": 0,
         }
 
+    def renegotiate_from_mcu_hello(self, frame):
+        if frame.get("message_name") != "HELLO":
+            raise ValueError("online renegotiation requires MCU HELLO")
+        return self.handshake()
+
     def query_state(self, on_segment=None):
-        return []
+        snapshot_uid = str(uuid.uuid4())
+        part_count = self._mcu_port_count + 2
+        snapshots = [
+            self._snapshot_frame(
+                "STATE_SNAPSHOT_BEGIN",
+                {
+                    "snapshotUid": snapshot_uid,
+                    "queryCommandUid": str(uuid.uuid4()),
+                    "protocolMajor": 1,
+                    "protocolMinor": 0,
+                    "firmwareVersionCode": 1,
+                    "activeWorkType": "NONE",
+                    "activeWorkUid": (
+                        "00000000-0000-0000-0000-000000000000"
+                    ),
+                    "activePortNo": 0,
+                    "activeWorkPhase": "IDLE",
+                    "latestMcuCommandUid": (
+                        "00000000-0000-0000-0000-000000000000"
+                    ),
+                    "appliedConfigVersion": 0,
+                    "appliedContentSha256": "0" * 64,
+                    "appliedMcuPayloadSha256": "0" * 64,
+                    "stagingValid": False,
+                    "stagingApplicationUid": (
+                        "00000000-0000-0000-0000-000000000000"
+                    ),
+                    "stagingConfigVersion": 0,
+                    "stagingMcuPayloadSha256": "0" * 64,
+                    "stagingPartCount": 0,
+                    "stagingReceivedPartBitmap": 0,
+                    "portCount": self._mcu_port_count,
+                    "partIndex": 1,
+                    "partCount": part_count,
+                    "resetReason": "POWER_ON",
+                },
+            )
+        ]
+        for port_no in range(1, self._mcu_port_count + 1):
+            snapshots.append(
+                self._snapshot_frame(
+                    "STATE_SNAPSHOT_PORT",
+                    {
+                        "snapshotUid": snapshot_uid,
+                        "partIndex": port_no + 1,
+                        "partCount": part_count,
+                        "portNo": port_no,
+                        "lastDeliveryDoorCommand": "NONE",
+                        "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
+                        "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
+                        "cleanLockPowerState": "DEENERGIZED",
+                        "solenoidHealth": "OK",
+                        "cleanDoorStateBasis": "NOT_OBSERVABLE",
+                        "cleanerPhysicalCloseConfirmed": False,
+                        "measurementUid": (
+                            "00000000-0000-0000-0000-000000000000"
+                        ),
+                        "measurementStatus": "SENSOR_FAULT",
+                        "weightValuePresent": False,
+                        "reportedWeightGrams": 0,
+                        "weightValueKind": "NONE",
+                        "measurementElapsedMs": 0,
+                        "sampleCount": 0,
+                        "calibrationVersion": 0,
+                        "weightSensorHealth": "UNKNOWN",
+                        "faultCode": "WEIGHT_SENSOR",
+                        "fullnessSensorKind": "ULTRASONIC",
+                        "fullnessSensorValue": "CLEAR",
+                        "fullnessSampleBasis": "NO_ECHO_CLEAR_FALLBACK",
+                        "representativeDistancePresent": False,
+                        "representativeDistanceMm": 0,
+                        "fullnessValidSampleCount": 0,
+                        "smokeState": "NORMAL",
+                        "smokeSensorHealth": "OK",
+                        "faultBitmap": 0,
+                    },
+                )
+            )
+        snapshots.append(
+            self._snapshot_frame(
+                "STATE_SNAPSHOT_END",
+                {
+                    "snapshotUid": snapshot_uid,
+                    "partIndex": part_count,
+                    "partCount": part_count,
+                    "pendingCriticalEventCount": 0,
+                    "oldestPendingEventBootId": 0,
+                    "oldestPendingEventSequence": 0,
+                    "latestPendingEventBootId": 0,
+                    "latestPendingEventSequence": 0,
+                    "snapshotSha256": "0" * 64,
+                },
+            )
+        )
+        if on_segment:
+            for frame in snapshots:
+                on_segment(frame)
+        return snapshots
+
+    def _snapshot_frame(self, message_name, payload):
+        self._mcu_event_sequence += 1
+        return {
+            "message_name": message_name,
+            "message_type": {
+                "STATE_SNAPSHOT_BEGIN": 80,
+                "STATE_SNAPSHOT_PORT": 81,
+                "STATE_SNAPSHOT_END": 82,
+            }[message_name],
+            "flags": 1,
+            "tx_sequence": self._mcu_event_sequence,
+            "payload": {
+                "mcuBootId": self._mcu_boot_id or 42,
+                "mcuEventSequence": self._mcu_event_sequence,
+                "uptimeMs": int(time.monotonic() * 1000),
+                **payload,
+            },
+        }
+
 
     def apply_configuration(self, command, part_command_uids):
         payload = command["payload"]
@@ -245,6 +372,14 @@ class MockUartLink:
                 {"acked": True, "mcu_command_uid": uid}
                 for uid in part_command_uids
             ],
+        }
+
+    def send_command(self, message_name, values, *, mcu_command_uid=None):
+        return {
+            "acked": True,
+            "message_name": message_name,
+            "mcu_command_uid": mcu_command_uid or str(uuid.uuid4()),
+            "disposition": "ACCEPTED",
         }
 
     def send_authorize_delivery_first_open(self, **kw):

@@ -1,6 +1,10 @@
 import json
 import os
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from edge_store import EdgeStore
 from onenet_wire import (
@@ -9,6 +13,7 @@ from onenet_wire import (
     decode_service_command,
     encode_command_receipt,
     encode_event_post,
+    validate_cos_grant,
 )
 
 
@@ -79,6 +84,82 @@ def test_decode_confirm_edge_event_wire_example():
     ]
 
 
+def test_decode_required_photo_grant_without_presence_flag():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "examples"
+        / "onenet-wire"
+        / "provide-photo-upload-grant.service-wire.json"
+    )
+    with path.open(encoding="utf-8") as source:
+        body = json.load(source)["callServiceApiBodyTemplate"]
+
+    command = decode_service_command(
+        body["identifier"],
+        body["params"],
+    )
+
+    assert command["commandType"] == "PROVIDE_PHOTO_UPLOAD_GRANT"
+    assert command["cosGrant"]["tmpSecretId"] == "TMP_SECRET_ID_5"
+    assert command["cosGrant"]["sessionTokenParts"] == [
+        "TOKEN_5_PART_1",
+        "TOKEN_5_PART_2",
+    ]
+
+
+def test_cos_grant_must_match_trusted_runtime_environment():
+    work_uid = str(uuid.uuid4())
+    grant = {
+        "grantUid": str(uuid.uuid4()),
+        "tmpSecretId": "temporary-id",
+        "tmpSecretKey": "temporary-key",
+        "sessionTokenParts": ["temporary-token"],
+        "bucket": "untrusted-1250000000",
+        "region": "ap-beijing",
+        "baseUrl": (
+            "https://untrusted-1250000000.cos."
+            "ap-beijing.myqcloud.com"
+        ),
+        "keyPrefix": (
+            f"ecobin/Dp_demo_01/delivery-session/{work_uid}/"
+        ),
+        "expiresAt": (
+            datetime.now(timezone.utc) + timedelta(minutes=10)
+        ).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+    }
+    validate_cos_grant(
+        grant,
+        deployment_code="Dp_demo_01",
+        work_type="DELIVERY_SESSION",
+        work_uid=work_uid,
+        trusted_environment={
+            "bucket": grant["bucket"],
+            "region": grant["region"],
+            "baseUrl": grant["baseUrl"],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="trusted runtime environment",
+    ):
+        validate_cos_grant(
+            grant,
+            deployment_code="Dp_demo_01",
+            work_type="DELIVERY_SESSION",
+            work_uid=work_uid,
+            trusted_environment={
+                "bucket": "ecobin-1258140596",
+                "region": "ap-shanghai",
+                "baseUrl": (
+                    "https://ecobin-1258140596.cos."
+                    "ap-shanghai.myqcloud.com"
+                ),
+            },
+        )
+
+
 def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
     path = os.path.join(
         os.path.dirname(__file__),
@@ -102,7 +183,7 @@ def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
         "ports",
     }
     assert command["payloadSha256"] == (
-        "320a55772a17584e388870feea4d992f20d0b8e36d4faa67af1f9353f78f3c82"
+        "13e51cebfdb5db942183cf722c9c5bf72cb9327672a5565db4e67ed0c97de956"
     )
 
 
@@ -170,6 +251,41 @@ def test_encode_configuration_progress_presence_and_enum_fields():
     assert value["mcuCommandUid"] == ""
     assert value["errorCodePresent"] is False
     assert value["errorCode"] == ""
+
+
+def test_all_event_wire_examples_match_runtime_projection():
+    root = Path(__file__).resolve().parents[2] / "contracts" / "examples"
+    for wire_path in (root / "onenet-wire").glob("*.event-wire.json"):
+        canonical_path = root / "onenet" / wire_path.name.replace(
+            ".event-wire.json",
+            ".event.json",
+        )
+        with canonical_path.open(encoding="utf-8") as source:
+            event = json.load(source)
+        with wire_path.open(encoding="utf-8") as source:
+            expected = json.load(source)["oneJsonPayload"]
+
+        actual = encode_event_post(event["eventType"], event)
+
+        assert actual["version"] == expected["version"], wire_path.name
+        assert actual["params"] == expected["params"], wire_path.name
+
+
+def test_nullable_measurement_uses_presence_flag_and_typed_placeholder():
+    root = Path(__file__).resolve().parents[2] / "contracts" / "examples"
+    with (root / "onenet" / "delivery-complete.event.json").open(
+        encoding="utf-8"
+    ) as source:
+        event = json.load(source)
+    event["payload"]["finalPostCloseMeasurement"] = None
+
+    value = encode_event_post("DELIVERY_COMPLETE", event)["params"][
+        "deliveryComplete"
+    ]["value"]
+
+    assert value["finalPostCloseMeasurementPresent"] is False
+    assert value["finalPostCloseMeasurement"]["reportedWeightGramsPresent"] is False
+    assert value["finalPostCloseMeasurement"]["faultCodePresent"] is False
 
 
 def test_store_confirmation_creates_receipt_event(tmp_path):

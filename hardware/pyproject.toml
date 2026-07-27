@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "cos-python-sdk-v5>=1.9.44",
     "dotenv>=0.9.9",
+    "opencv-python-headless>=4.10.0.84,<5",
     "paho-mqtt>=2.1.0",
     "python-dotenv>=1.0.0",
     "pyserial>=3.5",

@@ -6,6 +6,7 @@ SQLite 是香橙派的唯一持久化真相源。
 from __future__ import annotations
 
 import json as _json
+import hashlib
 import logging
 import os
 import sqlite3
@@ -18,19 +19,23 @@ from typing import Any, Optional
 from onenet_wire import (
     build_business_confirmation_receipt,
     build_configuration_progress_event,
+    build_event_envelope,
     canonical_payload_sha256,
 )
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 4
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
+WORK_TYPE_FULLNESS = "FULLNESS"
+WORK_TYPE_BASELINE = "BASELINE"
 EVENT_PENDING = "PENDING"
 EVENT_SENDING = "SENDING"
 EVENT_CONFIRMED = "CONFIRMED"
 EVENT_DEAD = "DEAD"
+PHOTO_CAPTURE_PENDING = "CAPTURE_PENDING"
 PHOTO_PENDING = "PENDING"
 PHOTO_UPLOADING = "UPLOADING"
 PHOTO_UPLOADED = "UPLOADED"
@@ -81,6 +86,14 @@ class EdgeStore:
         if current < 2:
             self._migrate_v2()
             conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+            current = 2
+        if current < 3:
+            self._migrate_v3()
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)")
+            current = 3
+        if current < 4:
+            self._migrate_v4()
+            conn.execute("INSERT INTO schema_version (version) VALUES (4)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -128,12 +141,22 @@ class EdgeStore:
             slot_name TEXT NOT NULL,
             local_path TEXT NOT NULL,
             cos_key TEXT,
+            url TEXT,
             state TEXT NOT NULL DEFAULT 'PENDING',
             retry_count INTEGER NOT NULL DEFAULT 0,
             next_retry_at TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             uploaded_at TEXT,
             work_uid TEXT,
+            work_type TEXT,
+            deployment_code TEXT,
+            content_sha256 TEXT,
+            size_bytes INTEGER,
+            captured_at TEXT,
+            grant_request_event_uid TEXT,
+            grant_generation INTEGER NOT NULL DEFAULT 0,
+            status_event_uid TEXT,
+            last_error TEXT,
             tombstoned INTEGER NOT NULL DEFAULT 0
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_photo_state ON photo_outbox(state, tombstoned)")
@@ -249,6 +272,231 @@ class EdgeStore:
             "ON mcu_event_inbox(state, rowid)"
         )
 
+    def _migrate_v3(self) -> None:
+        """Add an Edge-owned receive generation for fixed MCU boot IDs."""
+        conn = self._conn
+        columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(mcu_event_inbox)"
+            ).fetchall()
+        }
+        if "mcu_receive_generation" not in columns:
+            conn.execute(
+                "ALTER TABLE mcu_event_inbox RENAME TO mcu_event_inbox_v2"
+            )
+            conn.execute("DROP INDEX IF EXISTS idx_mcu_event_state")
+            conn.execute("""CREATE TABLE mcu_event_inbox (
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                mcu_receive_generation INTEGER NOT NULL,
+                mcu_boot_id INTEGER NOT NULL,
+                mcu_event_sequence INTEGER NOT NULL,
+                message_name TEXT NOT NULL,
+                message_type INTEGER NOT NULL,
+                source_tx_sequence INTEGER NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'PENDING',
+                received_at TEXT NOT NULL DEFAULT (datetime('now')),
+                processed_at TEXT,
+                last_error TEXT,
+                UNIQUE(
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence
+                )
+            )""")
+            conn.execute(
+                """INSERT INTO mcu_event_inbox
+                   (rowid, mcu_receive_generation, mcu_boot_id,
+                    mcu_event_sequence, message_name, message_type,
+                    source_tx_sequence, content_sha256, payload_json,
+                    state, received_at, processed_at, last_error)
+                   SELECT rowid, 0, mcu_boot_id, mcu_event_sequence,
+                          message_name, message_type, source_tx_sequence,
+                          content_sha256, payload_json, state, received_at,
+                          processed_at, last_error
+                   FROM mcu_event_inbox_v2"""
+            )
+            conn.execute("DROP TABLE mcu_event_inbox_v2")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mcu_event_state "
+            "ON mcu_event_inbox(state, rowid)"
+        )
+        conn.executemany(
+            """INSERT OR IGNORE INTO device_state
+               (state_key, state_value) VALUES (?, ?)""",
+            [
+                ("mcu_receive_generation", "0"),
+                ("active_mcu_boot_id", ""),
+            ],
+        )
+
+    def _migrate_v4(self) -> None:
+        """Add persistent photo metadata without persisting temporary grants."""
+        conn = self._conn
+        conn.execute("""CREATE TABLE IF NOT EXISTS photo_outbox (
+            photo_uid TEXT NOT NULL PRIMARY KEY,
+            slot_name TEXT NOT NULL,
+            local_path TEXT NOT NULL,
+            cos_key TEXT,
+            url TEXT,
+            state TEXT NOT NULL DEFAULT 'PENDING',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            next_retry_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            uploaded_at TEXT,
+            work_uid TEXT,
+            work_type TEXT,
+            deployment_code TEXT,
+            content_sha256 TEXT,
+            size_bytes INTEGER,
+            captured_at TEXT,
+            grant_request_event_uid TEXT,
+            grant_generation INTEGER NOT NULL DEFAULT 0,
+            status_event_uid TEXT,
+            last_error TEXT,
+            tombstoned INTEGER NOT NULL DEFAULT 0
+        )""")
+        columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(photo_outbox)"
+            ).fetchall()
+        }
+        additions = {
+            "url": "TEXT",
+            "work_type": "TEXT",
+            "deployment_code": "TEXT",
+            "content_sha256": "TEXT",
+            "size_bytes": "INTEGER",
+            "captured_at": "TEXT",
+            "grant_request_event_uid": "TEXT",
+            "grant_generation": "INTEGER NOT NULL DEFAULT 0",
+            "status_event_uid": "TEXT",
+            "last_error": "TEXT",
+        }
+        for name, declaration in additions.items():
+            if name not in columns:
+                conn.execute(
+                    f"ALTER TABLE photo_outbox ADD COLUMN {name} {declaration}"
+                )
+
+        # Temporary COS credentials are execution-only data. Scrub any command
+        # rows created by earlier versions that persisted the transport grant.
+        command_table = conn.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table' AND name='command_inbox'"""
+        ).fetchone()
+        if command_table:
+            for row in conn.execute(
+                "SELECT rowid, payload_json FROM command_inbox"
+            ).fetchall():
+                payload = _json.loads(row["payload_json"])
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("cosGrant") is not None
+                ):
+                    payload["cosGrant"] = None
+                    conn.execute(
+                        """UPDATE command_inbox SET payload_json=?
+                           WHERE rowid=?""",
+                        (
+                            _json.dumps(payload, ensure_ascii=False),
+                            row["rowid"],
+                        ),
+                    )
+
+        self._backfill_photo_metadata(conn)
+        conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_photo_state
+               ON photo_outbox(state, tombstoned)"""
+        )
+        conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_photo_work
+               ON photo_outbox(work_uid)"""
+        )
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_work_slot
+               ON photo_outbox(work_type, work_uid, slot_name)
+               WHERE tombstoned=0 AND work_type IS NOT NULL"""
+        )
+
+    def _backfill_photo_metadata(self, conn) -> None:
+        delivery_slots = {
+            "OPEN_INNER": "BEFORE_INNER",
+            "OPEN_OUTSIDE": "BEFORE_OUTER",
+            "CLOSE_INNER": "AFTER_INNER",
+            "CLOSE_OUTSIDE": "AFTER_OUTER",
+        }
+        clean_slots = {
+            "OPEN_INNER": "FIRST_OPEN_INNER",
+            "OPEN_OUTSIDE": "FIRST_OPEN_OUTER",
+            "CLOSE_INNER": "FINAL_CLOSE_INNER",
+            "CLOSE_OUTSIDE": "FINAL_CLOSE_OUTER",
+        }
+        rows = conn.execute(
+            """SELECT * FROM photo_outbox
+               WHERE work_type IS NULL OR content_sha256 IS NULL
+                  OR size_bytes IS NULL OR captured_at IS NULL"""
+        ).fetchall()
+        for row in rows:
+            work_type = row["work_type"]
+            deployment_code = row["deployment_code"]
+            slot_name = row["slot_name"]
+            event = conn.execute(
+                """SELECT event_type, payload_json FROM event_outbox
+                   WHERE work_uid=? AND event_type IN (
+                       'DELIVERY_COMPLETE', 'CLEAN_COMPLETE'
+                   )
+                   ORDER BY edge_event_sequence LIMIT 1""",
+                (row["work_uid"],),
+            ).fetchone()
+            if event:
+                envelope = _json.loads(event["payload_json"])
+                deployment_code = (
+                    deployment_code or envelope.get("deploymentCode")
+                )
+                if event["event_type"] == "DELIVERY_COMPLETE":
+                    work_type = "DELIVERY_SESSION"
+                    slot_name = delivery_slots.get(slot_name, slot_name)
+                else:
+                    work_type = "CLEAN_OPERATION"
+                    slot_name = clean_slots.get(slot_name, slot_name)
+
+            local_path = row["local_path"]
+            content_sha256 = row["content_sha256"]
+            size_bytes = row["size_bytes"]
+            captured_at = row["captured_at"]
+            if os.path.isfile(local_path):
+                if content_sha256 is None:
+                    digest = hashlib.sha256()
+                    with open(local_path, "rb") as source:
+                        for chunk in iter(lambda: source.read(64 * 1024), b""):
+                            digest.update(chunk)
+                    content_sha256 = digest.hexdigest()
+                stat = os.stat(local_path)
+                size_bytes = size_bytes or stat.st_size
+                captured_at = captured_at or time.strftime(
+                    "%Y-%m-%dT%H:%M:%S.000Z",
+                    time.gmtime(stat.st_mtime),
+                )
+            conn.execute(
+                """UPDATE photo_outbox
+                   SET slot_name=?, work_type=?, deployment_code=?,
+                       content_sha256=?, size_bytes=?, captured_at=?
+                   WHERE photo_uid=?""",
+                (
+                    slot_name,
+                    work_type,
+                    deployment_code,
+                    content_sha256,
+                    size_bytes,
+                    captured_at,
+                    row["photo_uid"],
+                ),
+            )
+
     # ── 事务辅助 ──
 
     @contextmanager
@@ -284,6 +532,9 @@ class EdgeStore:
         stable = dict(payload)
         stable.pop("cosGrant", None)
         canonical_sha256 = canonical_payload_sha256(stable)
+        stored = dict(payload)
+        if "cosGrant" in stored:
+            stored["cosGrant"] = None
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -303,7 +554,7 @@ class EdgeStore:
                 (
                     command_uid,
                     command_type,
-                    _json.dumps(payload, ensure_ascii=False),
+                    _json.dumps(stored, ensure_ascii=False),
                     canonical_sha256,
                 ),
             )
@@ -359,6 +610,30 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def mark_command_recovery_required(
+        self,
+        command_uid: str,
+        error_code: str,
+        mcu_command_uid: Optional[str] = None,
+        result: Optional[dict] = None,
+    ) -> bool:
+        """Keep an indeterminate physical command locked for reconciliation."""
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='RECOVERY_REQUIRED', mcu_command_uid=?,
+                       result_json=?, processing_started_at=NULL,
+                       processed_at=NULL, last_error=?
+                   WHERE command_uid=?""",
+                (
+                    mcu_command_uid,
+                    _json.dumps(result, ensure_ascii=False) if result else None,
+                    error_code,
+                    command_uid,
+                ),
+            )
+            return cur.rowcount == 1
+
     def complete_command(self, command_uid: str, result: Optional[dict] = None) -> bool:
         with self.transaction():
             cur = self._conn.execute(
@@ -393,24 +668,75 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
-    def recover_interrupted_commands(self) -> dict[str, int]:
-        """Only configuration transmission is safe for automatic replay."""
+    def requeue_failed_command(
+        self,
+        command_uid: str,
+        expected_error: str,
+    ) -> bool:
+        """Requeue a stable command when fresh execution-only data arrives."""
         with self.transaction():
-            config = self._conn.execute(
+            cur = self._conn.execute(
                 """UPDATE command_inbox
+                   SET state='PENDING', processed_at=NULL,
+                       processing_started_at=NULL, last_error=NULL
+                   WHERE command_uid=? AND state='FAILED'
+                     AND last_error=?""",
+                (command_uid, expected_error),
+            )
+            return cur.rowcount == 1
+
+    def recover_interrupted_commands(
+        self,
+        *,
+        physical_recovery_required: bool = True,
+    ) -> dict[str, int]:
+        """Recover commands according to the active MCU protocol guarantees."""
+        with self.transaction():
+            config_states = (
+                "('PROCESSING')"
+                if physical_recovery_required
+                else (
+                    "('PROCESSING','WAITING_MCU_RESULT',"
+                    "'RECOVERY_REQUIRED')"
+                )
+            )
+            config = self._conn.execute(
+                f"""UPDATE command_inbox
                    SET state='PENDING', processing_started_at=NULL,
                        last_error='PROCESS_RESTARTED'
-                   WHERE state='PROCESSING'
+                   WHERE state IN {config_states}
                      AND command_type='APPLY_CONFIGURATION'"""
             ).rowcount
-            physical = self._conn.execute(
-                """UPDATE command_inbox
-                   SET state='RECOVERY_REQUIRED', processing_started_at=NULL,
-                       last_error='PROCESS_RESTARTED_PHYSICAL_COMMAND'
-                   WHERE state='PROCESSING'
-                     AND command_type<>'APPLY_CONFIGURATION'"""
-            ).rowcount
-            return {"configuration_requeued": config, "physical_locked": physical}
+            if physical_recovery_required:
+                physical_locked = self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='RECOVERY_REQUIRED',
+                           processing_started_at=NULL,
+                           last_error='PROCESS_RESTARTED_PHYSICAL_COMMAND'
+                       WHERE state='PROCESSING'
+                         AND command_type<>'APPLY_CONFIGURATION'"""
+                ).rowcount
+                physical_failed = 0
+            else:
+                physical_locked = 0
+                physical_failed = self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='FAILED', processed_at=?,
+                           processing_started_at=NULL,
+                           last_error='PROCESS_RESTARTED_MCU_STATE_UNKNOWN'
+                       WHERE state IN (
+                           'PROCESSING',
+                           'WAITING_MCU_RESULT',
+                           'RECOVERY_REQUIRED'
+                       )
+                         AND command_type<>'APPLY_CONFIGURATION'""",
+                    (self._now(),),
+                ).rowcount
+            return {
+                "configuration_requeued": config,
+                "physical_locked": physical_locked,
+                "physical_failed": physical_failed,
+            }
 
     @staticmethod
     def _decode_command_row(row) -> Optional[dict]:
@@ -502,6 +828,22 @@ class EdgeStore:
             row = self._conn.execute(
                 "SELECT * FROM configuration_state WHERE application_uid=?",
                 (application_uid,),
+            ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["payload"] = _json.loads(result.pop("payload_json"))
+        result["part_command_uids"] = _json.loads(
+            result.pop("part_command_uids_json")
+        )
+        return result
+
+    def get_latest_applied_configuration(self) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT * FROM configuration_state
+                   WHERE state='APPLIED'
+                   ORDER BY config_version DESC LIMIT 1"""
             ).fetchone()
         if not row:
             return None
@@ -696,6 +1038,35 @@ class EdgeStore:
 
     # ── MCU 关键事件可靠收件 ──
 
+    def begin_mcu_receive_generation(self, mcu_boot_id: int) -> int:
+        """Start a new Edge-local UART receive generation after HELLO."""
+        if not isinstance(mcu_boot_id, int) or mcu_boot_id <= 0:
+            raise ValueError("mcu_boot_id must be a positive integer")
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='mcu_receive_generation'"""
+            ).fetchone()
+            generation = int(row["state_value"] if row else 0) + 1
+            now = self._now()
+            self._upsert_state(
+                self._conn,
+                "mcu_receive_generation",
+                str(generation),
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                "active_mcu_boot_id",
+                str(mcu_boot_id),
+                now,
+            )
+            return generation
+
+    def get_mcu_receive_generation(self) -> int:
+        value = self.get_state("mcu_receive_generation", "0")
+        return int(value or 0)
+
     def receive_mcu_frame(self, frame: dict) -> str:
         payload = frame.get("payload") or {}
         mcu_boot_id = payload.get("mcuBootId")
@@ -708,10 +1079,27 @@ class EdgeStore:
         }
         content_sha256 = canonical_payload_sha256(stable)
         with self.transaction():
+            generation_row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='mcu_receive_generation'"""
+            ).fetchone()
+            generation = int(
+                generation_row["state_value"] if generation_row else 0
+            )
+            active_boot_row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='active_mcu_boot_id'"""
+            ).fetchone()
+            active_boot_id = (
+                active_boot_row["state_value"] if active_boot_row else ""
+            )
+            if active_boot_id and int(active_boot_id) != mcu_boot_id:
+                return "REJECTED"
             existing = self._conn.execute(
                 """SELECT content_sha256 FROM mcu_event_inbox
-                   WHERE mcu_boot_id=? AND mcu_event_sequence=?""",
-                (mcu_boot_id, event_sequence),
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?""",
+                (generation, mcu_boot_id, event_sequence),
             ).fetchone()
             if existing:
                 return (
@@ -719,12 +1107,23 @@ class EdgeStore:
                     if existing["content_sha256"] == content_sha256
                     else "CONFLICT"
                 )
+            historical_duplicate = self._conn.execute(
+                """SELECT 1 FROM mcu_event_inbox
+                   WHERE mcu_boot_id=? AND mcu_event_sequence=?
+                     AND content_sha256=?
+                   LIMIT 1""",
+                (mcu_boot_id, event_sequence, content_sha256),
+            ).fetchone()
+            if historical_duplicate:
+                return "DUPLICATE"
             self._conn.execute(
                 """INSERT INTO mcu_event_inbox
-                   (mcu_boot_id, mcu_event_sequence, message_name, message_type,
-                    source_tx_sequence, content_sha256, payload_json)
-                   VALUES (?,?,?,?,?,?,?)""",
+                   (mcu_receive_generation, mcu_boot_id, mcu_event_sequence,
+                    message_name, message_type, source_tx_sequence,
+                    content_sha256, payload_json)
+                   VALUES (?,?,?,?,?,?,?,?)""",
                 (
+                    generation,
                     mcu_boot_id,
                     event_sequence,
                     frame["message_name"],
@@ -754,13 +1153,22 @@ class EdgeStore:
         self,
         mcu_boot_id: int,
         mcu_event_sequence: int,
+        mcu_receive_generation: Optional[int] = None,
     ) -> bool:
         with self.transaction():
+            if mcu_receive_generation is None:
+                mcu_receive_generation = self.get_mcu_receive_generation()
             cur = self._conn.execute(
                 """UPDATE mcu_event_inbox
                    SET state='PROCESSED', processed_at=?, last_error=NULL
-                   WHERE mcu_boot_id=? AND mcu_event_sequence=?""",
-                (self._now(), mcu_boot_id, mcu_event_sequence),
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?""",
+                (
+                    self._now(),
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                ),
             )
             return cur.rowcount == 1
 
@@ -769,12 +1177,21 @@ class EdgeStore:
         mcu_boot_id: int,
         mcu_event_sequence: int,
         error: str,
+        mcu_receive_generation: Optional[int] = None,
     ) -> bool:
         with self.transaction():
+            if mcu_receive_generation is None:
+                mcu_receive_generation = self.get_mcu_receive_generation()
             cur = self._conn.execute(
                 """UPDATE mcu_event_inbox SET state='FAILED', last_error=?
-                   WHERE mcu_boot_id=? AND mcu_event_sequence=?""",
-                (error, mcu_boot_id, mcu_event_sequence),
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?""",
+                (
+                    error,
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                ),
             )
             return cur.rowcount == 1
 
@@ -825,7 +1242,10 @@ class EdgeStore:
             rows = self._conn.execute(
                 """SELECT * FROM event_outbox
                    WHERE state = 'PENDING' AND tombstoned = 0
-                     AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+                     AND (
+                       next_retry_at IS NULL
+                       OR datetime(next_retry_at) <= datetime('now')
+                     )
                    ORDER BY edge_event_sequence LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -865,6 +1285,11 @@ class EdgeStore:
     def get_edge_event_sequence(self) -> int:
         return int(self.get_state("edge_event_sequence", "0"))
 
+    def reserve_edge_event_sequence(self) -> int:
+        """Atomically reserve one sequence for a direct telemetry event."""
+        with self.transaction():
+            return self._next_seq(self._conn)
+
     def save_mqtt_persistent_state(self, session_present: bool, reason_code: int) -> None:
         with self.transaction():
             now = self._now()
@@ -882,13 +1307,35 @@ class EdgeStore:
     # ── 故障操作 ──
 
     def record_fault(self, component: str, fault_code: int, severity: str,
-                     detail: Optional[dict] = None) -> str:
-        fault_uid = self._new_uid()
+                     detail: Optional[dict] = None, *,
+                     fault_uid: Optional[str] = None,
+                     lifecycle: str = FAULT_OBSERVED) -> str:
+        fault_uid = fault_uid or self._new_uid()
+        recovered_at = self._now() if lifecycle == FAULT_RECOVERED else None
         with self.transaction():
             self._conn.execute(
-                "INSERT INTO faults (fault_uid, component, fault_code, severity, lifecycle, detail_json) VALUES (?,?,?,?,'OBSERVED',?)",
-                (fault_uid, component, fault_code, severity,
-                 _json.dumps(detail, ensure_ascii=False) if detail else None),
+                """INSERT INTO faults
+                   (fault_uid, component, fault_code, severity, lifecycle,
+                    detail_json, recovered_at)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(fault_uid) DO UPDATE SET
+                     component=excluded.component,
+                     fault_code=excluded.fault_code,
+                     severity=excluded.severity,
+                     lifecycle=excluded.lifecycle,
+                     detail_json=excluded.detail_json,
+                     recovered_at=excluded.recovered_at""",
+                (
+                    fault_uid,
+                    component,
+                    fault_code,
+                    severity,
+                    lifecycle,
+                    _json.dumps(detail, ensure_ascii=False)
+                    if detail
+                    else None,
+                    recovered_at,
+                ),
             )
         return fault_uid
 
@@ -971,16 +1418,220 @@ class EdgeStore:
 
     # ── 照片发件箱操作 ──
 
+    def reserve_photo_captures(
+        self,
+        captures: list[dict],
+    ) -> list[dict]:
+        """Persist stable photo identities before touching a camera."""
+        reserved = []
+        with self.transaction():
+            for capture in captures:
+                existing = self._conn.execute(
+                    """SELECT * FROM photo_outbox
+                       WHERE work_type=? AND work_uid=? AND slot_name=?
+                       ORDER BY tombstoned, created_at
+                       LIMIT 1""",
+                    (
+                        capture["work_type"],
+                        capture["work_uid"],
+                        capture["slot_name"],
+                    ),
+                ).fetchone()
+                if existing:
+                    reserved.append(dict(existing))
+                    continue
+                self._conn.execute(
+                    """INSERT INTO photo_outbox
+                       (photo_uid, slot_name, local_path, state, work_uid,
+                        work_type, deployment_code)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        capture["photo_uid"],
+                        capture["slot_name"],
+                        capture["local_path"],
+                        PHOTO_CAPTURE_PENDING,
+                        capture["work_uid"],
+                        capture["work_type"],
+                        capture["deployment_code"],
+                    ),
+                )
+                row = self._conn.execute(
+                    """SELECT * FROM photo_outbox
+                       WHERE photo_uid=?""",
+                    (capture["photo_uid"],),
+                ).fetchone()
+                reserved.append(dict(row))
+        return reserved
+
+    def list_capture_pending_photos(
+        self,
+        limit: int = 100,
+    ) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM photo_outbox
+                   WHERE state=? AND tombstoned=0
+                   ORDER BY created_at, slot_name
+                   LIMIT ?""",
+                (PHOTO_CAPTURE_PENDING, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_photo(self, photo_uid: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT * FROM photo_outbox
+                   WHERE photo_uid=?""",
+                (photo_uid,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def mark_photo_captured(
+        self,
+        photo_uid: str,
+        *,
+        content_sha256: str,
+        size_bytes: int,
+        captured_at: str,
+    ) -> bool:
+        with self.transaction():
+            updated = self._conn.execute(
+                """UPDATE photo_outbox
+                   SET state=?, content_sha256=?, size_bytes=?,
+                       captured_at=?, last_error=NULL
+                   WHERE photo_uid=? AND state=?
+                     AND tombstoned=0""",
+                (
+                    PHOTO_PENDING,
+                    content_sha256,
+                    size_bytes,
+                    captured_at,
+                    photo_uid,
+                    PHOTO_CAPTURE_PENDING,
+                ),
+            )
+            return updated.rowcount == 1
+
     def list_pending_photos(self, limit: int = 5) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
                 """SELECT * FROM photo_outbox
                    WHERE state = 'PENDING' AND tombstoned = 0
-                     AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+                     AND (
+                       next_retry_at IS NULL
+                       OR datetime(next_retry_at) <= datetime('now')
+                     )
                    ORDER BY created_at LIMIT ?""",
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def recover_photo_upload_queue(self) -> int:
+        """Drop in-memory grant assumptions after an Edge process restart."""
+        with self.transaction():
+            rows = self._conn.execute(
+                """UPDATE photo_outbox
+                   SET state='PENDING', grant_request_event_uid=NULL,
+                       grant_generation=grant_generation+1,
+                       next_retry_at=NULL,
+                       last_error='EDGE_RESTARTED'
+                   WHERE state IN ('PENDING', 'UPLOADING')
+                     AND tombstoned=0 AND work_type IS NOT NULL"""
+            ).rowcount
+            return rows
+
+    def assign_photo_grant_request(
+        self,
+        photo_uids: list[str],
+        event_uid: str,
+    ) -> None:
+        if not photo_uids:
+            return
+        placeholders = ",".join("?" for _ in photo_uids)
+        with self.transaction():
+            self._conn.execute(
+                f"""UPDATE photo_outbox
+                    SET grant_request_event_uid=?
+                    WHERE photo_uid IN ({placeholders})
+                      AND state='PENDING'""",
+                (event_uid, *photo_uids),
+            )
+
+    def ensure_photo_grant_request(
+        self,
+        photo_uids: list[str],
+        event_uid: str,
+        payload: dict,
+        *,
+        deployment_code: str,
+        work_type: str,
+        work_uid: str,
+    ) -> str:
+        """Atomically create/reuse one request event and assign its photos."""
+        if not photo_uids:
+            raise ValueError("photo_uids must not be empty")
+        placeholders = ",".join("?" for _ in photo_uids)
+        with self.transaction():
+            rows = self._conn.execute(
+                f"""SELECT photo_uid, grant_request_event_uid
+                    FROM photo_outbox
+                    WHERE photo_uid IN ({placeholders})
+                      AND state='PENDING' AND tombstoned=0""",
+                tuple(photo_uids),
+            ).fetchall()
+            if len(rows) != len(set(photo_uids)):
+                raise ValueError("photo grant request contains unavailable photo")
+            existing = next(
+                (
+                    row["grant_request_event_uid"]
+                    for row in rows
+                    if row["grant_request_event_uid"]
+                ),
+                None,
+            )
+            selected_event_uid = existing or event_uid
+            if existing is None:
+                seq = self._next_seq(self._conn)
+                event = build_event_envelope(
+                    event_uid=event_uid,
+                    deployment_code=deployment_code,
+                    edge_event_sequence=seq,
+                    event_type="PHOTO_UPLOAD_GRANT_REQUESTED",
+                    target_type=work_type,
+                    target_uid=work_uid,
+                    payload=payload,
+                )
+                self._insert_event(
+                    self._conn,
+                    event,
+                    "PHOTO_UPLOAD_GRANT_REQUESTED",
+                )
+            self._conn.execute(
+                f"""UPDATE photo_outbox
+                    SET grant_request_event_uid=?
+                    WHERE photo_uid IN ({placeholders})
+                      AND state='PENDING'""",
+                (selected_event_uid, *photo_uids),
+            )
+            return selected_event_uid
+
+    def invalidate_photo_grant(
+        self,
+        work_type: str,
+        work_uid: str,
+        error_code: str,
+    ) -> int:
+        with self.transaction():
+            return self._conn.execute(
+                """UPDATE photo_outbox
+                   SET state='PENDING', grant_request_event_uid=NULL,
+                       grant_generation=grant_generation+1,
+                       next_retry_at=NULL, last_error=?
+                   WHERE work_type=? AND work_uid=?
+                     AND state IN ('PENDING', 'UPLOADING')
+                     AND tombstoned=0""",
+                (error_code, work_type, work_uid),
+            ).rowcount
 
     def mark_photo_uploading(self, photo_uid: str) -> None:
         with self.transaction():
@@ -988,14 +1639,34 @@ class EdgeStore:
                 "UPDATE photo_outbox SET state='UPLOADING' WHERE photo_uid=?", (photo_uid,)
             )
 
-    def mark_photo_uploaded(self, photo_uid: str, cos_key: str) -> None:
+    def mark_photo_uploaded(
+        self,
+        photo_uid: str,
+        cos_key: str,
+        url: Optional[str] = None,
+        status_event_uid: Optional[str] = None,
+    ) -> None:
         with self.transaction():
             self._conn.execute(
-                "UPDATE photo_outbox SET state='UPLOADED', cos_key=?, uploaded_at=? WHERE photo_uid=?",
-                (cos_key, self._now(), photo_uid),
+                """UPDATE photo_outbox
+                   SET state='UPLOADED', cos_key=?, url=?, uploaded_at=?,
+                       status_event_uid=?, last_error=NULL,
+                       next_retry_at=NULL
+                   WHERE photo_uid=?""",
+                (
+                    cos_key,
+                    url,
+                    self._now(),
+                    status_event_uid,
+                    photo_uid,
+                ),
             )
 
-    def mark_photo_pending_retry(self, photo_uid: str) -> None:
+    def mark_photo_pending_retry(
+        self,
+        photo_uid: str,
+        error_code: str = "PHOTO_UPLOAD_FAILED",
+    ) -> None:
         now_s = int(time.time())
         row = self._conn.execute(
             "SELECT retry_count FROM photo_outbox WHERE photo_uid=?", (photo_uid,)
@@ -1005,15 +1676,84 @@ class EdgeStore:
         next_retry = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now_s + backoff))
         with self.transaction():
             self._conn.execute(
-                "UPDATE photo_outbox SET state='PENDING', retry_count=retry_count+1, next_retry_at=? WHERE photo_uid=?",
-                (next_retry, photo_uid),
+                """UPDATE photo_outbox
+                   SET state='PENDING', retry_count=retry_count+1,
+                       next_retry_at=?, last_error=?
+                   WHERE photo_uid=?""",
+                (next_retry, error_code, photo_uid),
             )
 
-    def mark_photo_dead(self, photo_uid: str) -> None:
+    def mark_photo_dead(
+        self,
+        photo_uid: str,
+        error_code: str = "PHOTO_UPLOAD_EXPIRED",
+        status_event_uid: Optional[str] = None,
+    ) -> None:
         with self.transaction():
             self._conn.execute(
-                "UPDATE photo_outbox SET state='DEAD' WHERE photo_uid=?", (photo_uid,)
+                """UPDATE photo_outbox
+                   SET state='DEAD', last_error=?, status_event_uid=?
+                   WHERE photo_uid=?""",
+                (error_code, status_event_uid, photo_uid),
             )
+
+    def record_photo_status(
+        self,
+        photo_uid: str,
+        event_uid: str,
+        payload: dict,
+        *,
+        state: str,
+        cos_key: Optional[str] = None,
+        url: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ) -> str:
+        """Atomically persist a terminal photo state and its reliable fact."""
+        if state not in (PHOTO_UPLOADED, PHOTO_DEAD):
+            raise ValueError("photo status state is invalid")
+        with self.transaction():
+            photo = self._conn.execute(
+                """SELECT * FROM photo_outbox
+                   WHERE photo_uid=? AND tombstoned=0""",
+                (photo_uid,),
+            ).fetchone()
+            if not photo:
+                return "UNKNOWN"
+            if photo["status_event_uid"]:
+                return "DUPLICATE"
+            seq = self._next_seq(self._conn)
+            event = build_event_envelope(
+                event_uid=event_uid,
+                deployment_code=photo["deployment_code"],
+                edge_event_sequence=seq,
+                event_type="PHOTO_STATUS_REPORTED",
+                target_type=photo["work_type"],
+                target_uid=photo["work_uid"],
+                payload=payload,
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "PHOTO_STATUS_REPORTED",
+            )
+            uploaded_at = self._now() if state == PHOTO_UPLOADED else None
+            self._conn.execute(
+                """UPDATE photo_outbox
+                   SET state=?, cos_key=?, url=?, uploaded_at=?,
+                       status_event_uid=?, last_error=?,
+                       next_retry_at=NULL
+                   WHERE photo_uid=?""",
+                (
+                    state,
+                    cos_key,
+                    url,
+                    uploaded_at,
+                    event_uid,
+                    error_code,
+                    photo_uid,
+                ),
+            )
+            return "ACCEPTED"
 
     def get_photos_by_work(self, work_uid: str) -> list[dict]:
         with self._lock:
@@ -1022,6 +1762,54 @@ class EdgeStore:
                 (work_uid,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def list_confirmed_uploaded_photos(
+        self,
+        limit: int = 20,
+    ) -> list[dict]:
+        """List uploaded files whose status fact was confirmed by backend."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT p.*
+                   FROM photo_outbox p
+                   JOIN event_outbox e
+                     ON e.event_uid = p.status_event_uid
+                   WHERE p.state='UPLOADED'
+                     AND p.tombstoned=0
+                     AND e.state='CONFIRMED'
+                     AND EXISTS (
+                       SELECT 1
+                       FROM confirmation_inbox c
+                       WHERE c.event_uid=e.event_uid
+                         AND c.outcome='BUSINESS_APPLIED'
+                     )
+                   ORDER BY p.uploaded_at
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def tombstone_photo(self, photo_uid: str) -> bool:
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT photo_uid FROM photo_outbox
+                   WHERE photo_uid=? AND tombstoned=0""",
+                (photo_uid,),
+            ).fetchone()
+            if not row:
+                return False
+            self._conn.execute(
+                """INSERT INTO tombstones
+                   (tombstone_uid, original_type, original_uid)
+                   VALUES (?, 'PHOTO', ?)""",
+                (self._new_uid(), photo_uid),
+            )
+            self._conn.execute(
+                """UPDATE photo_outbox SET tombstoned=1
+                   WHERE photo_uid=?""",
+                (photo_uid,),
+            )
+            return True
 
     def mark_event_sending(self, event_uid: str, mqtt_msg_id: int) -> None:
         with self.transaction():
@@ -1037,7 +1825,10 @@ class EdgeStore:
         ).fetchone()
         retries = row["retry_count"] if row else 0
         backoff = min(60, 2 ** min(6, retries))
-        next_retry = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now_s + backoff))
+        next_retry = time.strftime(
+            "%Y-%m-%dT%H:%M:%S",
+            time.gmtime(now_s + backoff),
+        )
         with self.transaction():
             self._conn.execute(
                 "UPDATE event_outbox SET state='PENDING', retry_count=retry_count+1, next_retry_at=? WHERE event_uid=?",
@@ -1201,8 +1992,20 @@ class EdgeStore:
 
     # ── 原子事务 5: 登记照片 ──
 
-    def register_photo(self, photo_uid: str, slot_name: str, local_path: str,
-                       cos_key: Optional[str] = None, work_uid: Optional[str] = None) -> str:
+    def register_photo(
+        self,
+        photo_uid: str,
+        slot_name: str,
+        local_path: str,
+        cos_key: Optional[str] = None,
+        work_uid: Optional[str] = None,
+        *,
+        work_type: Optional[str] = None,
+        deployment_code: Optional[str] = None,
+        content_sha256: Optional[str] = None,
+        size_bytes: Optional[int] = None,
+        captured_at: Optional[str] = None,
+    ) -> str:
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -1211,8 +2014,23 @@ class EdgeStore:
             if existing:
                 return "DUPLICATE"
             conn.execute(
-                "INSERT INTO photo_outbox (photo_uid, slot_name, local_path, cos_key, work_uid) VALUES (?,?,?,?,?)",
-                (photo_uid, slot_name, local_path, cos_key, work_uid),
+                """INSERT INTO photo_outbox
+                   (photo_uid, slot_name, local_path, cos_key, work_uid,
+                    work_type, deployment_code, content_sha256, size_bytes,
+                    captured_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    photo_uid,
+                    slot_name,
+                    local_path,
+                    cos_key,
+                    work_uid,
+                    work_type,
+                    deployment_code,
+                    content_sha256,
+                    size_bytes,
+                    captured_at,
+                ),
             )
             return "ACCEPTED"
 
@@ -1238,7 +2056,13 @@ class EdgeStore:
 
     def create_edge_event(self, event_uid: str, event_type: str, payload: dict,
                           work_uid: Optional[str] = None,
-                          work_state_update: Optional[dict] = None) -> str:
+                          work_state_update: Optional[dict] = None,
+                          *,
+                          deployment_code: Optional[str] = None,
+                          target_type: Optional[str] = None,
+                          target_uid: Optional[str] = None,
+                          command_uid: Optional[str] = None,
+                          delivery_class: str = "RELIABLE_FACT") -> str:
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -1247,9 +2071,28 @@ class EdgeStore:
             if existing:
                 return "DUPLICATE"
             seq = self._next_seq(conn)
+            stored_payload = payload
+            if deployment_code and target_type:
+                stored_payload = build_event_envelope(
+                    event_uid=event_uid,
+                    deployment_code=deployment_code,
+                    edge_event_sequence=seq,
+                    event_type=event_type,
+                    target_type=target_type,
+                    target_uid=target_uid or work_uid or event_uid,
+                    command_uid=command_uid,
+                    delivery_class=delivery_class,
+                    payload=payload,
+                )
             conn.execute(
                 "INSERT INTO event_outbox (event_uid, edge_event_sequence, event_type, payload_json, work_uid) VALUES (?,?,?,?,?)",
-                (event_uid, seq, event_type, _json.dumps(payload, ensure_ascii=False), work_uid),
+                (
+                    event_uid,
+                    seq,
+                    event_type,
+                    _json.dumps(stored_payload, ensure_ascii=False),
+                    work_uid,
+                ),
             )
             if work_state_update and work_uid:
                 ctx = work_state_update.get("context", {})
