@@ -49,26 +49,21 @@ class FakeUart:
 
 
 class FakePhotoManager:
-    def __init__(self):
+    def __init__(self, queue_result=True):
         self.captured = []
+        self.queue_result = queue_result
 
-    def capture_open_photos(self, work_uid):
+    def capture_open_photos_async(self, work_uid):
         self.captured.append(("open", work_uid))
-        return {
-            "OPEN_OUTSIDE": {"status": "OK"},
-            "OPEN_INSIDE": {"status": "OK"},
-        }
+        return self.queue_result
 
-    def capture_close_photos(self, work_uid):
+    def capture_close_photos_async(self, work_uid):
         self.captured.append(("close", work_uid))
-        return {
-            "CLOSE_OUTSIDE": {"status": "OK"},
-            "CLOSE_INSIDE": {"status": "OK"},
-        }
+        return self.queue_result
 
-    def capture_clean_photos(self, work_uid):
+    def capture_clean_photos_async(self, work_uid):
         self.captured.append(("clean", work_uid))
-        return {"CLOSE_OUTSIDE": {"status": "OK"}}
+        return self.queue_result
 
     def get_slot_urls(self, work_uid):
         return {"CLOSE_OUTSIDE": "cos://after.jpg"}
@@ -278,12 +273,14 @@ def test_start_delivery_ack_timeout_requires_reconciliation(tmp_path):
     store.close()
 
 
-def test_unstable_preopen_weight_still_authorizes_first_open(tmp_path):
+def test_unstable_preopen_and_dropped_photos_still_authorize_first_open(
+    tmp_path,
+):
     store = make_store(tmp_path)
     store.set_state("applied_config_version", "8")
     store.set_state("applied_config_content_sha256", "a" * 64)
     uart = FakeUart()
-    photos = FakePhotoManager()
+    photos = FakePhotoManager(queue_result=False)
     work = WorkManager(store, uart, None, photos)
     processor = CommandProcessor(store, uart, work)
     command = valid_service_command("start-delivery-session.service-wire.json")

@@ -122,6 +122,36 @@ class WorkManager:
         self._mqtt = mqtt_client
         self._photo = photo_manager
 
+    def _queue_photo_capture(self, method_name: str, work_uid: str) -> None:
+        if self._photo is None:
+            logger.warning(
+                "photo manager unavailable; continuing work=%s",
+                work_uid,
+            )
+            return
+        method = getattr(self._photo, method_name, None)
+        if method is None:
+            logger.warning(
+                "asynchronous photo method unavailable: %s; continuing work=%s",
+                method_name,
+                work_uid,
+            )
+            return
+        try:
+            queued = method(work_uid)
+        except Exception as error:
+            logger.warning(
+                "photo capture enqueue failed: work=%s error=%s",
+                work_uid,
+                error,
+            )
+            return
+        if queued is False:
+            logger.warning(
+                "photo capture request dropped; continuing work=%s",
+                work_uid,
+            )
+
     @property
     def active_delivery_session(self) -> Optional[dict]:
         slot = self._store.get_work_slot()
@@ -748,14 +778,10 @@ class WorkManager:
             ctx["phase"] = "PREOPEN_WEIGHT_BLOCKED"
             self._store.update_work_context(work_uid, ctx)
             return
-        photo_results = self._photo.capture_open_photos(work_uid)
-        if not photo_results or any(
-            result.get("status") != "OK"
-            for result in photo_results.values()
-        ):
-            ctx["phase"] = "PREOPEN_PHOTOS_FAILED"
-            self._store.update_work_context(work_uid, ctx)
-            return
+        self._queue_photo_capture(
+            "capture_open_photos_async",
+            work_uid,
+        )
         authorize_uid = ctx.get("authorize_mcu_command_uid") or _new_uid()
         ctx["authorize_mcu_command_uid"] = authorize_uid
         ctx["phase"] = "AUTHORIZING_FIRST_OPEN"
@@ -828,7 +854,10 @@ class WorkManager:
         if selection in ("END", "WINDOW_EXPIRED"):
             ctx["phase"] = "FINALIZING"
             self._store.update_work_context(work_uid, ctx)
-            self._photo.capture_close_photos(work_uid)
+            self._queue_photo_capture(
+                "capture_close_photos_async",
+                work_uid,
+            )
             first_wt = ctx.get("first_weight_grams")
             final_wt = ctx.get("final_weight_grams")
             net = None
@@ -1106,7 +1135,10 @@ class WorkManager:
         )
         ctx["cleaner_physical_close_confirmed"] = True
         self._store.update_work_context(work_uid, ctx)
-        self._photo.capture_clean_photos(work_uid)
+        self._queue_photo_capture(
+            "capture_clean_photos_async",
+            work_uid,
+        )
         final_usable = _delivery_usable_weight(
             ctx.get("final_measurement") or {}
         )
