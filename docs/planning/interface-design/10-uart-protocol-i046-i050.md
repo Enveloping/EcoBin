@@ -2,11 +2,15 @@
 
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
-> 状态：**I-046～I-050 已确认；2026-07-24 已按投递会话一单及清运电磁阀实际能力修订**
+> 状态：**I-046～I-050 规范模型已确认；2026-07-24 已按投递会话一单及清运电磁阀实际能力修订；2026-07-27 增加现有 MCU 固定帧适配配置**
 >
-> 说明：本文件定义香橙派与 MCU 之间的 P0 正式串口契约，包括二进制帧、版本握手、ACK/NACK、幂等重试、设备状态机、称重/传感器语义及重启恢复。它承接 I-016～I-030 的配置、投递、清运和满溢业务语义，以及 I-041～I-045 的 OneNet、边缘 SQLite 和业务确认边界，不修改那些上游状态机。
+> 说明：本文件定义香橙派内部规范 MCU 模型及 `uart-v1` 线路契约，包括二进制帧、版本握手、ACK/NACK、幂等重试、设备状态机、称重/传感器语义及重启恢复。它承接 I-016～I-030 的配置、投递、清运和满溢业务语义，以及 I-041～I-045 的 OneNet、边缘 SQLite 和业务确认边界，不修改那些上游状态机。
 >
-> 切换边界：当前 [`hardware/docs/review/uart-protocol-temporary-compatibility.md`](../../../hardware/docs/review/uart-protocol-temporary-compatibility.md) 中 AA/BB/CC/DD 固定帧与旧 D1 文本清运链只代表临时实现。正式投产必须由本章协议同时替换两条旧路径；不提供生产双解析器或按消息回退旧协议。
+> 适配边界：2026-07-27 项目负责人确认现有 MCU 不再原生实现 `uart-v1`。F-11 在香橙派
+> 硬件边界以单一显式 `fixed-frame` 模式适配已确定的 `AA/BB/EE` 下行和 `DD/EF`
+> 上行；它必须映射为本章规范业务事实，并将无法表达的能力标为未知/不支持。旧 D1、
+> 自动探测、双解析和按消息失败回退仍禁止。固定帧逐字节定义以
+> [`ecobin-mcu-fixed-frame-v1`](../../../contracts/mcu-fixed-frame-v1.md) 为准。
 
 ## 本章统一边界
 
@@ -22,8 +26,11 @@
 
 4. `txSequence` 成功、UART ACK、门动作完成、香橙派事件落盘、OneNet 接受、后端业务确认仍是不同事实。任何前一层成功都不能伪装成后一层成功。
 5. UART 不传租户、机构、用户、钱包、审核结果或返现终态。MCU 只接收完成现场动作所需的最小配置和作业身份；单价只用于本投递会话屏幕展示，不使 MCU 成为金额权威。
-6. 协议载荷采用按消息类型固定的强类型二进制结构，不使用逗号文本、JSON、浮点数、任意键值 Map 或反射式通用命令。所有字段必须由后续同一份机器可读注册表生成或校验 C/Python 编解码器。
-7. P0 正式协议版本为 `1.0`。本章冻结线级语义；消息类型数值、逐字段偏移、生成代码和黄金字节样本在下一批机器可读 Schema/契约测试中产出，但不得改变本章的字段单位、状态和恢复边界。
+6. `uart-v1` 载荷采用按消息类型固定的强类型二进制结构，不使用逗号文本、JSON、浮点数、任意键值 Map 或反射式通用命令。所有字段必须由同一份机器可读注册表生成或校验 C/Python 编解码器。
+7. 规范协议版本为 `1.0`。本章冻结线级语义；消息类型数值、逐字段偏移、生成代码和黄金字节样本不得改变本章的字段单位、状态和恢复边界。
+8. `fixed-frame` 是当前现有 MCU 的部署适配配置，不是第二份云端契约，也不宣称具备
+   `uart-v1` 的 CRC、ACK、命令身份、状态查询、故障枚举或非易失能力。两种模式在同一
+   进程实例中互斥。
 
 ## I-046 二进制帧、严格分帧与版本握手
 
@@ -277,8 +284,13 @@ IDLE
 2. MCU 先采集首次解锁前稳定总重量，发送 `WORK_PREUNLOCK_WEIGHT_READY`。香橙派将重量写入原操作 SQLite 后才 ACK；该 ACK 只是“重量已可靠保存”，不是门已打开。
 3. 香橙派随后为首次动作创建并保存新的 `UNLOCK_CLEAN_DOOR`。MCU 登记该命令并可能执行电磁阀通电后，操作即越过不可取消边界；ACK 丢失时必须按“可能已通电”处理。清运门通电解锁后自动弹出，MCU 不具备物理门位检测。
 4. 每次“重新开门”都是同一 `operationUid` 下的新 `UNLOCK_CLEAN_DOOR + mcuCommandUid`。它不重新扫描袋、不覆盖首次解锁前重量、不创建新云端操作。中途断网不妨碍尚在本地执行窗口内的原操作再次解锁。
-5. MCU 只报告 `ENERGIZED/DEENERGIZED` 锁输出。接口可以据此推定 `OPEN/CLOSED`，但必须标明 `INFERRED_FROM_LOCK_POWER`；不得产生清运门 `DOOR_OPENED/DOOR_CLOSED` 或门磁健康。
-6. `CLEAN_FINISH_REQUESTED` 只是带原操作身份的按钮事实。只有清运员明确确认完成、锁输出为 `DEENERGIZED`、推定状态为 `CLOSED`，并取得最终稳定总重量或明确终态称重故障后，香橙派才可靠保存单一 `CLEAN_COMPLETE`。故障时重量为空并携明确状态/故障码；这不证明门扇被传感器检测为关闭。
+5. MCU 只报告 `ENERGIZED/DEENERGIZED` 锁输出。锁通断只证明电磁阀输出，不能推定门扇
+   `OPEN/CLOSED`；没有门磁时清运门物理状态保持 `UNKNOWN`，不得产生清运门
+   `DOOR_OPENED/DOOR_CLOSED` 或门磁健康。
+6. `CLEAN_FINISH_REQUESTED` 只是带原操作身份的按钮事实。只有清运员明确确认完成、锁输出
+   为 `DEENERGIZED`，并取得最终稳定总重量或明确终态称重故障后，香橙派才可靠保存单一
+   `CLEAN_COMPLETE`。人工确认必须作为独立事实保存，不能改写为传感器检测到门扇关闭；
+   故障时重量为空并携明确状态/故障码。
 7. 首次解锁可能执行后发生超时、香橙派重启或 MCU 重启时，设备先令电磁阀断电并保留原操作，进入 `RECOVERY_REQUIRED` 等待原清运员现场恢复；不得自动完成、结束操作或用 `SAFE_CLOSE` 处理清运门。只有后端取得“锁断电 + 原清运员现场确认门扇关闭”后，才可释放整机占位并继续锁住原投口/操作/袋预留。
 
 ### 4. 强类型 MCU 事件
@@ -293,7 +305,7 @@ P0 至少包含以下事件族：
 | `WORK_POSTCLOSE_WEIGHT_READY` | `sessionUid`、投口、命令 | 本地轮次或最终关门后稳定重量/失败；只有最终值进入 `DELIVERY_COMPLETE` |
 | `DELIVERY_SELECTION` | `sessionUid` | 本地 `CONTINUE/END/WINDOW_EXPIRED`；不映射为 OneNet 事件 |
 | `WORK_PREUNLOCK_WEIGHT_READY` | `operationUid`、投口、命令 | 清运首次解锁前稳定总重量或失败 |
-| `CLEAN_LOCK_POWER_CHANGED` | `operationUid + mcuCommandUid` | 电磁阀 `ENERGIZED/DEENERGIZED` 真实输出；只允许派生推定门状态 |
+| `CLEAN_LOCK_POWER_CHANGED` | `operationUid + mcuCommandUid` | 电磁阀 `ENERGIZED/DEENERGIZED` 真实输出；不得派生门扇位置 |
 | `CLEAN_UNLOCK_REQUESTED` | `operationUid` | 同一清运操作内请求新的再次解锁命令；名称描述电磁阀解锁，不宣称 MCU 控制门扇开合 |
 | `CLEAN_FINISH_REQUESTED` | `operationUid` | 清运员请求完成原操作；不是完成事实 |
 | `FULLNESS_SAMPLE_RESULT` | `detectionUid + sampleRole` | 红外、称重及两类来源健康的同次采样 |
@@ -313,7 +325,11 @@ P0 至少包含以下事件族：
 
 - `portNo` 为 `uint8`，有效范围是 `1..HELLO.portCount`；0 只允许表示整机范围，不能代表第一个投口。
 - 投递门状态闭集为 `CLOSED/OPENING/OPEN/CLOSING/JAMMED/UNKNOWN`，投递门健康闭集为 `OK/TIMEOUT/ACTUATOR_FAULT/SWITCH_FAULT/DISCONNECTED`；状态与健康分别上报，不能用 `CLOSED` 掩盖投递门门磁故障。
-- 清运门不使用上述门状态/健康结构。MCU 只报告 `cleanLockPowerState=ENERGIZED/DEENERGIZED` 和电磁阀健康；上层可按通断派生 `inferredCleanDoorState=OPEN/CLOSED`，但必须同时携带 `stateBasis=INFERRED_FROM_LOCK_POWER`，且不能出现清运门磁、`JAMMED` 或真实关门成功。
+- 清运门不使用上述门状态/健康结构。MCU 只报告
+  `cleanLockPowerState=ENERGIZED/DEENERGIZED` 和电磁阀健康；无独立门位传感器时
+  `cleanDoorPhysicalState` 固定为 `UNKNOWN`。清运员确认关门另存
+  `cleanerPhysicalCloseConfirmed=true` 与确认身份/时间，不能把锁通断或人工确认改写为
+  门磁、`JAMMED` 或真实门位检测结果。
 - 红外值闭集为 `CLEAR/BLOCKED/UNKNOWN`，健康闭集为 `OK/TIMEOUT/SENSOR_FAULT/DISCONNECTED`。
 - 烟雾状态闭集为 `NORMAL/ALARM/UNKNOWN`，并独立携带 `OK/SENSOR_FAULT/DISCONNECTED` 健康。烟雾属于持续安全监测，不受“红外和重量只在满溢采样时读取”的限制；报警、恢复和来源故障均作为关键 `SAFETY_SENSOR_EVENT` 可靠交付。
 - 称重结果状态闭集为：
@@ -414,11 +430,13 @@ estimatedFen = roundHalfUp(businessWeightCentiKg × unitPriceTenThousandths / 10
 
 ## I-050 重启恢复、协议切换与验收
 
-**修订后确认：香橙派或 MCU 重启后必须先 HELLO 和 QUERY_STATE，再用 SQLite、MCU 启动代际、投递门状态、清运锁状态和待确认事件恢复；清运首次解锁可能执行后的重启必须等待原清运员。任何重启都不能自动重放旧开门。**
+**修订后确认：`uart-v1` 重启后先 HELLO 和 QUERY_STATE，再用 SQLite 与 MCU 快照恢复；
+`fixed-frame` 没有协议级查询，只能依靠 SQLite 证据并把未知物理状态安全锁存。清运首次
+解锁可能执行后的重启必须等待原清运员；任何模式都不能自动重放旧开门。**
 
-### 1. 固定恢复顺序
+### 1. 分模式恢复顺序
 
-香橙派进程启动或串口重连按以下顺序执行：
+`uart-v1` 下，香橙派进程启动或串口重连按以下顺序执行：
 
 ```text
 校验 SQLite 与部署身份
@@ -432,7 +450,13 @@ estimatedFen = roundHalfUp(businessWeightCentiKg × unitPriceTenThousandths / 10
   → 满足全部条件后才允许新作业
 ```
 
-在该过程完成前，香橙派不得发送新的 `START_DELIVERY_SESSION/START_CLEAN_OPERATION/UNLOCK_CLEAN_DOOR`。
+`fixed-frame` 下不发送 `HELLO/QUERY_STATE/SAFE_CLOSE`。启动时先校验 SQLite 与部署
+身份、打开 UART、丢弃接收缓存中的旧结果，将未决投递明确失败，将可能已解锁的未决清运
+转为 `RECOVERY_REQUIRED`，并把 MCU、门位和传感器状态保留为 `UNKNOWN/NOT_SAMPLED`；
+现场人工收敛或明确解除安全锁前不允许新作业，也不重放任何旧 `AA/EE`。
+
+任一模式的恢复过程完成前，香橙派不得发送新的
+`START_DELIVERY_SESSION/START_CLEAN_OPERATION/UNLOCK_CLEAN_DOOR`。
 
 ### 2. QUERY_STATE 快照
 
@@ -440,7 +464,8 @@ estimatedFen = roundHalfUp(businessWeightCentiKg × unitPriceTenThousandths / 10
 
 - 当前 `mcuBootId`、固件和协商协议版本；
 - MCU 当前活动作业类型、`workUid`、投口、阶段和最近 `mcuCommandUid`，没有作业时显式为 `NONE`；
-- 所有投递门真实状态/健康、清运电磁阀通断/健康、由锁通断推定且明确标注来源的清运门状态，以及称重/红外/烟雾状态与健康及安全故障；
+- 所有投递门真实状态/健康、清运电磁阀通断/健康、清运门位 `UNKNOWN` 与独立人工关门
+  确认，以及称重/红外/烟雾状态与健康及安全故障；
 - 已持久应用的配置版本、完整内容摘要与 MCU 子集摘要；
 - 可空的配置 staging `applicationUid/version/digest/receivedParts`；
 - 待确认关键事件数量、最早/最新 `(mcuBootId, mcuEventSequence)`；
@@ -455,24 +480,32 @@ estimatedFen = roundHalfUp(businessWeightCentiKg × unitPriceTenThousandths / 10
 | 香橙派重启，MCU `bootId` 未变，本地投递会话与 MCU 作业一致 | 先补收/ACK MCU 本地事件，再按原 `sessionUid` 收敛；不得重新发送已经导致首次开门的旧开始命令 |
 | 香橙派重启，投递门仍打开且双方作业一致 | 保留原会话，恢复事件接收并等待 MCU 独立超时关门；必要时发送新的幂等 `SAFE_CLOSE`，不得自动再次开门 |
 | 香橙派重启，投递门已关闭且 MCU 有最终待确认结果 | 原事件提交 SQLite 后 ACK，沿原 `sessionUid` 生成唯一整场完成事实；中间轮次事件只恢复本地锁存状态 |
-| 清运首次解锁可能执行后任一端重启 | 先令电磁阀断电，保留原 `operationUid`、占位和预留，进入 `RECOVERY_REQUIRED`；即使推定 `CLOSED` 也必须等待原清运员现场恢复，不自动生成 `CLEAN_COMPLETE` |
+| 清运首次解锁可能执行后任一端重启 | `uart-v1` 先令电磁阀断电；`fixed-frame` 无恢复控制帧，不能宣称已断电。两者都保留原 `operationUid`、占位和预留，门位保持 `UNKNOWN` 并进入 `RECOVERY_REQUIRED`，等待原清运员现场恢复，不自动生成 `CLEAN_COMPLETE` |
 | MCU `bootId` 改变 | 视为 MCU 易失状态已丢失；先逐投递门证明安全关闭并令清运锁断电，原投递进入结果待核查、原清运进入原清运员恢复流程，禁止重放旧 START/UNLOCK |
 | SQLite 与 MCU 当前作业不一致 | 整机安全锁存；先安全关门、保存两边证据并人工核查，不以“较新时间”覆盖任一方 |
 | 投递门状态 `UNKNOWN/JAMMED`、清运锁状态未知/故障或 MCU 不可达 | 停止整机新作业；投递门继续安全关门/诊断，清运锁断电并等待人工，不能只释放后端作业恢复使用 |
 | 配置版本/摘要不同 | 部署保持不可激活或停止新作业，重新执行原配置应用；不得使用旧一位单价帧兜底 |
 | MCU 待确认事件队列与声明范围矛盾 | 锁存协议/存储故障，保留 SQLite 与 MCU 证据，不跳过缺号继续开放作业 |
 
-MCU 自身启动时执行安全初始化：禁止业务开门，尝试关闭非关闭的投递门并保留真实结果，同时令清运电磁阀断电但不报告清运门已物理关闭；完成 HELLO 和状态核对前只接受握手、查询、投递门 `SAFE_CLOSE` 和恢复所需的锁断电控制。
+`uart-v1` MCU 自身启动时执行安全初始化：禁止业务开门，尝试关闭非关闭的投递门并保留
+真实结果，同时令清运电磁阀断电但不报告清运门已物理关闭；完成 HELLO 和状态核对前只
+接受握手、查询、投递门 `SAFE_CLOSE` 和恢复所需的锁断电控制。`fixed-frame` 线路无法
+查询或命令这些恢复状态，香橙派不得把该规范行为假定为已发生。
 
 ### 4. 正式切换
 
-生产固件和香橙派版本必须作为一个兼容组合发布：
+所选 MCU 协议模式和香橙派版本必须作为一个兼容组合发布：
 
-1. 禁用旧 D1 文本解析/发送、AA/BB/CC/DD 临时解析/发送及旧清运 gross/tare 路径；
-2. 启用本章 `1.0` 唯一解析器、强类型消息注册表和 SQLite 恢复；
-3. 更新 OneNet 物模型、后端事件/命令适配、香橙派和 MCU 固件的兼容矩阵；
-4. 对每台真机完成 HELLO、配置摘要应用、投递门真实状态、清运锁通断/推定状态、带符号称重、按钮、投递门超时关门、投递、清运、满溢和重启验收；
-5. 只有协议兼容、配置精确应用、全部投递门安全、清运锁断电且没有未收敛旧作业/事件时，部署才可激活；这不声称清运门具有物理检测。
+1. 禁用旧 D1 文本解析/发送及旧清运 gross/tare 路径；
+2. 配置且只启用 `uart-v1` 或 `fixed-frame` 一个解析器；前者使用本章 Registry，
+   后者只使用
+   [`ecobin-mcu-fixed-frame-v1`](../../../contracts/mcu-fixed-frame-v1.md)
+   并显式拒绝缺失能力；
+3. 更新 OneNet 物模型、后端事件/命令适配和香橙派/MCU 模式兼容矩阵；
+4. `uart-v1` 对每台真机完成 HELLO、配置摘要、状态、称重、门控和重启验收；
+   `fixed-frame` 按 H-03 完成五类帧、活动作业绑定、屏幕流程、称重、电磁阀和重启验收；
+5. 只有所选模式的协议/适配、全部可观察门锁安全事实和未收敛作业均通过对应门槛时，
+   部署才可激活；固定帧缺失状态不能用成功占位。
 
 生产不得同时运行“先尝试新协议、失败后解析旧帧”的双协议逻辑。离线测试工具可以读取旧抓包用于迁移审计，但不能进入生产串口读写路径。
 
@@ -485,11 +518,14 @@ MCU 自身启动时执行安全初始化：禁止业务开门，尝试关闭非�
 3. CRC 和帧黄金样本：空载荷、普通载荷、payload 内含 `EC 42`、最大 256 字节、负重量、最高合法枚举和错误帧。
 4. 解析测试：逐字节拆分、任意粘包、前后噪声、伪 magic、非法长度、CRC 错、未知 flags/type、帧超时和 512 字节缓冲上限。
 5. 可靠传输测试：ACK 丢失、三次重发、重复同命令、同 ID 异摘要、双方同时发送、MCU 事件 ACK 前后强杀香橙派。
-6. 状态机测试：投递整场首次/最终重量、多轮本地继续、30 秒结束、过程不上云、负重量布尔锁存；清运首次解锁可能执行、锁断电推定关闭、多次再次解锁、缺少清运员确认不得完成和首次解锁前结束。
+6. 状态机测试：投递整场首次/最终重量、多轮本地继续、30 秒结束、过程不上云、负重量
+   布尔锁存；清运首次解锁可能执行、锁断电但门位仍为 `UNKNOWN`、多次再次解锁、缺少
+   清运员确认不得完成和首次解锁前结束。
 7. 传感器测试：正/零/负稳定重量、UNSTABLE/TIMEOUT/FAULT/OVERLOAD、红外失败、两来源组合、烟雾报警/恢复/来源故障、单价 4 位精度及金额整数舍入。
 8. 重启矩阵：香橙派在每个物理阶段重启、MCU 在每个阶段复位、双方同时断电、ACK 前后断电、配置不同步和门状态未知。
 9. 真机 HIL 验收：投递门动作和清运锁通电期间制造串口噪声/丢 ACK，验证不重复驱动；断网、断电后使用原业务身份收敛，证明 MCU 独立超时关闭投递门，并证明清运流程不会把锁断电误报为物理关门或自动完成。
-10. 旧协议负向测试：生产构建收到 D1、AA/BB/CC/DD 或换行文本时只计协议噪声/故障，绝不触发门、价格、称重或业务事件。
+10. 模式隔离负向测试：`uart-v1` 收到固定帧、`fixed-frame` 收到 UART 1.0/D1/文本时
+    只计协议噪声/故障；任一模式都不能自动切换解析器或触发错误动作。
 
 ## 本章明确不设计
 
@@ -501,7 +537,7 @@ MCU 自身启动时执行安全初始化：禁止业务开门，尝试关闭非�
 - 使用 UART ACK 代替门状态、稳定重量、OneNet 上行或后端业务确认；
 - 使用浮点价格、无符号重量、0 值超时、最近重量或无身份按钮事件；
 - MCU 重启后自动重放旧开门，或香橙派用当前门/重量猜造丢失作业；
-- 正式生产中的旧 D1、临时 AA/BB/CC/DD 与新协议并行兼容。
+- 正式生产中的旧 D1、自动探测、`fixed-frame` 与 `uart-v1` 同时解析或失败回退。
 
 ## 现状审计参考
 

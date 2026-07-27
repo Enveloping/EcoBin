@@ -1,23 +1,25 @@
 # EcoBin F-10 人工验证手册
 
-本手册用于验证 F-10 的机器契约候选。验证分为四层：
+本手册用于复现 F-10 的机器契约验证，并为选择 `uart-v1` 原生 MCU 实现时提供附加
+符合性步骤。验证分为四层：
 
 1. 本地生成物和 Python 规则；
-2. Java 21 / MCU C 工具链跨语言黄金样本；
+2. Java 21 / 通用 C11 跨语言黄金样本；
 3. OneNet 测试产品导入与 OneJSON 收发；
-4. MCU 负责人逐字段确认。
+4. 可选的原生 UART 1.0 MCU 逐字段确认。
 
-前三层通过仍不等于 F-10 `done`。只有
-[`uart/mcu-review-checklist.md`](uart/mcu-review-checklist.md) 得到 MCU 负责人确认后，
-UART 候选才能冻结；真实门、锁、断电和恢复测试属于 H-03。
+F-10 已于 2026-07-27 收口。现有固定帧单片机不需要执行第 7～8 节；其线路和真实
+物理行为按 F-11/H-03 的固定帧适配验收。若以后选择 `uart-v1` 原生 MCU 实现，再使用
+[`uart/mcu-review-checklist.md`](uart/mcu-review-checklist.md) 验证工具链、门、锁、
+断电和恢复，不能用 F-10 软件证据冒充部署验收。
 
 ## 1. 验证前准备
 
 - 保留现有 OneNet 生产物模型的导出备份，不直接在生产产品上试导入。
 - 新建或选择一个 MQTT + OneJSON 的非生产测试产品。
 - 使用 Java 21；香橙派代码目标仍是 Python 3.11。
-- MCU 侧准备实际固件编译器。开发机没有 C 编译器时，不把自动校验中的 `NOTE` 当成失败，
-  但必须由 MCU 工具链补做。
+- 准备通用 C11 编译器；若部署 `uart-v1` 原生 MCU，再准备其实际固件编译器。开发机
+  没有 C 编译器时，自动校验中的 `NOTE` 不否定已经归档的 F-10 证据。
 - 不把真实 OneNet Key、设备 Key、COS 临时密钥或服务器凭证写入样例或验证记录。
 
 ## 2. 本地软件验证
@@ -38,13 +40,13 @@ python -m unittest discover -s contracts/tests -v
 预期：
 
 - 生成检查没有 drift；
-- 9 种 OneNet 命令、12 种事件和 1 种即时回执全部通过；
-- OneNet 导入候选共 21 个功能点；
+- 9 种 OneNet 命令、13 种事件/回执全部通过；
+- OneNet 导入候选共 22 个功能点；
 - 每个服务输入/输出分别不超过 20 项，每个事件输出不超过 50 项；功能标识不超过 50
   字符，显示名不超过 30 字符；
-- 21 份 OneJSON 线级样例与导入候选一致；
+- 22 份 OneJSON 线级样例与导入候选一致；
 - Python 与 Java 的 JCS/稳定身份摘要一致；
-- UART 37 个消息、10 个帧向量、10 个流式解析轨迹和 3 个摘要向量通过；
+- UART 39 个消息、10 个帧向量、10 个流式解析轨迹和 3 个摘要向量通过；
 - 单元测试全部为 `OK`；
 - 若机器没有 C 编译器，只允许出现“C compiler unavailable/skip”的说明。
 
@@ -88,7 +90,7 @@ JSON 解析入口必须拒绝重复对象键，不能在进入摘要算法前静
 |---|---:|
 | 属性 | 0 |
 | 同步服务 | 9 |
-| 事件 | 12 |
+| 事件 | 13 |
 | 总功能点 | 21（低于 OneNet 的 100 个功能点上限） |
 | 单服务输入/输出 | 各不超过 20 |
 | 单事件输出 | 不超过 50 |
@@ -198,15 +200,16 @@ Schema/语义校验器执行：
 - 一个投递 `sessionUid` 无论中间继续多少次，只上报一个 `DELIVERY_COMPLETE`；
 - `deliveryNetWeightGrams = 最终关门稳定重量 - 首次开门前稳定重量`；
 - `negativeWeightAnomaly` 只是一项最终布尔标志，不携带中间减少值；
-- 清运完成必须为电磁阀断电、健康正常、由锁状态推定关闭，并有清运员人工完成确认；
+- 清运完成必须有电磁阀断电、健康正常及清运员人工关门/完成确认；无门磁时物理门位
+  保持 `UNKNOWN`，不能由锁状态推定关闭；
 - 照片不完整不阻止订单/清运，`PHOTO_STATUS_REPORTED` 只补报
   `AVAILABLE/PERMANENTLY_MISSING`；
 - `AVAILABLE` URL 必须精确命中部署、作业、槽位和 `photoUid`；
 - OneNet PUBACK、事件上报 `code=200` 和 Pulsar ACK 都不是后端业务确认。
 
-`examples/onenet-wire/` 中为全部 12 个事件提供了可发布样例。
+`examples/onenet-wire/` 中为全部 13 个事件/回执提供了可发布样例。
 
-## 7. MCU C 工具链验证
+## 7. 可选：原生 UART 1.0 MCU C 工具链验证
 
 将以下两份文件放入 MCU 的实际 C11 工具链：
 
@@ -228,9 +231,10 @@ Schema/语义校验器执行：
 C UART golden vectors: 10 frames, 10 stream traces, 3 digests passed
 ```
 
-该 C 黄金程序当前证明帧、CRC、编号、代表性 payload 和摘要原语一致，不是 37 种消息的
+该 C 黄金程序当前证明帧、CRC、编号、代表性 payload 和摘要原语一致，不是 39 种消息的
 完整生产 payload 校验器。三端完整字段/语义执行器、跨消息轨迹和 `>512 bytes` 合法粘包
-增量排空按 [`DEFERRED-HARDENING.md`](DEFERRED-HARDENING.md) 在 F-11/H-03 完成。
+增量排空按 [`DEFERRED-HARDENING.md`](DEFERRED-HARDENING.md) 在选择 `uart-v1`
+原生实现时完成；固定帧适配不宣称具备这些能力。
 
 同时核对生成头文件中的：
 
@@ -247,7 +251,7 @@ maximum sends 3
 CRC-16/CCITT-FALSE: "123456789" -> 29B1
 ```
 
-## 8. MCU 人工 checkpoint
+## 8. 可选：原生 UART 1.0 MCU 人工 checkpoint
 
 逐项完成：
 
@@ -257,16 +261,16 @@ CRC-16/CCITT-FALSE: "123456789" -> 29B1
 
 - Registry 版本和 SHA-256；
 - MCU 固件/工具链版本；
-- 37 个消息号、字段偏移、方向和 ACK 规则的确认结论；
-- capability bit 0～12 的真实支持情况；
+- 39 个消息号、字段偏移、方向和 ACK 规则的确认结论；
+- capability bit 0～14 的真实支持情况；
 - 非零 UUID 默认规则、明确的零 UUID sentinel、`PortFaultBitmap` bit 0～4 与保留位规则；
 - 快照 applied/staging 全有或全无、partCount/bitmap 恢复约束；
 - 危险命令去重、关键事件队列、配置和作业状态所用非易失介质、容量与擦写边界；
 - C 黄金样本输出；
 - 不能实现或需要调整的字段及原因。
 
-若 MCU 无法跨看门狗/断电保存不可逆动作的去重和关键事件，F-10 不能冻结，也不能让
-香橙派用猜测或超时成功替代。
+若原生 UART 1.0 MCU 无法跨看门狗/断电保存不可逆动作的去重和关键事件，该部署不能
+宣称符合相应 capability；固定帧模式同样不能让香橙派用猜测或超时成功替代缺失事实。
 
 ## 9. 验证记录
 

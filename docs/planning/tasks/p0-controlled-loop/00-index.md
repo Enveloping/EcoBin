@@ -13,7 +13,7 @@ implementation_authorized: false
 # EcoBin P0 受控闭环实施任务索引
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
-> F-03、F-04、F-05、F-06、F-07、F-08、F-09，并确认 F-10 软件阶段完成；
+> F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10；
 > F-11 已获软件实施授权并处于 `in-progress`；V-01 已完成；H-02 已通过本地 MySQL 8.4
 > 开发演练及服务器整改阶段 0～3 验收，项目负责人接受当前试验期使用 ACL 受限
 > `.ecobin` 保管长期凭证原件，任务已转为 `done`；
@@ -27,8 +27,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、V-01 已授权并完成；F-10 通用三语言证据已通过但 MCU 实际工具链/HIL 未收口；F-11 实施中；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 已 ready 但未授权；阶段 4 及其他任务未授权** |
-| 当前状态数 | `done` 12、`ready` 1、`in-progress` 1、`blocked` 15 |
+| 实施授权 | **部分授权：H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已授权并完成；F-11 固定帧适配实施中；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 已 ready 但未授权；H-03 真机验收及阶段 4 其他任务未授权** |
+| 当前状态数 | `done` 13、`ready` 1、`in-progress` 1、`blocked` 14 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -38,8 +38,8 @@ implementation_authorized: false
 |---|---:|---:|
 | `agent` | 15 | 67～112 person-days |
 | `mixed` | 8 | 49～82 person-days |
-| `human` | 6 | 10～20 person-days |
-| **合计** | **29** | **126～214 person-days** |
+| `human` | 6 | 7～15 person-days |
+| **合计** | **29** | **123～209 person-days** |
 
 - G1 基础关键链约为 14～24 person-days。
 - 到 H-06 的最长内部依赖链约为 54～90 person-days。
@@ -83,8 +83,8 @@ agent | human | mixed
 | F-07 | [epoch guard 与空目标库 Fake bootstrap](f-07-epoch-guard-and-fake-bootstrap.md) | `done` | `agent` | 两项 P1 补强后通过复审并合入 |
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `done` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `done` | `agent` | F-02 |
-| F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `blocked` | `mixed` | 通用三语言黄金样本已通过；等待 MCU 实际工具链与 HIL |
-| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 软件实施已授权；F-10 仍是进入评审/完成门 |
+| F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `done` | `mixed` | 机器来源、通用三语言证据和适配责任边界已确认 |
+| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 固定帧适配、COS、故障注入和完整状态机仍在实施 |
 | F-12 | [完整试点 seed 编排](f-12-pilot-seed-orchestration.md) | `blocked` | `mixed` | V-01、V-03、V-07、V-10 |
 
 ### 纵向业务任务
@@ -109,7 +109,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `done` | `human` | F-06 |
-| H-03 | [MCU UART 1.0 固件与真机基础验收](h-03-mcu-uart-firmware-acceptance.md) | `blocked` | `human` | F-10；尚未授权固件实施 |
+| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `blocked` | `human` | F-11；尚未授权真机验收 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
@@ -124,7 +124,7 @@ F-04 → F-05 → F-06
 F-03 + F-06 → F-07 / F-08
 F-02 → F-09
 F-10 → F-11
-F-10 → H-03
+F-11 → H-03
 ```
 
 设备和回收链：
@@ -295,3 +295,8 @@ M0_COMPLETE
   转为 `done`。合并 V-01 与 H-02 两条并行工作线后，当前共 `done` 12、`ready` 1、
   `in-progress` 1、`blocked` 15；
   阶段 4、seed、应用部署和成对切换仍未授权。
+- 2026-07-27：项目负责人确认三端业务协议已经确定，现有单片机不再以原生实现
+  UART 1.0、运行目标工具链黄金程序或通过该协议 HIL 作为 F-10 完成条件；线路差异由
+  F-11 的显式固定帧适配层承担，真实设备验收保留在 H-03。F-10 转为 `done`，H-03
+  保持 `blocked` 但依赖由 F-10 改为 F-11。当前共 `done` 13、`ready` 1、
+  `in-progress` 1、`blocked` 14。

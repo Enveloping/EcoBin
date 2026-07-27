@@ -63,7 +63,7 @@ implementation_authorized: false
 
 - [H-01](h-01-legacy-stack-recovery-baseline.md)
 - [H-02](h-02-target-database-identities-environment.md)
-- [H-03](h-03-mcu-uart-firmware-acceptance.md)
+- [H-03](h-03-fixed-frame-mcu-hil-acceptance.md)
 - [H-04](h-04-real-native-recharge.md)
 - [H-05](h-05-real-merchant-transfer.md)
 - [F-07](f-07-epoch-guard-and-fake-bootstrap.md)

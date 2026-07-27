@@ -6,21 +6,24 @@
 
 ## 当前状态
 
-- OneNet：Draft 2020-12 JSON Schema 候选版已同步 rc.3 的配置、命令、可靠事件和
-  运行快照；香橙派使用同一生成模型投影 OneJSON，最终冻结仍等待控制台重新导入和真机联调。
+- OneNet：Draft 2020-12 JSON Schema 已同步 rc.3 的配置、命令、可靠事件和运行快照；
+  香橙派使用同一生成模型投影 OneJSON，F-10 已完成。
 - UART：协议 `1.0` Registry `1.0.0-rc.3` 已同步 MCU Firmware Design，并通过
   Python 3.11、Java 和生成 C 黄金样本的软件校验；投递门已改为 OPEN/CLOSE 方向
-  电平持续锁存，旧脉冲版两端不得混用。最终冻结仍等待 MCU 工具链编译、现行门控 HIL，
-  以及清运锁 1000 ms/侧置超声波 600 mm 的实机验证。
+  电平持续锁存，旧脉冲版两端不得混用。它是规范模型和 `uart-v1` 可选实现的机器来源；
+  现有固定帧单片机由 F-11 显式适配，不要求运行本生成 C 程序。
+- 现有 MCU 固定帧：[`ecobin-mcu-fixed-frame-v1`](mcu-fixed-frame-v1.md) `1.0.0`
+  冻结五类帧、字段和恢复限制，作为 F-11 适配与 H-03 真机验收的逐字节来源。
 - HTTP：属于 F-09，不在 F-10 中创建。
 
-候选版不是生产切换授权。现有 OneNet 物模型、AA/BB/CC/DD 临时帧和旧 D1 清运链只有
-运行现状意义，F-11/H-03 正式切换时必须整体退出，不能建设生产双协议回退。
+F-10 完成不是生产切换授权。当前固定帧协议只允许在 F-11 的显式 `fixed-frame` 模式
+使用，不能与 `uart-v1` 自动探测、同时双解析或失败回退；旧 D1 清运链必须退出。
 
 ## 目录
 
 ```text
 contracts/
+├─ mcu-fixed-frame-v1.md
 ├─ onenet/
 │  ├─ common.schema.json
 │  ├─ event-envelope.schema.json
@@ -71,8 +74,8 @@ python contracts/tools/generate_contracts.py --check
 运行时代码手写另一套枚举、nullable presence flag 或 OneNet 字段截断规则。
 
 工具只使用 Python 3.11 标准库。Java 黄金样本由校验器在存在 Java 21 工具链时编译执行；
-C 头文件和黄金样本程序交给 MCU 负责人使用其固件工具链编译，人工结果是 F-10 的
-integration/acceptance 完成门。
+C 头文件和黄金样本程序已在通用 C11 工具链验证。目标 MCU 工具链执行仅在选择
+`uart-v1` 原生实现时作为 H-03/部署符合性证据，不再是 F-10 完成门。
 
 完整的本地、OneNet 控制台、Java、C 与真机人工验证顺序见
 [`MANUAL-VALIDATION.md`](MANUAL-VALIDATION.md)。
@@ -100,8 +103,8 @@ integration/acceptance 完成门。
 ## 修改规则
 
 1. 先修改权威 Schema 或 Registry，再运行生成与验证。
-2. 协议 `1.0` 尚未由 MCU 负责人共同确认时，可以在同一候选版内协调修改；每次修改都要
-   重生成摘要和黄金样本。
+2. 规范 UART `1.0` 发生变更时必须重生成摘要和黄金样本；固定帧适配不得直接修改生成物
+   或反向制造第二套 OneNet/业务契约。
 3. 共同基线冻结后，破坏性变化提升 major，兼容新增提升 minor，纯说明/样例修正提升 patch。
 4. 不得用机器契约反向削弱已确认的门安全、资金、幂等、租户/机构或失败恢复边界。
 5. `onenet-thing-model.candidate.json` 是从 JSON Schema 生成的控制台导入候选；若控制台

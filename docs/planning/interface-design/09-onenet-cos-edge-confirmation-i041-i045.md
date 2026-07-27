@@ -2,7 +2,7 @@
 
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
-> 状态：**I-041～I-045 已确认；2026-07-24 已按会话一单、最终一次上报及清运锁推定状态修订**
+> 状态：**I-041～I-045 已确认；2026-07-27 已按会话一单、最终一次上报及清运门位未知边界修订**
 >
 > 说明：本文件定义 OneNet 可信上行、服务下行、香橙派 SQLite、COS 直传和后端业务确认的目标契约。它承接 I-016～I-030 已冻结的设备配置、投递、清运、满溢和恢复语义，不修改那些业务状态机。
 >
@@ -90,7 +90,7 @@
 | `DEVICE_COMMAND_OBSERVED` | `RELIABLE_FACT` | 设备命令 | 命令已受理、明确拒绝、开动前失败或其他命令类型允许的强类型进度；不得承载投递中间门/重量/按钮过程 |
 | `CONFIGURATION_PROGRESS` | `RELIABLE_FACT` | 配置应用 | 精确证明 `EDGE_SAVED/APPLIED/FAILED`，携版本和配置摘要 |
 | `DELIVERY_COMPLETE` | `RELIABLE_FACT` | 投递会话 | 整场唯一完成事件：首次开门前/最终关门后重量、四个整场照片槽、`negativeWeightAnomaly`、冻结配置摘要及最终投递门状态 |
-| `CLEAN_COMPLETE` | `RELIABLE_FACT` | 清运操作 | 完整换袋、带符号新旧重量、清运员确认、电磁阀断电、由锁状态推定的关闭状态和照片槽 |
+| `CLEAN_COMPLETE` | `RELIABLE_FACT` | 清运操作 | 完整换袋、带符号新旧重量、清运员人工关门/完成确认、电磁阀断电、物理门位 `UNKNOWN` 和照片槽 |
 | `FULLNESS_SAMPLE_COMPLETE` | `RELIABLE_FACT` | 满溢检测 | 一次初检、复检或人工重检的强类型传感器结果 |
 | `BASELINE_MEASUREMENT_COMPLETE` | `RELIABLE_FACT` | 空袋基准重测 | 当前袋现场稳定总重量或明确失败 |
 | `DEVICE_FAULT_OBSERVED` | `RELIABLE_FACT` | 设备部署/投口 | 新故障或故障加重的不可丢事实 |
@@ -247,7 +247,7 @@ UTC 失准会阻止接收新的限时开门授权；已经在可信时间下受�
 | `edge_meta` | 当前 `deploymentCode`、协议版本、已应用配置版本/摘要、全局下一事件序号和存储 Schema |
 | `command_inbox` | 稳定命令、规范摘要、目标、截止时间、受理/拒绝及执行进度 |
 | `delivery_session` | 当前投递会话、整场授权/冻结摘要、首次开门前与最终关门后结果、本地轮次恢复数据、负重量异常锁存值、选择窗口及最终事件状态；不存在周期集合 |
-| `clean_operation` | 原操作、新旧袋/基准快照、首次解锁前重量、恢复代际、电磁阀通断、由锁状态推定的门状态、清运员最终确认和最终称重 |
+| `clean_operation` | 原操作、新旧袋/基准快照、首次解锁前重量、恢复代际、电磁阀通断、物理门位 `UNKNOWN`、清运员人工关门/完成确认和最终称重 |
 | `detection_context` / `measurement_context` | 满溢采样和空袋基准重测的目标、代际与结果 |
 | `event_outbox` | I-041 可靠事件完整内容、全局序号、重试和业务确认状态 |
 | `photo_outbox` | 照片身份、原作业/槽位、本地路径、摘要、大小、上传/关联状态和失败期限 |
@@ -479,7 +479,7 @@ NO_ACTION_REQUIRED
 | 事件 | 必须已经提交的权威结果 | 不需要等待 |
 |---|---|---|
 | `DELIVERY_COMPLETE` | 整场规范物理结果、该 `sessionUid` 的唯一订单、四个整场照片槽、`negativeWeightAnomaly` 订单标志、投递后满溢检测 gate/必要采样任务、会话业务确认状态 | 订单人工审核、钱包入账、满溢最终结论、照片上传完成 |
-| `CLEAN_COMPLETE` | 规范物理结果、清运员完成确认、电磁阀断电及推定关闭状态、唯一清运记录、袋交换/基准处理、四个照片槽、清运后检测 gate/必要采样任务、操作完成 | 清运审核、满溢最终结论、照片上传完成；不存在清运门门磁事实 |
+| `CLEAN_COMPLETE` | 规范物理结果、清运员人工关门/完成确认、电磁阀断电、清运物理门位 `UNKNOWN`、唯一清运记录、袋交换/基准处理、四个照片槽、清运后检测 gate/必要采样任务、操作完成 | 清运审核、满溢最终结论、照片上传完成；不存在清运门门磁事实 |
 | `FULLNESS_SAMPLE_COMPLETE` | 唯一样本及检测的应用/过期处置，必要容量/持续满溢事件和告警意图 | 后续人工处理或外部通知 |
 | `BASELINE_MEASUREMENT_COMPLETE` | 测量终态，以及合法时的新基准和后续检测 gate/任务 | 后续检测最终结论 |
 | `CONFIGURATION_PROGRESS` | 对应应用真实阶段已归并，最高期望版本规则已重算 | Web 轮询或部署激活 |

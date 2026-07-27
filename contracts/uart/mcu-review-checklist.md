@@ -1,6 +1,6 @@
 # EcoBin UART 1.0 MCU 联合确认单
 
-本确认单是 F-10 的人工 checkpoint。机器来源是
+本确认单用于选择 `uart-v1` 原生 MCU 实现时的可选符合性检查。机器来源是
 [`uart-registry.yaml`](uart-registry.yaml)，展开后的偏移、长度和摘要见
 [`generated/uart-layout.json`](generated/uart-layout.json)。本文件只记录评审结论，不在
 这里另建第二套消息号或字段定义。
@@ -12,16 +12,15 @@
 | 候选版本 | `1.0.0-rc.3` |
 | 线协议 | major `1` / minor `0` |
 | 物理串口 | `115200 / 8N1 / no flow control` |
-| Registry 状态 | `MCU_REVIEW_REQUIRED` |
+| Registry 状态 | `FROZEN_REFERENCE` |
 | 软件生成/校验 | 已完成 |
 | MCU 逐字段确认 | 已完成 |
-| C 固件工具链黄金样本 | 待完成 |
-| 真机/HIL | F-11 范围 `0x300` 纵切已通过；完整 H-03 尚未开始 |
+| C 固件工具链黄金样本 | 原生 `uart-v1` 部署时验证 |
+| 真机/HIL | 原生 `uart-v1` 部署时验证；当前固定帧 HIL 归 H-03 |
 
-rc.3 已同步本轮 MCU Firmware Design，但消息布局变更后仍须重新完成 MCU 逐字段确认。
-MCU 实际工具链黄金程序、持续锁存门控 HIL、清运锁脉冲和超声波阈值实测尚未完成，
-F-10 仍不能标记 `done`。下列复选框保留为完整固件符合性清单；旧脉冲布局或 rc.2
-时期的 `0x300` 挥发 HIL 不代表现行 rc.3 新布局已经验证，也不能替代 H-03。
+F-10 已完成，现有固定帧单片机无需执行本确认单。下列复选框保留为完整 `uart-v1`
+固件符合性清单；若以后部署该模式，消息布局变更后必须重新确认。旧脉冲布局或 rc.2
+时期的 `0x300` 挥发 HIL 不代表现行 rc.3 新布局已经验证，也不能替代对应部署验收。
 
 ## 2. 评审输入
 
@@ -155,10 +154,11 @@ F-10 integration/acceptance 推进，并解除 H-03/F-11 的相应契约阻塞�
   QUERY_STATE 摘要校验通过；rc.3 已改变配置字段、摘要和快照布局，必须重新执行。
 - MCU boot ID 已限制在 `1..9007199254740991`；空关键事件队列的 oldest/latest
   四个范围字段均严格为零。
-- 详细命令、结果和未关闭边界见
-  [UART 1.0 真机 HIL 记录](../../hardware/docs/review/uart-hil-2026-07-25.md)。
+- 详细命令、结果和未关闭边界曾在独立 F-11 worktree 留存；该历史切片不代表当前
+  固定帧线路或完整 `uart-v1` 部署验收。
 - MCU 实际 ARMCC/Keil 尚未单独执行生成的 C 黄金程序；HELLO 的 RCT6 identity 与
-  Keil target 名称中的 C8 也待核对。因此本节只推进局部 HIL 证据，不关闭 F-10/H-03。
+  Keil target 名称中的 C8 也待核对。因此本节只保存局部历史证据，不关闭当前固定帧
+  H-03，也不证明完整 `uart-v1` 部署符合性。
 
 ## 7. 2026-07-26 持续锁存门控破坏性变更
 

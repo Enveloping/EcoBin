@@ -175,7 +175,7 @@ M0 不自动删除订单、资金明细、渠道观察、设备物理结果、in
 | `dev_config_version` | 部署复合 FK；UQ 部署+版本及机构候选键；参数范围 CHECK；IX 部署版本倒序 | A |
 | `dev_port_config_snapshot` | 配置与投口同部署复合 FK；UQ 配置+投口；单价、满溢阈值、正整数负重量异常阈值（默认 500 克）及等待参数 CHECK | A |
 | `dev_config_application` | 配置/部署复合 FK；UQ application UUID、配置版本；状态时间 CHECK；IX 部署状态更新时间 | P |
-| `dev_deployment_runtime_state` | PK/FK 部署并保留机构候选键；健康/安全状态 CHECK；清运电磁阀供电与推定门状态成组，明确无门磁；IX 机构阻断、平台离线扫描 | P |
+| `dev_deployment_runtime_state` | PK/FK 部署并保留机构候选键；健康/安全状态 CHECK；清运电磁阀供电、物理门位 `UNKNOWN` 与独立人工关门确认成组，明确无门磁；IX 机构阻断、平台离线扫描 | P |
 | `dev_port_runtime_state` | PK/FK 投口且同部署作用域；可空待处理投递 session 使用“部署+投口+session”复合 FK，一投口由单行天然最多一个；传感器/恢复指针形状 CHECK；IX 部署端口/阻断状态。设置/清除只走私有条件更新与统一锁序，不新增业务状态触发器 | P |
 | `dev_device_fault_event` | 部署/可空投口复合 FK；UQ fault UUID、活动故障生成键；恢复形状 CHECK；IX 机构活动故障 | O |
 | `dev_device_occupancy` | PK 资产；FK 当前部署；分别对 delivery session、clean operation 建直接身份 FK 和同部署/作用域复合 FK（clean 跨模块 FK 后置添加）；两目标恰一的整机互斥 CHECK | S |

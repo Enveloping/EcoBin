@@ -41,7 +41,7 @@
 | `dev_port_config_snapshot` / device | `id` | 直接作用域 FK；同部署复合 FK → config version 和 port | 配置+投口、session 强引用候选键；F-10 展示名、价格换算及 u32/u16/i32 参数边界 | 机构/部署/投口 |
 | `dev_config_application` / device | `id`；`application_uid` | 直接作用域 FK；期望/报告配置三元摘要复合 FK | 应用 UUIDv4、每配置一过程、部署候选键；`EDGE_SAVED/FAILED/APPLIED` 完整三元组、双证明时间、可保留最近失败 | 部署应用状态 |
 | `dev_deployment_runtime_state` / device | `deployment_id` | 直接作用域+部署 FK；已应用配置三元组 FK | 部署一对一、机构候选键；F-10 edge/MCU/UART/capability/配置/存储/时钟/待确认事件无损投影 | 机构阻断；全局离线扫描 |
-| `dev_port_runtime_state` / device | `port_id` | 直接作用域+部署+投口 FK；V4 增加同投口 pending session FK | 投口一对一、机构/部署候选键；每投口投递门、清运锁推定门态、称重/红外/烟雾无损投影 | 部署投口阻断；待处理 session |
+| `dev_port_runtime_state` / device | `port_id` | 直接作用域+部署+投口 FK；V4 增加同投口 pending session FK | 投口一对一、机构/部署候选键；每投口投递门、清运锁通断/人工关门确认、称重/红外/烟雾无损投影；清运物理门位为 `UNKNOWN` | 部署投口阻断；待处理 session |
 
 ## 4. V3：机构用户、绑定与三类会话 6 表
 
@@ -64,7 +64,7 @@
 | `dev_device_command` / device | `id`；`command_uid` | 直接作用域+部署 FK；强 FK → delivery session/config application（含 deployment） | command UUIDv4、命令类型/投递 session 候选键；五类目标恰一、载荷版本、七态与时间字段组严格对应 | 部署命令；五类目标；V8 后置 clean/fullness/baseline |
 | `dev_edge_event` / device | `id`；`event_uid` | 直接作用域+部署 FK | event UUIDv4、部署全局序号、来源 inbox 各唯一、类型分支候选键；事件/交付类别与 target 类型成对、时钟组、摘要 | 部署事件时间线、类型时间线；V8 后置 `ops_inbox_message` |
 | `dev_device_command_event` / device | `id`；唯一 `edge_event_id` | 直接作用域 FK；类型化 edge event/command FK；投递开始强关联同一 session | 一个公共头一个命令分支；观察类型与原命令类型一致、命令阶段、F-10 `mcuCommandUid` 与符号化 `errorCode`；不保存当前 payload 未提供的 MCU boot/event 或 UART 字段 | 命令时间线 |
-| `dev_physical_result` / device | `id`；唯一 `edge_event_id/command_id` | 直接作用域 FK；类型化 edge event/command、报告配置三元组 FK；DELIVERY 同时锁定 session/投口/冻结配置 | 四类目标恰一且非本分支字段全空；每份 measurement 独立保存完整可靠性和 MCU 来源；投递门终态、清运人工确认与推定门态 | 部署/投口结果时间线；V8 后置 clean operation/fullness sample/baseline measurement |
+| `dev_physical_result` / device | `id`；唯一 `edge_event_id/command_id` | 直接作用域 FK；类型化 edge event/command、报告配置三元组 FK；DELIVERY 同时锁定 session/投口/冻结配置 | 四类目标恰一且非本分支字段全空；每份 measurement 独立保存完整可靠性和 MCU 来源；投递门终态、清运人工确认与物理门位 `UNKNOWN` | 部署/投口结果时间线；V8 后置 clean operation/fullness sample/baseline measurement |
 
 ## 6. V8 必须闭合、F-04 不提前建立的关系
 
@@ -148,7 +148,7 @@ D-035 使用 `SELECT/INSERT/DELETE`；A/R 表没有 `UPDATE/DELETE`。
 | 负例 | 建立基础数据前 10 项；建立完整作业后 16 项 |
 | 结果 | 两库相同，全部自动检查通过 |
 
-## 8. F-10 联调收口复核项
+## 8. F-10 契约与固定帧适配复核项
 
 当前 F-10 机器契约明确要求 `firstPreOpenMeasurement=measurementStable`，只允许最终关门
 称重以 `TERMINAL_WEIGHT_FAILURE` 进入失败状态。因此 V4 按当前机器契约约束为：
@@ -157,11 +157,12 @@ D-035 使用 `SELECT/INSERT/DELETE`；A/R 表没有 `UPDATE/DELETE`。
 - 最终关门后测量稳定时有重量和净重，明确失败时两者为空；它保存自己的独立 MCU 来源；
 - 仍创建 `dev_physical_result`，供后续建立系统异常订单。
 
-F-10 软件契约已经冻结；MCU、真实 Python 3.11 和跨端联调尚未收口。如果联调证明首次
-稳定测量可能在最终载荷中永久丢失，应先统一修订 F-10 Schema、业务基线和数据库约束，
-再以前向迁移处理，不能仅在数据库放宽为空。
+F-10 机器契约已经完成。现有固定帧 MCU 由 F-11 适配器把 DD/EF 前后重量映射为规范
+measurement；如果 H-03 真机验收证明线路无法稳定保留首次重量或无法可靠绑定活动作业，
+必须收紧试点启用范围或修订适配/业务契约，不能仅在数据库放宽为空。
 
 配置表同时保存中心完整版本和当前 F-10 可编码子集。设备展示名、地址、坐标属于中心
 元数据；心跳/漏报、关门重试、投递沉降等待和投口门自动关闭等设备执行字段当前没有
 F-10 payload 属性。验证脚本只证明这些字段可版本化存储，不能冒充其已完成下发或 MCU
-生效；该差额继续作为 F-10 与 MCU/联调收口项。
+生效；固定帧模式下无法投影到 MCU 的字段由 F-11 明确标记本地生效、不支持或未知，并在
+H-03/V-03 验收启用范围，不能伪造 `mcu_payload_sha256` 已生效。
