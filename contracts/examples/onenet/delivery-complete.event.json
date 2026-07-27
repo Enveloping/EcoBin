@@ -10,41 +10,45 @@
   "payload": {
     "completionReason": "USER_ENDED",
     "deliveryNetWeightGrams": 1250,
-    "finalDeliveryDoor": {
-      "health": "OK",
-      "state": "CLOSED"
+    "finalDoorCommand": {
+      "command": "CLOSE",
+      "outputStatus": "COMMAND_DISPATCHED",
+      "physicalStateBasis": "NOT_OBSERVABLE"
     },
     "finalPostCloseMeasurement": {
       "calibrationVersion": 4,
       "faultCode": null,
-      "lastObservedWeightGrams": 13250,
       "mcuBootId": 101,
       "mcuEventSequence": 29,
       "measurementElapsedMs": 1200,
       "measurementUid": "30000000-0000-4000-8000-000000000005",
+      "reportedWeightGrams": 13250,
       "sampleCount": 12,
       "sensorHealth": "OK",
-      "stableWeightGrams": 13250,
-      "status": "STABLE"
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
     },
     "firstPreOpenMeasurement": {
       "calibrationVersion": 4,
       "faultCode": null,
-      "lastObservedWeightGrams": 12000,
       "mcuBootId": 101,
       "mcuEventSequence": 11,
       "measurementElapsedMs": 1200,
       "measurementUid": "30000000-0000-4000-8000-000000000004",
+      "reportedWeightGrams": 12000,
       "sampleCount": 12,
       "sensorHealth": "OK",
-      "stableWeightGrams": 12000,
-      "status": "STABLE"
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
     },
     "frozenConfig": {
       "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "version": 8
     },
+    "manualReviewRequired": false,
     "negativeWeightAnomaly": false,
     "photos": [
       {
@@ -92,7 +96,7 @@
     "sessionUid": "30000000-0000-4000-8000-000000000001",
     "unitPriceTenThousandths": 4500
   },
-  "payloadSha256": "95396998abe4dddc1e6007ba383d1fc82009f9df6a48407b33b23c99ace78b4d",
+  "payloadSha256": "427ffe8ec4d4c6ec17729339142da80b86521b8dc37930f23ae998f8da7b2d01",
   "schemaVersion": 1,
   "target": {
     "type": "DELIVERY_SESSION",

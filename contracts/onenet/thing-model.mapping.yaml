@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "1.0.0-rc.2",
+  "mappingVersion": "1.0.0-rc.3",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {
@@ -200,6 +200,12 @@
       "targetType": "DEVICE_DEPLOYMENT",
       "schemaRef": "events/events.schema.json#/$defs/deviceFaultRecoveredEvent"
     },
+    "safetySensorStateChanged": {
+      "eventType": "SAFETY_SENSOR_STATE_CHANGED",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_DEPLOYMENT",
+      "schemaRef": "events/events.schema.json#/$defs/safetySensorStateChangedEvent"
+    },
     "photoStatusReported": {
       "eventType": "PHOTO_STATUS_REPORTED",
       "deliveryClass": "RELIABLE_FACT",
@@ -270,12 +276,11 @@
     "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",
     "BASELINE_MEASUREMENT": "BASELINE_MEAS",
     "BUSINESS_CONFIRMATION": "BIZ_CONFIRMATION",
-    "DELIVERY_DOOR_TIMEOUT": "DELIV_DOOR_TIMEOUT",
-    "DELIVERY_DOOR_ACTUATOR": "DELIV_DOOR_ACTUATOR",
+    "DELIVERY_DOOR_OUTPUT_REJECTED": "DELIV_DOOR_OUT_REJECTED",
+    "DELIVERY_DOOR_HIL_NOT_QUALIFIED": "DELIV_DOOR_HIL_NOT_QUAL",
     "CLEAN_SOLENOID_DRIVER": "CLEAN_SOL_DRIVER",
     "SELECTION_WINDOW_EXPIRED": "SEL_WINDOW_EXPIRED",
     "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL",
-    "INFERRED_FROM_LOCK_POWER": "INFERRED_LOCK_PWR",
     "START_AUTHORIZATION_EXPIRED": "START_AUTH_EXPIRED",
     "INITIAL_GRANT_MISSING": "INIT_GRANT_MISSING"
   }

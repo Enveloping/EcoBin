@@ -1,37 +1,37 @@
 {
-  "identifier": "deviceFaultRecovered",
+  "identifier": "safetySensorStateChanged",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "108",
+    "id": "109",
     "params": {
-      "deviceFaultRecovered": {
+      "safetySensorStateChanged": {
         "value": {
           "clockQuality": 1,
-          "commandUid": "",
           "commandUidPresent": false,
-          "component": 4,
           "deliveryClass": 1,
           "deploymentCode": "Dp_demo_01",
-          "edgeEventSequence": 1050,
+          "edgeEventSequence": 1054,
           "eventType": 1,
-          "eventUid": "87000000-0000-4000-8000-000000000003",
-          "faultCode": 8,
-          "faultUid": "87000000-0000-4000-8000-000000000001",
+          "eventUid": "87500000-0000-4000-8000-000000000001",
+          "faultCode": 1,
+          "faultCodePresent": false,
           "mcuBootId": 101,
-          "mcuBootIdPresent": true,
-          "mcuEventSequence": 49,
-          "mcuEventSequencePresent": true,
+          "mcuEventSequence": 50,
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "a96e6ac4a21a05366b2a44544832f3890b5e12579188c36e902c4a949d9f013a",
+          "payloadSha256": "66c7fa664f86e3095a27a2b4e1e28b58278ab7adf069af745a92c27ef8724af0",
           "portNo": 2,
           "portNoPresent": true,
           "schemaVersion": 1,
-          "severity": 2,
+          "smokeSensorHealth": 1,
+          "smokeState": 2,
           "target": {
             "type": 1,
             "uid": "Dp_demo_01"
-          }
+          },
+          "workType": 3,
+          "workUid": "30000000-0000-4000-8000-000000000001",
+          "workUidPresent": true
         }
       }
     },

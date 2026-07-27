@@ -1,21 +1,4 @@
-# EcoBin 机器契约人工验证手册
-
-## HTTP OpenAPI 3.1
-
-1. 运行 `python contracts/tools/http_contract.py`，确认 OpenAPI 版本、本地 `$ref`、三类安全
-   入口、公共 Schema 和七份样例全部通过。
-2. 运行 Web 与小程序 TypeScript 检查；确认 Web Axios 请求只使用同源 Cookie
-   `withCredentials: true`，小程序只保存单一 audience Token。
-3. 人工核对登录/登出后的 CSRF 轮换、`401` 清会话、`409` 不静默覆盖以及 `202`
-   依据同源 `statusUrl` 恢复轮询。真实业务 path 由对应 V 任务加入后再次执行。
-4. 升级客户端启动时必须删除 Web `localStorage["ecobin-auth"]` 以及小程序
-   `ecobin_token/ecobin_role/ecobin_user_info`。这只删除客户端副本，不等于服务端撤销。
-5. 正式切换目标会话前，所有后端实例必须先停止签发旧登录 Token，并同时轮换 legacy
-   JWT 验签密钥且不保留旧验签密钥；因此已复制到别处的旧 Bearer 也立即失效。目标会话
-   随后只按持久化 `jti + authVersion` 撤销规则校验。F-09 不授权生产切换，V-01/V-02
-   必须把该步骤列入发布门禁，不能只依赖旧 Token 最长 24 小时自然过期。
-
-## OneNet 与 UART
+# EcoBin F-10 人工验证手册
 
 本手册用于验证 F-10 的机器契约候选。验证分为四层：
 

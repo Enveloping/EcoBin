@@ -14,25 +14,32 @@
       "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "version": 8
     },
-    "infraredHealth": "OK",
-    "infraredValue": "CLEAR",
+    "fullnessMode": "SENSOR_OR_WEIGHT",
+    "fullnessSampleBasis": "MEASURED_MEDIAN",
+    "fullnessSensorKind": "ULTRASONIC",
+    "fullnessSensorValue": "CLEAR",
     "portNo": 2,
+    "representativeDistanceMm": 720,
+    "requestedSampleCount": 5,
     "sampleRole": "INITIAL",
     "totalWeightMeasurement": {
       "calibrationVersion": 4,
       "faultCode": null,
-      "lastObservedWeightGrams": 13250,
       "mcuBootId": 101,
       "mcuEventSequence": 45,
       "measurementElapsedMs": 1200,
       "measurementUid": "50000000-0000-4000-8000-000000000002",
+      "reportedWeightGrams": 13250,
       "sampleCount": 12,
       "sensorHealth": "OK",
-      "stableWeightGrams": 13250,
-      "status": "STABLE"
-    }
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
+    },
+    "triggerType": "DELIVERY_COMPLETE",
+    "validSampleCount": 5
   },
-  "payloadSha256": "112e10ebfe97cdea51e0fc03fa3c3a0992acd1fe680347d539686903da8eda4d",
+  "payloadSha256": "9186f31e3b33a9380dfe1a437f4a132c65499c7639699e443679e8b329b39213",
   "schemaVersion": 1,
   "target": {
     "type": "FULLNESS_DETECTION",

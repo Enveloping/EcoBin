@@ -1,16 +1,16 @@
 {
-  "onenetMappingVersion": "1.0.0-rc.2",
+  "onenetMappingVersion": "1.0.0-rc.3",
   "sources": {
     "onenet/command-envelope.schema.json": "f2cabfa2d53ebdca77fae170f30d80087d3bc7c93892cadea300f4ebde1ae53c",
     "onenet/command-receipt.schema.json": "5af4d09a6841ffb89be587a7eabe7faee0e6a2f1496ef1860764980b328ab6a3",
-    "onenet/commands/commands.schema.json": "da94f905e1fec84342e05372c1c6e861725c9bc3397b621dc70b3b838c44ef1e",
-    "onenet/common.schema.json": "f3d3f57e52c8e203a13878b8c9e4054dbbc3cf113c3f4b99eb44a0e22f6f5770",
-    "onenet/event-envelope.schema.json": "010a2ae62964ccceaf492e6948fc3b0758d3301a9660ae547e67487cf90593c5",
-    "onenet/events/events.schema.json": "70e7840d297eb3079983ab202c0254bcd2a79a3a03a40ed35b3db51fbb64936f",
-    "onenet/thing-model.mapping.yaml": "8530b6e7c6ebe36f99e11363262d10ee5dce0b6ba7545e7be87c88273d3f3319",
-    "uart/uart-registry.schema.json": "a006830a72c78e7f796200473710bc01cf481cdbf3e19d5f0b0eee8554c621e6",
-    "uart/uart-registry.yaml": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705"
+    "onenet/commands/commands.schema.json": "fe5e83254544872432d72615959402aa666b2e595a6f2f9fbeab1e30723b6e95",
+    "onenet/common.schema.json": "a92ba437a62b1c8b458dbe399568016cd12ebbb160fd821dfacd07286e3471e6",
+    "onenet/event-envelope.schema.json": "3d06ec5915649d84e02a8b5e2b883d9dbfc50808611c586bfd9b7210bb1d94f7",
+    "onenet/events/events.schema.json": "a77fe7cbd5204d37a1852cfb26c902e31eb56a9ed38a938b04da7759ac52af4d",
+    "onenet/thing-model.mapping.yaml": "6784855c3dc198981fc09280ee3f8796b9a605e2438e72224ef475c2dab0f756",
+    "uart/uart-registry.schema.json": "e305391f3180e69f7a4abe35133b1240638c6da9e9387e35e6c2172746d7b023",
+    "uart/uart-registry.yaml": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2"
   },
-  "uartRegistrySha256": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705",
-  "uartRegistryVersion": "1.0.0-rc.2"
+  "uartRegistrySha256": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2",
+  "uartRegistryVersion": "1.0.0-rc.3"
 }

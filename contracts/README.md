@@ -6,12 +6,13 @@
 
 ## 当前状态
 
-- OneNet：Draft 2020-12 JSON Schema 候选版，等待 F-11 后端/香橙派适配。
-- UART：协议 `1.0` 候选 Registry，software 阶段已完成，最终冻结仍等待 MCU
-  负责人确认消息号、字段顺序、能力位和非易失边界。
-- HTTP：OpenAPI `1.0.0-rc.1`，已固定 Cookie+CSRF、小程序 Bearer、微信通知签名入口以及
-  公共错误、分页、幂等、版本、十进制和 `202` Schema；V-01 已增量加入租户、机构、
-  工作人员、任职和授权的全部目标 path/DTO，后续纵向切片继续在同一机器源扩展。
+- OneNet：Draft 2020-12 JSON Schema 候选版已同步 rc.3 的配置、命令、可靠事件和
+  运行快照；香橙派使用同一生成模型投影 OneJSON，最终冻结仍等待控制台重新导入和真机联调。
+- UART：协议 `1.0` Registry `1.0.0-rc.3` 已同步 MCU Firmware Design，并通过
+  Python 3.11、Java 和生成 C 黄金样本的软件校验；投递门已改为 OPEN/CLOSE 方向
+  电平持续锁存，旧脉冲版两端不得混用。最终冻结仍等待 MCU 工具链编译、现行门控 HIL，
+  以及清运锁 1000 ms/侧置超声波 600 mm 的实机验证。
+- HTTP：属于 F-09，不在 F-10 中创建。
 
 候选版不是生产切换授权。现有 OneNet 物模型、AA/BB/CC/DD 临时帧和旧 D1 清运链只有
 运行现状意义，F-11/H-03 正式切换时必须整体退出，不能建设生产双协议回退。
@@ -20,8 +21,6 @@
 
 ```text
 contracts/
-├─ http/
-│  └─ openapi.yaml
 ├─ onenet/
 │  ├─ common.schema.json
 │  ├─ event-envelope.schema.json
@@ -40,7 +39,6 @@ contracts/
 │  ├─ mcu-review-checklist.md
 │  └─ generated/
 ├─ examples/
-│  ├─ http/
 │  ├─ onenet/
 │  ├─ onenet-wire/
 │  └─ uart/
@@ -59,7 +57,6 @@ contracts/
 
 ```powershell
 python contracts/tools/generate_contracts.py
-python contracts/tools/http_contract.py
 python contracts/tools/validate_contracts.py
 python -m unittest discover -s contracts/tests -v
 ```
@@ -69,6 +66,9 @@ python -m unittest discover -s contracts/tests -v
 ```powershell
 python contracts/tools/generate_contracts.py --check
 ```
+
+生成器还会更新香橙派运行时使用的 `hardware/onenet_projection_model.json`，避免
+运行时代码手写另一套枚举、nullable presence flag 或 OneNet 字段截断规则。
 
 工具只使用 Python 3.11 标准库。Java 黄金样本由校验器在存在 Java 21 工具链时编译执行；
 C 头文件和黄金样本程序交给 MCU 负责人使用其固件工具链编译，人工结果是 F-10 的

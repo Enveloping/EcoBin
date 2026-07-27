@@ -19,7 +19,7 @@
     "messages",
     "semanticRules",
     "goldenVectors",
-    "nonVolatileRequirements"
+    "recoveryPolicy"
   ],
   "additionalProperties": false,
   "properties": {
@@ -303,18 +303,19 @@
           "kind": {
             "enum": [
               "MEASUREMENT_VALIDITY",
-              "CLEAN_LOCK_INFERENCE",
+              "CLEAN_MANUAL_CONFIRMATION",
               "HELLO_OUTCOME",
               "WORK_SCOPE",
               "SAFE_CLOSE_SCOPE",
-              "SAFE_CLOSE_RESULT_OUTCOME",
+              "DOOR_COMMAND_RESULT",
               "FAULT_COMPONENT_CODE",
-              "SENSOR_VALUE_HEALTH",
+              "FULLNESS_SAMPLE_FALLBACK",
               "CONFIG_SEGMENTS",
               "SNAPSHOT_SEGMENTS",
               "SNAPSHOT_PORT_FAULT_BITMAP",
               "CLEAN_COMPLETION_GENERATION",
-              "DELIVERY_SELECTION_ORDER"
+              "DELIVERY_SELECTION_ORDER",
+              "BOOT_RECONCILIATION"
             ]
           },
           "messages": {
@@ -364,7 +365,7 @@
         }
       }
     },
-    "nonVolatileRequirements": {
+    "recoveryPolicy": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "minItems": 1

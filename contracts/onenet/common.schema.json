@@ -100,16 +100,17 @@
       "enum": [
         "UART_PROTOCOL",
         "UART_STORAGE",
-        "DELIVERY_DOOR_TIMEOUT",
-        "DELIVERY_DOOR_ACTUATOR",
-        "DELIVERY_DOOR_SWITCH",
+        "DELIVERY_DOOR_OUTPUT_REJECTED",
+        "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
         "CLEAN_SOLENOID_DRIVER",
         "WEIGHT_UNSTABLE",
         "WEIGHT_TIMEOUT",
         "WEIGHT_SENSOR",
         "WEIGHT_OVERLOAD",
-        "INFRARED_TIMEOUT",
-        "INFRARED_SENSOR",
+        "WEIGHT_PROTOCOL",
+        "WEIGHT_CONFIG",
+        "WEIGHT_DISCONNECTED",
+        "FULLNESS_SENSOR_DIAGNOSTIC",
         "SMOKE_SENSOR",
         "MCU_STORAGE",
         "MCU_INTERNAL"
@@ -125,16 +126,17 @@
       "enum": [
         "UART_PROTOCOL",
         "UART_STORAGE",
-        "DELIVERY_DOOR_TIMEOUT",
-        "DELIVERY_DOOR_ACTUATOR",
-        "DELIVERY_DOOR_SWITCH",
+        "DELIVERY_DOOR_OUTPUT_REJECTED",
+        "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
         "CLEAN_SOLENOID_DRIVER",
         "WEIGHT_UNSTABLE",
         "WEIGHT_TIMEOUT",
         "WEIGHT_SENSOR",
         "WEIGHT_OVERLOAD",
-        "INFRARED_TIMEOUT",
-        "INFRARED_SENSOR",
+        "WEIGHT_PROTOCOL",
+        "WEIGHT_CONFIG",
+        "WEIGHT_DISCONNECTED",
+        "FULLNESS_SENSOR_DIAGNOSTIC",
         "SMOKE_SENSOR",
         "MCU_STORAGE",
         "MCU_INTERNAL",
@@ -169,59 +171,14 @@
         }
       }
     },
-    "measurementStable": {
+    "measurementWithQuality": {
       "type": "object",
       "required": [
         "measurementUid",
         "status",
-        "stableWeightGrams",
-        "lastObservedWeightGrams",
-        "measurementElapsedMs",
-        "sampleCount",
-        "calibrationVersion",
-        "sensorHealth",
-        "faultCode",
-        "mcuBootId",
-        "mcuEventSequence"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "measurementUid": { "$ref": "#/$defs/uuid" },
-        "status": { "const": "STABLE" },
-        "stableWeightGrams": { "$ref": "#/$defs/signedInt32Grams" },
-        "lastObservedWeightGrams": { "$ref": "#/$defs/nullableSignedInt32Grams" },
-        "measurementElapsedMs": { "$ref": "#/$defs/durationMs" },
-        "sampleCount": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "calibrationVersion": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 4294967295
-        },
-        "sensorHealth": { "const": "OK" },
-        "faultCode": { "type": "null" },
-        "mcuBootId": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
-        },
-        "mcuEventSequence": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967295
-        }
-      }
-    },
-    "measurementFailure": {
-      "type": "object",
-      "required": [
-        "measurementUid",
-        "status",
-        "stableWeightGrams",
-        "lastObservedWeightGrams",
+        "weightValueAvailable",
+        "reportedWeightGrams",
+        "weightValueKind",
         "measurementElapsedMs",
         "sampleCount",
         "calibrationVersion",
@@ -234,10 +191,30 @@
       "properties": {
         "measurementUid": { "$ref": "#/$defs/uuid" },
         "status": {
-          "enum": ["UNSTABLE", "TIMEOUT", "SENSOR_FAULT", "OVERLOAD"]
+          "enum": [
+            "STABLE",
+            "UNSTABLE",
+            "TIMEOUT",
+            "SENSOR_FAULT",
+            "OVERLOAD",
+            "PROTOCOL_ERROR",
+            "CONFIG_ERROR",
+            "DISCONNECTED"
+          ]
         },
-        "stableWeightGrams": { "type": "null" },
-        "lastObservedWeightGrams": { "$ref": "#/$defs/nullableSignedInt32Grams" },
+        "weightValueAvailable": { "type": "boolean" },
+        "reportedWeightGrams": {
+          "$ref": "#/$defs/nullableSignedInt32Grams"
+        },
+        "weightValueKind": {
+          "enum": [
+            "NONE",
+            "STABLE_WINDOW_MEAN",
+            "LAST_FOUR_MEAN",
+            "AVAILABLE_SAMPLES_MEAN",
+            "LAST_OBSERVED"
+          ]
+        },
         "measurementElapsedMs": { "$ref": "#/$defs/durationMs" },
         "sampleCount": {
           "type": "integer",
@@ -250,9 +227,18 @@
           "maximum": 4294967295
         },
         "sensorHealth": {
-          "enum": ["OK", "TIMEOUT", "SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
+          "enum": [
+            "OK",
+            "TIMEOUT",
+            "SENSOR_FAULT",
+            "DISCONNECTED",
+            "UNKNOWN",
+            "PROTOCOL_ERROR",
+            "CONFIG_ERROR",
+            "OVERLOAD"
+          ]
         },
-        "faultCode": { "$ref": "#/$defs/faultCodeSymbol" },
+        "faultCode": { "$ref": "#/$defs/nullableFaultCodeSymbol" },
         "mcuBootId": {
           "type": "integer",
           "minimum": 1,
@@ -264,65 +250,88 @@
           "maximum": 4294967295
         }
       },
-      "oneOf": [
+      "allOf": [
         {
-          "properties": {
-            "status": { "const": "UNSTABLE" },
-            "sensorHealth": { "const": "OK" },
-            "faultCode": { "const": "WEIGHT_UNSTABLE" }
+          "if": {
+            "properties": { "weightValueAvailable": { "const": true } },
+            "required": ["weightValueAvailable"]
+          },
+          "then": {
+            "properties": {
+              "reportedWeightGrams": {
+                "$ref": "#/$defs/signedInt32Grams"
+              },
+              "weightValueKind": { "not": { "const": "NONE" } }
+            }
+          },
+          "else": {
+            "properties": {
+              "reportedWeightGrams": { "type": "null" },
+              "weightValueKind": { "const": "NONE" }
+            }
           }
         },
         {
-          "properties": {
-            "status": { "const": "TIMEOUT" },
-            "sensorHealth": { "const": "TIMEOUT" },
-            "faultCode": { "const": "WEIGHT_TIMEOUT" }
+          "if": {
+            "properties": { "status": { "const": "STABLE" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "weightValueAvailable": { "const": true },
+              "weightValueKind": { "const": "STABLE_WINDOW_MEAN" },
+              "sensorHealth": { "const": "OK" },
+              "faultCode": { "type": "null" }
+            }
           }
         },
         {
-          "properties": {
-            "status": { "const": "SENSOR_FAULT" },
-            "sensorHealth": {
-              "enum": ["SENSOR_FAULT", "DISCONNECTED", "UNKNOWN"]
-            },
-            "faultCode": { "const": "WEIGHT_SENSOR" }
-          }
-        },
-        {
-          "properties": {
-            "status": { "const": "OVERLOAD" },
-            "sensorHealth": { "const": "OK" },
-            "faultCode": { "const": "WEIGHT_OVERLOAD" }
+          "if": {
+            "properties": { "status": { "const": "UNSTABLE" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "weightValueAvailable": { "const": true },
+              "weightValueKind": {
+                "enum": ["LAST_FOUR_MEAN", "AVAILABLE_SAMPLES_MEAN"]
+              },
+              "sensorHealth": { "const": "OK" },
+              "faultCode": { "const": "WEIGHT_UNSTABLE" }
+            }
           }
         }
       ]
     },
-    "measurement": {
-      "oneOf": [
-        { "$ref": "#/$defs/measurementStable" },
-        { "$ref": "#/$defs/measurementFailure" }
-      ]
-    },
-    "deliveryDoor": {
+    "deliveryDoorCommandFact": {
       "type": "object",
-      "required": ["state", "health"],
+      "required": [
+        "command",
+        "outputStatus",
+        "physicalStateBasis"
+      ],
       "additionalProperties": false,
       "properties": {
-        "state": {
-          "enum": ["CLOSED", "OPENING", "OPEN", "CLOSING", "JAMMED", "UNKNOWN"]
+        "command": { "enum": ["NONE", "OPEN", "CLOSE"] },
+        "outputStatus": {
+          "enum": [
+            "NOT_DISPATCHED",
+            "COMMAND_DISPATCHED",
+            "COMMAND_SUPERSEDED_BEFORE_DISPATCH",
+            "COALESCED_WITH_EXISTING_CLOSE",
+            "OUTPUT_REJECTED"
+          ]
         },
-        "health": {
-          "enum": ["OK", "TIMEOUT", "ACTUATOR_FAULT", "SWITCH_FAULT", "DISCONNECTED"]
-        }
+        "physicalStateBasis": { "const": "NOT_OBSERVABLE" }
       }
     },
-    "cleanLockAndInferredDoor": {
+    "cleanLockAndManualDoorConfirmation": {
       "type": "object",
       "required": [
         "lockPowerState",
         "solenoidHealth",
-        "inferredDoorState",
-        "stateBasis"
+        "physicalDoorStateBasis",
+        "cleanerPhysicalCloseConfirmed"
       ],
       "additionalProperties": false,
       "properties": {
@@ -332,41 +341,30 @@
         "solenoidHealth": {
           "enum": ["OK", "DRIVER_FAULT", "DISCONNECTED", "UNKNOWN"]
         },
-        "inferredDoorState": {
-          "enum": ["OPEN", "CLOSED", "UNKNOWN"]
+        "physicalDoorStateBasis": {
+          "enum": ["NOT_OBSERVABLE", "CLEANER_CONFIRMATION"]
         },
-        "stateBasis": {
-          "const": "INFERRED_FROM_LOCK_POWER"
-        }
+        "cleanerPhysicalCloseConfirmed": { "type": "boolean" }
       },
-      "oneOf": [
+      "allOf": [
         {
-          "properties": {
-            "lockPowerState": { "const": "ENERGIZED" },
-            "solenoidHealth": { "const": "OK" },
-            "inferredDoorState": { "const": "OPEN" }
-          }
-        },
-        {
-          "properties": {
-            "lockPowerState": { "const": "DEENERGIZED" },
-            "solenoidHealth": { "const": "OK" },
-            "inferredDoorState": { "const": "CLOSED" }
-          }
-        },
-        {
-          "properties": {
-            "solenoidHealth": {
-              "enum": ["DRIVER_FAULT", "DISCONNECTED", "UNKNOWN"]
+          "if": {
+            "properties": {
+              "cleanerPhysicalCloseConfirmed": { "const": true }
             },
-            "inferredDoorState": { "const": "UNKNOWN" }
-          }
-        },
-        {
-          "properties": {
-            "lockPowerState": { "const": "UNKNOWN" },
-            "solenoidHealth": { "const": "OK" },
-            "inferredDoorState": { "const": "UNKNOWN" }
+            "required": ["cleanerPhysicalCloseConfirmed"]
+          },
+          "then": {
+            "properties": {
+              "physicalDoorStateBasis": {
+                "const": "CLEANER_CONFIRMATION"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "physicalDoorStateBasis": { "const": "NOT_OBSERVABLE" }
+            }
           }
         }
       ]

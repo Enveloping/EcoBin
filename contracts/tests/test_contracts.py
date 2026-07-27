@@ -110,7 +110,7 @@ class UartRegistryTests(unittest.TestCase):
             "WORK_POSTCLOSE_WEIGHT_READY",
             bytes.fromhex(vector["payloadHex"]),
         )
-        self.assertEqual(-500, values["stableWeightGrams"])
+        self.assertEqual(-500, values["reportedWeightGrams"])
         self.assertEqual(
             bytes.fromhex(vector["payloadHex"]),
             encode_uart_payload(
@@ -120,6 +120,171 @@ class UartRegistryTests(unittest.TestCase):
             ),
         )
 
+    def test_unstable_weight_preserves_fallback_value(self) -> None:
+        vectors = load_json(
+            CONTRACTS_ROOT / "examples" / "uart" / "golden-vectors.json"
+        )["vectors"]
+        vector = next(
+            item
+            for item in vectors
+            if item["name"] == "unstable_weight_keeps_fallback_value"
+        )
+        values = decode_uart_payload(
+            self.registry,
+            "WORK_POSTCLOSE_WEIGHT_READY",
+            bytes.fromhex(vector["payloadHex"]),
+        )
+        self.assertEqual("UNSTABLE", values["measurementStatus"])
+        self.assertTrue(values["weightValuePresent"])
+        self.assertEqual(-480, values["reportedWeightGrams"])
+        self.assertEqual("LAST_FOUR_MEAN", values["weightValueKind"])
+        self.assertEqual("WEIGHT_UNSTABLE", values["faultCode"])
+
+    def test_registry_has_no_delivery_door_position_claim(self) -> None:
+        self.assertNotIn("DeliveryDoorState", self.registry["enums"])
+        self.assertNotIn(
+            "DELIVERY_DOOR_POSITION_FEEDBACK",
+            self.registry["capabilities"],
+        )
+        messages = {item["name"]: item for item in self.registry["messages"]}
+        self.assertNotIn("DELIVERY_DOOR_STATE_CHANGED", messages)
+        fields = {
+            field["name"]
+            for field in self.specs["DELIVERY_DOOR_COMMAND_RESULT"]["fields"]
+        }
+        self.assertIn("physicalDoorStateBasis", fields)
+        self.assertNotIn("actualOutputMs", fields)
+
+    def test_latched_door_output_uses_the_breaking_compact_layout(self) -> None:
+        device_fields = {
+            field["name"]
+            for field in self.specs["CONFIG_DEVICE_BLOCK"]["fields"]
+        }
+        self.assertNotIn("deliveryDoorOpenCommandSignalMs", device_fields)
+        self.assertNotIn("deliveryDoorCloseCommandSignalMs", device_fields)
+
+        expected_lengths = {
+            "CONFIG_DEVICE_BLOCK": 163,
+            "DELIVERY_DOOR_COMMAND_RESULT": 60,
+            "SAFE_CLOSE_RESULT": 43,
+            "STATE_SNAPSHOT_PORT": 81,
+        }
+        for message_name, expected_length in expected_lengths.items():
+            with self.subTest(message=message_name):
+                spec = self.specs[message_name]
+                self.assertEqual(expected_length, spec["minimumPayloadLength"])
+                self.assertEqual(expected_length, spec["maximumPayloadLength"])
+
+        for message_name in (
+            "DELIVERY_DOOR_COMMAND_RESULT",
+            "SAFE_CLOSE_RESULT",
+        ):
+            result_fields = {
+                field["name"] for field in self.specs[message_name]["fields"]
+            }
+            self.assertNotIn("actualOutputMs", result_fields)
+        snapshot_fields = {
+            field["name"]
+            for field in self.specs["STATE_SNAPSHOT_PORT"]["fields"]
+        }
+        self.assertNotIn("lastDeliveryDoorActualOutputMs", snapshot_fields)
+
+        output_statuses = self.registry["enums"]["DoorCommandOutputStatus"][
+            "values"
+        ]
+        self.assertEqual(
+            2,
+            output_statuses["COMMAND_SUPERSEDED_BEFORE_DISPATCH"],
+        )
+        self.assertNotIn("PARTIAL_OUTPUT_INTERRUPTED", output_statuses)
+        self.assertNotIn(
+            "DELIVERY_DOOR_OUTPUT_INTERRUPTED",
+            self.registry["enums"]["FaultCode"]["values"],
+        )
+
+    def test_delivery_door_result_reports_output_not_position(self) -> None:
+        values = {
+            "mcuBootId": 101,
+            "mcuEventSequence": 9,
+            "uptimeMs": 1000,
+            "mcuCommandUid": "10000000-0000-4000-8000-000000000001",
+            "sessionUid": "20000000-0000-4000-8000-000000000001",
+            "portNo": 1,
+            "roundIndex": 1,
+            "command": "CLOSE",
+            "outputStatus": "COMMAND_DISPATCHED",
+            "physicalDoorStateBasis": "NOT_OBSERVABLE",
+            "faultCode": "NONE",
+        }
+        payload = encode_uart_payload(
+            self.registry,
+            "DELIVERY_DOOR_COMMAND_RESULT",
+            values,
+        )
+        self.assertEqual(
+            values,
+            decode_uart_payload(
+                self.registry,
+                "DELIVERY_DOOR_COMMAND_RESULT",
+                payload,
+            ),
+        )
+
+        rejected_without_fault = copy.deepcopy(values)
+        rejected_without_fault["outputStatus"] = "OUTPUT_REJECTED"
+        with self.assertRaises(ContractError):
+            encode_uart_payload(
+                self.registry,
+                "DELIVERY_DOOR_COMMAND_RESULT",
+                rejected_without_fault,
+            )
+
+    def test_v1_baseline_does_not_require_mcu_persistence(self) -> None:
+        policy = self.registry["capabilityPolicy"]
+        self.assertEqual(0x300, int(policy["requiredMcuMaskHex"], 16))
+        self.assertEqual(0x300, int(policy["requiredEdgeMaskHex"], 16))
+        for requirements in policy["messageRequirements"].values():
+            self.assertNotIn("PERSISTENT_COMMAND_DEDUP", requirements)
+            self.assertNotIn("PERSISTENT_CRITICAL_EVENTS", requirements)
+
+    def test_tunable_hil_values_are_bounded_configuration_fields(self) -> None:
+        device_fields = {
+            field["name"]: field
+            for field in self.specs["CONFIG_DEVICE_BLOCK"]["fields"]
+        }
+        port_fields = {
+            field["name"]: field
+            for field in self.specs["CONFIG_PORT_BLOCK"]["fields"]
+        }
+        self.assertEqual(5000, device_fields["cleanSolenoidPulseMs"]["maximum"])
+        self.assertIn("默认 1000", device_fields["cleanSolenoidPulseMs"]["notes"])
+        self.assertEqual(
+            4000,
+            port_fields["fullnessDistanceThresholdMm"]["maximum"],
+        )
+        self.assertIn(
+            "候选默认 600",
+            port_fields["fullnessDistanceThresholdMm"]["notes"],
+        )
+        self.assertEqual(
+            (30000, 45000),
+            (
+                device_fields["deliveryDoorTravelWaitMs"]["minimum"],
+                device_fields["deliveryDoorTravelWaitMs"]["maximum"],
+            ),
+        )
+
+    def test_boot_reconciliation_has_both_explicit_branches(self) -> None:
+        messages = {item["name"]: item for item in self.registry["messages"]}
+        self.assertIn("CONFIRM_NO_ACTIVE_WORK", messages)
+        self.assertIn("BOOT_RECONCILIATION_RESULT", messages)
+        resume_fields = {
+            field["name"]
+            for field in self.specs["RESUME_CLEAN_OPERATION"]["fields"]
+        }
+        self.assertIn("nextCleanActionSequence", resume_fields)
+        self.assertNotIn("operationWindowMs", resume_fields)
+
     def test_shared_uart_vectors(self) -> None:
         summary = ValidationSummary()
         validate_uart_vectors(summary)
@@ -127,6 +292,131 @@ class UartRegistryTests(unittest.TestCase):
 
 
 class OneNetSchemaTests(unittest.TestCase):
+    def test_onenet_projection_matches_latched_door_contract(self) -> None:
+        commands = load_json(
+            CONTRACTS_ROOT
+            / "onenet"
+            / "commands"
+            / "commands.schema.json"
+        )
+        common = load_json(
+            CONTRACTS_ROOT / "onenet" / "common.schema.json"
+        )
+        events = load_json(
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json"
+        )
+
+        device_config = commands["$defs"]["deviceConfig"]
+        for removed in (
+            "deliveryDoorOpenCommandSignalMs",
+            "deliveryDoorCloseCommandSignalMs",
+        ):
+            self.assertNotIn(removed, device_config["required"])
+            self.assertNotIn(removed, device_config["properties"])
+
+        door_fact = common["$defs"]["deliveryDoorCommandFact"]
+        self.assertNotIn("actualOutputMs", door_fact["required"])
+        self.assertNotIn("actualOutputMs", door_fact["properties"])
+        statuses = set(door_fact["properties"]["outputStatus"]["enum"])
+        self.assertIn("COMMAND_SUPERSEDED_BEFORE_DISPATCH", statuses)
+        self.assertNotIn("PARTIAL_OUTPUT_INTERRUPTED", statuses)
+
+        runtime_port = events["$defs"]["runtimePort"]
+        self.assertNotIn(
+            "lastDeliveryDoorActualOutputMs",
+            runtime_port["required"],
+        )
+        self.assertNotIn(
+            "lastDeliveryDoorActualOutputMs",
+            runtime_port["properties"],
+        )
+
+    def test_uart_fault_codes_are_losslessly_representable_in_onenet(self) -> None:
+        registry = load_uart_registry()
+        common = load_json(
+            CONTRACTS_ROOT / "onenet" / "common.schema.json"
+        )
+        uart_codes = set(registry["enums"]["FaultCode"]["values"]) - {"NONE"}
+        measurement_codes = set(
+            common["$defs"]["faultCodeSymbol"]["enum"]
+        )
+        device_codes = set(
+            common["$defs"]["deviceFaultCodeSymbol"]["enum"]
+        )
+
+        self.assertEqual(uart_codes, measurement_codes)
+        self.assertEqual(
+            uart_codes
+            | {
+                "EDGE_STORAGE",
+                "CAMERA_CAPTURE",
+                "CAMERA_STORAGE",
+                "NETWORK_CONNECTIVITY",
+                "CLOCK_UNSYNCED",
+            },
+            device_codes,
+        )
+
+    def test_uart_result_enums_are_representable_in_onenet(self) -> None:
+        registry_enums = load_uart_registry()["enums"]
+        common = load_json(
+            CONTRACTS_ROOT / "onenet" / "common.schema.json"
+        )
+        events = load_json(
+            CONTRACTS_ROOT / "onenet" / "events" / "events.schema.json"
+        )
+        measurement = common["$defs"]["measurementWithQuality"]["properties"]
+        runtime = events["$defs"]["runtimePort"]["properties"]
+        fault = events["$defs"]["deviceFaultPayload"]["properties"]
+        safety = events["$defs"]["safetySensorStateChangedPayload"]["properties"]
+
+        def uart_symbols(enum_name: str) -> set[str]:
+            return set(registry_enums[enum_name]["values"])
+
+        exact_pairs = (
+            (measurement["status"]["enum"], "MeasurementStatus"),
+            (measurement["weightValueKind"]["enum"], "WeightValueKind"),
+            (measurement["sensorHealth"]["enum"], "SensorHealth"),
+            (
+                common["$defs"]["deliveryDoorCommandFact"]["properties"][
+                    "command"
+                ]["enum"],
+                "DeliveryDoorCommand",
+            ),
+            (
+                common["$defs"]["deliveryDoorCommandFact"]["properties"][
+                    "outputStatus"
+                ]["enum"],
+                "DoorCommandOutputStatus",
+            ),
+            (runtime["cleanLockPowerState"]["enum"], "CleanLockPowerState"),
+            (runtime["solenoidHealth"]["enum"], "SolenoidHealth"),
+            (runtime["cleanDoorStateBasis"]["enum"], "CleanDoorStateBasis"),
+            (runtime["smokeState"]["enum"], "SmokeState"),
+            (runtime["smokeSensorHealth"]["enum"], "SensorHealth"),
+            (safety["workType"]["enum"], "WorkType"),
+            (fault["severity"]["enum"], "FaultSeverity"),
+        )
+        for onenet_symbols, uart_enum in exact_pairs:
+            with self.subTest(enum=uart_enum):
+                self.assertEqual(
+                    uart_symbols(uart_enum),
+                    set(onenet_symbols),
+                )
+
+        subset_pairs = (
+            (runtime["fullnessSensorKind"]["enum"], "FullnessSensorKind"),
+            (runtime["fullnessSensorValue"]["enum"], "FullnessSensorValue"),
+            (runtime["fullnessSampleBasis"]["enum"], "FullnessSampleBasis"),
+            (fault["component"]["enum"], "FaultComponent"),
+        )
+        for onenet_symbols, uart_enum in subset_pairs:
+            with self.subTest(enum=uart_enum):
+                self.assertLessEqual(
+                    uart_symbols(uart_enum),
+                    set(onenet_symbols),
+                )
+
     def test_sources_and_mapping(self) -> None:
         summary = ValidationSummary()
         validate_sources(summary)
@@ -286,6 +576,33 @@ class OneNetSchemaTests(unittest.TestCase):
         bad_range["payloadSha256"] = payload_sha256(bad_range["payload"])
         with self.assertRaises(ContractError):
             _validate_command_semantics(bad_range)
+
+    def test_configuration_carries_tunable_hil_candidates(self) -> None:
+        command = load_json(
+            CONTRACTS_ROOT
+            / "examples"
+            / "onenet"
+            / "apply-configuration.command.json"
+        )
+        device = command["payload"]["deviceConfig"]
+        port = command["payload"]["ports"][0]
+        self.assertEqual(1000, device["cleanSolenoidPulseMs"])
+        self.assertEqual(600, port["fullnessDistanceThresholdMm"])
+        self.assertEqual("ULTRASONIC", port["fullnessSensorKind"])
+        self.assertEqual(5, port["fullnessSampleCount"])
+        self.assertEqual(3, port["fullnessMinimumValidSampleCount"])
+
+        from contractlib import payload_sha256
+
+        invalid_sample_counts = copy.deepcopy(command)
+        invalid_sample_counts["payload"]["ports"][0][
+            "fullnessMinimumValidSampleCount"
+        ] = 6
+        invalid_sample_counts["payloadSha256"] = payload_sha256(
+            invalid_sample_counts["payload"]
+        )
+        with self.assertRaises(ContractError):
+            _validate_command_semantics(invalid_sample_counts)
 
     def test_delivery_and_clean_weight_relationships_are_enforced(self) -> None:
         mapping = load_json(

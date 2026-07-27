@@ -1,7 +1,7 @@
 {
   "algorithm": "SHA-256",
-  "registrySha256": "1c8f97160b2b8a202e8a6298f1bbe554f9311a6962244f1786e16cf5a2101705",
-  "registryVersion": "1.0.0-rc.2",
+  "registrySha256": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2",
+  "registryVersion": "1.0.0-rc.3",
   "vectors": [
     {
       "components": {
@@ -28,26 +28,29 @@
         "device": {
           "cleanSolenoidPulseMs": 1000,
           "continueDeliveryWaitMs": 30000,
-          "deliveryAutoCloseMs": 60000,
+          "deliveryAutoCloseMs": 120000,
+          "deliveryDoorTravelWaitMs": 30000,
           "negativeWeightThresholdGrams": 500,
           "smokeMonitoringEnabled": true,
-          "weightMeasurementTimeoutMs": 10000
+          "weightMeasurementTimeoutMs": 6000
         },
         "ports": [
           {
             "calibrationVersion": 4,
             "configuredFullWeightGrams": 50000,
-            "deliveryDoorOperationTimeoutMs": 5000,
             "enabled": true,
-            "fullnessConfirmationWaitMs": 10000,
-            "fullnessMode": "INFRARED_OR_WEIGHT",
+            "fullnessDistanceThresholdMm": 600,
+            "fullnessEchoTimeoutUs": 30000,
+            "fullnessMinimumValidSampleCount": 3,
+            "fullnessMode": "SENSOR_OR_WEIGHT",
+            "fullnessSampleCount": 5,
+            "fullnessSensorKind": "ULTRASONIC",
             "fullnessSettleWaitMs": 5000,
-            "infraredSampleTimeoutMs": 2000,
             "portNo": 1,
             "unitPriceTenThousandths": 4501,
             "weightMaximumFluctuationGrams": 20,
             "weightMaximumGrams": 100000,
-            "weightMeasurementTimeoutMs": 10000,
+            "weightMeasurementTimeoutMs": 6000,
             "weightMinimumGrams": -5000,
             "weightRequiredSampleCount": 10,
             "weightStableWindowMs": 1500
@@ -55,17 +58,19 @@
           {
             "calibrationVersion": 4,
             "configuredFullWeightGrams": 50000,
-            "deliveryDoorOperationTimeoutMs": 5000,
             "enabled": true,
-            "fullnessConfirmationWaitMs": 10000,
-            "fullnessMode": "INFRARED_OR_WEIGHT",
+            "fullnessDistanceThresholdMm": 600,
+            "fullnessEchoTimeoutUs": 30000,
+            "fullnessMinimumValidSampleCount": 3,
+            "fullnessMode": "SENSOR_OR_WEIGHT",
+            "fullnessSampleCount": 5,
+            "fullnessSensorKind": "ULTRASONIC",
             "fullnessSettleWaitMs": 5000,
-            "infraredSampleTimeoutMs": 2000,
             "portNo": 2,
             "unitPriceTenThousandths": 4502,
             "weightMaximumFluctuationGrams": 20,
             "weightMaximumGrams": 100000,
-            "weightMeasurementTimeoutMs": 10000,
+            "weightMeasurementTimeoutMs": 6000,
             "weightMinimumGrams": -5000,
             "weightRequiredSampleCount": 10,
             "weightStableWindowMs": 1500
@@ -73,9 +78,9 @@
         ]
       },
       "name": "mcu_configuration_two_ports",
-      "preimageHex": "45434f42494e3a554152543a4d43552d434f4e4649473a7631000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10200007530000001f40000ea6000002710000003e801010100001195030000c3500000138800002710000005dc00000014000a00002710ffffec78000186a000000004000007d000001388020100001196030000c3500000138800002710000005dc00000014000a00002710ffffec78000186a000000004000007d000001388",
+      "preimageHex": "45434f42494e3a554152543a4d43552d434f4e4649473a7631000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10200007530000001f40001d4c00000177000007530000003e801010100001195030000c350000013880100000258050300007530000005dc00000014000a00001770ffffec78000186a000000004020100001196030000c350000013880100000258050300007530000005dc00000014000a00001770ffffec78000186a000000004",
       "profile": "mcuPayloadSha256",
-      "sha256": "2f801a4c510598999ad15531f57a627f0bcb06dec48ecf1f051876b79c384508"
+      "sha256": "531a7edd423b9c629e0e88a76a503e2e95e29f3c613e375d8e42f3709accc14b"
     },
     {
       "components": {
@@ -86,7 +91,7 @@
           "activeWorkUid": "00000000-0000-0000-0000-000000000000",
           "appliedConfigVersion": 8,
           "appliedContentSha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
-          "appliedMcuPayloadSha256": "2f801a4c510598999ad15531f57a627f0bcb06dec48ecf1f051876b79c384508",
+          "appliedMcuPayloadSha256": "531a7edd423b9c629e0e88a76a503e2e95e29f3c613e375d8e42f3709accc14b",
           "firmwareVersionCode": 10000,
           "latestMcuCommandUid": "00000000-0000-0000-0000-000000000000",
           "mcuBootId": 101,
@@ -117,26 +122,26 @@
           "partCount": 4,
           "partIndex": 4,
           "pendingCriticalEventCount": 0,
-          "snapshotSha256": "6c3d41ee40d9506dd8b6389197878b5f5925244ea8bee3e40247bb685fe28a02",
+          "snapshotSha256": "2866243c217b8225086223d5890a43e9d989db0a09f797123557b7b82323b532",
           "snapshotUid": "90909090-9090-4090-8090-909090909090",
           "uptimeMs": 1004
         },
         "ports": [
           {
             "calibrationVersion": 4,
-            "cleanDoorStateBasis": "INFERRED_FROM_LOCK_POWER",
+            "cleanDoorStateBasis": "NOT_OBSERVABLE",
             "cleanLockPowerState": "DEENERGIZED",
             "cleanSolenoidHealth": "OK",
             "cleanerPhysicalCloseConfirmed": false,
-            "deliveryDoorHealth": "OK",
-            "deliveryDoorState": "CLOSED",
+            "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
             "faultBitmap": 0,
             "faultCode": "NONE",
-            "inferredCleanDoorState": "CLOSED",
-            "infraredHealth": "OK",
-            "infraredValue": "CLEAR",
-            "lastObservedWeightGrams": 12000,
-            "lastObservedWeightValid": true,
+            "fullnessSampleBasis": "MEASURED_MEDIAN",
+            "fullnessSensorKind": "ULTRASONIC",
+            "fullnessSensorValue": "CLEAR",
+            "fullnessValidSampleCount": 5,
+            "lastDeliveryDoorCommand": "NONE",
+            "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
             "mcuBootId": 101,
             "mcuEventSequence": 2,
             "measurementElapsedMs": 1000,
@@ -144,30 +149,33 @@
             "partCount": 4,
             "partIndex": 2,
             "portNo": 1,
+            "reportedWeightGrams": 12000,
+            "representativeDistanceMm": 800,
+            "representativeDistancePresent": true,
             "sampleCount": 10,
             "smokeSensorHealth": "OK",
             "smokeState": "NORMAL",
             "snapshotUid": "90909090-9090-4090-8090-909090909090",
-            "stableWeightGrams": 12000,
-            "stableWeightValid": true,
             "uptimeMs": 1001,
-            "weightSensorHealth": "OK"
+            "weightSensorHealth": "OK",
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "weightValuePresent": true
           },
           {
             "calibrationVersion": 4,
-            "cleanDoorStateBasis": "INFERRED_FROM_LOCK_POWER",
+            "cleanDoorStateBasis": "NOT_OBSERVABLE",
             "cleanLockPowerState": "DEENERGIZED",
             "cleanSolenoidHealth": "OK",
             "cleanerPhysicalCloseConfirmed": false,
-            "deliveryDoorHealth": "OK",
-            "deliveryDoorState": "CLOSED",
+            "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
             "faultBitmap": 0,
             "faultCode": "NONE",
-            "inferredCleanDoorState": "CLOSED",
-            "infraredHealth": "OK",
-            "infraredValue": "CLEAR",
-            "lastObservedWeightGrams": -500,
-            "lastObservedWeightValid": true,
+            "fullnessSampleBasis": "MEASURED_MEDIAN",
+            "fullnessSensorKind": "ULTRASONIC",
+            "fullnessSensorValue": "CLEAR",
+            "fullnessValidSampleCount": 5,
+            "lastDeliveryDoorCommand": "NONE",
+            "lastDeliveryDoorOutputStatus": "NOT_DISPATCHED",
             "mcuBootId": 101,
             "mcuEventSequence": 3,
             "measurementElapsedMs": 1000,
@@ -175,21 +183,24 @@
             "partCount": 4,
             "partIndex": 3,
             "portNo": 2,
+            "reportedWeightGrams": -500,
+            "representativeDistanceMm": 800,
+            "representativeDistancePresent": true,
             "sampleCount": 10,
             "smokeSensorHealth": "OK",
             "smokeState": "NORMAL",
             "snapshotUid": "90909090-9090-4090-8090-909090909090",
-            "stableWeightGrams": -500,
-            "stableWeightValid": true,
             "uptimeMs": 1002,
-            "weightSensorHealth": "OK"
+            "weightSensorHealth": "OK",
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "weightValuePresent": true
           }
         ]
       },
       "name": "state_snapshot_two_ports",
-      "preimageHex": "45434f42494e3a554152543a534e415053484f543a763100909090909090409080909090909090909191919191914191819191919191919101000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a12f801a4c510598999ad15531f57a627f0bcb06dec48ecf1f051876b79c38450800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002010101010101010100010100002ee00100002ee0000003e8000a00000004010000010101010000000002010101010101000101fffffe0c01fffffe0c000003e8000a0000000401000001010101000000000000000000000000000000000000000000000000000000000000",
+      "preimageHex": "45434f42494e3a554152543a534e415053484f543a763100909090909090409080909090909090909191919191914191819191919191919101000000271000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1531a7edd423b9c629e0e88a76a503e2e95e29f3c613e375d8e42f3709accc14b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002010100000101010100010100002ee001000003e8000a0000000401000001010101000003200501010000000002000001010101000101fffffe0c01000003e8000a000000040100000101010100000320050101000000000000000000000000000000000000000000000000000000000000",
       "profile": "snapshotSha256",
-      "sha256": "6c3d41ee40d9506dd8b6389197878b5f5925244ea8bee3e40247bb685fe28a02"
+      "sha256": "2866243c217b8225086223d5890a43e9d989db0a09f797123557b7b82323b532"
     }
   ]
 }

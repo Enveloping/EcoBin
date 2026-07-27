@@ -1,0 +1,26 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": null,
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1054,
+  "eventType": "SAFETY_SENSOR_STATE_CHANGED",
+  "eventUid": "87500000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "faultCode": null,
+    "mcuBootId": 101,
+    "mcuEventSequence": 50,
+    "portNo": 2,
+    "smokeSensorHealth": "OK",
+    "smokeState": "ALARM",
+    "workType": "DELIVERY_SESSION",
+    "workUid": "30000000-0000-4000-8000-000000000001"
+  },
+  "payloadSha256": "66c7fa664f86e3095a27a2b4e1e28b58278ab7adf069af745a92c27ef8724af0",
+  "schemaVersion": 1,
+  "target": {
+    "type": "DEVICE_DEPLOYMENT",
+    "uid": "Dp_demo_01"
+  }
+}

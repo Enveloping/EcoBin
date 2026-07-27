@@ -16,10 +16,10 @@
       "emptyBagConfirmed": true,
       "expiresAt": "2026-07-24T01:01:00.000Z",
       "issuedAt": "2026-07-24T01:00:00.000Z",
-      "measurementTimeoutMs": 10000,
+      "measurementTimeoutMs": 6000,
       "measurementUid": "82000000-0000-4000-8000-000000000001",
       "payloadSchemaVersion": 1,
-      "payloadSha256": "c0d398cc3586f5b4ebe3c394730f1c037e5920cba22fe878bdb299c1bcad5920",
+      "payloadSha256": "e479c03bde9bed23276d7554a53aa065419d1a5cba09638ab3b7904b8b81b271",
       "portNo": 2,
       "schemaVersion": 1,
       "target": {

@@ -1,4 +1,4 @@
-"""Validate EcoBin HTTP, OneNet, and UART machine contracts."""
+"""Validate EcoBin F-10 OneNet and UART machine contracts."""
 
 from __future__ import annotations
 
@@ -46,7 +46,6 @@ from contractlib import (  # noqa: E402
     validate_uart_registry,
 )
 from generate_contracts import apply_outputs, build_outputs  # noqa: E402
-from http_contract import validate_http_contract  # noqa: E402
 
 
 class ValidationSummary:
@@ -640,9 +639,25 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
             raise ContractError("DELIVERY_COMPLETE leaks intermediate delivery data")
         first = payload["firstPreOpenMeasurement"]
         final = payload["finalPostCloseMeasurement"]
+        first_weight = (
+            first["reportedWeightGrams"]
+            if first
+            and first["weightValueAvailable"]
+            and first["status"] in {"STABLE", "UNSTABLE"}
+            and first["sensorHealth"] == "OK"
+            else None
+        )
+        final_weight = (
+            final["reportedWeightGrams"]
+            if final
+            and final["weightValueAvailable"]
+            and final["status"] in {"STABLE", "UNSTABLE"}
+            and final["sensorHealth"] == "OK"
+            else None
+        )
         expected_net = (
-            final["stableWeightGrams"] - first["stableWeightGrams"]
-            if first["status"] == "STABLE" and final["status"] == "STABLE"
+            final_weight - first_weight
+            if first_weight is not None and final_weight is not None
             else None
         )
         if payload["deliveryNetWeightGrams"] != expected_net:
@@ -650,19 +665,29 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         successful_reasons = {"USER_ENDED", "SELECTION_WINDOW_EXPIRED"}
         if (
             payload["completionReason"] in successful_reasons
-            and final["status"] != "STABLE"
+            and (first_weight is None or final_weight is None)
         ):
-            raise ContractError("normal delivery completion requires stable final weight")
+            raise ContractError("normal delivery completion requires usable weights")
         if (
             payload["completionReason"] == "TERMINAL_WEIGHT_FAILURE"
-            and final["status"] == "STABLE"
+            and final_weight is not None
         ):
-            raise ContractError("terminal weight failure cannot carry a stable final weight")
+            raise ContractError("terminal weight failure cannot carry a usable final weight")
         if (
-            payload["finalDeliveryDoor"]["state"] != "CLOSED"
-            or payload["finalDeliveryDoor"]["health"] != "OK"
+            payload["completionReason"] in successful_reasons
+            and (
+                payload["finalDoorCommand"] is None
+                or payload["finalDoorCommand"]["command"] != "CLOSE"
+                or payload["finalDoorCommand"]["physicalStateBasis"]
+                != "NOT_OBSERVABLE"
+            )
         ):
-            raise ContractError("DELIVERY_COMPLETE requires a proven closed delivery door")
+            raise ContractError("DELIVERY_COMPLETE requires a close-output fact")
+        if (
+            payload["completionReason"] == "DEVICE_INTERRUPTED"
+            and not payload["manualReviewRequired"]
+        ):
+            raise ContractError("interrupted delivery requires manual review")
         for photo in payload["photos"]:
             _validate_photo_url(
                 photo,
@@ -679,31 +704,43 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
             raise ContractError(
                 "CLEAN_COMPLETE must contain four cleaning slots in canonical order"
             )
-        lock = payload["cleanLockAndInferredDoor"]
+        lock = payload["cleanLockAndManualDoorConfirmation"]
         if (
             not payload["cleanerCompletionConfirmed"]
             or lock["lockPowerState"] != "DEENERGIZED"
-            or lock["inferredDoorState"] != "CLOSED"
-            or lock["stateBasis"] != "INFERRED_FROM_LOCK_POWER"
+            or not lock["cleanerPhysicalCloseConfirmed"]
+            or lock["physicalDoorStateBasis"] != "CLEANER_CONFIRMATION"
         ):
-            raise ContractError("CLEAN_COMPLETE violates manual-close/lock inference boundary")
+            raise ContractError("CLEAN_COMPLETE lacks manual close confirmation")
         if any("magnet" in key.lower() for key in lock):
             raise ContractError("CLEAN_COMPLETE must not expose a cleaning-door sensor")
         first = payload["preUnlockMeasurement"]
         final = payload["cleanerConfirmedFinalMeasurement"]
-        if first["status"] != "STABLE":
-            raise ContractError("CLEAN_COMPLETE pre-unlock measurement must be stable")
-        if final["status"] == "STABLE":
-            expected_removed = first["stableWeightGrams"] - final["stableWeightGrams"]
+        first_weight = (
+            first["reportedWeightGrams"]
+            if first["weightValueAvailable"]
+            and first["status"] in {"STABLE", "UNSTABLE"}
+            and first["sensorHealth"] == "OK"
+            else None
+        )
+        final_weight = (
+            final["reportedWeightGrams"]
+            if final["weightValueAvailable"]
+            and final["status"] in {"STABLE", "UNSTABLE"}
+            and final["sensorHealth"] == "OK"
+            else None
+        )
+        if first_weight is not None and final_weight is not None:
+            expected_removed = first_weight - final_weight
             if payload["removedNetWeightGrams"] != expected_removed:
                 raise ContractError("CLEAN_COMPLETE removed weight differs from measurements")
-            if payload["newBaselineWeightGrams"] != final["stableWeightGrams"]:
+            if payload["newBaselineWeightGrams"] != final_weight:
                 raise ContractError("CLEAN_COMPLETE new baseline differs from final weight")
         elif (
             payload["removedNetWeightGrams"] is not None
             or payload["newBaselineWeightGrams"] is not None
         ):
-            raise ContractError("failed final clean measurement cannot establish weights")
+            raise ContractError("unusable clean measurements cannot establish weights")
         for photo in payload["photos"]:
             _validate_photo_url(
                 photo,
@@ -750,9 +787,8 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         fault_codes_by_component = {
             "UART": {"UART_PROTOCOL", "UART_STORAGE"},
             "DELIVERY_DOOR": {
-                "DELIVERY_DOOR_TIMEOUT",
-                "DELIVERY_DOOR_ACTUATOR",
-                "DELIVERY_DOOR_SWITCH",
+                "DELIVERY_DOOR_OUTPUT_REJECTED",
+                "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
             },
             "CLEAN_SOLENOID": {"CLEAN_SOLENOID_DRIVER"},
             "WEIGHT_SENSOR": {
@@ -760,8 +796,11 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
                 "WEIGHT_TIMEOUT",
                 "WEIGHT_SENSOR",
                 "WEIGHT_OVERLOAD",
+                "WEIGHT_PROTOCOL",
+                "WEIGHT_CONFIG",
+                "WEIGHT_DISCONNECTED",
             },
-            "INFRARED_SENSOR": {"INFRARED_TIMEOUT", "INFRARED_SENSOR"},
+            "FULLNESS_SENSOR": {"FULLNESS_SENSOR_DIAGNOSTIC"},
             "SMOKE_SENSOR": {"SMOKE_SENSOR"},
             "MCU_STORAGE": {"MCU_STORAGE"},
             "MCU_INTERNAL": {"MCU_INTERNAL"},
@@ -832,6 +871,13 @@ def _validate_command_semantics(
             if port["weightMinimumGrams"] >= port["weightMaximumGrams"]:
                 raise ContractError(
                     "APPLY_CONFIGURATION weightMinimumGrams must be below maximum"
+                )
+            if (
+                port["fullnessMinimumValidSampleCount"]
+                > port["fullnessSampleCount"]
+            ):
+                raise ContractError(
+                    "APPLY_CONFIGURATION minimum valid fullness samples exceed total"
                 )
 
     work_type: str | None = None
@@ -1284,8 +1330,6 @@ def run_validation(
 ) -> ValidationSummary:
     summary = ValidationSummary()
     validate_generation(summary)
-    for check in validate_http_contract():
-        summary.passed(check)
     validate_sources(summary)
     validate_onenet_thing_model(summary)
     validate_onenet_wire_examples(summary)

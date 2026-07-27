@@ -14,15 +14,15 @@
     "configuredFullWeightGrams": 50000,
     "currentBaselineWeightGrams": 1200,
     "detectionUid": "50000000-0000-4000-8000-000000000001",
-    "fullnessMode": "INFRARED_OR_WEIGHT",
-    "measurementTimeoutMs": 10000,
+    "fullnessMode": "SENSOR_OR_WEIGHT",
+    "measurementTimeoutMs": 6000,
     "portNo": 2,
     "sampleRole": "INITIAL",
     "settleWaitMs": 5000,
     "triggerType": "DELIVERY_COMPLETE"
   },
   "payloadSchemaVersion": 1,
-  "payloadSha256": "f0c33013bcb35fed9c4d8d99f1c22b914c7102fd11a72474675b802ceffca9e3",
+  "payloadSha256": "cb51ceaa587ef1514cdc66d33f2022a5bef994e240403030c59e75a8dd07e696",
   "schemaVersion": 1,
   "target": {
     "type": "FULLNESS_DETECTION",

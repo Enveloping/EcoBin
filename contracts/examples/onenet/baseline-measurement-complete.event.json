@@ -20,18 +20,19 @@
     "totalWeightMeasurement": {
       "calibrationVersion": 4,
       "faultCode": null,
-      "lastObservedWeightGrams": 1180,
       "mcuBootId": 101,
       "mcuEventSequence": 47,
       "measurementElapsedMs": 1200,
       "measurementUid": "86000000-0000-4000-8000-000000000002",
+      "reportedWeightGrams": 1180,
       "sampleCount": 12,
       "sensorHealth": "OK",
-      "stableWeightGrams": 1180,
-      "status": "STABLE"
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
     }
   },
-  "payloadSha256": "c095bdc9fb1a28eeb9d3f8cca462e56d0f47301582f6592a287114d3447d49cf",
+  "payloadSha256": "c0806bd4cd56f5cc8ecd480cbf4dc277687f7104ce07f8b1555bd18a451e87c8",
   "schemaVersion": 1,
   "target": {
     "type": "BASELINE_MEASUREMENT",

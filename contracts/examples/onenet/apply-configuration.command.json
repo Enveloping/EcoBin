@@ -13,56 +13,61 @@
       "version": 8
     },
     "deviceConfig": {
-      "cleanSolenoidPulseMs": 1500,
+      "cleanSolenoidPulseMs": 1000,
       "continueDeliveryWaitMs": 30000,
-      "deliveryAutoCloseMs": 60000,
+      "deliveryAutoCloseMs": 120000,
+      "deliveryDoorTravelWaitMs": 30000,
       "negativeWeightThresholdGrams": 500,
       "smokeMonitoringEnabled": true,
-      "weightMeasurementTimeoutMs": 10000
+      "weightMeasurementTimeoutMs": 6000
     },
     "ports": [
       {
         "calibrationVersion": 4,
         "configuredFullWeightGrams": 50000,
-        "deliveryDoorOperationTimeoutMs": 5000,
         "displayName": "投口1",
         "enabled": true,
-        "fullnessConfirmationWaitMs": 10000,
-        "fullnessMode": "INFRARED_OR_WEIGHT",
+        "fullnessDistanceThresholdMm": 600,
+        "fullnessEchoTimeoutUs": 30000,
+        "fullnessMinimumValidSampleCount": 3,
+        "fullnessMode": "SENSOR_OR_WEIGHT",
+        "fullnessSampleCount": 5,
+        "fullnessSensorKind": "ULTRASONIC",
         "fullnessSettleWaitMs": 5000,
-        "infraredSampleTimeoutMs": 2000,
         "portNo": 1,
         "unitPriceTenThousandths": 4500,
         "weightMaximumFluctuationGrams": 20,
         "weightMaximumGrams": 100000,
-        "weightMeasurementTimeoutMs": 10000,
+        "weightMeasurementTimeoutMs": 6000,
         "weightMinimumGrams": -5000,
         "weightRequiredSampleCount": 10,
-        "weightStableWindowMs": 1000
+        "weightStableWindowMs": 1500
       },
       {
         "calibrationVersion": 4,
         "configuredFullWeightGrams": 50000,
-        "deliveryDoorOperationTimeoutMs": 5000,
         "displayName": "投口2",
         "enabled": true,
-        "fullnessConfirmationWaitMs": 10000,
-        "fullnessMode": "INFRARED_OR_WEIGHT",
+        "fullnessDistanceThresholdMm": 600,
+        "fullnessEchoTimeoutUs": 30000,
+        "fullnessMinimumValidSampleCount": 3,
+        "fullnessMode": "SENSOR_OR_WEIGHT",
+        "fullnessSampleCount": 5,
+        "fullnessSensorKind": "ULTRASONIC",
         "fullnessSettleWaitMs": 5000,
-        "infraredSampleTimeoutMs": 2000,
         "portNo": 2,
         "unitPriceTenThousandths": 4500,
         "weightMaximumFluctuationGrams": 20,
         "weightMaximumGrams": 100000,
-        "weightMeasurementTimeoutMs": 10000,
+        "weightMeasurementTimeoutMs": 6000,
         "weightMinimumGrams": -5000,
         "weightRequiredSampleCount": 10,
-        "weightStableWindowMs": 1000
+        "weightStableWindowMs": 1500
       }
     ]
   },
   "payloadSchemaVersion": 1,
-  "payloadSha256": "320a55772a17584e388870feea4d992f20d0b8e36d4faa67af1f9353f78f3c82",
+  "payloadSha256": "13e51cebfdb5db942183cf722c9c5bf72cb9327672a5565db4e67ed0c97de956",
   "schemaVersion": 1,
   "target": {
     "type": "CONFIGURATION_APPLICATION",
