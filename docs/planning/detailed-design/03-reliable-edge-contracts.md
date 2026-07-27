@@ -254,7 +254,7 @@ PRAGMA synchronous=FULL;
 | `detection_context` | 检测身份、角色、规则快照和来源结果 |
 | `measurement_context` | 基准重测目标、代际和结果 |
 | `mcu_command` | MCU 命令身份、摘要、编码载荷、状态与重放策略 |
-| `mcu_event_inbox` | MCU boot/sequence、强类型事件、摘要和 ACK 状态 |
+| `mcu_event_inbox` | Edge 接收代际、原始 MCU boot/sequence、强类型事件、摘要和 ACK 状态 |
 | `event_outbox` | event UID、全局序号、首次生成的规范 JSON、业务确认状态 |
 | `photo_outbox` | 作业/槽位、照片身份、路径、摘要、上传/关联状态 |
 | `confirmation_inbox` | 后端确认、原事件摘要和回执状态 |
@@ -265,7 +265,13 @@ PRAGMA synchronous=FULL;
 
 - `edge_work_slot` 最多一条活动作业；
 - session UID、所有作业 UID、命令 UID 和事件 UID 唯一；云端不分配投递轮次序号；
-- `(mcu_boot_id, mcu_event_sequence)` 唯一；
+- `(mcu_receive_generation, mcu_boot_id, mcu_event_sequence)` 唯一；当前 MCU 的
+  `mcuBootId` 是固定设备身份，香橙派每次成功 HELLO 后、QUERY_STATE 前持久递增本地
+  接收代际；
+- 跨接收代际遇到完全相同的 `mcu_boot_id + mcu_event_sequence + 摘要` 仍按重发去重；
+  相同 boot/sequence 但摘要不同只允许在新接收代际成为新事实，同一代际内仍是冲突；
+- `mcu_receive_generation` 只属于香橙派 SQLite，不增加 UART 字段、不改变 MCU 代码，
+  也不能作为 MCU 确实发生物理重启的证明；
 - `edge_event_sequence > 0` 且同一部署唯一；
 - `(work_type, work_uid, slot)` 照片唯一；
 - 同一稳定 ID 不同摘要不得覆盖。
@@ -273,7 +279,8 @@ PRAGMA synchronous=FULL;
 ### 6.3 五个不可拆本地事务
 
 1. **收命令**：命令正文/摘要、业务上下文、本地期限和受理观察共同提交，之后才返回 `ACCEPTED`。
-2. **收 MCU 事件**：`mcu_event_inbox` 提交后才发送 UART ACK。
+2. **收 MCU 事件**：HELLO 后先持久化 Edge 接收代际，事件写入对应代际的
+   `mcu_event_inbox` 后才发送 UART ACK。
 3. **建边缘事件**：分配全局序号、生成规范正文、写 outbox 在同一事务。
 4. **收业务确认**：核对原摘要、标记已确认、保存确认并建立回执在同一事务。
 5. **登记照片**：完整写临时文件、`fsync(file)`、同文件系统原子改名、同步父目录后，才把正式文件登记为 `LOCAL_READY`。

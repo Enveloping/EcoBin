@@ -151,7 +151,8 @@
 - F-10 软件生成物和候选 OneNet 物模型已完成并通过本地校验，MCU 负责人已接受 Registry；
   Java、真实 Python 3.11 和香橙派 GCC 12.2 C11 黄金样本已通过，仍缺 MCU 实际
   C 工具链和真机 UART 证据，不能称为最终冻结；
-- F-11 已获授权并完成 SQLite v2、OneNet 命令可靠受理、UART 停等/事件持久 ACK、
+- F-11 已获授权并完成 SQLite v3（含固定 MCU boot ID 的 Edge 接收代际）、OneNet
+  命令可靠受理、UART 停等/事件持久 ACK、
   启动恢复和 `APPLY_CONFIGURATION` 软件纵切；其他命令状态机、COS 完整闭环、
   强杀/断网故障注入和真实 MCU HIL 仍未收口；
 - 微信支付和商家转账尚不能联调，因此真实充值、真实零钱到账和完整 M0 当前阻塞；
