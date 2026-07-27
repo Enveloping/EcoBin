@@ -22,7 +22,7 @@ from config import (
     TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
     UART_HIL_REQUIRED_CAPABILITIES, EDGE_STORE_PATH,
     EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
-    MQTT_CLEAN_SESSION,
+    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE,
     validate as config_validate,
 )
 from edge_store import EdgeStore
@@ -139,8 +139,14 @@ class EcoBinEdge:
             return
         logger.info("Boot result: %s", result["status"])
 
-        recovered = self.store.recover_interrupted_commands()
-        if recovered["configuration_requeued"] or recovered["physical_locked"]:
+        recovered = self.store.recover_interrupted_commands(
+            physical_recovery_required=not getattr(
+                self.uart,
+                "compatibility_mode",
+                False,
+            )
+        )
+        if any(recovered.values()):
             logger.warning("Recovered interrupted commands: %s", recovered)
 
         # -- Start UART event reader thread --
@@ -284,9 +290,51 @@ class EcoBinEdge:
                     from edge_boot import _publish_runtime_snapshot
                     _publish_runtime_snapshot(
                         self.store, self.mqtt,
-                        {"mcu_boot_id": self.uart._mcu_boot_id or 0,
-                         "mcu_capability": self.uart._mcu_capability or 0,
-                         "mcu_firmware_version": getattr(self.uart, "_mcu_firmware_version", "")},
+                        {
+                            "mcu_boot_id": (
+                                getattr(self.uart, "_mcu_boot_id", None) or 0
+                            ),
+                            "mcu_capability": (
+                                getattr(self.uart, "_mcu_capability", None) or 0
+                            ),
+                            "mcu_firmware_version": getattr(
+                                self.uart,
+                                "_mcu_firmware_version",
+                                "",
+                            ),
+                            "uart_protocol_major": (
+                                None
+                                if getattr(
+                                    self.uart,
+                                    "compatibility_mode",
+                                    False,
+                                )
+                                else 1
+                            ),
+                            "uart_protocol_minor": (
+                                None
+                                if getattr(
+                                    self.uart,
+                                    "compatibility_mode",
+                                    False,
+                                )
+                                else 0
+                            ),
+                            "fullness_sensor_kind": (
+                                "DIGITAL_INFRARED"
+                                if getattr(
+                                    self.uart,
+                                    "compatibility_mode",
+                                    False,
+                                )
+                                else "ULTRASONIC"
+                            ),
+                            "compatibility_mode": getattr(
+                                self.uart,
+                                "compatibility_mode",
+                                False,
+                            ),
+                        },
                         [],
                     )
             except Exception as e:
@@ -317,10 +365,24 @@ def _make_uart_link(
     port_count,
     hil_required_capabilities,
 ):
-    """Create UartLink, using mock in TEST_MODE."""
+    """Create the explicitly configured MCU link, using mock in TEST_MODE."""
     if TEST_MODE:
         from test_mode import MockUartLink
         return MockUartLink(port=port, edge_boot_id=boot_id)
+    if MCU_PROTOCOL_MODE == "fixed-frame":
+        from fixed_frame_mcu_adapter import FixedFrameMcuAdapter
+        if port_count != 1:
+            logger.warning(
+                "fixed-frame MCU protocol exposes one port; "
+                "ignoring ECOBIN_UART_PORT_COUNT=%d",
+                port_count,
+            )
+        return FixedFrameMcuAdapter(
+            port=port,
+            edge_boot_id=boot_id,
+            port_count=1,
+            baudrate=baudrate,
+        )
     from uart_link import UartLink
     kwargs = {
         "port": port,

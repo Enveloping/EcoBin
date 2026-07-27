@@ -92,6 +92,8 @@ class CommandProcessor:
         result = self._work.start_fullness_command(command)
         if not self._accept_dispatch_result(command, result):
             return
+        if result.get("completed_locally"):
+            return
         self._store.mark_command_waiting_mcu(
             command["commandUid"],
             result["mcu_command_uid"],
@@ -164,6 +166,33 @@ class CommandProcessor:
             raise ValueError("configuration version is older than local version")
         if saved == "CONFLICT":
             raise ValueError("configuration identity conflict")
+
+        if getattr(self._uart, "compatibility_mode", False):
+            commit_uid = part_uids[-1]
+            applied = self._store.apply_configuration_result({
+                "mcuCommandUid": commit_uid,
+                "applicationUid": application_uid,
+                "status": "APPLIED",
+                "configVersion": config["version"],
+                "contentSha256": config["contentSha256"],
+                "mcuPayloadSha256": config["mcuPayloadSha256"],
+                "faultCode": "NONE",
+            })
+            if applied not in ("ACCEPTED", "DUPLICATE"):
+                raise ValueError(
+                    f"local configuration result {applied.lower()}"
+                )
+            self._store.set_state(
+                "mcu_configuration_projection",
+                "NOT_SUPPORTED",
+            )
+            logger.info(
+                "configuration applied locally without MCU projection: "
+                "app=%s version=%d",
+                application_uid,
+                config["version"],
+            )
+            return
 
         result = self._uart.apply_configuration(command, part_uids)
         if not result["acked"]:

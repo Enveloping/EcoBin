@@ -11,6 +11,7 @@ from edge_store import EdgeStore
 from onenet_wire import (
     canonical_payload_sha256,
     decode_service_command,
+    encode_event_post,
 )
 from uart_link import compute_mcu_payload_sha256
 
@@ -158,6 +159,37 @@ class BootRecoveryUart:
         raise AssertionError("unexpected NACK")
 
 
+class FixedFrameBootUart:
+    compatibility_mode = True
+
+    def __init__(self):
+        self.opened = False
+
+    def open(self):
+        self.opened = True
+        return True
+
+    def close(self):
+        self.opened = False
+
+    def handshake(self):
+        assert self.opened
+        return {
+            "mcu_boot_id": 123,
+            "mcu_capability": 0,
+            "mcu_port_count": 1,
+            "mcu_firmware_version": "fixed-frame-compat",
+            "uart_protocol_major": None,
+            "uart_protocol_minor": None,
+            "uart_state": "READY",
+            "fullness_sensor_kind": "DIGITAL_INFRARED",
+            "compatibility_mode": True,
+        }
+
+    def query_state(self, on_segment=None):
+        raise AssertionError("fixed-frame boot must not query MCU state")
+
+
 def mark_configuration_applied(store):
     path = os.path.join(
         os.path.dirname(__file__),
@@ -242,6 +274,75 @@ def test_non_uart_fault_does_not_misreport_uart_link_as_faulted(tmp_path):
     )
 
     assert mqtt.published[0][1]["payload"]["uartState"] == "READY"
+    store.close()
+
+
+def test_fixed_frame_boot_skips_query_and_releases_stale_local_work(
+    tmp_path,
+    monkeypatch,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    command_uid = "61000000-0000-4000-8000-000000000001"
+    command = {
+        "commandUid": command_uid,
+        "commandType": "START_DELIVERY_SESSION",
+    }
+    store.receive_command(
+        command_uid,
+        command["commandType"],
+        command,
+    )
+    assert store.claim_next_command()["command_uid"] == command_uid
+    work_uid = "62000000-0000-4000-8000-000000000001"
+    assert store.acquire_work_slot(
+        "DELIVERY",
+        work_uid,
+        1,
+        {
+            "start_command_uid": command_uid,
+            "phase": "WAITING_COMPAT_DELIVERY_RESULT",
+        },
+    )
+    uart = FixedFrameBootUart()
+    mqtt = FakeMqttClient()
+    store.set_state(
+        "fixed_frame_latest_observation_json",
+        '{"postWeightGrams":123}',
+    )
+    store.set_state(
+        "latest_runtime_ports_json",
+        '[{"portNo":1,"fullnessSensorKind":"ULTRASONIC"}]',
+    )
+    monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
+
+    result = boot_sequence(store, uart, mqtt, None, None)
+
+    assert result["status"] == "READY"
+    assert result["snapshot_count"] == 0
+    assert store.get_work_slot() is None
+    inbox = store.get_command(command_uid)
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == (
+        "PROCESS_RESTARTED_MCU_STATE_UNKNOWN"
+    )
+    assert store.get_state(
+        "fixed_frame_last_abandoned_work_uid"
+    ) == work_uid
+    assert store.get_state(
+        "fixed_frame_latest_observation_json"
+    ) == ""
+    snapshot = mqtt.published[-1][1]["payload"]
+    assert snapshot["uartProtocolMajor"] is None
+    assert snapshot["uartProtocolMinor"] is None
+    assert snapshot["ports"][0]["fullnessSensorKind"] == (
+        "DIGITAL_INFRARED"
+    )
+    encode_event_post(
+        "DEVICE_RUNTIME_SNAPSHOT",
+        mqtt.published[-1][1],
+    )
     store.close()
 
 

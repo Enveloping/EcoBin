@@ -17,7 +17,10 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_MQTT_PORT      — MQTT 端口（默认: 1883）
     ECOBIN_SERIAL_PORT    — 串口设备路径（默认: /dev/ttyS5）
     ECOBIN_SERIAL_BAUDRATE— 串口波特率（默认: 115200）
-    ECOBIN_UART_PORT_COUNT— UART 握手端口数（默认: 6）
+    ECOBIN_MCU_PROTOCOL   — MCU 协议模式（默认: fixed-frame；
+                            可选 uart-v1，仅保留原 UART 1.0 实现）
+    ECOBIN_UART_PORT_COUNT— 设备端口数（fixed-frame 默认: 1；
+                            uart-v1 默认: 6）
     ECOBIN_UART_HIL_REQUIRED_CAPABILITIES
                           — 可选 HIL 能力位覆盖；未设置时使用 Registry 基线 0x300
     ECOBIN_DOOR_STATE_TIMEOUT— 等待 MCU 开关盖状态秒数（默认: 5）
@@ -67,7 +70,14 @@ TOKEN_METHOD = "sha256"
 # ── 串口 ──
 SERIAL_PORT = os.getenv("ECOBIN_SERIAL_PORT", "/dev/ttyS5")
 SERIAL_BAUDRATE = int(os.getenv("ECOBIN_SERIAL_BAUDRATE", "115200"))
-UART_PORT_COUNT = int(os.getenv("ECOBIN_UART_PORT_COUNT", "6"))
+MCU_PROTOCOL_MODE = os.getenv(
+    "ECOBIN_MCU_PROTOCOL",
+    "fixed-frame",
+).strip().lower()
+UART_PORT_COUNT = int(os.getenv(
+    "ECOBIN_UART_PORT_COUNT",
+    "1" if MCU_PROTOCOL_MODE == "fixed-frame" else "6",
+))
 _uart_hil_required_capabilities = os.getenv(
     "ECOBIN_UART_HIL_REQUIRED_CAPABILITIES",
     "",
@@ -115,6 +125,10 @@ _REQUIRED = ["ECOBIN_PRODUCT_ID", "ECOBIN_DEVICE_NAME", "ECOBIN_DEVICE_KEY"]
 
 def validate():
     """检查必填环境变量是否已设置，缺失则报 error。"""
+    if MCU_PROTOCOL_MODE not in {"fixed-frame", "uart-v1"}:
+        raise ValueError(
+            "ECOBIN_MCU_PROTOCOL must be fixed-frame or uart-v1"
+        )
     for env_var in _REQUIRED:
         if not os.getenv(env_var):
             logger.error(

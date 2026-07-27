@@ -1,5 +1,6 @@
 """work_manager.py -- delivery session and clean operation state machines."""
 from __future__ import annotations
+import json
 import logging
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,37 @@ from uart_protocol import REGISTRY
 logger = logging.getLogger("work-manager")
 def _new_uid() -> str:
     return str(_uuid.uuid4())
+
+
+def _compat_uid(work_uid: str, label: str) -> str:
+    return str(
+        _uuid.uuid5(
+            _uuid.NAMESPACE_URL,
+            f"ecobin:fixed-frame:{work_uid}:{label}",
+        )
+    )
+
+
+def _compat_measurement(
+    work_uid: str,
+    label: str,
+    weight_grams: int,
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "measurementUid": _compat_uid(work_uid, label),
+        "measurementStatus": "STABLE",
+        "weightValuePresent": True,
+        "reportedWeightGrams": weight_grams,
+        "weightValueKind": "STABLE_WINDOW_MEAN",
+        "measurementElapsedMs": 0,
+        "sampleCount": 0,
+        "calibrationVersion": 0,
+        "weightSensorHealth": "OK",
+        "faultCode": "NONE",
+        "mcuBootId": source["mcuBootId"],
+        "mcuEventSequence": source["mcuEventSequence"],
+    }
 
 
 def _reported_weight(payload: dict[str, Any]) -> Optional[int]:
@@ -164,6 +196,14 @@ class WorkManager:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        if (
+            getattr(self._uart, "compatibility_mode", False)
+            and payload["portNo"] != 1
+        ):
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
         start_window_ms = _remaining_execution_ms(command)
         session_uid = payload["sessionUid"]
         mcu_command_uid = _new_uid()
@@ -197,6 +237,16 @@ class WorkManager:
             ctx,
         ):
             return {"acked": False, "error": "DEVICE_BUSY"}
+        compatibility_mode = getattr(
+            self._uart,
+            "compatibility_mode",
+            False,
+        )
+        if compatibility_mode:
+            self._queue_photo_capture(
+                "capture_open_photos_async",
+                session_uid,
+            )
         result = self._uart.send_command(
             "START_DELIVERY_SESSION",
             {
@@ -216,10 +266,21 @@ class WorkManager:
             },
             mcu_command_uid=mcu_command_uid,
         )
-        ctx["phase"] = (
-            "WAITING_PREOPEN_WEIGHT" if result["acked"] else "START_RESULT_UNKNOWN"
-        )
+        if compatibility_mode:
+            ctx["phase"] = (
+                "WAITING_COMPAT_DELIVERY_RESULT"
+                if result["acked"]
+                else "START_FAILED"
+            )
+        else:
+            ctx["phase"] = (
+                "WAITING_PREOPEN_WEIGHT"
+                if result["acked"]
+                else "START_RESULT_UNKNOWN"
+            )
         self._store.update_work_context(session_uid, ctx)
+        if compatibility_mode and not result["acked"]:
+            self._store.release_work_slot(session_uid)
         return result
 
     def start_clean_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -227,6 +288,14 @@ class WorkManager:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        if (
+            getattr(self._uart, "compatibility_mode", False)
+            and payload["portNo"] != 1
+        ):
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
         operation_uid = payload["operationUid"]
         mcu_command_uid = _new_uid()
         ctx = {
@@ -272,18 +341,34 @@ class WorkManager:
             },
             mcu_command_uid=mcu_command_uid,
         )
-        ctx["phase"] = (
-            "WAITING_PREUNLOCK_WEIGHT"
-            if result["acked"]
-            else "START_RESULT_UNKNOWN"
+        compatibility_mode = getattr(
+            self._uart,
+            "compatibility_mode",
+            False,
         )
+        if compatibility_mode:
+            ctx["phase"] = (
+                "WAITING_COMPAT_CLEAN_RESULT"
+                if result["acked"]
+                else "START_FAILED"
+            )
+        else:
+            ctx["phase"] = (
+                "WAITING_PREUNLOCK_WEIGHT"
+                if result["acked"]
+                else "START_RESULT_UNKNOWN"
+            )
         self._store.update_work_context(operation_uid, ctx)
+        if compatibility_mode and not result["acked"]:
+            self._store.release_work_slot(operation_uid)
         return result
 
     def start_fullness_command(self, command: dict[str, Any]) -> dict[str, Any]:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        if getattr(self._uart, "compatibility_mode", False):
+            return self._start_compat_fullness_command(command)
         detection_uid = payload["detectionUid"]
         mcu_command_uid = _new_uid()
         ctx = {
@@ -322,10 +407,116 @@ class WorkManager:
         self._store.update_work_context(detection_uid, ctx)
         return result
 
+    def _start_compat_fullness_command(
+        self,
+        command: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = command["payload"]
+        if payload.get("sampleRole") != "INITIAL":
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
+        try:
+            observation = json.loads(
+                self._store.get_state(
+                    "fixed_frame_latest_observation_json",
+                    "",
+                )
+            )
+        except (TypeError, ValueError):
+            observation = None
+        if (
+            not isinstance(observation, dict)
+            or observation.get("portNo") != payload["portNo"]
+            or not self._valid_compat_fullness_observation(observation)
+        ):
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
+        detection_uid = payload["detectionUid"]
+        mcu_command_uid = _new_uid()
+        ctx = {
+            "detection_uid": detection_uid,
+            "port_no": payload["portNo"],
+            "command_uid": command["commandUid"],
+            "deployment_code": command["deploymentCode"],
+            "mcu_command_uid": mcu_command_uid,
+            "payload": payload,
+            "phase": "USING_LATEST_FIXED_FRAME_OBSERVATION",
+        }
+        if not self._store.acquire_work_slot(
+            WORK_TYPE_FULLNESS,
+            detection_uid,
+            payload["portNo"],
+            ctx,
+        ):
+            return {"acked": False, "error": "DEVICE_BUSY"}
+        measurement = _compat_measurement(
+            detection_uid,
+            "total-weight",
+            observation["postWeightGrams"],
+            observation,
+        )
+        self._on_fullness_sample_result(
+            ctx,
+            {
+                **measurement,
+                "mcuCommandUid": mcu_command_uid,
+                "detectionUid": detection_uid,
+                "portNo": payload["portNo"],
+                "sampleRole": payload["sampleRole"],
+                "fullnessSensorKind": "DIGITAL_INFRARED",
+                "fullnessSensorValue": (
+                    "BLOCKED"
+                    if observation["infraredBlocked"]
+                    else "CLEAR"
+                ),
+                "fullnessSampleBasis": "NOT_SAMPLED",
+                "representativeDistancePresent": False,
+                "representativeDistanceMm": 0,
+                "requestedSampleCount": 1,
+                "validSampleCount": 1,
+            },
+            detection_uid,
+        )
+        return {
+            "acked": True,
+            "completed_locally": True,
+            "mcu_command_uid": mcu_command_uid,
+            "disposition": "LATEST_MCU_OBSERVATION",
+        }
+
+    @staticmethod
+    def _valid_compat_fullness_observation(
+        observation: dict[str, Any],
+    ) -> bool:
+        post_weight = observation.get("postWeightGrams")
+        mcu_boot_id = observation.get("mcuBootId")
+        event_sequence = observation.get("mcuEventSequence")
+        return (
+            isinstance(post_weight, int)
+            and not isinstance(post_weight, bool)
+            and 0 <= post_weight <= 350_000
+            and isinstance(observation.get("infraredBlocked"), bool)
+            and isinstance(mcu_boot_id, int)
+            and not isinstance(mcu_boot_id, bool)
+            and mcu_boot_id > 0
+            and isinstance(event_sequence, int)
+            and not isinstance(event_sequence, bool)
+            and event_sequence > 0
+        )
+
     def start_baseline_command(self, command: dict[str, Any]) -> dict[str, Any]:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        if getattr(self._uart, "compatibility_mode", False):
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
         measurement_uid = payload["measurementUid"]
         mcu_command_uid = _new_uid()
         ctx = {
@@ -368,6 +559,11 @@ class WorkManager:
         self,
         command: dict[str, Any],
     ) -> dict[str, Any]:
+        if getattr(self._uart, "compatibility_mode", False):
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
         payload = command["payload"]
         slot = self._store.get_work_slot()
         if (
@@ -417,6 +613,11 @@ class WorkManager:
         return result
 
     def resume_clean_command(self, command: dict[str, Any]) -> dict[str, Any]:
+        if getattr(self._uart, "compatibility_mode", False):
+            return {
+                "acked": False,
+                "error": "MCU_FEATURE_NOT_SUPPORTED",
+            }
         payload = command["payload"]
         self._require_applied_config(payload["config"])
         slot = self._store.get_work_slot()
@@ -551,6 +752,12 @@ class WorkManager:
     def handle_mcu_event(self, frame):
         msg_name = frame.get("message_name", "")
         payload = frame.get("payload", {})
+        if msg_name == "COMPAT_DELIVERY_RESULT":
+            self._on_compat_delivery_result(payload)
+            return
+        if msg_name == "COMPAT_CLEAN_RESULT":
+            self._on_compat_clean_result(payload)
+            return
         if msg_name == "SAFETY_SENSOR_EVENT":
             self._on_safety_sensor_event(payload)
             return
@@ -592,6 +799,268 @@ class WorkManager:
             self._on_baseline_measurement_result(ctx, payload, work_uid)
         elif msg_name == "BOOT_RECONCILIATION_RESULT" and work_type == WORK_TYPE_CLEAN:
             self._on_boot_reconciliation_result(ctx, payload, work_uid)
+
+    def _on_compat_delivery_result(self, payload: dict[str, Any]) -> None:
+        slot = self._store.get_work_slot()
+        if not slot or slot["work_type"] != WORK_TYPE_DELIVERY:
+            logger.warning(
+                "ignoring DD result without active delivery work"
+            )
+            return
+        pre_weight, post_weight = self._compat_result_weights(payload)
+        work_uid = slot["work_uid"]
+        ctx = slot["context"]
+        first_measurement = _compat_measurement(
+            work_uid,
+            "pre",
+            pre_weight,
+            payload,
+        )
+        final_measurement = _compat_measurement(
+            work_uid,
+            "post",
+            post_weight,
+            payload,
+        )
+        ctx.update({
+            "phase": "COMPLETING",
+            "round_index": 1,
+            "first_weight_grams": pre_weight,
+            "first_measurement_uid": first_measurement["measurementUid"],
+            "first_measurement": first_measurement,
+            "final_weight_grams": post_weight,
+            "final_measurement_uid": final_measurement["measurementUid"],
+            "final_measurement": final_measurement,
+            "negative_weight_anomaly": False,
+            "last_delivery_door_command": "CLOSE",
+            "last_delivery_door_output_status": "COMMAND_DISPATCHED",
+            "delivery_door_physical_state_basis": "NOT_OBSERVABLE",
+        })
+        self._store.update_work_context(work_uid, ctx)
+        self._store.complete_command(
+            ctx["start_command_uid"],
+            {
+                "preWeightGrams": pre_weight,
+                "postWeightGrams": post_weight,
+                "resultSource": "FIXED_FRAME_DD",
+            },
+        )
+        self._cache_compat_fullness_observation(
+            payload,
+            work_uid,
+            WORK_TYPE_DELIVERY,
+            post_weight,
+        )
+        self._queue_photo_capture(
+            "capture_close_photos_async",
+            work_uid,
+        )
+        event_payload = {
+            "sessionUid": ctx.get("session_uid", work_uid),
+            "portNo": ctx["port_no"],
+            "firstPreOpenMeasurement": _measurement_fact(first_measurement),
+            "finalPostCloseMeasurement": _measurement_fact(final_measurement),
+            "deliveryNetWeightGrams": post_weight - pre_weight,
+            "finalDoorCommand": {
+                "command": "CLOSE",
+                "outputStatus": "COMMAND_DISPATCHED",
+                "physicalStateBasis": "NOT_OBSERVABLE",
+            },
+            "completionReason": "USER_ENDED",
+            "manualReviewRequired": False,
+            "negativeWeightAnomaly": False,
+            "frozenConfig": _frozen_config(ctx["config"]),
+            "unitPriceTenThousandths": ctx[
+                "unit_price_ten_thousandths"
+            ],
+            "photos": _pending_photo_facts(
+                (
+                    "BEFORE_INNER",
+                    "BEFORE_OUTER",
+                    "AFTER_INNER",
+                    "AFTER_OUTER",
+                )
+            ),
+        }
+        created = self._create_reliable_event(
+            event_type="DELIVERY_COMPLETE",
+            target_type="DELIVERY_SESSION",
+            work_uid=work_uid,
+            command_uid=ctx.get("start_command_uid"),
+            deployment_code=ctx.get("deployment_code"),
+            payload=event_payload,
+            work_state_update={
+                "state": "COMPLETING",
+                "context": ctx,
+            },
+            event_uid=_compat_uid(work_uid, "delivery-complete"),
+        )
+        if created not in ("ACCEPTED", "DUPLICATE"):
+            raise ValueError(
+                f"fixed-frame delivery persistence {created.lower()}"
+            )
+        self._store.release_work_slot(work_uid)
+        logger.info(
+            "fixed-frame delivery complete: %s net=%d",
+            work_uid,
+            post_weight - pre_weight,
+        )
+
+    def _on_compat_clean_result(self, payload: dict[str, Any]) -> None:
+        slot = self._store.get_work_slot()
+        if not slot or slot["work_type"] != WORK_TYPE_CLEAN:
+            logger.warning("ignoring EF result without active clean work")
+            return
+        pre_weight, post_weight = self._compat_result_weights(payload)
+        work_uid = slot["work_uid"]
+        ctx = slot["context"]
+        pre_measurement = _compat_measurement(
+            work_uid,
+            "pre",
+            pre_weight,
+            payload,
+        )
+        final_measurement = _compat_measurement(
+            work_uid,
+            "post",
+            post_weight,
+            payload,
+        )
+        ctx.update({
+            "phase": "COMPLETING",
+            "action_sequence": 1,
+            "preunlock_weight_grams": pre_weight,
+            "preunlock_measurement_uid": pre_measurement["measurementUid"],
+            "preunlock_measurement": pre_measurement,
+            "final_weight_grams": post_weight,
+            "final_measurement_uid": final_measurement["measurementUid"],
+            "final_measurement": final_measurement,
+            "completion_confirmed": True,
+            "clean_lock_power_state": "DEENERGIZED",
+            "clean_solenoid_health": "UNKNOWN",
+            "clean_door_state_basis": "CLEANER_CONFIRMATION",
+            "cleaner_physical_close_confirmed": True,
+        })
+        self._store.update_work_context(work_uid, ctx)
+        self._store.complete_command(
+            ctx["start_command_uid"],
+            {
+                "preWeightGrams": pre_weight,
+                "postWeightGrams": post_weight,
+                "resultSource": "FIXED_FRAME_EF",
+            },
+        )
+        self._cache_compat_fullness_observation(
+            payload,
+            work_uid,
+            WORK_TYPE_CLEAN,
+            post_weight,
+        )
+        self._queue_photo_capture(
+            "capture_clean_photos_async",
+            work_uid,
+        )
+        event_payload = {
+            "operationUid": ctx.get("operation_uid", work_uid),
+            "portNo": ctx["port_no"],
+            "oldBagUid": ctx.get("old_bag_uid"),
+            "newBagUid": ctx.get("new_bag_uid"),
+            "preUnlockMeasurement": _measurement_fact(pre_measurement),
+            "cleanerConfirmedFinalMeasurement": _measurement_fact(
+                final_measurement
+            ),
+            "removedNetWeightGrams": pre_weight - post_weight,
+            "newBaselineWeightGrams": post_weight,
+            "cleanerCompletionConfirmed": True,
+            "cleanActionSequence": 1,
+            "cleanLockAndManualDoorConfirmation": {
+                "lockPowerState": "DEENERGIZED",
+                "solenoidHealth": "UNKNOWN",
+                "physicalDoorStateBasis": "CLEANER_CONFIRMATION",
+                "cleanerPhysicalCloseConfirmed": True,
+            },
+            "frozenConfig": _frozen_config(ctx["config"]),
+            "photos": _pending_photo_facts(
+                (
+                    "FIRST_OPEN_INNER",
+                    "FIRST_OPEN_OUTER",
+                    "FINAL_CLOSE_INNER",
+                    "FINAL_CLOSE_OUTER",
+                )
+            ),
+        }
+        created = self._create_reliable_event(
+            event_type="CLEAN_COMPLETE",
+            target_type="CLEAN_OPERATION",
+            work_uid=work_uid,
+            command_uid=ctx.get("start_command_uid"),
+            deployment_code=ctx.get("deployment_code"),
+            payload=event_payload,
+            work_state_update={
+                "state": "COMPLETING",
+                "context": ctx,
+            },
+            event_uid=_compat_uid(work_uid, "clean-complete"),
+        )
+        if created not in ("ACCEPTED", "DUPLICATE"):
+            raise ValueError(
+                f"fixed-frame clean persistence {created.lower()}"
+            )
+        self._store.release_work_slot(work_uid)
+        logger.info(
+            "fixed-frame clean complete: %s removed=%d",
+            work_uid,
+            pre_weight - post_weight,
+        )
+
+    @staticmethod
+    def _compat_result_weights(
+        payload: dict[str, Any],
+    ) -> tuple[int, int]:
+        values = (
+            payload.get("preWeightGrams"),
+            payload.get("postWeightGrams"),
+        )
+        if any(
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+            or value > 350_000
+            for value in values
+        ):
+            raise ValueError("invalid fixed-frame weight result")
+        if (
+            not isinstance(payload.get("mcuBootId"), int)
+            or isinstance(payload.get("mcuBootId"), bool)
+            or payload["mcuBootId"] <= 0
+            or not isinstance(payload.get("mcuEventSequence"), int)
+            or isinstance(payload.get("mcuEventSequence"), bool)
+            or payload["mcuEventSequence"] <= 0
+            or not isinstance(payload.get("infraredBlocked"), bool)
+        ):
+            raise ValueError("invalid fixed-frame result identity")
+        return values
+
+    def _cache_compat_fullness_observation(
+        self,
+        payload: dict[str, Any],
+        work_uid: str,
+        work_type: str,
+        post_weight: int,
+    ) -> None:
+        observation = {
+            "sourceWorkType": work_type,
+            "sourceWorkUid": work_uid,
+            "portNo": 1,
+            "postWeightGrams": post_weight,
+            "infraredBlocked": payload["infraredBlocked"],
+            "mcuBootId": payload["mcuBootId"],
+            "mcuEventSequence": payload["mcuEventSequence"],
+        }
+        self._store.set_state(
+            "fixed_frame_latest_observation_json",
+            json.dumps(observation, ensure_ascii=False),
+        )
 
     def _on_safety_sensor_event(self, payload):
         smoke_state = str(payload.get("smokeState") or "UNKNOWN")

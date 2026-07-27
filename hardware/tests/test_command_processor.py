@@ -2,11 +2,14 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from command_processor import CommandProcessor
 from edge_store import EdgeStore
 from onenet_wire import (
     canonical_payload_sha256,
     decode_service_command,
+    encode_event_post,
 )
 from uart_link import compute_mcu_payload_sha256
 from work_manager import WorkManager
@@ -46,6 +49,15 @@ class FakeUart:
             "mcu_command_uid": mcu_command_uid,
             "disposition": "ACCEPTED",
         }
+
+
+class FakeCompatUart(FakeUart):
+    compatibility_mode = True
+
+    def apply_configuration(self, command, part_command_uids):
+        raise AssertionError(
+            "fixed-frame compatibility must not project config to MCU"
+        )
 
 
 class FakePhotoManager:
@@ -140,6 +152,16 @@ def mark_configuration_applied(store):
         "mcuPayloadSha256": command["payload"]["config"]["mcuPayloadSha256"],
         "faultCode": "NONE",
     }) == "ACCEPTED"
+    return command
+
+
+def valid_compat_service_command(example_name):
+    command = valid_service_command(example_name)
+    if "portNo" in command["payload"]:
+        command["payload"]["portNo"] = 1
+    command["payloadSha256"] = canonical_payload_sha256(
+        command["payload"]
+    )
     return command
 
 
@@ -781,4 +803,307 @@ def test_smoke_alarm_is_recorded_without_blocking_delivery(tmp_path):
     assert store.get_command(command["commandUid"])["state"] == (
         "WAITING_MCU_RESULT"
     )
+    store.close()
+
+
+def test_compat_configuration_is_applied_only_to_edge(tmp_path):
+    store = make_store(tmp_path)
+    uart = FakeCompatUart()
+    processor = CommandProcessor(store, uart)
+    command = valid_configuration_command()
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    configuration = store.get_configuration(
+        command["payload"]["applicationUid"]
+    )
+    assert configuration["state"] == "APPLIED"
+    assert store.get_state("mcu_configuration_projection") == (
+        "NOT_SUPPORTED"
+    )
+    assert uart.calls == []
+    store.close()
+
+
+def test_compat_dd_completes_delivery_and_caches_raw_fullness(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    photos = FakePhotoManager()
+    work = WorkManager(store, uart, None, photos)
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+    assert store.get_command(command["commandUid"])["state"] == (
+        "WAITING_MCU_RESULT"
+    )
+    assert photos.captured == [
+        ("open", command["payload"]["sessionUid"])
+    ]
+
+    processor.process_mcu_event({
+        "message_name": "COMPAT_DELIVERY_RESULT",
+        "message_type": 240,
+        "source_tx_sequence": 1,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+            "uptimeMs": 1000,
+            "preWeightGrams": 12_300,
+            "postWeightGrams": 14_800,
+            "infraredBlocked": True,
+            "rawFrameHex": "dd00300c0039d001dd",
+        },
+    })
+
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    assert store.get_work_slot() is None
+    delivery_events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "DELIVERY_COMPLETE"
+    ]
+    assert len(delivery_events) == 1
+    payload = delivery_events[0]["payload"]
+    encode_event_post("DELIVERY_COMPLETE", delivery_events[0])
+    assert payload["deliveryNetWeightGrams"] == 2_500
+    assert payload["negativeWeightAnomaly"] is False
+    assert payload["unitPriceTenThousandths"] == (
+        command["payload"]["unitPriceTenThousandths"]
+    )
+    observation = json.loads(
+        store.get_state("fixed_frame_latest_observation_json")
+    )
+    assert observation["infraredBlocked"] is True
+    assert observation["postWeightGrams"] == 14_800
+    assert photos.captured[-1] == (
+        "close",
+        command["payload"]["sessionUid"],
+    )
+    store.close()
+
+
+def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    photos = FakePhotoManager()
+    work = WorkManager(store, uart, None, photos)
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-clean-operation.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+    processor.process_mcu_event({
+        "message_name": "COMPAT_CLEAN_RESULT",
+        "message_type": 241,
+        "source_tx_sequence": 2,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 2,
+            "uptimeMs": 2000,
+            "preWeightGrams": 50_000,
+            "postWeightGrams": 2_000,
+            "infraredBlocked": False,
+            "rawFrameHex": "ef00c3500007d000ef",
+        },
+    })
+
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    assert store.get_work_slot() is None
+    clean_events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "CLEAN_COMPLETE"
+    ]
+    assert len(clean_events) == 1
+    payload = clean_events[0]["payload"]
+    encode_event_post("CLEAN_COMPLETE", clean_events[0])
+    assert payload["removedNetWeightGrams"] == 48_000
+    assert payload["newBaselineWeightGrams"] == 2_000
+    confirmation = payload["cleanLockAndManualDoorConfirmation"]
+    assert confirmation["lockPowerState"] == "DEENERGIZED"
+    assert confirmation["solenoidHealth"] == "UNKNOWN"
+    assert confirmation["physicalDoorStateBasis"] == (
+        "CLEANER_CONFIRMATION"
+    )
+    assert confirmation["cleanerPhysicalCloseConfirmed"] is True
+    assert photos.captured == [
+        ("clean", command["payload"]["operationUid"])
+    ]
+    store.close()
+
+
+def test_compat_result_rejects_boolean_identity_values(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    processor.process_next()
+
+    with pytest.raises(
+        ValueError,
+        match="invalid fixed-frame result identity",
+    ):
+        processor.process_mcu_event({
+            "message_name": "COMPAT_DELIVERY_RESULT",
+            "message_type": 240,
+            "source_tx_sequence": 1,
+            "payload": {
+                "mcuBootId": True,
+                "mcuEventSequence": 1,
+                "uptimeMs": 1000,
+                "preWeightGrams": 12_300,
+                "postWeightGrams": 14_800,
+                "infraredBlocked": True,
+                "rawFrameHex": "dd00300c0039d001dd",
+            },
+        })
+
+    assert store.get_command(command["commandUid"])["state"] == (
+        "WAITING_MCU_RESULT"
+    )
+    assert store.get_work_slot()["work_uid"] == (
+        command["payload"]["sessionUid"]
+    )
+    store.close()
+
+
+def test_compat_fullness_uses_latest_dd_observation_without_uart(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    store.set_state(
+        "fixed_frame_latest_observation_json",
+        json.dumps({
+            "sourceWorkType": "DELIVERY",
+            "sourceWorkUid": "65000000-0000-4000-8000-000000000001",
+            "portNo": 1,
+            "postWeightGrams": 21_000,
+            "infraredBlocked": True,
+            "mcuBootId": 42,
+            "mcuEventSequence": 3,
+        }),
+    )
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "sample-fullness.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    assert store.get_work_slot() is None
+    fullness_events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "FULLNESS_SAMPLE_COMPLETE"
+    ]
+    assert len(fullness_events) == 1
+    payload = fullness_events[0]["payload"]
+    encode_event_post("FULLNESS_SAMPLE_COMPLETE", fullness_events[0])
+    assert payload["fullnessSensorKind"] == "DIGITAL_INFRARED"
+    assert payload["fullnessSensorValue"] == "BLOCKED"
+    assert payload["fullnessSampleBasis"] == "NOT_SAMPLED"
+    assert payload["totalWeightMeasurement"]["reportedWeightGrams"] == (
+        21_000
+    )
+    assert uart.calls == []
+    store.close()
+
+
+def test_compat_unsupported_baseline_fails_without_reserving_slot(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "measure-empty-bag-baseline.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "MCU_FEATURE_NOT_SUPPORTED"
+    assert store.get_work_slot() is None
+    assert uart.calls == []
+    store.close()
+
+
+def test_compat_corrupt_fullness_cache_fails_without_reserving_slot(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    store.set_state(
+        "fixed_frame_latest_observation_json",
+        json.dumps({
+            "portNo": 1,
+            "postWeightGrams": "not-an-integer",
+            "infraredBlocked": True,
+            "mcuBootId": 42,
+            "mcuEventSequence": 3,
+        }),
+    )
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "sample-fullness.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "MCU_FEATURE_NOT_SUPPORTED"
+    assert store.get_work_slot() is None
+    assert uart.calls == []
     store.close()

@@ -185,6 +185,32 @@ class TestAtomicReceiveCommand:
         assert store.get_command("cmd-1")["state"] == "COMPLETED"
         store.close()
 
+    def test_fixed_frame_restart_fails_indeterminate_physical_command(self):
+        store = make_store()
+        store.receive_command(
+            "cmd-1",
+            "START_DELIVERY_SESSION",
+            {"commandUid": "cmd-1"},
+        )
+        assert store.claim_next_command()["state"] == "PROCESSING"
+        assert store.mark_command_waiting_mcu(
+            "cmd-1",
+            "mcu-cmd-1",
+        )
+
+        recovered = store.recover_interrupted_commands(
+            physical_recovery_required=False,
+        )
+
+        assert recovered["physical_locked"] == 0
+        assert recovered["physical_failed"] == 1
+        command = store.get_command("cmd-1")
+        assert command["state"] == "FAILED"
+        assert command["last_error"] == (
+            "PROCESS_RESTARTED_MCU_STATE_UNKNOWN"
+        )
+        store.close()
+
 
 class TestMcuEventInbox:
     def test_persist_duplicate_and_conflict(self):

@@ -484,24 +484,58 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
-    def recover_interrupted_commands(self) -> dict[str, int]:
-        """Only configuration transmission is safe for automatic replay."""
+    def recover_interrupted_commands(
+        self,
+        *,
+        physical_recovery_required: bool = True,
+    ) -> dict[str, int]:
+        """Recover commands according to the active MCU protocol guarantees."""
         with self.transaction():
+            config_states = (
+                "('PROCESSING')"
+                if physical_recovery_required
+                else (
+                    "('PROCESSING','WAITING_MCU_RESULT',"
+                    "'RECOVERY_REQUIRED')"
+                )
+            )
             config = self._conn.execute(
-                """UPDATE command_inbox
+                f"""UPDATE command_inbox
                    SET state='PENDING', processing_started_at=NULL,
                        last_error='PROCESS_RESTARTED'
-                   WHERE state='PROCESSING'
+                   WHERE state IN {config_states}
                      AND command_type='APPLY_CONFIGURATION'"""
             ).rowcount
-            physical = self._conn.execute(
-                """UPDATE command_inbox
-                   SET state='RECOVERY_REQUIRED', processing_started_at=NULL,
-                       last_error='PROCESS_RESTARTED_PHYSICAL_COMMAND'
-                   WHERE state='PROCESSING'
-                     AND command_type<>'APPLY_CONFIGURATION'"""
-            ).rowcount
-            return {"configuration_requeued": config, "physical_locked": physical}
+            if physical_recovery_required:
+                physical_locked = self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='RECOVERY_REQUIRED',
+                           processing_started_at=NULL,
+                           last_error='PROCESS_RESTARTED_PHYSICAL_COMMAND'
+                       WHERE state='PROCESSING'
+                         AND command_type<>'APPLY_CONFIGURATION'"""
+                ).rowcount
+                physical_failed = 0
+            else:
+                physical_locked = 0
+                physical_failed = self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='FAILED', processed_at=?,
+                           processing_started_at=NULL,
+                           last_error='PROCESS_RESTARTED_MCU_STATE_UNKNOWN'
+                       WHERE state IN (
+                           'PROCESSING',
+                           'WAITING_MCU_RESULT',
+                           'RECOVERY_REQUIRED'
+                       )
+                         AND command_type<>'APPLY_CONFIGURATION'""",
+                    (self._now(),),
+                ).rowcount
+            return {
+                "configuration_requeued": config,
+                "physical_locked": physical_locked,
+                "physical_failed": physical_failed,
+            }
 
     @staticmethod
     def _decode_command_row(row) -> Optional[dict]:

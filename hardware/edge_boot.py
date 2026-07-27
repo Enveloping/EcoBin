@@ -42,6 +42,13 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
         store.record_fault("UART", 256, "BLOCK_DEVICE")
         uart_link.close()
         return {"status": "SAFETY_LOCKED", "reason": str(e)}
+    if getattr(uart_link, "compatibility_mode", False):
+        return _boot_fixed_frame_compatibility(
+            store,
+            uart_link,
+            mqtt_client,
+            mcu_info,
+        )
     try:
         snapshots = uart_link.query_state(
             on_segment=lambda frame: _persist_and_ack_mcu_frame(
@@ -102,6 +109,55 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
     _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots)
     logger.info("BOOT: sequence complete, READY")
     return {"status": "READY", "mcu_info": mcu_info, "snapshot_count": len(snapshots)}
+
+
+def _boot_fixed_frame_compatibility(
+    store,
+    uart_link,
+    mqtt_client,
+    mcu_info,
+):
+    """Boot without sending unsupported HELLO/QUERY_STATE/recovery frames."""
+    store.set_state("fixed_frame_latest_observation_json", "")
+    store.set_state("latest_runtime_ports_json", "[]")
+    slot = store.get_work_slot()
+    if slot:
+        context = slot.get("context") or {}
+        command_uid = (
+            context.get("start_command_uid")
+            or context.get("command_uid")
+        )
+        if command_uid:
+            store.fail_command(
+                command_uid,
+                "PROCESS_RESTARTED_MCU_STATE_UNKNOWN",
+            )
+        store.set_state(
+            "fixed_frame_last_abandoned_work_uid",
+            str(slot["work_uid"]),
+        )
+        store.release_work_slot(slot["work_uid"])
+        logger.warning(
+            "BOOT: abandoned stale local work without MCU replay: "
+            "type=%s uid=%s",
+            slot["work_type"],
+            slot["work_uid"],
+        )
+    if not mqtt_client.connect():
+        logger.error("BOOT: MQTT connect failed")
+        return {
+            "status": "DEGRADED",
+            "reason": "mqtt_connect_failed",
+            "mcu_info": mcu_info,
+        }
+    time.sleep(0.5)
+    _publish_runtime_snapshot(store, mqtt_client, mcu_info, [])
+    logger.info("BOOT: fixed-frame compatibility sequence complete, READY")
+    return {
+        "status": "READY",
+        "mcu_info": mcu_info,
+        "snapshot_count": 0,
+    }
 
 
 def recover_after_online_mcu_hello(store, uart_link, hello_frame):
@@ -432,13 +488,18 @@ def _persist_and_ack_mcu_frame(store, uart_link, frame):
 
 def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
     faults = store.list_active_faults()
-    ports = _runtime_ports_from_snapshots(snapshots)
+    compatibility_mode = bool(mcu_info.get("compatibility_mode"))
+    ports = (
+        []
+        if compatibility_mode
+        else _runtime_ports_from_snapshots(snapshots)
+    )
     if ports:
         store.set_state(
             "latest_runtime_ports_json",
             json.dumps(ports, ensure_ascii=False),
         )
-    else:
+    elif not compatibility_mode:
         try:
             ports = json.loads(
                 store.get_state("latest_runtime_ports_json", "[]")
@@ -447,7 +508,14 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
             ports = []
     if not ports:
         port_count = int(mcu_info.get("mcu_port_count") or 1)
-        ports = [_unknown_runtime_port(port_no) for port_no in range(1, port_count + 1)]
+        fullness_sensor_kind = mcu_info.get(
+            "fullness_sensor_kind",
+            "ULTRASONIC",
+        )
+        ports = [
+            _unknown_runtime_port(port_no, fullness_sensor_kind)
+            for port_no in range(1, port_count + 1)
+        ]
     applied = store.get_latest_applied_configuration()
     applied_config = None
     if applied:
@@ -476,8 +544,8 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
         "edgeVersion": "1.0.0-rc.3",
         "mcuBootId": mcu_boot_id,
         "mcuFirmwareVersion": firmware_version,
-        "uartProtocolMajor": 1,
-        "uartProtocolMinor": 0,
+        "uartProtocolMajor": mcu_info.get("uart_protocol_major", 1),
+        "uartProtocolMinor": mcu_info.get("uart_protocol_minor", 0),
         "uartState": uart_state,
         "localStorageState": "HEALTHY",
         "clockState": "SYNCED",
@@ -571,7 +639,7 @@ def _runtime_ports_from_snapshots(snapshots):
     return ports
 
 
-def _unknown_runtime_port(port_no):
+def _unknown_runtime_port(port_no, fullness_sensor_kind="ULTRASONIC"):
     return {
         "portNo": port_no,
         "lastDeliveryDoorCommand": "NONE",
@@ -582,7 +650,7 @@ def _unknown_runtime_port(port_no):
         "cleanDoorStateBasis": "NOT_OBSERVABLE",
         "cleanerPhysicalCloseConfirmed": False,
         **_snapshot_measurement_fields({}),
-        "fullnessSensorKind": "ULTRASONIC",
+        "fullnessSensorKind": fullness_sensor_kind,
         "fullnessSensorValue": "CLEAR",
         "fullnessSampleBasis": "NOT_SAMPLED",
         "representativeDistanceMm": None,
