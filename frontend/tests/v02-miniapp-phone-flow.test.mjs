@@ -22,7 +22,7 @@ test('device registration source survives a login retry', () => {
   assert.match(loginSource, /onRetry\(\)\s*\{\s*this\.doLogin\(\)/);
 });
 
-test('an unbound user gets an optional native WeChat phone-number button', () => {
+test('an unbound user gets a custom preflight sheet before native WeChat phone authorization', () => {
   const authSource = source(
     '../miniprogram/miniprogram/utils/auth.ts',
   );
@@ -35,6 +35,15 @@ test('an unbound user gets an optional native WeChat phone-number button', () =>
   const loginSource = source(
     '../miniprogram/miniprogram/pages/login/login.ts',
   );
+  const homeSource = source(
+    '../miniprogram/miniprogram/pages/home/home.ts',
+  );
+  const cleanSource = source(
+    '../miniprogram/miniprogram/pages/clean/clean.ts',
+  );
+  const phoneGrantSource = source(
+    '../miniprogram/miniprogram/utils/phone-grant.ts',
+  );
   const appConfig = source(
     '../miniprogram/miniprogram/app.json',
   );
@@ -46,8 +55,15 @@ test('an unbound user gets an optional native WeChat phone-number button', () =>
   assert.match(homeMarkup, /可选：验证手机号/);
   assert.match(homeMarkup, /不影响当前浏览/);
   assert.match(cleanMarkup, /open-type="getPhoneNumber"/);
-  assert.doesNotMatch(homeMarkup, /phone-sheet-mask/);
-  assert.doesNotMatch(cleanMarkup, /phone-sheet-mask/);
+  assert.match(homeMarkup, /phone-sheet-mask/);
+  assert.match(cleanMarkup, /phone-sheet-mask/);
+  assert.match(homeMarkup, /继续获取手机号/);
+  assert.match(homeSource, /reportWechatPhoneGrantError\(event\.detail\)/);
+  assert.match(cleanSource, /reportWechatPhoneGrantError\(event\.detail\)/);
+  assert.match(phoneGrantSource, /title: '微信获取手机号异常'/);
+  assert.match(phoneGrantSource, /console\.error\('\[phone-auth\] 微信获取手机号异常'/);
+  assert.match(phoneGrantSource, /错误码：\$\{errno\}/);
+  assert.match(phoneGrantSource, /错误信息：\$\{errMsg\}/);
   assert.doesNotMatch(appConfig, /phone-grant-sheet/);
 });
 

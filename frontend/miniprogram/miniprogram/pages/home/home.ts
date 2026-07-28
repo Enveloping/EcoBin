@@ -2,6 +2,11 @@ import { startDoorEntry } from '../../utils/door-entry'
 import { bindCurrentPhone } from '../../api/auth'
 import { getSession, markPhoneBound } from '../../utils/auth'
 import { createIdempotencyKey } from '../../utils/command-intent'
+import {
+  reportPhoneBindingError,
+  reportWechatPhoneGrantError,
+  type WechatPhoneGrantDetail,
+} from '../../utils/phone-grant'
 
 interface FeatureItem {
   text: string
@@ -11,11 +16,13 @@ interface FeatureItem {
 }
 
 Page({
+  phoneGrantDismissed: false,
   phoneBindingIntentKey: '',
 
   data: {
     city: '湖州',
     phoneBound: false,
+    showPhoneGrant: false,
     phoneGrantSubmitting: false,
     organizationName: '',
     features: [
@@ -32,15 +39,38 @@ Page({
     if (tabBar) (tabBar as any).init()
     const session = getSession()
     if (session) {
+      const showPhoneGrant =
+        session.audience === 'miniapp'
+        && !session.phoneBound
+        && !this.phoneGrantDismissed
       this.setData({
         phoneBound: session.phoneBound,
+        showPhoneGrant,
         organizationName: session.organization.displayName,
       })
+      this.setPhoneGrantTabBarHidden(showPhoneGrant)
     }
   },
 
   onScan() {
     startDoorEntry()
+  },
+
+  onBindPhone() {
+    this.phoneGrantDismissed = false
+    this.setData({ showPhoneGrant: true })
+    this.setPhoneGrantTabBarHidden(true)
+  },
+
+  onPhoneGrantClose() {
+    if (this.data.phoneGrantSubmitting) return
+    this.phoneGrantDismissed = true
+    this.setData({ showPhoneGrant: false })
+    this.setPhoneGrantTabBarHidden(false)
+  },
+
+  onPhoneSheetPanelTap() {
+    // 阻止点击面板内容时触发遮罩关闭。
   },
 
   async ensurePhoneBindingIntent() {
@@ -49,16 +79,18 @@ Page({
     }
   },
 
+  setPhoneGrantTabBarHidden(hidden: boolean) {
+    const tabBar = this.getTabBar?.()
+    if (tabBar) (tabBar as any).setHidden?.(hidden)
+  },
+
   async onGetPhoneNumber(
-    event: WechatMiniprogram.CustomEvent<{
-      code?: string
-      errMsg?: string
-    }>,
+    event: WechatMiniprogram.CustomEvent<WechatPhoneGrantDetail>,
   ) {
     if (this.data.phoneGrantSubmitting) return
     const code = event.detail.code
     if (!code) {
-      wx.showToast({ title: '已取消手机号授权', icon: 'none' })
+      reportWechatPhoneGrantError(event.detail)
       return
     }
     await this.ensurePhoneBindingIntent()
@@ -66,8 +98,11 @@ Page({
     try {
       await bindCurrentPhone(code, this.phoneBindingIntentKey)
       markPhoneBound()
-      this.setData({ phoneBound: true })
+      this.setData({ phoneBound: true, showPhoneGrant: false })
+      this.setPhoneGrantTabBarHidden(false)
       wx.showToast({ title: '手机号已验证', icon: 'success' })
+    } catch (error) {
+      reportPhoneBindingError(error)
     } finally {
       this.setData({ phoneGrantSubmitting: false })
     }

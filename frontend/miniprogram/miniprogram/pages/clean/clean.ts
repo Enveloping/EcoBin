@@ -4,6 +4,11 @@ import { bindCurrentPhone } from '../../api/auth'
 import { requireEntryMode } from '../../utils/guard'
 import { getSession, markPhoneBound } from '../../utils/auth'
 import { createIdempotencyKey } from '../../utils/command-intent'
+import {
+  reportPhoneBindingError,
+  reportWechatPhoneGrantError,
+  type WechatPhoneGrantDetail,
+} from '../../utils/phone-grant'
 import type { Device, Door, CleanOrder } from '../../types/api'
 
 interface CleanRow extends CleanOrder {
@@ -12,6 +17,7 @@ interface CleanRow extends CleanOrder {
 }
 
 Page({
+  phoneGrantDismissed: false,
   phoneBindingIntentKey: '',
 
   data: {
@@ -25,6 +31,7 @@ Page({
     opening: false,
     cleans: [] as CleanRow[],
     phoneBound: false,
+    showPhoneGrant: false,
     phoneGrantSubmitting: false,
   },
 
@@ -38,9 +45,29 @@ Page({
     const tabBar = this.getTabBar?.()
     if (tabBar) (tabBar as any).init()
     const session = getSession()
+    const showPhoneGrant =
+      session?.audience === 'miniapp'
+      && !session.phoneBound
+      && !this.phoneGrantDismissed
     this.setData({
       phoneBound: session?.phoneBound ?? false,
+      showPhoneGrant,
     })
+  },
+
+  onBindPhone() {
+    this.phoneGrantDismissed = false
+    this.setData({ showPhoneGrant: true })
+  },
+
+  onPhoneGrantClose() {
+    if (this.data.phoneGrantSubmitting) return
+    this.phoneGrantDismissed = true
+    this.setData({ showPhoneGrant: false })
+  },
+
+  onPhoneSheetPanelTap() {
+    // 阻止点击面板内容时触发遮罩关闭。
   },
 
   async ensurePhoneBindingIntent() {
@@ -50,15 +77,12 @@ Page({
   },
 
   async onGetPhoneNumber(
-    event: WechatMiniprogram.CustomEvent<{
-      code?: string
-      errMsg?: string
-    }>,
+    event: WechatMiniprogram.CustomEvent<WechatPhoneGrantDetail>,
   ) {
     if (this.data.phoneGrantSubmitting) return
     const code = event.detail.code
     if (!code) {
-      wx.showToast({ title: '已取消手机号授权', icon: 'none' })
+      reportWechatPhoneGrantError(event.detail)
       return
     }
     await this.ensurePhoneBindingIntent()
@@ -66,8 +90,10 @@ Page({
     try {
       await bindCurrentPhone(code, this.phoneBindingIntentKey)
       markPhoneBound()
-      this.setData({ phoneBound: true })
+      this.setData({ phoneBound: true, showPhoneGrant: false })
       wx.showToast({ title: '手机号已验证', icon: 'success' })
+    } catch (error) {
+      reportPhoneBindingError(error)
     } finally {
       this.setData({ phoneGrantSubmitting: false })
     }
