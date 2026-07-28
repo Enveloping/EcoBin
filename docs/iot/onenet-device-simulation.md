@@ -14,10 +14,10 @@
 | 需要 | 说明 |
 |------|------|
 | MQTTX | MQTT 桌面客户端（https://mqttx.app），用作"设备" |
-| OneNet 控制台账号 | 与 `.env` 里消费组（`iotAccessId`）同一账号 |
+| OneNet 控制台账号 | 与本地 secrets YAML 里消费组（`iotAccessId`）同一账号 |
 | 一个 MQTT/OneJSON 产品 | 没有就新建（见 A.1） |
 | 一台测试设备 | `设备名 = sn`，拿到 `产品ID` + `设备key`（见 A.3） |
-| 本机后端 + MySQL | 后端带 `.env` 启动，消费者连上 OneNet（见 B） |
+| 本机后端 + MySQL | 后端使用 `local-real` 和本地 secrets YAML 启动（见 B） |
 
 ---
 
@@ -37,7 +37,7 @@
 - 设备详情页拿到 **设备key**（用于算 token）。
 
 ### A.4 配置服务端订阅（关键！否则消费者收不到）
-「数据流转 → 服务端订阅」：把 `.env` 里的消费组（`iotAccessId`）**绑定到本产品**，消息类型勾选 **设备数据上报（thingEvent）**。
+「数据流转 → 服务端订阅」：把本地 secrets YAML 里的消费组（`iotAccessId`）**绑定到本产品**，消息类型勾选 **设备数据上报（thingEvent）**。
 > 北向消费组只会收到"已配置订阅"的产品的消息。漏了这步 = MQTTX 发得出去、后端啥也收不到。
 
 ### A.5 生成连接 token
@@ -54,12 +54,13 @@
    ```bash
    ./mvnw install -DskipTests
    ```
-2. 启动后端（需本机 MySQL 在 `localhost:3306` 运行）。
-3. **确认 `.env` 被加载**——`application.yml` 用 `spring.config.import: optional:file:./.env[.properties]`，是**相对路径**，依赖**运行工作目录 = 项目根**（`.env` 所在目录）。
+2. 使用 IDEA 的 `EcoBin Backend - Local Real`，或执行
+   `.\tools\development\run-backend.ps1 -Mode Real` 启动后端。
+3. **确认本地 YAML 被加载**——`application.yml` 导入
+   `optional:file:./.ecobin/application-local-secrets.yml`，共享 IDEA 配置和脚本都已把
+   **运行工作目录固定为项目根**。
    - ✅ 日志出现：`[OneNet·MQ] 北向消费者已启动 broker=pulsar+ssl://iot-north-mq.heclouds.com:6651/, accessId=..., subscription=...` → 已连上。
-   - ❌ 日志是：`[OneNet·MQ] 消费组凭证未配置（accessId/secretKey/subscriptionName），跳过北向消费者启动` → `.env` 没被加载：
-     - 把运行配置的 **working directory 设为项目根**（IDEA：Run/Debug Configurations → Working directory）；
-     - 或临时用 JVM 参数传入：`-DiotAccessId=... -DiotSecretKey=... -DiotSubscriptionName=...`。
+   - ❌ 日志是：`[OneNet·MQ] 消费组凭证未配置（accessId/secretKey/subscriptionName），跳过北向消费者启动` → 检查 YAML 中三项是否完整，并确认启动 profile 是 `local-real`。不要把密钥临时写进 JVM 参数或 IDEA 共享配置。
 
 ---
 
@@ -153,7 +154,7 @@ OneNet 控制台自带**设备模拟器**（产品开发 → 设备调试 / 在�
 | MQTTX 连不上（鉴权失败） | token 算错或过期；`res` 不是 `products/{pid}/devices/{deviceName}`；ClientID 不是设备名、Username 不是 pid |
 | 设备显示离线 | 同上；或 Host/Port 选错（明文用 1883、TLS 用 8883+证书） |
 | 发布成功但后端无日志 | **服务端订阅没绑该产品**（A.4）；或消息类型没勾 thingEvent；或后端消费者没启动（看 B 的日志判断） |
-| 后端日志 `消费组凭证未配置...跳过` | `.env` 未加载，按 B.3 修工作目录或传 JVM 参数 |
+| 后端日志 `消费组凭证未配置...跳过` | 本地 YAML 未加载、字段不完整或未选择 `local-real`，按 B.3 检查 |
 | 收到明文但 `reportGross 失败` | 阶段1 正常现象（订单不存在）；阶段2 请按 D 预置真实 cleanOrderId |
 | 收到明文但事件没进 reportGross | 核对明文里 identifier 拼写（`cleanGross/cleanTare/deliveryComplete`）与 topic 是否为 `.../thing/event/post` |
 

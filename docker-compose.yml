@@ -5,8 +5,10 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-ecobin}
+      MYSQL_ROOT_PASSWORD: ${ECOBIN_LOCAL_MYSQL_ROOT_PASSWORD:?run tools/development/run-local-stack.ps1}
+      MYSQL_DATABASE: ${ECOBIN_LOCAL_MYSQL_DATABASE:-ecobin}
+      MYSQL_USER: ${ECOBIN_LOCAL_DB_USERNAME:-ecobin_app}
+      MYSQL_PASSWORD: ${ECOBIN_LOCAL_DB_PASSWORD:?run tools/development/run-local-stack.ps1}
       TZ: Asia/Shanghai
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     volumes:
@@ -29,16 +31,15 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      # F-07 后应用只连接已迁移到目标 V10 的数据库；不会自动建库或迁移。
-      - "dbUrl=jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ecobin}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
-      - dbUsername=${DB_RUNTIME_USERNAME:-ecobin_app}
-      - dbPassword=${DB_RUNTIME_PASSWORD:?set DB_RUNTIME_PASSWORD in .env}
-      - externalMode=fake
-      - onenetSubscriptionEnabled=false
+      # 应用只连接已迁移到目标 V11 的数据库；不会自动建库或迁移。
+      - "dbUrl=jdbc:mysql://mysql:3306/${ECOBIN_LOCAL_MYSQL_DATABASE:-ecobin}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
+      - dbUsername=${ECOBIN_LOCAL_DB_USERNAME:-ecobin_app}
+      - dbPassword=${ECOBIN_LOCAL_DB_PASSWORD:?run tools/development/run-local-stack.ps1}
+      - SPRING_PROFILES_ACTIVE=local-fake
     ports:
       - "8080:8080"
     volumes:
-      - ./.env:/app/.env:ro
+      - ./.ecobin/application-local-secrets.yml:/app/.ecobin/application-local-secrets.yml:ro
     restart: unless-stopped
 
   # 前端管理后台：nginx 托管构建产物 + 把 /api 同源反代到 backend

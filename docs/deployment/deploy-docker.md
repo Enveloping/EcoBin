@@ -85,48 +85,36 @@ Dockerfile 使用 Java 21 多阶段构建，运行阶段切换到非 root UID `1
 
 ## 6. Fake backend 配置
 
-复制 `.env.example` 后只填写本环境自己的秘密，不提交 `.env`。Fake backend 最少需要：
+复制 `tools/development/application-local-secrets.example.yml` 到
+`.ecobin/application-local-secrets.yml` 后填写本机配置。`.ecobin/` 已被 Git
+忽略。已有旧 `.env` 时可以执行一次：
 
-```properties
-MYSQL_DATABASE=ecobin
-MYSQL_ROOT_PASSWORD=由环境供应者保管的随机值
-
-DB_RUNTIME_USERNAME=ecobin_app
-DB_RUNTIME_PASSWORD=独立随机运行密码
-dbUrl=jdbc:mysql://mysql:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
-dbUsername=ecobin_app
-dbPassword=与DB_RUNTIME_PASSWORD相同的外部注入值
-
-externalMode=fake
-onenetSubscriptionEnabled=false
+```powershell
+.\tools\development\migrate-dotenv-to-local-yaml.ps1
 ```
 
-Fake 模式必须让以下字段缺省或为空：
+根 Compose 通过包装脚本读取同一份 YAML。至少填写：
 
-```text
-iotAccessId
-iotSecretKey
-iotSubscriptionName
-onenetProductId
-onenetAccessKey
-cosSecretId
-cosSecretKey
-cosRegion
-cosBucketName
-cosBaseUrl
-wechatAppid
-wechatSecret
+```yaml
+localMysqlDatabase: 'ecobin'
+localMysqlRootPassword: '由本机环境供应者保管的随机值'
+dbUrl: 'jdbc:mysql://127.0.0.1:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai'
+dbUsername: 'ecobin_app'
+dbPassword: '独立随机运行密码'
+jwtSecret: '至少 32 字节的随机值'
+appAesKey: '有效 AES 密钥'
 ```
 
-任何字段混入真实渠道配置都会触发启动失败。这是配置闩锁，不是“记录警告后跳过”。
+`local-fake` 会在最终属性层屏蔽 YAML 中已有的 OneNet、COS 和微信值，因此切换
+Fake/Real 时不用清空或恢复字段。生产不使用该文件，仍通过容器 secret 注入。
 
 ## 7. 启动与探针
 
 数据库已经迁移、`ecobin_app` 已按 H-02 授权后，才启动：
 
 ```powershell
-docker compose up -d --build
-docker compose logs -f backend
+.\tools\development\run-local-stack.ps1
+.\tools\development\run-local-stack.ps1 -Action Logs
 ```
 
 只暴露 health endpoint。就绪探针：

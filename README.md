@@ -173,23 +173,70 @@ mvn.cmd install -DskipTests
 .\tools\database\verify-f07-bootstrap.ps1
 ```
 
-脚本使用随机密码和随机容器名，结束后自动清理；它验证正确 V10 可就绪、错误纪元
+脚本使用随机密码和随机容器名，结束后自动清理；它验证正确 V11 可就绪、错误纪元
 严格失败、启动前后 schema/history 不变、无业务实例 seed、Fake 入站/出站闩锁，
 以及运行身份不能执行 DDL 或删除事实。
 
-### 3. 手动启动 Fake bootstrap
+### 3. 一键切换本地运行模式
 
-手动启动前必须由环境供应者完成以下工作：
+本地数据库和渠道密钥统一写在
+`.ecobin/application-local-secrets.yml`。该文件由 Git 和 Docker build context
+忽略，后端会从仓库根自动导入；日常切换模式不用修改任何密钥。
 
-- 以一次性 `ecobin_schema_owner` 在全新 MySQL 8.4 目标库执行 V1～V10；
-- 创建并限权 `ecobin_app`，只读 Flyway history 且不授予 DDL、TRIGGER 或 owner 权限；
-- 不向 Fake 环境注入任何 OneNet、COS 或微信真实凭证。
+已有旧 `.env` 的工作区只需迁移一次，脚本不会把值打印到终端：
 
-随后通过环境变量传入数据库连接：
-
-```bash
-./mvnw spring-boot:run -pl ecobin-bootstrap
+```powershell
+.\tools\development\migrate-dotenv-to-local-yaml.ps1
 ```
+
+全新工作区则复制
+`tools/development/application-local-secrets.example.yml` 到上述路径后直接填写。YAML
+保持顶层 `key: 'value'` 结构，避免同一个配置在脚本、IDEA 和 Spring 之间重复维护。
+
+IDEA 右上角运行配置直接选择：
+
+- `EcoBin Backend - Local Fake`：屏蔽本地 YAML 中的 OneNet/COS/微信配置，关闭真实
+  MQ，允许开发默认管理员；
+- `EcoBin Backend - Local Real`：使用本地 YAML 中完整真实配置，自动关闭开发默认
+  管理员初始化器。
+
+终端使用同一组 profile：
+
+```powershell
+# 默认会先安装最新多模块制品
+.\tools\development\run-backend.ps1 -Mode Fake
+.\tools\development\run-backend.ps1 -Mode Real
+
+# 确认模块制品未变化时可以跳过构建
+.\tools\development\run-backend.ps1 -Mode Fake -SkipBuild
+```
+
+脚本自动寻找 Java 21，并强制让 Spring Boot 以仓库根作为工作目录，因此终端与 IDEA
+读取同一份本地 YAML。若机器上无法自动发现 JDK，可传一次
+`-JavaHome <jdk-21目录>`。
+
+`local-fake` 和 `local-real` profile 只决定外联边界，不保存任何凭证。真实值仍只在
+Git 忽略的本地 YAML，不会被复制到共享 IDEA 配置或运行脚本。Spring 不再读取
+`.env`；旧文件只可作为迁移回退材料。
+`local-real` 不会删除数据库里已经存在的开发账号，只是不再创建或重置它；该 profile
+只用于本机受控渠道联调，不能作为生产部署 profile。
+
+若要运行根 Docker Compose，也使用同一份 YAML：
+
+```powershell
+.\tools\development\run-local-stack.ps1
+.\tools\development\run-local-stack.ps1 -Action Logs
+.\tools\development\run-local-stack.ps1 -Action Down
+```
+
+包装脚本只在当前进程内把 Compose 所需值注入环境，不创建第二份配置文件，也不输出
+密钥。生产部署继续使用 `/run/secrets`，不读取本地 YAML。
+
+首次启动前必须由环境供应者完成以下工作：
+
+- 以一次性 `ecobin_schema_owner` 在全新 MySQL 8.4 目标库执行 V1～V11；
+- 创建并限权 `ecobin_app`，只读 Flyway history 且不授予 DDL、TRIGGER 或 owner 权限；
+- 在本地 YAML 中提供数据库、JWT/加密密钥，以及 Real 模式需要的渠道配置。
 
 必须提供 `dbUrl`、`dbUsername=ecobin_app`、`dbPassword`；配置没有默认 root 或
 自动建库，运行制品在物理上不具备 baseline/migrate 能力。就绪探针为
@@ -197,9 +244,9 @@ mvn.cmd install -DskipTests
 
 ### 微信小程序配置
 
-F-07 默认 `externalMode=fake`，只接受 `fake:` 前缀的测试 code；真实 OneNet、COS、
-微信配置只允许在后续受控验收中与 `externalMode=real` 成套供应。Fake 模式混入任一
-真实渠道配置会直接启动失败。
+`local-fake` 只接受 `fake:` 前缀的测试 code，并在最终属性绑定层屏蔽 OneNet、COS、
+微信真实配置；`local-real` 要求这些渠道配置完整，否则直接启动失败。生产仍必须使用
+正式环境的密钥注入和 profile，不能把本地 profile 当作部署配置。
 
 ### 默认账号
 
