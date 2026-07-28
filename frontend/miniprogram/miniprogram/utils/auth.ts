@@ -109,6 +109,16 @@ export function refreshSession(): Promise<LoginResponse> {
 export async function ensureLoggedIn(
   registrationSource?: RegistrationSource,
 ): Promise<LoginResponse> {
+  if (registrationSource) {
+    // Registration attribution is immutable and only accepted by the first
+    // source-bearing wx.login. A deleted/expired server session can leave a
+    // stale local projection behind; validating it would trigger the generic
+    // source-less refresh path before the QR source reaches the backend.
+    // Existing server users remain the same user, so later QR scans still
+    // cannot backfill or overwrite their original attribution.
+    clearSession()
+    return login(registrationSource)
+  }
   const session = getSession()
   if (session && !isSessionExpired(session)) {
     const current = await getCurrentSession(session.audience)
@@ -121,7 +131,7 @@ export async function ensureLoggedIn(
     persistSession(validated)
     return validated
   }
-  return registrationSource ? login(registrationSource) : refreshSession()
+  return refreshSession()
 }
 
 export function isLoggedIn(): boolean {

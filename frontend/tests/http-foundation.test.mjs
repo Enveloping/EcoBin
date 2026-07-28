@@ -80,3 +80,17 @@ test('same audience with a changed entry mode is a route transition', () => {
     /sessionEntryChanged\(previousSession,\s*renewed\)/,
   );
 });
+
+test('trusted registration entry bypasses a stale local session projection', () => {
+  const authSource = readFileSync(
+    new URL(
+      '../miniprogram/miniprogram/utils/auth.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  assert.match(
+    authSource,
+    /if \(registrationSource\) \{\s*[\s\S]*?clearSession\(\)\s*[\s\S]*?return login\(registrationSource\)\s*\}/,
+  );
+});
