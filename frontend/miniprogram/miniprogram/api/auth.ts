@@ -9,6 +9,12 @@ export interface RegistrationSource {
   deploymentCode: string
 }
 
+export interface PhoneBinding {
+  phoneBound: true
+  maskedPhoneNumber: string
+  phoneBoundAt: string
+}
+
 /** 精确匿名入口：AppID + 一次性 wx.login code，返回且只返回一个 audience。 */
 export function wxLogin(
   wxLoginCode: string,
@@ -45,5 +51,19 @@ export function getCurrentSession(audience: MiniappAudience) {
     `${prefix}/auth/sessions/current`,
     undefined,
     { noStore: true },
+  )
+}
+
+export function bindCurrentPhone(
+  wechatPhoneCode: string,
+  idempotencyKey: string,
+) {
+  return http.post<PhoneBinding>(
+    '/api/v1/miniapp/me/phone-bindings',
+    { wechatPhoneCode },
+    {
+      idempotencyKey,
+      retryAfterLogin: true,
+    },
   )
 }

@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已完成，F-11 固定帧 MCU 适配及边缘闭环实施中，V-02 已 ready 但仍须单独授权**
+> 状态：**29 项任务已批准并发布；H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已完成，F-11 其余边缘闭环实施中，V-02 software 已完成并等待真实微信联调与人工验收**
 >
 > 草案日期：2026-07-24
 >
@@ -625,11 +625,13 @@ M0_COMPLETE
 14. 2026-07-27，项目负责人确认三端业务协议已经确定，现有单片机无需原生实现
     UART 1.0；F-10 转为 `done`，F-11 在香橙派侧显式适配固定帧，H-03 保留真实硬件
     验收职责并改为依赖 F-11。
+15. 2026-07-27，项目负责人授权并由 Codex 在独立 worktree 完成 V-02 software；
+    MySQL 8.4 专项、全仓 Java、Web、小程序和 OpenAPI 检查通过。任务级因真实微信
+    integration/acceptance 尚未开始而保持 `in-progress`。
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
 当前 H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01
-为 `done`；F-11 为 `in-progress`；H-02 已通过本地演练及服务器整改阶段 0～3 验收，
-当前试验期 `.ecobin` 凭证保管例外已由项目负责人接受；
-V-02 为 `ready` 但仍须单独授权；其余任务保持 `blocked`。当前共 `done` 13、
-`ready` 1、`in-progress` 1、`blocked` 14。
+为 `done`；F-11 和 V-02 为 `in-progress`；H-02 已通过本地演练及服务器整改阶段
+0～3 验收，V-02 仍等待真实微信 integration/acceptance；其余任务保持 `blocked`。
+当前共 `done` 13、`ready` 0、`in-progress` 2、`blocked` 14。

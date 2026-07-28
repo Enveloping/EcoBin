@@ -10,4 +10,15 @@ import org.enveloping.ecobin.identity.api.result.WechatSession;
 public interface WechatSessionPort {
 
     WechatSession exchange(String appid, String secret, String code);
+
+    /**
+     * 目标小程序入口使用数据库中的外部秘密引用，不把 AppSecret 正文带入 identity。
+     */
+    default WechatSession exchangeByCredentialReference(
+            String appid,
+            String secretReference,
+            String code) {
+        throw new UnsupportedOperationException(
+                "credential-reference exchange is not configured");
+    }
 }

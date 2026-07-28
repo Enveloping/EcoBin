@@ -1,26 +1,30 @@
 ---
 task_id: V-02
 title: 机构用户首次注册并获得独立零余额钱包
-status: ready
+status: in-progress
 executor: mixed
-owner: "待指派 - 机构用户与小程序端到端切片负责人"
+owner: "Codex / organization-user-wallet-slice-owner"
 effort_range: "6-10 person-days"
 earliest_start:
   software: "V-01、F-06、F-09 全部 done"
   integration: "software 完成，且试点机构 AppID/AppSecret、真实小程序和指定测试用户可用"
   acceptance: "integration 完成，可取得真实 wx.login、getPhoneNumber 和 Web 人工绑定证据"
 phase_progress:
-  software: not-started
-  integration: not-started
+  software: done
+  integration: in-progress
   acceptance: not-started
 blocked_by:
   - V-01
   - F-06
   - F-09
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # V-02｜机构用户首次注册并获得独立零余额钱包
+
+> `status: in-progress`：software 阶段已在独立 worktree 中完成并通过 MySQL 8.4、
+> 全仓及客户端自动回归；真实 `wx.login` 已联通，integration 正在进行。真实手机号、
+> 设备来源注册和完整人工验收尚未完成，任务级仍保持 `in-progress`。
 
 ## 目标
 
@@ -34,15 +38,15 @@ implementation_authorized: false
 
 ## 验收标准
 
-- [ ] 相同机构 `AppID + OpenID` 并发首次登录只创建一个机构用户、一个零余额钱包和有效会话。
-- [ ] 钱包初始化或会话创建失败时，机构用户、注册归因、钱包和会话整体回滚。
-- [ ] 直接进入小程序时注册来源为空；首次经可信设备二维码注册时固定来源部署和注册时间，后续登录或扫码不能回填、覆盖。
+- [x] 相同机构 `AppID + OpenID` 并发首次登录只创建一个机构用户、一个零余额钱包和有效会话。
+- [x] 钱包初始化或会话创建失败时，机构用户、注册归因、钱包和会话整体回滚。
+- [x] 直接进入小程序时注册来源为空；首次经可信设备二维码注册时固定来源部署和注册时间，后续登录或扫码不能回填、覆盖。
 - [ ] 未绑定手机号的用户已计入注册统计，但不能投递或提现。
-- [ ] 手机号仅通过 `getPhoneNumber` 动态码绑定，同机构手机号唯一，日志和普通审计保持脱敏。
-- [ ] Web 人工绑定使用精确手机号查找和双侧版本快照；并发换绑最多一个成功，并撤销冲突旧绑定及会话。
-- [ ] 有效工作人员绑定自动进入 `MANAGEMENT`；否则按清运能力进入 `CLEANING`，再否则进入 `USER`。
-- [ ] funds 不回查 identity 私表；跨模块不存在裸 `Long`、Entity/Mapper 泄漏或可序列化内部 FK。
-- [ ] 两机构使用不同 AppID/OpenID 身份和独立钱包，不能跨机构复用。
+- [x] 手机号仅通过 `getPhoneNumber` 动态码绑定，同机构手机号唯一，日志和普通审计保持脱敏。
+- [x] Web 人工绑定使用精确手机号查找和双侧版本快照；并发换绑最多一个成功，并撤销冲突旧绑定及会话。
+- [x] 有效工作人员绑定自动进入 `MANAGEMENT`；否则按清运能力进入 `CLEANING`，再否则进入 `USER`。
+- [x] funds 不回查 identity 私表；跨模块不存在裸 `Long`、Entity/Mapper 泄漏或可序列化内部 FK。
+- [x] 两机构使用不同 AppID/OpenID 身份和独立钱包，不能跨机构复用。
 - [ ] 真实小程序 HITL 证据包含 `wx.login`、`getPhoneNumber`、直接注册、设备来源注册和工作人员免密进入管理页；Stub 只能关闭软件阶段。
 
 ## 阻塞与最早开始
@@ -53,9 +57,9 @@ implementation_authorized: false
 | integration | software 完成，且试点机构 AppID/AppSecret、真实小程序和指定测试用户可用 |
 | acceptance | integration 完成，并能采集真实 `wx.login`、`getPhoneNumber` 和 Web 人工绑定证据 |
 
-`V-01、F-06、F-09` 已全部完成，软件阶段依赖已经解除；任务转为 `ready`，但尚未获得
-实施授权。集成和验收阶段仍须满足表中真实小程序、机构凭据和指定测试用户条件，三个阶段
-全部通过后才可以标记 `done`。
+`V-01、F-06、F-09` 已全部完成，software 阶段也已完成自动验收。integration 和
+acceptance 阶段仍须满足表中真实小程序、机构凭据和指定测试用户条件；三个阶段全部通过
+后才可以把任务级状态标记为 `done`。
 
 ## 排除范围
 
@@ -81,3 +85,16 @@ implementation_authorized: false
 - 2026-07-23：发布任务文件；仅完成设计与任务拆分，尚未授权实施。
 - 2026-07-27：V-01 完成复审并转为 `done`，V-02 的软件前置 V-01、F-06、F-09
   全部解除，任务由 `blocked` 转为 `ready`；这不构成实施或外部配置授权。
+- 2026-07-27：项目负责人明确要求开始推进 V-02，并指定后续修改均在独立 worktree
+  `database-refactor-v02-organization-user-registration-wallet` 中进行；任务转为
+  `in-progress`，software 阶段开始，实施授权不扩展到真实微信凭据或外部平台配置。
+- 2026-07-27：software 阶段完成。MySQL 8.4 专项 3 项、全仓 Java 110 项、
+  Web HTTP 基础 3 项、小程序 TypeScript 和 OpenAPI 本地引用检查全部通过；详细证据见
+  [`v-02-organization-user-registration-wallet-evidence.md`](../../../architecture/v-02-organization-user-registration-wallet-evidence.md)。
+  未使用真实 AppSecret、真实微信用户或外部平台配置，integration/acceptance 仍为
+  `not-started`。
+- 2026-07-28：补齐 I-015 后端机构用户列表/详情、冻结/恢复、清运能力授予/撤销及
+  平台协助入口；注册来源安全摘要继续通过公开端口读取，不让 identity 查询 device
+  私表。MySQL 8.4 专项扩展为 5 项并全部通过，全仓 Java 111 项零失败，HTTP OpenAPI
+  官方校验 5 项通过。真实 `wx.login` 已验证，因此 integration 转为 `in-progress`；
+  真实 `getPhoneNumber`、可信设备来源注册和完整人工验收尚未完成。

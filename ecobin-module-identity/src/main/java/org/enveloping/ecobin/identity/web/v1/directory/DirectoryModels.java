@@ -269,4 +269,76 @@ public final class DirectoryModels {
             Object after,
             Map<String, Object> metadata) {
     }
+
+    public record OrganizationUserLookupRequest(
+            @NotBlank @Size(max = 24) String phoneNumber) {
+    }
+
+    public record BindingSnapshot(
+            @NotNull UUID bindingUid,
+            @NotNull @PositiveOrZero Long version) {
+    }
+
+    public record OrganizationUserCurrentMiniappBinding(
+            UUID bindingUid,
+            UUID staffAccountUid,
+            long version) {
+    }
+
+    public record OrganizationUserLookupView(
+            UUID organizationUserUid,
+            String nickname,
+            String maskedPhoneNumber,
+            Instant registeredAt,
+            String status,
+            OrganizationUserCurrentMiniappBinding currentMiniappBinding) {
+    }
+
+    public record OrganizationUserRegistrationSource(
+            String deploymentCode,
+            String lifecycleStatus) {
+    }
+
+    public record OrganizationUserView(
+            UUID organizationUserUid,
+            String nickname,
+            String avatarUrl,
+            String maskedPhoneNumber,
+            boolean phoneBound,
+            Instant registeredAt,
+            OrganizationUserRegistrationSource registrationSource,
+            String status,
+            boolean cleanOperationEnabled,
+            long version,
+            long authVersion) {
+    }
+
+    public record StaffCurrentMiniappBinding(
+            UUID bindingUid,
+            UUID organizationUserUid,
+            long version,
+            String nickname,
+            String maskedPhoneNumber) {
+    }
+
+    public record StaffMiniappBindingLookupView(
+            StaffCurrentMiniappBinding currentMiniappBinding) {
+    }
+
+    public record SetStaffMiniappBindingRequest(
+            @NotNull UUID organizationUserUid,
+            BindingSnapshot expectedStaffBinding,
+            BindingSnapshot expectedOrganizationUserBinding,
+            @Size(max = 500) String reason) {
+    }
+
+    public record StaffMiniappBindingView(
+            UUID bindingUid,
+            UUID organizationUserUid,
+            UUID staffAccountUid,
+            String status,
+            long version,
+            Instant boundAt,
+            Instant revokedAt) {
+    }
 }

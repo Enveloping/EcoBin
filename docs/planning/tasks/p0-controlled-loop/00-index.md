@@ -15,9 +15,8 @@ implementation_authorized: false
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
 > F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10；
 > F-11 已获软件实施授权并处于 `in-progress`；V-01 已完成；H-02 已通过本地 MySQL 8.4
-> 开发演练及服务器整改阶段 0～3 验收，项目负责人接受当前试验期使用 ACL 受限
-> `.ecobin` 保管长期凭证原件，任务已转为 `done`；
-> V-02 为 `ready` 但仍须单独授权；其他任务仍须逐项获得授权。
+> 开发演练及服务器整改阶段 0～3 验收并转为 `done`；V-02 software 已完成、任务级
+> 仍等待真实微信 integration/acceptance；其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
 ## Initiative 状态
@@ -27,8 +26,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已授权并完成；F-11 固定帧适配实施中；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 已 ready 但未授权；H-03 真机验收及阶段 4 其他任务未授权** |
-| 当前状态数 | `done` 13、`ready` 1、`in-progress` 1、`blocked` 14 |
+| 实施授权 | **部分授权：H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已授权并完成；F-11 其余边缘闭环实施中；V-02 software 已完成并等待真实微信联调与人工验收；H-03 真机验收及阶段 4 其他任务未授权** |
+| 当前状态数 | `done` 13、`ready` 0、`in-progress` 2、`blocked` 14 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -92,7 +91,7 @@ agent | human | mixed
 | ID | 任务 | status | executor | blocked by |
 |---|---|---|---|---|
 | V-01 | [租户、机构和工作人员可以安全登录管理](v-01-tenant-organization-staff-login.md) | `done` | `agent` | F-02、F-03、F-04、F-09 |
-| V-02 | [机构用户首次注册并获得独立零余额钱包](v-02-organization-user-registration-wallet.md) | `ready` | `mixed` | V-01、F-06、F-09 |
+| V-02 | [机构用户首次注册并获得独立零余额钱包](v-02-organization-user-registration-wallet.md) | `in-progress`（software done） | `mixed` | V-01、F-06、F-09 |
 | V-03 | [试点设备从库存到配置可用](v-03-pilot-device-deployment-configuration.md) | `blocked` | `mixed` | V-01、F-07、F-08、F-11、H-03 |
 | V-04 | [一次真实投递形成待审核订单](v-04-real-delivery-pending-review.md) | `blocked` | `mixed` | V-02、V-03 |
 | V-05 | [投递审核/纠错形成真实钱包差额](v-05-delivery-review-wallet-delta.md) | `blocked` | `agent` | V-04 |
@@ -300,3 +299,9 @@ M0_COMPLETE
   F-11 的显式固定帧适配层承担，真实设备验收保留在 H-03。F-10 转为 `done`，H-03
   保持 `blocked` 但依赖由 F-10 改为 F-11。当前共 `done` 13、`ready` 1、
   `in-progress` 1、`blocked` 14。
+- 2026-07-27：项目负责人明确授权 Codex 在独立 worktree 推进 V-02，任务和 software
+  阶段转为 `in-progress`；真实微信凭据、外部配置、联调与人工验收未随软件授权开放。
+  当前共 `done` 13、`ready` 0、`in-progress` 2、`blocked` 14。
+- 2026-07-27：V-02 software 完成 MySQL 8.4 专项、全仓 Java、Web、小程序和 OpenAPI
+  自动验收；真实微信 integration/acceptance 尚未开始，任务级继续为 `in-progress`。
+  状态数不变。

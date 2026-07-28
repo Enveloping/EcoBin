@@ -1,0 +1,18 @@
+<view class="management-page">
+  <view class="management-hero">
+    <view class="mode-label">MANAGEMENT SESSION</view>
+    <view class="organization">{{organizationName}}</view>
+    <view class="operator">{{displayName}}，已通过工作人员绑定进入</view>
+  </view>
+  <view class="management-card">
+    <view class="card-index">01</view>
+    <view class="card-title">管理入口已生效</view>
+    <view class="card-copy">V-02 仅开放身份与入口验证；完整经营统计将在后续业务切片接入。</view>
+    <view class="capability-list">
+      <view class="capability" wx:for="{{capabilities}}" wx:key="*this">{{item}}</view>
+      <view class="capability empty" wx:if="{{!capabilities.length}}">当前无展示型能力</view>
+    </view>
+  </view>
+  <view class="security-note">此会话只对应管理入口，不提供普通用户模式切换。</view>
+  <view class="logout" bindtap="onLogout">退出并重新识别入口</view>
+</view>

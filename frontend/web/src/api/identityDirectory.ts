@@ -43,6 +43,40 @@ export interface StaffProfileInput {
   expectedVersion: number;
 }
 
+export interface BindingSnapshot {
+  bindingUid: string;
+  version: number;
+}
+
+export interface OrganizationUserLookup {
+  organizationUserUid: string;
+  nickname: string;
+  maskedPhoneNumber: string;
+  registeredAt: string;
+  status: 'ACTIVE' | 'FROZEN';
+  currentMiniappBinding: (BindingSnapshot & {
+    staffAccountUid: string;
+  }) | null;
+}
+
+export interface StaffMiniappBindingLookup {
+  currentMiniappBinding: (BindingSnapshot & {
+    organizationUserUid: string;
+    nickname: string | null;
+    maskedPhoneNumber: string | null;
+  }) | null;
+}
+
+export interface StaffMiniappBinding {
+  bindingUid: string;
+  organizationUserUid: string;
+  staffAccountUid: string;
+  status: 'ACTIVE' | 'REVOKED';
+  version: number;
+  boundAt: string;
+  revokedAt: string | null;
+}
+
 function operationUid(): string {
   return crypto.randomUUID();
 }
@@ -438,4 +472,65 @@ export function changeMembershipStatus(
           reason,
         },
   );
+}
+
+export function lookupOrganizationUserByPhone(
+  context: DirectoryContext,
+  organizationCode: string,
+  phoneNumber: string,
+) {
+  const url = context.domain === 'platform'
+    ? `${scopedBase(context)}/organizations/${organizationCode}/organization-users/phone-lookups`
+    : `${scopedBase(context)}/organizations/${organizationCode}/organization-user-lookups`;
+  return request<OrganizationUserLookup>({
+    url,
+    method: 'POST',
+    data: { phoneNumber },
+  });
+}
+
+export function getStaffMiniappBinding(
+  context: DirectoryContext,
+  organizationCode: string,
+  staffUid: string,
+) {
+  return request<StaffMiniappBindingLookup>({
+    url: `${scopedBase(context)}/organizations/${organizationCode}/staff-accounts/${staffUid}/miniapp-binding`,
+    method: 'GET',
+  });
+}
+
+export function setStaffMiniappBinding(
+  context: DirectoryContext,
+  organizationCode: string,
+  staffUid: string,
+  data: {
+    organizationUserUid: string;
+    expectedStaffBinding: BindingSnapshot | null;
+    expectedOrganizationUserBinding: BindingSnapshot | null;
+    reason?: string;
+  },
+) {
+  return write<StaffMiniappBinding>(
+    `${scopedBase(context)}/organizations/${organizationCode}/staff-accounts/${staffUid}/miniapp-binding`,
+    'PUT',
+    data,
+  );
+}
+
+export function revokeStaffMiniappBinding(
+  context: DirectoryContext,
+  organizationCode: string,
+  binding: StaffMiniappBinding | NonNullable<
+    StaffMiniappBindingLookup['currentMiniappBinding']
+  >,
+  reason?: string,
+) {
+  const url = context.domain === 'platform'
+    ? `${scopedBase(context)}/organizations/${organizationCode}/staff-miniapp-bindings/${binding.bindingUid}/revocations`
+    : `/api/v1/web/staff-miniapp-bindings/${binding.bindingUid}/revocations`;
+  return write<StaffMiniappBinding>(url, 'POST', {
+    expectedVersion: binding.version,
+    reason,
+  });
 }

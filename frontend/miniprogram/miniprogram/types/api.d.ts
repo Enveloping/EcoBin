@@ -43,6 +43,7 @@ export interface MiniappSessionView {
   subjectUid: string
   displayName: string
   capabilities: string[]
+  phoneBound: boolean
 }
 
 /** 一次 wx.login 只返回一种 audience 的短期凭据。 */

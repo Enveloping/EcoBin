@@ -1,26 +1,54 @@
-let countdownTimer: number | undefined
+import { bindCurrentPhone } from '../../api/auth'
+import { getSession, markPhoneBound } from '../../utils/auth'
+import { createIdempotencyKey } from '../../utils/command-intent'
 
 Page({
-  data: { phone: '', code: '', seconds: 0 },
-
-  onUnload() { if (countdownTimer) clearInterval(countdownTimer) },
-  onInput(e: WechatMiniprogram.CustomEvent<{ value: string }>) { this.setData({ [String(e.currentTarget.dataset.field)]: e.detail.value }) },
-
-  onSendCode() {
-    if (this.data.seconds > 0) return
-    if (!/^1\d{10}$/.test(this.data.phone)) return void wx.showToast({ title: '请输入正确的手机号', icon: 'none' })
-    this.setData({ seconds: 60 })
-    wx.showToast({ title: '演示验证码已发送', icon: 'none' })
-    countdownTimer = setInterval(() => {
-      const seconds = this.data.seconds - 1
-      this.setData({ seconds })
-      if (seconds <= 0 && countdownTimer) { clearInterval(countdownTimer); countdownTimer = undefined }
-    }, 1000) as unknown as number
+  data: {
+    submitting: false,
+    alreadyBound: false,
+    maskedPhoneNumber: '',
   },
 
-  onSubmit() {
-    if (!/^1\d{10}$/.test(this.data.phone)) return void wx.showToast({ title: '请输入正确的手机号', icon: 'none' })
-    if (!/^\d{4,6}$/.test(this.data.code)) return void wx.showToast({ title: '请输入验证码', icon: 'none' })
-    wx.showModal({ title: '绑定成功', content: `已在本地演示中绑定 ${this.data.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}`, showCancel: false })
+  bindingIntentKey: '' as string,
+
+  async onLoad() {
+    this.setData({ alreadyBound: getSession()?.phoneBound ?? false })
+    this.bindingIntentKey = await createIdempotencyKey()
+  },
+
+  async onGetPhoneNumber(
+    event: WechatMiniprogram.CustomEvent<{
+      code?: string
+      errMsg?: string
+    }>,
+  ) {
+    if (this.data.submitting) return
+    const code = event.detail.code
+    if (!code) {
+      wx.showToast({ title: '需要授权手机号才能完成绑定', icon: 'none' })
+      return
+    }
+    if (!this.bindingIntentKey) {
+      this.bindingIntentKey = await createIdempotencyKey()
+    }
+    this.setData({ submitting: true })
+    try {
+      const binding = await bindCurrentPhone(
+        code,
+        this.bindingIntentKey,
+      )
+      markPhoneBound()
+      this.setData({
+        alreadyBound: true,
+        maskedPhoneNumber: binding.maskedPhoneNumber,
+      })
+      wx.showToast({ title: '手机号已绑定', icon: 'success' })
+    } finally {
+      this.setData({ submitting: false })
+    }
+  },
+
+  onBack() {
+    wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/home/home' }) })
   },
 })

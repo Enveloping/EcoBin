@@ -60,10 +60,14 @@ class IdentitySourceBoundaryTest {
             }
         }
 
-        assertEquals(List.of(Path.of(
-                        "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
-                                + "application/legacy/MiniappRegistrationService.java")),
-                issuanceCallSites);
+        assertEquals(List.of(
+                        Path.of(
+                                "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
+                                        + "application/legacy/MiniappRegistrationService.java"),
+                        Path.of(
+                                "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
+                                        + "application/miniapp/TargetMiniappLoginTransactionService.java")),
+                issuanceCallSites.stream().sorted().toList());
         assertEquals(List.of(Path.of(
                         "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
                                 + "api/persistence/"
@@ -89,10 +93,14 @@ class IdentitySourceBoundaryTest {
             }
         }
 
-        assertEquals(List.of(Path.of(
-                        "ecobin-module-funds/src/main/java/org/enveloping/ecobin/funds/"
-                                + "infrastructure/legacy/LegacyEmbeddedWalletRegistrationParticipant.java")),
-                callSites);
+        assertEquals(List.of(
+                        Path.of(
+                                "ecobin-module-funds/src/main/java/org/enveloping/ecobin/funds/"
+                                        + "infrastructure/legacy/LegacyEmbeddedWalletRegistrationParticipant.java"),
+                        Path.of(
+                                "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
+                                        + "application/miniapp/TargetMiniappLoginTransactionService.java")),
+                callSites.stream().sorted().toList());
     }
 
     private static List<Path> javaSources(Path root) throws IOException {

@@ -1439,6 +1439,563 @@
         }
       }
     },
+    "/api/v1/web/organizations/{organizationCode}/organization-users": {
+      "get": {
+        "operationId": "listCurrentTenantOrganizationUsers",
+        "tags": ["Identity directory"],
+        "summary": "List safe organization-user projections in the authorized organization",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "enum": ["ACTIVE", "FROZEN"]}
+          },
+          {
+            "name": "phoneBound",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "boolean"}
+          },
+          {
+            "name": "registeredFrom",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          },
+          {
+            "name": "registeredTo",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          },
+          {
+            "name": "sourceDeploymentCode",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+          },
+          {
+            "name": "cleanOperation",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "boolean"}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}": {
+      "get": {
+        "operationId": "getCurrentTenantOrganizationUser",
+        "tags": ["Identity directory"],
+        "summary": "Read one safe organization-user projection",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/freezes": {
+      "post": {
+        "operationId": "freezeCurrentTenantOrganizationUser",
+        "tags": ["Identity directory"],
+        "summary": "Freeze one organization user and revoke ordinary miniapp sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/restorations": {
+      "post": {
+        "operationId": "restoreCurrentTenantOrganizationUser",
+        "tags": ["Identity directory"],
+        "summary": "Restore one frozen organization user without restoring old sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/capabilities/clean-operation/grants": {
+      "post": {
+        "operationId": "grantCurrentTenantOrganizationUserCleanOperation",
+        "tags": ["Identity directory"],
+        "summary": "Grant the organization user's cleaning capability and revoke ordinary miniapp sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/capabilities/clean-operation/revocations": {
+      "post": {
+        "operationId": "revokeCurrentTenantOrganizationUserCleanOperation",
+        "tags": ["Identity directory"],
+        "summary": "Revoke the organization user's cleaning capability and revoke ordinary miniapp sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-user-lookups": {
+      "post": {
+        "operationId": "lookupCurrentTenantOrganizationUserByPhone",
+        "tags": ["Identity directory"],
+        "summary": "Exactly lookup one organization user by a phone number supplied only in the body",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/OrganizationUserPhoneLookupRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/staff-accounts/{staffUid}/miniapp-binding": {
+      "get": {
+        "operationId": "getCurrentTenantStaffMiniappBinding",
+        "tags": ["Identity directory"],
+        "summary": "Read the staff account current miniapp binding snapshot",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/StaffAccountUid"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "put": {
+        "operationId": "setCurrentTenantStaffMiniappBinding",
+        "tags": ["Identity directory"],
+        "summary": "Atomically set or replace a staff miniapp binding using both observed snapshots",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/StaffAccountUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/SetStaffMiniappBindingRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/staff-miniapp-bindings/{bindingUid}/revocations": {
+      "post": {
+        "operationId": "revokeCurrentTenantStaffMiniappBinding",
+        "tags": ["Identity directory"],
+        "summary": "Revoke one current-tenant staff miniapp binding and its management sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/BindingUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/VersionCommand"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users": {
+      "get": {
+        "operationId": "listPlatformOrganizationUsers",
+        "tags": ["Identity directory"],
+        "summary": "Platform list of safe organization-user projections",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "enum": ["ACTIVE", "FROZEN"]}
+          },
+          {
+            "name": "phoneBound",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "boolean"}
+          },
+          {
+            "name": "registeredFrom",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          },
+          {
+            "name": "registeredTo",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          },
+          {
+            "name": "sourceDeploymentCode",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+          },
+          {
+            "name": "cleanOperation",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "boolean"}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}": {
+      "get": {
+        "operationId": "getPlatformOrganizationUser",
+        "tags": ["Identity directory"],
+        "summary": "Platform read of one safe organization-user projection",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/freezes": {
+      "post": {
+        "operationId": "freezePlatformOrganizationUser",
+        "tags": ["Identity directory"],
+        "summary": "Platform freeze of one organization user",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/restorations": {
+      "post": {
+        "operationId": "restorePlatformOrganizationUser",
+        "tags": ["Identity directory"],
+        "summary": "Platform restore of one frozen organization user",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/capabilities/clean-operation/grants": {
+      "post": {
+        "operationId": "grantPlatformOrganizationUserCleanOperation",
+        "tags": ["Identity directory"],
+        "summary": "Platform grant of one organization user's cleaning capability",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/capabilities/clean-operation/revocations": {
+      "post": {
+        "operationId": "revokePlatformOrganizationUserCleanOperation",
+        "tags": ["Identity directory"],
+        "summary": "Platform revocation of one organization user's cleaning capability",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/OrganizationUserUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/phone-lookups": {
+      "post": {
+        "operationId": "lookupPlatformOrganizationUserByPhone",
+        "tags": ["Identity directory"],
+        "summary": "Platform lookup of one organization user by a body-only phone number",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/OrganizationUserPhoneLookupRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-accounts/{staffUid}/miniapp-binding": {
+      "get": {
+        "operationId": "getPlatformStaffMiniappBinding",
+        "tags": ["Identity directory"],
+        "summary": "Platform read of one staff miniapp binding snapshot",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/StaffAccountUid"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "put": {
+        "operationId": "setPlatformStaffMiniappBinding",
+        "tags": ["Identity directory"],
+        "summary": "Platform atomically sets or replaces a staff miniapp binding",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/StaffAccountUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/SetStaffMiniappBindingRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/staff-miniapp-bindings/{bindingUid}/revocations": {
+      "post": {
+        "operationId": "revokePlatformStaffMiniappBinding",
+        "tags": ["Identity directory"],
+        "summary": "Platform revocation of one staff miniapp binding and its management sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantCode"},
+          {"$ref": "#/components/parameters/OrganizationCode"},
+          {"$ref": "#/components/parameters/BindingUid"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/VersionCommand"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
     "/api/v1/miniapp/auth/sessions": {
       "post": {
         "operationId": "createMiniappSession",
@@ -1518,6 +2075,34 @@
           "401": {
             "$ref": "#/components/responses/UnauthorizedProblem"
           }
+        }
+      }
+    },
+    "/api/v1/miniapp/me/phone-bindings": {
+      "post": {
+        "operationId": "bindCurrentMiniappUserPhone",
+        "tags": ["Miniapp authentication"],
+        "summary": "Consume one WeChat dynamic phone code and bind its normalized phone number",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/BindMiniappPhoneRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappPhoneBinding"},
+          "201": {"$ref": "#/components/responses/MiniappPhoneBinding"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
         }
       }
     },
@@ -1709,6 +2294,22 @@
       },
       "StaffAccountUid": {
         "name": "staffUid",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/PublicUid"
+        }
+      },
+      "BindingUid": {
+        "name": "bindingUid",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/PublicUid"
+        }
+      },
+      "OrganizationUserUid": {
+        "name": "organizationUserUid",
         "in": "path",
         "required": true,
         "schema": {
@@ -1908,6 +2509,24 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/MiniappSessionViewEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappPhoneBinding": {
+        "description": "The current organization user phone-binding safety projection",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MiniappPhoneBindingEnvelope"
             }
           }
         }
@@ -2472,6 +3091,243 @@
           }
         }
       },
+      "OrganizationUserPhoneLookupRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phoneNumber"],
+        "properties": {
+          "phoneNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24,
+            "writeOnly": true,
+            "description": "Exact phone number supplied only in the request body; never put it in a URL or log."
+          }
+        }
+      },
+      "BindingSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bindingUid", "version"],
+        "properties": {
+          "bindingUid": {"$ref": "#/components/schemas/PublicUid"},
+          "version": {"type": "integer", "format": "int64", "minimum": 0}
+        }
+      },
+      "OrganizationUserCurrentMiniappBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bindingUid", "staffAccountUid", "version"],
+        "properties": {
+          "bindingUid": {"$ref": "#/components/schemas/PublicUid"},
+          "staffAccountUid": {"$ref": "#/components/schemas/PublicUid"},
+          "version": {"type": "integer", "format": "int64", "minimum": 0}
+        }
+      },
+      "OrganizationUserLookup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationUserUid",
+          "nickname",
+          "maskedPhoneNumber",
+          "registeredAt",
+          "status",
+          "currentMiniappBinding"
+        ],
+        "properties": {
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "nickname": {"type": "string", "minLength": 1, "maxLength": 100},
+          "maskedPhoneNumber": {"type": "string", "minLength": 3, "maxLength": 24},
+          "registeredAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "status": {"type": "string", "enum": ["ACTIVE", "FROZEN"]},
+          "currentMiniappBinding": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/OrganizationUserCurrentMiniappBinding"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "OrganizationUserRegistrationSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deploymentCode", "lifecycleStatus"],
+        "properties": {
+          "deploymentCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "lifecycleStatus": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24
+          }
+        }
+      },
+      "OrganizationUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationUserUid",
+          "nickname",
+          "avatarUrl",
+          "maskedPhoneNumber",
+          "phoneBound",
+          "registeredAt",
+          "registrationSource",
+          "status",
+          "cleanOperationEnabled",
+          "version",
+          "authVersion"
+        ],
+        "properties": {
+          "organizationUserUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "nickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "avatarUrl": {
+            "oneOf": [
+              {"type": "string", "format": "uri", "maxLength": 1000},
+              {"type": "null"}
+            ]
+          },
+          "maskedPhoneNumber": {
+            "oneOf": [
+              {"type": "string", "minLength": 3, "maxLength": 24},
+              {"type": "null"}
+            ]
+          },
+          "phoneBound": {"type": "boolean"},
+          "registeredAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "registrationSource": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/OrganizationUserRegistrationSource"},
+              {"type": "null"}
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ACTIVE", "FROZEN"]
+          },
+          "cleanOperationEnabled": {"type": "boolean"},
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "authVersion": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "StaffCurrentMiniappBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bindingUid",
+          "organizationUserUid",
+          "version",
+          "nickname",
+          "maskedPhoneNumber"
+        ],
+        "properties": {
+          "bindingUid": {"$ref": "#/components/schemas/PublicUid"},
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "version": {"type": "integer", "format": "int64", "minimum": 0},
+          "nickname": {
+            "oneOf": [
+              {"type": "string", "minLength": 1, "maxLength": 100},
+              {"type": "null"}
+            ]
+          },
+          "maskedPhoneNumber": {
+            "oneOf": [
+              {"type": "string", "minLength": 3, "maxLength": 24},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "StaffMiniappBindingLookup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["currentMiniappBinding"],
+        "properties": {
+          "currentMiniappBinding": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/StaffCurrentMiniappBinding"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "SetStaffMiniappBindingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationUserUid",
+          "expectedStaffBinding",
+          "expectedOrganizationUserBinding"
+        ],
+        "properties": {
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "expectedStaffBinding": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/BindingSnapshot"},
+              {"type": "null"}
+            ]
+          },
+          "expectedOrganizationUserBinding": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/BindingSnapshot"},
+              {"type": "null"}
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {"type": "string", "maxLength": 500},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "StaffMiniappBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "bindingUid",
+          "organizationUserUid",
+          "staffAccountUid",
+          "status",
+          "version",
+          "boundAt",
+          "revokedAt"
+        ],
+        "properties": {
+          "bindingUid": {"$ref": "#/components/schemas/PublicUid"},
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "staffAccountUid": {"$ref": "#/components/schemas/PublicUid"},
+          "status": {"type": "string", "enum": ["ACTIVE", "REVOKED"]},
+          "version": {"type": "integer", "format": "int64", "minimum": 0},
+          "boundAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "revokedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
       "DirectoryEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -2504,6 +3360,15 @@
               },
               {
                 "$ref": "#/components/schemas/ProvisionedOrganizationStaff"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationUserLookup"
+              },
+              {
+                "$ref": "#/components/schemas/StaffMiniappBindingLookup"
+              },
+              {
+                "$ref": "#/components/schemas/StaffMiniappBinding"
               },
               {
                 "$ref": "#/components/schemas/DirectoryPage"
@@ -3392,6 +4257,38 @@
           }
         }
       },
+      "BindMiniappPhoneRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["wechatPhoneCode"],
+        "properties": {
+          "wechatPhoneCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "writeOnly": true,
+            "description": "One-time getPhoneNumber dynamic code; excluded from the stable idempotency fingerprint."
+          }
+        }
+      },
+      "MiniappPhoneBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "phoneBound",
+          "maskedPhoneNumber",
+          "phoneBoundAt"
+        ],
+        "properties": {
+          "phoneBound": {"type": "boolean", "const": true},
+          "maskedPhoneNumber": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 24
+          },
+          "phoneBoundAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
       "MiniappSessionCreated": {
         "type": "object",
         "additionalProperties": false,
@@ -3405,6 +4302,7 @@
           "subjectUid",
           "displayName",
           "capabilities",
+          "phoneBound",
           "isNewRegistration"
         ],
         "properties": {
@@ -3455,6 +4353,9 @@
               "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
             }
           },
+          "phoneBound": {
+            "type": "boolean"
+          },
           "isNewRegistration": {
             "type": "boolean"
           }
@@ -3470,7 +4371,8 @@
           "organization",
           "subjectUid",
           "displayName",
-          "capabilities"
+          "capabilities",
+          "phoneBound"
         ],
         "properties": {
           "audience": {
@@ -3509,6 +4411,9 @@
               "type": "string",
               "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
             }
+          },
+          "phoneBound": {
+            "type": "boolean"
           }
         }
       },
@@ -3550,6 +4455,25 @@
           },
           "data": {
             "$ref": "#/components/schemas/MiniappSessionView"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "MiniappPhoneBindingEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MiniappPhoneBinding"
           },
           "requestId": {
             "type": "string",
