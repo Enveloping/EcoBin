@@ -6,7 +6,7 @@ import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
 import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
 import org.enveloping.ecobin.framework.context.TrustedAudience;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.PhoneBindingResult;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.PhoneBindingView;
 import org.springframework.dao.DataIntegrityViolationException;

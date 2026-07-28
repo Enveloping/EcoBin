@@ -70,6 +70,7 @@ cos:
 ecobin:
   operations:
     reliable:
+      workers-enabled: true
       iot-device:
         worker-count: 2
         batch-size: 16

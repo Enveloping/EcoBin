@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.operations.infrastructure.persistence.reliability;
 
 import org.enveloping.ecobin.operations.application.reliability.ClaimedInboxTask;
+import org.enveloping.ecobin.operations.application.reliability.ClaimedDeviceCommandTask;
 import org.enveloping.ecobin.operations.application.reliability.ReliableTaskChannel;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -39,7 +40,7 @@ public class ReliableOperationsJdbcRepository {
                     first_received_at, last_received_at, delivery_count,
                     processed_at, lock_version, created_at, updated_at
                 ) VALUES (
-                    ?, 'PLATFORM', NULL, NULL,
+                    ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?, CAST(? AS JSON), ?,
                     ?, ?, ?, ?, 'RECEIVED',
@@ -47,6 +48,9 @@ public class ReliableOperationsJdbcRepository {
                 )
                 """,
                 inbox.inboxUid().toString(),
+                inbox.scopeKind(),
+                inbox.tenantId(),
+                inbox.organizationId(),
                 inbox.sourceNamespace(),
                 inbox.sourcePrincipalKey(),
                 inbox.externalMessageId(),
@@ -74,6 +78,9 @@ public class ReliableOperationsJdbcRepository {
                 SELECT
                     id,
                     inbox_uid,
+                    scope_kind,
+                    tenant_id,
+                    organization_id,
                     message_kind,
                     normalized_schema_version,
                     CAST(normalized_payload AS CHAR) AS normalized_payload,
@@ -88,6 +95,9 @@ public class ReliableOperationsJdbcRepository {
                 (resultSet, rowNumber) -> new InboxCore(
                         resultSet.getLong("id"),
                         UUID.fromString(resultSet.getString("inbox_uid")),
+                        resultSet.getString("scope_kind"),
+                        nullableLong(resultSet, "tenant_id"),
+                        nullableLong(resultSet, "organization_id"),
                         resultSet.getString("message_kind"),
                         resultSet.getInt("normalized_schema_version"),
                         resultSet.getString("normalized_payload"),
@@ -104,6 +114,9 @@ public class ReliableOperationsJdbcRepository {
                 SELECT
                     id,
                     inbox_uid,
+                    scope_kind,
+                    tenant_id,
+                    organization_id,
                     message_kind,
                     normalized_schema_version,
                     CAST(normalized_payload AS CHAR) AS normalized_payload,
@@ -116,6 +129,9 @@ public class ReliableOperationsJdbcRepository {
                 (resultSet, rowNumber) -> new InboxCore(
                         resultSet.getLong("id"),
                         UUID.fromString(resultSet.getString("inbox_uid")),
+                        resultSet.getString("scope_kind"),
+                        nullableLong(resultSet, "tenant_id"),
+                        nullableLong(resultSet, "organization_id"),
                         resultSet.getString("message_kind"),
                         resultSet.getInt("normalized_schema_version"),
                         resultSet.getString("normalized_payload"),
@@ -146,6 +162,9 @@ public class ReliableOperationsJdbcRepository {
         return new InboxAggregate(
                 inbox.inboxId(),
                 inbox.inboxUid(),
+                inbox.scopeKind(),
+                inbox.tenantId(),
+                inbox.organizationId(),
                 inbox.messageKind(),
                 inbox.normalizedSchemaVersion(),
                 inbox.normalizedPayload(),
@@ -172,6 +191,9 @@ public class ReliableOperationsJdbcRepository {
     public UUID insertProcessInboxTask(
             long inboxId,
             UUID inboxUid,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             String executionLane,
             String redactedExecutionSnapshot,
             byte[] payloadSha256,
@@ -197,7 +219,7 @@ public class ReliableOperationsJdbcRepository {
                     handled_wake_version, completed_at, blocked_reason_code,
                     blocked_diagnostic, lock_version, created_at, updated_at
                 ) VALUES (
-                    ?, 'PLATFORM', NULL, NULL,
+                    ?, ?, ?, ?,
                     'INBOX_PROCESSING', 'PROCESS_INBOX', ?, ?,
                     'INBOX_MESSAGE', ?,
                     ?, NULL, NULL, 1,
@@ -209,6 +231,9 @@ public class ReliableOperationsJdbcRepository {
                 )
                 """,
                 taskUid.toString(),
+                scopeKind,
+                tenantId,
+                organizationId,
                 executionLane,
                 taskKey,
                 inboxUid.toString(),
@@ -224,8 +249,111 @@ public class ReliableOperationsJdbcRepository {
         return taskUid;
     }
 
+    public UUID insertDeviceBusinessTask(
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            long commandId,
+            String taskType,
+            String taskKey,
+            String targetType,
+            String targetStableKey,
+            int payloadSchemaVersion,
+            String redactedExecutionSnapshot,
+            byte[] payloadSha256,
+            UUID correlationUid,
+            UUID causationUid,
+            int maxAutoAttempts,
+            LocalDateTime now) {
+        UUID taskUid = UUID.randomUUID();
+        int inserted = jdbcTemplate.update("""
+                INSERT INTO ops_reliable_task (
+                    task_uid, scope_kind, tenant_id, organization_id,
+                    task_category, task_type, execution_lane, task_key,
+                    target_type, target_stable_key,
+                    source_inbox_id, source_device_deployment_id,
+                    source_device_command_id, payload_schema_version,
+                    redacted_execution_snapshot, payload_sha256,
+                    correlation_uid, causation_uid, initiating_audit_id,
+                    priority, retry_policy_version, max_auto_attempts,
+                    state, next_run_at, lease_token, lease_worker, lease_until,
+                    attempt_sequence, consecutive_failure_count, wake_version,
+                    handled_wake_version, completed_at, blocked_reason_code,
+                    blocked_diagnostic, lock_version, created_at, updated_at
+                ) VALUES (
+                    ?, 'ORGANIZATION', ?, ?,
+                    'BUSINESS_INTENT', ?, 'DEVICE', ?,
+                    ?, ?,
+                    NULL, ?, ?, ?,
+                    CAST(? AS JSON), ?,
+                    ?, ?, NULL,
+                    100, 1, ?,
+                    'PENDING', ?, NULL, NULL, NULL,
+                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                )
+                """,
+                taskUid.toString(),
+                tenantId,
+                organizationId,
+                taskType,
+                taskKey,
+                targetType,
+                targetStableKey,
+                deploymentId,
+                commandId,
+                payloadSchemaVersion,
+                redactedExecutionSnapshot,
+                payloadSha256,
+                nullableUuid(correlationUid),
+                nullableUuid(causationUid),
+                maxAutoAttempts,
+                now,
+                now,
+                now);
+        requireSingleRow(inserted, "insert device business task");
+        return taskUid;
+    }
+
+    public void cancelSupersededDeviceTasks(
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            String taskType,
+            LocalDateTime now) {
+        jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'CANCELLED',
+                    next_run_at = NULL,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    handled_wake_version = wake_version,
+                    completed_at = COALESCE(completed_at, ?),
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ?
+                  AND organization_id = ?
+                  AND source_device_deployment_id = ?
+                  AND task_type = ?
+                  AND state IN ('PENDING', 'BLOCKED')
+                  AND lease_token IS NULL
+                """,
+                now,
+                now,
+                tenantId,
+                organizationId,
+                deploymentId,
+                taskType);
+    }
+
     public UUID upsertIdentityConflict(
             byte[] dedupeKey,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             String sourceNamespace,
             String sourcePrincipalKey,
             String externalMessageId,
@@ -245,8 +373,8 @@ public class ReliableOperationsJdbcRepository {
                     acknowledged_audit_id, acknowledged_at, lock_version,
                     created_at, updated_at
                 ) VALUES (
-                    ?, ?, 'PLATFORM', NULL,
-                    NULL, ?, ?, ?, ?, 'IDENTITY_CONTENT_CONFLICT',
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, 'IDENTITY_CONTENT_CONFLICT',
                     ?, ?,
                     'stable external identity carried different semantic content',
                     'OPEN', ?, ?, 1, NULL, NULL, 0, ?, ?
@@ -259,6 +387,9 @@ public class ReliableOperationsJdbcRepository {
                 """,
                 proposedUid.toString(),
                 dedupeKey,
+                scopeKind,
+                tenantId,
+                organizationId,
                 sourceNamespace,
                 sourcePrincipalKey,
                 externalMessageId,
@@ -338,6 +469,9 @@ public class ReliableOperationsJdbcRepository {
         InboxPayload inbox = jdbcTemplate.queryForObject("""
                 SELECT
                     inbox_uid,
+                    scope_kind,
+                    tenant_id,
+                    organization_id,
                     message_kind,
                     normalized_schema_version,
                     CAST(normalized_payload AS CHAR) AS normalized_payload
@@ -346,6 +480,9 @@ public class ReliableOperationsJdbcRepository {
                 """,
                 (resultSet, rowNumber) -> new InboxPayload(
                         UUID.fromString(resultSet.getString("inbox_uid")),
+                        resultSet.getString("scope_kind"),
+                        nullableLong(resultSet, "tenant_id"),
+                        nullableLong(resultSet, "organization_id"),
                         resultSet.getString("message_kind"),
                         resultSet.getInt("normalized_schema_version"),
                         resultSet.getString("normalized_payload")),
@@ -392,8 +529,8 @@ public class ReliableOperationsJdbcRepository {
                     external_api_error_code, duration_ms, redacted_diagnostic,
                     created_at
                 ) VALUES (
-                    ?, ?, 'PLATFORM', NULL,
-                    NULL, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
                     ?, ?, ?, ?,
                     NULL, NULL,
                     NULL, 'PROCESS', NULL,
@@ -403,6 +540,9 @@ public class ReliableOperationsJdbcRepository {
                 """,
                 attemptUid.toString(),
                 candidate.taskId(),
+                inbox.scopeKind(),
+                inbox.tenantId(),
+                inbox.organizationId(),
                 attemptNo,
                 leaseToken.toString(),
                 candidate.wakeVersion(),
@@ -413,6 +553,10 @@ public class ReliableOperationsJdbcRepository {
         return new ClaimedInboxTask(
                 candidate.taskUid(),
                 inbox.inboxUid(),
+                candidate.inboxId(),
+                inbox.scopeKind(),
+                inbox.tenantId(),
+                inbox.organizationId(),
                 attemptUid,
                 leaseToken,
                 candidate.wakeVersion(),
@@ -421,6 +565,342 @@ public class ReliableOperationsJdbcRepository {
                 inbox.normalizedPayload(),
                 now,
                 leaseUntil);
+    }
+
+    public List<ClaimedDeviceCommandTask> claimDeviceCommandTasks(
+            String workerId,
+            int batchSize,
+            Duration leaseDuration) {
+        LocalDateTime now = databaseNow();
+        String sql = """
+                SELECT
+                    t.id AS task_id,
+                    t.task_uid,
+                    t.tenant_id,
+                    t.organization_id,
+                    t.lease_token AS previous_lease_token,
+                    t.attempt_sequence,
+                    t.wake_version,
+                    c.command_uid,
+                    c.command_type,
+                    CAST(c.semantic_payload AS CHAR) AS semantic_payload,
+                    c.semantic_payload_sha256,
+                    a.hardware_sn
+                FROM ops_reliable_task t FORCE INDEX (ix_ops_task_claim)
+                JOIN dev_device_command c
+                  ON c.tenant_id = t.tenant_id
+                 AND c.organization_id = t.organization_id
+                 AND c.deployment_id = t.source_device_deployment_id
+                 AND c.id = t.source_device_command_id
+                JOIN dev_device_deployment d
+                  ON d.tenant_id = c.tenant_id
+                 AND d.organization_id = c.organization_id
+                 AND d.id = c.deployment_id
+                JOIN dev_device_asset a ON a.id = d.asset_id
+                WHERE t.state = 'PENDING'
+                  AND t.task_category = 'BUSINESS_INTENT'
+                  AND t.task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                  AND t.execution_lane = 'DEVICE'
+                  AND t.claimable_at <= UTC_TIMESTAMP(3)
+                ORDER BY t.claimable_at, t.priority, t.id
+                LIMIT ?
+                FOR UPDATE SKIP LOCKED
+                """;
+        List<DeviceClaimCandidate> candidates = jdbcTemplate.query(
+                connection -> {
+                    var statement = connection.prepareStatement(sql);
+                    statement.setInt(1, batchSize);
+                    return statement;
+                },
+                (resultSet, rowNumber) -> new DeviceClaimCandidate(
+                        resultSet.getLong("task_id"),
+                        UUID.fromString(resultSet.getString("task_uid")),
+                        resultSet.getLong("tenant_id"),
+                        resultSet.getLong("organization_id"),
+                        nullableUuid(
+                                resultSet.getString(
+                                        "previous_lease_token")),
+                        resultSet.getLong("attempt_sequence"),
+                        resultSet.getLong("wake_version"),
+                        UUID.fromString(
+                                resultSet.getString("command_uid")),
+                        resultSet.getString("command_type"),
+                        resultSet.getString("hardware_sn"),
+                        resultSet.getString("semantic_payload"),
+                        resultSet.getBytes("semantic_payload_sha256")));
+        LocalDateTime leaseUntil = now.plus(leaseDuration);
+        return candidates.stream()
+                .map(candidate -> claimDeviceCommand(
+                        candidate, workerId, now, leaseUntil))
+                .toList();
+    }
+
+    private ClaimedDeviceCommandTask claimDeviceCommand(
+            DeviceClaimCandidate candidate,
+            String workerId,
+            LocalDateTime now,
+            LocalDateTime leaseUntil) {
+        if (candidate.previousLeaseToken() != null) {
+            jdbcTemplate.update("""
+                    UPDATE ops_task_attempt
+                    SET reclaimed_at = ?
+                    WHERE lease_token = ?
+                      AND reclaimed_at IS NULL
+                    """,
+                    now,
+                    candidate.previousLeaseToken().toString());
+        }
+        long attemptNo = candidate.attemptSequence() + 1;
+        UUID attemptUid = UUID.randomUUID();
+        UUID leaseToken = UUID.randomUUID();
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET lease_token = ?,
+                    lease_worker = ?,
+                    lease_until = ?,
+                    attempt_sequence = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                  AND state = 'PENDING'
+                """,
+                leaseToken.toString(),
+                workerId,
+                leaseUntil,
+                attemptNo,
+                now,
+                candidate.taskId());
+        requireSingleRow(updated, "claim device command task");
+        jdbcTemplate.update("""
+                INSERT INTO ops_task_attempt (
+                    attempt_uid, task_id, scope_kind, tenant_id,
+                    organization_id, attempt_no, lease_token,
+                    claimed_wake_version, worker_id, claimed_at, lease_until,
+                    external_call_may_have_started_at, reclaimed_at,
+                    result_recorded_at, action_kind, technical_result,
+                    request_sha256, response_sha256, http_status,
+                    external_api_error_code, duration_ms,
+                    redacted_diagnostic, created_at
+                ) VALUES (
+                    ?, ?, 'ORGANIZATION', ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    NULL, NULL,
+                    NULL, 'SUBMIT', NULL,
+                    NULL, NULL, NULL,
+                    NULL, NULL, NULL, ?
+                )
+                """,
+                attemptUid.toString(),
+                candidate.taskId(),
+                candidate.tenantId(),
+                candidate.organizationId(),
+                attemptNo,
+                leaseToken.toString(),
+                candidate.wakeVersion(),
+                workerId,
+                now,
+                leaseUntil,
+                now);
+        return new ClaimedDeviceCommandTask(
+                candidate.taskUid(),
+                candidate.commandUid(),
+                attemptUid,
+                leaseToken,
+                candidate.wakeVersion(),
+                candidate.commandType(),
+                candidate.hardwareSn(),
+                candidate.semanticEnvelopeJson(),
+                candidate.semanticEnvelopeSha256(),
+                now,
+                leaseUntil);
+    }
+
+    public void markExternalCallMayHaveStarted(
+            UUID attemptUid, UUID leaseToken, LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_task_attempt
+                SET external_call_may_have_started_at = ?
+                WHERE attempt_uid = ?
+                  AND lease_token = ?
+                  AND external_call_may_have_started_at IS NULL
+                  AND result_recorded_at IS NULL
+                """,
+                now,
+                attemptUid.toString(),
+                leaseToken.toString());
+        requireSingleRow(updated, "mark external device call started");
+    }
+
+    public DeviceTaskExecution lockDeviceTaskExecution(
+            UUID taskUid, UUID commandUid, UUID attemptUid) {
+        LockedDeviceTask task = jdbcTemplate.queryForObject("""
+                SELECT
+                    t.id,
+                    t.state,
+                    t.lease_token,
+                    t.lease_until,
+                    t.wake_version,
+                    t.handled_wake_version,
+                    t.consecutive_failure_count,
+                    t.max_auto_attempts,
+                    (
+                        SELECT COUNT(*)
+                        FROM ops_task_attempt counted
+                        WHERE counted.task_id = t.id
+                          AND counted.claimed_wake_version = t.wake_version
+                    ) AS attempts_for_current_wake
+                FROM ops_reliable_task t
+                JOIN dev_device_command c
+                  ON c.id = t.source_device_command_id
+                 AND c.command_uid = ?
+                WHERE t.task_uid = ?
+                  AND t.task_category = 'BUSINESS_INTENT'
+                  AND t.execution_lane = 'DEVICE'
+                FOR UPDATE
+                """,
+                (resultSet, rowNumber) -> new LockedDeviceTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("state"),
+                        nullableUuid(resultSet.getString("lease_token")),
+                        resultSet.getObject(
+                                "lease_until", LocalDateTime.class),
+                        resultSet.getLong("wake_version"),
+                        resultSet.getLong("handled_wake_version"),
+                        resultSet.getInt("consecutive_failure_count"),
+                        resultSet.getInt("max_auto_attempts"),
+                        resultSet.getInt("attempts_for_current_wake")),
+                commandUid.toString(),
+                taskUid.toString());
+        LockedAttempt attempt = jdbcTemplate.queryForObject("""
+                SELECT
+                    id,
+                    lease_token,
+                    claimed_wake_version,
+                    technical_result
+                FROM ops_task_attempt
+                WHERE task_id = ?
+                  AND attempt_uid = ?
+                FOR UPDATE
+                """,
+                (resultSet, rowNumber) -> new LockedAttempt(
+                        resultSet.getLong("id"),
+                        UUID.fromString(
+                                resultSet.getString("lease_token")),
+                        resultSet.getLong("claimed_wake_version"),
+                        resultSet.getString("technical_result")),
+                task.taskId(),
+                attemptUid.toString());
+        return new DeviceTaskExecution(
+                task.taskId(),
+                task.state(),
+                task.currentLeaseToken(),
+                task.leaseUntil(),
+                task.wakeVersion(),
+                task.handledWakeVersion(),
+                task.consecutiveFailureCount(),
+                task.maxAutoAttempts(),
+                task.attemptsForCurrentWake(),
+                attempt.attemptId(),
+                attempt.leaseToken(),
+                attempt.claimedWakeVersion(),
+                attempt.technicalResult());
+    }
+
+    public void recordDeviceAttemptResult(
+            long attemptId,
+            String technicalResult,
+            long durationMillis,
+            byte[] requestSha256,
+            byte[] responseSha256,
+            Integer httpStatus,
+            String externalApiErrorCode,
+            String redactedDiagnostic,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_task_attempt
+                SET result_recorded_at = ?,
+                    technical_result = ?,
+                    request_sha256 = ?,
+                    response_sha256 = ?,
+                    http_status = ?,
+                    external_api_error_code = ?,
+                    duration_ms = ?,
+                    redacted_diagnostic = ?
+                WHERE id = ?
+                  AND result_recorded_at IS NULL
+                """,
+                now,
+                technicalResult,
+                requestSha256,
+                responseSha256,
+                httpStatus,
+                externalApiErrorCode,
+                Math.max(0, durationMillis),
+                redactedDiagnostic,
+                attemptId);
+        if (updated != 0 && updated != 1) {
+            throw new IllegalStateException(
+                    "record device attempt result updated an unexpected row count");
+        }
+    }
+
+    public void scheduleAwaitingDeviceEvidence(
+            long taskId,
+            LocalDateTime nextRunAt,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'PENDING',
+                    next_run_at = ?,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    consecutive_failure_count = 0,
+                    completed_at = NULL,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                nextRunAt,
+                now,
+                taskId);
+        requireSingleRow(updated, "schedule device evidence recheck");
+    }
+
+    public void blockDeviceTask(
+            long taskId,
+            int failureCount,
+            long handledWakeVersion,
+            String reasonCode,
+            String diagnostic,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED',
+                    next_run_at = NULL,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    consecutive_failure_count = ?,
+                    handled_wake_version = ?,
+                    completed_at = ?,
+                    blocked_reason_code = ?,
+                    blocked_diagnostic = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                failureCount,
+                handledWakeVersion,
+                now,
+                reasonCode,
+                diagnostic,
+                now,
+                taskId);
+        requireSingleRow(updated, "block device task");
     }
 
     public TaskExecution lockTaskExecution(
@@ -653,6 +1133,7 @@ public class ReliableOperationsJdbcRepository {
                     SET state = 'PENDING',
                         next_run_at = ?,
                         wake_version = ?,
+                        consecutive_failure_count = 0,
                         completed_at = NULL,
                         blocked_reason_code = NULL,
                         blocked_diagnostic = NULL,
@@ -720,8 +1201,18 @@ public class ReliableOperationsJdbcRepository {
         return value == null ? null : UUID.fromString(value);
     }
 
+    private static Long nullableLong(
+            java.sql.ResultSet resultSet,
+            String column) throws java.sql.SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
     public record NewInbox(
             UUID inboxUid,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             String sourceNamespace,
             String sourcePrincipalKey,
             String externalMessageId,
@@ -740,6 +1231,9 @@ public class ReliableOperationsJdbcRepository {
     public record InboxAggregate(
             long inboxId,
             UUID inboxUid,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             String messageKind,
             int normalizedSchemaVersion,
             String normalizedPayload,
@@ -760,8 +1254,26 @@ public class ReliableOperationsJdbcRepository {
             long inboxId) {
     }
 
+    private record DeviceClaimCandidate(
+            long taskId,
+            UUID taskUid,
+            long tenantId,
+            long organizationId,
+            UUID previousLeaseToken,
+            long attemptSequence,
+            long wakeVersion,
+            UUID commandUid,
+            String commandType,
+            String hardwareSn,
+            String semanticEnvelopeJson,
+            byte[] semanticEnvelopeSha256) {
+    }
+
     private record InboxPayload(
             UUID inboxUid,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             String messageKind,
             int normalizedSchemaVersion,
             String normalizedPayload) {
@@ -770,6 +1282,9 @@ public class ReliableOperationsJdbcRepository {
     private record InboxCore(
             long inboxId,
             UUID inboxUid,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             String messageKind,
             int normalizedSchemaVersion,
             String normalizedPayload,
@@ -798,6 +1313,18 @@ public class ReliableOperationsJdbcRepository {
             int maxAutoAttempts) {
     }
 
+    private record LockedDeviceTask(
+            long taskId,
+            String state,
+            UUID currentLeaseToken,
+            LocalDateTime leaseUntil,
+            long wakeVersion,
+            long handledWakeVersion,
+            int consecutiveFailureCount,
+            int maxAutoAttempts,
+            int attemptsForCurrentWake) {
+    }
+
     private record LockedAttempt(
             long attemptId,
             UUID leaseToken,
@@ -816,6 +1343,22 @@ public class ReliableOperationsJdbcRepository {
             int maxAutoAttempts,
             long inboxId,
             String inboxState,
+            long attemptId,
+            UUID attemptLeaseToken,
+            long claimedWakeVersion,
+            String technicalResult) {
+    }
+
+    public record DeviceTaskExecution(
+            long taskId,
+            String state,
+            UUID currentLeaseToken,
+            LocalDateTime leaseUntil,
+            long wakeVersion,
+            long handledWakeVersion,
+            int consecutiveFailureCount,
+            int maxAutoAttempts,
+            int attemptsForCurrentWake,
             long attemptId,
             UUID attemptLeaseToken,
             long claimedWakeVersion,

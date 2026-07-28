@@ -94,32 +94,25 @@ class IdentityRegistrationTransactionTest {
     }
 
     @Test
-    void localSessionFailureRollsBackFirstIdentityAndParticipant() throws Exception {
+    void removedLegacyWxLoginInterfaceCannotStartLocalRegistration()
+            throws Exception {
         String appid = "wx-registration-" + System.nanoTime();
         tenantDirectory.create(new LegacyTenantDraft(
                 "登录事务测试", "LOGIN-" + System.nanoTime(), "login-" + System.nanoTime(),
                 "password", appid, "secret", null, null, null, null, 1));
-        tokenProvider.failNext();
         String body = "{\"code\":\"session-failure\",\"appid\":\"" + appid + "\"}";
 
         mockMvc.perform(post("/api/system/auth/wx-login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().is5xxServerError());
+                .andExpect(status().isForbidden());
 
-        mockMvc.perform(post("/api/system/auth/wx-login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isOk());
-
-        assertEquals(2, participant.invocationCount(),
-                "JWT 构造失败后重试必须重新执行首次注册参与者");
-        assertTrue(!wechatSessionPort.observedActiveTransaction(),
-                "code2session must finish before the local registration transaction starts");
+        assertEquals(0, participant.invocationCount());
+        assertEquals(0, wechatSessionPort.invocationCount());
     }
 
     @Test
-    void code2sessionRunsOutsideLocalDatabaseTransaction() throws Exception {
+    void removedLegacyWxLoginInterfaceCannotInvokeWechat() throws Exception {
         String appid = "wx-outtx-" + System.nanoTime();
         tenantDirectory.create(new LegacyTenantDraft(
                 "外调事务边界测试", "EXTERNAL-" + System.nanoTime(),
@@ -130,11 +123,11 @@ class IdentityRegistrationTransactionTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"code\":\"outside-transaction\",\"appid\":\""
                                 + appid + "\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden());
 
-        assertEquals(1, wechatSessionPort.invocationCount());
+        assertEquals(0, wechatSessionPort.invocationCount());
         assertTrue(!wechatSessionPort.observedActiveTransaction(),
-                "code2session must not run while a local database transaction is active");
+                "removed Interface must not call the external WeChat Adapter");
     }
 
     @TestConfiguration(proxyBeanMethods = false)

@@ -10,6 +10,9 @@ spring:
       schema-locations: classpath:schema-h2.sql
 
 ecobin:
+  operations:
+    reliable:
+      workers-enabled: false
   database:
     epoch:
       test-bypass: true

@@ -26,7 +26,8 @@ class RuntimeSafetyConfigurationTest {
             "V7__operations.sql",
             "V8__cross_module_constraints.sql",
             "V9__immutability_guards.sql",
-            "V10__permission_reference_data.sql"
+            "V10__permission_reference_data.sql",
+            "V11__device_controlled_vertical.sql"
     };
 
     @Test

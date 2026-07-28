@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <ol>
  *   <li>解析第一层报文 {@code {superMsg,pv,t,data,sign}}，取出 {@code data}（Base64 密文）；</li>
  *   <li>用消费组 KEY 经 {@link OneNetCipher} 解密得到第二层明文 JSON；</li>
- *   <li>INFO 打印整条明文（联调据此核对 {@code params} 形状），交 {@link OneNetMessageHandler} 分发；</li>
- *   <li>无论成功失败都 {@code acknowledge}（at-least-once，幂等由业务保证），异常不中断循环。</li>
+ *   <li>交 {@link OneNetMessageHandler} 分发，日志不包含密文、明文或凭证；</li>
+ *   <li>仅处理成功或永久无效报文 ACK，暂时性处理失败使用 negative ACK 重投。</li>
  * </ol>
  * 仅当凭证齐全、{@code enabled=true} 且非 {@code test} 环境时启动；否则记日志跳过，不影响应用启动。
  */
@@ -76,15 +76,16 @@ public class OneNetMqConsumer implements SmartLifecycle {
         worker = new Thread(this::runLoop, "onenet-mq-consumer");
         worker.setDaemon(true);
         worker.start();
-        log.info("[OneNet·MQ] 北向消费者已启动 broker={}, accessId={}, subscription={}",
-                properties.getBrokerUrl(), properties.getAccessId(), properties.getSubscriptionName());
+        log.info("[OneNet·MQ] 北向消费者已启动 broker={} subscription={}",
+                properties.getBrokerUrl(), properties.getSubscriptionName());
     }
 
     private void runLoop() {
         try {
             client = PulsarClient.builder()
                     .serviceUrl(properties.getBrokerUrl())
-                    .allowTlsInsecureConnection(true)
+                    .allowTlsInsecureConnection(false)
+                    .enableTlsHostnameVerification(true)
                     .authentication(new OneNetAuthentication(properties.getAccessId(), properties.getSecretKey()))
                     .build();
             consumer = client.newConsumer(Schema.BYTES)
@@ -101,52 +102,88 @@ public class OneNetMqConsumer implements SmartLifecycle {
 
         while (running.get() && !Thread.currentThread().isInterrupted()) {
             Message<byte[]> message = null;
+            boolean acknowledge = false;
             try {
                 message = consumer.receive();
-                dispatch(new String(message.getData(), java.nio.charset.StandardCharsets.UTF_8),
+                acknowledge = dispatch(
+                        new String(
+                                message.getData(),
+                                java.nio.charset.StandardCharsets.UTF_8),
                         message.getMessageId().toString());
             } catch (Exception e) {
                 if (running.get()) {
-                    log.error("[OneNet·MQ] 处理消息异常", e);
+                    log.error(
+                            "[OneNet·MQ] 处理消息异常 type={}",
+                            e.getClass().getSimpleName());
                 }
             } finally {
                 if (message != null) {
                     try {
-                        consumer.acknowledge(message);
+                        if (acknowledge) {
+                            consumer.acknowledge(message);
+                        } else {
+                            consumer.negativeAcknowledge(message);
+                        }
                     } catch (Exception ackEx) {
-                        log.warn("[OneNet·MQ] ack 失败", ackEx);
+                        log.warn(
+                                "[OneNet·MQ] 消息确认操作失败 type={}",
+                                ackEx.getClass().getSimpleName());
                     }
                 }
             }
         }
     }
 
-    /** 解第一层 → 解密 → 打印 → 交分发器（透传 MQ 消息 id 作幂等兜底）。 */
-    private void dispatch(String envelope, String mqMessageId) {
+    /**
+     * 解第一层、解密并交分发器。永久无效传输 ACK 以隔离毒消息；
+     * 缺少处理器或业务处理异常返回 false 触发重投。
+     */
+    private boolean dispatch(String envelope, String mqMessageId) {
         String decrypted;
         try {
             JsonNode root = objectMapper.readTree(envelope);
             String data = root.path("data").asString();
             if (data == null || data.isBlank()) {
-                log.warn("[OneNet·MQ] 报文缺少 data 字段，原文={}", envelope);
-                return;
+                log.warn(
+                        "[OneNet·MQ] 永久无效报文缺少 data messageId={}",
+                        mqMessageId);
+                return true;
             }
             decrypted = OneNetCipher.decrypt(data, properties.getSecretKey());
         } catch (Exception e) {
-            log.error("[OneNet·MQ] 解包/解密失败，原文={}", envelope, e);
-            return;
+            log.error(
+                    "[OneNet·MQ] 永久无效报文解包或认证失败 messageId={} type={}",
+                    mqMessageId,
+                    e.getClass().getSimpleName());
+            return true;
         }
 
-        log.info("[OneNet·MQ] 收到上行明文：{}", decrypted);
         OneNetMessageHandler handler = handlerProvider.getIfAvailable();
         if (handler == null) {
-            log.warn("[OneNet·MQ] 无 OneNetMessageHandler 实现，消息仅打印不分发");
-            return;
+            log.error(
+                    "[OneNet·MQ] 无消息处理器，暂不确认 messageId={}",
+                    mqMessageId);
+            return false;
         }
         try {
-            handler.handle(decrypted, mqMessageId);
+            handler.handle(
+                    decrypted,
+                    mqMessageId,
+                    envelope.getBytes(
+                            java.nio.charset.StandardCharsets.UTF_8));
+            return true;
+        } catch (OneNetPermanentMessageException e) {
+            log.warn(
+                    "[OneNet·MQ] 永久无效业务报文已安全拒绝 messageId={} type={}",
+                    mqMessageId,
+                    e.getClass().getSimpleName());
+            return true;
         } catch (Exception e) {
-            log.error("[OneNet·MQ] 分发处理异常（已忽略，消息将被 ack）", e);
+            log.error(
+                    "[OneNet·MQ] 分发处理失败，消息将重投 messageId={} type={}",
+                    mqMessageId,
+                    e.getClass().getSimpleName());
+            return false;
         }
     }
 

@@ -2,10 +2,7 @@ package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.recycling.application.legacy.DeliveryOrderService;
 import org.enveloping.ecobin.recycling.domain.legacy.DeliveryOrder;
-import org.enveloping.ecobin.framework.context.TrustedAudience;
-import org.enveloping.ecobin.framework.context.TrustedExecutionContext;
 import org.enveloping.ecobin.framework.context.TrustedExecutionContextHolder;
-import org.enveloping.ecobin.framework.context.TrustedPrincipalKind;
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
 import org.enveloping.ecobin.framework.tenant.TenantContextHolder;
 import org.enveloping.ecobin.identity.api.legacy.LegacyOrganizationUserDirectoryPort;
@@ -21,14 +18,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import org.springframework.http.MediaType;
 
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -95,22 +86,17 @@ class AppApiSecurityTest {
     }
 
     @Test
-    void terminalUserCanReadOwnProfileWithoutSensitiveFields() throws Exception {
+    void removedLegacyProfileInterfaceIsDeniedEvenWithAValidLegacyToken()
+            throws Exception {
         mockMvc.perform(get("/api/app/profile").header("Authorization", "Bearer " + userToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.nickname").value("测试用户"))
-                .andExpect(jsonPath("$.data.openid").doesNotExist())
-                .andExpect(jsonPath("$.data.password").doesNotExist());
+                .andExpect(status().isForbidden());
     }
 
     @Test
-    void terminalUserCanListOwnDeliveryRecords() throws Exception {
+    void removedLegacyDeliveryInterfaceIsDeniedEvenWithAValidLegacyToken()
+            throws Exception {
         mockMvc.perform(get("/api/app/delivery/my").header("Authorization", "Bearer " + userToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.total").value(1))
-                .andExpect(jsonPath("$.data.records[0].userId").exists());
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -137,29 +123,12 @@ class AppApiSecurityTest {
     }
 
     @Test
-    void unknownLegacyRoleIsRejectedAndRequestThreadLocalsAreCleared() throws Exception {
+    void unknownLegacyRoleCannotReactivateRemovedInterface() throws Exception {
         String openid = "openid-unknown-role-" + System.nanoTime();
         String unknownRoleToken = jwtTokenProvider.generateToken(999L, openid, 2L, 6);
 
-        // 模拟容器复用线程时遗留的旧请求上下文；无论 resolver 如何提前退出，本次请求都必须清空。
-        TenantContextHolder.setTenantId(99L);
-        TenantContextHolder.setIgnore(true);
-        TrustedExecutionContextHolder.set(new TrustedExecutionContext(
-                TrustedPrincipalKind.PLATFORM_ADMIN,
-                UUID.randomUUID(),
-                TrustedAudience.WEB_PLATFORM,
-                null,
-                null,
-                UUID.randomUUID(),
-                0,
-                "stale-request"));
-
         mockMvc.perform(get("/api/app/profile")
                         .header("Authorization", "Bearer " + unknownRoleToken))
-                .andExpect(status().isUnauthorized());
-
-        assertNull(TenantContextHolder.getTenantId());
-        assertFalse(TenantContextHolder.isIgnore());
-        assertThrows(IllegalStateException.class, TrustedExecutionContextHolder::getRequired);
+                .andExpect(status().isForbidden());
     }
 }

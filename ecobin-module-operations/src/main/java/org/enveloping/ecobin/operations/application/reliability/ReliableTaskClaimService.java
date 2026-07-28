@@ -37,6 +37,21 @@ public class ReliableTaskClaimService {
                 .findFirst();
     }
 
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED)
+    public Optional<ClaimedDeviceCommandTask> claimNextDeviceCommand(
+            String workerId) {
+        validate(ReliableTaskChannel.IOT_DEVICE, workerId);
+        properties.validate();
+        ReliableTaskProperties.Channel policy =
+                properties.getIotDevice();
+        return repository.claimDeviceCommandTasks(
+                        workerId, 1, policy.getLeaseDuration())
+                .stream()
+                .findFirst();
+    }
+
     public int batchBudget(ReliableTaskChannel channel) {
         Objects.requireNonNull(channel, "channel");
         properties.validate();

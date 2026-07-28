@@ -7,8 +7,8 @@ import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappActorCont
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappLoginService;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappPhoneBindingService;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappSessionService;
-import org.enveloping.ecobin.identity.web.v1.TargetApiEnvelope;
-import org.enveloping.ecobin.identity.web.v1.TargetRequestIds;
+import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
+import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappLoginRequest;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappSessionCreated;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappSessionView;

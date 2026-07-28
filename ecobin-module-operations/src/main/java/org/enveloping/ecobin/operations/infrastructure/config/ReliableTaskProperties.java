@@ -11,9 +11,18 @@ import java.util.Objects;
 @ConfigurationProperties(prefix = "ecobin.operations.reliable")
 public class ReliableTaskProperties {
 
+    private boolean workersEnabled = true;
     private Channel iotDevice = Channel.iotDeviceDefaults();
     private Channel fundsWechat = Channel.fundsWechatDefaults();
     private Channel maintenance = Channel.maintenanceDefaults();
+
+    public boolean isWorkersEnabled() {
+        return workersEnabled;
+    }
+
+    public void setWorkersEnabled(boolean workersEnabled) {
+        this.workersEnabled = workersEnabled;
+    }
 
     public Channel getIotDevice() {
         return iotDevice;

@@ -7,7 +7,7 @@ import org.enveloping.ecobin.identity.application.directory.TargetOrganizationUs
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
 import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
 import org.enveloping.ecobin.identity.application.web.WebAccountType;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.AccountVersionCommand;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.BindingSnapshot;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.OrganizationUserView;
