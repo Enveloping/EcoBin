@@ -5,7 +5,7 @@
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
 > 当前运行结构：H-01 保留的旧栈仍对应 [`../architecture/database-design.md`](../architecture/database-design.md) 与 Flyway V1～V14；目标 V1～V10 只供独立迁移作业使用，新运行制品不含 Flyway 运行库或迁移脚本并通过 F-07 epoch/Fake bootstrap 验证，但尚未执行成对切换
 > 历史字段讨论：[`../architecture/database-refactor-fields-draft.md`](../architecture/database-refactor-fields-draft.md)
-> 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01 已使用目标身份表完成首个纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，但其他纵向业务仍不能当作已经实施。
+> 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01、V-02 已使用目标身份和钱包表完成纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，V-09 已 ready 但尚未授权，其他纵向业务仍不能当作已经实施。
 > 文档结构：本文件保存总状态、审计、表族概览、分章导航和后续顺序；各决策正文位于 [`database-design/`](database-design/) 下。
 
 ## 1. 文档效力与边界

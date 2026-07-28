@@ -2,7 +2,8 @@
 
 > 验证日期：2026-07-28
 > 任务：[V-02 机构用户首次注册并获得独立零余额钱包](../planning/tasks/p0-controlled-loop/v-02-organization-user-registration-wallet.md)
-> 阶段：software `done`；integration `in-progress`；acceptance `not-started`
+> 阶段：software `done`；integration `done`；acceptance `done`（项目负责人接受受限
+> 微信开发环境例外，真实来源归因另由非阻塞 P0-FOLLOWUP-01 跟踪）
 
 ## 1. 实施结果
 
@@ -92,16 +93,19 @@ npx tsc --noEmit
 全合同生成校验仍报告既有 `hardware_mcu/USER/uar` 两个 UART 生成物漂移；本轮仅建设
 后端，没有改写硬件生成物。HTTP 契约已由专用官方校验器独立通过。
 
-## 4. 尚未关闭的阶段门
+## 4. 主审接受的阶段边界与非阻塞跟进
 
 software 已关闭，真实 AppID/AppSecret 的 `wx.login → code2session → 后端会话` 已在
-开发环境验证，因此 integration 处于进行中；任务级仍为 `in-progress`。后续仍须完成：
+开发环境验证。项目负责人于 2026-07-28 明确将 V-02 裁定为 `done`，接受以下当前环境
+边界且不让其阻塞下游任务：
 
-1. 真实 `getPhoneNumber`；
-2. 真实用户的直接首次注册与可信设备来源首次注册；
-3. Web 人工绑定后工作人员免密进入管理页；
-4. 后续投递/提现切片中的未绑手机号业务命令门禁及完整注册统计；
-5. 真机日志、审计和错误路径中无敏感值的人工复核。
+1. 真实 `wx.login`、直接注册和当前小程序页面行为已验证；
+2. 个人主体无法成功调用真实 `getPhoneNumber`，当前实现继续调用微信官方 API，并在
+   失败时同时显示和记录微信返回错误；
+3. 未绑定用户通过 `phoneBound=false` 明确表达，实际投递/提现命令门禁分别由
+   V-04/V-10 的纵向切片承接；
+4. 工作人员绑定、入口优先级和安全脱敏由软件与 MySQL 证据覆盖，后续真实发布环境仍可
+   复验，但不再作为 V-02 阻塞门。
 
 其中可信设备小程序码在开发环境中已能打开登录入口，但两次重建测试账号后数据库来源
 仍为空。后端 Java 21 MySQL 单项测试证明请求携带部署码时能够正确落库；由于开发版

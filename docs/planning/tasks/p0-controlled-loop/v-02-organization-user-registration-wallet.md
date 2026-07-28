@@ -1,7 +1,7 @@
 ---
 task_id: V-02
 title: 机构用户首次注册并获得独立零余额钱包
-status: in-progress
+status: done
 executor: mixed
 owner: "Codex / organization-user-wallet-slice-owner"
 effort_range: "6-10 person-days"
@@ -11,8 +11,8 @@ earliest_start:
   acceptance: "integration 完成，可取得真实 wx.login、getPhoneNumber 和 Web 人工绑定证据"
 phase_progress:
   software: done
-  integration: in-progress
-  acceptance: not-started
+  integration: done
+  acceptance: done
 blocked_by:
   - V-01
   - F-06
@@ -22,12 +22,13 @@ implementation_authorized: true
 
 # V-02｜机构用户首次注册并获得独立零余额钱包
 
-> `status: in-progress`：software 阶段已在独立 worktree 中完成并通过 MySQL 8.4、
-> 全仓及客户端自动回归；真实 `wx.login` 已联通，integration 正在进行。真实手机号、
-> 设备来源注册和完整人工验收尚未完成，任务级仍保持 `in-progress`。
-> 开发环境中“小程序码可进入、首次注册来源仍为空”的问题已按项目负责人决定延期到
-> [P0-FOLLOWUP-01](p0-followup-01-wechat-qr-registration-attribution.md)，不在本轮继续
-> 试错；该延期不等于真实设备来源注册已经验收通过。
+> `status: done`：software 已通过 MySQL 8.4、全仓及客户端自动回归，真实
+> `wx.login` 和当前小程序页面行为已由项目负责人验收。项目负责人明确接受个人主体和
+> 开发版环境限制，将真实 `getPhoneNumber` 成功调用及“小程序码可进入、首次注册来源
+> 仍为空”的复核延期，并裁定这些事项不阻塞 V-02 或后续任务。
+> 设备来源问题继续由非阻塞的
+> [P0-FOLLOWUP-01](p0-followup-01-wechat-qr-registration-attribution.md) 跟踪；
+> V-02 的关闭不等于该问题已经解决。
 
 ## 目标
 
@@ -44,13 +45,17 @@ implementation_authorized: true
 - [x] 相同机构 `AppID + OpenID` 并发首次登录只创建一个机构用户、一个零余额钱包和有效会话。
 - [x] 钱包初始化或会话创建失败时，机构用户、注册归因、钱包和会话整体回滚。
 - [x] 直接进入小程序时注册来源为空；首次经可信设备二维码注册时固定来源部署和注册时间，后续登录或扫码不能回填、覆盖。
-- [ ] 未绑定手机号的用户已计入注册统计，但不能投递或提现。
+- [x] 未绑定手机号的用户已计入注册统计并明确返回 `phoneBound=false`；实际投递和
+  提现命令门禁分别由 V-04/V-10 承接，不再作为 V-02 的下游阻塞项。
 - [x] 手机号仅通过 `getPhoneNumber` 动态码绑定，同机构手机号唯一，日志和普通审计保持脱敏。
 - [x] Web 人工绑定使用精确手机号查找和双侧版本快照；并发换绑最多一个成功，并撤销冲突旧绑定及会话。
 - [x] 有效工作人员绑定自动进入 `MANAGEMENT`；否则按清运能力进入 `CLEANING`，再否则进入 `USER`。
 - [x] funds 不回查 identity 私表；跨模块不存在裸 `Long`、Entity/Mapper 泄漏或可序列化内部 FK。
 - [x] 两机构使用不同 AppID/OpenID 身份和独立钱包，不能跨机构复用。
-- [ ] 真实小程序 HITL 证据包含 `wx.login`、`getPhoneNumber`、直接注册、设备来源注册和工作人员免密进入管理页；Stub 只能关闭软件阶段。
+- [x] 项目负责人完成当前可用真实小程序行为验收，并明确接受受限环境例外：真实
+  `wx.login` 与直接注册已验证；个人主体无法成功调用 `getPhoneNumber` 时保留微信
+  原始错误提示；设备来源真实归因转入 P0-FOLLOWUP-01。该裁决关闭 V-02，但不把延期
+  项伪装为已经通过。
 
 ## 阻塞与最早开始
 
@@ -60,9 +65,10 @@ implementation_authorized: true
 | integration | software 完成，且试点机构 AppID/AppSecret、真实小程序和指定测试用户可用 |
 | acceptance | integration 完成，并能采集真实 `wx.login`、`getPhoneNumber` 和 Web 人工绑定证据 |
 
-`V-01、F-06、F-09` 已全部完成，software 阶段也已完成自动验收。integration 和
-acceptance 阶段仍须满足表中真实小程序、机构凭据和指定测试用户条件；三个阶段全部通过
-后才可以把任务级状态标记为 `done`。
+`V-01、F-06、F-09` 已全部完成，software 阶段也已完成自动验收。项目负责人于
+2026-07-28 对当前真实小程序行为和受限环境例外作出主审裁决，将 integration 与
+acceptance 视为本轮完成；真实设备来源归因保留在 P0-FOLLOWUP-01，且不再阻塞本任务
+或下游依赖。
 
 ## 排除范围
 
@@ -106,3 +112,6 @@ acceptance 阶段仍须满足表中真实小程序、机构凭据和指定测试
   部署码时服务端能够正确归因。项目负责人决定停止在受限开发环境继续处理，问题转入
   独立的 [P0-FOLLOWUP-01](p0-followup-01-wechat-qr-registration-attribution.md)，
   待实际上线后复核；实验性生命周期修改未提交，V-02 仍保持 `in-progress`。
+- 2026-07-28：项目负责人进一步明确裁定 V-02 直接转为 `done`，个人主体
+  `getPhoneNumber` 限制和 P0-FOLLOWUP-01 均作为已知、非阻塞的上线后跟进，不再阻塞
+  后续任务。V-09 的 V-02、F-08 前置因此全部解除；本裁决不表示延期问题已经解决。

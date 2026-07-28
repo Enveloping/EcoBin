@@ -17,8 +17,9 @@ implementation_authorized: false
 > V-01 已完成；H-02 已通过本地 MySQL 8.4
 > 开发演练及服务器整改阶段 0～3 验收，项目负责人接受当前试验期使用 ACL 受限
 > `.ecobin` 保管长期凭证原件，任务已转为 `done`；
-> V-02 已获授权且 software 已完成，任务级仍等待真实微信 integration/acceptance；
-> H-03 为 `ready` 但仍须单独授权；其他任务仍须逐项获得授权。
+> V-02 已按项目负责人接受的受限微信环境边界转为 `done`，设备来源归因由非阻塞的
+> P0-FOLLOWUP-01 延期跟踪；H-03、V-09 为 `ready` 但仍须单独授权；其他任务仍须
+> 逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
 ## Initiative 状态
@@ -28,8 +29,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、H-02、F-01～F-11、V-01 已授权并完成；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 software 已完成并等待真实微信联调与人工验收；H-03 ready 但未授权；阶段 4 其他任务未授权** |
-| 当前状态数 | `done` 14、`ready` 1、`in-progress` 1、`blocked` 13 |
+| 实施授权 | **部分授权：H-01、H-02、F-01～F-11、V-01、V-02 已授权并完成；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；H-03、V-09 ready 但未授权；阶段 4 其他任务未授权** |
+| 当前状态数 | `done` 15、`ready` 2、`in-progress` 0、`blocked` 12 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -93,14 +94,14 @@ agent | human | mixed
 | ID | 任务 | status | executor | blocked by |
 |---|---|---|---|---|
 | V-01 | [租户、机构和工作人员可以安全登录管理](v-01-tenant-organization-staff-login.md) | `done` | `agent` | F-02、F-03、F-04、F-09 |
-| V-02 | [机构用户首次注册并获得独立零余额钱包](v-02-organization-user-registration-wallet.md) | `in-progress`（software done） | `mixed` | V-01、F-06、F-09 |
+| V-02 | [机构用户首次注册并获得独立零余额钱包](v-02-organization-user-registration-wallet.md) | `done`（受限微信环境例外已接受） | `mixed` | V-01、F-06、F-09 |
 | V-03 | [试点设备从库存到配置可用](v-03-pilot-device-deployment-configuration.md) | `blocked` | `mixed` | V-01、F-07、F-08、F-11、H-03 |
 | V-04 | [一次真实投递形成待审核订单](v-04-real-delivery-pending-review.md) | `blocked` | `mixed` | V-02、V-03 |
 | V-05 | [投递审核/纠错形成真实钱包差额](v-05-delivery-review-wallet-delta.md) | `blocked` | `agent` | V-04 |
 | V-06 | [连续投递、断网与迟到结果恢复](v-06-continuous-delivery-recovery.md) | `blocked` | `mixed` | V-04、V-08 |
 | V-07 | [一次真实清运完成换袋](v-07-real-cleaning-bag-swap.md) | `blocked` | `mixed` | V-02、V-03 |
 | V-08 | [满溢、基准和精确安全恢复](v-08-fullness-baseline-precise-recovery.md) | `blocked` | `mixed` | V-04、V-07 |
-| V-09 | [Native 充值软件闭环](v-09-native-recharge-software-loop.md) | `blocked` | `agent` | V-02、F-08 |
+| V-09 | [Native 充值软件闭环](v-09-native-recharge-software-loop.md) | `ready` | `agent` | V-02、F-08 |
 | V-10 | [手动提现软件闭环](v-10-manual-withdrawal-software-loop.md) | `blocked` | `agent` | V-05、V-09、F-08 |
 | V-11 | [告警、审计、对账与一致概览](v-11-operations-governance-overview.md) | `blocked` | `agent` | F-08、V-04、V-07、V-08、V-10 |
 
@@ -336,3 +337,7 @@ M0_COMPLETE
   项目负责人决定停止在当前受限开发环境继续处理，新增独立延期项
   P0-FOLLOWUP-01，待真实 release 运行环境具备后复核。该项不纳入原 29 项依赖 DAG，
   V-02 仍保持 `in-progress`，不得把延期解释为来源归因已经通过。
+- 2026-07-28：项目负责人随后明确将 V-02 标记为 `done`，接受个人主体和开发版环境
+  限制，并裁定 P0-FOLLOWUP-01 不阻塞任何下游任务；该裁决不表示延期问题已经解决。
+  V-09 的 V-02、F-08 前置因此全部解除并转为 `ready`，但仍未获得实施授权。原 29 项
+  当前共 `done` 15、`ready` 2、`in-progress` 0、`blocked` 12。

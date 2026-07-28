@@ -4,7 +4,7 @@
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)、[`database-design-draft.md`](database-design-draft.md)
 > 当前运行接口：[`../api/api-frontend.md`](../api/api-frontend.md)、当前 Controller、Web/小程序请求封装、OneNet 物模型及香橙派实现
-> 目的：把已经冻结的业务、架构和数据库边界落实为 Web、小程序、OneNet、微信、COS、UART 与模块公开端口的可实现契约；V-01 已实现 Web 身份目录子集，接口设计完成仍不代表其余代码、物模型、Schema 或固件已经实现。
+> 目的：把已经冻结的业务、架构和数据库边界落实为 Web、小程序、OneNet、微信、COS、UART 与模块公开端口的可实现契约；V-01、V-02 已实现 Web 身份目录、机构用户注册/钱包和小程序身份子集，V-09 已 ready 但尚未授权；接口设计完成仍不代表其余代码、物模型、Schema 或固件已经实现。
 > 文档结构：本文件保存总状态、现状审计、契约面、分章导航和后续顺序；已确认决策正文位于 [`interface-design/`](interface-design/) 下。
 
 ## 1. 文档效力与边界

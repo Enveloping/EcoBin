@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、H-02、F-01～F-11、V-01 已完成，V-02 software 已完成并等待真实微信联调与人工验收，H-03 已 ready 但仍须单独授权**
+> 状态：**29 项任务已批准并发布；H-01、H-02、F-01～F-11、V-01、V-02 已完成，H-03、V-09 已 ready 但仍须单独授权；V-02 设备来源问题由非阻塞 P0-FOLLOWUP-01 延期跟踪**
 >
 > 草案日期：2026-07-24
 >
@@ -628,10 +628,13 @@ M0_COMPLETE
 15. 2026-07-27，项目负责人授权并由 Codex 在独立 worktree 完成 V-02 software；
     MySQL 8.4 专项、全仓 Java、Web、小程序和 OpenAPI 检查通过。任务级因真实微信
     integration/acceptance 尚未开始而保持 `in-progress`。
+16. 2026-07-28，项目负责人接受个人主体和开发版微信环境限制，将 V-02 裁定为
+    `done`；设备来源归因由不进入原依赖 DAG 的 P0-FOLLOWUP-01 延期跟踪，不阻塞
+    下游。V-09 的 V-02/F-08 前置全部解除并转为 `ready`，但未获得实施授权。
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
-当前 H-01、H-02、F-01～F-11、V-01 为 `done`；V-02 为 `in-progress`；H-03 为 `ready`；
+当前 H-01、H-02、F-01～F-11、V-01、V-02 为 `done`；H-03、V-09 为 `ready`；
 H-02 已通过本地演练及服务器整改阶段 0～3 验收，当前试验期 `.ecobin` 凭证保管例外已由
-项目负责人接受；V-02 仍等待真实微信 integration/acceptance；其余任务保持 `blocked`。
-当前共 `done` 14、`ready` 1、`in-progress` 1、`blocked` 13。
+项目负责人接受；V-02 的真实设备来源问题由非阻塞 P0-FOLLOWUP-01 延期跟踪；其余任务
+保持 `blocked`。当前共 `done` 15、`ready` 2、`in-progress` 0、`blocked` 12。

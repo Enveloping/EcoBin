@@ -1,7 +1,7 @@
 ---
 task_id: V-09
 title: Native 充值软件闭环
-status: blocked
+status: ready
 executor: agent
 owner: "unassigned — backend/funds vertical-slice owner"
 effort_range: "5-8 person-days"
@@ -45,11 +45,14 @@ implementation_authorized: false
 - [ ] Fake 软件证据明确标记为 `SIMULATED`，不被 H-04 或 M0 当作真实微信证据。
 - [ ] 日志、任务、示例和测试报告不包含商户密钥、完整回调正文或真实支付凭证。
 
-## 阻塞与最早开始
+## 依赖与最早开始
 
-- 被 [V-02](v-02-organization-user-registration-wallet.md) 阻塞：需要已经成立的机构用户、小程序和零余额钱包边界。
-- 被 [F-08](f-08-inbox-reliable-task-tracer.md) 阻塞：充值回调、查单和净额补记必须建立在中心可靠收件与任务执行器上。
-- 两项均为 `done` 且项目负责人明确授权实施后，任务才可转为 `ready` 或 `in-progress`。
+- [V-02](v-02-organization-user-registration-wallet.md) 已为 `done`：机构用户、小程序和
+  零余额钱包边界已经成立。
+- [F-08](f-08-inbox-reliable-task-tracer.md) 已为 `done`：中心可靠收件与任务执行器
+  已经成立。
+- 两项任务依赖均已解除，因此 V-09 为 `ready`；`implementation_authorized: false`
+  保持不变，开始编码前仍须项目负责人单独授权。
 - 完成后解除 V-10 的软件依赖，并为 H-04 提供真实渠道验收对象。
 
 ## 排除范围
@@ -69,3 +72,6 @@ implementation_authorized: false
 ## 进展记录
 
 - 2026-07-23：正式任务发布；前置任务未完成，保持 `blocked`；尚未授权实施。
+- 2026-07-28：项目负责人将 V-02 转为 `done` 并明确其延期问题不阻塞后续；F-08
+  早已完成，因此 V-09 的全部任务依赖解除，由 `blocked` 转为 `ready`。本次状态推进
+  不构成实施授权。
