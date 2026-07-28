@@ -11,9 +11,9 @@ import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationSourc
 import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationSourceQueryPort.RegistrationSourceUsersQuery;
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
 import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
-import org.enveloping.ecobin.identity.application.web.TargetWebAuditRequestContext;
+import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.identity.infrastructure.persistence.v1.TargetIdentitySessionRepository;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.AccountVersionCommand;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.BindingSnapshot;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.OrganizationUserCurrentMiniappBinding;

@@ -4,7 +4,7 @@ import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
-import org.enveloping.ecobin.identity.application.web.TargetWebAuditRequestContext.Descriptor;
+import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext.Descriptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;

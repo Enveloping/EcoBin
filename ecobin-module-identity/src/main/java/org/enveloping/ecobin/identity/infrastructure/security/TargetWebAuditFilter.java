@@ -5,8 +5,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
-import org.enveloping.ecobin.identity.application.web.TargetWebAuditRequestContext;
-import org.enveloping.ecobin.identity.application.web.TargetWebAuditRequestContext.Descriptor;
+import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
+import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext.Descriptor;
 import org.enveloping.ecobin.identity.application.web.TargetWebRequestAuditService;
 import org.springframework.web.filter.OncePerRequestFilter;
 

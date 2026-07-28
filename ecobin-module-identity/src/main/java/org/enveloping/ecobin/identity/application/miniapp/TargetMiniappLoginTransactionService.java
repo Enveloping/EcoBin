@@ -12,7 +12,7 @@ import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationAttri
 import org.enveloping.ecobin.identity.api.persistence.OrganizationUserRegistrationAttributionRef;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappLoginService.MiniappConfiguration;
 import org.enveloping.ecobin.identity.application.persistence.OrganizationUserWalletOwnerRefFactory;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappSessionCreated;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.OrganizationSummary;
 import org.springframework.beans.factory.annotation.Value;

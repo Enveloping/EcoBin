@@ -1,5 +1,7 @@
 package org.enveloping.ecobin.operations.api.inbox;
 
+import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
+
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
@@ -7,8 +9,8 @@ import java.util.UUID;
 /**
  * 外部适配器完成认证、解密、白名单规范化后的可信入站消息。
  *
- * <p>F-08 tracer 只允许平台作用域 Fake 消息。真实 OneNet/微信消息必须在后续纵向任务中
- * 通过各自权威身份解析出租户/机构作用域后再扩展本端口，不能信任外部自报作用域。</p>
+ * <p>作用域由业务权威 resolver 在收件事务内解析；外部自报的租户或机构字段永远不作为
+ * 数据库作用域来源。保留无 resolver 的构造器只用于平台级 Fake/维护消息。</p>
  */
 public final class TrustedInboxMessage {
 
@@ -27,6 +29,7 @@ public final class TrustedInboxMessage {
     private final UUID correlationUid;
     private final UUID causationUid;
     private final TrustedInboxExecutionLane executionLane;
+    private final TrustedInboxScopeResolver scopeResolver;
 
     public TrustedInboxMessage(
             String sourceNamespace,
@@ -41,6 +44,36 @@ public final class TrustedInboxMessage {
             UUID correlationUid,
             UUID causationUid,
             TrustedInboxExecutionLane executionLane) {
+        this(
+                sourceNamespace,
+                sourcePrincipalKey,
+                externalMessageId,
+                messageKind,
+                normalizedSchemaVersion,
+                rawTransportBody,
+                normalizedPayload,
+                authenticationMethod,
+                authenticationPrincipalRef,
+                correlationUid,
+                causationUid,
+                executionLane,
+                TrustedInboxScopeResolver.platform());
+    }
+
+    public TrustedInboxMessage(
+            String sourceNamespace,
+            String sourcePrincipalKey,
+            String externalMessageId,
+            String messageKind,
+            int normalizedSchemaVersion,
+            byte[] rawTransportBody,
+            String normalizedPayload,
+            String authenticationMethod,
+            String authenticationPrincipalRef,
+            UUID correlationUid,
+            UUID causationUid,
+            TrustedInboxExecutionLane executionLane,
+            TrustedInboxScopeResolver scopeResolver) {
         this.sourceNamespace = requirePattern(
                 sourceNamespace,
                 "sourceNamespace",
@@ -76,6 +109,8 @@ public final class TrustedInboxMessage {
         this.correlationUid = correlationUid;
         this.causationUid = causationUid;
         this.executionLane = Objects.requireNonNull(executionLane, "executionLane");
+        this.scopeResolver = Objects.requireNonNull(
+                scopeResolver, "scopeResolver");
     }
 
     public String sourceNamespace() {
@@ -124,6 +159,10 @@ public final class TrustedInboxMessage {
 
     public TrustedInboxExecutionLane executionLane() {
         return executionLane;
+    }
+
+    public TrustedInboxScopeResolver scopeResolver() {
+        return scopeResolver;
     }
 
     private static String requireBounded(

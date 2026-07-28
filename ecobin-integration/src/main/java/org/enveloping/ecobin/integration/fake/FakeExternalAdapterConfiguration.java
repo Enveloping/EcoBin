@@ -1,7 +1,6 @@
 package org.enveloping.ecobin.integration.fake;
 
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
-import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
 import org.enveloping.ecobin.integration.config.ExternalAdapterModeProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +18,7 @@ import org.springframework.context.annotation.Configuration;
 public class FakeExternalAdapterConfiguration {
 
     @Bean
-    DeviceCommandGateway fakeDeviceCommandGateway() {
+    FakeDeviceCommandGateway fakeDeviceCommandGateway() {
         return new FakeDeviceCommandGateway();
     }
 

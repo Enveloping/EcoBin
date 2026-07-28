@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -41,6 +42,7 @@ public class TrustedInboxService implements TrustedInboxPort {
             isolation = Isolation.READ_COMMITTED)
     public TrustedInboxReceipt receive(TrustedInboxMessage message) {
         properties.validate();
+        InboxScope scope = resolveScope(message);
         CanonicalJson.CanonicalPayload canonicalPayload = canonicalJson.canonicalize(
                 message.messageKind(),
                 message.normalizedSchemaVersion(),
@@ -53,6 +55,9 @@ public class TrustedInboxService implements TrustedInboxPort {
             repository.insertInbox(
                     new NewInbox(
                             proposedInboxUid,
+                            scope.scopeKind(),
+                            scope.tenantId(),
+                            scope.organizationId(),
                             message.sourceNamespace(),
                             message.sourcePrincipalKey(),
                             message.externalMessageId(),
@@ -75,6 +80,7 @@ public class TrustedInboxService implements TrustedInboxPort {
                     .orElseThrow(() -> duplicate);
             return handleDuplicate(
                     message,
+                    scope,
                     existing,
                     rawDigest,
                     canonicalPayload,
@@ -89,6 +95,9 @@ public class TrustedInboxService implements TrustedInboxPort {
         UUID taskUid = repository.insertProcessInboxTask(
                 inserted.inboxId(),
                 inserted.inboxUid(),
+                inserted.scopeKind(),
+                inserted.tenantId(),
+                inserted.organizationId(),
                 message.executionLane().name(),
                 taskSnapshot.json(),
                 taskSnapshot.sha256(),
@@ -105,10 +114,20 @@ public class TrustedInboxService implements TrustedInboxPort {
 
     private TrustedInboxReceipt handleDuplicate(
             TrustedInboxMessage message,
+            InboxScope incomingScope,
             InboxAggregate existing,
             byte[] rawDigest,
             CanonicalJson.CanonicalPayload incomingPayload,
             LocalDateTime now) {
+        if (!existing.scopeKind().equals(incomingScope.scopeKind())
+                || !Objects.equals(
+                        existing.tenantId(), incomingScope.tenantId())
+                || !Objects.equals(
+                        existing.organizationId(),
+                        incomingScope.organizationId())) {
+            throw new ReliableTaskInvariantException(
+                    "stable inbox identity resolved to a different scope");
+        }
         if (!existing.normalizedContentSha256Hex()
                 .equals(incomingPayload.sha256Hex())) {
             byte[] dedupeKey = canonicalJson.sha256LengthPrefixed(
@@ -119,6 +138,9 @@ public class TrustedInboxService implements TrustedInboxPort {
                     "IDENTITY_CONTENT_CONFLICT".getBytes(StandardCharsets.US_ASCII));
             UUID quarantineUid = repository.upsertIdentityConflict(
                     dedupeKey,
+                    existing.scopeKind(),
+                    existing.tenantId(),
+                    existing.organizationId(),
                     message.sourceNamespace(),
                     message.sourcePrincipalKey(),
                     message.externalMessageId(),
@@ -145,6 +167,9 @@ public class TrustedInboxService implements TrustedInboxPort {
             taskUid = repository.insertProcessInboxTask(
                     existing.inboxId(),
                     existing.inboxUid(),
+                    existing.scopeKind(),
+                    existing.tenantId(),
+                    existing.organizationId(),
                     message.executionLane().name(),
                     expectedSnapshot.json(),
                     expectedSnapshot.sha256(),
@@ -193,6 +218,12 @@ public class TrustedInboxService implements TrustedInboxPort {
                 : properties.getFundsWechat();
     }
 
+    private static InboxScope resolveScope(TrustedInboxMessage message) {
+        ScopeAccumulator accumulator = new ScopeAccumulator();
+        message.scopeResolver().resolve(accumulator::accept);
+        return accumulator.result();
+    }
+
     private static TrustedInboxReceipt accepted(
             TrustedInboxReceiptState state,
             UUID inboxUid,
@@ -209,5 +240,49 @@ public class TrustedInboxService implements TrustedInboxPort {
 
     private record TaskSnapshot(
             String json, byte[] sha256, String sha256Hex) {
+    }
+
+    private record InboxScope(
+            String scopeKind,
+            Long tenantId,
+            Long organizationId) {
+    }
+
+    private static final class ScopeAccumulator {
+
+        private InboxScope scope;
+
+        private void accept(
+                String scopeKind,
+                Long tenantId,
+                Long organizationId) {
+            if (scope != null) {
+                throw new IllegalStateException(
+                        "trusted inbox scope resolver wrote more than once");
+            }
+            if ("PLATFORM".equals(scopeKind)
+                    && tenantId == null
+                    && organizationId == null) {
+                scope = new InboxScope("PLATFORM", null, null);
+                return;
+            }
+            if ("ORGANIZATION".equals(scopeKind)
+                    && tenantId != null && tenantId > 0
+                    && organizationId != null && organizationId > 0) {
+                scope = new InboxScope(
+                        "ORGANIZATION", tenantId, organizationId);
+                return;
+            }
+            throw new IllegalArgumentException(
+                    "trusted inbox resolver returned an invalid scope");
+        }
+
+        private InboxScope result() {
+            if (scope == null) {
+                throw new IllegalStateException(
+                        "trusted inbox scope resolver did not write a scope");
+            }
+            return scope;
+        }
     }
 }

@@ -14,7 +14,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -68,15 +67,9 @@ class TenantSelfQueryTest {
     }
 
     @Test
-    void tenantCanReadOwnProfileWithoutSensitiveFields() throws Exception {
+    void removedLegacyTenantSelfInterfaceIsDenied() throws Exception {
         mockMvc.perform(get("/api/system/tenant/me").header("Authorization", "Bearer " + tenantToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.id").value(tenantId))
-                .andExpect(jsonPath("$.data.name").value("自查测试租户"))
-                .andExpect(jsonPath("$.data.merchantNo").value("MCH-123456"))
-                .andExpect(jsonPath("$.data.password").doesNotExist())
-                .andExpect(jsonPath("$.data.miniappSecret").doesNotExist());
+                .andExpect(status().isForbidden());
     }
 
     @Test

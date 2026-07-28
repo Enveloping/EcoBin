@@ -3,7 +3,7 @@ package org.enveloping.ecobin.identity.application.miniapp;
 import org.enveloping.ecobin.identity.api.error.WechatExchangeException;
 import org.enveloping.ecobin.identity.api.port.WechatPhoneNumberPort;
 import org.enveloping.ecobin.identity.api.result.WechatPhoneNumber;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.PhoneBindingResult;
 import org.springframework.stereotype.Service;
 

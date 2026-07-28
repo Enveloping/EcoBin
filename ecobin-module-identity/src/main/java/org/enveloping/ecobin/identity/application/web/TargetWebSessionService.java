@@ -7,7 +7,7 @@ import org.enveloping.ecobin.framework.security.TargetWebSessionClaims;
 import org.enveloping.ecobin.identity.infrastructure.persistence.v1.TargetIdentitySessionRepository;
 import org.enveloping.ecobin.identity.infrastructure.persistence.v1.TargetIdentitySessionRepository.PlatformLoginPrincipal;
 import org.enveloping.ecobin.identity.infrastructure.persistence.v1.TargetIdentitySessionRepository.StaffLoginPrincipal;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.auth.WebSessionView;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

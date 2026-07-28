@@ -4,7 +4,7 @@ import org.enveloping.ecobin.framework.context.TrustedAudience;
 import org.enveloping.ecobin.framework.context.TrustedPrincipalKind;
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
 import org.enveloping.ecobin.framework.security.TargetMiniappSessionClaims;
-import org.enveloping.ecobin.identity.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappSessionView;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.OrganizationSummary;
 import org.springframework.jdbc.core.JdbcTemplate;
