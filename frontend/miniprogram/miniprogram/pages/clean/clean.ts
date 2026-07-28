@@ -1,7 +1,9 @@
 import { deviceList, deviceDoors } from '../../api/device'
 import { openClean, myCleans } from '../../api/clean'
+import { bindCurrentPhone } from '../../api/auth'
 import { requireEntryMode } from '../../utils/guard'
-import { getSession } from '../../utils/auth'
+import { getSession, markPhoneBound } from '../../utils/auth'
+import { createIdempotencyKey } from '../../utils/command-intent'
 import type { Device, Door, CleanOrder } from '../../types/api'
 
 interface CleanRow extends CleanOrder {
@@ -10,7 +12,7 @@ interface CleanRow extends CleanOrder {
 }
 
 Page({
-  phoneGrantDismissed: false,
+  phoneBindingIntentKey: '',
 
   data: {
     devices: [] as Device[],
@@ -22,7 +24,8 @@ Page({
     bagNo: '',
     opening: false,
     cleans: [] as CleanRow[],
-    showPhoneGrant: false,
+    phoneBound: false,
+    phoneGrantSubmitting: false,
   },
 
   onLoad() {
@@ -36,20 +39,38 @@ Page({
     if (tabBar) (tabBar as any).init()
     const session = getSession()
     this.setData({
-      showPhoneGrant:
-        session?.audience === 'miniapp'
-        && !session.phoneBound
-        && !this.phoneGrantDismissed,
+      phoneBound: session?.phoneBound ?? false,
     })
   },
 
-  onPhoneGrantClose() {
-    this.phoneGrantDismissed = true
-    this.setData({ showPhoneGrant: false })
+  async ensurePhoneBindingIntent() {
+    if (!this.phoneBindingIntentKey) {
+      this.phoneBindingIntentKey = await createIdempotencyKey()
+    }
   },
 
-  onPhoneBound() {
-    this.setData({ showPhoneGrant: false })
+  async onGetPhoneNumber(
+    event: WechatMiniprogram.CustomEvent<{
+      code?: string
+      errMsg?: string
+    }>,
+  ) {
+    if (this.data.phoneGrantSubmitting) return
+    const code = event.detail.code
+    if (!code) {
+      wx.showToast({ title: '已取消手机号授权', icon: 'none' })
+      return
+    }
+    await this.ensurePhoneBindingIntent()
+    this.setData({ phoneGrantSubmitting: true })
+    try {
+      await bindCurrentPhone(code, this.phoneBindingIntentKey)
+      markPhoneBound()
+      this.setData({ phoneBound: true })
+      wx.showToast({ title: '手机号已验证', icon: 'success' })
+    } finally {
+      this.setData({ phoneGrantSubmitting: false })
+    }
   },
 
   async loadDevices() {

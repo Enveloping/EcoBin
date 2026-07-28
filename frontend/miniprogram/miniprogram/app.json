@@ -36,8 +36,7 @@
     "t-button": "tdesign-miniprogram/button/button",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-tag": "tdesign-miniprogram/tag/tag",
-    "t-toast": "tdesign-miniprogram/toast/toast",
-    "phone-grant-sheet": "/components/phone-grant-sheet/index"
+    "t-toast": "tdesign-miniprogram/toast/toast"
   },
   "componentFramework": "glass-easel",
   "lazyCodeLoading": "requiredComponents"

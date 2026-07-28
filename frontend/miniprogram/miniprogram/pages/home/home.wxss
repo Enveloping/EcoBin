@@ -70,7 +70,18 @@
 }
 .phone-notice-title { color: #173d25; font-size: 25rpx; font-weight: 700; }
 .phone-notice-detail { margin-top: 6rpx; color: #78837a; font-size: 20rpx; }
-.phone-notice-action { color: #10a625; font-size: 23rpx; font-weight: 700; }
+.phone-notice-action {
+  width: auto;
+  margin: 0;
+  padding: 12rpx 0 12rpx 16rpx;
+  color: #10a625;
+  font-size: 23rpx;
+  font-weight: 700;
+  line-height: 1;
+  background: transparent;
+}
+.phone-notice-action::after { border: 0; }
+.phone-notice-action[disabled] { color: #73c780; }
 
 .feature-card {
   display: grid;
