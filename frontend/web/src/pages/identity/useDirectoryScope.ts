@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { listIdentityTenants, type DirectoryContext } from '@/api/identityDirectory';
 import { useAuthStore } from '@/stores/authStore';
 
 const PLATFORM_TENANT_KEY = 'ecobin.web.target-tenant';
+const TENANT_QUERY_KEY = 'tenant';
 
 export interface DirectoryScope {
   context: DirectoryContext | null;
@@ -17,16 +19,30 @@ export function useDirectoryScope(): DirectoryScope {
   const domain = useAuthStore((state) => state.domain);
   const sessionTenant = useAuthStore((state) => state.session?.tenantCode);
   const platform = domain === 'platform';
-  const [tenantCode, setTenantCodeState] = useState<string | undefined>(
-    platform ? sessionStorage.getItem(PLATFORM_TENANT_KEY) ?? undefined : undefined,
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryTenant = searchParams.get(TENANT_QUERY_KEY)?.trim() || undefined;
   const [tenantOptions, setTenantOptions] = useState<
     Array<{ label: string; value: string }>
   >([]);
   const [loading, setLoading] = useState(platform);
 
+  const writeTenantQuery = useCallback(
+    (tenantCode: string) => {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set(TENANT_QUERY_KEY, tenantCode);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   useEffect(() => {
     if (!platform) {
+      setTenantOptions([]);
       setLoading(false);
       return;
     }
@@ -35,18 +51,12 @@ export function useDirectoryScope(): DirectoryScope {
     listIdentityTenants({ page: 1, pageSize: 200 })
       .then((page) => {
         if (!active) return;
-        const options = page.items.map((tenant) => ({
-          label: `${tenant.enterpriseName} · ${tenant.tenantCode}`,
-          value: tenant.tenantCode,
-        }));
-        setTenantOptions(options);
-        setTenantCodeState((current) => {
-          const selected = options.some((option) => option.value === current)
-            ? current
-            : options[0]?.value;
-          if (selected) sessionStorage.setItem(PLATFORM_TENANT_KEY, selected);
-          return selected;
-        });
+        setTenantOptions(
+          page.items.map((tenant) => ({
+            label: `${tenant.enterpriseName} · ${tenant.tenantCode}`,
+            value: tenant.tenantCode,
+          })),
+        );
       })
       .finally(() => active && setLoading(false));
     return () => {
@@ -54,10 +64,41 @@ export function useDirectoryScope(): DirectoryScope {
     };
   }, [platform]);
 
-  const setTenantCode = (value: string) => {
-    setTenantCodeState(value);
-    sessionStorage.setItem(PLATFORM_TENANT_KEY, value);
-  };
+  useEffect(() => {
+    if (!platform || loading || !tenantOptions.length) return;
+    const queryIsValid = tenantOptions.some(
+      (option) => option.value === queryTenant,
+    );
+    if (queryIsValid && queryTenant) {
+      sessionStorage.setItem(PLATFORM_TENANT_KEY, queryTenant);
+      return;
+    }
+    const remembered = sessionStorage.getItem(PLATFORM_TENANT_KEY);
+    const selected = tenantOptions.some((option) => option.value === remembered)
+      ? remembered!
+      : tenantOptions[0].value;
+    sessionStorage.setItem(PLATFORM_TENANT_KEY, selected);
+    writeTenantQuery(selected);
+  }, [
+    loading,
+    platform,
+    queryTenant,
+    tenantOptions,
+    writeTenantQuery,
+  ]);
+
+  const tenantCode = platform
+    && tenantOptions.some((option) => option.value === queryTenant)
+    ? queryTenant
+    : undefined;
+
+  const setTenantCode = useCallback(
+    (value: string) => {
+      sessionStorage.setItem(PLATFORM_TENANT_KEY, value);
+      writeTenantQuery(value);
+    },
+    [writeTenantQuery],
+  );
 
   const context = useMemo<DirectoryContext | null>(() => {
     if (!domain) return null;

@@ -3,11 +3,12 @@
  */
 
 import type { ReactNode } from 'react';
+import { palette } from '@/theme';
 
 /** PageContainer 统一头部配置（标题 + 副标题） */
 export function pageHeader(title: ReactNode, subTitle?: ReactNode) {
   return {
-    title: <span style={{ fontWeight: 600 }}>{title}</span>,
+    title: <span className="page-title">{title}</span>,
     subTitle,
     header: { style: { paddingBottom: 16 } },
     style: { paddingBottom: 0 },
@@ -24,7 +25,12 @@ export const proTableConfig = {
     setting: false,
   },
   search: { labelWidth: 'auto' as const },
+  scroll: { x: 'max-content' as const },
+  pagination: {
+    showSizeChanger: true,
+    showTotal: (total: number) => `共 ${total} 条`,
+  },
 };
 
 /** 统一的"危险操作"链接颜色 */
-export const DANGER_COLOR = '#DC2626';
+export const DANGER_COLOR = palette.error;

@@ -26,14 +26,14 @@ export default function EcoBinLogo({ collapsed = false }: { collapsed?: boolean 
         <circle cx="24" cy="24" r="22" fill={palette.primary} />
         <path
           d="M24 8C15.16 8 8 15.16 8 24C8 32.84 15.16 40 24 40C32.84 40 40 32.84 40 24"
-          stroke="#FFFFFF"
+          stroke={palette.onPrimary}
           strokeWidth="3"
           strokeLinecap="round"
           fill="none"
         />
         <path
           d="M32 16L40 24L32 32"
-          stroke="#FFFFFF"
+          stroke={palette.onPrimary}
           strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -41,7 +41,7 @@ export default function EcoBinLogo({ collapsed = false }: { collapsed?: boolean 
         />
         <path
           d="M24 24L24 8"
-          stroke="#FFFFFF"
+          stroke={palette.onPrimary}
           strokeWidth="3"
           strokeLinecap="round"
         />

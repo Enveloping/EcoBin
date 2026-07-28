@@ -9,6 +9,7 @@ import { App, Card, Col, Row } from 'antd';
 import { changeOwnPassword, updateOwnProfile } from '@/api/identityDirectory';
 import { getCurrentSession } from '@/api/auth';
 import { useAuthStore } from '@/stores/authStore';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { pageHeader } from '@/utils/pageStyle';
 
 interface ProfileForm {
@@ -28,15 +29,17 @@ export default function AccountSettingsPage() {
   const { session, setSession, clear } = useAuthStore();
   const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   const submitProfile = async (values: ProfileForm) => {
     if (!session) return false;
     setProfileSubmitting(true);
     try {
-      await updateOwnProfile({
-        ...values,
-        expectedVersion: session.version,
-      });
+      const payload = { ...values, expectedVersion: session.version };
+      await executeCommand(
+        commandKey('update-own-profile', session.subjectUid, payload),
+        (intent) => updateOwnProfile(payload, intent),
+      );
       const current = await getCurrentSession('tenant');
       setSession(current, 'tenant');
       message.success('个人资料已更新');
@@ -54,12 +57,16 @@ export default function AccountSettingsPage() {
     }
     setPasswordSubmitting(true);
     try {
-      await changeOwnPassword({
+      const payload = {
         currentPassword: values.currentPassword,
         newPassword: values.newPassword,
         expectedVersion: session.version,
         expectedAuthVersion: session.authVersion,
-      });
+      };
+      await executeCommand(
+        commandKey('change-own-password', session.subjectUid, payload),
+        (intent) => changeOwnPassword(payload, intent),
+      );
       message.success('密码已修改，请重新登录');
       clear();
       navigate('/login', { replace: true });

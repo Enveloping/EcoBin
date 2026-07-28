@@ -1,20 +1,38 @@
-// ===== 通用响应 =====
+import type { components } from '@/api/generated/openapi';
 
-/** 目标 /api/v1 成功信封；错误使用 application/problem+json。 */
-export interface Result<T = unknown> {
-  code: 'OK';
-  data: T;
-  requestId: string;
+type Schemas = components['schemas'];
+
+/**
+ * Stable application aliases around the generated OpenAPI types.
+ * Pages import from here so regenerating the machine contract never couples UI
+ * code to the generated file layout.
+ */
+export type LoginResponse = Schemas['WebSession'];
+export type WebAccountType = LoginResponse['accountType'];
+export type OrganizationSummary = Schemas['OrganizationSummary'];
+export type DirectoryStatus = Schemas['DirectoryStatus'];
+export type PrincipalAccountSummary = Schemas['PrincipalAccountSummary'];
+export type IdentityTenant = Schemas['IdentityTenant'];
+export type IdentityOrganization = Schemas['IdentityOrganization'];
+export type StaffAccount = Schemas['StaffAccount'];
+export type StaffAccountKind = StaffAccount['accountKind'];
+export type PermissionDefinition = Schemas['PermissionDefinition'];
+export type PermissionScopeKind = PermissionDefinition['scopeKind'];
+export type EffectiveAccess = Schemas['EffectiveAccess'];
+export type OrganizationEffectiveAccess = EffectiveAccess['organizations'][number];
+export type StaffMembership = Schemas['OrganizationMembership'];
+export type OrganizationUser = Schemas['OrganizationUser'];
+export type OrganizationUserRegistrationSource =
+  Schemas['OrganizationUserRegistrationSource'];
+
+export type WebLoginDomain = 'platform' | 'tenant';
+
+export interface LoginRequest {
+  loginName: string;
+  password: string;
 }
 
-export interface ProblemDetail {
-  code: string;
-  message: string;
-  requestId: string;
-  retryable: boolean;
-  details: Record<string, unknown>;
-}
-
+/** Typed pagination facade used after the response envelope is unwrapped. */
 export interface PageData<T> {
   items: T[];
   page: number;
@@ -26,269 +44,4 @@ export interface CursorPageData<T> {
   items: T[];
   nextCursor: string | null;
   asOf: string;
-}
-
-/** 分页响应 PageResult<T> */
-export interface PageResult<T> {
-  records: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-/** 分页请求参数（页码从 1 开始，单页上限 200） */
-export interface PageParams {
-  page?: number;
-  pageSize?: number;
-  [key: string]: unknown;
-}
-
-// ===== 认证 =====
-
-export type WebLoginDomain = 'platform' | 'tenant';
-
-export interface LoginRequest {
-  loginName: string;
-  password: string;
-}
-
-export type WebAccountType = 'PLATFORM_ADMIN' | 'TENANT_PRINCIPAL' | 'STAFF';
-
-export interface OrganizationSummary {
-  organizationCode: string;
-  organizationName: string;
-}
-
-export interface LoginResponse {
-  sessionUid: string;
-  accountType: WebAccountType;
-  subjectUid: string;
-  displayName: string;
-  contactPhone?: string | null;
-  tenantCode?: string | null;
-  capabilities: string[];
-  organizations: OrganizationSummary[];
-  expiresAt: string;
-  version: number;
-  authVersion: number;
-}
-
-// ===== V-01 目标身份目录 =====
-
-export type DirectoryStatus = 'ENABLED' | 'DISABLED';
-
-export interface PrincipalAccountSummary {
-  staffAccountUid: string;
-  status: DirectoryStatus;
-  version: number;
-  authVersion: number;
-}
-
-export interface IdentityTenant {
-  tenantCode: string;
-  enterpriseName: string;
-  status: DirectoryStatus;
-  contactName?: string | null;
-  contactPhone?: string | null;
-  contactAddress?: string | null;
-  version: number;
-  principalAccount?: PrincipalAccountSummary | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface IdentityOrganization {
-  organizationCode: string;
-  organizationName: string;
-  status: DirectoryStatus;
-  contactPhone?: string | null;
-  contactAddress?: string | null;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type StaffAccountKind = 'TENANT_PRINCIPAL' | 'STAFF';
-
-export interface StaffAccount {
-  staffAccountUid: string;
-  accountKind: StaffAccountKind;
-  loginName: string;
-  displayName: string;
-  contactPhone?: string | null;
-  status: DirectoryStatus;
-  version: number;
-  authVersion: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type PermissionScopeKind = 'TENANT' | 'ORGANIZATION';
-
-export interface PermissionDefinition {
-  permissionCode: string;
-  scopeKind: PermissionScopeKind;
-  permissionName: string;
-  description?: string | null;
-}
-
-export interface OrganizationEffectiveAccess {
-  organizationCode: string;
-  organizationName: string;
-  manager: boolean;
-  permissionCodes: string[];
-}
-
-export interface EffectiveAccess {
-  staffAccountUid: string;
-  tenantPermissionCodes: string[];
-  organizations: OrganizationEffectiveAccess[];
-  authVersion: number;
-}
-
-export interface StaffMembership {
-  organizationCode: string;
-  staffAccountUid: string;
-  displayName: string;
-  manager: boolean;
-  status: DirectoryStatus;
-  permissionCodes: string[];
-  version: number;
-  authVersion: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ===== 系统域实体 =====
-
-/** 平台管理员 sys_admin（role 9/8） */
-export interface Admin {
-  id?: number;
-  username: string;
-  /** 只写：新建/改密时传，响应不返回 */
-  password?: string;
-  realName?: string;
-  role: number;
-  status: number;
-  createTime?: string;
-  updateTime?: string;
-}
-
-/** 租户 sys_tenant（role 7；id 即 tenant_id，恒 >1） */
-export interface Tenant {
-  id?: number;
-  name: string;
-  code?: string;
-  username?: string;
-  /** 只写 */
-  password?: string;
-  miniappAppid?: string | null;
-  /** 只写 */
-  miniappSecret?: string;
-  merchantNo?: string;
-  contactName?: string;
-  contactPhone?: string;
-  address?: string;
-  status: number;
-  createTime?: string;
-  updateTime?: string;
-}
-
-/** 终端用户 sys_user（role 3/2/1，脱敏） */
-export interface User {
-  id: number;
-  realName?: string;
-  phone?: string;
-  email?: string;
-  nickname?: string;
-  avatar?: string;
-  role: number;
-  status: number;
-  balance?: string;
-  pendingBalance?: string;
-  createTime?: string;
-}
-
-// ===== 设备域实体 =====
-
-export interface Device {
-  id?: number;
-  sn: string;
-  name: string;
-  type?: number;
-  lat?: number;
-  lng?: number;
-  address?: string;
-  status?: number;
-  tenantId?: number;
-  createTime?: string;
-  updateTime?: string;
-}
-
-export interface Door {
-  id?: number;
-  deviceId: number;
-  doorIndex: number;
-  name?: string;
-  wasteType1: number;
-  wasteType2?: number;
-  price?: string;
-  enabled?: number;
-  sortOrder?: number;
-  createTime?: string;
-  updateTime?: string;
-}
-
-// ===== 业务域实体 =====
-
-export interface DeliveryOrder {
-  id: number;
-  orderSn: string;
-  deliveryToken?: string;
-  deviceId: number;
-  doorId: number;
-  userId: number;
-  wasteType1: number;
-  wasteType2?: number;
-  weight?: string;
-  price?: string;
-  score?: number;
-  loginType?: number;
-  status: number;
-  deliveryStatus: number;
-  auditStatus?: number;
-  auditTime?: string;
-  auditRemark?: string;
-  photoOpenOutside?: string;
-  photoOpenInside?: string;
-  photoCloseOutside?: string;
-  photoCloseInside?: string;
-  createTime: string;
-}
-
-export interface CleanOrder {
-  id: number;
-  orderSn: string;
-  deviceId: number;
-  doorId?: number;
-  userId: number;
-  wasteType1: number;
-  wasteType2?: number;
-  weight?: string;
-  auditStatus: number;
-  status: number;
-  createTime?: string;
-  updateTime?: string;
-}
-
-export interface WithdrawOrder {
-  id: number;
-  userId: number;
-  amount: string;
-  status: number;
-  auditBy?: number;
-  auditTime?: string;
-  auditRemark?: string;
-  transferNo?: string;
-  createTime: string;
 }

@@ -33,6 +33,9 @@ import type {
 } from '@/types';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { useAuthStore } from '@/stores/authStore';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { palette } from '@/theme';
 
 interface TenantPermissionForm {
   permissionCodes: string[];
@@ -69,6 +72,9 @@ export default function AccessPage() {
   const [membershipMode, setMembershipMode] =
     useState<'create' | 'authorization' | 'activation' | null>(null);
   const [provisionOpen, setProvisionOpen] = useState(false);
+  const canManage = useAuthStore((state) =>
+    state.hasCapability('permission.manage'));
+  const executeCommand = useCommandExecutor();
 
   const loadDirectory = async () => {
     if (!scope.context) {
@@ -147,11 +153,24 @@ export default function AccessPage() {
     if (!scope.context || !tenantPermissionTarget || !effectiveAccess) {
       return false;
     }
-    await replaceTenantPermissions(
-      scope.context,
-      tenantPermissionTarget.staffAccountUid,
-      values.permissionCodes ?? [],
-      effectiveAccess.authVersion,
+    const payload = {
+      permissionCodes: values.permissionCodes ?? [],
+      expectedAuthVersion: effectiveAccess.authVersion,
+    };
+    await executeCommand(
+      commandKey(
+        'replace-tenant-permissions',
+        tenantPermissionTarget.staffAccountUid,
+        payload,
+      ),
+      (intent) =>
+        replaceTenantPermissions(
+          scope.context!,
+          tenantPermissionTarget.staffAccountUid,
+          payload.permissionCodes,
+          payload.expectedAuthVersion,
+          intent,
+        ),
     );
     message.success('租户权限已替换，目标账号会话已撤销');
     setTenantPermissionTarget(null);
@@ -168,29 +187,66 @@ export default function AccessPage() {
         (item) => item.staffAccountUid === values.staffAccountUid,
       );
       if (!account || !values.staffAccountUid) return false;
-      await createMembership(scope.context, organizationCode, {
+      const payload = {
         staffAccountUid: values.staffAccountUid,
         manager: values.manager,
         permissionCodes: permissions,
         expectedAuthVersion: account.authVersion,
-      });
+      };
+      await executeCommand(
+        commandKey(
+          'create-membership',
+          `${organizationCode}:${values.staffAccountUid}`,
+          payload,
+        ),
+        (intent) =>
+          createMembership(scope.context!, organizationCode, payload, intent),
+      );
       message.success('机构任职已建立');
     } else if (membershipTarget && membershipMode === 'activation') {
-      await changeMembershipStatus(
-        scope.context,
-        membershipTarget,
-        true,
-        values.manager,
-        permissions,
-        '重新激活机构任职',
+      await executeCommand(
+        commandKey(
+          'activate-membership',
+          `${membershipTarget.organizationCode}:${membershipTarget.staffAccountUid}`,
+          {
+            manager: values.manager,
+            permissions,
+            expectedVersion: membershipTarget.version,
+            expectedAuthVersion: membershipTarget.authVersion,
+          },
+        ),
+        (intent) =>
+          changeMembershipStatus(
+            scope.context!,
+            membershipTarget,
+            true,
+            intent,
+            values.manager,
+            permissions,
+            '重新激活机构任职',
+          ),
       );
       message.success('任职已重新激活，旧授权未被静默恢复');
     } else if (membershipTarget) {
-      await replaceMembershipAuthorization(
-        scope.context,
-        membershipTarget,
-        values.manager,
-        permissions,
+      await executeCommand(
+        commandKey(
+          'replace-membership-authorization',
+          `${membershipTarget.organizationCode}:${membershipTarget.staffAccountUid}`,
+          {
+            manager: values.manager,
+            permissions,
+            expectedVersion: membershipTarget.version,
+            expectedAuthVersion: membershipTarget.authVersion,
+          },
+        ),
+        (intent) =>
+          replaceMembershipAuthorization(
+            scope.context!,
+            membershipTarget,
+            values.manager,
+            permissions,
+            intent,
+          ),
       );
       message.success('任职授权已完整替换');
     }
@@ -203,13 +259,25 @@ export default function AccessPage() {
 
   const deactivate = async (membership: StaffMembership) => {
     if (!scope.context) return;
-    await changeMembershipStatus(
-      scope.context,
-      membership,
-      false,
-      false,
-      [],
-      '停用机构任职',
+    await executeCommand(
+      commandKey(
+        'deactivate-membership',
+        `${membership.organizationCode}:${membership.staffAccountUid}`,
+        {
+          expectedVersion: membership.version,
+          expectedAuthVersion: membership.authVersion,
+        },
+      ),
+      (intent) =>
+        changeMembershipStatus(
+          scope.context!,
+          membership,
+          false,
+          intent,
+          false,
+          [],
+          '停用机构任职',
+        ),
     );
     message.success('任职已停用，负责人标记与机构直接权限已清除');
     membershipAction.current?.reload();
@@ -218,17 +286,27 @@ export default function AccessPage() {
 
   const submitProvision = async (values: ProvisionForm) => {
     if (!scope.context || !organizationCode) return false;
-    await provisionOrganizationStaff(
-      scope.context,
-      organizationCode,
-      {
-        loginName: values.loginName,
-        initialPassword: values.initialPassword,
-        displayName: values.displayName,
-        contactPhone: values.contactPhone,
-        manager: values.manager,
-        permissionCodes: values.manager ? [] : values.permissionCodes ?? [],
-      },
+    const payload = {
+      loginName: values.loginName,
+      initialPassword: values.initialPassword,
+      displayName: values.displayName,
+      contactPhone: values.contactPhone,
+      manager: values.manager,
+      permissionCodes: values.manager ? [] : values.permissionCodes ?? [],
+    };
+    await executeCommand(
+      commandKey(
+        'provision-organization-staff',
+        `${organizationCode}:${values.loginName}`,
+        payload,
+      ),
+      (intent) =>
+        provisionOrganizationStaff(
+          scope.context!,
+          organizationCode,
+          payload,
+          intent,
+        ),
     );
     message.success('工作人员账号和本机构任职已原子建立');
     setProvisionOpen(false);
@@ -243,7 +321,7 @@ export default function AccessPage() {
       render: (_, account) => (
         <div>
           <div>{account.displayName}</div>
-          <div style={{ color: '#64748B', fontSize: 12 }}>
+          <div style={{ color: palette.textSecondary, fontSize: 12 }}>
             {account.loginName}
           </div>
         </div>
@@ -261,9 +339,10 @@ export default function AccessPage() {
     {
       title: '租户授权',
       valueType: 'option',
+      hideInTable: !canManage,
       render: (_, account) =>
         account.accountKind === 'TENANT_PRINCIPAL'
-          ? [<span key="natural" style={{ color: '#94A3B8' }}>不可削弱</span>]
+          ? [<span key="natural" style={{ color: palette.textSecondary }}>不可削弱</span>]
           : [
               <a key="configure" onClick={() => openTenantPermissions(account)}>
                 配置租户权限
@@ -305,6 +384,7 @@ export default function AccessPage() {
     {
       title: '操作',
       valueType: 'option',
+      hideInTable: !canManage,
       render: (_, membership) =>
         membership.status === 'ENABLED'
           ? [
@@ -400,27 +480,31 @@ export default function AccessPage() {
                   return { data: [], total: 0, success: false };
                 }
               }}
-              toolBarRender={() => [
-                <Button
-                  key="create"
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  disabled={!organizationCode}
-                  onClick={() => {
-                    setMembershipTarget(null);
-                    setMembershipMode('create');
-                  }}
-                >
-                  建立任职
-                </Button>,
-                <Button
-                  key="provision"
-                  disabled={!organizationCode}
-                  onClick={() => setProvisionOpen(true)}
-                >
-                  创建账号并任职
-                </Button>,
-              ]}
+              toolBarRender={() =>
+                canManage
+                  ? [
+                      <Button
+                        key="create"
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        disabled={!organizationCode}
+                        onClick={() => {
+                          setMembershipTarget(null);
+                          setMembershipMode('create');
+                        }}
+                      >
+                        建立任职
+                      </Button>,
+                      <Button
+                        key="provision"
+                        disabled={!organizationCode}
+                        onClick={() => setProvisionOpen(true)}
+                      >
+                        创建账号并任职
+                      </Button>,
+                    ]
+                  : []
+              }
             />
           </div>
         </Space>

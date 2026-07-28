@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { lazy, type ReactNode } from 'react';
 import {
   ApartmentOutlined,
   BankOutlined,
@@ -7,23 +7,29 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import type { LoginResponse, WebAccountType } from '@/types';
+import { hasRouteAccess } from './access';
 
-import TenantPage from '@/pages/tenant';
-import MyTenantPage from '@/pages/tenant/MyTenant';
-import OrganizationPage from '@/pages/organization';
-import StaffPage from '@/pages/staff';
-import AccessPage from '@/pages/access';
-import AccountSettingsPage from '@/pages/account';
-import OrganizationUserBindingPage from '@/pages/user/OrganizationUserBinding';
+const TenantPage = lazy(() => import('@/pages/tenant'));
+const MyTenantPage = lazy(() => import('@/pages/tenant/MyTenant'));
+const OrganizationPage = lazy(() => import('@/pages/organization'));
+const OrganizationUserPage = lazy(() => import('@/pages/organization-user'));
+const StaffPage = lazy(() => import('@/pages/staff'));
+const AccessPage = lazy(() => import('@/pages/access'));
+const AccountSettingsPage = lazy(() => import('@/pages/account'));
+const OrganizationUserBindingPage = lazy(
+  () => import('@/pages/user/OrganizationUserBinding'),
+);
 
 export interface AppRoute {
   path: string;
   name?: string;
   icon?: ReactNode;
   element: ReactNode;
-  capability?: string;
+  allOf?: string[];
+  anyOf?: string[];
   accountTypes?: WebAccountType[];
 }
 
@@ -31,10 +37,9 @@ const PLATFORM: WebAccountType[] = ['PLATFORM_ADMIN'];
 const TENANT_WEB: WebAccountType[] = ['TENANT_PRINCIPAL', 'STAFF'];
 
 /**
- * V-01 only exposes pages backed by the target /api/v1 identity contract.
- * Downstream device, recycling and funds pages return when their vertical
- * slices migrate; hiding them prevents the target Cookie session from falling
- * through to legacy Bearer endpoints.
+ * Only pages backed by the target /api/v1 identity contract are exposed.
+ * Downstream device, recycling and funds pages return with their vertical
+ * contracts; hidden legacy Bearer pages have been removed from the tree.
  */
 export const appRoutes: AppRoute[] = [
   {
@@ -42,7 +47,7 @@ export const appRoutes: AppRoute[] = [
     name: '租户管理',
     icon: <ApartmentOutlined />,
     element: <TenantPage />,
-    capability: 'tenant.read',
+    allOf: ['tenant.read'],
     accountTypes: PLATFORM,
   },
   {
@@ -50,7 +55,7 @@ export const appRoutes: AppRoute[] = [
     name: '我的租户',
     icon: <IdcardOutlined />,
     element: <MyTenantPage />,
-    capability: 'tenant.read',
+    allOf: ['tenant.read'],
     accountTypes: TENANT_WEB,
   },
   {
@@ -58,28 +63,35 @@ export const appRoutes: AppRoute[] = [
     name: '机构管理',
     icon: <BankOutlined />,
     element: <OrganizationPage />,
-    capability: 'organization.read',
+    allOf: ['organization.read'],
+  },
+  {
+    path: '/organization-users',
+    name: '机构用户',
+    icon: <UserOutlined />,
+    element: <OrganizationUserPage />,
+    allOf: ['user.read'],
   },
   {
     path: '/staff',
     name: '工作人员',
     icon: <TeamOutlined />,
     element: <StaffPage />,
-    capability: 'staff.read',
+    allOf: ['staff.read'],
   },
   {
     path: '/user-bindings',
     name: '用户绑定',
     icon: <LinkOutlined />,
     element: <OrganizationUserBindingPage />,
-    capability: 'user.read',
+    allOf: ['user.read', 'staff.bind'],
   },
   {
     path: '/access',
     name: '任职与授权',
     icon: <SafetyCertificateOutlined />,
     element: <AccessPage />,
-    capability: 'permission.read',
+    allOf: ['permission.read'],
   },
   {
     path: '/account',
@@ -92,13 +104,9 @@ export const appRoutes: AppRoute[] = [
 
 export function canAccessRoute(
   session: LoginResponse | null,
-  route: Pick<AppRoute, 'capability' | 'accountTypes'>,
+  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes'>,
 ): boolean {
-  if (!session) return false;
-  if (route.accountTypes && !route.accountTypes.includes(session.accountType)) {
-    return false;
-  }
-  return !route.capability || session.capabilities.includes(route.capability);
+  return hasRouteAccess(session, route);
 }
 
 export function menuRoutesFor(session: LoginResponse | null): AppRoute[] {
@@ -108,5 +116,5 @@ export function menuRoutesFor(session: LoginResponse | null): AppRoute[] {
 }
 
 export function defaultPathFor(session: LoginResponse | null): string {
-  return menuRoutesFor(session)[0]?.path ?? '/account';
+  return menuRoutesFor(session)[0]?.path ?? '/not-found';
 }

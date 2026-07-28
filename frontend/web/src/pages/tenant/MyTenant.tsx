@@ -13,6 +13,7 @@ import {
 } from '@/api/identityDirectory';
 import { useAuthStore } from '@/stores/authStore';
 import { pageHeader } from '@/utils/pageStyle';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import type { IdentityTenant } from '@/types';
 
 export default function MyTenant() {
@@ -22,6 +23,7 @@ export default function MyTenant() {
   const [data, setData] = useState<IdentityTenant | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   const load = async () => {
     setLoading(true);
@@ -40,10 +42,14 @@ export default function MyTenant() {
     values: Omit<TenantProfileInput, 'expectedVersion'>,
   ) => {
     if (!data) return false;
-    const updated = await updateCurrentTenant({
+    const payload = {
       ...values,
       expectedVersion: data.version,
-    });
+    };
+    const updated = await executeCommand(
+      commandKey('update-current-tenant', data.tenantCode, payload),
+      (intent) => updateCurrentTenant(payload, intent),
+    );
     setData(updated);
     setEditing(false);
     message.success('租户资料已更新');

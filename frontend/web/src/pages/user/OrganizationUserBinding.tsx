@@ -35,6 +35,8 @@ import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { useAuthStore } from '@/stores/authStore';
 import { pageHeader } from '@/utils/pageStyle';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { palette } from '@/theme';
 
 export default function OrganizationUserBindingPage() {
   const scope = useDirectoryScope();
@@ -57,6 +59,7 @@ export default function OrganizationUserBindingPage() {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   useEffect(() => {
     setOrganizationCode(undefined);
@@ -144,15 +147,25 @@ export default function OrganizationUserBindingPage() {
     if (!scope.context || !organizationCode || !staffUid || !user) return;
     setSubmitting(true);
     try {
-      await setStaffMiniappBinding(
-        scope.context,
-        organizationCode,
-        staffUid,
-        {
-          organizationUserUid: user.organizationUserUid,
-          ...snapshots,
-          reason: reason.trim() || undefined,
-        },
+      const payload = {
+        organizationUserUid: user.organizationUserUid,
+        ...snapshots,
+        reason: reason.trim() || undefined,
+      };
+      await executeCommand(
+        commandKey(
+          'set-staff-miniapp-binding',
+          `${organizationCode}:${staffUid}`,
+          payload,
+        ),
+        (intent) =>
+          setStaffMiniappBinding(
+            scope.context!,
+            organizationCode,
+            staffUid,
+            payload,
+            intent,
+          ),
       );
       message.success('绑定已生效，相关旧会话已撤销');
       await lookup();
@@ -166,11 +179,21 @@ export default function OrganizationUserBindingPage() {
     if (!scope.context || !organizationCode || !binding) return;
     setSubmitting(true);
     try {
-      await revokeStaffMiniappBinding(
-        scope.context,
-        organizationCode,
-        binding,
-        reason.trim() || undefined,
+      const revokeReason = reason.trim() || undefined;
+      await executeCommand(
+        commandKey(
+          'revoke-staff-miniapp-binding',
+          binding.bindingUid,
+          { expectedVersion: binding.version, reason: revokeReason },
+        ),
+        (intent) =>
+          revokeStaffMiniappBinding(
+            scope.context!,
+            organizationCode,
+            binding,
+            intent,
+            revokeReason,
+          ),
       );
       message.success('工作人员小程序绑定已撤销');
       await lookup();
@@ -197,7 +220,7 @@ export default function OrganizationUserBindingPage() {
       )}
       <ProCard
         bordered
-        style={{ borderTop: '3px solid #1677ff' }}
+        style={{ borderTop: `3px solid ${palette.primary}` }}
         title={(
           <Space>
             <SafetyCertificateOutlined />

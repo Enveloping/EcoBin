@@ -20,6 +20,7 @@ import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import type { IdentityOrganization } from '@/types';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 interface OrganizationForm {
   organizationCode: string;
@@ -36,6 +37,7 @@ export default function OrganizationPage() {
     state.hasCapability('organization.manage'));
   const [editing, setEditing] = useState<IdentityOrganization | null>(null);
   const [open, setOpen] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   useEffect(() => {
     actionRef.current?.reload();
@@ -44,19 +46,28 @@ export default function OrganizationPage() {
   const submit = async (values: OrganizationForm) => {
     if (!scope.context) return false;
     if (editing) {
-      await updateOrganization(
-        scope.context,
-        editing.organizationCode,
-        {
-          organizationName: values.organizationName,
-          contactPhone: values.contactPhone,
-          contactAddress: values.contactAddress,
-          expectedVersion: editing.version,
-        },
+      const payload = {
+        organizationName: values.organizationName,
+        contactPhone: values.contactPhone,
+        contactAddress: values.contactAddress,
+        expectedVersion: editing.version,
+      };
+      await executeCommand(
+        commandKey('update-organization', editing.organizationCode, payload),
+        (intent) =>
+          updateOrganization(
+            scope.context!,
+            editing.organizationCode,
+            payload,
+            intent,
+          ),
       );
       message.success('机构资料已更新');
     } else {
-      await createOrganization(scope.context, values);
+      await executeCommand(
+        commandKey('create-organization', values.organizationCode, values),
+        (intent) => createOrganization(scope.context!, values, intent),
+      );
       message.success('机构已创建，默认处于停用状态');
     }
     setOpen(false);
@@ -67,11 +78,21 @@ export default function OrganizationPage() {
   const toggle = async (organization: IdentityOrganization) => {
     if (!scope.context) return;
     const enable = organization.status !== 'ENABLED';
-    await changeOrganizationStatus(
-      scope.context,
-      organization,
-      enable,
-      enable ? '启用机构' : '停用机构',
+    const reason = enable ? '启用机构' : '停用机构';
+    await executeCommand(
+      commandKey('change-organization-status', organization.organizationCode, {
+        enable,
+        expectedVersion: organization.version,
+        reason,
+      }),
+      (intent) =>
+        changeOrganizationStatus(
+          scope.context!,
+          organization,
+          enable,
+          intent,
+          reason,
+        ),
     );
     message.success(enable ? '机构已启用' : '机构已停用');
     actionRef.current?.reload();

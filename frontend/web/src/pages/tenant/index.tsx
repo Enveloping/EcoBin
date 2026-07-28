@@ -19,10 +19,14 @@ import {
   createIdentityTenant,
   createTenantPrincipal,
   listIdentityTenants,
+  resetTenantPrincipalPassword,
   updateIdentityTenant,
 } from '@/api/identityDirectory';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import type { IdentityTenant } from '@/types';
+import { useAuthStore } from '@/stores/authStore';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { palette } from '@/theme';
 
 interface TenantForm {
   tenantCode: string;
@@ -39,28 +43,45 @@ interface PrincipalForm {
   contactPhone?: string;
 }
 
+interface PasswordResetForm {
+  newPassword: string;
+  confirmPassword: string;
+}
+
 export default function TenantPage() {
   const actionRef = useRef<ActionType>(null);
   const { message } = App.useApp();
   const [editing, setEditing] = useState<IdentityTenant | null>(null);
   const [principalTenant, setPrincipalTenant] =
     useState<IdentityTenant | null>(null);
+  const [passwordTenant, setPasswordTenant] =
+    useState<IdentityTenant | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const canManage = useAuthStore((state) =>
+    state.hasCapability('tenant.manage'));
+  const executeCommand = useCommandExecutor();
 
   const reload = () => actionRef.current?.reload();
 
   const submitTenant = async (values: TenantForm) => {
     if (editing) {
-      await updateIdentityTenant(editing.tenantCode, {
+      const payload = {
         enterpriseName: values.enterpriseName,
         contactName: values.contactName,
         contactPhone: values.contactPhone,
         contactAddress: values.contactAddress,
         expectedVersion: editing.version,
-      });
+      };
+      await executeCommand(
+        commandKey('update-tenant', editing.tenantCode, payload),
+        (intent) => updateIdentityTenant(editing.tenantCode, payload, intent),
+      );
       message.success('租户资料已更新');
     } else {
-      await createIdentityTenant(values);
+      await executeCommand(
+        commandKey('create-tenant', values.tenantCode, values),
+        (intent) => createIdentityTenant(values, intent),
+      );
       message.success('租户已创建，下一步请建立主体账号');
     }
     setFormOpen(false);
@@ -70,10 +91,15 @@ export default function TenantPage() {
 
   const submitPrincipal = async (values: PrincipalForm) => {
     if (!principalTenant) return false;
-    await createTenantPrincipal(principalTenant.tenantCode, {
+    const payload = {
       ...values,
       expectedVersion: principalTenant.version,
-    });
+    };
+    await executeCommand(
+      commandKey('create-tenant-principal', principalTenant.tenantCode, payload),
+      (intent) =>
+        createTenantPrincipal(principalTenant.tenantCode, payload, intent),
+    );
     message.success('主体账号已建立，可启用租户');
     setPrincipalTenant(null);
     reload();
@@ -82,14 +108,51 @@ export default function TenantPage() {
 
   const toggle = async (tenant: IdentityTenant) => {
     const enable = tenant.status !== 'ENABLED';
-    await changeTenantStatus(
-      tenant.tenantCode,
-      enable,
-      tenant.version,
-      enable ? '平台启用租户' : '平台停用租户',
+    const reason = enable ? '平台启用租户' : '平台停用租户';
+    await executeCommand(
+      commandKey('change-tenant-status', tenant.tenantCode, {
+        enable,
+        expectedVersion: tenant.version,
+        reason,
+      }),
+      (intent) =>
+        changeTenantStatus(
+          tenant.tenantCode,
+          enable,
+          tenant.version,
+          intent,
+          reason,
+        ),
     );
     message.success(enable ? '租户已启用' : '租户已停用，活动会话已撤销');
     reload();
+  };
+
+  const submitPasswordReset = async (values: PasswordResetForm) => {
+    if (!passwordTenant?.principalAccount) return false;
+    if (values.newPassword !== values.confirmPassword) {
+      message.error('两次输入的新密码不一致');
+      return false;
+    }
+    const principal = passwordTenant.principalAccount;
+    await executeCommand(
+      commandKey('reset-tenant-principal-password', passwordTenant.tenantCode, {
+        newPassword: values.newPassword,
+        expectedVersion: principal.version,
+        expectedAuthVersion: principal.authVersion,
+      }),
+      (intent) =>
+        resetTenantPrincipalPassword(
+          passwordTenant.tenantCode,
+          principal,
+          values.newPassword,
+          intent,
+        ),
+    );
+    message.success('主体密码已重置，原有主体会话已撤销');
+    setPasswordTenant(null);
+    reload();
+    return true;
   };
 
   const columns: ProColumns<IdentityTenant>[] = [
@@ -124,7 +187,7 @@ export default function TenantPage() {
         tenant.principalAccount ? (
           <Space direction="vertical" size={0}>
             <span>{tenant.principalAccount.staffAccountUid}</span>
-            <span style={{ color: '#64748B', fontSize: 12 }}>
+            <span style={{ color: palette.textSecondary, fontSize: 12 }}>
               authVersion {tenant.principalAccount.authVersion}
             </span>
           </Space>
@@ -135,8 +198,8 @@ export default function TenantPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 230,
-      render: (_, tenant) => [
+      width: 300,
+      render: (_, tenant) => canManage ? [
         <a
           key="edit"
           onClick={() => {
@@ -150,7 +213,11 @@ export default function TenantPage() {
           <a key="principal" onClick={() => setPrincipalTenant(tenant)}>
             建立主体
           </a>
-        ) : null,
+        ) : (
+          <a key="reset-password" onClick={() => setPasswordTenant(tenant)}>
+            重置主体密码
+          </a>
+        ),
         <Popconfirm
           key="status"
           title={
@@ -164,7 +231,7 @@ export default function TenantPage() {
             {tenant.status === 'ENABLED' ? '停用' : '启用'}
           </a>
         </Popconfirm>,
-      ],
+      ] : [<span key="readonly" style={{ color: palette.textSecondary }}>只读</span>],
     },
   ];
 
@@ -197,19 +264,22 @@ export default function TenantPage() {
             return { data: [], total: 0, success: false };
           }
         }}
-        toolBarRender={() => [
-          <Button
-            key="create"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-          >
-            创建租户
-          </Button>,
-        ]}
+        toolBarRender={() =>
+          canManage
+            ? [
+                <Button
+                  key="create"
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setEditing(null);
+                    setFormOpen(true);
+                  }}
+                >
+                  创建租户
+                </Button>,
+              ]
+            : []}
       />
 
       <ModalForm<TenantForm>
@@ -267,8 +337,31 @@ export default function TenantPage() {
           rules={[{ required: true }]}
         />
         <ProFormText name="contactPhone" label="联系电话" />
-        <div style={{ color: '#64748B' }}>
+        <div style={{ color: palette.textSecondary }}>
           <PoweroffOutlined /> 主体账号创建后仍需在租户列表中显式启用租户。
+        </div>
+      </ModalForm>
+
+      <ModalForm<PasswordResetForm>
+        title={`重置主体密码 · ${passwordTenant?.enterpriseName ?? ''}`}
+        open={!!passwordTenant}
+        onOpenChange={(open) => !open && setPasswordTenant(null)}
+        modalProps={{ destroyOnClose: true }}
+        onFinish={submitPasswordReset}
+      >
+        <ProFormText.Password
+          name="newPassword"
+          label="新密码"
+          fieldProps={{ prefix: <KeyOutlined /> }}
+          rules={[{ required: true }, { min: 8 }]}
+        />
+        <ProFormText.Password
+          name="confirmPassword"
+          label="确认新密码"
+          rules={[{ required: true }, { min: 8 }]}
+        />
+        <div style={{ color: palette.textSecondary }}>
+          保存后将立即撤销该主体账号的全部活动会话。
         </div>
       </ModalForm>
     </PageContainer>

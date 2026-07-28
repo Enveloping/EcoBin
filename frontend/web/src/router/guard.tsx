@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { Result, Button, Spin } from 'antd';
+import { Result, Button, Skeleton } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
 import {
   canAccessRoute,
@@ -13,8 +13,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (status === 'checking') {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-        <Spin size="large" />
+      <div className="route-loading" aria-label="正在载入会话">
+        <Skeleton active paragraph={{ rows: 4 }} />
       </div>
     );
   }
@@ -28,7 +28,7 @@ export function CapabilityGuard({
   route,
   children,
 }: {
-  route: Pick<AppRoute, 'capability' | 'accountTypes'>;
+  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes'>;
   children: ReactNode;
 }) {
   const session = useAuthStore((state) => state.session);

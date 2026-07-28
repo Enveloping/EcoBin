@@ -12,6 +12,9 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { session, domain, clear } = useAuthStore();
+  const targetTenant = domain === 'platform'
+    ? new URLSearchParams(location.search).get('tenant')
+    : null;
 
   const menuData = menuRoutesFor(session).map((r) => ({
     path: r.path,
@@ -29,7 +32,11 @@ export default function MainLayout() {
   };
 
   return (
-    <ProLayout
+    <>
+      <a className="skip-link" href="#main-content">
+        跳到主内容
+      </a>
+      <ProLayout
       title=""
       logo={<EcoBinLogo collapsed={false} />}
       layout="mix"
@@ -43,17 +50,27 @@ export default function MainLayout() {
       // 浅色侧边栏：白底 + 绿色选中高亮
       menuProps={{
         style: {
-          background: '#FFFFFF',
-          borderRight: '1px solid #E2E8F0',
+          background: palette.bgContainer,
+          borderRight: `1px solid ${palette.border}`,
         },
       }}
       menuItemRender={(item, dom) => (
-        <a onClick={() => item.path && navigate(item.path)}>{dom}</a>
+        <a
+          onClick={() => {
+            if (!item.path) return;
+            const search = targetTenant
+              ? `?tenant=${encodeURIComponent(targetTenant)}`
+              : '';
+            navigate(`${item.path}${search}`);
+          }}
+        >
+          {dom}
+        </a>
       )}
       // 侧边栏 token：浅色 + 主色高亮（通过 ProLayout 全局 token 覆盖）
       token={{
         sider: {
-          colorMenuBackground: '#FFFFFF',
+          colorMenuBackground: palette.bgContainer,
           colorTextMenu: palette.textRegular,
           colorTextMenuSecondary: palette.textSecondary,
           colorTextMenuSelected: palette.primary,
@@ -63,7 +80,7 @@ export default function MainLayout() {
         },
         // 顶部导航栏样式（ProLayout 通过 token.header 控制，headerStyle 已不生效）
         header: {
-          colorBgHeader: '#FFFFFF',
+          colorBgHeader: palette.bgContainer,
         },
       }}
       // 右上角用户头像
@@ -100,12 +117,15 @@ export default function MainLayout() {
       }}
       // 内容区域样式
       contentStyle={{
-        minHeight: 'calc(100vh - 64px)',
+        minHeight: 'calc(100dvh - 64px)',
         padding: 24,
-        background: '#F8FAFC',
+        background: palette.bgLayout,
       }}
     >
-      <Outlet />
-    </ProLayout>
+        <main id="main-content" className="workspace-main" tabIndex={-1}>
+          <Outlet />
+        </main>
+      </ProLayout>
+    </>
   );
 }

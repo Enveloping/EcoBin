@@ -23,6 +23,8 @@ import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import type { PermissionDefinition, StaffAccount } from '@/types';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { palette } from '@/theme';
 
 interface StaffForm {
   loginName: string;
@@ -50,6 +52,7 @@ export default function StaffPage() {
   const [passwordTarget, setPasswordTarget] =
     useState<StaffAccount | null>(null);
   const [open, setOpen] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   useEffect(() => {
     actionRef.current?.reload();
@@ -76,24 +79,34 @@ export default function StaffPage() {
   const submit = async (values: StaffForm) => {
     if (!scope.context) return false;
     if (editing) {
-      await updateStaffAccount(
-        scope.context,
-        editing.staffAccountUid,
-        {
-          displayName: values.displayName,
-          contactPhone: values.contactPhone,
-          expectedVersion: editing.version,
-        },
+      const payload = {
+        displayName: values.displayName,
+        contactPhone: values.contactPhone,
+        expectedVersion: editing.version,
+      };
+      await executeCommand(
+        commandKey('update-staff', editing.staffAccountUid, payload),
+        (intent) =>
+          updateStaffAccount(
+            scope.context!,
+            editing.staffAccountUid,
+            payload,
+            intent,
+          ),
       );
       message.success('工作人员资料已更新');
     } else {
-      await createStaffAccount(scope.context, {
+      const payload = {
         loginName: values.loginName,
         initialPassword: values.initialPassword,
         displayName: values.displayName,
         contactPhone: values.contactPhone,
         permissionCodes: values.permissionCodes ?? [],
-      });
+      };
+      await executeCommand(
+        commandKey('create-staff', values.loginName, payload),
+        (intent) => createStaffAccount(scope.context!, payload, intent),
+      );
       message.success('工作人员账号已创建');
     }
     setOpen(false);
@@ -104,11 +117,16 @@ export default function StaffPage() {
   const toggle = async (staff: StaffAccount) => {
     if (!scope.context) return;
     const enable = staff.status !== 'ENABLED';
-    await changeStaffStatus(
-      scope.context,
-      staff,
-      enable,
-      enable ? '恢复工作人员账号' : '停用工作人员账号',
+    const reason = enable ? '恢复工作人员账号' : '停用工作人员账号';
+    await executeCommand(
+      commandKey('change-staff-status', staff.staffAccountUid, {
+        enable,
+        expectedVersion: staff.version,
+        expectedAuthVersion: staff.authVersion,
+        reason,
+      }),
+      (intent) =>
+        changeStaffStatus(scope.context!, staff, enable, intent, reason),
     );
     message.success(enable ? '账号已恢复' : '账号已停用，会话已撤销');
     actionRef.current?.reload();
@@ -120,10 +138,19 @@ export default function StaffPage() {
       message.error('两次输入的密码不一致');
       return false;
     }
-    await resetStaffPassword(
-      scope.context,
-      passwordTarget,
-      values.newPassword,
+    await executeCommand(
+      commandKey('reset-staff-password', passwordTarget.staffAccountUid, {
+        newPassword: values.newPassword,
+        expectedVersion: passwordTarget.version,
+        expectedAuthVersion: passwordTarget.authVersion,
+      }),
+      (intent) =>
+        resetStaffPassword(
+          scope.context!,
+          passwordTarget,
+          values.newPassword,
+          intent,
+        ),
     );
     message.success('密码已重置，目标账号的会话已撤销');
     setPasswordTarget(null);
@@ -138,7 +165,7 @@ export default function StaffPage() {
       render: (_, staff) => (
         <div>
           <div>{staff.displayName}</div>
-          <div style={{ color: '#64748B', fontSize: 12 }}>
+          <div style={{ color: palette.textSecondary, fontSize: 12 }}>
             {staff.loginName}
           </div>
         </div>
@@ -189,7 +216,7 @@ export default function StaffPage() {
       hideInTable: !canManage,
       render: (_, staff) =>
         staff.accountKind === 'TENANT_PRINCIPAL'
-          ? [<span key="protected" style={{ color: '#94A3B8' }}>主体账号受保护</span>]
+          ? [<span key="protected" style={{ color: palette.textSecondary }}>主体账号受保护</span>]
           : [
               <a
                 key="edit"

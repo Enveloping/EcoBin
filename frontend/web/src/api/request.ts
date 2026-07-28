@@ -82,7 +82,9 @@ export class ApiProblem extends Error {
 }
 
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
+  // Web authentication is intentionally same-origin. Development uses Vite's
+  // /api proxy; production serves the SPA and API behind one origin.
+  baseURL: '',
   timeout: 15000,
   withCredentials: true,
 });
@@ -92,11 +94,19 @@ let csrfBootstrap: Promise<string> | null = null;
 let lastTrace: RequestTrace = {};
 let redirecting = false;
 
-function normalizeApiUrl(url: string | undefined): string | undefined {
-  if (!url || /^https?:\/\//i.test(url) || url.startsWith('//')) return url;
-  if (url.startsWith('/api/')) return url;
-  if (url.startsWith('/')) return `/api${url}`;
-  return `/api/${url}`;
+export function normalizeApiUrl(url: string | undefined): string {
+  if (!url) {
+    throw new TypeError('API request URL is required');
+  }
+  if (
+    /^([a-z][a-z\d+\-.]*:)?\/\//i.test(url)
+    || !url.startsWith('/api/v1/')
+  ) {
+    throw new TypeError(
+      `Only same-origin /api/v1/** requests are allowed: ${url}`,
+    );
+  }
+  return url;
 }
 
 function isUnsafe(method: string | undefined): boolean {
@@ -222,7 +232,21 @@ async function execute<T, D = unknown>(
   }
   const needsCsrf = config.csrf ?? isUnsafe(config.method);
   if (needsCsrf) {
-    headers.set('X-CSRF-TOKEN', await getCsrfToken());
+    try {
+      headers.set('X-CSRF-TOKEN', await getCsrfToken());
+    } catch (error) {
+      const problem = parseProblem(error);
+      if (problem.status === 401 && original.unauthorized !== 'ignore') {
+        handleUnauthorized();
+      }
+      if (
+        !original.silent
+        && (problem.status !== 401 || original.unauthorized === 'ignore')
+      ) {
+        message.error(problem.message);
+      }
+      throw problem;
+    }
   }
   config.headers = headers;
 
