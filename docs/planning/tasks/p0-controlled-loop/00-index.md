@@ -304,8 +304,13 @@ M0_COMPLETE
   香橙派—后端协议，但 MCU 不支持的配置、远程控制和状态分别采用本地保存、明确失败、
   未知占位；不增加物理命令重发、MCU 作业重启恢复、SQLite/MCU 冲突锁或部署身份启动
   锁。补齐强杀恢复、MQTT 重连和 COS 上传自动测试，Python 3.11 硬件套件为
-  `165 passed, 5 subtests passed`，契约套件为 `43 passed, 64 subtests passed`。
+  `166 passed, 5 subtests passed`，契约套件为 `43 passed, 752 subtests passed`。
   项目负责人随后接受当前软件范围和已记录的延期/残余风险，将 F-11 转为 `done`；
-  真实香橙派拍照/COS、最新 OneNet 候选导入和真机问题后续按需重开。H-03 依赖解除
-  并转为 `ready`，但真机操作仍未授权。当前共 `done` 14、`ready` 2、
-  `in-progress` 0、`blocked` 13。
+  最新 OneNet 候选导入和真机问题后续按需重开。H-03 依赖解除并转为 `ready`，但
+  真机操作仍未授权。当前共 `done` 14、`ready` 2、`in-progress` 0、`blocked` 13。
+- 2026-07-28：后续真实双摄验证发现数字索引 `1/3` 都拍到 DECXIN，F-11 按约定重开
+  修复。现已使用稳定 `by-id` 路径固定 DECXIN 外部、icspring 内部，增加 5 帧预热、
+  相同设备拒绝和 COS 15 秒超时；香橙派正式 `PhotoManager` 双摄拍照、真实 STS
+  上传、匿名 URL 下载及 SHA-256 校验通过，测试对象已删除。项目负责人决定暂不继续
+  处理香橙派当时的默认路由/DNS 波动；该非阻塞环境观察不改变 F-11 `done`、
+  H-03 `ready` 或其他任务授权状态。

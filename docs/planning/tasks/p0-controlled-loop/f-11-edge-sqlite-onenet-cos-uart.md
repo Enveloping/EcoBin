@@ -13,9 +13,10 @@ implementation_authorized: true
 
 # F-11｜香橙派 SQLite、OneNet、COS 与 UART 基础
 
-> `status: done`：2026-07-28 项目负责人接受当前软件实现、能力降级和已知残余风险，
-> 决定不以尚未完成的真实香橙派拍照/COS、OneNet 导入或 H-03 真机验收阻塞后续任务。
-> 后续验证发现 F-11 范围内问题时重新打开本任务。
+> `status: done`：2026-07-28 项目负责人接受当前软件实现、能力降级和已知残余风险。
+> 后续真实双摄验证发现并修复了数字索引重复选中 DECXIN 的 F-11 范围缺陷；修复后
+> `PhotoManager` 双摄拍照、STS 上传和匿名 URL 下载已通过。H-03 真机验收仍不阻塞
+> 本任务。
 
 ## 当前实施状态
 
@@ -26,17 +27,18 @@ implementation_authorized: true
 - 云端九类命令和配置结构继续保留。固定帧 MCU 不具备的能力按已确认策略处理：配置
   只保存到香橙派；远程控制返回 `MCU_FEATURE_NOT_SUPPORTED`；状态返回
   `UNKNOWN/NOT_SAMPLED`；不得把本地受理伪造成 MCU 已执行。
-- 照片已经接入设备直传 COS 队列与临时授权上传；开发环境真实 STS/COS
-  upload/head/delete smoke 已人工通过，自动测试保证临时凭证只在执行期交给 SDK。
-  仓库内仍缺少可重复执行真实 upload/head/delete 的诊断脚本。
+- 照片已经接入设备直传 COS 队列与临时授权上传；外部 DECXIN、内部 icspring 使用
+  `/dev/v4l/by-id/` 稳定路径并预热 5 帧。真实香橙派已由同一个 `PhotoManager`
+  完成双摄拍照、STS 上传、匿名 URL 下载及 SHA-256 一致性校验；自动测试保证临时
+  凭证只在执行期交给 SDK。COS SDK 使用 15 秒网络超时，避免坏路由无限挂起调用。
 - MQTT 重连复用同一个 Paho 网络循环；首次等待超时不再停止循环，掉线后由 Paho
   退避重连，避免旧实现约 21 秒、两次人为超时的恢复路径。当前只会继续转发
   `PENDING` 事件；进程在发布后、业务确认前退出时，`SENDING` 事件尚不能恢复转发。
   验收边界为“TCP 已感知掉线且网络/代理可用时 10 秒内恢复”；持续不可用时使用
   1～30 秒退避。仓库真实 OneNet 诊断脚本最近一次为 `1.110s <= 10s`。
-- 已增加真实子进程强杀后的 SQLite 完整性测试、MQTT 网络循环生命周期测试和 COS
-  上传参数 smoke。Python 3.11 硬件套件为 `165 passed, 5 subtests passed`；契约套件
-  为 `43 passed, 64 subtests passed`。
+- 已增加真实子进程强杀后的 SQLite 完整性测试、MQTT 网络循环生命周期测试、稳定
+  双摄寻址/预热测试和 COS 上传参数 smoke。Python 3.11 硬件套件为
+  `166 passed, 5 subtests passed`；契约套件为 `43 passed, 752 subtests passed`。
 - 真实固定帧 MCU 的线路、屏幕和执行器行为仍由 H-03 验收；它不是 F-11 软件完成门，
   F-11 软件通过也不得被描述为真机能力完整。
 
@@ -92,8 +94,13 @@ implementation_authorized: true
   `FIRST_OPEN_*` 拍摄事实持久化；清运在解锁前保存 `FIRST_OPEN_*`，完成时另行保存
   `FINAL_CLOSE_*`。相机拍摄失败按既有契约登记为永久缺失，不阻断投递或清运；若连
   照片成功/缺失事实都无法持久化，则不发送首个物理动作。
-- **延期**：真实 COS upload/head/delete 诊断脚本暂不处理，等待后端相关建设；现有自动
-  测试只验证 Mock SDK 调用参数。
+- [x] 真实双摄/COS：香橙派 `PhotoManager` 一次拍摄外部 DECXIN 和内部 icspring，
+  两张图均通过真实 STS 上传并由无鉴权 HTTPS URL 取回，字节数和 SHA-256 一致；
+  测试对象已删除。详细证据见
+  [`hardware/docs/review/camera-cos-acceptance-2026-07-28.md`](../../../../hardware/docs/review/camera-cos-acceptance-2026-07-28.md)。
+- **非阻塞网络观察**：香橙派上传时曾受默认路由/DNS 波动影响；可逆临时调整后已
+  全部恢复。项目负责人接受本轮以香橙派真实拍照和开发机运行同一上传代码的真实
+  STS/COS 验收收口，暂不继续处理设备网络问题。
 - [x] OneNet 候选文件平台兼容：保留当前 13 个事件和全部业务字段，导入候选改用一层
   缩进和强制 LF，大小由 Windows 工作区的 `264820` bytes 降为 `189175` bytes，
   距离 `<262144` bytes 上限剩余 `72969` bytes。9 种过长的规范枚举值通过
@@ -106,9 +113,9 @@ implementation_authorized: true
 
 - [F-10](f-10-onenet-schema-uart-registry.md) 已完成，项目负责人已明确授权 F-11
   实施；当前软件验收和已确认的范围裁定已经收口，因此状态为 `done`。
-- 真实香橙派拍照/COS、最新 OneNet 候选导入和 H-03 真机证据作为后续验证继续推进，
-  不阻塞依赖 F-11 的任务。验证发现 SQLite、OneNet/COS、命令状态机或固定帧适配存在
-  F-11 范围内缺陷时，将本任务重新改为 `in-progress`。
+- 最新 OneNet 候选导入和 H-03 真机证据作为后续验证继续推进，不阻塞依赖 F-11 的
+  任务。真实香橙派拍照/COS 已完成；发现的重复摄像头索引缺陷已修复并回归。后续若
+  SQLite、OneNet/COS、命令状态机或固定帧适配再出现范围内缺陷，重新打开本任务。
 - F-11 `done` 不代表 H-03 真机联调通过，也不表示已延期的安全加固已经实施。
 
 ## 排除范围
@@ -152,7 +159,7 @@ implementation_authorized: true
   或部署身份启动锁。`uart-v1` 仅保留为可选历史路线，不作为当前完成门。
 - 2026-07-28：补齐强杀恢复、MQTT 重连生命周期和 COS SDK 参数自动测试；修复 MQTT
   超时时停止 Paho 网络循环导致的迟缓重连。Python 3.11 硬件套件为
-  `165 passed, 5 subtests passed`，契约套件为 `43 passed, 64 subtests passed`。
+  `166 passed, 5 subtests passed`，契约套件为 `43 passed, 752 subtests passed`。
   `hardware/tools/mqtt_reconnect_smoke.py` 可重复执行真实掉线诊断，最近一次恢复
   `1.110s`，满足 10 秒边界。
   旧 `hardware_mcu/` 已按负责人授权删除，契约生成器默认不再要求该目录；只有显式
@@ -166,3 +173,9 @@ implementation_authorized: true
 - 2026-07-28：项目负责人决定先将 F-11 标记为 `done`，不让真实香橙派拍照/COS、
   最新 OneNet 候选导入或 H-03 真机验收阻塞后续步骤；上述验证后续发现本任务范围内
   问题时重新打开 F-11。
+- 2026-07-28：真实双摄验证复现数字索引 `1/3` 最终都拍到 DECXIN；按设备负责人确认
+  修正为 DECXIN 外部、icspring 内部的稳定 `by-id` 路径，增加 5 帧预热、相同设备
+  拒绝和 COS 15 秒超时。香橙派正式 `PhotoManager` 双摄拍照、真实 STS 上传、匿名
+  URL 下载及 SHA-256 校验通过，测试对象和临时环境均已清理。另发现设备持久默认
+  路由/DNS 曾把 COS 流量导向无公网有线链路；按项目负责人决定记录为非阻塞环境
+  观察，本轮不继续处理。

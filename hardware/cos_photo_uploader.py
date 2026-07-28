@@ -8,6 +8,11 @@ from typing import Any
 class CosPhotoUploader:
     """Upload one JPEG without retaining or logging temporary credentials."""
 
+    def __init__(self, timeout_seconds: int = 15):
+        if timeout_seconds <= 0:
+            raise ValueError("COS request timeout must be positive")
+        self._timeout_seconds = timeout_seconds
+
     def upload(
         self,
         grant: dict[str, Any],
@@ -25,6 +30,7 @@ class CosPhotoUploader:
             SecretKey=grant["tmpSecretKey"],
             Token="".join(grant["sessionTokenParts"]),
             Scheme="https",
+            Timeout=self._timeout_seconds,
         )
         client = CosS3Client(config)
         with open(local_path, "rb") as source:

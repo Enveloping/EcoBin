@@ -45,7 +45,7 @@ def test_cos_uploader_uses_execution_only_sts_grant(monkeypatch, tmp_path):
         "BEFORE_OUTER/photo.jpg"
     )
 
-    url = CosPhotoUploader().upload(
+    url = CosPhotoUploader(timeout_seconds=15).upload(
         grant,
         str(image_path),
         object_key,
@@ -57,6 +57,7 @@ def test_cos_uploader_uses_execution_only_sts_grant(monkeypatch, tmp_path):
         "SecretKey": "temporary-key",
         "Token": "token-part-1token-part-2",
         "Scheme": "https",
+        "Timeout": 15,
     }
     assert captured["put"] == {
         "Bucket": "ecobin-test-1250000000",

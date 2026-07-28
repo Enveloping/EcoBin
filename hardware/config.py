@@ -35,8 +35,14 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_COS_REGION     — 当前环境 COS 地域（公开配置）
     ECOBIN_COS_BUCKET_NAME— 当前环境 COS 桶名称（公开配置）
     ECOBIN_COS_BASE_URL   — 当前环境 COS HTTPS 根 URL（公开配置）
-    ECOBIN_CAMERA_OUTSIDE — 外部摄像头 V4L2 索引（当前设备默认: 1）
-    ECOBIN_CAMERA_INSIDE  — 内部摄像头 V4L2 索引（当前设备默认: 3）
+    ECOBIN_COS_REQUEST_TIMEOUT_SECONDS
+                          — COS SDK 网络超时秒数（默认: 15）
+    ECOBIN_CAMERA_OUTSIDE — 外部摄像头 V4L2 稳定设备路径
+                            （当前设备: DECXIN）
+    ECOBIN_CAMERA_INSIDE  — 内部摄像头 V4L2 稳定设备路径
+                            （当前设备: icspring）
+    ECOBIN_CAMERA_WARMUP_FRAMES
+                          — 摄像头打开后读取的预热帧数（默认: 5）
     ECOBIN_PHOTO_UPLOAD_POLL_SECONDS
                           — 照片上传队列轮询秒数（默认: 1）
     ECOBIN_PHOTO_GRANT_EXPIRY_SKEW_SECONDS
@@ -86,6 +92,10 @@ COS_BASE_URL = _first_environment_value(
     "ECOBIN_COS_BASE_URL",
     "cosBaseUrl",
 )
+COS_REQUEST_TIMEOUT_SECONDS = int(os.getenv(
+    "ECOBIN_COS_REQUEST_TIMEOUT_SECONDS",
+    "15",
+))
 TRUSTED_COS_ENVIRONMENT = {
     "bucket": COS_BUCKET_NAME,
     "region": COS_REGION,
@@ -136,8 +146,21 @@ DEVICE_CONFIG_PATH = (
 )
 
 # ── 摄像头 ──
-CAMERA_OUTSIDE = int(os.getenv("ECOBIN_CAMERA_OUTSIDE", "1"))
-CAMERA_INSIDE = int(os.getenv("ECOBIN_CAMERA_INSIDE", "3"))
+CAMERA_OUTSIDE_SOURCE = os.getenv(
+    "ECOBIN_CAMERA_OUTSIDE",
+    (
+        "/dev/v4l/by-id/"
+        "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
+    ),
+).strip()
+CAMERA_INSIDE_SOURCE = os.getenv(
+    "ECOBIN_CAMERA_INSIDE",
+    "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0",
+).strip()
+CAMERA_WARMUP_FRAMES = int(os.getenv(
+    "ECOBIN_CAMERA_WARMUP_FRAMES",
+    "5",
+))
 
 # ── 测试模式 ──
 TEST_MODE = os.getenv("ECOBIN_TEST_MODE", "false").lower() in ("true", "1", "yes")
@@ -185,8 +208,25 @@ def validate():
         raise ValueError(
             "ECOBIN_MCU_PROTOCOL must be fixed-frame or uart-v1"
         )
-    if CAMERA_OUTSIDE < 0 or CAMERA_INSIDE < 0:
-        raise ValueError("camera indices must be non-negative")
+    camera_sources = (
+        CAMERA_OUTSIDE_SOURCE,
+        CAMERA_INSIDE_SOURCE,
+    )
+    if not all(camera_sources):
+        raise ValueError("camera device sources must not be empty")
+    if CAMERA_OUTSIDE_SOURCE == CAMERA_INSIDE_SOURCE:
+        raise ValueError("outside and inside cameras must be different")
+    if not TEST_MODE and not all(
+        source.startswith("/dev/v4l/by-id/")
+        for source in camera_sources
+    ):
+        raise ValueError(
+            "production camera sources must use stable /dev/v4l/by-id paths"
+        )
+    if CAMERA_WARMUP_FRAMES <= 0:
+        raise ValueError("camera warmup frames must be positive")
+    if COS_REQUEST_TIMEOUT_SECONDS <= 0:
+        raise ValueError("COS request timeout must be positive")
     if PHOTO_UPLOAD_POLL_SECONDS <= 0:
         raise ValueError("photo upload poll interval must be positive")
     if PHOTO_GRANT_EXPIRY_SKEW_SECONDS < 0:

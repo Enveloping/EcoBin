@@ -6,8 +6,8 @@ hardware_layer.py — 香橙派 Zero3 硬件抽象层
 
 物理连接（推测，按实际接线调整）：
   - UART: 香橙派 26Pin UART5 (/dev/ttyS5) ←→ 垃圾桶 MCU 串口
-  - 摄像头1 (箱外): /dev/video0 — 拍摄箱体外部
-  - 摄像头2 (箱内): /dev/video1 — 拍摄箱体内部
+  - 摄像头1 (箱外): DECXIN 的 /dev/v4l/by-id 稳定路径
+  - 摄像头2 (箱内): icspring 的 /dev/v4l/by-id 稳定路径
 
 新投递协议使用固定长度二进制帧（当前仅物理投口 1）：
   MCU → 香橙派: AA,{0|1},AA 门状态；BB,{0|1},BB 红外；
@@ -56,7 +56,13 @@ except ImportError:
 logger = logging.getLogger("hardware")
 
 
-from config import SERIAL_PORT, SERIAL_BAUDRATE, CAMERA_OUTSIDE, CAMERA_INSIDE
+from config import (
+    SERIAL_PORT,
+    SERIAL_BAUDRATE,
+    CAMERA_OUTSIDE_SOURCE,
+    CAMERA_INSIDE_SOURCE,
+    CAMERA_WARMUP_FRAMES,
+)
 
 # ================================================================
 #  配置区 — 值从 config.py 导入，环境变量覆盖
@@ -370,66 +376,96 @@ class DualCamera:
     """双摄像头控制器（USB 摄像头 ×2）"""
 
     @staticmethod
-    def capture(device_id: int, save_path: str) -> bool:
+    def capture(camera_source: str | int, save_path: str) -> bool:
         """
         使用 OpenCV 拍照
-        :param device_id: 摄像头设备ID (0=外部, 1=内部)
+        :param camera_source: 摄像头稳定设备路径或兼容数字索引
         :param save_path: 保存图片路径
         """
         if cv2 is None:
             # 回退：使用 fswebcam 系统命令
-            return DualCamera._capture_fallback(device_id, save_path)
+            return DualCamera._capture_fallback(
+                camera_source,
+                save_path,
+            )
 
-        cap = cv2.VideoCapture(device_id)
+        if isinstance(camera_source, str):
+            cap = cv2.VideoCapture(camera_source, cv2.CAP_V4L2)
+        else:
+            cap = cv2.VideoCapture(camera_source)
         if not cap.isOpened():
-            logger.error("无法打开摄像头 /dev/video%d", device_id)
+            cap.release()
+            logger.error("无法打开摄像头 %s", camera_source)
             return False
 
-        # 预热摄像头（丢弃前几帧）
-        for _ in range(5):
-            cap.read()
-            time.sleep(0.05)
+        frame = None
+        try:
+            for _ in range(CAMERA_WARMUP_FRAMES):
+                ret, candidate = cap.read()
+                if not ret or candidate is None:
+                    break
+                frame = candidate
+                time.sleep(0.05)
+        finally:
+            cap.release()
 
-        ret, frame = cap.read()
-        cap.release()
-
-        if ret and frame is not None:
+        if frame is not None:
             os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
             cv2.imwrite(save_path, frame)
-            logger.info("摄像头%d 拍照成功 → %s", device_id, save_path)
+            logger.info(
+                "摄像头%s拍照成功 → %s",
+                camera_source,
+                save_path,
+            )
             return True
         else:
-            logger.error("摄像头%d 拍照失败", device_id)
+            logger.error("摄像头%s拍照失败", camera_source)
             return False
 
     @staticmethod
-    def _capture_fallback(device_id: int, save_path: str) -> bool:
+    def _capture_fallback(
+        camera_source: str | int,
+        save_path: str,
+    ) -> bool:
         """fswebcam 回退方案（OpenCV 不可用时使用）"""
         import subprocess
         os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        device_path = (
+            camera_source
+            if isinstance(camera_source, str)
+            else f"/dev/video{camera_source}"
+        )
         try:
             subprocess.run(
-                ["fswebcam", "-d", f"/dev/video{device_id}",
+                ["fswebcam", "-d", device_path,
                  "-r", "1280x720", "--no-banner", save_path],
                 timeout=5, check=True, capture_output=True,
             )
-            logger.info("fswebcam 拍照%d → %s", device_id, save_path)
+            logger.info(
+                "fswebcam 拍照%s → %s",
+                camera_source,
+                save_path,
+            )
             return os.path.exists(save_path)
         except Exception as e:
-            logger.error("fswebcam 拍照%d失败: %s", device_id, e)
+            logger.error(
+                "fswebcam 拍照%s失败: %s",
+                camera_source,
+                e,
+            )
             return False
 
     @classmethod
     def capture_both(cls, prefix: str) -> tuple:
         """
-        同时拍摄箱外 (video0) 和箱内 (video1)
+        同时按稳定设备路径拍摄箱外 DECXIN 和箱内 icspring
         :param prefix: 文件前缀，生成 {prefix}_outside.jpg 和 {prefix}_inside.jpg
         :return: (outside_path, inside_path)，失败为 None
         """
         outside = f"{prefix}_outside.jpg"
         inside = f"{prefix}_inside.jpg"
-        ok1 = cls.capture(CAMERA_OUTSIDE, outside)
-        ok2 = cls.capture(CAMERA_INSIDE, inside)
+        ok1 = cls.capture(CAMERA_OUTSIDE_SOURCE, outside)
+        ok2 = cls.capture(CAMERA_INSIDE_SOURCE, inside)
         return (outside if ok1 else None,
                 inside if ok2 else None)
 

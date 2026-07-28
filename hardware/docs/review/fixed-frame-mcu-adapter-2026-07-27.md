@@ -74,9 +74,15 @@ C:\D\004-Project\002-Java\database-refactor-f11-give-up-mcu-and-adapte-mcu
   完整读取；
 - COS 上传自动测试验证临时授权只在调用 SDK 时使用，不写入持久状态。
 
-2026-07-28 的 Python 3.11 全量结果为 `165 passed, 5 subtests passed`；契约结果为
-`43 passed, 64 subtests passed`。开发环境还完成了真实 OneNet 连接和 STS/COS
+2026-07-28 的 Python 3.11 全量结果为 `166 passed, 5 subtests passed`；契约结果为
+`43 passed, 752 subtests passed`。开发环境还完成了真实 OneNet 连接和 STS/COS
 upload/head/delete smoke；这些网络证据不包含任何入库凭证。
+
+同日真实双摄验收发现原 `1/3` 数字索引会让两个槽位都拍到 DECXIN。现已改为稳定
+`/dev/v4l/by-id/` 路径，明确 DECXIN 为外部、icspring 为内部，增加 5 帧预热和 COS
+15 秒网络超时。`PhotoManager` 在香橙派上完成双摄拍照、真实 STS 上传和匿名 URL
+下载哈希校验；完整证据与本轮不继续处理的非阻塞网络观察见
+[`camera-cos-acceptance-2026-07-28.md`](camera-cos-acceptance-2026-07-28.md)。
 
 MQTT 的当前验收边界是：TCP 已感知掉线且网络与代理可用时，10 秒内重新连接；持续
 不可用时允许 Paho 在 1～30 秒间退避，不能把单次 10 秒目标解释为全网中断恢复保证。

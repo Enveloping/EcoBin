@@ -1,7 +1,9 @@
 import builtins
 import json
+import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,8 +17,14 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
     photos = PhotoManager(
         store,
         str(tmp_path / "photos"),
-        outside_camera_index=1,
-        inside_camera_index=3,
+        outside_camera_source=(
+            "/dev/v4l/by-id/"
+            "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
+        ),
+        inside_camera_source=(
+            "/dev/v4l/by-id/"
+            "usb-icSpring_icspring_camera-video-index0"
+        ),
     )
     capture_started = threading.Event()
     release_capture = threading.Event()
@@ -62,9 +70,83 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
         "BEFORE_INNER",
     }
     assert {row["state"] for row in registered} == {"PENDING"}
-    assert camera_indices == [1, 3]
+    assert camera_indices == [
+        (
+            "/dev/v4l/by-id/"
+            "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
+        ),
+        "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0",
+    ]
     photos.close()
     store.close()
+
+
+def test_capture_uses_explicit_v4l2_source_and_last_warmup_frame(
+    tmp_path,
+    monkeypatch,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    source = (
+        "/dev/v4l/by-id/"
+        "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
+    )
+    opened_with = []
+    written_frames = []
+
+    class FakeCapture:
+        def __init__(self, *args):
+            opened_with.append(args)
+            self.read_count = 0
+            self.released = False
+
+        def isOpened(self):
+            return True
+
+        def read(self):
+            self.read_count += 1
+            return True, f"frame-{self.read_count}"
+
+        def release(self):
+            self.released = True
+
+    captures = []
+
+    def video_capture(*args):
+        capture = FakeCapture(*args)
+        captures.append(capture)
+        return capture
+
+    fake_cv2 = SimpleNamespace(
+        CAP_V4L2=200,
+        VideoCapture=video_capture,
+        imwrite=lambda path, frame: written_frames.append(frame) or True,
+    )
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    photos = PhotoManager(
+        store,
+        str(tmp_path / "photos"),
+        outside_camera_source=source,
+        inside_camera_source=(
+            "/dev/v4l/by-id/"
+            "usb-icSpring_icspring_camera-video-index0"
+        ),
+        camera_warmup_frames=3,
+        start_upload_worker=False,
+    )
+    try:
+        photos._capture_camera_to_path(
+            str(tmp_path / "outside.jpg"),
+            source,
+        )
+    finally:
+        photos.close()
+        store.close()
+
+    assert opened_with == [(source, fake_cv2.CAP_V4L2)]
+    assert captures[0].read_count == 3
+    assert captures[0].released
+    assert written_frames == ["frame-3"]
 
 
 def test_clean_capture_phases_use_first_open_then_final_close_slots(

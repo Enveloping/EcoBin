@@ -63,9 +63,16 @@ class PhotoManager:
         self,
         store: EdgeStore,
         photo_dir=None,
-        outside_camera_index=1,
-        inside_camera_index=3,
+        outside_camera_source=(
+            "/dev/v4l/by-id/"
+            "usb-DECXIN_CAMERA_DECXIN_CAMERA_01.00.00-video-index0"
+        ),
+        inside_camera_source=(
+            "/dev/v4l/by-id/"
+            "usb-icSpring_icspring_camera-video-index0"
+        ),
         *,
+        camera_warmup_frames=5,
         deployment_code="",
         uploader=None,
         upload_poll_seconds=1.0,
@@ -83,8 +90,17 @@ class PhotoManager:
                 "photos",
             )
         self._photo_dir = photo_dir
-        self._outside_camera_index = outside_camera_index
-        self._inside_camera_index = inside_camera_index
+        if self._camera_identity(
+            outside_camera_source
+        ) == self._camera_identity(inside_camera_source):
+            raise ValueError(
+                "outside and inside cameras must be different"
+            )
+        if camera_warmup_frames <= 0:
+            raise ValueError("camera warmup frames must be positive")
+        self._outside_camera_source = outside_camera_source
+        self._inside_camera_source = inside_camera_source
+        self._camera_warmup_frames = camera_warmup_frames
         self._deployment_code = deployment_code
         self._uploader = uploader
         self._upload_poll_seconds = upload_poll_seconds
@@ -317,7 +333,7 @@ class PhotoManager:
             try:
                 self._capture_camera_to_path(
                     temporary_path,
-                    self._camera_index_for_slot(slot),
+                    self._camera_source_for_slot(slot),
                 )
                 with open(temporary_path, "rb+") as captured:
                     os.fsync(captured.fileno())
@@ -443,14 +459,20 @@ class PhotoManager:
         finally:
             os.close(descriptor)
 
-    def _camera_index_for_slot(self, slot):
+    @staticmethod
+    def _camera_identity(camera_source):
+        if isinstance(camera_source, str):
+            return os.path.realpath(camera_source)
+        return camera_source
+
+    def _camera_source_for_slot(self, slot):
         if slot.endswith("_OUTER"):
-            return self._outside_camera_index
+            return self._outside_camera_source
         if slot.endswith("_INNER"):
-            return self._inside_camera_index
+            return self._inside_camera_source
         raise ValueError(f"unknown photo slot: {slot}")
 
-    def _capture_camera_to_path(self, path, camera_index):
+    def _capture_camera_to_path(self, path, camera_source):
         if self._simulate_camera:
             dummy = bytearray(1024)
             dummy[0:3] = b"\xff\xd8\xff"
@@ -461,12 +483,25 @@ class PhotoManager:
             import cv2
         except ImportError as error:
             raise RuntimeError("OPENCV_NOT_INSTALLED") from error
-        cap = cv2.VideoCapture(camera_index)
+        if isinstance(camera_source, str):
+            cap = cv2.VideoCapture(camera_source, cv2.CAP_V4L2)
+        else:
+            cap = cv2.VideoCapture(camera_source)
+        if not cap.isOpened():
+            cap.release()
+            raise RuntimeError("CV2_CAMERA_OPEN_FAILED")
+        frame = None
         try:
-            ret, frame = cap.read()
+            for _ in range(self._camera_warmup_frames):
+                ret, candidate = cap.read()
+                if not ret or candidate is None:
+                    if frame is None:
+                        raise RuntimeError("CV2_CAPTURE_NULL_FRAME")
+                    break
+                frame = candidate
         finally:
             cap.release()
-        if ret and frame is not None:
+        if frame is not None:
             if not cv2.imwrite(path, frame):
                 raise RuntimeError("CV2_IMAGE_WRITE_FAILED")
             return

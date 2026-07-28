@@ -22,10 +22,11 @@ from config import (
     TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
     UART_HIL_REQUIRED_CAPABILITIES, EDGE_STORE_PATH,
     EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
-    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE, CAMERA_OUTSIDE, CAMERA_INSIDE,
+    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE,
+    CAMERA_OUTSIDE_SOURCE, CAMERA_INSIDE_SOURCE, CAMERA_WARMUP_FRAMES,
     EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
-    TRUSTED_COS_ENVIRONMENT,
+    TRUSTED_COS_ENVIRONMENT, COS_REQUEST_TIMEOUT_SECONDS,
     validate as config_validate,
 )
 from cos_photo_uploader import CosPhotoUploader
@@ -96,10 +97,13 @@ class EcoBinEdge:
         self.photo = PhotoManager(
             self.store,
             photo_dir=EDGE_PHOTO_DIR,
-            outside_camera_index=CAMERA_OUTSIDE,
-            inside_camera_index=CAMERA_INSIDE,
+            outside_camera_source=CAMERA_OUTSIDE_SOURCE,
+            inside_camera_source=CAMERA_INSIDE_SOURCE,
+            camera_warmup_frames=CAMERA_WARMUP_FRAMES,
             deployment_code=DEPLOYMENT_CODE,
-            uploader=CosPhotoUploader(),
+            uploader=CosPhotoUploader(
+                timeout_seconds=COS_REQUEST_TIMEOUT_SECONDS,
+            ),
             upload_poll_seconds=PHOTO_UPLOAD_POLL_SECONDS,
             grant_expiry_skew_seconds=(
                 PHOTO_GRANT_EXPIRY_SKEW_SECONDS
