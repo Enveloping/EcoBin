@@ -82,6 +82,31 @@ test('application source can only request same-origin /api/v1 endpoints', () => 
   assert.doesNotMatch(requestSource, /VITE_API_BASE/);
 });
 
+test('web authentication keeps the frozen Cookie, CSRF and privacy boundaries', () => {
+  const authSource = readFileSync(
+    new URL('src/api/auth.ts', webRoot),
+    'utf8',
+  );
+  const requestSource = readFileSync(
+    new URL('src/api/request.ts', webRoot),
+    'utf8',
+  );
+  const accountSource = readFileSync(
+    new URL('src/pages/account/index.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(authSource, /await refreshCsrfToken\(\)/);
+  assert.match(requestSource, /withCredentials:\s*true/);
+  assert.match(requestSource, /problem\.code === 'SECURITY\.CSRF_INVALID'/);
+  assert.match(requestSource, /retry-after/);
+  assert.doesNotMatch(
+    sourceText(),
+    /\/api\/system\/auth\/login|Authorization.{0,80}Bearer|Bearer.{0,80}Authorization/,
+  );
+  assert.doesNotMatch(accountSource, /contactPhone|updateOwnProfile/);
+});
+
 test('route capability composition and caller-owned command intents are fixed', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),

@@ -1565,6 +1565,624 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List platform-owned physical device assets */
+        get: operations["listPlatformDeviceAssets"];
+        put?: never;
+        /** Register a local platform inventory fact without creating OneNet credentials */
+        post: operations["createPlatformDeviceAsset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** Read one platform physical device asset */
+        get: operations["getPlatformDeviceAsset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List deployments visible to the current tenant or staff session */
+        get: operations["listOrganizationDeviceDeployments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** Read one deployment in the current trusted tenant scope */
+        get: operations["getOrganizationDeviceDeployment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable port identities and latest configuration summaries */
+        get: operations["listOrganizationDeviceDeploymentPorts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** Read independently derived delivery and cleaning qualification */
+        get: operations["getOrganizationDeviceDeploymentRuntime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one port runtime and safe business projection */
+        get: operations["getOrganizationDevicePortRuntime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate only after precise configuration and trusted runtime acceptance */
+        post: operations["activateOrganizationDeviceDeployment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/deactivations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable future work without rewriting already accepted work */
+        post: operations["deactivateOrganizationDeviceDeployment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/business-switch/enablements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable business intent only while runtime qualification is safe */
+        post: operations["enableOrganizationDeviceBusiness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/business-switch/disablements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable future business without changing device health or active work */
+        post: operations["disableOrganizationDeviceBusiness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable configuration snapshots by descending version */
+        get: operations["listOrganizationDeviceConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable complete configuration snapshot */
+        get: operations["getOrganizationDeviceConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a complete immutable configuration and durably queue convergence */
+        post: operations["releaseOrganizationDeviceConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-applications/{applicationUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        /** Read device application truth separately from dispatch progress */
+        get: operations["getOrganizationDeviceConfigurationApplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-applications/{applicationUid}/resynchronizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wake the same configuration application, command and reliable task */
+        post: operations["resynchronizeOrganizationDeviceConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List deployments in one explicit platform target scope */
+        get: operations["listPlatformDeviceDeployments"];
+        put?: never;
+        /** Atomically deploy one in-stock asset into an explicit organization */
+        post: operations["createPlatformDeviceDeployment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** Read one deployment in an explicit platform target scope */
+        get: operations["getPlatformDeviceDeployment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** List ports in an explicit platform target deployment */
+        get: operations["listPlatformDeviceDeploymentPorts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** Read deployment runtime in an explicit platform target scope */
+        get: operations["getPlatformDeviceDeploymentRuntime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one port runtime in an explicit platform target scope */
+        get: operations["getPlatformDevicePortRuntime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate an explicitly targeted deployment after trusted acceptance */
+        post: operations["activatePlatformDeviceDeployment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/deactivations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable an explicitly targeted deployment */
+        post: operations["deactivatePlatformDeviceDeployment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/business-switch/enablements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable business intent in an explicitly targeted deployment */
+        post: operations["enablePlatformDeviceBusiness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/business-switch/disablements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable business intent in an explicitly targeted deployment */
+        post: operations["disablePlatformDeviceBusiness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable configuration snapshots in an explicit platform target */
+        get: operations["listPlatformDeviceConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable configuration in an explicit platform target */
+        get: operations["getPlatformDeviceConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish and queue a complete configuration in an explicit platform target */
+        post: operations["releasePlatformDeviceConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-applications/{applicationUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        /** Read application truth and dispatch progress in an explicit platform target */
+        get: operations["getPlatformDeviceConfigurationApplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/configuration-applications/{applicationUid}/resynchronizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wake the same convergence identity in an explicit platform target */
+        post: operations["resynchronizePlatformDeviceConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/wechat-pay/notifications/native-payments": {
         parameters: {
             query?: never;
@@ -1605,6 +2223,365 @@ export interface components {
     schemas: {
         TenantCode: string;
         OrganizationCode: string;
+        HardwareSn: string;
+        DeploymentCode: string;
+        Sha256Hex: string;
+        /** @enum {string} */
+        DeviceAssetLifecycleStatus: "IN_STOCK" | "IN_USE" | "RETIRED";
+        /** @enum {string} */
+        DeviceDeploymentLifecycleStatus: "PENDING_INSTALL" | "COMMISSIONING" | "ENABLED" | "MAINTENANCE" | "DISABLED" | "ENDED";
+        /** @enum {string} */
+        DeviceConfigurationApplicationStatus: "PENDING" | "EDGE_SAVED" | "APPLIED" | "FAILED";
+        /** @enum {string} */
+        ReliableDeviceDispatchState: "PENDING" | "RUNNING" | "DONE" | "BLOCKED" | "CANCELLED";
+        CreateDeviceAssetRequest: {
+            hardwareSn: components["schemas"]["HardwareSn"];
+            modelCode: string;
+            productionBatch?: string | null;
+            expectedPortCount: number;
+        };
+        CreateDeviceDeploymentRequest: {
+            hardwareSn: components["schemas"]["HardwareSn"];
+            expectedAssetVersion: components["schemas"]["ExpectedVersion"];
+        };
+        DeviceDeploymentVersionCommand: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            reason?: string | null;
+        };
+        ActivateDeviceDeploymentRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            expectedConfigurationVersion: number;
+            acceptanceConfirmed: boolean;
+            reason?: string | null;
+        };
+        DeviceConfigurationReleaseRequest: {
+            expectedLatestVersion: components["schemas"]["ExpectedVersion"];
+            reason?: string | null;
+            locationCorrectionConfirmed: boolean;
+            device: components["schemas"]["DeviceConfigurationDeviceInput"];
+            ports: components["schemas"]["DeviceConfigurationPortInput"][];
+        };
+        DeviceConfigurationDeviceInput: {
+            displayName: string;
+            address?: string | null;
+            longitude?: string | null;
+            latitude?: string | null;
+            edgeHeartbeatIntervalMs: number;
+            edgeHeartbeatMissThreshold: number;
+            mcuHeartbeatIntervalMs: number;
+            mcuHeartbeatMissThreshold: number;
+            doorCloseRetryLimit: number;
+            continueDeliveryWaitMs: number;
+            negativeWeightThresholdGram: number;
+            deliveryAutoCloseMs?: number | null;
+            weightMeasurementTimeoutMs?: number | null;
+            deliveryDoorTravelWaitMs?: number | null;
+            cleanSolenoidPulseMs?: number | null;
+            smokeMonitoringEnabled?: boolean | null;
+        };
+        DeviceConfigurationPortInput: {
+            portNo: number;
+            displayName: string;
+            enabled: boolean;
+            unitPriceYuanPerKg: components["schemas"]["UnitPriceCnyPerKg"];
+            /** @enum {string} */
+            fullnessMode: "INFRARED_ONLY" | "WEIGHT_ONLY" | "INFRARED_OR_WEIGHT";
+            fullnessWeightKg: components["schemas"]["BusinessWeightKg"];
+            deliverySettleDelayMs: number;
+            fullnessInitialDelayMs: number;
+            fullnessRecheckDelayMs: number;
+            doorAutoCloseTimeoutMs: number;
+            /** @enum {string|null} */
+            fullnessSensorKind?: "ULTRASONIC" | "INFRARED_DISTANCE" | null;
+            fullnessDistanceThresholdMm?: number | null;
+            fullnessSampleCount?: number | null;
+            fullnessMinimumValidSampleCount?: number | null;
+            fullnessEchoTimeoutUs?: number | null;
+            weightStableWindowMs?: number | null;
+            weightMaximumFluctuationGram?: number | null;
+            weightRequiredSampleCount?: number | null;
+            weightMeasurementTimeoutMs?: number | null;
+            weightMinimumGram?: number | null;
+            weightMaximumGram?: number | null;
+            calibrationVersion?: number | null;
+            infraredSampleTimeoutMs?: number | null;
+            deliveryDoorOperationTimeoutMs?: number | null;
+        };
+        DeviceCurrentDeploymentSummary: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            tenantCode: components["schemas"]["TenantCode"];
+            organizationCode: components["schemas"]["OrganizationCode"];
+            lifecycleStatus: components["schemas"]["DeviceDeploymentLifecycleStatus"];
+            businessEnabled: boolean;
+        };
+        ComputedOneNetMapping: {
+            productId: string;
+            deviceName: components["schemas"]["HardwareSn"];
+            /** @constant */
+            currentComputedValue: true;
+        };
+        DeviceAsset: {
+            hardwareSn: components["schemas"]["HardwareSn"];
+            modelCode: string;
+            productionBatch: string | null;
+            expectedPortCount: number;
+            lifecycleStatus: components["schemas"]["DeviceAssetLifecycleStatus"];
+            currentDeployment: components["schemas"]["DeviceCurrentDeploymentSummary"] | null;
+            version: components["schemas"]["ExpectedVersion"];
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            oneNetMapping: components["schemas"]["ComputedOneNetMapping"] | null;
+        };
+        DeviceAssetPage: {
+            items: components["schemas"]["DeviceAsset"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        DeviceDeploymentAssetSummary: {
+            hardwareSn: components["schemas"]["HardwareSn"];
+            modelCode: string;
+            expectedPortCount: number;
+            lifecycleStatus: components["schemas"]["DeviceAssetLifecycleStatus"];
+            version: components["schemas"]["ExpectedVersion"];
+        };
+        DeviceDeployment: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            tenantCode: components["schemas"]["TenantCode"];
+            organizationCode: components["schemas"]["OrganizationCode"];
+            asset: components["schemas"]["DeviceDeploymentAssetSummary"];
+            lifecycleStatus: components["schemas"]["DeviceDeploymentLifecycleStatus"];
+            businessEnabled: boolean;
+            portCount: number;
+            latestConfigurationVersion: number | null;
+            appliedConfigurationVersion: number | null;
+            configurationApplicationStatus: components["schemas"]["DeviceConfigurationApplicationStatus"] | null;
+            edgeConnectionStatus: string | null;
+            version: components["schemas"]["ExpectedVersion"];
+            commissionedAt: components["schemas"]["UtcTimestamp"] | null;
+            enabledAt: components["schemas"]["UtcTimestamp"] | null;
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        DeviceDeploymentPage: {
+            items: components["schemas"]["DeviceDeployment"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        DevicePort: {
+            portNo: number;
+            displayName: string | null;
+            enabled: boolean | null;
+            unitPriceYuanPerKg: components["schemas"]["UnitPriceCnyPerKg"] | null;
+            fullnessMode: string | null;
+            configurationVersion: number | null;
+        };
+        DeviceRuntimeConfigurationSummary: {
+            latestPublishedVersion: number | null;
+            latestAppliedVersion: number | null;
+            latestApplicationStatus: components["schemas"]["DeviceConfigurationApplicationStatus"] | null;
+            latestPreciselyApplied: boolean;
+        };
+        DeviceRuntimeHealthSummary: {
+            edgeConnectionStatus: string;
+            mcuLinkStatus: string;
+            safetyStatus: string;
+            aggregateWeightHealth: string;
+            cameraHealth: string;
+            localStorageHealth: string;
+            clockSyncHealth: string;
+            edgeSoftwareVersion: string | null;
+            mcuFirmwareVersion: string | null;
+            uartState: string;
+            uartProtocolMajor: number | null;
+            uartProtocolMinor: number | null;
+            capabilityBitmapHex: string | null;
+            lastHeartbeatAt: components["schemas"]["UtcTimestamp"] | null;
+            lastDeviceEventAt: components["schemas"]["UtcTimestamp"] | null;
+            runtimeVersion: components["schemas"]["ExpectedVersion"];
+        };
+        DeviceDeploymentRuntime: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            lifecycleStatus: components["schemas"]["DeviceDeploymentLifecycleStatus"];
+            businessEnabled: boolean;
+            deploymentVersion: components["schemas"]["ExpectedVersion"];
+            configuration: components["schemas"]["DeviceRuntimeConfigurationSummary"];
+            health: components["schemas"]["DeviceRuntimeHealthSummary"];
+            occupied: boolean;
+            deliveryAllowed: boolean;
+            cleaningAllowed: boolean;
+            deliveryBlockers: string[];
+            cleaningBlockers: string[];
+        };
+        DevicePortBusinessSummary: {
+            currentBagPresent: boolean;
+            baselineState: string;
+            detectionGate: string;
+            fullnessState: string;
+            displayedFullnessPercent: string | null;
+            cleanOperationActive: boolean;
+        };
+        DevicePortRuntime: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            deliveryDoorState: string;
+            deliveryDoorActuatorHealth: string;
+            deliveryDoorContactState: string;
+            cleanLockPowerState: string;
+            cleanSolenoidHealth: string;
+            /** @enum {string} */
+            cleanDoorPhysicalState: "UNKNOWN";
+            /** @enum {string} */
+            cleanDoorStateBasis: "NOT_OBSERVABLE";
+            weightSensorHealth: string;
+            infraredValue: string | null;
+            infraredSensorHealth: string;
+            smokeState: string;
+            smokeSensorHealth: string;
+            safetyStatus: string;
+            business: components["schemas"]["DevicePortBusinessSummary"];
+            deliveryAllowed: boolean;
+            cleaningAllowed: boolean;
+            deliveryBlockers: string[];
+            cleaningBlockers: string[];
+            lastObservedAt: components["schemas"]["UtcTimestamp"] | null;
+            runtimeVersion: components["schemas"]["ExpectedVersion"];
+        };
+        DeviceConfigurationApplicationSummary: {
+            applicationUid: components["schemas"]["UuidV4"];
+            status: components["schemas"]["DeviceConfigurationApplicationStatus"];
+            dispatchState: components["schemas"]["ReliableDeviceDispatchState"];
+            version: components["schemas"]["ExpectedVersion"];
+        };
+        DeviceConfigurationVersionSummary: {
+            versionNo: number;
+            contentSha256: components["schemas"]["Sha256Hex"];
+            mcuPayloadSha256: components["schemas"]["Sha256Hex"];
+            deviceDisplayName: string;
+            publicationSource: string;
+            publishedBy: string;
+            publishedAt: components["schemas"]["UtcTimestamp"];
+            application: components["schemas"]["DeviceConfigurationApplicationSummary"];
+        };
+        DeviceConfigurationVersionPage: {
+            items: components["schemas"]["DeviceConfigurationVersionSummary"][];
+            nextBeforeVersionNo: number | null;
+        };
+        DeviceConfigurationDeviceSnapshot: components["schemas"]["DeviceConfigurationDeviceInput"];
+        DeviceConfigurationPortSnapshot: components["schemas"]["DeviceConfigurationPortInput"];
+        DeviceConfigurationVersion: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            versionNo: number;
+            schemaVersion: number;
+            contentSha256: components["schemas"]["Sha256Hex"];
+            mcuPayloadSha256: components["schemas"]["Sha256Hex"];
+            device: components["schemas"]["DeviceConfigurationDeviceSnapshot"];
+            ports: components["schemas"]["DeviceConfigurationPortSnapshot"][];
+            publicationSource: string;
+            publishedBy: string;
+            publishedAt: components["schemas"]["UtcTimestamp"];
+            application: components["schemas"]["DeviceConfigurationApplicationSummary"];
+        };
+        DeviceConfigurationAccepted: {
+            operationId: components["schemas"]["UuidV4"];
+            resourceId: components["schemas"]["UuidV4"];
+            applicationUid: components["schemas"]["UuidV4"];
+            versionNo: number;
+            contentSha256: components["schemas"]["Sha256Hex"];
+            mcuPayloadSha256: components["schemas"]["Sha256Hex"];
+            status: components["schemas"]["DeviceConfigurationApplicationStatus"];
+            dispatchState: components["schemas"]["ReliableDeviceDispatchState"];
+            statusUrl: components["schemas"]["StatusUrl"];
+            recommendedPollAfterMs: number | null;
+        };
+        DeviceConfigurationApplication: {
+            applicationUid: components["schemas"]["UuidV4"];
+            versionNo: number;
+            contentSha256: components["schemas"]["Sha256Hex"];
+            mcuPayloadSha256: components["schemas"]["Sha256Hex"];
+            status: components["schemas"]["DeviceConfigurationApplicationStatus"];
+            version: components["schemas"]["ExpectedVersion"];
+            latestDesired: boolean;
+            superseded: boolean;
+            deviceReportedVersionNo: number | null;
+            deviceReportedContentSha256: components["schemas"]["Sha256Hex"] | null;
+            deviceReportedMcuPayloadSha256: components["schemas"]["Sha256Hex"] | null;
+            edgePersistedAt: components["schemas"]["UtcTimestamp"] | null;
+            mcuSyncedAt: components["schemas"]["UtcTimestamp"] | null;
+            appliedAt: components["schemas"]["UtcTimestamp"] | null;
+            lastFailureCode: string | null;
+            lastFailedAt: components["schemas"]["UtcTimestamp"] | null;
+            dispatchState: components["schemas"]["ReliableDeviceDispatchState"];
+            recommendedPollAfterMs: number | null;
+            nextActions: ("WAIT" | "RESYNCHRONIZE" | "PUBLISH_NEW_CONFIGURATION" | "VIEW_LATEST_CONFIGURATION")[];
+        };
+        DeviceAssetPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceAssetPage"];
+            requestId: string;
+        };
+        DeviceAssetEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceAsset"];
+            requestId: string;
+        };
+        DeviceDeploymentPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceDeploymentPage"];
+            requestId: string;
+        };
+        DeviceDeploymentEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceDeployment"];
+            requestId: string;
+        };
+        DevicePortListEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DevicePort"][];
+            requestId: string;
+        };
+        DeviceDeploymentRuntimeEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceDeploymentRuntime"];
+            requestId: string;
+        };
+        DevicePortRuntimeEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DevicePortRuntime"];
+            requestId: string;
+        };
+        DeviceConfigurationVersionPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceConfigurationVersionPage"];
+            requestId: string;
+        };
+        DeviceConfigurationVersionEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceConfigurationVersion"];
+            requestId: string;
+        };
+        DeviceConfigurationAcceptedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceConfigurationAccepted"];
+            requestId: string;
+        };
+        DeviceConfigurationApplicationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceConfigurationApplication"];
+            requestId: string;
+        };
         /** @enum {string} */
         DirectoryStatus: "ENABLED" | "DISABLED";
         PrincipalAccountSummary: {
@@ -2286,6 +3263,152 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
+        /** @description A page of platform device assets */
+        DeviceAssetPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceAssetPageEnvelope"];
+            };
+        };
+        /** @description One platform device asset */
+        DeviceAssetOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceAssetEnvelope"];
+            };
+        };
+        /** @description The local platform inventory fact was created */
+        DeviceAssetCreated: {
+            headers: {
+                Location: components["headers"]["Location"];
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceAssetEnvelope"];
+            };
+        };
+        /** @description A page of visible device deployments */
+        DeviceDeploymentPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentPageEnvelope"];
+            };
+        };
+        /** @description The current safe device deployment projection */
+        DeviceDeploymentOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentEnvelope"];
+            };
+        };
+        /** @description The deployment, ports and safe unknown runtime projections were created atomically */
+        DeviceDeploymentCreated: {
+            headers: {
+                Location: components["headers"]["Location"];
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentEnvelope"];
+            };
+        };
+        /** @description The immutable deployment port identities and latest configuration summaries */
+        DevicePortsOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DevicePortListEnvelope"];
+            };
+        };
+        /** @description The current deployment runtime qualification projection */
+        DeviceDeploymentRuntimeOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentRuntimeEnvelope"];
+            };
+        };
+        /** @description The current port runtime and business qualification projection */
+        DevicePortRuntimeOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DevicePortRuntimeEnvelope"];
+            };
+        };
+        /** @description An immutable descending keyset page of configuration versions */
+        DeviceConfigurationVersionPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationVersionPageEnvelope"];
+            };
+        };
+        /** @description One immutable complete device configuration snapshot */
+        DeviceConfigurationVersionOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationVersionEnvelope"];
+            };
+        };
+        /** @description The configuration convergence intent is durable; no device application fact is implied */
+        DeviceConfigurationAccepted: {
+            headers: {
+                Location: components["headers"]["Location"];
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationAcceptedEnvelope"];
+            };
+        };
+        /** @description The configuration application fact and its independent reliable dispatch projection */
+        DeviceConfigurationApplicationOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationApplicationEnvelope"];
+            };
+        };
     };
     parameters: {
         /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
@@ -2300,6 +3423,11 @@ export interface components {
         Page: number;
         PageSize: number;
         Cursor: components["schemas"]["Cursor"];
+        HardwareSn: components["schemas"]["HardwareSn"];
+        DeploymentCode: components["schemas"]["DeploymentCode"];
+        PortNo: number;
+        ConfigurationVersionNo: number;
+        ConfigurationApplicationUid: components["schemas"]["UuidV4"];
     };
     requestBodies: never;
     headers: {
@@ -4347,6 +5475,762 @@ export interface operations {
         responses: {
             204: components["responses"]["NoContent"];
             401: components["responses"]["UnauthorizedProblem"];
+        };
+    };
+    listPlatformDeviceAssets: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                hardwareSn?: components["schemas"]["HardwareSn"];
+                modelCode?: string;
+                productionBatch?: string;
+                lifecycleStatus?: components["schemas"]["DeviceAssetLifecycleStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceAssetPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createPlatformDeviceAsset: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDeviceAssetRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeviceAssetCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformDeviceAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceAssetOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationDeviceDeployments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                lifecycleStatus?: components["schemas"]["DeviceDeploymentLifecycleStatus"];
+                businessEnabled?: boolean;
+                hardwareSn?: components["schemas"]["HardwareSn"];
+                edgeConnectionStatus?: string;
+                configurationApplicationStatus?: components["schemas"]["DeviceConfigurationApplicationStatus"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceDeploymentPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationDeviceDeploymentPorts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DevicePortsOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationDeviceDeploymentRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceDeploymentRuntimeOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationDevicePortRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DevicePortRuntimeOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    activateOrganizationDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateDeviceDeploymentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    deactivateOrganizationDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    enableOrganizationDeviceBusiness: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    disableOrganizationDeviceBusiness: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listOrganizationDeviceConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationDeviceConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    releaseOrganizationDeviceConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationReleaseRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getOrganizationDeviceConfigurationApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationApplicationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    resynchronizeOrganizationDeviceConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformDeviceDeployments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                lifecycleStatus?: components["schemas"]["DeviceDeploymentLifecycleStatus"];
+                businessEnabled?: boolean;
+                hardwareSn?: components["schemas"]["HardwareSn"];
+                edgeConnectionStatus?: string;
+                configurationApplicationStatus?: components["schemas"]["DeviceConfigurationApplicationStatus"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceDeploymentPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    createPlatformDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDeviceDeploymentRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeviceDeploymentCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listPlatformDeviceDeploymentPorts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DevicePortsOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDeviceDeploymentRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceDeploymentRuntimeOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDevicePortRuntime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DevicePortRuntimeOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    activatePlatformDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateDeviceDeploymentRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    deactivatePlatformDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    enablePlatformDeviceBusiness: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    disablePlatformDeviceBusiness: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceDeploymentOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformDeviceConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDeviceConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    releasePlatformDeviceConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationReleaseRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeviceConfigurationApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationApplicationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    resynchronizePlatformDeviceConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceDeploymentVersionCommand"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     receiveWechatNativePaymentNotification: {

@@ -1,4 +1,8 @@
-import request, { ApiProblem, invalidateCsrfToken } from './request';
+import request, {
+  ApiProblem,
+  invalidateCsrfToken,
+  refreshCsrfToken,
+} from './request';
 import type { LoginRequest, LoginResponse, WebLoginDomain } from '@/types';
 
 const DOMAIN_KEY = 'ecobin.web.login-domain';
@@ -27,7 +31,7 @@ export async function login(domain: WebLoginDomain, data: LoginRequest) {
     unauthorized: 'ignore',
   });
   rememberDomain(domain);
-  invalidateCsrfToken();
+  await refreshCsrfToken();
   return session;
 }
 

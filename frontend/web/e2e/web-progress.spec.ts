@@ -106,6 +106,7 @@ for (const domain of ['tenant', 'platform'] as const) {
   test(`${domain} login uses the correct Cookie+CSRF endpoint without Authorization`, async ({
     page,
   }) => {
+    let csrfRequestCount = 0;
     let loginRequest:
       | { path: string; headers: Record<string, string>; body: unknown }
       | undefined;
@@ -113,7 +114,13 @@ for (const domain of ['tenant', 'platform'] as const) {
       const request = route.request();
       const url = new URL(request.url());
       if (url.pathname.endsWith('/auth/csrf-token')) {
-        await json(route, { token: 'csrf-e2e', headerName: 'X-CSRF-TOKEN' });
+        csrfRequestCount += 1;
+        await json(route, {
+          token: csrfRequestCount === 1
+            ? 'csrf-before-login'
+            : 'csrf-after-login',
+          headerName: 'X-CSRF-TOKEN',
+        });
         return;
       }
       if (
@@ -129,7 +136,11 @@ for (const domain of ['tenant', 'platform'] as const) {
           headers: request.headers(),
           body: request.postDataJSON(),
         };
-        await json(route, domain === 'tenant' ? tenantSession : platformSession);
+        await json(
+          route,
+          domain === 'tenant' ? tenantSession : platformSession,
+          201,
+        );
         return;
       }
       await route.fulfill(problem(404));
@@ -150,11 +161,12 @@ for (const domain of ['tenant', 'platform'] as const) {
         : '/api/v1/web/auth/sessions',
     );
     expect(loginRequest!.headers.authorization).toBeUndefined();
-    expect(loginRequest!.headers['x-csrf-token']).toBe('csrf-e2e');
+    expect(loginRequest!.headers['x-csrf-token']).toBe('csrf-before-login');
     expect(loginRequest!.body).toEqual({
       loginName: 'operator',
       password: 'not-a-real-secret',
     });
+    await expect.poll(() => csrfRequestCount).toBe(2);
     expect(
       await page.evaluate(() =>
         Object.keys(localStorage).filter((key) =>
@@ -162,6 +174,103 @@ for (const domain of ['tenant', 'platform'] as const) {
     ).toEqual([]);
   });
 }
+
+test('429 login feedback honors Retry-After', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/auth/csrf-token')) {
+      await json(route, {
+        token: 'csrf-rate-limit',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname.endsWith('/auth/sessions/current')
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname.endsWith('/auth/sessions')
+    ) {
+      await route.fulfill({
+        ...problem(429, 'AUTH.RATE_LIMITED', '登录尝试过于频繁'),
+        headers: { 'Retry-After': '120' },
+      });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/login');
+  await page.getByPlaceholder('登录名').fill('operator');
+  await page.getByPlaceholder('密码').fill('not-a-real-secret');
+  await page.getByRole('button', { name: /登\s*录/ }).click();
+
+  await expect(
+    page.getByText('登录尝试过于频繁，请在 2 分钟后重试'),
+  ).toBeVisible();
+});
+
+test('stale login CSRF retries once and refreshes after session creation', async ({
+  page,
+}) => {
+  let csrfRequestCount = 0;
+  let loginAttemptCount = 0;
+  const csrfHeaders: Array<string | undefined> = [];
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/auth/csrf-token')) {
+      csrfRequestCount += 1;
+      await json(route, {
+        token: `csrf-generation-${csrfRequestCount}`,
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname.endsWith('/auth/sessions/current')
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname.endsWith('/auth/sessions')
+    ) {
+      loginAttemptCount += 1;
+      csrfHeaders.push(request.headers()['x-csrf-token']);
+      if (loginAttemptCount === 1) {
+        await route.fulfill(
+          problem(403, 'SECURITY.CSRF_INVALID', '请求安全令牌已失效'),
+        );
+        return;
+      }
+      await json(route, tenantSession, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/login');
+  await page.getByPlaceholder('登录名').fill('operator');
+  await page.getByPlaceholder('密码').fill('not-a-real-secret');
+  await page.getByRole('button', { name: /登\s*录/ }).click();
+
+  await expect.poll(() => loginAttemptCount).toBe(2);
+  await expect.poll(() => csrfRequestCount).toBe(3);
+  expect(csrfHeaders).toEqual([
+    'csrf-generation-1',
+    'csrf-generation-2',
+  ]);
+});
 
 test('allOf capability rules hide the menu and protect direct navigation', async ({
   page,
