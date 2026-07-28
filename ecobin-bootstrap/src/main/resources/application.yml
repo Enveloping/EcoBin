@@ -68,6 +68,15 @@ cos:
 
 # 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
 ecobin:
+  # 仅供默认 FAKE 开发运行：空表时创建一个已知平台管理员。
+  # REAL/production 必须显式关闭，否则启动失败，不会写入弱默认账号。
+  development:
+    default-platform-admin:
+      enabled: ${defaultPlatformAdminEnabled:true}
+      login-name: ${defaultPlatformAdminLogin:admin}
+      password: ${defaultPlatformAdminPassword:admin123}
+      display-name: ${defaultPlatformAdminDisplayName:开发平台管理员}
+
   operations:
     reliable:
       workers-enabled: true
