@@ -71,7 +71,7 @@ class RuntimeSafetyConfigurationTest {
                         sources,
                         "ecobin.development.default-platform-admin.password"));
         assertEquals(
-                "optional:file:./.env[.properties]",
+                "optional:file:./.ecobin/application-local-secrets.yml",
                 property(sources, "spring.config.import[0]"));
         assertEquals(
                 "optional:configtree:/run/secrets/",
@@ -82,6 +82,70 @@ class RuntimeSafetyConfigurationTest {
         assertFalse(yaml.contains("createDatabaseIfNotExist"));
         assertFalse(yaml.contains("dbUsername:root"));
         assertFalse(yaml.contains("StdOutImpl"));
+        assertFalse(yaml.contains("optional:file:./.env"));
+    }
+
+    @Test
+    void localProfilesSwitchExternalBoundaryWithoutEditingSecrets()
+            throws IOException {
+        List<PropertySource<?>> fakeSources = new YamlPropertySourceLoader()
+                .load(
+                        "local-fake",
+                        new ClassPathResource(
+                                "application-local-fake.yml"));
+
+        assertEquals(
+                "fake",
+                property(fakeSources, "ecobin.external.mode"));
+        assertEquals(
+                true,
+                property(
+                        fakeSources,
+                        "ecobin.external.fake.block-inbound"));
+        assertEquals(
+                true,
+                property(
+                        fakeSources,
+                        "ecobin.development.default-platform-admin.enabled"));
+        assertEquals(
+                false,
+                property(fakeSources, "onenet.subscription.enabled"));
+        for (String property : List.of(
+                "onenet.subscription.access-id",
+                "onenet.subscription.secret-key",
+                "onenet.subscription.subscription-name",
+                "onenet.product-id",
+                "onenet.access-key",
+                "cos.secret-id",
+                "cos.secret-key",
+                "cos.region",
+                "cos.bucket-name",
+                "cos.base-url",
+                "wechat.miniapp.appid",
+                "wechat.miniapp.secret")) {
+            assertEquals(
+                    "",
+                    property(fakeSources, property),
+                    () -> "local-fake must mask " + property);
+        }
+
+        List<PropertySource<?>> realSources = new YamlPropertySourceLoader()
+                .load(
+                        "local-real",
+                        new ClassPathResource(
+                                "application-local-real.yml"));
+
+        assertEquals(
+                "real",
+                property(realSources, "ecobin.external.mode"));
+        assertEquals(
+                true,
+                property(realSources, "onenet.subscription.enabled"));
+        assertEquals(
+                false,
+                property(
+                        realSources,
+                        "ecobin.development.default-platform-admin.enabled"));
     }
 
     @Test

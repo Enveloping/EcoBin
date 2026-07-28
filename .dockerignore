@@ -5,7 +5,6 @@ target/
 # 机密文件！绝不进镜像（生产运行时使用只读 config tree）
 .env
 .env.*
-!.env.example
 .ecobin/
 secrets/
 *.kdbx

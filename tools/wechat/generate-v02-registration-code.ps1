@@ -16,35 +16,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Read-DotEnv {
-    param([Parameter(Mandatory)][string]$Path)
-
-    $values = @{}
-    foreach ($rawLine in Get-Content -LiteralPath $Path -Encoding UTF8) {
-        $line = $rawLine.Trim()
-        if (-not $line -or $line.StartsWith('#')) {
-            continue
-        }
-        $separator = $line.IndexOf('=')
-        if ($separator -le 0) {
-            continue
-        }
-        $key = $line.Substring(0, $separator).Trim()
-        $value = $line.Substring($separator + 1).Trim()
-        if ($value.Length -ge 2) {
-            $quotedWithDouble = $value.StartsWith('"') -and
-                $value.EndsWith('"')
-            $quotedWithSingle = $value.StartsWith("'") -and
-                $value.EndsWith("'")
-            if ($quotedWithDouble -or $quotedWithSingle) {
-                $value = $value.Substring(1, $value.Length - 2)
-            }
-        }
-        $values[$key] = $value
-    }
-    return $values
-}
-
 function Convert-WechatError {
     param(
         [Parameter(Mandatory)][byte[]]$Bytes,
@@ -131,19 +102,20 @@ if (
 $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..')
 )
-$envPath = Join-Path $repositoryRoot '.env'
-if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) {
-    throw "未找到开发环境配置：$envPath"
-}
+$localSecretsPath = Join-Path `
+    $repositoryRoot '.ecobin\application-local-secrets.yml'
+$readerPath = Join-Path `
+    $repositoryRoot 'tools\development\local-secrets.ps1'
+. $readerPath
 
-$dotenv = Read-DotEnv -Path $envPath
-$appId = [string]$dotenv['wechatAppid']
-$appSecret = [string]$dotenv['wechatSecret']
+$localSecrets = Read-EcoBinLocalSecrets -Path $localSecretsPath
+$appId = [string]$localSecrets['wechatAppid']
+$appSecret = [string]$localSecrets['wechatSecret']
 if ([string]::IsNullOrWhiteSpace($appId)) {
-    throw '.env 中缺少 wechatAppid'
+    throw '本地 secrets YAML 中缺少 wechatAppid'
 }
 if ([string]::IsNullOrWhiteSpace($appSecret)) {
-    throw '.env 中缺少 wechatSecret'
+    throw '本地 secrets YAML 中缺少 wechatSecret'
 }
 
 $handler = [Net.Http.HttpClientHandler]::new()

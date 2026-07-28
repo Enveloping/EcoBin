@@ -1,0 +1,14 @@
+# 本地真实渠道联调模式。
+#
+# 真实凭证从本地 secrets YAML 注入；选择本 profile 即启用完整外联边界，
+# 同时关闭开发默认管理员初始化器，不再创建或重置弱口令账号。
+ecobin:
+  development:
+    default-platform-admin:
+      enabled: false
+  external:
+    mode: real
+
+onenet:
+  subscription:
+    enabled: true

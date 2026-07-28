@@ -3,7 +3,9 @@
 > 面向中国移动 OneNet 平台的设备物模型定义，供 OneNet 控制台导入与设备固件、后端对接共同遵循。
 > 本文是「物模型字段口径」的单一来源：物模型功能点标识符与后端 `/api/iot/**` DTO 字段一一对齐，避免数据转发时再做字段映射。
 > 初版：2026-06-09。**物模型结构以 `docs/iot/onenet-thing-model.json` 为单一来源**（已导入 OneNet 控制台）；本文表格仅用于「功能点 ↔ 后端字段」口径对齐，dataType/specs 细节一律以 .json 为准。
-> 下行真实接入已打通（2026-06-13）：凭证（product_id / access_key）已配 `.env`，服务调用 API 与鉴权已据官方文档确认（见 §3.5 / `docs/references/设备服务调用.md`、`安全鉴权.md`）。
+> 下行真实接入已打通（2026-06-13）：凭证（product_id / access_key）现保存在 Git
+> 忽略的本地 secrets YAML，服务调用 API 与鉴权已据官方文档确认（见 §3.5 /
+> `docs/references/设备服务调用.md`、`安全鉴权.md`）。
 
 ---
 
@@ -164,7 +166,9 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 ### 3.5 下发 API 与鉴权（AIoT 融合平台，已据官方文档确认 2026-06-13）
 
-`OneNetClient.invokeService` 调「设备服务调用」API，凭证 `productId`/`accessKey` 经 `.env`（`onenetProductId`/`onenetAccessKey`）注入；缺失时 `isConfigured()` 为假、走占位日志不真发。
+`OneNetClient.invokeService` 调「设备服务调用」API，凭证 `productId`/`accessKey` 经
+`.ecobin/application-local-secrets.yml`（`onenetProductId`/`onenetAccessKey`）注入；
+缺失时 `isConfigured()` 为假、走占位日志不真发。
 
 | 项 | 值 | 备注 |
 |----|----|------|
@@ -274,7 +278,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 ## 7. 待确认 / 待办
 
 1. **库表调整（需新增迁移 V10）**：`biz_device_status` 去 `total_weight`/`spill_alarm`/`smoke_alarm`、加 `rssi`/`fw_version`；新建 `biz_door_status`（投口级重量/满溢/烟雾快照，`UNIQUE(device_id, door_index)`）。同步改 `DeviceStatus` 实体、新增 `DoorStatus` 实体与 H2 测试 schema。详见 `docs/architecture/database-design.md` §8/§8b。
-2. **OneNet → 后端通道（北向）**：✅ **已实现并联调通过上行**（2026-06-10，控制台模拟设备 test-divice-1）。后端作 **Pulsar 消费者**拨出去连 OneNet 北向 MQ（`pulsar+ssl://iot-north-mq.heclouds.com:6651/`，topic `{accessId}/iot/event`），免公网、可靠不丢、削峰。实现：`framework/onenet/OneNetMqConsumer`（自定义鉴权 `OneNetAuthentication`）→ 解第一层报文 → `OneNetCipher` 解密 → `business/onenet/OneNetEventDispatcher` 按 `msgType`/事件 identifier 分发到现有 Service。消费组凭证由 `.env` 注入（`iotAccessId/iotSecretKey/iotSubscriptionName`）。
+2. **OneNet → 后端通道（北向）**：✅ **已实现并联调通过上行**（2026-06-10，控制台模拟设备 test-divice-1）。后端作 **Pulsar 消费者**拨出去连 OneNet 北向 MQ（`pulsar+ssl://iot-north-mq.heclouds.com:6651/`，topic `{accessId}/iot/event`），免公网、可靠不丢、削峰。实现：`framework/onenet/OneNetMqConsumer`（自定义鉴权 `OneNetAuthentication`）→ 解第一层报文 → `OneNetCipher` 解密 → `business/onenet/OneNetEventDispatcher` 按 `msgType`/事件 identifier 分发到现有 Service。消费组凭证由本地 secrets YAML 注入（`iotAccessId/iotSecretKey/iotSubscriptionName`）。
    - **报文结构（已据官方「服务端订阅消息类型」文档确认）**：两层。第一层 `{ superMsg, pv, t, data, sign }`，`data` 为 **AES 加密 Base64**（算法 `AES/ECB/PKCS5`，key = 消费组 KEY 的 `substring(8,24)`）；解密后第二层 `{ "msgType": <类型>, "subData": { deviceName, productId, deviceId, imei, params/... } }`。
    - **身份**在 `subData.deviceName`（= `biz_device.sn`），印证 §0「身份不进 payload」。**业务事件**走 `msgType=thingEvent`，输出在 `subData.params` 按 identifier 承载；属性 `thingProperty`、上下线 `deviceOnline/Offline`、下发回执 `thingServiceReply`。
    - **事件输出结构（已用真实报文确认）**：`thingEvent` 单个事件**被 `value` 包裹**，形如 `params.cleanGross = {"time":<ms>,"value":{"weight":10,"cleanOrderId":45}}`；`OneNetEventDispatcher.unwrap` 正确解出。真实报文不含 `imei` 字段（无妨，按需取）。
@@ -288,7 +292,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
    - **兜底**：后端不校验对象是否真上传成功；设备没传上时前端加载出 404 显示占位图。
 3. **清运 `userId` 来源**：已定为**小程序扫码登录态**——`openCleanDoor` 建单时由后端 `SecurityUtils` 取登录清运员写入订单，设备不再上报 `userId`（现仅支持小程序扫码登录）。
 4. **`cleanOrderId` 幂等**：清运毛重以 `cleanOrderId` 为幂等键（一单一次毛重，重复上报不覆盖），取代原设备生成的 `reportSn`。设备只需原样回传开门下发的 `cleanOrderId`。
-5. ~~**下发 API 规格**~~ ✅ **已确认并接通（2026-06-13）**：AIoT 融合平台「设备服务调用」`POST https://iot-api.heclouds.com/thingmodel/call-service`，token `res=products/{productId}`+sha256，详见 §3.5。凭证已填 `.env`。剩：平台 `code=0` 受理后，命令到设备需设备在线，端到端待真实设备/模拟器确认。
+5. ~~**下发 API 规格**~~ ✅ **已确认并接通（2026-06-13）**：AIoT 融合平台「设备服务调用」`POST https://iot-api.heclouds.com/thingmodel/call-service`，token `res=products/{productId}`+sha256，详见 §3.5。凭证已填本地 secrets YAML。剩：平台 `code=0` 受理后，命令到设备需设备在线，端到端待真实设备/模拟器确认。
 6. ~~**物模型 schema 校验**~~ ✅ 已导入 OneNet 控制台（`docs/iot/onenet-thing-model.json` 为单一来源）。
 
 ---

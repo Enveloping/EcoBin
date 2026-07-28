@@ -143,7 +143,10 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - `AdminController.list` 与 `TenantController.list` 返回 `Result<List<T>>`，Web 端做客户端分页；用户、设备、投递、清运、提现等主要列表返回 `PageResult`，由服务端分页。
 - 微信 `jscode2session` 返回 JSON 内容但可能标为 `text/plain`，要先取字符串再用 Jackson 手工解析。
 - 小程序 TDesign 曾完全无样式，根因是 `ignoreDevUnusedFiles=true` 丢弃 npm 组件，加上 `es6=false/enhance=false` 不转译 ESM；不是 `style:v2`。修复后需重新构建 npm、清缓存并重启开发者工具。
-- Docker 容器内数据库地址通过 `docker-compose.yml` 的 backend environment 指向 `mysql` 服务名；`.env` 只放密钥类配置，不放环境相关 DB host，也不得入库。
+- 本地数据库与渠道密钥统一保存在 Git 忽略的
+  `.ecobin/application-local-secrets.yml`；IDEA、开发脚本和根 Compose 共用该文件，
+  Fake/Real 只切 profile。容器内数据库地址仍由 `docker-compose.yml` 的 backend
+  environment 覆盖为 `mysql` 服务名；生产继续使用 `/run/secrets`。
 
 ## 6. 产品与协作偏好
 

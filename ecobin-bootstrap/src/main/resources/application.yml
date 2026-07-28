@@ -2,10 +2,10 @@ spring:
   application:
     name: EcoBin
 
-  # 本地兼容根目录 .env；生产通过 /run/secrets 只读 config tree 覆盖同名属性。
+  # 本地读取 Git 忽略的 YAML；生产通过 /run/secrets 只读 config tree 覆盖同名属性。
   config:
     import:
-      - optional:file:./.env[.properties]
+      - optional:file:./.ecobin/application-local-secrets.yml
       - optional:configtree:/run/secrets/
 
   # 数据源配置
@@ -45,7 +45,7 @@ wechat:
 
 # 中国移动 OneNet 物联网平台
 onenet:
-  # 上行（北向 MQ 服务端订阅消费）：凭证由 .env 注入；非测试 + enabled + 凭证齐全才启动消费者
+  # 上行（北向 MQ 服务端订阅消费）：凭证由本地 YAML 或生产 secret 注入
   subscription:
     broker-url: pulsar+ssl://iot-north-mq.heclouds.com:6651/
     access-id: ${iotAccessId:}

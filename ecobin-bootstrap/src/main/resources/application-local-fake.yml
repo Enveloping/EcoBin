@@ -1,0 +1,33 @@
+# 本地纯 Fake 联调模式。
+#
+# 本地 secrets YAML 可以长期保存真实渠道配置；本 profile 在最终绑定层统一屏蔽它们，
+# 防止本地登录/API 联调误连 OneNet、COS 或微信。
+ecobin:
+  development:
+    default-platform-admin:
+      enabled: true
+  external:
+    mode: fake
+    fake:
+      block-inbound: true
+
+onenet:
+  subscription:
+    enabled: false
+    access-id: ""
+    secret-key: ""
+    subscription-name: ""
+  product-id: ""
+  access-key: ""
+
+cos:
+  secret-id: ""
+  secret-key: ""
+  region: ""
+  bucket-name: ""
+  base-url: ""
+
+wechat:
+  miniapp:
+    appid: ""
+    secret: ""
