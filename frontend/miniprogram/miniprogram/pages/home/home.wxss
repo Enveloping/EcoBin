@@ -44,9 +44,37 @@
 .bin::before { content: ""; position: absolute; top: -10rpx; left: -5rpx; width: 76rpx; height: 14rpx; background: inherit; border-radius: 8rpx; }
 .bin-a { right: 178rpx; background: #247bd4; transform: scale(.85); }.bin-b { right: 106rpx; background: #ec5d4e; }.bin-c { right: 38rpx; background: #576067; transform: scale(.9); }
 
+.phone-notice {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin-top: 20rpx;
+  padding: 24rpx;
+  border: 1rpx solid #ccebd2;
+}
+.phone-notice-icon {
+  display: flex;
+  width: 64rpx;
+  height: 64rpx;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: #e8f7eb;
+  border-radius: 20rpx;
+}
+.phone-notice-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.phone-notice-title { color: #173d25; font-size: 25rpx; font-weight: 700; }
+.phone-notice-detail { margin-top: 6rpx; color: #78837a; font-size: 20rpx; }
+.phone-notice-action { color: #10a625; font-size: 23rpx; font-weight: 700; }
+
 .feature-card {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   margin-top: 20rpx;
   padding: 26rpx 8rpx 22rpx;
 }

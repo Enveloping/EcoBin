@@ -1,6 +1,7 @@
 import { deviceList, deviceDoors } from '../../api/device'
 import { openClean, myCleans } from '../../api/clean'
 import { requireEntryMode } from '../../utils/guard'
+import { getSession } from '../../utils/auth'
 import type { Device, Door, CleanOrder } from '../../types/api'
 
 interface CleanRow extends CleanOrder {
@@ -9,6 +10,8 @@ interface CleanRow extends CleanOrder {
 }
 
 Page({
+  phoneGrantDismissed: false,
+
   data: {
     devices: [] as Device[],
     deviceNames: [] as string[],
@@ -19,6 +22,7 @@ Page({
     bagNo: '',
     opening: false,
     cleans: [] as CleanRow[],
+    showPhoneGrant: false,
   },
 
   onLoad() {
@@ -30,6 +34,22 @@ Page({
   onShow() {
     const tabBar = this.getTabBar?.()
     if (tabBar) (tabBar as any).init()
+    const session = getSession()
+    this.setData({
+      showPhoneGrant:
+        session?.audience === 'miniapp'
+        && !session.phoneBound
+        && !this.phoneGrantDismissed,
+    })
+  },
+
+  onPhoneGrantClose() {
+    this.phoneGrantDismissed = true
+    this.setData({ showPhoneGrant: false })
+  },
+
+  onPhoneBound() {
+    this.setData({ showPhoneGrant: false })
   },
 
   async loadDevices() {

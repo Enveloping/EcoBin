@@ -66,3 +66,9 @@
     <t-empty wx:else icon="folder" description="暂无清运记录" />
   </view>
 </view>
+
+<phone-grant-sheet
+  visible="{{showPhoneGrant}}"
+  bindclose="onPhoneGrantClose"
+  bindbound="onPhoneBound"
+/>

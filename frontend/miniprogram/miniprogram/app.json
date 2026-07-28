@@ -9,7 +9,6 @@
     "pages/orders/orders",
     "pages/appointments/appointments",
     "pages/pickup/pickup",
-    "pages/bind-phone/bind-phone",
     "pages/fault-report/fault-report",
     "pages/customer-service/customer-service",
     "pages/franchise/franchise",
@@ -37,7 +36,8 @@
     "t-button": "tdesign-miniprogram/button/button",
     "t-icon": "tdesign-miniprogram/icon/icon",
     "t-tag": "tdesign-miniprogram/tag/tag",
-    "t-toast": "tdesign-miniprogram/toast/toast"
+    "t-toast": "tdesign-miniprogram/toast/toast",
+    "phone-grant-sheet": "/components/phone-grant-sheet/index"
   },
   "componentFramework": "glass-easel",
   "lazyCodeLoading": "requiredComponents"

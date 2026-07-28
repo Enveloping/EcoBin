@@ -24,6 +24,21 @@
     </view>
   </view>
 
+  <view
+    wx:if="{{!phoneBound}}"
+    class="phone-notice eco-card"
+    bindtap="onBindPhone"
+  >
+    <view class="phone-notice-icon">
+      <t-icon name="mobile-vibrate" size="38rpx" color="#0b6b3a" />
+    </view>
+    <view class="phone-notice-copy">
+      <text class="phone-notice-title">可选：验证手机号</text>
+      <text class="phone-notice-detail">用于身份核验及后续服务，不影响当前浏览</text>
+    </view>
+    <text class="phone-notice-action">去验证</text>
+  </view>
+
   <view class="feature-card eco-card">
     <view class="feature" wx:for="{{features}}" wx:key="text" data-index="{{index}}" bindtap="onFeatureTap">
       <view class="feature-icon"><t-icon name="{{item.icon}}" size="50rpx" color="#10b927" /></view>
@@ -61,4 +76,10 @@
     </view>
     <view class="scan-button" bindtap="onScan"><t-icon name="scan" size="34rpx" color="#fff" />扫码开门</view>
   </view>
+
+  <phone-grant-sheet
+    visible="{{showPhoneGrant}}"
+    bindclose="onPhoneGrantClose"
+    bindbound="onPhoneBound"
+  />
 </view>

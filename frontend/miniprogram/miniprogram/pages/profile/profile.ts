@@ -1,3 +1,5 @@
+import { getSession, logout } from '../../utils/auth'
+
 interface MenuItem {
   text: string
   icon: string
@@ -32,7 +34,8 @@ Page({
   onShow() {
     const tabBar = this.getTabBar?.()
     if (tabBar) (tabBar as any).init()
-
+    const session = getSession()
+    if (session) this.setData({ nickname: session.displayName })
   },
 
   onMenuTap(e: WechatMiniprogram.TouchEvent) {
@@ -54,7 +57,7 @@ Page({
       title: '提示',
       content: '确定要退出登录吗？',
       success: (res) => {
-        if (res.confirm) wx.showToast({ title: '静态演示模式', icon: 'none' })
+        if (res.confirm) void logout()
       },
     })
   },

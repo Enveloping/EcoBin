@@ -6,16 +6,20 @@ Page({
     error: '',
   },
 
+  registrationDeploymentCode: undefined as string | undefined,
+
   onLoad(options: Record<string, string | undefined>) {
-    const deploymentCode = registrationDeploymentCode(options)
-    this.doLogin(deploymentCode)
+    this.registrationDeploymentCode = registrationDeploymentCode(options)
+    this.doLogin()
   },
 
-  async doLogin(deploymentCode?: string) {
+  async doLogin() {
     this.setData({ loading: true, error: '' })
     try {
       const session = await ensureLoggedIn(
-        deploymentCode ? { deploymentCode } : undefined,
+        this.registrationDeploymentCode
+          ? { deploymentCode: this.registrationDeploymentCode }
+          : undefined,
       )
       routeToEntry(session)
     } catch (e) {

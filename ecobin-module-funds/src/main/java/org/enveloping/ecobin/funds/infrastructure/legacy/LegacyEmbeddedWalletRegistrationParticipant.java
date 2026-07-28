@@ -62,6 +62,19 @@ public class LegacyEmbeddedWalletRegistrationParticipant
                         tenantKey,
                         organizationKey,
                         userKey);
+                jdbc.update("""
+                                INSERT INTO fund_organization_wallet_entry_counter (
+                                    organization_id, tenant_id,
+                                    last_visibility_sequence_no,
+                                    lock_version, updated_at
+                                ) VALUES (?, ?, 0, 0, UTC_TIMESTAMP(3))
+                                ON DUPLICATE KEY UPDATE
+                                    last_visibility_sequence_no =
+                                        fund_organization_wallet_entry_counter
+                                            .last_visibility_sequence_no
+                                """,
+                        organizationKey,
+                        tenantKey);
                 return;
             }
             if (tenantKey != organizationKey) {
