@@ -2,7 +2,6 @@ package org.enveloping.ecobin.integration.fake;
 
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
-import org.enveloping.ecobin.identity.api.port.WechatSessionPort;
 import org.enveloping.ecobin.integration.config.ExternalAdapterModeProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -30,7 +29,7 @@ public class FakeExternalAdapterConfiguration {
     }
 
     @Bean
-    WechatSessionPort fakeWechatSessionPort() {
+    FakeWechatSessionAdapter fakeWechatMiniappAdapter() {
         return new FakeWechatSessionAdapter();
     }
 

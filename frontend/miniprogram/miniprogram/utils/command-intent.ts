@@ -36,6 +36,10 @@ async function uuidV4(): Promise<string> {
   ].join('-')
 }
 
+export function createIdempotencyKey(): Promise<string> {
+  return uuidV4()
+}
+
 function stableJson(value: unknown): string {
   if (value === undefined) return '"__undefined__"'
   if (value === null || typeof value !== 'object') {

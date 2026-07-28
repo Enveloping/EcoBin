@@ -12,7 +12,8 @@
     "displayName": "清运员",
     "capabilities": [
       "clean.execute"
-    ]
+    ],
+    "phoneBound": true
   },
   "requestId": "01J3EXAMPLE00000000000007"
 }

@@ -242,6 +242,37 @@ public class TargetIdentitySessionRepository {
                         """, reason, tenantId, organizationId);
     }
 
+    public void revokeOrganizationUserSessions(
+            long tenantId,
+            long organizationId,
+            long organizationUserId,
+            String reason) {
+        jdbc.update("""
+                        UPDATE iam_organization_user_session
+                        SET revoked_at = UTC_TIMESTAMP(3),
+                            revocation_reason = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND organization_user_id = ?
+                          AND revoked_at IS NULL
+                        """,
+                reason, tenantId, organizationId, organizationUserId);
+    }
+
+    public void revokeMiniappBindingSessions(
+            long bindingId,
+            String reason) {
+        jdbc.update("""
+                        UPDATE iam_staff_login_session
+                        SET revoked_at = UTC_TIMESTAMP(3),
+                            revocation_reason = ?
+                        WHERE staff_miniapp_binding_id = ?
+                          AND client_kind = 'MINIAPP_MANAGEMENT'
+                          AND revoked_at IS NULL
+                        """,
+                reason, bindingId);
+    }
+
     private TargetWebActor resolvePlatform(TargetWebSessionClaims claims) {
         PlatformSessionRow row = jdbc.query("""
                         SELECT s.session_uid, s.issued_at, s.expires_at,

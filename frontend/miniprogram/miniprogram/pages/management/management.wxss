@@ -1,0 +1,14 @@
+.management-page { min-height: 100vh; padding: 48rpx 32rpx; color: #eaf6ed; background: #09261a; box-sizing: border-box; }
+.management-hero { padding: 32rpx 8rpx 48rpx; border-bottom: 1rpx solid rgba(183, 230, 195, .2); }
+.mode-label { color: #76d48a; font-size: 18rpx; font-weight: 700; letter-spacing: 5rpx; }
+.organization { margin-top: 24rpx; font-size: 46rpx; font-weight: 760; letter-spacing: -1rpx; }
+.operator { margin-top: 14rpx; color: #99b8a1; font-size: 23rpx; }
+.management-card { position: relative; margin-top: 40rpx; padding: 40rpx 34rpx; overflow: hidden; background: #f1f8f2; border-radius: 8rpx; }
+.card-index { position: absolute; top: 16rpx; right: 24rpx; color: rgba(9, 38, 26, .09); font-size: 100rpx; font-weight: 800; }
+.card-title { position: relative; color: #123622; font-size: 32rpx; font-weight: 740; }
+.card-copy { position: relative; margin-top: 16rpx; color: #577060; font-size: 23rpx; line-height: 1.7; }
+.capability-list { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 30rpx; }
+.capability { padding: 10rpx 16rpx; color: #146c36; font-family: monospace; font-size: 19rpx; background: #dceee0; border-radius: 4rpx; }
+.capability.empty { color: #7a897e; }
+.security-note { margin-top: 28rpx; padding-left: 18rpx; color: #8eaa96; font-size: 21rpx; line-height: 1.6; border-left: 4rpx solid #39a85a; }
+.logout { margin-top: 60rpx; padding: 26rpx; color: #b6d8bf; font-size: 24rpx; text-align: center; border: 1rpx solid rgba(182, 216, 191, .35); border-radius: 8rpx; }

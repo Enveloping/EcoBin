@@ -12,7 +12,7 @@
 6. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
 7. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
 8. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
-9. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、H-02、F-01～F-11、V-01 已完成，V-02 与 H-03 为 `ready` 但尚未获得实施授权；H-02 已通过本地 MySQL 8.4.10 开发演练及服务器整改阶段 0～3 验收，当前试验期由项目负责人接受操作机 ACL 受限 `.ecobin` 保管长期凭证原件，加密密码库和异机密码库副本延期到下一版本；F-11 后续验证发现范围内问题时重开，固定帧真机证据保留在 H-03。
+9. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、H-02、F-01～F-11、V-01 已完成，V-02 software 已完成并等待真实微信联调与人工验收，H-03 为 `ready` 但尚未获得实施授权；H-02 已通过本地 MySQL 8.4.10 开发演练及服务器整改阶段 0～3 验收，当前试验期由项目负责人接受操作机 ACL 受限 `.ecobin` 保管长期凭证原件，加密密码库和异机密码库副本延期到下一版本；F-11 后续验证发现范围内问题时重开，固定帧真机证据保留在 H-03。
 10. [权限与角色设计](architecture/permission-design.md)：当前旧实现的三类登录主体、多租户隔离和接口鉴权。
 11. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构、迁移版本和业务数据关系；新栈使用独立目标 V1～V10 迁移作业与只读 epoch guard，运行制品不携带 Flyway/迁移脚本，但旧栈尚未执行成对切换。
 
@@ -26,6 +26,7 @@
 - [F-03 业务模块边界搬迁实施证据](architecture/f-03-business-boundary-evidence.md)
 - [F-09 HTTP OpenAPI 与客户端传输基础实施证据](architecture/f-09-http-client-transport-evidence.md)
 - [V-01 身份与 Web 管理纵切实施证据](architecture/v-01-identity-web-slice-evidence.md)
+- [V-02 机构用户注册、手机号、钱包与管理绑定软件证据](architecture/v-02-organization-user-registration-wallet-evidence.md)
 - [权限与角色设计](architecture/permission-design.md)
 - [数据库设计](architecture/database-design.md)
 

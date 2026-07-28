@@ -1,2 +1,17 @@
-.bind-page { text-align: center; }.phone-symbol { display: flex; align-items: center; justify-content: center; width: 144rpx; height: 144rpx; margin: 50rpx auto 28rpx; background: #e8f7eb; border-radius: 50%; }.headline { font-size: 34rpx; font-weight: 750; }.subtitle { margin-top: 10rpx; color: #9aa09a; font-size: 23rpx; }
-.bind-card { margin-top: 46rpx; padding: 32rpx; text-align: left; }.label { margin-bottom: 12rpx; font-size: 24rpx; font-weight: 650; }.code-label { margin-top: 28rpx; }.bind-card input { height: 82rpx; padding: 0 22rpx; font-size: 24rpx; background: #f7f9f7; border: 2rpx solid #e2e6e2; border-radius: 20rpx; box-sizing: border-box; }.code-row { display: grid; grid-template-columns: 1fr 176rpx; gap: 14rpx; }.send { display: flex; align-items: center; justify-content: center; color: #10a625; font-size: 23rpx; font-weight: 600; background: #e8f7eb; border-radius: 20rpx; }.send.disabled { color: #9ca39c; }.submit { margin-top: 34rpx; }.agreement { margin-top: 38rpx; color: #b1b6b1; font-size: 21rpx; }
+.bind-page { text-align: center; }
+.phone-symbol { display: flex; align-items: center; justify-content: center; width: 144rpx; height: 144rpx; margin: 50rpx auto 22rpx; background: #e8f7eb; border: 1rpx solid #ccebd2; border-radius: 50%; }
+.eyebrow { margin-bottom: 12rpx; color: #178844; font-size: 18rpx; font-weight: 700; letter-spacing: 4rpx; }
+.headline { font-size: 36rpx; font-weight: 760; }
+.subtitle { max-width: 560rpx; margin: 14rpx auto 0; color: #7f887f; font-size: 23rpx; line-height: 1.7; }
+.bind-card { margin-top: 44rpx; padding: 38rpx 32rpx; text-align: left; border-top: 6rpx solid #10a625; }
+.privacy-row { display: flex; gap: 22rpx; align-items: flex-start; padding: 24rpx; background: #f1f8f2; border-radius: 20rpx; }
+.privacy-title { color: #143d24; font-size: 26rpx; font-weight: 680; }
+.privacy-copy { margin-top: 8rpx; color: #748078; font-size: 22rpx; line-height: 1.55; }
+.wechat-phone-button { height: 92rpx; margin-top: 30rpx; color: #fff; font-size: 27rpx; font-weight: 680; line-height: 92rpx; background: #10a625; border: 0; border-radius: 22rpx; }
+.wechat-phone-button::after { border: 0; }
+.wechat-phone-button[disabled] { color: rgba(255,255,255,.78); background: #73c780; }
+.verified-mark { text-align: center; }
+.masked { margin-top: 20rpx; color: #183d25; font-size: 42rpx; font-weight: 760; text-align: center; letter-spacing: 2rpx; }
+.state-line { margin-top: 12rpx; color: #64a273; font-size: 22rpx; text-align: center; }
+.secondary-action { margin-top: 34rpx; padding: 24rpx; color: #178844; font-size: 25rpx; font-weight: 650; text-align: center; background: #eff8f1; border-radius: 20rpx; }
+.agreement { margin-top: 34rpx; color: #a3aaa3; font-size: 20rpx; }

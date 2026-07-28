@@ -3,6 +3,7 @@
     "pages/login/login",
     "pages/home/home",
     "pages/clean/clean",
+    "pages/management/management",
     "pages/profile/profile",
     "pages/nearby/nearby",
     "pages/orders/orders",

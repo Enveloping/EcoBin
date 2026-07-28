@@ -3,6 +3,7 @@ import {
   ApartmentOutlined,
   BankOutlined,
   IdcardOutlined,
+  LinkOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -15,6 +16,7 @@ import OrganizationPage from '@/pages/organization';
 import StaffPage from '@/pages/staff';
 import AccessPage from '@/pages/access';
 import AccountSettingsPage from '@/pages/account';
+import OrganizationUserBindingPage from '@/pages/user/OrganizationUserBinding';
 
 export interface AppRoute {
   path: string;
@@ -64,6 +66,13 @@ export const appRoutes: AppRoute[] = [
     icon: <TeamOutlined />,
     element: <StaffPage />,
     capability: 'staff.read',
+  },
+  {
+    path: '/user-bindings',
+    name: '用户绑定',
+    icon: <LinkOutlined />,
+    element: <OrganizationUserBindingPage />,
+    capability: 'user.read',
   },
   {
     path: '/access',

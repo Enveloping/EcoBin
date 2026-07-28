@@ -12,10 +12,8 @@
     },
     "subjectUid": "4b9e8c22-7d38-4e4b-a1b0-7a0e1656e004",
     "displayName": "微信用户",
-    "capabilities": [
-      "delivery.create",
-      "wallet.read"
-    ],
+    "capabilities": [],
+    "phoneBound": false,
     "isNewRegistration": true
   },
   "requestId": "01J3EXAMPLE00000000000006"

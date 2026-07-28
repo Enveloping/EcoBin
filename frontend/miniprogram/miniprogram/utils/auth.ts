@@ -32,6 +32,12 @@ function persistSession(session: LoginResponse): void {
   if (app) app.globalData.session = session
 }
 
+export function markPhoneBound(): void {
+  const session = getSession()
+  if (!session || session.phoneBound) return
+  persistSession({ ...session, phoneBound: true })
+}
+
 export function clearSession(): void {
   wx.removeStorageSync(STORAGE_KEYS.session)
   const app = getApp<IAppOption>()
@@ -119,7 +125,7 @@ export function entryUrlFor(entryMode: EntryMode): string {
     case 'CLEANING':
       return '/pages/clean/clean'
     case 'MANAGEMENT':
-      return '/pages/placeholder/placeholder?title=机构管理'
+      return '/pages/management/management'
   }
 }
 
