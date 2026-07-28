@@ -102,3 +102,10 @@ software 已关闭，真实 AppID/AppSecret 的 `wx.login → code2session → �
 3. Web 人工绑定后工作人员免密进入管理页；
 4. 后续投递/提现切片中的未绑手机号业务命令门禁及完整注册统计；
 5. 真机日志、审计和错误路径中无敏感值的人工复核。
+
+其中可信设备小程序码在开发环境中已能打开登录入口，但两次重建测试账号后数据库来源
+仍为空。后端 Java 21 MySQL 单项测试证明请求携带部署码时能够正确落库；由于开发版
+分发、缓存和小程序生命周期入口无法在当前环境稳定区分，项目负责人决定停止本轮试错，
+并将真实上线后的诊断与验收独立记录为
+[P0-FOLLOWUP-01](../planning/tasks/p0-controlled-loop/p0-followup-01-wechat-qr-registration-attribution.md)。
+该延期不构成设备来源注册通过的证据。

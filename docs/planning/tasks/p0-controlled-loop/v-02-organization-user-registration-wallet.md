@@ -25,6 +25,9 @@ implementation_authorized: true
 > `status: in-progress`：software 阶段已在独立 worktree 中完成并通过 MySQL 8.4、
 > 全仓及客户端自动回归；真实 `wx.login` 已联通，integration 正在进行。真实手机号、
 > 设备来源注册和完整人工验收尚未完成，任务级仍保持 `in-progress`。
+> 开发环境中“小程序码可进入、首次注册来源仍为空”的问题已按项目负责人决定延期到
+> [P0-FOLLOWUP-01](p0-followup-01-wechat-qr-registration-attribution.md)，不在本轮继续
+> 试错；该延期不等于真实设备来源注册已经验收通过。
 
 ## 目标
 
@@ -98,3 +101,8 @@ acceptance 阶段仍须满足表中真实小程序、机构凭据和指定测试
   私表。MySQL 8.4 专项扩展为 5 项并全部通过，全仓 Java 111 项零失败，HTTP OpenAPI
   官方校验 5 项通过。真实 `wx.login` 已验证，因此 integration 转为 `in-progress`；
   真实 `getPhoneNumber`、可信设备来源注册和完整人工验收尚未完成。
+- 2026-07-28：真实开发版小程序码可以进入登录入口，但两次精确重建测试账号后，
+  `registered_via_deployment_id` 仍为空；Java 21 后端 MySQL 单项测试证明请求携带
+  部署码时服务端能够正确归因。项目负责人决定停止在受限开发环境继续处理，问题转入
+  独立的 [P0-FOLLOWUP-01](p0-followup-01-wechat-qr-registration-attribution.md)，
+  待实际上线后复核；实验性生命周期修改未提交，V-02 仍保持 `in-progress`。

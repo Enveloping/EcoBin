@@ -115,6 +115,15 @@ agent | human | mixed
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
 
+### 延期 P0 跟进项
+
+下列项目是实施期间新增、独立记录的延期问题，不纳入原 29 项批准任务的工作量统计和
+依赖 DAG，也不得被解释为对应验收已经通过。
+
+| ID | 问题 | status | executor | blocked by |
+|---|---|---|---|---|
+| P0-FOLLOWUP-01 | [真实上线环境复核微信小程序码注册来源归因](p0-followup-01-wechat-qr-registration-attribution.md) | `blocked` | `mixed` | `EXT-WECHAT-RELEASE-RUNTIME-READY` |
+
 ## 依赖导航
 
 主要基础链：
@@ -168,6 +177,7 @@ H-01 + H-02 + H-03 + H-04 + H-05
 |---|---|---|---|
 | `EXT-WECHAT-NATIVE-READY` | 未就绪 | 项目负责人和微信商户配置操作者确认真实 Native 支付、回调/查单和受控 acceptance 条件已经可用 | H-04 |
 | `EXT-WECHAT-TRANSFER-READY` | 未就绪 | 项目负责人和指定测试用户确认真实商家转账、用户确认页、查单/通知和小额验收条件已经可用 | H-05 |
+| `EXT-WECHAT-RELEASE-RUNTIME-READY` | 未就绪 | 真实小程序 release 版本、对应后端、部署码映射和专用测试账号可用，并授权受控诊断 | P0-FOLLOWUP-01 |
 
 外部条件解除后，主审仍需重新核对对应软件任务、凭证安全、白名单和小额边界，才能把 H-04/H-05 从 `blocked` 改为 `ready`。
 
@@ -321,3 +331,8 @@ M0_COMPLETE
   上传、匿名 URL 下载及 SHA-256 校验通过，测试对象已删除。项目负责人决定暂不继续
   处理香橙派当时的默认路由/DNS 波动；该非阻塞环境观察不改变 F-11 `done`、
   H-03 `ready` 或其他任务授权状态。
+- 2026-07-28：真实开发版小程序码能够进入 V-02 登录入口，但两次重建测试账号后的
+  注册来源仍为空；后端 Java 21 MySQL 单项测试已证明携带部署码的服务端路径正常。
+  项目负责人决定停止在当前受限开发环境继续处理，新增独立延期项
+  P0-FOLLOWUP-01，待真实 release 运行环境具备后复核。该项不纳入原 29 项依赖 DAG，
+  V-02 仍保持 `in-progress`，不得把延期解释为来源归因已经通过。
