@@ -203,8 +203,20 @@ F-07 默认 `externalMode=fake`，只接受 `fake:` 前缀的测试 code；真�
 
 ### 默认账号
 
-目标 V1～V10 和 F-07 bootstrap 不创建任何默认账号、租户、机构、设备、袋、钱包或业务配置。
-完整试点 seed 属于 F-12。
+目标迁移本身不写入任何账号或环境业务数据。为了本地联调，默认
+`externalMode=fake` 启动时，如果 `iam_platform_admin` 为空，应用会幂等创建：
+
+```text
+账号：admin
+密码：admin123
+登录类型：平台管理员
+```
+
+已有任意平台管理员时不会追加默认账号，也不会重置现有密码。可通过
+`defaultPlatformAdminEnabled=false` 关闭；`externalMode=real` 或
+`prod/production` profile 必须关闭，否则应用拒绝启动且不会写入默认账号。
+租户、机构、工作人员、设备、袋、钱包和业务配置仍不自动创建；完整试点 seed
+属于 F-12。
 
 ## 架构设计
 

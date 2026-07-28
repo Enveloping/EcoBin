@@ -10,6 +10,9 @@ spring:
       schema-locations: classpath:schema-h2.sql
 
 ecobin:
+  development:
+    default-platform-admin:
+      enabled: false
   operations:
     reliable:
       workers-enabled: false

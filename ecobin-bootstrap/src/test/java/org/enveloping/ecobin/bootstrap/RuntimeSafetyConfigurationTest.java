@@ -56,6 +56,21 @@ class RuntimeSafetyConfigurationTest {
                 "${appAesKey}",
                 property(sources, "app.crypto.aes-key"));
         assertEquals(
+                "${defaultPlatformAdminEnabled:true}",
+                property(
+                        sources,
+                        "ecobin.development.default-platform-admin.enabled"));
+        assertEquals(
+                "${defaultPlatformAdminLogin:admin}",
+                property(
+                        sources,
+                        "ecobin.development.default-platform-admin.login-name"));
+        assertEquals(
+                "${defaultPlatformAdminPassword:admin123}",
+                property(
+                        sources,
+                        "ecobin.development.default-platform-admin.password"));
+        assertEquals(
                 "optional:file:./.env[.properties]",
                 property(sources, "spring.config.import[0]"));
         assertEquals(
