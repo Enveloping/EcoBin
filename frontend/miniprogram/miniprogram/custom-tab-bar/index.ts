@@ -9,6 +9,7 @@ interface VisualTab {
 
 interface TabBarData {
   selected: number
+  hidden: boolean
   tabs: VisualTab[]
 }
 
@@ -16,6 +17,7 @@ interface TabBarMethods {
   [key: string]: (...args: any[]) => any
   init(): void
   refresh(): void
+  setHidden(hidden: boolean): void
   onTap(e: WechatMiniprogram.TouchEvent): void
 }
 
@@ -24,6 +26,7 @@ type TabBarInstance = WechatMiniprogram.Component.Instance<TabBarData, {}, TabBa
 Component<TabBarData, {}, TabBarMethods>({
   data: {
     selected: 0,
+    hidden: false,
     tabs: [
       { text: '首页', icon: 'home', pagePath: '/pages/home/home' },
       { text: '扫一扫', icon: 'scan', action: 'scan' },
@@ -33,7 +36,12 @@ Component<TabBarData, {}, TabBarMethods>({
 
   methods: {
     init(this: TabBarInstance) {
+      this.setData({ hidden: false })
       this.refresh()
+    },
+
+    setHidden(this: TabBarInstance, hidden: boolean) {
+      this.setData({ hidden })
     },
 
     refresh(this: TabBarInstance) {

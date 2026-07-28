@@ -64,6 +64,7 @@ export function bindCurrentPhone(
     {
       idempotencyKey,
       retryAfterLogin: true,
+      toast: false,
     },
   )
 }

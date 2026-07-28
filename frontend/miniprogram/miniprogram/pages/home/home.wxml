@@ -24,6 +24,21 @@
     </view>
   </view>
 
+  <view
+    wx:if="{{!phoneBound}}"
+    class="phone-notice eco-card"
+    bindtap="onBindPhone"
+  >
+    <view class="phone-notice-icon">
+      <t-icon name="mobile-vibrate" size="38rpx" color="#0b6b3a" />
+    </view>
+    <view class="phone-notice-copy">
+      <text class="phone-notice-title">可选：验证手机号</text>
+      <text class="phone-notice-detail">用于身份核验及后续服务，不影响当前浏览</text>
+    </view>
+    <text class="phone-notice-action">去验证</text>
+  </view>
+
   <view class="feature-card eco-card">
     <view class="feature" wx:for="{{features}}" wx:key="text" data-index="{{index}}" bindtap="onFeatureTap">
       <view class="feature-icon"><t-icon name="{{item.icon}}" size="50rpx" color="#10b927" /></view>
@@ -60,5 +75,35 @@
       <text wx:for="{{categories}}" wx:key="*this">{{item}}</text>
     </view>
     <view class="scan-button" bindtap="onScan"><t-icon name="scan" size="34rpx" color="#fff" />扫码开门</view>
+  </view>
+
+  <view
+    wx:if="{{showPhoneGrant}}"
+    class="phone-sheet-mask"
+    bindtap="onPhoneGrantClose"
+    catchtouchmove="onPhoneSheetPanelTap"
+  >
+    <view class="phone-sheet" catchtap="onPhoneSheetPanelTap">
+      <view class="sheet-handle"></view>
+      <view class="sheet-head">
+        <view class="sheet-icon">
+          <t-icon name="mobile-vibrate" size="52rpx" color="#0b6b3a" />
+        </view>
+        <view class="sheet-title">验证手机号</view>
+        <view class="sheet-close" bindtap="onPhoneGrantClose">×</view>
+      </view>
+      <view class="sheet-copy">
+        手机号将由微信官方授权面板提供，用于当前机构身份核验和后续服务。你可以暂不授权，不影响当前浏览。
+      </view>
+      <button
+        class="phone-grant-button"
+        open-type="getPhoneNumber"
+        loading="{{phoneGrantSubmitting}}"
+        disabled="{{phoneGrantSubmitting}}"
+        bindgetphonenumber="onGetPhoneNumber"
+      >{{phoneGrantSubmitting ? '正在验证…' : '继续获取手机号'}}</button>
+      <view class="sheet-skip" bindtap="onPhoneGrantClose">暂不授权</view>
+      <view class="sheet-footnote">确认后将继续调用微信官方手机号能力</view>
+    </view>
   </view>
 </view>

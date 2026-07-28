@@ -9,7 +9,6 @@
     "pages/orders/orders",
     "pages/appointments/appointments",
     "pages/pickup/pickup",
-    "pages/bind-phone/bind-phone",
     "pages/fault-report/fault-report",
     "pages/customer-service/customer-service",
     "pages/franchise/franchise",

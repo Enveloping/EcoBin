@@ -38,6 +38,8 @@ build/
 .env
 .env.*
 !.env.example
+# 项目负责人要求根 .env 保存本地开发凭据；生产环境仍必须由部署密钥覆盖。
+!/.env
 .ecobin/
 secrets/
 *.kdbx

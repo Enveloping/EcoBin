@@ -19,6 +19,46 @@
   margin-bottom: 12rpx;
 }
 
+.clean-phone-notice {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.clean-phone-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.clean-phone-title {
+  color: #173d25;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.clean-phone-detail {
+  margin-top: 8rpx;
+  color: #78837a;
+  font-size: 21rpx;
+}
+
+.clean-phone-action {
+  width: auto;
+  margin: 0;
+  padding: 18rpx 22rpx;
+  color: #fff;
+  font-size: 23rpx;
+  font-weight: 700;
+  line-height: 1;
+  background: #10a625;
+  border-radius: 18rpx;
+}
+
+.clean-phone-action::after { border: 0; }
+.clean-phone-action[disabled] { background: #73c780; }
+
 .field {
   display: flex;
   align-items: center;

@@ -372,10 +372,12 @@ class TargetMiniappV02MysqlIntegrationTest {
         participant.failAfterDelegate();
         login("fake:rollback:" + run, null, 500);
         assertUserAndWalletCounts(0, 0);
+        assertEquals(0, organizationWalletEntryCounterCount());
         assertEquals(0, sessionCount());
 
         login("fake:rollback:" + run, null, 201);
         assertUserAndWalletCounts(1, 1);
+        assertOrganizationWalletEntryCounter(0L, 0L);
         assertEquals(1, sessionCount());
 
         String concurrentCode = "fake:concurrent:" + run;
@@ -403,7 +405,34 @@ class TargetMiniappV02MysqlIntegrationTest {
             executor.shutdownNow();
         }
         assertUserAndWalletCounts(2, 2);
+        assertOrganizationWalletEntryCounter(0L, 0L);
         assertEquals(3, sessionCount());
+    }
+
+    @Test
+    void newWalletInitializesOrganizationEntryCounterWithoutResettingIt()
+            throws Exception {
+        assertEquals(0, organizationWalletEntryCounterCount());
+
+        login("fake:counter-first:" + run, null, 201);
+        assertOrganizationWalletEntryCounter(0L, 0L);
+
+        assertEquals(1, jdbc.update("""
+                        UPDATE fund_organization_wallet_entry_counter
+                        SET last_visibility_sequence_no = 7,
+                            lock_version = 3,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                        """,
+                tenantId,
+                organizationId));
+
+        login("fake:counter-second:" + run, null, 201);
+        login("fake:counter-second:" + run, null, 201);
+
+        assertUserAndWalletCounts(2, 2);
+        assertOrganizationWalletEntryCounter(7L, 3L);
     }
 
     @Test
@@ -971,6 +1000,39 @@ class TargetMiniappV02MysqlIntegrationTest {
                         WHERE tenant_id = ?
                           AND organization_id = ?
                         """, Integer.class, tenantId, organizationId);
+    }
+
+    private int organizationWalletEntryCounterCount() {
+        return jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM fund_organization_wallet_entry_counter
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                        """,
+                Integer.class,
+                tenantId,
+                organizationId);
+    }
+
+    private void assertOrganizationWalletEntryCounter(
+            long expectedLastVisibilitySequenceNo,
+            long expectedLockVersion) {
+        Map<String, Object> counter = jdbc.queryForMap("""
+                        SELECT last_visibility_sequence_no, lock_version
+                        FROM fund_organization_wallet_entry_counter
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                        """,
+                tenantId,
+                organizationId);
+        assertEquals(
+                expectedLastVisibilitySequenceNo,
+                ((Number) counter.get("last_visibility_sequence_no"))
+                        .longValue());
+        assertEquals(
+                expectedLockVersion,
+                ((Number) counter.get("lock_version")).longValue());
+        assertEquals(1, organizationWalletEntryCounterCount());
     }
 
     private JsonNode json(MvcResult result) throws Exception {

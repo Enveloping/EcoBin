@@ -1,5 +1,6 @@
 import {
   deleteCurrentSession,
+  getCurrentSession,
   wxLogin,
   type RegistrationSource,
 } from '../api/auth'
@@ -109,7 +110,17 @@ export async function ensureLoggedIn(
   registrationSource?: RegistrationSource,
 ): Promise<LoginResponse> {
   const session = getSession()
-  if (session && !isSessionExpired(session)) return session
+  if (session && !isSessionExpired(session)) {
+    const current = await getCurrentSession(session.audience)
+    const validated: LoginResponse = {
+      ...session,
+      ...current,
+      organization: { ...current.organization },
+      capabilities: [...current.capabilities],
+    }
+    persistSession(validated)
+    return validated
+  }
   return registrationSource ? login(registrationSource) : refreshSession()
 }
 
