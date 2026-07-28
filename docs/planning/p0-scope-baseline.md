@@ -9,7 +9,7 @@
 > 上游需求：[`requirements-baseline.md`](requirements-baseline.md)
 > 业务模型：[`business-model-baseline.md`](business-model-baseline.md)
 > 系统架构：[`system-architecture-draft.md`](system-architecture-draft.md)
-> 当前阶段：详细设计和 29 项正式任务已发布；V-01 已完成，F-11 实施中，H-02 与 V-02 已 ready 但仍须单独授权
+> 当前阶段：详细设计和 29 项正式任务已发布；H-01、H-02、F-01～F-11、V-01 已完成，V-02 与 H-03 已 ready 但仍须单独授权
 > 目的：从完整目标需求中选出一周内必须闭环的最小安全范围，作为后续业务建模、系统设计和实现差距评估的边界。
 
 ## 1. 文档效力与范围原则

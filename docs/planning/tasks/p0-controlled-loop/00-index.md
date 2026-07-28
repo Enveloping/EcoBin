@@ -13,11 +13,11 @@ implementation_authorized: false
 # EcoBin P0 受控闭环实施任务索引
 
 > 这里发布的是已经批准的实施任务。项目负责人已单独授权并完成 H-01、F-01、F-02、
-> F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10；
-> F-11 已获软件实施授权并处于 `in-progress`；V-01 已完成；H-02 已通过本地 MySQL 8.4
+> F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、F-11；
+> V-01 已完成；H-02 已通过本地 MySQL 8.4
 > 开发演练及服务器整改阶段 0～3 验收，项目负责人接受当前试验期使用 ACL 受限
 > `.ecobin` 保管长期凭证原件，任务已转为 `done`；
-> V-02 为 `ready` 但仍须单独授权；其他任务仍须逐项获得授权。
+> V-02 和 H-03 为 `ready` 但仍须分别授权；其他任务仍须逐项获得授权。
 > `status: ready` 只表示任务设计和前置依赖允许领取，不构成后续任务的自动授权。
 
 ## Initiative 状态
@@ -27,8 +27,8 @@ implementation_authorized: false
 | Initiative | `p0-controlled-loop` |
 | 任务数 | 29（F-01～F-12、V-01～V-11、H-01～H-06） |
 | 设计状态 | 详细设计、任务粒度、依赖和执行分类已批准；2026-07-24 已同步投递 session/清运电子锁修订 |
-| 实施授权 | **部分授权：H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已授权并完成；F-11 固定帧适配实施中；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 已 ready 但未授权；H-03 真机验收及阶段 4 其他任务未授权** |
-| 当前状态数 | `done` 13、`ready` 1、`in-progress` 1、`blocked` 14 |
+| 实施授权 | **部分授权：H-01、H-02、F-01～F-11、V-01 已授权并完成；H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 与 H-03 已 ready 但未授权；阶段 4 其他任务未授权** |
+| 当前状态数 | `done` 14、`ready` 2、`in-progress` 0、`blocked` 13 |
 | 风险目标 | 2026-07-30 只用于风险排序，不构成 G1、G2 或 M0 承诺 |
 | 权威依赖来源 | [第 08 章](../../detailed-design/08-implementation-sequence.md) |
 
@@ -84,7 +84,7 @@ agent | human | mixed
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `done` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `done` | `agent` | F-02 |
 | F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `done` | `mixed` | 机器来源、通用三语言证据和适配责任边界已确认 |
-| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 固定帧与 COS 已合入；MQTT 重连、自动诊断和能力降级文档正在收口 |
+| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `done` | `agent` | 当前软件范围及残余风险已接受；后续验证发现范围内问题时重开 |
 | F-12 | [完整试点 seed 编排](f-12-pilot-seed-orchestration.md) | `blocked` | `mixed` | V-01、V-03、V-07、V-10 |
 
 ### 纵向业务任务
@@ -109,7 +109,7 @@ agent | human | mixed
 |---|---|---|---|---|
 | H-01 | [旧栈恢复单元和所有权清单](h-01-legacy-stack-recovery-baseline.md) | `done` | `human` | 无 |
 | H-02 | [目标数据库身份与环境供应](h-02-target-database-identities-environment.md) | `done` | `human` | F-06 |
-| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `blocked` | `human` | F-11；尚未授权真机验收 |
+| H-03 | [固定帧 MCU 线路与真机基础验收](h-03-fixed-frame-mcu-hil-acceptance.md) | `ready` | `human` | F-11 已完成；尚未授权真机验收 |
 | H-04 | [真实 Native 充值](h-04-real-native-recharge.md) | `blocked` | `human` | V-09、`EXT-WECHAT-NATIVE-READY` |
 | H-05 | [真实商家转账与微信零钱到账](h-05-real-merchant-transfer.md) | `blocked` | `human` | V-10、H-04、`EXT-WECHAT-TRANSFER-READY` |
 | H-06 | [成对切换、回退演练与 M0 签署](h-06-paired-cutover-m0-signoff.md) | `blocked` | `human` | H-01、H-02、H-03、H-04、H-05、F-07、F-12、V-05、V-06、V-07、V-08、V-09、V-10、V-11 |
@@ -305,4 +305,7 @@ M0_COMPLETE
   未知占位；不增加物理命令重发、MCU 作业重启恢复、SQLite/MCU 冲突锁或部署身份启动
   锁。补齐强杀恢复、MQTT 重连和 COS 上传自动测试，Python 3.11 硬件套件为
   `165 passed, 5 subtests passed`，契约套件为 `43 passed, 64 subtests passed`。
-  任务保持 `in-progress`，等待本轮代码和文档评审收口；H-03 真机验收边界不变。
+  项目负责人随后接受当前软件范围和已记录的延期/残余风险，将 F-11 转为 `done`；
+  真实香橙派拍照/COS、最新 OneNet 候选导入和真机问题后续按需重开。H-03 依赖解除
+  并转为 `ready`，但真机操作仍未授权。当前共 `done` 14、`ready` 2、
+  `in-progress` 0、`blocked` 13。

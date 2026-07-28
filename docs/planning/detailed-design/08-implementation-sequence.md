@@ -2,7 +2,7 @@
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**29 项任务已批准并发布；H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01 已完成，F-11 固定帧 MCU 适配及边缘闭环实施中，V-02 已 ready 但仍须单独授权**
+> 状态：**29 项任务已批准并发布；H-01、H-02、F-01～F-11、V-01 已完成，V-02 与 H-03 已 ready 但仍须单独授权**
 >
 > 草案日期：2026-07-24
 >
@@ -539,8 +539,8 @@ blocked_by:
 - 目标 V1～V10 的 83 张表已实施并通过 MySQL 8.4 双空库验证；F-07 已完成
   epoch/readiness guard、最小运行身份空业务库启动和 Fake 外联硬阻断并通过复审；
 - F-08 中心 Fake 可信收件与可靠任务 tracer 已实施、复审并完成，具体纵向处理器仍待后续任务；
-- F-10 OneNet/规范 UART 机器契约已完成；F-11 已完成香橙派配置命令软件纵切，固定帧
-  MCU 适配、其他 SQLite/COS/状态机可靠链仍在实施；
+- F-10 OneNet/规范 UART 机器契约和 F-11 香橙派固定帧、SQLite/COS/状态机可靠链
+  已按当前软件范围完成；后续验证发现范围内问题时重开 F-11；
 - 固定帧 MCU 线路和真实物理行为需要 H-03 现场验收；
 - 微信支付/商家转账不能联调。
 
@@ -628,8 +628,7 @@ M0_COMPLETE
 
 29 个独立任务和一个索引已经发布到
 [`docs/planning/tasks/p0-controlled-loop/`](../tasks/p0-controlled-loop/00-index.md)。
-当前 H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01
-为 `done`；F-11 为 `in-progress`；H-02 已通过本地演练及服务器整改阶段 0～3 验收，
+当前 H-01、H-02、F-01～F-11、V-01 为 `done`；H-02 已通过本地演练及服务器整改阶段 0～3 验收，
 当前试验期 `.ecobin` 凭证保管例外已由项目负责人接受；
-V-02 为 `ready` 但仍须单独授权；其余任务保持 `blocked`。当前共 `done` 13、
-`ready` 1、`in-progress` 1、`blocked` 14。
+V-02 与 H-03 为 `ready` 但仍须分别授权；其余任务保持 `blocked`。当前共 `done` 14、
+`ready` 2、`in-progress` 0、`blocked` 13。
