@@ -3,3 +3,5 @@
 *.sh text eol=lf
 *.service text eol=lf
 *.timer text eol=lf
+hardware/docs/onenet(物模型格式判断).js -text
+contracts/onenet/generated/onenet-thing-model.candidate.json text eol=lf

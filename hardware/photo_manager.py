@@ -28,12 +28,15 @@ PHOTO_QUEUE_CAPACITY = 32
 MAXIMUM_PHOTO_BYTES = 20 * 1024 * 1024
 DELIVERY_OPEN_SLOTS = ("BEFORE_OUTER", "BEFORE_INNER")
 DELIVERY_CLOSE_SLOTS = ("AFTER_OUTER", "AFTER_INNER")
-CLEAN_SLOTS = (
+CLEAN_OPEN_SLOTS = (
     "FIRST_OPEN_OUTER",
     "FIRST_OPEN_INNER",
+)
+CLEAN_CLOSE_SLOTS = (
     "FINAL_CLOSE_OUTER",
     "FINAL_CLOSE_INNER",
 )
+CLEAN_SLOTS = CLEAN_OPEN_SLOTS + CLEAN_CLOSE_SLOTS
 
 
 def _utc_now() -> str:
@@ -153,6 +156,20 @@ class PhotoManager:
             work_uid,
             "CLEAN_OPERATION",
             CLEAN_SLOTS,
+        )
+
+    def capture_clean_open_photos(self, work_uid):
+        return self._capture_slots(
+            work_uid,
+            "CLEAN_OPERATION",
+            CLEAN_OPEN_SLOTS,
+        )
+
+    def capture_clean_close_photos(self, work_uid):
+        return self._capture_slots(
+            work_uid,
+            "CLEAN_OPERATION",
+            CLEAN_CLOSE_SLOTS,
         )
 
     def capture_open_photos_async(self, work_uid):

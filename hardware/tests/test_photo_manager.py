@@ -67,6 +67,40 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
     store.close()
 
 
+def test_clean_capture_phases_use_first_open_then_final_close_slots(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    photos = PhotoManager(
+        store,
+        str(tmp_path / "photos"),
+        deployment_code="Dp_demo_01",
+        start_upload_worker=False,
+        simulate_camera=True,
+    )
+
+    photos.capture_clean_open_photos("operation-1")
+    first_rows = store.get_photos_by_work("operation-1")
+    assert {row["slot_name"] for row in first_rows} == {
+        "FIRST_OPEN_OUTER",
+        "FIRST_OPEN_INNER",
+    }
+
+    photos.capture_clean_close_photos("operation-1")
+    all_rows = store.get_photos_by_work("operation-1")
+    assert {row["slot_name"] for row in all_rows} == {
+        "FIRST_OPEN_OUTER",
+        "FIRST_OPEN_INNER",
+        "FINAL_CLOSE_OUTER",
+        "FINAL_CLOSE_INNER",
+    }
+    assert {row["state"] for row in all_rows} == {"PENDING"}
+
+    photos.close()
+    store.close()
+
+
 def test_missing_opencv_is_not_replaced_with_a_fake_photo(
     tmp_path,
     monkeypatch,

@@ -114,3 +114,7 @@ Java 黄金样本、真实 Python 3.11 生成物与测试、香橙派 GCC 12.2 �
   无漂移、15 项契约校验、31 项契约单测及固定帧适配层 67 项 Python 3.11 定向回归
   通过，F-10 的 software、
   integration、acceptance 全部转为 `done`。
+- 2026-07-28：按当前固定帧责任边界，默认生成/检查改为 66 个仓库和香橙派制品，
+  `hardware_mcu/` 输出仅在显式 `--include-hardware-mcu` 时生成。当前为 17 项契约
+  校验、`43 passed, 64 subtests passed`；UART 黄金样本更新为 11 个帧向量、10 条
+  流轨迹和 3 个摘要。上述更新不重新打开已完成的 F-10。

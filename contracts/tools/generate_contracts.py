@@ -4,6 +4,7 @@ Run from the repository root:
 
     python contracts/tools/generate_contracts.py
     python contracts/tools/generate_contracts.py --check
+    python contracts/tools/generate_contracts.py --include-hardware-mcu
 
 Only authoritative files under contracts/onenet and contracts/uart are edited by
 hand.  Everything under generated/ or examples/ is rebuilt here.
@@ -79,6 +80,11 @@ HARDWARE_MCU_UART_GOLDEN_TEST = (
 
 def json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def onenet_import_json_text(value: Any) -> str:
+    """Keep the human-imported OneNet artifact readable with safe size headroom."""
+    return json.dumps(value, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
 
 
 def macro_name(value: str) -> str:
@@ -4989,7 +4995,7 @@ def render_catalog(
     return "\n".join(lines)
 
 
-def build_outputs() -> dict[Path, str]:
+def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
     schema_validator = JsonSchemaSubsetValidator()
     registry = load_uart_registry()
     validate_uart_registry(registry, schema_validator)
@@ -5055,8 +5061,6 @@ def build_outputs() -> dict[Path, str]:
         ),
         GENERATED_UART_ROOT / "c" / "ecobin_uart_protocol.h": generated_c_header,
         GENERATED_UART_ROOT / "c" / "ecobin_uart_golden_test.c": generated_c_golden_test,
-        HARDWARE_MCU_UART_HEADER: generated_c_header,
-        HARDWARE_MCU_UART_GOLDEN_TEST: generated_c_golden_test,
         GENERATED_UART_ROOT / "java" / "EcobinUartProtocol.java": render_java_protocol(
             registry, specs, registry_digest
         ),
@@ -5102,12 +5106,17 @@ def build_outputs() -> dict[Path, str]:
             render_java_canonical_golden_test(
                 canonicalization_vectors,
                 identity_digest_vectors,
-            ),
+        ),
         GENERATED_ONENET_ROOT / "onenet-thing-model.candidate.json":
-            json_text(_strip_onenet_array_specs(copy.deepcopy(thing_model))),
+            onenet_import_json_text(
+                _strip_onenet_array_specs(copy.deepcopy(thing_model))
+            ),
         GENERATED_ONENET_ROOT / "onenet-wire-mapping.json":
             json_text(onenet_wire_mapping),
     }
+    if include_hardware_mcu:
+        outputs[HARDWARE_MCU_UART_HEADER] = generated_c_header
+        outputs[HARDWARE_MCU_UART_GOLDEN_TEST] = generated_c_golden_test
 
     manifest_entries = []
     for filename, (instance, schema_ref) in examples.items():
@@ -5203,8 +5212,16 @@ def main() -> int:
         action="store_true",
         help="fail when committed generated artifacts differ from sources",
     )
+    parser.add_argument(
+        "--include-hardware-mcu",
+        action="store_true",
+        help=(
+            "also write/check the optional uart-v1 C artifacts under hardware_mcu; "
+            "the fixed-frame Edge adapter does not require this"
+        ),
+    )
     args = parser.parse_args()
-    outputs = build_outputs()
+    outputs = build_outputs(include_hardware_mcu=args.include_hardware_mcu)
     drift = apply_outputs(outputs, args.check)
     if args.check and drift:
         print("Generated contract drift:")

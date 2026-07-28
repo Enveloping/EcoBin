@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,11 @@ WORK_PHOTO_SLOTS = {
         "FINAL_CLOSE_OUTER",
     ),
 }
+
+ONENET_IMPORT_FILE_BYTE_LIMIT = 256 * 1024
+ONENET_ENUM_DESCRIPTION_PATTERN = re.compile(
+    r"[A-Za-z0-9_\-\u4e00-\u9fa5]{1,20}"
+)
 
 WORK_PATH_SEGMENT = {
     "DELIVERY_SESSION": "delivery-session",
@@ -286,12 +292,21 @@ def validate_sources(summary: ValidationSummary) -> None:
 
 def validate_onenet_thing_model(summary: ValidationSummary) -> None:
     mapping = load_json(CONTRACTS_ROOT / "onenet" / "thing-model.mapping.yaml")
-    model = load_json(
+    candidate_path = (
         CONTRACTS_ROOT
         / "onenet"
         / "generated"
         / "onenet-thing-model.candidate.json"
     )
+    candidate_bytes = candidate_path.read_bytes()
+    if len(candidate_bytes) >= ONENET_IMPORT_FILE_BYTE_LIMIT:
+        raise ContractError(
+            "OneNet candidate must be smaller than 256 KiB: "
+            f"{len(candidate_bytes)} >= {ONENET_IMPORT_FILE_BYTE_LIMIT} bytes"
+        )
+    if b"\r" in candidate_bytes:
+        raise ContractError("OneNet candidate must use LF line endings")
+    model = load_json(candidate_path)
     wire_mapping = load_json(
         CONTRACTS_ROOT
         / "onenet"
@@ -336,6 +351,20 @@ def validate_onenet_thing_model(summary: ValidationSummary) -> None:
         if type_name in {"float", "double"}:
             raise ContractError(f"{context}.{identifier}: floating point is forbidden")
         if type_name in allowed_primitive_types:
+            if type_name == "enum":
+                for enum_value, description in data_type["specs"].items():
+                    if (
+                        not isinstance(description, str)
+                        or ONENET_ENUM_DESCRIPTION_PATTERN.fullmatch(
+                            description
+                        )
+                        is None
+                    ):
+                        raise ContractError(
+                            f"{context}.{identifier}: enum {enum_value} "
+                            "description must be 1..20 Chinese/English/"
+                            "digit/underscore/hyphen characters"
+                        )
             if type_name == "string":
                 length_value = data_type["specs"].get("length")
                 if not isinstance(length_value, int) or not 1 <= length_value <= 512:
@@ -431,7 +460,8 @@ def validate_onenet_thing_model(summary: ValidationSummary) -> None:
                 context=f"event.{event['identifier']}",
             )
     summary.passed(
-        f"OneNet import candidate has {len(functions)} typed function points, "
+        f"OneNet import candidate is {len(candidate_bytes)} bytes with "
+        f"{len(functions)} typed function points, valid enum descriptions, "
         "sync receipts and no unsupported nested struct/float"
     )
 
@@ -1220,7 +1250,10 @@ def validate_generated_c(summary: ValidationSummary, run_compiler: bool) -> None
         return
     compiler = shutil.which("gcc") or shutil.which("clang")
     if compiler is None:
-        summary.note("No local C compiler; MCU toolchain compile remains the F-10 HITL gate")
+        summary.note(
+            "No local C compiler; target MCU compilation is optional evidence only "
+            "when explicitly selecting the uart-v1 implementation"
+        )
         return
     with tempfile.TemporaryDirectory(
         prefix=".ecobin-f10-c-",

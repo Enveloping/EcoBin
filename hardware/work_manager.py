@@ -154,35 +154,37 @@ class WorkManager:
         self._mqtt = mqtt_client
         self._photo = photo_manager
 
-    def _queue_photo_capture(self, method_name: str, work_uid: str) -> None:
+    def _capture_photos(self, method_name: str, work_uid: str) -> bool:
         if self._photo is None:
             logger.warning(
-                "photo manager unavailable; continuing work=%s",
+                "photo manager unavailable: work=%s",
                 work_uid,
             )
-            return
+            return False
         method = getattr(self._photo, method_name, None)
         if method is None:
             logger.warning(
-                "asynchronous photo method unavailable: %s; continuing work=%s",
+                "photo capture method unavailable: %s work=%s",
                 method_name,
                 work_uid,
             )
-            return
+            return False
         try:
-            queued = method(work_uid)
+            captured = method(work_uid)
         except Exception as error:
             logger.warning(
-                "photo capture enqueue failed: work=%s error=%s",
+                "photo capture persistence failed: work=%s error=%s",
                 work_uid,
                 error,
             )
-            return
-        if queued is False:
+            return False
+        if captured is False:
             logger.warning(
-                "photo capture request dropped; continuing work=%s",
+                "photo capture was not persisted: work=%s",
                 work_uid,
             )
+            return False
+        return True
 
     def _offer_initial_photo_grant(
         self,
@@ -273,10 +275,23 @@ class WorkManager:
             False,
         )
         if compatibility_mode:
-            self._queue_photo_capture(
-                "capture_open_photos_async",
+            if not self._capture_photos(
+                "capture_open_photos",
                 session_uid,
-            )
+            ):
+                self._store.release_work_slot(session_uid)
+                return {
+                    "acked": False,
+                    "error": "PHOTO_CAPTURE_NOT_PERSISTED",
+                }
+            try:
+                start_window_ms = _remaining_execution_ms(command)
+            except ValueError:
+                self._store.release_work_slot(session_uid)
+                return {
+                    "acked": False,
+                    "error": "COMMAND_EXPIRED",
+                }
         result = self._uart.send_command(
             "START_DELIVERY_SESSION",
             {
@@ -364,6 +379,31 @@ class WorkManager:
             "CLEAN_OPERATION",
             operation_uid,
         )
+        compatibility_mode = getattr(
+            self._uart,
+            "compatibility_mode",
+            False,
+        )
+        if compatibility_mode:
+            if not self._capture_photos(
+                "capture_clean_open_photos",
+                operation_uid,
+            ):
+                self._store.release_work_slot(operation_uid)
+                return {
+                    "acked": False,
+                    "error": "PHOTO_CAPTURE_NOT_PERSISTED",
+                }
+            try:
+                start_window_ms = _remaining_execution_ms(command)
+            except ValueError:
+                self._store.release_work_slot(operation_uid)
+                return {
+                    "acked": False,
+                    "error": "COMMAND_EXPIRED",
+                }
+        else:
+            start_window_ms = _remaining_execution_ms(command)
         result = self._uart.send_command(
             "START_CLEAN_OPERATION",
             {
@@ -371,15 +411,10 @@ class WorkManager:
                 "portNo": payload["portNo"],
                 "configVersion": config["version"],
                 "configContentSha256": config["contentSha256"],
-                "startExecutionWindowMs": _remaining_execution_ms(command),
+                "startExecutionWindowMs": start_window_ms,
                 "operationWindowMs": payload["operationWindowMs"],
             },
             mcu_command_uid=mcu_command_uid,
-        )
-        compatibility_mode = getattr(
-            self._uart,
-            "compatibility_mode",
-            False,
         )
         if compatibility_mode:
             ctx["phase"] = (
@@ -891,8 +926,8 @@ class WorkManager:
             WORK_TYPE_DELIVERY,
             post_weight,
         )
-        self._queue_photo_capture(
-            "capture_close_photos_async",
+        self._capture_photos(
+            "capture_close_photos",
             work_uid,
         )
         event_payload = {
@@ -996,8 +1031,8 @@ class WorkManager:
             WORK_TYPE_CLEAN,
             post_weight,
         )
-        self._queue_photo_capture(
-            "capture_clean_photos_async",
+        self._capture_photos(
+            "capture_clean_close_photos",
             work_uid,
         )
         event_payload = {
@@ -1287,10 +1322,13 @@ class WorkManager:
             ctx["phase"] = "PREOPEN_WEIGHT_BLOCKED"
             self._store.update_work_context(work_uid, ctx)
             return
-        self._queue_photo_capture(
-            "capture_open_photos_async",
+        if not self._capture_photos(
+            "capture_open_photos",
             work_uid,
-        )
+        ):
+            ctx["phase"] = "PREOPEN_PHOTO_BLOCKED"
+            self._store.update_work_context(work_uid, ctx)
+            return
         authorize_uid = ctx.get("authorize_mcu_command_uid") or _new_uid()
         ctx["authorize_mcu_command_uid"] = authorize_uid
         ctx["phase"] = "AUTHORIZING_FIRST_OPEN"
@@ -1363,8 +1401,8 @@ class WorkManager:
         if selection in ("END", "WINDOW_EXPIRED"):
             ctx["phase"] = "FINALIZING"
             self._store.update_work_context(work_uid, ctx)
-            self._queue_photo_capture(
-                "capture_close_photos_async",
+            self._capture_photos(
+                "capture_close_photos",
                 work_uid,
             )
             first_wt = ctx.get("first_weight_grams")
@@ -1481,6 +1519,13 @@ class WorkManager:
         applied = self._store.get_latest_applied_configuration()
         if not applied:
             raise ValueError("no applied configuration for clean unlock")
+        if not self._capture_photos(
+            "capture_clean_open_photos",
+            work_uid,
+        ):
+            ctx["phase"] = "PREUNLOCK_PHOTO_BLOCKED"
+            self._store.update_work_context(work_uid, ctx)
+            return
         unlock_uid = ctx.get("unlock_mcu_command_uid") or _new_uid()
         ctx["unlock_mcu_command_uid"] = unlock_uid
         ctx["phase"] = "UNLOCKING"
@@ -1644,8 +1689,8 @@ class WorkManager:
         )
         ctx["cleaner_physical_close_confirmed"] = True
         self._store.update_work_context(work_uid, ctx)
-        self._queue_photo_capture(
-            "capture_clean_photos_async",
+        self._capture_photos(
+            "capture_clean_close_photos",
             work_uid,
         )
         final_usable = _delivery_usable_weight(

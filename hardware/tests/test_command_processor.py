@@ -16,9 +16,10 @@ from work_manager import WorkManager
 
 
 class FakeUart:
-    def __init__(self):
+    def __init__(self, trace=None):
         self.calls = []
         self.command_result = None
+        self.trace = trace
 
     def apply_configuration(self, command, part_command_uids):
         self.calls.append((command, list(part_command_uids)))
@@ -36,6 +37,8 @@ class FakeUart:
         }
 
     def send_command(self, message_name, values, *, mcu_command_uid=None):
+        if self.trace is not None:
+            self.trace.append(("uart", message_name))
         self.calls.append((message_name, dict(values), mcu_command_uid))
         if self.command_result is not None:
             return {
@@ -61,19 +64,50 @@ class FakeCompatUart(FakeUart):
 
 
 class FakePhotoManager:
-    def __init__(self, queue_result=True):
+    def __init__(
+        self,
+        queue_result=True,
+        trace=None,
+        capture_result=True,
+    ):
         self.captured = []
         self.queue_result = queue_result
+        self.trace = trace
+        self.capture_result = capture_result
+
+    def _capture(self, label, work_uid):
+        if self.trace is not None:
+            self.trace.append(("photo", label))
+        self.captured.append((label, work_uid))
+        return self.capture_result
+
+    def capture_open_photos(self, work_uid):
+        return self._capture("open", work_uid)
+
+    def capture_close_photos(self, work_uid):
+        return self._capture("close", work_uid)
+
+    def capture_clean_open_photos(self, work_uid):
+        return self._capture("clean_open", work_uid)
+
+    def capture_clean_close_photos(self, work_uid):
+        return self._capture("clean_close", work_uid)
 
     def capture_open_photos_async(self, work_uid):
+        if self.trace is not None:
+            self.trace.append(("photo", "open_async"))
         self.captured.append(("open", work_uid))
         return self.queue_result
 
     def capture_close_photos_async(self, work_uid):
+        if self.trace is not None:
+            self.trace.append(("photo", "close_async"))
         self.captured.append(("close", work_uid))
         return self.queue_result
 
     def capture_clean_photos_async(self, work_uid):
+        if self.trace is not None:
+            self.trace.append(("photo", "clean_all_async"))
         self.captured.append(("clean", work_uid))
         return self.queue_result
 
@@ -295,14 +329,15 @@ def test_start_delivery_ack_timeout_requires_reconciliation(tmp_path):
     store.close()
 
 
-def test_unstable_preopen_and_dropped_photos_still_authorize_first_open(
+def test_unstable_preopen_and_persisted_photos_authorize_first_open(
     tmp_path,
 ):
     store = make_store(tmp_path)
     store.set_state("applied_config_version", "8")
     store.set_state("applied_config_content_sha256", "a" * 64)
-    uart = FakeUart()
-    photos = FakePhotoManager(queue_result=False)
+    trace = []
+    uart = FakeUart(trace=trace)
+    photos = FakePhotoManager(trace=trace)
     work = WorkManager(store, uart, None, photos)
     processor = CommandProcessor(store, uart, work)
     command = valid_service_command("start-delivery-session.service-wire.json")
@@ -345,6 +380,67 @@ def test_unstable_preopen_and_dropped_photos_still_authorize_first_open(
     assert values["firstPreOpenMeasurementUid"] == measurement_uid
     assert values["parentStartCommandUid"] == start_mcu_command_uid
     assert values["remainingStartAuthorizationMs"] > 0
+    assert trace[-2:] == [
+        ("photo", "open"),
+        ("uart", "AUTHORIZE_DELIVERY_FIRST_OPEN"),
+    ]
+    store.close()
+
+
+def test_unpersisted_preopen_photo_fact_blocks_first_open(tmp_path):
+    store = make_store(tmp_path)
+    store.set_state("applied_config_version", "8")
+    store.set_state("applied_config_content_sha256", "a" * 64)
+    uart = FakeUart()
+    photos = FakePhotoManager(capture_result=False)
+    work = WorkManager(store, uart, None, photos)
+    processor = CommandProcessor(store, uart, work)
+    command = valid_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    processor.process_next()
+    start_mcu_command_uid = store.get_command(
+        command["commandUid"]
+    )["mcu_command_uid"]
+
+    processor.process_mcu_event({
+        "message_name": "WORK_PREOPEN_WEIGHT_READY",
+        "message_type": 48,
+        "source_tx_sequence": 9,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 1,
+            "uptimeMs": 1000,
+            "mcuCommandUid": start_mcu_command_uid,
+            "sessionUid": command["payload"]["sessionUid"],
+            "portNo": command["payload"]["portNo"],
+            "roundIndex": 0,
+            "measurementUid": (
+                "52000000-0000-4000-8000-000000000002"
+            ),
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": 1234,
+            "weightValueKind": "STABLE_WINDOW_MEAN",
+            "measurementElapsedMs": 1000,
+            "sampleCount": 10,
+            "calibrationVersion": 1,
+            "weightSensorHealth": "OK",
+            "faultCode": "NONE",
+        },
+    })
+
+    assert [call[0] for call in uart.calls] == [
+        "START_DELIVERY_SESSION"
+    ]
+    assert store.get_work_slot()["context"]["phase"] == (
+        "PREOPEN_PHOTO_BLOCKED"
+    )
     store.close()
 
 
@@ -430,8 +526,10 @@ def test_delivery_complete_reports_latched_command_without_pulse_duration(
 def test_clean_preunlock_failure_is_reported_but_does_not_block_unlock(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)
-    uart = FakeUart()
-    work = WorkManager(store, uart, None, FakePhotoManager())
+    trace = []
+    uart = FakeUart(trace=trace)
+    photos = FakePhotoManager(trace=trace)
+    work = WorkManager(store, uart, None, photos)
     processor = CommandProcessor(store, uart, work)
     command = valid_service_command("start-clean-operation.service-wire.json")
     store.receive_command(command["commandUid"], command["commandType"], command)
@@ -473,6 +571,10 @@ def test_clean_preunlock_failure_is_reported_but_does_not_block_unlock(tmp_path)
     assert values["unlockPulseMs"] == 1000
     assert values["remainingOperationWindowMs"] > 0
     assert values["parentCommandUid"] == start_mcu_command_uid
+    assert trace[-2:] == [
+        ("photo", "clean_open"),
+        ("uart", "UNLOCK_CLEAN_DOOR"),
+    ]
     store.close()
 
 
@@ -590,6 +692,10 @@ def test_clean_final_weight_failure_still_allows_manual_completion(tmp_path):
         ]
         == "CLEANER_CONFIRMATION"
     )
+    assert photos.captured == [
+        ("clean_open", operation_uid),
+        ("clean_close", operation_uid),
+    ]
     store.close()
 
 
@@ -834,8 +940,9 @@ def test_compat_configuration_is_applied_only_to_edge(tmp_path):
 def test_compat_dd_completes_delivery_and_caches_raw_fullness(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)
-    uart = FakeCompatUart()
-    photos = FakePhotoManager()
+    trace = []
+    uart = FakeCompatUart(trace=trace)
+    photos = FakePhotoManager(trace=trace)
     work = WorkManager(store, uart, None, photos)
     processor = CommandProcessor(store, uart, work)
     command = valid_compat_service_command(
@@ -853,6 +960,10 @@ def test_compat_dd_completes_delivery_and_caches_raw_fullness(tmp_path):
     )
     assert photos.captured == [
         ("open", command["payload"]["sessionUid"])
+    ]
+    assert trace == [
+        ("photo", "open"),
+        ("uart", "START_DELIVERY_SESSION"),
     ]
 
     processor.process_mcu_event({
@@ -894,14 +1005,44 @@ def test_compat_dd_completes_delivery_and_caches_raw_fullness(tmp_path):
         "close",
         command["payload"]["sessionUid"],
     )
+    assert trace[-1] == ("photo", "close")
+    store.close()
+
+
+def test_compat_start_does_not_dispatch_without_persisted_open_photos(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    photos = FakePhotoManager(capture_result=False)
+    work = WorkManager(store, uart, None, photos)
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "PHOTO_CAPTURE_NOT_PERSISTED"
+    assert store.get_work_slot() is None
+    assert uart.calls == []
     store.close()
 
 
 def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)
-    uart = FakeCompatUart()
-    photos = FakePhotoManager()
+    trace = []
+    uart = FakeCompatUart(trace=trace)
+    photos = FakePhotoManager(trace=trace)
     work = WorkManager(store, uart, None, photos)
     processor = CommandProcessor(store, uart, work)
     command = valid_compat_service_command(
@@ -914,6 +1055,10 @@ def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     )
 
     processor.process_next()
+    assert trace == [
+        ("photo", "clean_open"),
+        ("uart", "START_CLEAN_OPERATION"),
+    ]
     processor.process_mcu_event({
         "message_name": "COMPAT_CLEAN_RESULT",
         "message_type": 241,
@@ -949,8 +1094,10 @@ def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     )
     assert confirmation["cleanerPhysicalCloseConfirmed"] is True
     assert photos.captured == [
-        ("clean", command["payload"]["operationUid"])
+        ("clean_open", command["payload"]["operationUid"]),
+        ("clean_close", command["payload"]["operationUid"]),
     ]
+    assert trace[-1] == ("photo", "clean_close")
     store.close()
 
 

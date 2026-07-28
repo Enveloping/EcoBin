@@ -85,6 +85,9 @@ class MqttClient:
         self._trusted_cos_environment = trusted_cos_environment
         self._connected = False
         self._connect_event = threading.Event()
+        self._connection_lock = threading.RLock()
+        self._network_loop_started = False
+        self._reconnect_required = False
         self._mid_to_event_uid: dict[int, str] = {}
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
@@ -95,6 +98,7 @@ class MqttClient:
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
         self.client.on_publish = self._on_publish
+        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.on_command_received: Optional[Callable] = None
         self.on_confirmation_received: Optional[Callable] = None
         self._relay_thread: Optional[threading.Thread] = None
@@ -105,33 +109,48 @@ class MqttClient:
         return self._connected
 
     def connect(self) -> bool:
+        if self._exit_flag.is_set():
+            return False
         if self._connected:
+            self._start_relay_loop()
             return True
-        self.client.loop_stop()
         self._connect_event.clear()
-        token = _build_onenet_token(self.product_id, self.device_name, self.device_key)
-        self.client.username_pw_set(self.product_id, token)
-        self.client.connect_async(self.mqtt_host, self.mqtt_port, keepalive=60)
-        self.client.loop_start()
+        with self._connection_lock:
+            if self._connected:
+                self._start_relay_loop()
+                return True
+            self._configure_credentials()
+            try:
+                if not self._network_loop_started:
+                    self.client.connect_async(
+                        self.mqtt_host,
+                        self.mqtt_port,
+                        keepalive=60,
+                    )
+                    self._network_loop_started = True
+                    self.client.loop_start()
+                elif self._reconnect_required:
+                    self._reconnect_required = False
+                    self.client.reconnect()
+            except Exception as error:
+                self._reconnect_required = self._network_loop_started
+                logger.error("MQTT connection attempt failed: %s", error)
+                return False
         if not self._connect_event.wait(8):
             logger.error("MQTT connect timed out after 8s")
-            self.client.loop_stop()
             return False
-        self._start_relay_loop()
+        if self._connected:
+            self._start_relay_loop()
         return self._connected
 
-    def _real_connect(self) -> None:
+    def _configure_credentials(self) -> None:
         token = _build_onenet_token(self.product_id, self.device_name, self.device_key)
         self.client.username_pw_set(self.product_id, token)
-        try:
-            self.client.connect(self.mqtt_host, self.mqtt_port, keepalive=60)
-            self.client.loop_start()
-        except Exception as e:
-            logger.error("MQTT 连接失败: %s", e)
-            self._connect_event.set()
 
     def disconnect(self) -> None:
         self._exit_flag.set()
+        with self._connection_lock:
+            self._reconnect_required = False
         if self._connected:
             self.client.publish(
                 _topic_prop_post(self.product_id, self.device_name),
@@ -150,7 +169,7 @@ class MqttClient:
                         retry_seconds = 1
                     else:
                         logger.warning(
-                            "MQTT will retry initial connection in %ds",
+                            "MQTT will retry connection in %ds",
                             retry_seconds,
                         )
                         self._exit_flag.wait(retry_seconds)
@@ -166,13 +185,16 @@ class MqttClient:
             pass
         finally:
             self._exit_flag.set()
-            self.client.loop_stop()
+            if getattr(self, "_network_loop_started", True):
+                self.client.loop_stop()
             self.client.disconnect()
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         rc_int = self._reason_code_int(reason_code)
         if rc_int == 0:
             self._connected = True
+            with self._connection_lock:
+                self._reconnect_required = False
             session_present = self._session_present(flags)
             logger.info("MQTT 已连接: session_present=%s", session_present)
             self._store.save_mqtt_persistent_state(bool(session_present), 0)
@@ -180,9 +202,12 @@ class MqttClient:
             self._publish_online()
             if not session_present:
                 self._relay_pending_events()
+            self._start_relay_loop()
         else:
             logger.error("MQTT 连接失败: reason_code=%s", reason_code)
             self._connected = False
+            with self._connection_lock:
+                self._reconnect_required = not self._exit_flag.is_set()
             try:
                 self._store.save_mqtt_persistent_state(False, rc_int)
             except Exception:
@@ -191,6 +216,8 @@ class MqttClient:
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
         self._connected = False
+        with self._connection_lock:
+            self._reconnect_required = not self._exit_flag.is_set()
         rc_int = self._reason_code_int(reason_code)
         try:
             self._store.save_mqtt_persistent_state(False, rc_int)

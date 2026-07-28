@@ -25,7 +25,12 @@ from contractlib import (  # noqa: E402
     uart_message_specs,
     validate_uart_registry,
 )
-from generate_contracts import apply_outputs, build_outputs  # noqa: E402
+from generate_contracts import (  # noqa: E402
+    HARDWARE_MCU_UART_GOLDEN_TEST,
+    HARDWARE_MCU_UART_HEADER,
+    apply_outputs,
+    build_outputs,
+)
 from validate_contracts import (  # noqa: E402
     ValidationSummary,
     _validate_command_semantics,
@@ -42,6 +47,59 @@ from validate_contracts import (  # noqa: E402
 class GeneratedArtifactTests(unittest.TestCase):
     def test_generated_outputs_are_current(self) -> None:
         self.assertEqual([], apply_outputs(build_outputs(), check=True))
+
+    def test_onenet_import_candidate_stays_below_vendor_file_limit(self) -> None:
+        candidate = (
+            CONTRACTS_ROOT
+            / "onenet"
+            / "generated"
+            / "onenet-thing-model.candidate.json"
+        ).read_bytes()
+        self.assertLess(len(candidate), 256 * 1024)
+        self.assertNotIn(b"\r\n", candidate)
+
+    def test_onenet_import_candidate_enum_descriptions_match_vendor_limits(
+        self,
+    ) -> None:
+        candidate = load_json(
+            CONTRACTS_ROOT
+            / "onenet"
+            / "generated"
+            / "onenet-thing-model.candidate.json"
+        )
+        descriptions: list[str] = []
+
+        def collect(value: object) -> None:
+            if isinstance(value, dict):
+                data_type = value.get("dataType")
+                if (
+                    isinstance(data_type, dict)
+                    and data_type.get("type") == "enum"
+                ):
+                    descriptions.extend(data_type["specs"].values())
+                for child in value.values():
+                    collect(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child)
+
+        collect(candidate)
+        self.assertTrue(descriptions)
+        for description in descriptions:
+            with self.subTest(description=description):
+                self.assertRegex(
+                    description,
+                    r"\A[A-Za-z0-9_\-\u4e00-\u9fa5]{1,20}\Z",
+                )
+
+    def test_hardware_mcu_outputs_are_explicitly_opt_in(self) -> None:
+        default_outputs = build_outputs()
+        self.assertNotIn(HARDWARE_MCU_UART_HEADER, default_outputs)
+        self.assertNotIn(HARDWARE_MCU_UART_GOLDEN_TEST, default_outputs)
+
+        mcu_outputs = build_outputs(include_hardware_mcu=True)
+        self.assertIn(HARDWARE_MCU_UART_HEADER, mcu_outputs)
+        self.assertIn(HARDWARE_MCU_UART_GOLDEN_TEST, mcu_outputs)
 
     def test_generated_python_parses_as_python_311(self) -> None:
         source = (

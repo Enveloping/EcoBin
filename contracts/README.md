@@ -73,12 +73,26 @@ python contracts/tools/generate_contracts.py --check
 生成器还会更新香橙派运行时使用的 `hardware/onenet_projection_model.json`，避免
 运行时代码手写另一套枚举、nullable presence flag 或 OneNet 字段截断规则。
 
+默认生成和漂移检查只覆盖仓库内权威制品及香橙派运行时制品，不创建
+`hardware_mcu/`。只有以后明确重启 `uart-v1` MCU 原生实现时，才使用：
+
+```powershell
+python contracts/tools/generate_contracts.py --include-hardware-mcu
+python contracts/tools/generate_contracts.py --check --include-hardware-mcu
+```
+
+这两个命令会额外写入/检查 `hardware_mcu/USER/uar/` 下的 C 头文件和黄金测试；它们
+不是当前固定帧 MCU 适配的输入，也不是 F-11 的完成门。
+
 工具只使用 Python 3.11 标准库。Java 黄金样本由校验器在存在 Java 21 工具链时编译执行；
 C 头文件和黄金样本程序已在通用 C11 工具链验证。目标 MCU 工具链执行仅在选择
 `uart-v1` 原生实现时作为 H-03/部署符合性证据，不再是 F-10 完成门。
 
 完整的本地、OneNet 控制台、Java、C 与真机人工验证顺序见
 [`MANUAL-VALIDATION.md`](MANUAL-VALIDATION.md)。
+OneNet 控制台当前前端校验实现的原始快照、来源边界和候选文件兼容修复见
+[`onenet-thing-model-frontend-validator.md`](../hardware/docs/onenet-thing-model-frontend-validator.md)；
+它用于补强平台兼容检查，不替代本目录的权威机器契约。
 
 为加快交付而不阻塞权威契约冻结，本轮未扩展的三端完整 payload 执行器、跨消息状态轨迹、
 穷举负例和超长粘包工具修复记录在

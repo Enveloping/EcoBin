@@ -15,7 +15,7 @@
 ## 1. 当前阶段
 
 - 截至 2026-07-26，需求、P0 范围、业务模型、系统架构、目标数据库、目标接口和详细设计均已完成确认；投递已修订为一次 session 一单和设备本地继续，清运已按电磁阀解锁/人工关门的真实硬件边界修订。
-- 接口设计编号为 I-001～I-055。DD-004 与 PDD-001 已分别写回 I-051～I-053；29 项正式任务已经发布到 [`docs/planning/tasks/p0-controlled-loop/`](docs/planning/tasks/p0-controlled-loop/00-index.md)。项目负责人已授权并完成 H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01；F-08 的 Fake 可靠任务 tracer、MySQL 8.4 验收和两项 P1 复审均已收口，V-01 的六项 P1 复审修复、真实 MySQL 八项专项和全仓回归也已收口。F-11 已获授权并完成 `APPLY_CONFIGURATION` 软件纵切，仍处于 `in-progress`；H-02 的本地 MySQL 8.4.10 开发演练及服务器整改阶段 0～3 已全部验收，项目负责人接受前期受控试验把操作机 ACL 受限的 `.ecobin` 作为当前长期凭证原件位置，加密密码库和异机密码库密文副本延期到下一版本加固，因此 H-02 已转为 `done`；V-02 为 `ready` 但尚未获得实施授权。F-10 的 OneNet Schema、UART Registry、生成物、通用 Java/Python 3.11/C11 黄金样本和适配责任边界均已完成；现有单片机无需原生实现 UART 1.0，由 F-11 在香橙派侧建立显式固定帧适配层。当前合计 `done` 13、`ready` 1、`in-progress` 1、`blocked` 14。
+- 接口设计编号为 I-001～I-055。DD-004 与 PDD-001 已分别写回 I-051～I-053；29 项正式任务已经发布到 [`docs/planning/tasks/p0-controlled-loop/`](docs/planning/tasks/p0-controlled-loop/00-index.md)。项目负责人已授权并完成 H-01、H-02、F-01、F-02、F-03、F-04、F-05、F-06、F-07、F-08、F-09、F-10、V-01；V-02 为 `ready` 但尚未获得实施授权。F-11 已获授权，SQLite v4、OneNet 命令受理、固定帧 MCU 适配、照片/COS 和故障自动测试已经形成，仍处于 `in-progress` 等待本轮代码与文档收口。现有单片机无需原生实现 UART 1.0；不支持的 MCU 功能按本地保存、明确失败或未知占位降级，真机验收归 H-03。当前合计 `done` 13、`ready` 1、`in-progress` 1、`blocked` 14。
 - 当前仓库已由 F-03 收口为最终九模块 reactor：OneNet/COS/微信外部实现位于 integration，旧 system 已迁入 identity，旧 business 的旧行为已分别迁入 funds、recycling、operations，并通过 device 公开端口协作。目标数据库 V1～V10 共 83 张表的独立迁移已经过 MySQL 8.4 双空库验证，但尚未接管旧应用运行库。设计文档“已冻结”和完整目标 DDL 已具备，不表示纵向业务、真实环境供应或设备协议已经整体完成。
 - 近期交付重点仍是公司自用的受控 P0：用户投递、审核返现、清运换袋、机构充值和真实微信零钱提现闭环。真实资金、物理门控、租户/机构隔离和失败恢复不能因时间紧张而省略。
 - P0 是近期承诺范围，M0 是 P0 通过受控真实验收后的里程碑，M1 才是公司自用正式上线准备；三者不能混用。
@@ -126,8 +126,11 @@
 - UART 1.0 使用 `0xEC42`、最大 256 字节、big-endian、CRC-16/CCITT-FALSE、HELLO、ACK/NACK、幂等命令和 MCU 启动代际事件，作为规范模型和可选 `uart-v1` 实现。当前现有 MCU 使用已确定的固定帧协议时，必须由香橙派显式 `fixed-frame` 适配且只运行一种解析器；旧 D1、自动探测、双解析和失败回退仍禁止。
 - 香橙派目标 Python 3.11；不要使用开发机 Python 3.14 专属语法。`uart-v1` 重启后先
   `HELLO/QUERY_STATE` 并恢复真实状态；`fixed-frame` 没有协议级状态查询，重启后只能
-  使用 SQLite 证据、把物理状态标为未知并令未决工作失败或转人工恢复。两种模式都绝不
-  自动重放旧开门。
+  把物理状态标为未知、令本地未决工作失败并释放槽位。当前固定帧模式不增加 MCU
+  作业对账或恢复锁，也绝不自动重放旧开门。
+- 固定帧适配保留完整云端字段，但不等于 MCU 功能完整：配置仅保存到香橙派，缺失的
+  远程控制返回 `MCU_FEATURE_NOT_SUPPORTED`，状态返回 `UNKNOWN/NOT_SAMPLED`；
+  DD/EF 满溢位只作为红外观测，业务满溢仍按香橙派保存的判断标准形成。
 
 ## 6. 详细设计与实施入口
 
@@ -148,14 +151,15 @@
 
 当前真实条件：
 
-- OneNet 已完成设备 MQTT 联通；COS 仍待 F-11 完整上传闭环；香橙派 `/dev/ttyS5`
-  可打开；现有 MCU 不原生回应 UART 1.0 `HELLO`，当前改用双方确定的固定帧协议；
+- OneNet 已完成设备 MQTT 联通；开发环境真实 STS/COS upload/head/delete smoke 已
+  通过；香橙派 `/dev/ttyS5` 可打开，现有 MCU 使用双方确定的固定帧协议；
 - F-10 的软件生成物、候选 OneNet 物模型和通用 Java/Python 3.11/C11 黄金样本已完成，
   项目负责人确认无需再等待现有 MCU 工具链或原生 UART 1.0 HIL，任务已转为 `done`；
-- F-11 已获授权并完成 SQLite v2、OneNet 命令可靠受理、UART 停等/事件持久 ACK、
-  启动恢复和 `APPLY_CONFIGURATION` 软件纵切；独立 worktree 正在把现有 MCU 的
-  `AA/BB/EE` 与 `DD/EF` 固定帧映射到既有规范业务事实，其他命令状态机、COS 完整
-  闭环、强杀/断网故障注入和固定帧真机验收仍未收口；
+- F-11 已完成 SQLite v4、OneNet 命令可靠受理、固定帧 `AA/BB/EE` 与 `DD/EF` 适配、
+  照片/COS 链路和强杀恢复测试；MQTT 重连改为复用单一 Paho 网络循环。Python 3.11
+  硬件套件为 `162 passed, 5 subtests passed`，契约套件为
+  `43 passed, 64 subtests passed`。F-11 仍处于 `in-progress`，当前只收口本轮代码/
+  文档评审；固定帧真机验收属于 H-03；
 - 微信支付和商家转账尚不能联调，因此真实充值、真实零钱到账和完整 M0 当前阻塞；
 - DD-004 与修订后的 PDD-001 已确认，不再是任务 blocker；开始投递必须遵守受限 FK 引用、首次注册参与扩展、recycling 外层协调和 device 事实所有权，本地继续不得反向制造云端 cycle 或模块依赖；
 - 2026-07-30 只能作为风险管理目标；初始任务量和外部条件均不支持在该日承诺完整 M0，也不能降低租户/机构隔离、资金双侧原子、门安全和失败恢复要求。

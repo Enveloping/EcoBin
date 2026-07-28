@@ -84,7 +84,7 @@ agent | human | mixed
 | F-08 | [inbox 与可靠任务 tracer](f-08-inbox-reliable-task-tracer.md) | `done` | `agent` | F-03、F-06 |
 | F-09 | [HTTP OpenAPI 3.1 与客户端传输基础](f-09-http-openapi-client-transport.md) | `done` | `agent` | F-02 |
 | F-10 | [OneNet Schema 与 UART Registry 冻结](f-10-onenet-schema-uart-registry.md) | `done` | `mixed` | 机器来源、通用三语言证据和适配责任边界已确认 |
-| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 固定帧适配、COS、故障注入和完整状态机仍在实施 |
+| F-11 | [香橙派 SQLite、OneNet/COS 与 UART 基础](f-11-edge-sqlite-onenet-cos-uart.md) | `in-progress` | `agent` | 固定帧与 COS 已合入；MQTT 重连、自动诊断和能力降级文档正在收口 |
 | F-12 | [完整试点 seed 编排](f-12-pilot-seed-orchestration.md) | `blocked` | `mixed` | V-01、V-03、V-07、V-10 |
 
 ### 纵向业务任务
@@ -300,3 +300,9 @@ M0_COMPLETE
   F-11 的显式固定帧适配层承担，真实设备验收保留在 H-03。F-10 转为 `done`，H-03
   保持 `blocked` 但依赖由 F-10 改为 F-11。当前共 `done` 13、`ready` 1、
   `in-progress` 1、`blocked` 14。
+- 2026-07-28：F-11 固定帧适配与照片/COS 链路已合入。项目负责人确认保留完整
+  香橙派—后端协议，但 MCU 不支持的配置、远程控制和状态分别采用本地保存、明确失败、
+  未知占位；不增加物理命令重发、MCU 作业重启恢复、SQLite/MCU 冲突锁或部署身份启动
+  锁。补齐强杀恢复、MQTT 重连和 COS 上传自动测试，Python 3.11 硬件套件为
+  `165 passed, 5 subtests passed`，契约套件为 `43 passed, 64 subtests passed`。
+  任务保持 `in-progress`，等待本轮代码和文档评审收口；H-03 真机验收边界不变。

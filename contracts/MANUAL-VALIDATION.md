@@ -33,6 +33,10 @@ python contracts/tools/validate_contracts.py
 python -m unittest discover -s contracts/tests -v
 ```
 
+上述默认流程不需要、也不会创建 `hardware_mcu/`。若以后明确恢复 `uart-v1` MCU
+原生实现，再附加 `--include-hardware-mcu` 生成并检查 MCU 工程内的 C 制品；当前
+固定帧适配不执行该步骤。
+
 香橙派或其他明确安装了目标解释器的环境使用 `python3.11` 替换上述 `python`。如果
 `python --version` 不是 3.11，只能证明当前解释器下的行为；单元测试中的 3.11 grammar
 检查不能替代至少一次真实 Python 3.11 执行。
@@ -42,11 +46,12 @@ python -m unittest discover -s contracts/tests -v
 - 生成检查没有 drift；
 - 9 种 OneNet 命令、13 种事件/回执全部通过；
 - OneNet 导入候选共 22 个功能点；
+- OneNet 导入候选使用 LF、严格小于 256 KiB；枚举显示说明为 1～20 个允许字符；
 - 每个服务输入/输出分别不超过 20 项，每个事件输出不超过 50 项；功能标识不超过 50
   字符，显示名不超过 30 字符；
 - 22 份 OneJSON 线级样例与导入候选一致；
 - Python 与 Java 的 JCS/稳定身份摘要一致；
-- UART 39 个消息、10 个帧向量、10 个流式解析轨迹和 3 个摘要向量通过；
+- UART 39 个消息、11 个帧向量、10 个流式解析轨迹和 3 个摘要向量通过；
 - 单元测试全部为 `OK`；
 - 若机器没有 C 编译器，只允许出现“C compiler unavailable/skip”的说明。
 
@@ -71,7 +76,7 @@ java -cp contracts/.tmp-javac-f10 EcobinCanonicalJsonGoldenTest
 预期最后两条分别输出：
 
 ```text
-Java UART golden vectors: 10 frames, 10 stream traces, 3 digest profiles passed
+Java UART golden vectors: 11 frames, 10 stream traces, 3 digest profiles passed
 Java OneNet canonical vectors: 4 payloads, 7 stable identities passed
 ```
 
@@ -91,7 +96,9 @@ JSON 解析入口必须拒绝重复对象键，不能在进入摘要算法前静
 | 属性 | 0 |
 | 同步服务 | 9 |
 | 事件 | 13 |
-| 总功能点 | 21（低于 OneNet 的 100 个功能点上限） |
+| 总功能点 | 22（低于 OneNet 的 100 个功能点上限） |
+| 导入文件 | 小于 256 KiB、LF 换行 |
+| 枚举显示说明 | 1～20 个中英文、数字、下划线或连字符 |
 | 单服务输入/输出 | 各不超过 20 |
 | 单事件输出 | 不超过 50 |
 
@@ -228,7 +235,7 @@ Schema/语义校验器执行：
 运行后预期：
 
 ```text
-C UART golden vectors: 10 frames, 10 stream traces, 3 digests passed
+C UART golden vectors: 11 frames, 10 stream traces, 3 digests passed
 ```
 
 该 C 黄金程序当前证明帧、CRC、编号、代表性 payload 和摘要原语一致，不是 39 种消息的
