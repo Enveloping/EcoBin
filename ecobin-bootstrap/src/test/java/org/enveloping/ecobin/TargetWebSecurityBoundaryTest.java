@@ -1,6 +1,7 @@
 package org.enveloping.ecobin;
 
 import jakarta.servlet.http.Cookie;
+import org.enveloping.ecobin.framework.context.TrustedAudience;
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +11,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+
+import java.time.Instant;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -44,7 +48,7 @@ class TargetWebSecurityBoundaryTest {
     }
 
     @Test
-    void malformedOrLegacyCredentialsCannotAuthorizeTargetRoutes()
+    void malformedOrWrongAudienceCredentialsCannotAuthorizeTargetRoutes()
             throws Exception {
         mockMvc.perform(get("/api/v1/web/auth/sessions/current")
                         .cookie(new Cookie(
@@ -53,17 +57,24 @@ class TargetWebSecurityBoundaryTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH.SESSION_INVALID"));
 
-        String legacy = tokenProvider.generateToken(
-                1L, "legacy", 1L, 9);
+        Instant issuedAt = Instant.now();
+        String miniappToken = tokenProvider.generateTargetMiniappToken(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                TrustedAudience.MINIAPP,
+                issuedAt,
+                issuedAt.plusSeconds(300));
         mockMvc.perform(get("/api/v1/web/platform/auth/sessions/current")
                         .cookie(new Cookie(
                                 "__Host-ecobin-web-session",
-                                legacy)))
+                                miniappToken)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH.SESSION_INVALID"));
 
         mockMvc.perform(get("/api/v1/web/platform/auth/sessions/current")
-                        .header("Authorization", "Bearer " + legacy))
+                        .header(
+                                "Authorization",
+                                "Bearer " + miniappToken))
                 .andExpect(status().isUnauthorized());
     }
 

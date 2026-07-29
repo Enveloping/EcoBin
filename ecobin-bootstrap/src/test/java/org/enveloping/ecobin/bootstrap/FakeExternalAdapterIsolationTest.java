@@ -1,11 +1,11 @@
 package org.enveloping.ecobin.bootstrap;
 
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
-import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
+import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.identity.api.port.WechatSessionPort;
 import org.enveloping.ecobin.integration.cos.CosTokenClient;
 import org.enveloping.ecobin.integration.fake.FakeCosUploadCredentialAdapter;
-import org.enveloping.ecobin.integration.fake.FakeDeviceCommandGateway;
+import org.enveloping.ecobin.integration.fake.FakeDeviceCommandSubmissionAdapter;
 import org.enveloping.ecobin.integration.fake.FakeWechatSessionAdapter;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetMqConsumer;
@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.RestTemplate;
 
@@ -30,7 +31,8 @@ class FakeExternalAdapterIsolationTest {
     private ListableBeanFactory beanFactory;
 
     @Autowired
-    private DeviceCommandGateway deviceCommandGateway;
+    private ReliableDeviceCommandSubmissionPort
+            deviceCommandSubmissionPort;
 
     @Autowired
     private CosUploadCredentialPort cosUploadCredentialPort;
@@ -40,7 +42,9 @@ class FakeExternalAdapterIsolationTest {
 
     @Test
     void fakeModeOnlyInstallsNetworkFreeAdapters() {
-        assertInstanceOf(FakeDeviceCommandGateway.class, deviceCommandGateway);
+        assertInstanceOf(
+                FakeDeviceCommandSubmissionAdapter.class,
+                deviceCommandSubmissionPort);
         assertInstanceOf(
                 FakeCosUploadCredentialAdapter.class,
                 cosUploadCredentialPort);
@@ -55,6 +59,8 @@ class FakeExternalAdapterIsolationTest {
         assertTrue(beanFactory.getBeansOfType(
                 OneNetEventDispatcher.class).isEmpty());
         assertTrue(beanFactory.getBeansOfType(RestTemplate.class).isEmpty());
+        assertTrue(beanFactory.getBeansOfType(
+                UserDetailsService.class).isEmpty());
     }
 
     @Test

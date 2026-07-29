@@ -6,8 +6,7 @@ spring:
     driver-class-name: org.h2.Driver
   sql:
     init:
-      mode: always
-      schema-locations: classpath:schema-h2.sql
+      mode: never
 
 ecobin:
   development:
@@ -22,13 +21,7 @@ ecobin:
   external:
     mode: fake
     fake:
-      # 旧 H2 Web 测试仍需直接调用 /api/iot；生产 profile 禁止关闭。
-      block-inbound: false
-
-# 应用加密配置（测试占位）
-app:
-  crypto:
-    aes-key: test_aes_key
+      block-inbound: true
 
 jwt:
   secret: test_jwt_secret_at_least_32_bytes_long

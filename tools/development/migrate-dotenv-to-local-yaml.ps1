@@ -136,9 +136,6 @@ $settings = [ordered]@{
     jwtSecret = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('jwtSecret')
-    appAesKey = Get-FirstConfiguredValue `
-        -Values $legacy `
-        -Names @('appAesKey')
     wechatAppid = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('wechatAppid')
@@ -197,8 +194,7 @@ foreach ($requiredName in @(
         'dbUrl',
         'dbUsername',
         'dbPassword',
-        'jwtSecret',
-        'appAesKey')) {
+        'jwtSecret')) {
     if ([string]::IsNullOrWhiteSpace([string]$settings[$requiredName])) {
         throw "Legacy .env is missing required key: $requiredName"
     }

@@ -60,7 +60,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.operations.reliable.workers-enabled=false",
         "onenet.subscription.enabled=false",
         "jwt.secret=DEVICE_TEST_SECRET_MUST_BE_AT_LEAST_32_BYTES_LONG",
-        "app.crypto.aes-key=device_integration_test_aes_key"
 })
 @AutoConfigureMockMvc
 @Import(TargetDeviceMysqlIntegrationTest.ProbeConfiguration.class)

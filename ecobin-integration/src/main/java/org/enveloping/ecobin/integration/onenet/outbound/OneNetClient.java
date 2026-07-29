@@ -2,10 +2,7 @@ package org.enveloping.ecobin.integration.onenet.outbound;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
-import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
-import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -48,53 +45,11 @@ import java.util.UUID;
         havingValue = "real")
 @RequiredArgsConstructor
 public class OneNetClient
-        implements DeviceCommandGateway, ReliableDeviceCommandSubmissionPort {
+        implements ReliableDeviceCommandSubmissionPort {
 
     private final OneNetProperties properties;
     private final RestTemplate restTemplate;
-    private final CosUploadCredentialPort cosUploadCredentialPort;
     private final ObjectMapper objectMapper;
-
-    /** OneNet 字符串字段上限 512，STS sessionToken 实测约 640，需拆段下发（物模型 §3.4）。 */
-    private static final int ONENET_STRING_MAX = 512;
-
-    /**
-     * 下发「开投递投口」指令（物模型服务 {@code openDeliveryDoor}），COS 临时密钥搭车下发。
-     * <p>
-     * 投递为「上传后建单」：照片位置由<strong>设备</strong>决定（设备自生成 token、自定对象 key 直传），
-     * 故本命令<strong>只下发凭证</strong>，不下发照片 key。
-     * <p>
-     * 分类不再随开门下发：投递分类由后端建单时按投口配置（{@code biz_door}）兜底确定。
-     *
-     * @param devSn      设备序列号
-     * @param doorIndex  投口号
-     */
-    @Override
-    public void openDeliveryDoor(String devSn, Integer doorIndex) {
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("doorIndex", doorIndex);
-        input.put("cosToken", baseCosToken(devSn, doorIndex));
-        invokeService(devSn, "openDeliveryDoor", input);
-    }
-
-    /**
-     * 下发「开清运门」指令（物模型服务 {@code openCleanDoor}），COS 临时密钥搭车下发。
-     * <p>
-     * 清运「开门即建单」：照片 key 由后端按 {@code {sn}/{doorIndex}/{cleanOrderId}/<slot>.jpg} 确定性生成并
-     * 开门即预存订单 URL；本命令<strong>不下发照片 key</strong>，设备据下发的 {@code cleanOrderId} 自行按同一约定拼 key 直传。
-     *
-     * @param devSn        设备序列号
-     * @param doorIndex    投口号（物理控制）
-     * @param cleanOrderId 清运订单ID（设备 {@code cleanGross}/{@code cleanTare} 原样带回；并据此自拼照片 key）
-     */
-    @Override
-    public void openCleanDoor(String devSn, Integer doorIndex, Long cleanOrderId) {
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("doorIndex", doorIndex);
-        input.put("cleanOrderId", cleanOrderId);
-        input.put("cosToken", baseCosToken(devSn, doorIndex));
-        invokeService(devSn, "openCleanDoor", input);
-    }
 
     /**
      * Submits the exact command envelope frozen by the business transaction.
@@ -134,28 +89,6 @@ public class OneNetClient
                     "COMMAND_PROJECTION_INVALID",
                     "frozen command cannot be projected to the target OneNet schema");
         }
-    }
-
-    /**
-     * 调用 OneNet「设备服务调用」API（async）。
-     */
-    private void invokeService(String devSn, String identifier, Map<String, Object> input) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("product_id", properties.getProductId());
-        body.put("device_name", devSn);
-        body.put("identifier", identifier);
-        body.put("params", input);
-        DeviceCommandSubmissionResult result = submitWireBody(body);
-        if (result.outcome()
-                != DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED) {
-            throw new IllegalStateException(
-                    "OneNet service call was not technically accepted: "
-                            + result.externalErrorCode());
-        }
-        log.info(
-                "[OneNet] legacy service call technically accepted identifier={} device={}",
-                identifier,
-                devSn);
     }
 
     private DeviceCommandSubmissionResult submitWireBody(
@@ -418,26 +351,4 @@ public class OneNetClient
         }
     }
 
-    /**
-     * 取 COS 临时密钥组装为<strong>仅凭证</strong>的 {@code cosToken} 结构（投递/清运通用，物模型 §3.4）。
-     * <p>
-     * 照片 key 不下发：投递由设备自定位置、清运由设备据 {@code cleanOrderId} 按约定自拼。
-     * {@code sessionToken} 实测约 640 > OneNet 512 上限，按 512 拆 {@code sessionToken1/2}，固件按序拼接还原。
-     */
-    private Map<String, Object> baseCosToken(String devSn, Integer doorIndex) {
-        CosUploadCredential cred = cosUploadCredentialPort.issue(devSn, doorIndex);
-        String sessionToken = cred.sessionToken() == null ? "" : cred.sessionToken();
-        String part1 = sessionToken.length() > ONENET_STRING_MAX ? sessionToken.substring(0, ONENET_STRING_MAX) : sessionToken;
-        String part2 = sessionToken.length() > ONENET_STRING_MAX ? sessionToken.substring(ONENET_STRING_MAX) : "";
-
-        Map<String, Object> cosToken = new LinkedHashMap<>();
-        cosToken.put("tmpSecretId", cred.tmpSecretId());
-        cosToken.put("tmpSecretKey", cred.tmpSecretKey());
-        cosToken.put("sessionToken1", part1);
-        cosToken.put("sessionToken2", part2);
-        cosToken.put("bucket", cred.bucket());
-        cosToken.put("region", cred.region());
-        cosToken.put("baseUrl", cred.baseUrl());
-        return cosToken;
-    }
 }

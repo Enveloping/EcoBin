@@ -12,19 +12,9 @@
 
     <artifactId>ecobin-framework</artifactId>
     <name>ecobin-framework</name>
-    <description>框架模块：Security + JWT、租户上下文、MyBatis 拦截器、全局异常处理</description>
+    <description>框架模块：Security、JWT、事务、租户上下文与 Web 基础设施</description>
 
     <dependencies>
-        <dependency>
-            <groupId>org.enveloping</groupId>
-            <artifactId>ecobin-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-
         <!-- Spring Boot Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -41,14 +31,10 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
-        <!-- MyBatis Plus -->
+        <!-- JDBC transactions and target persistence -->
         <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
         <!-- JWT -->

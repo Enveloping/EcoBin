@@ -1,6 +1,5 @@
 package org.enveloping.ecobin.integration.onenet.outbound;
 
-import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +53,6 @@ class OneNetClientReliableSubmissionTest {
         client = new OneNetClient(
                 properties,
                 restTemplate,
-                mock(CosUploadCredentialPort.class),
                 objectMapper);
     }
 

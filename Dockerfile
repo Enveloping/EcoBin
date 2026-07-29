@@ -2,7 +2,6 @@ FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 
 COPY pom.xml .
-COPY ecobin-common/pom.xml ecobin-common/
 COPY ecobin-framework/pom.xml ecobin-framework/
 COPY ecobin-module-identity/pom.xml ecobin-module-identity/
 COPY ecobin-module-device/pom.xml ecobin-module-device/

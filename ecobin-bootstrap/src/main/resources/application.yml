@@ -19,23 +19,9 @@ spring:
     init:
       mode: never
 
-# MyBatis Plus 配置
-mybatis-plus:
-  configuration:
-    map-underscore-to-camel-case: true
-  global-config:
-    db-config:
-      id-type: auto
-
 # JWT 配置
 jwt:
   secret: ${jwtSecret}
-  expiration: 86400000  # 24小时 (毫秒)
-
-# 应用加密配置（用于 sys_tenant.miniapp_secret 等敏感字段 AES 加密）
-app:
-  crypto:
-    aes-key: ${appAesKey}
 
 # 微信小程序配置（请替换为真实值）
 wechat:

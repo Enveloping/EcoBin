@@ -1,6 +1,5 @@
 package org.enveloping.ecobin.integration.fake;
 
-import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
@@ -8,33 +7,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 不建立任何网络连接或物理动作的 Fake OneNet 下行。
+ * Network-free replacement for reliable OneNet command submission.
  */
-public final class FakeDeviceCommandGateway
-        implements DeviceCommandGateway, ReliableDeviceCommandSubmissionPort {
+public final class FakeDeviceCommandSubmissionAdapter
+        implements ReliableDeviceCommandSubmissionPort {
 
     private static final Logger LOGGER =
-            LoggerFactory.getLogger(FakeDeviceCommandGateway.class);
-
-    @Override
-    public void openDeliveryDoor(String devSn, Integer doorIndex) {
-        LOGGER.info(
-                "[FAKE OneNet] blocked physical delivery-door action sn={} door={}",
-                devSn,
-                doorIndex);
-    }
-
-    @Override
-    public void openCleanDoor(
-            String devSn,
-            Integer doorIndex,
-            Long cleanOrderId) {
-        LOGGER.info(
-                "[FAKE OneNet] blocked physical cleaning-door action sn={} door={} operation={}",
-                devSn,
-                doorIndex,
-                cleanOrderId);
-    }
+            LoggerFactory.getLogger(
+                    FakeDeviceCommandSubmissionAdapter.class);
 
     @Override
     public DeviceCommandSubmissionResult submit(

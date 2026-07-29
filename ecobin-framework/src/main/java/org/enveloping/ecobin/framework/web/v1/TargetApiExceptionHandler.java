@@ -1,6 +1,8 @@
 package org.enveloping.ecobin.framework.web.v1;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -20,6 +22,9 @@ import java.util.Map;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackages = "org.enveloping.ecobin")
 public class TargetApiExceptionHandler {
+
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(TargetApiExceptionHandler.class);
 
     @ExceptionHandler(TargetApiException.class)
     public ResponseEntity<TargetProblemDetail> handleTarget(
@@ -60,6 +65,24 @@ public class TargetApiExceptionHandler {
             IllegalArgumentException exception,
             HttpServletRequest request) {
         return invalidRequest(request, Map.of());
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<TargetProblemDetail> handleUnexpected(
+            Exception exception,
+            HttpServletRequest request) {
+        LOGGER.error(
+                "Unhandled target API exception requestId={}",
+                TargetRequestIds.resolve(request),
+                exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(new TargetProblemDetail(
+                        "COMMON.INTERNAL_ERROR",
+                        "服务器内部错误",
+                        TargetRequestIds.resolve(request),
+                        true,
+                        Map.of()));
     }
 
     private static ResponseEntity<TargetProblemDetail> invalidRequest(

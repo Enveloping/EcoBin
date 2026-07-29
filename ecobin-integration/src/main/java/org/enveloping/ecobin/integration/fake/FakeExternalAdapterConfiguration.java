@@ -18,8 +18,9 @@ import org.springframework.context.annotation.Configuration;
 public class FakeExternalAdapterConfiguration {
 
     @Bean
-    FakeDeviceCommandGateway fakeDeviceCommandGateway() {
-        return new FakeDeviceCommandGateway();
+    FakeDeviceCommandSubmissionAdapter
+            fakeDeviceCommandSubmissionAdapter() {
+        return new FakeDeviceCommandSubmissionAdapter();
     }
 
     @Bean
