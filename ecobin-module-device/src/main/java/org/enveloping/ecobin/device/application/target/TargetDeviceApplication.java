@@ -2202,6 +2202,7 @@ public class TargetDeviceApplication {
                 scope.platformAdminId(),
                 scope.staffAccountId(),
                 null,
+                null,
                 scope.actorDisplayName(),
                 actionCode,
                 targetType,

@@ -2,6 +2,7 @@ package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
+import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetPermanentMessageException;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
@@ -54,6 +55,10 @@ class OneNetEventDispatcherTest {
         objectMapper = JsonMapper.builder().build();
         OneNetProperties properties = new OneNetProperties();
         properties.setProductId(PRODUCT_ID);
+        CosProperties cosProperties = new CosProperties();
+        cosProperties.setBaseUrl(
+                "https://ecobin-contract-1250000000"
+                        + ".cos.ap-guangzhou.myqcloud.com");
         TrustedInboxScopeResolver resolver =
                 writer -> writer.organization(11, 22);
         when(sourceScopePort.resolverFor(
@@ -71,6 +76,7 @@ class OneNetEventDispatcherTest {
                 inboxPort,
                 sourceScopePort,
                 properties,
+                cosProperties,
                 objectMapper);
     }
 

@@ -6,6 +6,7 @@ import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.enveloping.ecobin.device.application.target.DeviceConfigurationCanonicalizer;
+import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
@@ -1279,11 +1280,16 @@ class TargetDeviceMysqlIntegrationTest {
 
         OneNetProperties properties = new OneNetProperties();
         properties.setProductId("device-integration-product");
+        CosProperties cosProperties = new CosProperties();
+        cosProperties.setBaseUrl(
+                "https://ecobin-contract-1250000000"
+                        + ".cos.ap-guangzhou.myqcloud.com");
         OneNetEventDispatcher dispatcher =
                 new OneNetEventDispatcher(
                         trustedInboxPort,
                         sourceScopePort,
                         properties,
+                        cosProperties,
                         objectMapper);
         String eventUid = wire.get("eventUid").toString();
         dispatcher.handle(

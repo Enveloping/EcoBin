@@ -31,14 +31,21 @@ class ModuleBoundaryTest {
                             "ecobin-framework", "ecobin-module-identity"),
                     "ecobin-module-recycling", Set.of(
                             "ecobin-framework",
-                            "ecobin-module-device"),
+                            "ecobin-module-identity",
+                            "ecobin-module-device",
+                            "ecobin-module-funds"),
                     "ecobin-module-operations", Set.of(
                             "ecobin-framework",
-                            "ecobin-module-device"),
+                            "ecobin-module-identity",
+                            "ecobin-module-device",
+                            "ecobin-module-funds",
+                            "ecobin-module-recycling"),
                     "ecobin-integration", Set.of(
                             "ecobin-framework",
                             "ecobin-module-identity",
                             "ecobin-module-device",
+                            "ecobin-module-funds",
+                            "ecobin-module-recycling",
                             "ecobin-module-operations"),
                     "ecobin-bootstrap", Set.of(
                             "ecobin-framework",

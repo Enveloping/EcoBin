@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
+import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
@@ -17,9 +18,11 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -55,6 +58,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "CONFIGURATION_PROGRESS",
                     "RELIABLE_FACT",
                     "CONFIGURATION_APPLICATION"),
+            "deliveryComplete",
+            new EventContract(
+                    "DELIVERY_COMPLETE",
+                    "RELIABLE_FACT",
+                    "DELIVERY_SESSION"),
             "deviceRuntimeSnapshot",
             new EventContract(
                     "DEVICE_RUNTIME_SNAPSHOT",
@@ -129,10 +137,48 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             6L, "PROTOCOL_ERROR",
             7L, "CONFIG_ERROR",
             8L, "OVERLOAD");
+    private static final Map<Long, String> MEASUREMENT_STATUS = Map.of(
+            1L, "STABLE",
+            2L, "UNSTABLE",
+            3L, "TIMEOUT",
+            4L, "SENSOR_FAULT",
+            5L, "OVERLOAD",
+            6L, "PROTOCOL_ERROR",
+            7L, "CONFIG_ERROR",
+            8L, "DISCONNECTED");
+    private static final Map<Long, String> WEIGHT_VALUE_KIND = Map.of(
+            1L, "NONE",
+            2L, "STABLE_WINDOW_MEAN",
+            3L, "LAST_FOUR_MEAN",
+            4L, "AVAILABLE_SAMPLES_MEAN",
+            5L, "LAST_OBSERVED");
+    private static final Set<String> DELIVERY_PHOTO_SLOTS = Set.of(
+            "BEFORE_INNER",
+            "BEFORE_OUTER",
+            "AFTER_INNER",
+            "AFTER_OUTER");
+    private static final Set<String> MEASUREMENT_FAULT_CODES = Set.of(
+            "UART_PROTOCOL",
+            "UART_STORAGE",
+            "DELIVERY_DOOR_OUTPUT_REJECTED",
+            "DELIVERY_DOOR_HIL_NOT_QUALIFIED",
+            "CLEAN_SOLENOID_DRIVER",
+            "WEIGHT_UNSTABLE",
+            "WEIGHT_TIMEOUT",
+            "WEIGHT_SENSOR",
+            "WEIGHT_OVERLOAD",
+            "WEIGHT_PROTOCOL",
+            "WEIGHT_CONFIG",
+            "WEIGHT_DISCONNECTED",
+            "FULLNESS_SENSOR_DIAGNOSTIC",
+            "SMOKE_SENSOR",
+            "MCU_STORAGE",
+            "MCU_INTERNAL");
 
     private final TrustedInboxPort trustedInboxPort;
     private final TrustedDeviceSourceScopePort sourceScopePort;
     private final OneNetProperties oneNetProperties;
+    private final CosProperties cosProperties;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -195,7 +241,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             byte[] rawTransportBody) {
         try {
             Map<String, Object> payload =
-                    payload(contract.messageKind(), wire);
+                    payload(
+                            contract.messageKind(),
+                            wire,
+                            cosProperties.getBaseUrl());
             String payloadSha256 = pattern(
                     wire, "payloadSha256", SHA256);
             if (!payloadSha256.equals(
@@ -379,7 +428,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             case "DEVICE_DEPLOYMENT" ->
                     pattern(target, "uid", DEPLOYMENT_CODE);
             case "CONFIGURATION_APPLICATION",
-                 "BUSINESS_CONFIRMATION" ->
+                 "BUSINESS_CONFIRMATION",
+                 "DELIVERY_SESSION" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
                     "unsupported trusted event target");
@@ -390,7 +440,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             String messageKind, JsonNode wire) {
         if ("CONFIGURATION_PROGRESS".equals(messageKind)
                 || "BUSINESS_CONFIRMATION_RECEIPT".equals(
-                messageKind)) {
+                messageKind)
+                || "DELIVERY_COMPLETE".equals(messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
         }
         return nullablePresenceText(
@@ -402,10 +453,16 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     }
 
     private static Map<String, Object> payload(
-            String messageKind, JsonNode wire) {
+            String messageKind,
+            JsonNode wire,
+            String trustedCosBaseUrl) {
         return switch (messageKind) {
             case "CONFIGURATION_PROGRESS" ->
                     configurationPayload(wire);
+            case "DELIVERY_COMPLETE" ->
+                    deliveryCompletePayload(
+                            wire,
+                            trustedCosBaseUrl);
             case "DEVICE_RUNTIME_SNAPSHOT" ->
                     runtimePayload(wire);
             case "DEVICE_FAULT_OBSERVED",
@@ -468,6 +525,469 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put("mcuCommandUid", mcuCommandUid);
         payload.put("errorCode", errorCode);
         return payload;
+    }
+
+    private static Map<String, Object> deliveryCompletePayload(
+            JsonNode wire,
+            String trustedCosBaseUrl) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String sessionUid =
+                pattern(wire, "sessionUid", UUID_V4);
+        String deploymentCode =
+                pattern(wire, "deploymentCode", DEPLOYMENT_CODE);
+        payload.put("sessionUid", sessionUid);
+        payload.put(
+                "portNo",
+                requiredIntegerInRange(wire, "portNo", 1, 6));
+        payload.put(
+                "firstPreOpenMeasurement",
+                nullableMeasurement(
+                        wire,
+                        "firstPreOpenMeasurementPresent",
+                        "firstPreOpenMeasurement"));
+        payload.put(
+                "finalPostCloseMeasurement",
+                nullableMeasurement(
+                        wire,
+                        "finalPostCloseMeasurementPresent",
+                        "finalPostCloseMeasurement"));
+        payload.put(
+                "deliveryNetWeightGrams",
+                nullablePresenceSignedInteger(
+                        wire,
+                        "deliveryNetWeightGramsPresent",
+                        "deliveryNetWeightGrams"));
+        payload.put(
+                "finalDoorCommand",
+                nullableDeliveryDoorCommand(wire));
+        String completionReason = enumText(
+                integer(wire, "completionReason"),
+                Map.of(
+                        1L, "USER_ENDED",
+                        2L, "SELECTION_WINDOW_EXPIRED",
+                        3L, "TERMINAL_WEIGHT_FAILURE",
+                        4L, "DEVICE_INTERRUPTED"),
+                "completionReason");
+        payload.put("completionReason", completionReason);
+        boolean manualReviewRequired =
+                bool(wire, "manualReviewRequired");
+        if (manualReviewRequired
+                != "DEVICE_INTERRUPTED".equals(completionReason)) {
+            throw permanent(
+                    "delivery completion reason and manual review differ");
+        }
+        payload.put(
+                "manualReviewRequired",
+                manualReviewRequired);
+        payload.put(
+                "negativeWeightAnomaly",
+                bool(wire, "negativeWeightAnomaly"));
+        payload.put(
+                "frozenConfig",
+                configSnapshot(object(wire, "frozenConfig")));
+        payload.put(
+                "unitPriceTenThousandths",
+                requiredIntegerInRange(
+                        wire,
+                        "unitPriceTenThousandths",
+                        1,
+                        4_294_967_295L));
+        payload.put(
+                "photos",
+                deliveryPhotos(
+                        wire,
+                        deploymentCode,
+                        sessionUid,
+                        trustedCosBaseUrl));
+        return payload;
+    }
+
+    private static Map<String, Object> configSnapshot(JsonNode wire) {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put(
+                "version",
+                requiredIntegerInRange(
+                        wire,
+                        "version",
+                        1,
+                        SAFE_INTEGER_MAX));
+        config.put(
+                "contentSha256",
+                pattern(wire, "contentSha256", SHA256));
+        config.put(
+                "mcuPayloadSha256",
+                pattern(wire, "mcuPayloadSha256", SHA256));
+        return config;
+    }
+
+    private static Map<String, Object> nullableMeasurement(
+            JsonNode parent,
+            String presenceField,
+            String valueField) {
+        boolean present = bool(parent, presenceField);
+        JsonNode value = parent.get(valueField);
+        if (!present) {
+            if (value != null
+                    && !value.isNull()
+                    && !value.isObject()) {
+                throw permanent(
+                        valueField
+                                + " placeholder must be an object");
+            }
+            return null;
+        }
+        if (value == null || !value.isObject()) {
+            throw permanent(
+                    valueField
+                            + " must exist when marked present");
+        }
+        return measurement(value);
+    }
+
+    private static Map<String, Object> measurement(JsonNode wire) {
+        Map<String, Object> measurement = new LinkedHashMap<>();
+        measurement.put(
+                "measurementUid",
+                pattern(wire, "measurementUid", UUID_V4));
+        String status = enumText(
+                integer(wire, "status"),
+                MEASUREMENT_STATUS,
+                "status");
+        measurement.put("status", status);
+        boolean valueAvailable =
+                bool(wire, "weightValueAvailable");
+        measurement.put(
+                "weightValueAvailable",
+                valueAvailable);
+        Long reportedWeight = nullablePresenceSignedInteger(
+                wire,
+                "reportedWeightGramsPresent",
+                "reportedWeightGrams");
+        if (reportedWeight != null
+                && (reportedWeight < Integer.MIN_VALUE
+                || reportedWeight > Integer.MAX_VALUE)) {
+            throw permanent(
+                    "reportedWeightGrams is outside int32");
+        }
+        measurement.put(
+                "reportedWeightGrams",
+                reportedWeight);
+        String valueKind = enumText(
+                integer(wire, "weightValueKind"),
+                WEIGHT_VALUE_KIND,
+                "weightValueKind");
+        measurement.put("weightValueKind", valueKind);
+        measurement.put(
+                "measurementElapsedMs",
+                requiredIntegerInRange(
+                        wire,
+                        "measurementElapsedMs",
+                        0,
+                        4_294_967_295L));
+        long sampleCount = requiredIntegerInRange(
+                wire,
+                "sampleCount",
+                0,
+                65_535);
+        measurement.put("sampleCount", sampleCount);
+        measurement.put(
+                "calibrationVersion",
+                requiredIntegerInRange(
+                        wire,
+                        "calibrationVersion",
+                        0,
+                        4_294_967_295L));
+        String sensorHealth = enumText(
+                integer(wire, "sensorHealth"),
+                SENSOR_HEALTH,
+                "sensorHealth");
+        measurement.put("sensorHealth", sensorHealth);
+        String faultCode = nullablePresenceEnum(
+                wire,
+                "faultCodePresent",
+                "faultCode",
+                FAULT_CODE);
+        if (faultCode != null
+                && !MEASUREMENT_FAULT_CODES.contains(faultCode)) {
+            throw permanent(
+                    "measurement faultCode is outside its contract");
+        }
+        measurement.put("faultCode", faultCode);
+        measurement.put(
+                "mcuBootId",
+                requiredIntegerInRange(
+                        wire,
+                        "mcuBootId",
+                        1,
+                        SAFE_INTEGER_MAX));
+        measurement.put(
+                "mcuEventSequence",
+                requiredIntegerInRange(
+                        wire,
+                        "mcuEventSequence",
+                        1,
+                        4_294_967_295L));
+        validateMeasurementShape(
+                status,
+                valueAvailable,
+                reportedWeight,
+                valueKind,
+                sampleCount,
+                sensorHealth,
+                faultCode);
+        return measurement;
+    }
+
+    private static void validateMeasurementShape(
+            String status,
+            boolean valueAvailable,
+            Long reportedWeight,
+            String valueKind,
+            long sampleCount,
+            String sensorHealth,
+            String faultCode) {
+        if (valueAvailable != (reportedWeight != null)
+                || (valueAvailable && "NONE".equals(valueKind))
+                || (!valueAvailable && !"NONE".equals(valueKind))) {
+            throw permanent(
+                    "measurement value availability fields differ");
+        }
+        if ("STABLE".equals(status)
+                && (!valueAvailable
+                || !"STABLE_WINDOW_MEAN".equals(valueKind)
+                || sampleCount < 1
+                || !"OK".equals(sensorHealth)
+                || faultCode != null)) {
+            throw permanent(
+                    "stable measurement quality fields differ");
+        }
+        if ("UNSTABLE".equals(status)
+                && (!valueAvailable
+                || (!"LAST_FOUR_MEAN".equals(valueKind)
+                && !"AVAILABLE_SAMPLES_MEAN".equals(valueKind))
+                || !"OK".equals(sensorHealth)
+                || !"WEIGHT_UNSTABLE".equals(faultCode))) {
+            throw permanent(
+                    "unstable measurement quality fields differ");
+        }
+    }
+
+    private static Map<String, Object> nullableDeliveryDoorCommand(
+            JsonNode wire) {
+        boolean present = bool(wire, "finalDoorCommandPresent");
+        JsonNode value = wire.get("finalDoorCommand");
+        if (!present) {
+            if (value != null
+                    && !value.isNull()
+                    && !value.isObject()) {
+                throw permanent(
+                        "finalDoorCommand placeholder must be an object");
+            }
+            return null;
+        }
+        if (value == null || !value.isObject()) {
+            throw permanent(
+                    "finalDoorCommand must exist when marked present");
+        }
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put(
+                "command",
+                enumText(
+                        integer(value, "command"),
+                        Map.of(
+                                1L, "NONE",
+                                2L, "OPEN",
+                                3L, "CLOSE"),
+                        "finalDoorCommand.command"));
+        command.put(
+                "outputStatus",
+                enumText(
+                        integer(value, "outputStatus"),
+                        Map.of(
+                                1L, "NOT_DISPATCHED",
+                                2L, "COMMAND_DISPATCHED",
+                                3L,
+                                "COMMAND_SUPERSEDED_BEFORE_DISPATCH",
+                                4L, "COALESCED_WITH_EXISTING_CLOSE",
+                                5L, "OUTPUT_REJECTED"),
+                        "finalDoorCommand.outputStatus"));
+        command.put(
+                "physicalStateBasis",
+                exactEnum(
+                        value,
+                        "physicalStateBasis",
+                        1,
+                        "NOT_OBSERVABLE"));
+        return command;
+    }
+
+    private static List<Map<String, Object>> deliveryPhotos(
+            JsonNode wire,
+            String deploymentCode,
+            String sessionUid,
+            String trustedCosBaseUrl) {
+        JsonNode photos = wire.get("photos");
+        if (photos == null
+                || !photos.isArray()
+                || photos.size() != 4) {
+            throw permanent(
+                    "delivery photos must contain exactly four slots");
+        }
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        Set<String> seenSlots = new HashSet<>();
+        for (JsonNode photo : photos) {
+            if (!photo.isObject()) {
+                throw permanent(
+                        "delivery photo slot must be an object");
+            }
+            Map<String, Object> value = deliveryPhoto(
+                    photo,
+                    deploymentCode,
+                    sessionUid,
+                    trustedCosBaseUrl);
+            String slot = (String) value.get("slot");
+            if (!seenSlots.add(slot)) {
+                throw permanent(
+                        "delivery photo slots must be unique");
+            }
+            normalized.add(value);
+        }
+        if (!seenSlots.equals(DELIVERY_PHOTO_SLOTS)) {
+            throw permanent(
+                    "delivery photo slots differ from the required set");
+        }
+        return normalized;
+    }
+
+    private static Map<String, Object> deliveryPhoto(
+            JsonNode wire,
+            String deploymentCode,
+            String sessionUid,
+            String trustedCosBaseUrl) {
+        Map<String, Object> photo = new LinkedHashMap<>();
+        String slot = text(wire, "slot", 32);
+        if (!DELIVERY_PHOTO_SLOTS.contains(slot)) {
+            throw permanent(
+                    "delivery photo slot is unsupported");
+        }
+        photo.put("slot", slot);
+        String status = enumText(
+                integer(wire, "status"),
+                Map.of(
+                        1L, "AVAILABLE",
+                        2L, "UPLOAD_PENDING",
+                        3L, "PERMANENTLY_MISSING"),
+                "photo.status");
+        photo.put("status", status);
+        String photoUid = nullablePresenceText(
+                wire,
+                "photoUidPresent",
+                "photoUid",
+                UUID_V4,
+                36);
+        photo.put("photoUid", photoUid);
+        String url = nullablePresenceText(
+                wire,
+                "urlPresent",
+                "url",
+                "^https://[^?#]+$",
+                512);
+        photo.put("url", url);
+        String sha256 = nullablePresenceText(
+                wire,
+                "sha256Present",
+                "sha256",
+                SHA256,
+                64);
+        photo.put("sha256", sha256);
+        Long sizeBytes = nullablePresenceIntegerInRange(
+                wire,
+                "sizeBytesPresent",
+                "sizeBytes",
+                1,
+                20_971_520);
+        photo.put("sizeBytes", sizeBytes);
+        String capturedAt = nullablePresenceInstant(
+                wire,
+                "capturedAtPresent",
+                "capturedAt");
+        photo.put("capturedAt", capturedAt);
+        String missingReason = nullablePresenceText(
+                wire,
+                "missingReasonPresent",
+                "missingReason",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        photo.put("missingReason", missingReason);
+        validatePhotoShape(
+                status,
+                photoUid,
+                url,
+                sha256,
+                sizeBytes,
+                capturedAt,
+                missingReason);
+        if (url != null) {
+            String baseUrl = trustedCosBaseUrl == null
+                    ? ""
+                    : trustedCosBaseUrl.replaceFirst("/+$", "");
+            String expectedUrl = baseUrl
+                    + "/ecobin/"
+                    + deploymentCode
+                    + "/delivery-session/"
+                    + sessionUid
+                    + "/"
+                    + slot
+                    + "/"
+                    + photoUid
+                    + ".jpg";
+            if (baseUrl.isEmpty()
+                    || !expectedUrl.equals(url)) {
+                throw permanent(
+                        "available photo URL is outside the trusted COS work path");
+            }
+        }
+        return photo;
+    }
+
+    private static void validatePhotoShape(
+            String status,
+            String photoUid,
+            String url,
+            String sha256,
+            Long sizeBytes,
+            String capturedAt,
+            String missingReason) {
+        boolean captured = photoUid != null;
+        boolean capturedMetadataComplete =
+                captured && sha256 != null && sizeBytes != null;
+        boolean noCapturedMetadata =
+                photoUid == null
+                        && sha256 == null
+                        && sizeBytes == null
+                        && capturedAt == null;
+        boolean valid = switch (status) {
+            case "AVAILABLE" ->
+                    capturedMetadataComplete
+                            && url != null
+                            && missingReason == null;
+            case "UPLOAD_PENDING" ->
+                    url == null
+                            && missingReason != null
+                            && ((capturedMetadataComplete)
+                            || noCapturedMetadata);
+            case "PERMANENTLY_MISSING" ->
+                    url == null
+                            && missingReason != null
+                            && (capturedMetadataComplete
+                            || noCapturedMetadata);
+            default -> false;
+        };
+        if (!valid
+                || (!captured && capturedAt != null)) {
+            throw permanent(
+                    "photo status and nullable fields differ");
+        }
     }
 
     private static Map<String, Object> runtimePayload(JsonNode wire) {
@@ -941,6 +1461,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "configuration application target differs from payload");
         }
+        if ("DELIVERY_COMPLETE".equals(contract.messageKind())
+                && !payload.get("sessionUid").equals(targetUid)) {
+            throw permanent(
+                    "delivery session target differs from payload");
+        }
         if ("BUSINESS_CONFIRMATION_RECEIPT".equals(
                 contract.messageKind())
                 && !payload.get("confirmationUid").equals(targetUid)) {
@@ -1007,6 +1532,31 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return value;
     }
 
+    private static String nullablePresenceInstant(
+            JsonNode node,
+            String presenceField,
+            String valueField) {
+        String value = nullablePresenceText(
+                node,
+                presenceField,
+                valueField,
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                        + "[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                        + "(?:\\.[0-9]{1,9})?Z$",
+                30);
+        if (value == null) {
+            return null;
+        }
+        try {
+            Instant.parse(value);
+        } catch (RuntimeException exception) {
+            throw permanent(
+                    valueField + " is not a real instant",
+                    exception);
+        }
+        return value;
+    }
+
     private static Long nullablePresenceInteger(
             JsonNode node,
             String presenceField,
@@ -1025,6 +1575,25 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || (!positive && value < 0)
                 || value > SAFE_INTEGER_MAX) {
             throw permanent(valueField + " is outside the safe range");
+        }
+        return value;
+    }
+
+    private static Long nullablePresenceIntegerInRange(
+            JsonNode node,
+            String presenceField,
+            String valueField,
+            long minimum,
+            long maximum) {
+        Long value = nullablePresenceInteger(
+                node,
+                presenceField,
+                valueField,
+                minimum > 0);
+        if (value != null
+                && (value < minimum || value > maximum)) {
+            throw permanent(
+                    valueField + " is outside the target range");
         }
         return value;
     }
@@ -1101,6 +1670,19 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         long value = integer(node, field);
         if (value < 0 || value > SAFE_INTEGER_MAX) {
             throw permanent(field + " is outside the safe range");
+        }
+        return value;
+    }
+
+    private static long requiredIntegerInRange(
+            JsonNode node,
+            String field,
+            long minimum,
+            long maximum) {
+        long value = integer(node, field);
+        if (value < minimum || value > maximum) {
+            throw permanent(
+                    field + " is outside the target range");
         }
         return value;
     }

@@ -740,8 +740,10 @@ public class ReliableOperationsJdbcRepository {
                   AND t.task_category = 'BUSINESS_INTENT'
                   AND (
                       (
-                          t.task_type =
-                              'ENSURE_DEVICE_CONFIGURATION'
+                          t.task_type IN (
+                              'ENSURE_DEVICE_CONFIGURATION',
+                              'START_DELIVERY_SESSION'
+                          )
                           AND c.id IS NOT NULL
                       )
                       OR
@@ -918,8 +920,10 @@ public class ReliableOperationsJdbcRepository {
                   AND t.execution_lane = 'DEVICE'
                   AND (
                       (
-                          t.task_type =
-                              'ENSURE_DEVICE_CONFIGURATION'
+                          t.task_type IN (
+                              'ENSURE_DEVICE_CONFIGURATION',
+                              'START_DELIVERY_SESSION'
+                          )
                           AND c.id IS NOT NULL
                       )
                       OR

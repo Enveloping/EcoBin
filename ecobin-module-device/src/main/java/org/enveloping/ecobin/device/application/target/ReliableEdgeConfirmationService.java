@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.application.target;
 
+import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
 import org.enveloping.ecobin.framework.reliability.DeviceDeploymentTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistrationPort;
@@ -55,6 +56,29 @@ public class ReliableEdgeConfirmationService {
             String originalPayloadSha256,
             String effectKind,
             LocalDateTime processedAt) {
+        return registerApplied(
+                tenantId,
+                organizationId,
+                deploymentId,
+                deploymentCode,
+                originalEventUid,
+                originalPayloadSha256,
+                effectKind,
+                List.of(),
+                processedAt);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public UUID registerApplied(
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            String deploymentCode,
+            String originalEventUid,
+            String originalPayloadSha256,
+            String effectKind,
+            List<DeliveryCompletionResultReference> resultReferences,
+            LocalDateTime processedAt) {
         return register(
                 tenantId,
                 organizationId,
@@ -68,6 +92,7 @@ public class ReliableEdgeConfirmationService {
                 effectKind,
                 null,
                 null,
+                resultReferences,
                 processedAt);
     }
 
@@ -103,6 +128,7 @@ public class ReliableEdgeConfirmationService {
                 null,
                 errorCode,
                 quarantineUid,
+                List.of(),
                 processedAt);
     }
 
@@ -118,6 +144,7 @@ public class ReliableEdgeConfirmationService {
             String effectKind,
             String errorCode,
             UUID quarantineUid,
+            List<DeliveryCompletionResultReference> resultReferences,
             LocalDateTime processedAt) {
         UUID confirmationUid = UUID.randomUUID();
         UUID commandUid = UUID.randomUUID();
@@ -136,7 +163,13 @@ public class ReliableEdgeConfirmationService {
                 quarantineUid == null
                         ? null
                         : quarantineUid.toString());
-        payload.put("resultReferences", List.of());
+        payload.put(
+                "resultReferences",
+                resultReferences.stream()
+                        .map(reference -> Map.of(
+                                "type", reference.type(),
+                                "key", reference.key()))
+                        .toList());
 
         Map<String, Object> target = new LinkedHashMap<>();
         target.put("type", "EDGE_EVENT");

@@ -21,8 +21,9 @@ import java.util.TreeMap;
  * 真实实现通过 {@link #getRealTempCredentials} 调用
  * {@code com.tencent.cloud.CosStsClient.getCredential} 获取真实临时凭证。
  * <p>
- * 使用方式：开门命令只下发<strong>凭证</strong>（不含照片 key）；照片对象 key 由<strong>设备自定</strong>
- * （投递、清运一致），设备直传 COS 后把 URL 随上行事件回传，后端原样存。
+ * 使用方式：开始命令只下发<strong>短期凭证和作业目录前缀</strong>，
+ * 不为四张照片推导具体对象 key；设备在该前缀内按契约命名并直传，
+ * 完成事件再回传 URL。
  */
 @Slf4j
 @Component
@@ -40,22 +41,35 @@ public class CosTokenClient implements CosUploadCredentialPort {
      *
      * @param deviceSn  设备序列号（仅用于日志）
      * @param doorIndex 投口号（仅用于日志）
+     * @param keyPrefix 本次投递或清运独占的对象目录前缀
      * @return 临时凭证三件套 + bucket/region/baseUrl
      */
     @Override
-    public CosUploadCredential issue(String deviceSn, Integer doorIndex) {
+    public CosUploadCredential issue(
+            String deviceSn,
+            Integer doorIndex,
+            String keyPrefix) {
         if (!properties.isConfigured()) {
             throw new IllegalStateException(
                     "REAL mode requires complete COS configuration");
         }
+        if (keyPrefix == null || !keyPrefix.matches(
+                "^ecobin/Dp_[A-Za-z0-9_-]{6,61}/"
+                        + "(delivery-session|clean-operation)/"
+                        + "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
+                        + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}/$")) {
+            throw new IllegalArgumentException(
+                    "COS work prefix is outside the target contract");
+        }
 
-        return getRealTempCredentials();
+        return getRealTempCredentials(keyPrefix);
     }
 
     /**
      * 真实 STS 调用（凭证齐全时）。
      */
-    private CosUploadCredential getRealTempCredentials() {
+    private CosUploadCredential getRealTempCredentials(
+            String keyPrefix) {
         TreeMap<String, Object> config = new TreeMap<>();
         config.put("secretId", properties.getSecretId());
         config.put("secretKey", properties.getSecretKey());
@@ -79,8 +93,18 @@ public class CosTokenClient implements CosUploadCredentialPort {
                 "cos:CompleteMultipartUpload",
         });
         statement.addResources(new String[]{
-                String.format("qcs::cos:%s:uid/%s:%s/*", properties.getRegion(), appId, bucketName),
-                String.format("qcs::ci:%s:uid/%s:bucket/%s/*", properties.getRegion(), appId, bucketName)
+                String.format(
+                        "qcs::cos:%s:uid/%s:%s/%s*",
+                        properties.getRegion(),
+                        appId,
+                        bucketName,
+                        keyPrefix),
+                String.format(
+                        "qcs::ci:%s:uid/%s:bucket/%s/%s*",
+                        properties.getRegion(),
+                        appId,
+                        bucketName,
+                        keyPrefix)
         });
 
         policy.addStatement(statement);
