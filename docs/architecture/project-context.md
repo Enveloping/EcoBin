@@ -4,7 +4,7 @@
 > 本文记录对话中形成、仅靠代码不容易恢复的决策。代码和更新日期更晚的专题文档若与本文冲突，以较新的事实为准。
 
 > [!IMPORTANT]
-> 2026-07-28：需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订已确认。H-01、H-02、F-01～F-11、V-01、V-02 已完成；V-02 的个人主体和开发版微信限制已由项目负责人接受，设备来源归因由非阻塞 P0-FOLLOWUP-01 延期跟踪。H-03、V-09 为 `ready` 但尚未授权。F-11 的 SQLite v4、OneNet 命令受理、固定帧 MCU 适配、照片/COS 和故障自动测试已按负责人接受的当前范围转为 `done`。后续真实双摄验证发现数字索引会重复选择 DECXIN，现已改用稳定 `by-id` 路径并通过真实 STS 上传和 URL 下载验收；项目负责人决定暂不继续处理香橙派当时的默认路由/DNS 波动。项目负责人确认现有 MCU 使用协商后的固定帧协议，香橙派保留云端契约，对 MCU 不支持的能力采用本地保存、明确失败或未知占位，不增加物理命令重发、MCU 作业重启恢复或双事实安全锁；真实线路和执行器验收归 H-03。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
+> 2026-07-28：需求、P0 范围、业务模型、系统架构、数据库设计、接口设计和详细设计修订已确认。H-01、H-02、F-01～F-11、V-01、V-02 已完成；V-02 的个人主体和开发版微信限制已由项目负责人接受，设备来源归因由非阻塞 P0-FOLLOWUP-01 延期跟踪。H-03、V-09 为 `ready` 但尚未授权。F-11 的 SQLite v4、OneNet 命令受理、固定帧 MCU 适配、照片/COS 和故障自动测试已按负责人接受的当前范围转为 `done`。后续真实双摄验证发现数字索引会重复选择 DECXIN，现已改用稳定 `by-id` 路径并通过真实 STS 上传和 URL 下载验收；项目负责人决定暂不继续处理香橙派当时的默认路由/DNS 波动。项目负责人确认现有 MCU 使用协商后的固定帧协议，香橙派保留云端契约；对 MCU 不支持的能力，按逐项决策采用香橙派本地保存、fixed-frame 正常兼容投影或明确拒绝/失败，不增加物理命令重发、MCU 作业重启恢复或双事实安全锁；真实线路和执行器验收归 H-03。2026-07-29 又确认当前 OneNet 控制台已经是 9 服务 / 13 事件版本，并以“先跑起来”为首要目标：冻结 MCU 无法提供的状态允许由 fixed-frame 兼容层构造；`applyConfiguration` 只要由香橙派可靠保存并设为活动配置即可返回成功和 `APPLIED`，不要求真实下发 MCU。逐项决策持续记录在 [`onenet-edge-handling-decisions.md`](../../hardware/docs/review/onenet-edge-handling-decisions.md)。其他任务仍须逐项授权，`ready` 只表示依赖允许领取。正式上游依次为
 > [`requirements-baseline.md`](../planning/requirements-baseline.md)、
 > [`p0-scope-baseline.md`](../planning/p0-scope-baseline.md) 和
 > [`business-model-baseline.md`](../planning/business-model-baseline.md)，冻结的系统结构见
@@ -113,7 +113,7 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - 投递和清运照片统一为设备直传 COS。对象 key 由设备在 `ecobin/{deploymentCode}/{workType}/{workUid}/` 授权前缀内生成；临时凭证只在发送时附加且不进入稳定摘要/日志，完成或补传事件回传四个槽位状态及 URL。
 - Jackson 使用 Spring Boot 4 的 Jackson 3 包 `tools.jackson.databind`；不要在 framework 模块误用 `com.fasterxml.jackson.databind`。
 - 当前物模型与消息结构见 `docs/iot/onenet-thing-model.md` 和 `docs/iot/onenet-thing-model.json`，但它们是待替换的运行现状，不是目标契约。实施 I-041～I-045 时必须同步修改代码、JSON、Markdown 与 OneNet 控制台模型，禁止保留旧写协议作为生产兼容层。
-- I-019/I-020 要求配置以版本和摘要分别证明“香橙派已可靠落盘”和“必要 MCU 项已同步”。当前临时 OneNet/UART 协议尚不能形成该证明，正式契约落地前设备不能借 OneNet `code=0`、在线状态或旧 UART 单价帧通过激活。
+- I-019/I-020 的目标契约要求配置以版本和摘要分别证明“香橙派已可靠落盘”和“必要 MCU 项已同步”。当前 fixed-frame 阶段采用 2026-07-29 确认的运行优先例外：`applyConfiguration` 可靠保存并成为香橙派活动配置后即可返回成功及 `APPLIED`，允许构造兼容 `mcuCommandUid`；这不表示 MCU 已真实接收配置。具体边界见 [`onenet-edge-handling-decisions.md`](../../hardware/docs/review/onenet-edge-handling-decisions.md)。
 
 ## 4. 硬件侧当前上下文
 
@@ -134,6 +134,8 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - 固定帧实施记录和能力降级矩阵见
   `hardware/docs/review/fixed-frame-mcu-adapter-2026-07-27.md`；真实线路、屏幕和执行器
   行为仍由 H-03 验收，软件测试不得冒充真机能力。
+- 当前 OneNet 9 服务 / 13 事件的逐项处理结论见
+  `hardware/docs/review/onenet-edge-handling-decisions.md`；后续讨论结果统一增量写入该文档。
 - 2026-07-11 迁移记忆时工作区已有用户修改：`hardware/main.py`、`hardware/pyproject.toml`，以及未跟踪的 `hardware/docs/`。这些不是 Codex 创建的，必须保留。
 
 ## 5. 已知工程坑

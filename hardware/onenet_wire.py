@@ -188,8 +188,11 @@ def validate_command_envelope(
     expires_at = _parse_utc_instant(command.get("expiresAt"), "expiresAt")
     if expires_at <= datetime.now(timezone.utc):
         raise ValueError("command expired")
+    _validate_command_target(command)
     if command_type == "APPLY_CONFIGURATION":
         _validate_apply_configuration(command)
+    elif command_type == "CONFIRM_EDGE_EVENT":
+        _validate_confirm_edge_event(command)
     elif command_type == "PROVIDE_PHOTO_UPLOAD_GRANT":
         _validate_photo_upload_grant_command(
             command,
@@ -214,6 +217,127 @@ def validate_command_envelope(
             work_uid=payload.get("operationUid"),
             trusted_environment=trusted_environment,
         )
+
+
+def _validate_command_target(command: dict[str, Any]) -> None:
+    command_type = command["commandType"]
+    payload = command["payload"]
+    target_fields = {
+        "APPLY_CONFIGURATION": (
+            "CONFIGURATION_APPLICATION",
+            "applicationUid",
+        ),
+        "START_DELIVERY_SESSION": (
+            "DELIVERY_SESSION",
+            "sessionUid",
+        ),
+        "START_CLEAN_OPERATION": (
+            "CLEAN_OPERATION",
+            "operationUid",
+        ),
+        "END_CLEAN_BEFORE_UNLOCK": (
+            "CLEAN_OPERATION",
+            "operationUid",
+        ),
+        "RESUME_CLEAN_OPERATION": (
+            "CLEAN_OPERATION",
+            "operationUid",
+        ),
+        "SAMPLE_FULLNESS": (
+            "FULLNESS_DETECTION",
+            "detectionUid",
+        ),
+        "MEASURE_EMPTY_BAG_BASELINE": (
+            "BASELINE_MEASUREMENT",
+            "measurementUid",
+        ),
+        "CONFIRM_EDGE_EVENT": (
+            "EDGE_EVENT",
+            "originalEventUid",
+        ),
+        "PROVIDE_PHOTO_UPLOAD_GRANT": (
+            "PHOTO_GRANT_REQUEST",
+            "grantRequestEventUid",
+        ),
+    }
+    target_type, payload_uid_field = target_fields[command_type]
+    payload_uid = payload.get(payload_uid_field)
+    _require_uuid4(payload_uid, payload_uid_field)
+    if command["target"] != {
+        "type": target_type,
+        "uid": payload_uid,
+    }:
+        raise ValueError(
+            f"target differs from payload.{payload_uid_field}"
+        )
+
+
+def _validate_confirm_edge_event(command: dict[str, Any]) -> None:
+    payload = command["payload"]
+    required = {
+        "confirmationUid",
+        "originalEventUid",
+        "originalPayloadSha256",
+        "processedAt",
+        "outcome",
+        "effectKind",
+        "resultReferences",
+        "errorCode",
+        "quarantineUid",
+    }
+    if set(payload) != required:
+        raise ValueError("confirmation payload fields are invalid")
+    _require_uuid4(payload["confirmationUid"], "confirmationUid")
+    _require_uuid4(payload["originalEventUid"], "originalEventUid")
+    if not _is_sha256(payload["originalPayloadSha256"]):
+        raise ValueError("originalPayloadSha256 is invalid")
+    _parse_utc_instant(payload["processedAt"], "processedAt")
+    outcome = payload["outcome"]
+    references = payload["resultReferences"]
+    if not isinstance(references, list):
+        raise ValueError("resultReferences must be an array")
+    if any(
+        not isinstance(reference, dict)
+        or set(reference) != {"type", "key"}
+        or not isinstance(reference["type"], str)
+        or not reference["type"]
+        or not isinstance(reference["key"], str)
+        or not reference["key"]
+        for reference in references
+    ):
+        raise ValueError("resultReferences are invalid")
+    if outcome == "BUSINESS_APPLIED":
+        if payload["effectKind"] not in EFFECT_KIND_BY_CODE.values():
+            raise ValueError("effectKind is invalid")
+        if payload["errorCode"] is not None:
+            raise ValueError("BUSINESS_APPLIED errorCode must be null")
+        if payload["quarantineUid"] is not None:
+            raise ValueError(
+                "BUSINESS_APPLIED quarantineUid must be null"
+            )
+    elif outcome == "EVENT_QUARANTINED":
+        if payload["effectKind"] is not None:
+            raise ValueError(
+                "EVENT_QUARANTINED effectKind must be null"
+            )
+        if references:
+            raise ValueError(
+                "EVENT_QUARANTINED resultReferences must be empty"
+            )
+        error_code = payload["errorCode"]
+        if (
+            not isinstance(error_code, str)
+            or not 1 <= len(error_code) <= 64
+            or error_code != error_code.upper()
+        ):
+            raise ValueError(
+                "EVENT_QUARANTINED errorCode is invalid"
+            )
+        quarantine_uid = payload["quarantineUid"]
+        if quarantine_uid is not None:
+            _require_uuid4(quarantine_uid, "quarantineUid")
+    else:
+        raise ValueError("confirmation outcome is invalid")
 
 
 def validate_cos_grant(

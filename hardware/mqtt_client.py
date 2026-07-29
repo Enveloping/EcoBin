@@ -72,6 +72,7 @@ class MqttClient:
         deployment_code: str = "", edge_boot_id: int = 0,
         clean_session: bool = True,
         trusted_cos_environment=None,
+        unsupported_command_types=None,
     ):
         self.product_id = product_id
         self.device_name = device_name
@@ -83,6 +84,9 @@ class MqttClient:
         self.edge_boot_id = edge_boot_id
         self.clean_session = clean_session
         self._trusted_cos_environment = trusted_cos_environment
+        self._unsupported_command_types = frozenset(
+            unsupported_command_types or ()
+        )
         self._connected = False
         self._connect_event = threading.Event()
         self._connection_lock = threading.RLock()
@@ -101,6 +105,7 @@ class MqttClient:
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.on_command_received: Optional[Callable] = None
         self.on_confirmation_received: Optional[Callable] = None
+        self.on_connected: Optional[Callable] = None
         self._relay_thread: Optional[threading.Thread] = None
         self._exit_flag = threading.Event()
 
@@ -200,9 +205,34 @@ class MqttClient:
             self._store.save_mqtt_persistent_state(bool(session_present), 0)
             self._subscribe_topics()
             self._publish_online()
+            try:
+                fault = self._store.get_active_edge_fault(
+                    "NETWORK",
+                    "NETWORK_CONNECTIVITY",
+                )
+                if fault is not None and self.deployment_code:
+                    self._store.recover_fault_and_create_event(
+                        deployment_code=self.deployment_code,
+                        fault_uid=fault["fault_uid"],
+                        component="NETWORK",
+                        fault_code="NETWORK_CONNECTIVITY",
+                        port_no=fault["port_no"],
+                        recovery_evidence="MQTT_CONNECTED",
+                    )
+            except Exception:
+                logger.exception(
+                    "failed to persist MQTT recovery event"
+                )
             if not session_present:
                 self._relay_pending_events()
             self._start_relay_loop()
+            if self.on_connected is not None:
+                try:
+                    self.on_connected()
+                except Exception:
+                    logger.exception(
+                        "MQTT reconnect snapshot callback failed"
+                    )
         else:
             logger.error("MQTT 连接失败: reason_code=%s", reason_code)
             self._connected = False
@@ -221,6 +251,7 @@ class MqttClient:
         rc_int = self._reason_code_int(reason_code)
         try:
             self._store.save_mqtt_persistent_state(False, rc_int)
+            self._store.recover_sending_events()
         except Exception:
             pass
         logger.warning("MQTT 断开: reason_code=%s", reason_code)
@@ -258,6 +289,8 @@ class MqttClient:
             event = self._store.get_event(event_uid)
             if event and event["event_type"] == "BUSINESS_CONFIRMATION_RECEIPT":
                 self._store.mark_control_receipt_published(event_uid)
+            elif event:
+                self._store.mark_event_pending_retry(event_uid)
 
     def _subscribe_topics(self) -> None:
         pid, dn = self.product_id, self.device_name
@@ -329,20 +362,48 @@ class MqttClient:
             if command.get("deploymentCode") and self.deployment_code:
                 if command["deploymentCode"] != self.deployment_code:
                     raise ValueError("deploymentCode mismatch")
-            if command["commandType"] == "CONFIRM_EDGE_EVENT":
+            validate_command_envelope(
+                command,
+                trusted_environment=(
+                    self._trusted_cos_environment
+                ),
+            )
+            rejection_error = None
+            if (
+                command["commandType"]
+                in self._unsupported_command_types
+            ):
+                rejection_error = "MCU_FEATURE_NOT_SUPPORTED"
+                result = self._store.receive_rejected_command(
+                    command,
+                    rejection_error,
+                )
+            elif command["commandType"] == "CONFIRM_EDGE_EVENT":
                 result = self._store.receive_business_confirmation_and_create_receipt(
-                    command_uid=command_uid,
-                    confirmation_payload=command["payload"],
                     deployment_code=self.deployment_code or command.get("deploymentCode", ""),
+                    command=command,
                 )
             else:
-                validate_command_envelope(
-                    command,
-                    trusted_environment=(
-                        self._trusted_cos_environment
-                    ),
-                )
                 result = self._store.receive_command(command_uid, command["commandType"], command)
+            control_dispatched = False
+            control_error = None
+            if (
+                result in ("ACCEPTED", "DUPLICATE")
+                and command["commandType"]
+                == "PROVIDE_PHOTO_UPLOAD_GRANT"
+            ):
+                control_dispatched = True
+                accepted = bool(
+                    self.on_command_received
+                    and self.on_command_received(
+                        command_uid,
+                        command["commandType"],
+                        command,
+                    )
+                )
+                if not accepted:
+                    result = "REJECTED"
+                    control_error = "PHOTO_GRANT_REQUEST_NOT_PENDING"
             receipt_state = "DUPLICATE_ACCEPTED" if result == "DUPLICATE" else result
             if receipt_state not in ("ACCEPTED", "DUPLICATE_ACCEPTED"):
                 receipt_state = "REJECTED"
@@ -350,7 +411,11 @@ class MqttClient:
             if result == "CONFLICT":
                 error_code = "IDEMPOTENCY_CONFLICT"
             elif result == "REJECTED":
-                error_code = "COMMAND_REJECTED"
+                error_code = (
+                    rejection_error
+                    or control_error
+                    or "COMMAND_REJECTED"
+                )
             self.reply_service(
                 msg_id,
                 svc_id,
@@ -369,10 +434,14 @@ class MqttClient:
             if (
                 should_dispatch
                 and command["commandType"] != "CONFIRM_EDGE_EVENT"
+                and not control_dispatched
             ):
                 if self.on_command_received:
                     self.on_command_received(command_uid, command["commandType"], command)
-            if result == "ACCEPTED" and command["commandType"] == "CONFIRM_EDGE_EVENT":
+            if (
+                result in ("ACCEPTED", "DUPLICATE")
+                and command["commandType"] == "CONFIRM_EDGE_EVENT"
+            ):
                 self._relay_pending_events()
         except Exception as e:
             logger.error("服务调用拒绝: %s", e)

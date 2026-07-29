@@ -13,19 +13,13 @@ from edge_store import (
     WORK_TYPE_FULLNESS,
     WORK_TYPE_NONE,
 )
-from uart_protocol import REGISTRY
 logger = logging.getLogger("work-manager")
 def _new_uid() -> str:
     return str(_uuid.uuid4())
 
 
 def _compat_uid(work_uid: str, label: str) -> str:
-    return str(
-        _uuid.uuid5(
-            _uuid.NAMESPACE_URL,
-            f"ecobin:fixed-frame:{work_uid}:{label}",
-        )
-    )
+    return _new_uid()
 
 
 def _compat_measurement(
@@ -41,7 +35,7 @@ def _compat_measurement(
         "reportedWeightGrams": weight_grams,
         "weightValueKind": "STABLE_WINDOW_MEAN",
         "measurementElapsedMs": 0,
-        "sampleCount": 0,
+        "sampleCount": 1,
         "calibrationVersion": 0,
         "weightSensorHealth": "OK",
         "faultCode": "NONE",
@@ -135,17 +129,6 @@ def _deadline_after_ms(duration_ms: int) -> str:
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def _fault_code_number(value: Any) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return int(
-        REGISTRY["enums"]["FaultCode"]["values"].get(
-            str(value),
-            REGISTRY["enums"]["FaultCode"]["values"]["MCU_INTERNAL"],
-        )
-    )
-
-
 class WorkManager:
 
     def __init__(self, store: EdgeStore, uart_link, mqtt_client, photo_manager):
@@ -200,6 +183,58 @@ class WorkManager:
             return
         method(work_type, work_uid, grant)
 
+    def _completion_photo_facts(
+        self,
+        work_uid: str,
+        work_type: str,
+        slots: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        if self._photo is not None:
+            method = getattr(
+                self._photo,
+                "get_completion_photo_facts",
+                None,
+            )
+            if method is not None:
+                try:
+                    return method(work_uid, work_type)
+                except Exception:
+                    logger.exception(
+                        "completion photo snapshot failed: work=%s",
+                        work_uid,
+                    )
+        return _pending_photo_facts(slots)
+
+    def _reject_command(
+        self,
+        command: dict[str, Any],
+        error_code: str,
+    ) -> dict[str, Any]:
+        self._store.record_command_observation(
+            command,
+            "REJECTED",
+            error_code=error_code,
+        )
+        return {
+            "acked": False,
+            "error": error_code,
+        }
+
+    def _safety_rejection(self, port_no: int) -> Optional[str]:
+        smoke_state = self._store.get_state(
+            f"port_{port_no}_smoke_state",
+            self._store.get_state("smoke_state", ""),
+        )
+        smoke_health = self._store.get_state(
+            f"port_{port_no}_smoke_sensor_health",
+            self._store.get_state("smoke_sensor_health", ""),
+        )
+        if smoke_state == "ALARM":
+            return "SAFETY_SMOKE_ALARM"
+        if smoke_health and smoke_health != "OK":
+            return "SAFETY_SENSOR_UNHEALTHY"
+        return None
+
     def accept_photo_upload_grant(
         self,
         command: dict[str, Any],
@@ -218,19 +253,67 @@ class WorkManager:
             return slot
         return None
 
+    def expire_fixed_frame_work(self) -> bool:
+        """Fail an expired DD/EF wait without replaying its physical command."""
+        if not getattr(self._uart, "compatibility_mode", False):
+            return False
+        slot = self._store.get_work_slot()
+        if not slot or slot["work_type"] not in {
+            WORK_TYPE_DELIVERY,
+            WORK_TYPE_CLEAN,
+        }:
+            return False
+        context = slot["context"]
+        deadline = (
+            context.get("expires_at")
+            if slot["work_type"] == WORK_TYPE_DELIVERY
+            else context.get("operation_deadline")
+        )
+        if not deadline:
+            return False
+        try:
+            if _remaining_until(deadline) > 0:
+                return False
+        except ValueError:
+            pass
+        command_uid = context.get("start_command_uid")
+        command_row = (
+            self._store.get_command(command_uid)
+            if command_uid
+            else None
+        )
+        command = (
+            command_row.get("payload")
+            if command_row
+            else None
+        )
+        if command is None:
+            self._store.release_work_slot(slot["work_uid"])
+            return True
+        return self._store.fail_fixed_frame_work(
+            work_uid=slot["work_uid"],
+            command=command,
+            error_code="MCU_RESULT_TIMEOUT",
+            mcu_command_uid=context.get("start_mcu_command_uid"),
+            stage="FAILED",
+        )
+
     def start_delivery_command(self, command: dict[str, Any]) -> dict[str, Any]:
         """Persist and dispatch one cloud-authorized delivery session."""
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        safety_error = self._safety_rejection(payload["portNo"])
+        if safety_error:
+            return self._reject_command(command, safety_error)
         if (
             getattr(self._uart, "compatibility_mode", False)
             and payload["portNo"] != 1
         ):
-            return {
-                "acked": False,
-                "error": "MCU_FEATURE_NOT_SUPPORTED",
-            }
+            return self._reject_command(
+                command,
+                "MCU_FEATURE_NOT_SUPPORTED",
+            )
         start_window_ms = _remaining_execution_ms(command)
         session_uid = payload["sessionUid"]
         mcu_command_uid = _new_uid()
@@ -262,8 +345,9 @@ class WorkManager:
             session_uid,
             payload["portNo"],
             ctx,
+            observed_command=command,
         ):
-            return {"acked": False, "error": "DEVICE_BUSY"}
+            return self._reject_command(command, "DEVICE_BUSY")
         self._offer_initial_photo_grant(
             command,
             "DELIVERY_SESSION",
@@ -275,19 +359,20 @@ class WorkManager:
             False,
         )
         if compatibility_mode:
-            if not self._capture_photos(
+            self._capture_photos(
                 "capture_open_photos",
                 session_uid,
-            ):
-                self._store.release_work_slot(session_uid)
-                return {
-                    "acked": False,
-                    "error": "PHOTO_CAPTURE_NOT_PERSISTED",
-                }
+            )
             try:
                 start_window_ms = _remaining_execution_ms(command)
             except ValueError:
-                self._store.release_work_slot(session_uid)
+                self._store.fail_fixed_frame_work(
+                    work_uid=session_uid,
+                    command=command,
+                    error_code="COMMAND_EXPIRED",
+                    mcu_command_uid=mcu_command_uid,
+                    stage="PRE_START_FAILED",
+                )
                 return {
                     "acked": False,
                     "error": "COMMAND_EXPIRED",
@@ -324,8 +409,31 @@ class WorkManager:
                 else "START_RESULT_UNKNOWN"
             )
         self._store.update_work_context(session_uid, ctx)
-        if compatibility_mode and not result["acked"]:
-            self._store.release_work_slot(session_uid)
+        if result["acked"]:
+            self._store.record_command_observation(
+                command,
+                "MCU_ACCEPTED",
+                mcu_command_uid=mcu_command_uid,
+            )
+        elif compatibility_mode:
+            error_code = str(
+                result.get("error") or "UART_WRITE_FAILED"
+            )
+            stage = (
+                "PRE_START_FAILED"
+                if error_code in {
+                    "UART_CLOSED",
+                    "MCU_FEATURE_NOT_SUPPORTED",
+                }
+                else "FAILED"
+            )
+            self._store.fail_fixed_frame_work(
+                work_uid=session_uid,
+                command=command,
+                error_code=error_code,
+                mcu_command_uid=mcu_command_uid,
+                stage=stage,
+            )
         return result
 
     def start_clean_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -333,14 +441,17 @@ class WorkManager:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        safety_error = self._safety_rejection(payload["portNo"])
+        if safety_error:
+            return self._reject_command(command, safety_error)
         if (
             getattr(self._uart, "compatibility_mode", False)
             and payload["portNo"] != 1
         ):
-            return {
-                "acked": False,
-                "error": "MCU_FEATURE_NOT_SUPPORTED",
-            }
+            return self._reject_command(
+                command,
+                "MCU_FEATURE_NOT_SUPPORTED",
+            )
         operation_uid = payload["operationUid"]
         mcu_command_uid = _new_uid()
         ctx = {
@@ -372,8 +483,9 @@ class WorkManager:
             operation_uid,
             payload["portNo"],
             ctx,
+            observed_command=command,
         ):
-            return {"acked": False, "error": "DEVICE_BUSY"}
+            return self._reject_command(command, "DEVICE_BUSY")
         self._offer_initial_photo_grant(
             command,
             "CLEAN_OPERATION",
@@ -385,19 +497,20 @@ class WorkManager:
             False,
         )
         if compatibility_mode:
-            if not self._capture_photos(
+            self._capture_photos(
                 "capture_clean_open_photos",
                 operation_uid,
-            ):
-                self._store.release_work_slot(operation_uid)
-                return {
-                    "acked": False,
-                    "error": "PHOTO_CAPTURE_NOT_PERSISTED",
-                }
+            )
             try:
                 start_window_ms = _remaining_execution_ms(command)
             except ValueError:
-                self._store.release_work_slot(operation_uid)
+                self._store.fail_fixed_frame_work(
+                    work_uid=operation_uid,
+                    command=command,
+                    error_code="COMMAND_EXPIRED",
+                    mcu_command_uid=mcu_command_uid,
+                    stage="PRE_START_FAILED",
+                )
                 return {
                     "acked": False,
                     "error": "COMMAND_EXPIRED",
@@ -429,8 +542,31 @@ class WorkManager:
                 else "START_RESULT_UNKNOWN"
             )
         self._store.update_work_context(operation_uid, ctx)
-        if compatibility_mode and not result["acked"]:
-            self._store.release_work_slot(operation_uid)
+        if result["acked"]:
+            self._store.record_command_observation(
+                command,
+                "MCU_ACCEPTED",
+                mcu_command_uid=mcu_command_uid,
+            )
+        elif compatibility_mode:
+            error_code = str(
+                result.get("error") or "UART_WRITE_FAILED"
+            )
+            stage = (
+                "PRE_START_FAILED"
+                if error_code in {
+                    "UART_CLOSED",
+                    "MCU_FEATURE_NOT_SUPPORTED",
+                }
+                else "FAILED"
+            )
+            self._store.fail_fixed_frame_work(
+                work_uid=operation_uid,
+                command=command,
+                error_code=error_code,
+                mcu_command_uid=mcu_command_uid,
+                stage=stage,
+            )
         return result
 
     def start_fullness_command(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -482,11 +618,6 @@ class WorkManager:
         command: dict[str, Any],
     ) -> dict[str, Any]:
         payload = command["payload"]
-        if payload.get("sampleRole") != "INITIAL":
-            return {
-                "acked": False,
-                "error": "MCU_FEATURE_NOT_SUPPORTED",
-            }
         try:
             observation = json.loads(
                 self._store.get_state(
@@ -496,66 +627,92 @@ class WorkManager:
             )
         except (TypeError, ValueError):
             observation = None
-        if (
-            not isinstance(observation, dict)
-            or observation.get("portNo") != payload["portNo"]
-            or not self._valid_compat_fullness_observation(observation)
-        ):
-            return {
-                "acked": False,
-                "error": "MCU_FEATURE_NOT_SUPPORTED",
+        has_history = (
+            isinstance(observation, dict)
+            and observation.get("portNo") == payload["portNo"]
+            and self._valid_compat_fullness_observation(observation)
+        )
+        if not has_history:
+            observation = {
+                "postWeightGrams": 0,
+                "infraredBlocked": False,
+                "mcuBootId": max(
+                    1,
+                    int(self._store.get_edge_boot_id() or 1),
+                ),
+                "mcuEventSequence": (
+                    self._store.reserve_compat_mcu_event_sequence()
+                ),
             }
         detection_uid = payload["detectionUid"]
-        mcu_command_uid = _new_uid()
-        ctx = {
-            "detection_uid": detection_uid,
-            "port_no": payload["portNo"],
-            "command_uid": command["commandUid"],
-            "deployment_code": command["deploymentCode"],
-            "mcu_command_uid": mcu_command_uid,
-            "payload": payload,
-            "phase": "USING_LATEST_FIXED_FRAME_OBSERVATION",
-        }
-        if not self._store.acquire_work_slot(
-            WORK_TYPE_FULLNESS,
-            detection_uid,
-            payload["portNo"],
-            ctx,
-        ):
-            return {"acked": False, "error": "DEVICE_BUSY"}
         measurement = _compat_measurement(
             detection_uid,
             "total-weight",
             observation["postWeightGrams"],
             observation,
         )
-        self._on_fullness_sample_result(
-            ctx,
-            {
-                **measurement,
-                "mcuCommandUid": mcu_command_uid,
-                "detectionUid": detection_uid,
-                "portNo": payload["portNo"],
-                "sampleRole": payload["sampleRole"],
-                "fullnessSensorKind": "DIGITAL_INFRARED",
-                "fullnessSensorValue": (
-                    "BLOCKED"
-                    if observation["infraredBlocked"]
-                    else "CLEAR"
-                ),
-                "fullnessSampleBasis": "NOT_SAMPLED",
-                "representativeDistancePresent": False,
-                "representativeDistanceMm": 0,
-                "requestedSampleCount": 1,
-                "validSampleCount": 1,
-            },
-            detection_uid,
+        event_payload = {
+            "detectionUid": detection_uid,
+            "portNo": payload["portNo"],
+            "sampleRole": payload["sampleRole"],
+            "triggerType": payload["triggerType"],
+            "fullnessMode": payload["fullnessMode"],
+            "fullnessSensorKind": "DIGITAL_INFRARED",
+            "fullnessSensorValue": (
+                "BLOCKED"
+                if observation["infraredBlocked"]
+                else "CLEAR"
+            ),
+            "fullnessSampleBasis": "NOT_SAMPLED",
+            "representativeDistanceMm": None,
+            "requestedSampleCount": 1 if has_history else 0,
+            "validSampleCount": 1 if has_history else 0,
+            "totalWeightMeasurement": _measurement_fact(measurement),
+            "frozenConfig": _frozen_config(payload["config"]),
+        }
+        full_weight = payload["configuredFullWeightGrams"]
+        fullness_percent = (
+            observation["postWeightGrams"] * 100.0 / full_weight
         )
+        local_result = {
+            "fullnessSensorValue": event_payload[
+                "fullnessSensorValue"
+            ],
+            "fullnessSampleBasis": "NOT_SAMPLED",
+            "fullnessPercent": fullness_percent,
+            "fullnessState": (
+                "FULL"
+                if fullness_percent >= 100.0
+                else "NOT_FULL"
+            ),
+            "resultSource": (
+                "LATEST_FLOW_POST"
+                if has_history
+                else "NO_HISTORY_ZERO"
+            ),
+        }
+        completed = self._store.complete_fixed_frame_local_result(
+            result_type="FULLNESS",
+            result_key=(
+                f"{detection_uid}:{payload['sampleRole']}"
+            ),
+            command=command,
+            event_uid=_new_uid(),
+            event_type="FULLNESS_SAMPLE_COMPLETE",
+            target_type="FULLNESS_DETECTION",
+            target_uid=detection_uid,
+            event_payload=event_payload,
+            result=local_result,
+        )
+        if completed not in ("ACCEPTED", "DUPLICATE"):
+            raise ValueError(
+                f"fixed-frame fullness persistence {completed.lower()}"
+            )
         return {
             "acked": True,
             "completed_locally": True,
-            "mcu_command_uid": mcu_command_uid,
-            "disposition": "LATEST_MCU_OBSERVATION",
+            "mcu_command_uid": None,
+            "disposition": local_result["resultSource"],
         }
 
     @staticmethod
@@ -583,10 +740,7 @@ class WorkManager:
         config = payload["config"]
         self._require_applied_config(config)
         if getattr(self._uart, "compatibility_mode", False):
-            return {
-                "acked": False,
-                "error": "MCU_FEATURE_NOT_SUPPORTED",
-            }
+            return self._start_compat_baseline_command(command)
         measurement_uid = payload["measurementUid"]
         mcu_command_uid = _new_uid()
         ctx = {
@@ -624,6 +778,137 @@ class WorkManager:
         )
         self._store.update_work_context(measurement_uid, ctx)
         return result
+
+    def _start_compat_baseline_command(
+        self,
+        command: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = command["payload"]
+        if payload.get("emptyBagConfirmed") is not True:
+            return self._reject_command(
+                command,
+                "EMPTY_BAG_NOT_CONFIRMED",
+            )
+        measurement_uid = payload["measurementUid"]
+        bag_uid = payload["bagUid"]
+        saved = self._store.get_bag_baseline(bag_uid)
+        if saved:
+            source_kind = (
+                saved.get("source_kind")
+                or "SAME_BAG_CLEAN_POST"
+            )
+            weight_grams = saved["weight_grams"]
+            source = {
+                "mcuBootId": (
+                    saved.get("source_mcu_boot_id")
+                    or max(
+                        1,
+                        int(self._store.get_edge_boot_id() or 1),
+                    )
+                ),
+                "mcuEventSequence": (
+                    saved.get("source_mcu_event_sequence")
+                    or self._store.reserve_compat_mcu_event_sequence()
+                ),
+            }
+            source_work_type = saved.get("source_work_type")
+            source_work_uid = saved.get("source_work_uid")
+        else:
+            try:
+                observation = json.loads(
+                    self._store.get_state(
+                        "fixed_frame_latest_observation_json",
+                        "",
+                    )
+                )
+            except (TypeError, ValueError):
+                observation = None
+            if (
+                isinstance(observation, dict)
+                and self._valid_compat_fullness_observation(
+                    observation
+                )
+            ):
+                source_kind = "LATEST_FLOW_POST"
+                weight_grams = observation["postWeightGrams"]
+                source = observation
+                source_work_type = observation.get("sourceWorkType")
+                source_work_uid = observation.get("sourceWorkUid")
+            else:
+                source_kind = "NO_HISTORY_ZERO"
+                weight_grams = 0
+                source = {
+                    "mcuBootId": max(
+                        1,
+                        int(self._store.get_edge_boot_id() or 1),
+                    ),
+                    "mcuEventSequence": (
+                        self._store.reserve_compat_mcu_event_sequence()
+                    ),
+                }
+                source_work_type = None
+                source_work_uid = None
+        measurement = _compat_measurement(
+            measurement_uid,
+            "baseline",
+            weight_grams,
+            source,
+        )
+        event_payload = {
+            "measurementUid": measurement_uid,
+            "portNo": payload["portNo"],
+            "bagUid": bag_uid,
+            "emptyBagConfirmed": True,
+            "totalWeightMeasurement": _measurement_fact(measurement),
+            "frozenConfig": _frozen_config(payload["config"]),
+        }
+        result = {
+            "measurementStatus": "STABLE",
+            "weightValuePresent": True,
+            "reportedWeightGrams": weight_grams,
+            "compatibilitySource": source_kind,
+        }
+        completed = self._store.complete_fixed_frame_local_result(
+            result_type="BASELINE",
+            result_key=measurement_uid,
+            command=command,
+            event_uid=_new_uid(),
+            event_type="BASELINE_MEASUREMENT_COMPLETE",
+            target_type="BASELINE_MEASUREMENT",
+            target_uid=measurement_uid,
+            event_payload=event_payload,
+            result=result,
+            bag_baseline={
+                "bag_uid": bag_uid,
+                "weight_grams": weight_grams,
+                "source_kind": source_kind,
+                "source_work_type": source_work_type,
+                "source_work_uid": source_work_uid,
+                "source_mcu_boot_id": source.get("mcuBootId"),
+                "source_mcu_event_sequence": source.get(
+                    "mcuEventSequence"
+                ),
+                "source_observed_at": None,
+                "measurement_uid": measurement[
+                    "measurementUid"
+                ],
+                "updated_at": datetime.now(
+                    timezone.utc
+                ).isoformat(
+                    timespec="milliseconds"
+                ).replace("+00:00", "Z"),
+            },
+        )
+        if completed not in ("ACCEPTED", "DUPLICATE"):
+            raise ValueError(
+                f"fixed-frame baseline persistence {completed.lower()}"
+            )
+        return {
+            "acked": True,
+            "completed_locally": True,
+            "mcu_command_uid": None,
+            "disposition": source_kind,
+        }
 
     def end_clean_before_unlock_command(
         self,
@@ -834,10 +1119,16 @@ class WorkManager:
             self._on_compat_clean_result(payload)
             return
         if msg_name == "SAFETY_SENSOR_EVENT":
-            self._on_safety_sensor_event(payload)
+            self._on_safety_sensor_event(
+                payload,
+                int(frame.get("mcu_receive_generation") or 0),
+            )
             return
         if msg_name == "FAULT_OBSERVED":
-            self._on_fault_observed(payload)
+            self._on_fault_observed(
+                payload,
+                int(frame.get("mcu_receive_generation") or 0),
+            )
             return
         if msg_name == "SAFE_CLOSE_RESULT":
             self._on_safe_close_result(payload)
@@ -911,21 +1202,6 @@ class WorkManager:
             "last_delivery_door_output_status": "COMMAND_DISPATCHED",
             "delivery_door_physical_state_basis": "NOT_OBSERVABLE",
         })
-        self._store.update_work_context(work_uid, ctx)
-        self._store.complete_command(
-            ctx["start_command_uid"],
-            {
-                "preWeightGrams": pre_weight,
-                "postWeightGrams": post_weight,
-                "resultSource": "FIXED_FRAME_DD",
-            },
-        )
-        self._cache_compat_fullness_observation(
-            payload,
-            work_uid,
-            WORK_TYPE_DELIVERY,
-            post_weight,
-        )
         self._capture_photos(
             "capture_close_photos",
             work_uid,
@@ -948,33 +1224,48 @@ class WorkManager:
             "unitPriceTenThousandths": ctx[
                 "unit_price_ten_thousandths"
             ],
-            "photos": _pending_photo_facts(
+            "photos": self._completion_photo_facts(
+                work_uid,
+                "DELIVERY_SESSION",
                 (
                     "BEFORE_INNER",
                     "BEFORE_OUTER",
                     "AFTER_INNER",
                     "AFTER_OUTER",
-                )
+                ),
             ),
         }
-        created = self._create_reliable_event(
-            event_type="DELIVERY_COMPLETE",
-            target_type="DELIVERY_SESSION",
+        observation = {
+            "sourceWorkType": WORK_TYPE_DELIVERY,
+            "sourceWorkUid": work_uid,
+            "portNo": ctx["port_no"],
+            "postWeightGrams": post_weight,
+            "infraredBlocked": payload["infraredBlocked"],
+            "mcuBootId": payload["mcuBootId"],
+            "mcuEventSequence": payload["mcuEventSequence"],
+            "measurementUid": final_measurement["measurementUid"],
+        }
+        created = self._store.complete_fixed_frame_work(
+            work_type=WORK_TYPE_DELIVERY,
             work_uid=work_uid,
-            command_uid=ctx.get("start_command_uid"),
-            deployment_code=ctx.get("deployment_code"),
-            payload=event_payload,
-            work_state_update={
-                "state": "COMPLETING",
-                "context": ctx,
+            command_uid=ctx["start_command_uid"],
+            command_result={
+                "preWeightGrams": pre_weight,
+                "postWeightGrams": post_weight,
+                "resultSource": "FIXED_FRAME_DD",
             },
-            event_uid=_compat_uid(work_uid, "delivery-complete"),
+            context=ctx,
+            observation=observation,
+            event_uid=_new_uid(),
+            event_type="DELIVERY_COMPLETE",
+            event_payload=event_payload,
+            deployment_code=ctx.get("deployment_code") or "Dp_unknown",
+            target_type="DELIVERY_SESSION",
         )
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
                 f"fixed-frame delivery persistence {created.lower()}"
             )
-        self._store.release_work_slot(work_uid)
         logger.info(
             "fixed-frame delivery complete: %s net=%d",
             work_uid,
@@ -1016,24 +1307,16 @@ class WorkManager:
             "clean_door_state_basis": "CLEANER_CONFIRMATION",
             "cleaner_physical_close_confirmed": True,
         })
-        self._store.update_work_context(work_uid, ctx)
-        self._store.complete_command(
-            ctx["start_command_uid"],
-            {
-                "preWeightGrams": pre_weight,
-                "postWeightGrams": post_weight,
-                "resultSource": "FIXED_FRAME_EF",
-            },
-        )
-        self._cache_compat_fullness_observation(
-            payload,
-            work_uid,
-            WORK_TYPE_CLEAN,
-            post_weight,
-        )
         self._capture_photos(
             "capture_clean_close_photos",
             work_uid,
+        )
+        old_baseline = ctx.get("old_baseline_weight_grams")
+        removed_weight = (
+            pre_weight - old_baseline
+            if isinstance(old_baseline, int)
+            and not isinstance(old_baseline, bool)
+            else None
         )
         event_payload = {
             "operationUid": ctx.get("operation_uid", work_uid),
@@ -1044,7 +1327,7 @@ class WorkManager:
             "cleanerConfirmedFinalMeasurement": _measurement_fact(
                 final_measurement
             ),
-            "removedNetWeightGrams": pre_weight - post_weight,
+            "removedNetWeightGrams": removed_weight,
             "newBaselineWeightGrams": post_weight,
             "cleanerCompletionConfirmed": True,
             "cleanActionSequence": 1,
@@ -1055,37 +1338,71 @@ class WorkManager:
                 "cleanerPhysicalCloseConfirmed": True,
             },
             "frozenConfig": _frozen_config(ctx["config"]),
-            "photos": _pending_photo_facts(
+            "photos": self._completion_photo_facts(
+                work_uid,
+                "CLEAN_OPERATION",
                 (
                     "FIRST_OPEN_INNER",
                     "FIRST_OPEN_OUTER",
                     "FINAL_CLOSE_INNER",
                     "FINAL_CLOSE_OUTER",
-                )
+                ),
             ),
         }
-        created = self._create_reliable_event(
-            event_type="CLEAN_COMPLETE",
-            target_type="CLEAN_OPERATION",
+        observation = {
+            "sourceWorkType": WORK_TYPE_CLEAN,
+            "sourceWorkUid": work_uid,
+            "portNo": ctx["port_no"],
+            "postWeightGrams": post_weight,
+            "infraredBlocked": payload["infraredBlocked"],
+            "mcuBootId": payload["mcuBootId"],
+            "mcuEventSequence": payload["mcuEventSequence"],
+            "measurementUid": final_measurement["measurementUid"],
+        }
+        now = datetime.now(timezone.utc).isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z")
+        created = self._store.complete_fixed_frame_work(
+            work_type=WORK_TYPE_CLEAN,
             work_uid=work_uid,
-            command_uid=ctx.get("start_command_uid"),
-            deployment_code=ctx.get("deployment_code"),
-            payload=event_payload,
-            work_state_update={
-                "state": "COMPLETING",
-                "context": ctx,
+            command_uid=ctx["start_command_uid"],
+            command_result={
+                "preWeightGrams": pre_weight,
+                "postWeightGrams": post_weight,
+                "resultSource": "FIXED_FRAME_EF",
             },
-            event_uid=_compat_uid(work_uid, "clean-complete"),
+            context=ctx,
+            observation=observation,
+            event_uid=_new_uid(),
+            event_type="CLEAN_COMPLETE",
+            event_payload=event_payload,
+            deployment_code=ctx.get("deployment_code") or "Dp_unknown",
+            target_type="CLEAN_OPERATION",
+            bag_baseline={
+                "bag_uid": ctx["new_bag_uid"],
+                "weight_grams": post_weight,
+                "source_kind": "SAME_BAG_CLEAN_POST",
+                "source_work_type": WORK_TYPE_CLEAN,
+                "source_work_uid": work_uid,
+                "source_mcu_boot_id": payload["mcuBootId"],
+                "source_mcu_event_sequence": payload[
+                    "mcuEventSequence"
+                ],
+                "source_observed_at": now,
+                "measurement_uid": final_measurement[
+                    "measurementUid"
+                ],
+                "updated_at": now,
+            },
         )
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
                 f"fixed-frame clean persistence {created.lower()}"
             )
-        self._store.release_work_slot(work_uid)
         logger.info(
             "fixed-frame clean complete: %s removed=%d",
             work_uid,
-            pre_weight - post_weight,
+            removed_weight or 0,
         )
 
     @staticmethod
@@ -1116,122 +1433,78 @@ class WorkManager:
             raise ValueError("invalid fixed-frame result identity")
         return values
 
-    def _cache_compat_fullness_observation(
+    def _on_safety_sensor_event(
         self,
-        payload: dict[str, Any],
-        work_uid: str,
-        work_type: str,
-        post_weight: int,
-    ) -> None:
-        observation = {
-            "sourceWorkType": work_type,
-            "sourceWorkUid": work_uid,
-            "portNo": 1,
-            "postWeightGrams": post_weight,
-            "infraredBlocked": payload["infraredBlocked"],
-            "mcuBootId": payload["mcuBootId"],
-            "mcuEventSequence": payload["mcuEventSequence"],
-        }
-        self._store.set_state(
-            "fixed_frame_latest_observation_json",
-            json.dumps(observation, ensure_ascii=False),
-        )
-
-    def _on_safety_sensor_event(self, payload):
-        smoke_state = str(payload.get("smokeState") or "UNKNOWN")
-        smoke_health = str(
-            payload.get("smokeSensorHealth") or "UNKNOWN"
-        )
-        self._store.set_state("smoke_state", smoke_state)
-        self._store.set_state("smoke_sensor_health", smoke_health)
-        port_no = payload.get("portNo")
-        if isinstance(port_no, int) and port_no > 0:
-            self._store.set_state(
-                f"port_{port_no}_smoke_state",
-                smoke_state,
-            )
-            self._store.set_state(
-                f"port_{port_no}_smoke_sensor_health",
-                smoke_health,
-            )
+        payload,
+        mcu_receive_generation: int,
+    ):
         deployment_code = (
             getattr(self._mqtt, "deployment_code", None) or "Dp_unknown"
         )
-        work_type = payload.get("workType", "NONE")
-        work_uid = payload.get("workUid")
-        if work_type == "NONE":
-            work_uid = None
-        fault_code = payload.get("faultCode")
-        event_payload = {
-            "portNo": port_no if isinstance(port_no, int) and port_no > 0 else None,
-            "smokeState": smoke_state,
-            "smokeSensorHealth": smoke_health,
-            "faultCode": (
-                None if fault_code in (None, "NONE") else fault_code
-            ),
-            "workType": work_type,
-            "workUid": work_uid,
-            "mcuBootId": payload.get("mcuBootId"),
-            "mcuEventSequence": payload.get("mcuEventSequence"),
-        }
-        event_uid = _new_uid()
-        self._store.create_edge_event(
-            event_uid=event_uid,
-            event_type="SAFETY_SENSOR_STATE_CHANGED",
-            payload=event_payload,
-            work_uid=work_uid,
+        result = self._store.record_safety_state_and_event(
             deployment_code=deployment_code,
-            target_type="DEVICE_DEPLOYMENT",
-            target_uid=deployment_code,
+            mcu_receive_generation=mcu_receive_generation,
+            payload=payload,
         )
+        if result not in ("ACCEPTED", "DUPLICATE"):
+            raise ValueError(
+                f"safety sensor event {result.lower()}"
+            )
 
-    def _on_fault_observed(self, payload):
+    def _on_fault_observed(
+        self,
+        payload,
+        mcu_receive_generation: int,
+    ):
         severity = str(payload.get("severity") or "WARNING")
         lifecycle = str(payload.get("lifecycle") or "OBSERVED")
         fault_uid = str(payload.get("faultUid") or _new_uid())
-        self._store.record_fault(
-            str(payload.get("component") or "MCU_INTERNAL"),
-            _fault_code_number(payload.get("faultCode")),
-            severity,
-            dict(payload),
-            fault_uid=fault_uid,
-            lifecycle=lifecycle,
-        )
         deployment_code = (
             getattr(self._mqtt, "deployment_code", None) or "Dp_unknown"
         )
-        event_type = (
-            "DEVICE_FAULT_RECOVERED"
-            if lifecycle == "RECOVERED"
-            else "DEVICE_FAULT_OBSERVED"
+        component = str(
+            payload.get("component") or "MCU_INTERNAL"
         )
-        event_uid = _new_uid()
-        self._store.create_edge_event(
-            event_uid=event_uid,
-            event_type=event_type,
-            payload={
-                "faultUid": fault_uid,
-                "portNo": (
-                    payload.get("portNo")
-                    if isinstance(payload.get("portNo"), int)
-                    and payload.get("portNo") > 0
-                    else None
+        fault_code = str(
+            payload.get("faultCode") or "MCU_INTERNAL"
+        )
+        port_no = (
+            payload.get("portNo")
+            if isinstance(payload.get("portNo"), int)
+            and payload.get("portNo") > 0
+            else None
+        )
+        if lifecycle == "RECOVERED":
+            result = self._store.recover_fault_and_create_event(
+                deployment_code=deployment_code,
+                fault_uid=fault_uid,
+                component=component,
+                fault_code=fault_code,
+                port_no=port_no,
+                recovery_evidence="MCU_RECOVERY_EVENT",
+                mcu_boot_id=payload.get("mcuBootId"),
+                mcu_event_sequence=payload.get(
+                    "mcuEventSequence"
                 ),
-                "component": payload.get("component", "MCU_INTERNAL"),
-                "severity": severity,
-                "faultCode": payload.get("faultCode", "MCU_INTERNAL"),
-                "mcuBootId": payload.get("mcuBootId"),
-                "mcuEventSequence": payload.get("mcuEventSequence"),
-            },
-            work_uid=(
-                payload.get("workUid")
-                if payload.get("workType") != "NONE"
-                else None
-            ),
-            deployment_code=deployment_code,
-            target_type="DEVICE_DEPLOYMENT",
-            target_uid=deployment_code,
-        )
+                mcu_receive_generation=mcu_receive_generation,
+            )
+        else:
+            result = self._store.observe_fault_and_create_event(
+                deployment_code=deployment_code,
+                component=component,
+                fault_code=fault_code,
+                severity=severity,
+                port_no=port_no,
+                fault_uid=fault_uid,
+                mcu_boot_id=payload.get("mcuBootId"),
+                mcu_event_sequence=payload.get(
+                    "mcuEventSequence"
+                ),
+                mcu_receive_generation=mcu_receive_generation,
+                detail=dict(payload),
+            )
+        if result not in ("ACCEPTED", "DUPLICATE"):
+            raise ValueError(f"fault lifecycle result {result.lower()}")
 
     def _on_boot_reconciliation_result(self, ctx, payload, work_uid):
         if (
@@ -1448,13 +1721,15 @@ class WorkManager:
                 "unitPriceTenThousandths": ctx[
                     "unit_price_ten_thousandths"
                 ],
-                "photos": _pending_photo_facts(
+                "photos": self._completion_photo_facts(
+                    work_uid,
+                    "DELIVERY_SESSION",
                     (
                         "BEFORE_INNER",
                         "BEFORE_OUTER",
                         "AFTER_INNER",
                         "AFTER_OUTER",
-                    )
+                    ),
                 ),
             }
             self._create_reliable_event(
@@ -1697,9 +1972,11 @@ class WorkManager:
             ctx.get("final_measurement") or {}
         )
         preunlock_weight = ctx.get("preunlock_weight_grams")
+        old_baseline = ctx.get("old_baseline_weight_grams")
         removed_weight = (
-            preunlock_weight - final_usable
-            if preunlock_weight is not None and final_usable is not None
+            preunlock_weight - old_baseline
+            if preunlock_weight is not None
+            and old_baseline is not None
             else None
         )
         event_payload = {
@@ -1726,13 +2003,15 @@ class WorkManager:
                 "cleanerPhysicalCloseConfirmed": True,
             },
             "frozenConfig": _frozen_config(ctx["config"]),
-            "photos": _pending_photo_facts(
+            "photos": self._completion_photo_facts(
+                work_uid,
+                "CLEAN_OPERATION",
                 (
                     "FIRST_OPEN_INNER",
                     "FIRST_OPEN_OUTER",
                     "FINAL_CLOSE_INNER",
                     "FINAL_CLOSE_OUTER",
-                )
+                ),
             ),
         }
         self._create_reliable_event(
