@@ -3,7 +3,6 @@ package org.enveloping.ecobin.integration.onenet.outbound;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
-import org.enveloping.ecobin.device.api.port.DeviceCommandGateway;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
@@ -19,10 +18,13 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,53 +50,12 @@ import java.util.UUID;
         havingValue = "real")
 @RequiredArgsConstructor
 public class OneNetClient
-        implements DeviceCommandGateway, ReliableDeviceCommandSubmissionPort {
+        implements ReliableDeviceCommandSubmissionPort {
 
     private final OneNetProperties properties;
     private final RestTemplate restTemplate;
     private final CosUploadCredentialPort cosUploadCredentialPort;
     private final ObjectMapper objectMapper;
-
-    /** OneNet 字符串字段上限 512，STS sessionToken 实测约 640，需拆段下发（物模型 §3.4）。 */
-    private static final int ONENET_STRING_MAX = 512;
-
-    /**
-     * 下发「开投递投口」指令（物模型服务 {@code openDeliveryDoor}），COS 临时密钥搭车下发。
-     * <p>
-     * 投递为「上传后建单」：照片位置由<strong>设备</strong>决定（设备自生成 token、自定对象 key 直传），
-     * 故本命令<strong>只下发凭证</strong>，不下发照片 key。
-     * <p>
-     * 分类不再随开门下发：投递分类由后端建单时按投口配置（{@code biz_door}）兜底确定。
-     *
-     * @param devSn      设备序列号
-     * @param doorIndex  投口号
-     */
-    @Override
-    public void openDeliveryDoor(String devSn, Integer doorIndex) {
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("doorIndex", doorIndex);
-        input.put("cosToken", baseCosToken(devSn, doorIndex));
-        invokeService(devSn, "openDeliveryDoor", input);
-    }
-
-    /**
-     * 下发「开清运门」指令（物模型服务 {@code openCleanDoor}），COS 临时密钥搭车下发。
-     * <p>
-     * 清运「开门即建单」：照片 key 由后端按 {@code {sn}/{doorIndex}/{cleanOrderId}/<slot>.jpg} 确定性生成并
-     * 开门即预存订单 URL；本命令<strong>不下发照片 key</strong>，设备据下发的 {@code cleanOrderId} 自行按同一约定拼 key 直传。
-     *
-     * @param devSn        设备序列号
-     * @param doorIndex    投口号（物理控制）
-     * @param cleanOrderId 清运订单ID（设备 {@code cleanGross}/{@code cleanTare} 原样带回；并据此自拼照片 key）
-     */
-    @Override
-    public void openCleanDoor(String devSn, Integer doorIndex, Long cleanOrderId) {
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("doorIndex", doorIndex);
-        input.put("cleanOrderId", cleanOrderId);
-        input.put("cosToken", baseCosToken(devSn, doorIndex));
-        invokeService(devSn, "openCleanDoor", input);
-    }
 
     /**
      * Submits the exact command envelope frozen by the business transaction.
@@ -107,7 +68,30 @@ public class OneNetClient
             JsonNode envelope =
                     objectMapper.readTree(submission.semanticEnvelopeJson());
             requireEnvelopeIdentity(envelope, submission);
-            if (!"APPLY_CONFIGURATION".equals(submission.commandType())) {
+            if ("START_DELIVERY_SESSION".equals(
+                    submission.commandType())) {
+                // Validate the frozen, credential-free command before the
+                // first external STS call.
+                projectStartDeliverySession(envelope);
+                envelope = attachInitialDeliveryCosGrant(
+                        envelope,
+                        submission);
+            }
+            String identifier;
+            Map<String, Object> params;
+            if ("APPLY_CONFIGURATION".equals(
+                    submission.commandType())) {
+                identifier = "applyConfiguration";
+                params = projectApplyConfiguration(envelope);
+            } else if ("START_DELIVERY_SESSION".equals(
+                    submission.commandType())) {
+                identifier = "startDeliverySession";
+                params = projectStartDeliverySession(envelope);
+            } else if ("CONFIRM_EDGE_EVENT".equals(
+                    submission.commandType())) {
+                identifier = "confirmEdgeEvent";
+                params = projectConfirmEdgeEvent(envelope);
+            } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
                         "target OneNet Adapter does not support this command type");
@@ -115,8 +99,8 @@ public class OneNetClient
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("product_id", properties.getProductId());
             body.put("device_name", submission.hardwareSn());
-            body.put("identifier", "applyConfiguration");
-            body.put("params", projectApplyConfiguration(envelope));
+            body.put("identifier", identifier);
+            body.put("params", params);
             DeviceCommandSubmissionResult result = submitWireBody(body);
             log.info(
                     "[OneNet] reliable command attempt type={} task={} outcome={} http={}",
@@ -136,26 +120,74 @@ public class OneNetClient
         }
     }
 
-    /**
-     * 调用 OneNet「设备服务调用」API（async）。
-     */
-    private void invokeService(String devSn, String identifier, Map<String, Object> input) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("product_id", properties.getProductId());
-        body.put("device_name", devSn);
-        body.put("identifier", identifier);
-        body.put("params", input);
-        DeviceCommandSubmissionResult result = submitWireBody(body);
-        if (result.outcome()
-                != DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED) {
-            throw new IllegalStateException(
-                    "OneNet service call was not technically accepted: "
-                            + result.externalErrorCode());
+    private JsonNode attachInitialDeliveryCosGrant(
+            JsonNode frozenEnvelope,
+            DeviceCommandSubmission submission) {
+        ObjectNode envelope =
+                (ObjectNode) frozenEnvelope.deepCopy();
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentCode = requiredMatchingText(
+                envelope,
+                "deploymentCode",
+                "^Dp_[A-Za-z0-9_-]{6,61}$",
+                64);
+        String sessionUid = requiredUuid(payload, "sessionUid");
+        int portNo = Math.toIntExact(
+                requiredInteger(
+                        payload,
+                        "portNo",
+                        1,
+                        6)
+                        .longValue());
+        String keyPrefix = "ecobin/"
+                + deploymentCode
+                + "/delivery-session/"
+                + sessionUid
+                + "/";
+        CosUploadCredential credential =
+                cosUploadCredentialPort.issue(
+                        submission.hardwareSn(),
+                        portNo,
+                        keyPrefix);
+        ObjectNode grant = objectMapper.createObjectNode();
+        grant.put("grantUid", UUID.randomUUID().toString());
+        grant.put("tmpSecretId", credential.tmpSecretId());
+        grant.put("tmpSecretKey", credential.tmpSecretKey());
+        ArrayNode tokenParts =
+                grant.putArray("sessionTokenParts");
+        splitSessionToken(
+                credential.sessionToken())
+                .forEach(tokenParts::add);
+        grant.put("bucket", credential.bucket());
+        grant.put("region", credential.region());
+        grant.put("baseUrl", credential.baseUrl());
+        grant.put("keyPrefix", keyPrefix);
+        grant.put(
+                "expiresAt",
+                Instant.ofEpochSecond(
+                        credential.expiredTime())
+                        .toString());
+        envelope.set("cosGrant", grant);
+        return envelope;
+    }
+
+    private static List<String> splitSessionToken(
+            String token) {
+        if (token == null
+                || token.isBlank()
+                || token.length() > 4_096) {
+            throw new IllegalArgumentException(
+                    "COS session token is outside the OneNet contract");
         }
-        log.info(
-                "[OneNet] legacy service call technically accepted identifier={} device={}",
-                identifier,
-                devSn);
+        List<String> parts = new ArrayList<>();
+        for (int start = 0;
+             start < token.length();
+             start += 512) {
+            parts.add(token.substring(
+                    start,
+                    Math.min(start + 512, token.length())));
+        }
+        return parts;
     }
 
     private DeviceCommandSubmissionResult submitWireBody(
@@ -311,6 +343,368 @@ public class OneNetClient
         return params;
     }
 
+    private Map<String, Object> projectStartDeliverySession(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        JsonNode config = requiredObject(payload, "config");
+        String sessionUid = requiredUuid(payload, "sessionUid");
+        String targetUid = requiredUuid(target, "uid");
+        if (!"DELIVERY_SESSION".equals(
+                requiredText(target, "type"))
+                || !sessionUid.equals(targetUid)) {
+            throw new IllegalArgumentException(
+                    "delivery target must identify the payload session");
+        }
+
+        Map<String, Object> scalarFields1 =
+                new LinkedHashMap<>();
+        scalarFields1.put(
+                "schemaVersion",
+                requiredInteger(envelope, "schemaVersion", 1, 1));
+        scalarFields1.put(
+                "commandUid",
+                requiredUuid(envelope, "commandUid"));
+        scalarFields1.put("commandType", 1);
+        scalarFields1.put(
+                "deploymentCode",
+                requiredMatchingText(
+                        envelope,
+                        "deploymentCode",
+                        "^Dp_[A-Za-z0-9_-]{6,61}$",
+                        64));
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        Instant issuedAt = Instant.parse(issuedAtText);
+        Instant expiresAt = Instant.parse(expiresAtText);
+        if (!expiresAt.isAfter(issuedAt)) {
+            throw new IllegalArgumentException(
+                    "delivery command expiry must follow issue time");
+        }
+        scalarFields1.put("issuedAt", issuedAtText);
+        scalarFields1.put("expiresAt", expiresAtText);
+        scalarFields1.put(
+                "payloadSchemaVersion",
+                requiredInteger(
+                        envelope,
+                        "payloadSchemaVersion",
+                        1,
+                        1));
+        scalarFields1.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        scalarFields1.put("sessionUid", sessionUid);
+        scalarFields1.put(
+                "portNo",
+                requiredInteger(payload, "portNo", 1, 6));
+        scalarFields1.put(
+                "bagUid",
+                requiredUuid(payload, "bagUid"));
+        scalarFields1.put(
+                "unitPriceTenThousandths",
+                requiredInteger(
+                        payload,
+                        "unitPriceTenThousandths",
+                        1,
+                        4_294_967_295L));
+        scalarFields1.put(
+                "continueDeliveryWaitMs",
+                requiredInteger(
+                        payload,
+                        "continueDeliveryWaitMs",
+                        1_000,
+                        4_294_967_295L));
+        scalarFields1.put(
+                "negativeWeightThresholdGrams",
+                requiredInteger(
+                        payload,
+                        "negativeWeightThresholdGrams",
+                        1,
+                        4_294_967_295L));
+        scalarFields1.put(
+                "deliveryAutoCloseMs",
+                requiredInteger(
+                        payload,
+                        "deliveryAutoCloseMs",
+                        1_000,
+                        4_294_967_295L));
+
+        Map<String, Object> scalarFields2 =
+                new LinkedHashMap<>();
+        List<String> sessionTokenParts = new ArrayList<>();
+        projectCosGrant(
+                envelope,
+                scalarFields1,
+                scalarFields2,
+                sessionTokenParts);
+
+        Map<String, Object> projectedTarget =
+                new LinkedHashMap<>();
+        projectedTarget.put("type", 1);
+        projectedTarget.put("uid", targetUid);
+
+        Map<String, Object> projectedConfig =
+                new LinkedHashMap<>();
+        projectedConfig.put(
+                "version",
+                requiredInteger(
+                        config,
+                        "version",
+                        1,
+                        9_007_199_254_740_991L));
+        projectedConfig.put(
+                "contentSha256",
+                requiredMatchingText(
+                        config,
+                        "contentSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        projectedConfig.put(
+                "mcuPayloadSha256",
+                requiredMatchingText(
+                        config,
+                        "mcuPayloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields1", scalarFields1);
+        params.put("scalarFields2", scalarFields2);
+        params.put("target", projectedTarget);
+        params.put("config", projectedConfig);
+        params.put(
+                "cosGrantSessionTokenParts",
+                sessionTokenParts);
+        return params;
+    }
+
+    private static void projectCosGrant(
+            JsonNode envelope,
+            Map<String, Object> scalarFields1,
+            Map<String, Object> scalarFields2,
+            List<String> sessionTokenParts) {
+        JsonNode grant = envelope.get("cosGrant");
+        if (grant == null) {
+            throw new IllegalArgumentException(
+                    "cosGrant must be explicit");
+        }
+        boolean present = !grant.isNull();
+        scalarFields1.put("cosGrantPresent", present);
+        if (!present) {
+            scalarFields1.put("cosGrantGrantUid", "");
+            scalarFields1.put("cosGrantTmpSecretId", "");
+            scalarFields1.put("cosGrantTmpSecretKey", "");
+            scalarFields1.put("cosGrantBucket", "");
+            scalarFields2.put("cosGrantRegion", "");
+            scalarFields2.put("cosGrantBaseUrl", "");
+            scalarFields2.put("cosGrantKeyPrefix", "");
+            scalarFields2.put("cosGrantExpiresAt", "");
+            return;
+        }
+        if (!grant.isObject()) {
+            throw new IllegalArgumentException(
+                    "cosGrant must be an object or null");
+        }
+        scalarFields1.put(
+                "cosGrantGrantUid",
+                requiredUuid(grant, "grantUid"));
+        scalarFields1.put(
+                "cosGrantTmpSecretId",
+                requiredBoundedText(
+                        grant, "tmpSecretId", 128));
+        scalarFields1.put(
+                "cosGrantTmpSecretKey",
+                requiredBoundedText(
+                        grant, "tmpSecretKey", 128));
+        scalarFields1.put(
+                "cosGrantBucket",
+                requiredBoundedText(grant, "bucket", 128));
+        scalarFields2.put(
+                "cosGrantRegion",
+                requiredBoundedText(grant, "region", 32));
+        scalarFields2.put(
+                "cosGrantBaseUrl",
+                requiredMatchingText(
+                        grant,
+                        "baseUrl",
+                        "^https://[^/?#]+$",
+                        256));
+        scalarFields2.put(
+                "cosGrantKeyPrefix",
+                requiredMatchingText(
+                        grant,
+                        "keyPrefix",
+                        "^ecobin/Dp_[A-Za-z0-9_-]+/"
+                                + "(delivery-session|clean-operation)/"
+                                + "[0-9a-f-]{36}/$",
+                        256));
+        scalarFields2.put(
+                "cosGrantExpiresAt",
+                requiredInstant(grant, "expiresAt"));
+        JsonNode parts = grant.get("sessionTokenParts");
+        if (parts == null || !parts.isArray()
+                || parts.isEmpty() || parts.size() > 8) {
+            throw new IllegalArgumentException(
+                    "cosGrant sessionTokenParts must contain 1 to 8 parts");
+        }
+        for (JsonNode part : parts) {
+            if (!part.isTextual()
+                    || part.asText().isBlank()
+                    || part.asText().length() > 512) {
+                throw new IllegalArgumentException(
+                        "cosGrant session token part is invalid");
+            }
+            sessionTokenParts.add(part.asText());
+        }
+    }
+
+    private Map<String, Object> projectConfirmEdgeEvent(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        if (!"EDGE_EVENT".equals(requiredText(target, "type"))) {
+            throw new IllegalArgumentException(
+                    "confirmation target type is invalid");
+        }
+        Map<String, Object> scalar = new LinkedHashMap<>();
+        scalar.put("schemaVersion", envelope.path(
+                "schemaVersion").asInt());
+        scalar.put(
+                "commandUid",
+                requiredText(envelope, "commandUid"));
+        scalar.put("commandType", 1);
+        scalar.put(
+                "deploymentCode",
+                requiredText(envelope, "deploymentCode"));
+        scalar.put("issuedAt", requiredText(envelope, "issuedAt"));
+        scalar.put("expiresAt", requiredText(envelope, "expiresAt"));
+        scalar.put(
+                "payloadSchemaVersion",
+                envelope.path("payloadSchemaVersion").asInt());
+        scalar.put(
+                "payloadSha256",
+                requiredText(envelope, "payloadSha256"));
+        scalar.put(
+                "confirmationUid",
+                requiredText(payload, "confirmationUid"));
+        scalar.put(
+                "originalEventUid",
+                requiredText(payload, "originalEventUid"));
+        scalar.put(
+                "originalPayloadSha256",
+                requiredText(payload, "originalPayloadSha256"));
+        scalar.put(
+                "outcome",
+                confirmationOutcomeCode(
+                        requiredText(payload, "outcome")));
+        putNullableEnum(
+                scalar,
+                "effectKind",
+                payload.get("effectKind"),
+                OneNetClient::confirmationEffectCode);
+        scalar.put(
+                "processedAt",
+                requiredText(payload, "processedAt"));
+        putNullableText(
+                scalar, "errorCode", payload.get("errorCode"));
+        putNullableText(
+                scalar,
+                "quarantineUid",
+                payload.get("quarantineUid"));
+        scalar.put("cosGrantPresent", false);
+
+        Map<String, Object> projectedTarget =
+                new LinkedHashMap<>();
+        projectedTarget.put("type", 1);
+        projectedTarget.put("uid", requiredText(target, "uid"));
+        JsonNode references = payload.get("resultReferences");
+        if (references == null || !references.isArray()) {
+            throw new IllegalArgumentException(
+                    "resultReferences must be an array");
+        }
+        List<Map<String, Object>> projectedReferences =
+                new ArrayList<>();
+        for (JsonNode reference : references) {
+            projectedReferences.add(Map.of(
+                    "type",
+                    resultReferenceCode(
+                            requiredText(reference, "type")),
+                    "key",
+                    requiredText(reference, "key")));
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields", scalar);
+        params.put("target", projectedTarget);
+        params.put("resultReferences", projectedReferences);
+        return params;
+    }
+
+    private static void putNullableText(
+            Map<String, Object> target,
+            String field,
+            JsonNode value) {
+        boolean present = value != null && !value.isNull();
+        target.put(field + "Present", present);
+        if (present) {
+            if (!value.isTextual() || value.asText().isBlank()) {
+                throw new IllegalArgumentException(
+                        field + " must be nullable text");
+            }
+            target.put(field, value.asText());
+        } else {
+            target.put(field, "");
+        }
+    }
+
+    private static void putNullableEnum(
+            Map<String, Object> target,
+            String field,
+            JsonNode value,
+            java.util.function.ToIntFunction<String> encoder) {
+        boolean present = value != null && !value.isNull();
+        target.put(field + "Present", present);
+        target.put(
+                field,
+                present ? encoder.applyAsInt(value.asText()) : 1);
+    }
+
+    private static int confirmationOutcomeCode(String value) {
+        return switch (value) {
+            case "BUSINESS_APPLIED" -> 1;
+            case "EVENT_QUARANTINED" -> 2;
+            default -> throw new IllegalArgumentException(
+                    "unsupported confirmation outcome");
+        };
+    }
+
+    private static int confirmationEffectCode(String value) {
+        return switch (value) {
+            case "CREATED" -> 1;
+            case "UPDATED" -> 2;
+            case "NO_ACTION_REQUIRED" -> 3;
+            default -> throw new IllegalArgumentException(
+                    "unsupported confirmation effect");
+        };
+    }
+
+    private static int resultReferenceCode(String value) {
+        return switch (value) {
+            case "DELIVERY_ORDER" -> 1;
+            case "CLEAN_RECORD" -> 2;
+            case "FULLNESS_DETECTION" -> 3;
+            case "BASELINE_MEASUREMENT" -> 4;
+            case "CONFIGURATION_APPLICATION" -> 5;
+            case "PHOTO_SLOT" -> 6;
+            case "DEVICE_FAULT" -> 7;
+            default -> throw new IllegalArgumentException(
+                    "unsupported confirmation result reference");
+        };
+    }
+
     private static void requireEnvelopeIdentity(
             JsonNode envelope, DeviceCommandSubmission submission) {
         if (!envelope.isObject()
@@ -337,6 +731,82 @@ public class OneNetClient
         String value = parent.path(field).asString();
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
+        }
+        return value;
+    }
+
+    private static String requiredBoundedText(
+            JsonNode parent,
+            String field,
+            int maximumLength) {
+        JsonNode value = parent.get(field);
+        if (value == null
+                || !value.isTextual()
+                || value.asText().isBlank()
+                || value.asText().length() > maximumLength) {
+            throw new IllegalArgumentException(
+                    field + " must be bounded text");
+        }
+        return value.asText();
+    }
+
+    private static String requiredMatchingText(
+            JsonNode parent,
+            String field,
+            String pattern,
+            int maximumLength) {
+        String value = requiredBoundedText(
+                parent, field, maximumLength);
+        if (!value.matches(pattern)) {
+            throw new IllegalArgumentException(
+                    field + " has an invalid format");
+        }
+        return value;
+    }
+
+    private static String requiredUuid(
+            JsonNode parent, String field) {
+        return requiredMatchingText(
+                parent,
+                field,
+                "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
+                        + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                36);
+    }
+
+    private static Number requiredInteger(
+            JsonNode parent,
+            String field,
+            long minimum,
+            long maximum) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isIntegralNumber()) {
+            throw new IllegalArgumentException(
+                    field + " must be an integer");
+        }
+        long number = value.longValue();
+        if (number < minimum || number > maximum) {
+            throw new IllegalArgumentException(
+                    field + " is outside the target range");
+        }
+        return value.numberValue();
+    }
+
+    private static String requiredInstant(
+            JsonNode parent, String field) {
+        String value = requiredMatchingText(
+                parent,
+                field,
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                        + "[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                        + "(?:\\.[0-9]{1,9})?Z$",
+                30);
+        try {
+            Instant.parse(value);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException(
+                    field + " must be a real UTC instant",
+                    exception);
         }
         return value;
     }
@@ -418,26 +888,4 @@ public class OneNetClient
         }
     }
 
-    /**
-     * 取 COS 临时密钥组装为<strong>仅凭证</strong>的 {@code cosToken} 结构（投递/清运通用，物模型 §3.4）。
-     * <p>
-     * 照片 key 不下发：投递由设备自定位置、清运由设备据 {@code cleanOrderId} 按约定自拼。
-     * {@code sessionToken} 实测约 640 > OneNet 512 上限，按 512 拆 {@code sessionToken1/2}，固件按序拼接还原。
-     */
-    private Map<String, Object> baseCosToken(String devSn, Integer doorIndex) {
-        CosUploadCredential cred = cosUploadCredentialPort.issue(devSn, doorIndex);
-        String sessionToken = cred.sessionToken() == null ? "" : cred.sessionToken();
-        String part1 = sessionToken.length() > ONENET_STRING_MAX ? sessionToken.substring(0, ONENET_STRING_MAX) : sessionToken;
-        String part2 = sessionToken.length() > ONENET_STRING_MAX ? sessionToken.substring(ONENET_STRING_MAX) : "";
-
-        Map<String, Object> cosToken = new LinkedHashMap<>();
-        cosToken.put("tmpSecretId", cred.tmpSecretId());
-        cosToken.put("tmpSecretKey", cred.tmpSecretKey());
-        cosToken.put("sessionToken1", part1);
-        cosToken.put("sessionToken2", part2);
-        cosToken.put("bucket", cred.bucket());
-        cosToken.put("region", cred.region());
-        cosToken.put("baseUrl", cred.baseUrl());
-        return cosToken;
-    }
 }

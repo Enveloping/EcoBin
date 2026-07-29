@@ -23,8 +23,7 @@ class ModuleBoundaryTest {
             new LinkedHashMap<>();
     private static final Map<String, Set<String>> EXPECTED_INTERNAL_DEPENDENCIES =
             Map.of(
-                    "ecobin-common", Set.of(),
-                    "ecobin-framework", Set.of("ecobin-common"),
+                    "ecobin-framework", Set.of(),
                     "ecobin-module-identity", Set.of("ecobin-framework"),
                     "ecobin-module-device", Set.of(
                             "ecobin-framework", "ecobin-module-identity"),
@@ -71,7 +70,7 @@ class ModuleBoundaryTest {
     }
 
     @Test
-    void rootReactorContainsOnlyFinalNineModules() throws Exception {
+    void rootReactorContainsOnlyActiveBackendModules() throws Exception {
         Path root = repositoryRoot();
         var document = DocumentBuilderFactory.newInstance()
                 .newDocumentBuilder()
@@ -84,7 +83,6 @@ class ModuleBoundaryTest {
         String rootPom = Files.readString(root.resolve("pom.xml"), StandardCharsets.UTF_8);
 
         assertEquals(List.of(
-                "ecobin-common",
                 "ecobin-framework",
                 "ecobin-module-identity",
                 "ecobin-module-device",
@@ -161,30 +159,6 @@ class ModuleBoundaryTest {
             }
         }
 
-        assertTrue(violations.isEmpty(), () -> String.join(System.lineSeparator(), violations));
-    }
-
-    @Test
-    void commonIsJdkOnlyAndHasNoFrameworkDependencies() throws IOException {
-        Path root = repositoryRoot();
-        Path common = root.resolve("ecobin-common");
-        String pom = Files.readString(common.resolve("pom.xml"), StandardCharsets.UTF_8);
-        assertFalse(pom.contains("<dependencies>"));
-
-        List<String> violations = new ArrayList<>();
-        try (var files = Files.walk(common.resolve("src/main/java"))) {
-            for (Path file : files.filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .toList()) {
-                for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-                    String trimmed = line.trim();
-                    if (trimmed.startsWith("import ")
-                            && !trimmed.startsWith("import java.")) {
-                        violations.add(root.relativize(file) + " imports " + trimmed);
-                    }
-                }
-            }
-        }
         assertTrue(violations.isEmpty(), () -> String.join(System.lineSeparator(), violations));
     }
 

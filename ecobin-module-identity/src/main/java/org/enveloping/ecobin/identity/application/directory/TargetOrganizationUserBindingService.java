@@ -859,6 +859,7 @@ public class TargetOrganizationUserBindingService {
                 actor.platform() ? actor.principalId() : null,
                 actor.platform() ? null : actor.principalId(),
                 null,
+                null,
                 actor.displayName(),
                 action,
                 result.targetType(),

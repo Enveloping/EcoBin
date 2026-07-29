@@ -36,7 +36,7 @@ public final class DatabaseEpochGuard
     public void afterPropertiesSet() {
         if (testBypassAllowed()) {
             LOGGER.warn(
-                    "Target database epoch guard bypassed for in-memory legacy H2 tests");
+                    "Target database epoch guard bypassed for in-memory boundary tests");
             return;
         }
         P0DatabaseEpochPolicy.Verification verification = verifier.verify();
@@ -51,7 +51,7 @@ public final class DatabaseEpochGuard
     public Health health() {
         if (testBypassAllowed()) {
             return Health.up()
-                    .withDetail("mode", "legacy-h2-test-bypass")
+                    .withDetail("mode", "in-memory-test-bypass")
                     .build();
         }
         try {
@@ -59,7 +59,7 @@ public final class DatabaseEpochGuard
             return Health.up()
                     .withDetail("catalog", verification.catalog())
                     .withDetail("minimumVersion", verification.minimumVersion())
-                    .withDetail("epoch", "P0_V1_TO_V10")
+                    .withDetail("epoch", "P0_V1_TO_V14")
                     .build();
         } catch (DatabaseEpochException exception) {
             return Health.down()

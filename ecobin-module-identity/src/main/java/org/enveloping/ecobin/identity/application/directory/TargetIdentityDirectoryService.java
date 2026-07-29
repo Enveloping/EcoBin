@@ -1861,6 +1861,7 @@ public class TargetIdentityDirectoryService {
                 actor.platform() ? actor.principalId() : null,
                 actor.platform() ? null : actor.principalId(),
                 null,
+                null,
                 actor.displayName(),
                 actionCode,
                 result.targetType(),

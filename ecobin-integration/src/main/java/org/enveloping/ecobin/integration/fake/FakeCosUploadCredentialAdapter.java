@@ -12,7 +12,10 @@ public final class FakeCosUploadCredentialAdapter
         implements CosUploadCredentialPort {
 
     @Override
-    public CosUploadCredential issue(String deviceSn, Integer doorIndex) {
+    public CosUploadCredential issue(
+            String deviceSn,
+            Integer doorIndex,
+            String keyPrefix) {
         long start = Instant.now().getEpochSecond();
         return new CosUploadCredential(
                 "FAKE_ONLY_TMP_SECRET_ID",

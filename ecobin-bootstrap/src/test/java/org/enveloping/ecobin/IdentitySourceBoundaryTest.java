@@ -63,9 +63,6 @@ class IdentitySourceBoundaryTest {
         assertEquals(List.of(
                         Path.of(
                                 "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
-                                        + "application/legacy/MiniappRegistrationService.java"),
-                        Path.of(
-                                "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
                                         + "application/miniapp/TargetMiniappLoginTransactionService.java")),
                 issuanceCallSites.stream().sorted().toList());
         assertEquals(List.of(Path.of(
@@ -79,7 +76,8 @@ class IdentitySourceBoundaryTest {
     }
 
     @Test
-    void rawLegacyForeignKeysHaveExactlyOneProductionConsumer() throws IOException {
+    void rawForeignKeysHaveOnlyTheRegistrationParticipantsAsConsumers()
+            throws IOException {
         Path root = repositoryRoot();
         List<Path> callSites = new ArrayList<>();
 
@@ -96,11 +94,31 @@ class IdentitySourceBoundaryTest {
         assertEquals(List.of(
                         Path.of(
                                 "ecobin-module-funds/src/main/java/org/enveloping/ecobin/funds/"
-                                        + "infrastructure/legacy/LegacyEmbeddedWalletRegistrationParticipant.java"),
+                                        + "infrastructure/registration/"
+                                        + "JdbcOrganizationUserRegistrationParticipant.java"),
                         Path.of(
                                 "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
                                         + "application/miniapp/TargetMiniappLoginTransactionService.java")),
                 callSites.stream().sorted().toList());
+    }
+
+    @Test
+    void productionLegacySourceTreesAreGone() throws IOException {
+        Path root = repositoryRoot();
+        List<Path> violations = javaSources(root).stream()
+                .filter(IdentitySourceBoundaryTest::isProductionSource)
+                .map(root::relativize)
+                .filter(path -> {
+                    String normalized = path.toString().replace('\\', '/');
+                    return normalized.contains("/legacy/")
+                            || path.getFileName().toString().startsWith("Legacy");
+                })
+                .sorted()
+                .toList();
+
+        assertTrue(
+                violations.isEmpty(),
+                () -> "legacy production sources remain: " + violations);
     }
 
     private static List<Path> javaSources(Path root) throws IOException {

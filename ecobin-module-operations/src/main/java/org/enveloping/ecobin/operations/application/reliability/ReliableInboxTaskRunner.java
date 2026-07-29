@@ -3,6 +3,8 @@ package org.enveloping.ecobin.operations.application.reliability;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletion;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionOutcome;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -13,6 +15,9 @@ import java.util.Optional;
 
 @Service
 public class ReliableInboxTaskRunner {
+
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(ReliableInboxTaskRunner.class);
 
     private final ReliableTaskClaimService claimService;
     private final ReliableTaskInFlightLimiter inFlightLimiter;
@@ -90,6 +95,12 @@ public class ReliableInboxTaskRunner {
             });
             return true;
         } catch (RuntimeException failure) {
+            LOGGER.warn(
+                    "Reliable inbox task failed taskUid={} inboxUid={} channel={}",
+                    claim.taskUid(),
+                    claim.inboxUid(),
+                    channel,
+                    failure);
             failureService.recordRetryableFailure(
                     claim,
                     channel,

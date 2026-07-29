@@ -259,6 +259,7 @@ public class TargetMiniappPhoneBindingTransactionService {
                 null,
                 null,
                 null,
+                null,
                 actor.displayName(),
                 ACTION,
                 "ORGANIZATION_USER",

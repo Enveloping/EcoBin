@@ -314,6 +314,69 @@ public class ReliableOperationsJdbcRepository {
         return taskUid;
     }
 
+    public UUID insertDeviceControlTask(
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            String taskType,
+            String taskKey,
+            String targetType,
+            String targetStableKey,
+            int payloadSchemaVersion,
+            String executionEnvelope,
+            byte[] payloadSha256,
+            UUID correlationUid,
+            UUID causationUid,
+            int maxAutoAttempts,
+            LocalDateTime now) {
+        UUID taskUid = UUID.randomUUID();
+        int inserted = jdbcTemplate.update("""
+                INSERT INTO ops_reliable_task (
+                    task_uid, scope_kind, tenant_id, organization_id,
+                    task_category, task_type, execution_lane, task_key,
+                    target_type, target_stable_key,
+                    source_inbox_id, source_device_deployment_id,
+                    source_device_command_id, payload_schema_version,
+                    redacted_execution_snapshot, payload_sha256,
+                    correlation_uid, causation_uid, initiating_audit_id,
+                    priority, retry_policy_version, max_auto_attempts,
+                    state, next_run_at, lease_token, lease_worker, lease_until,
+                    attempt_sequence, consecutive_failure_count, wake_version,
+                    handled_wake_version, completed_at, blocked_reason_code,
+                    blocked_diagnostic, lock_version, created_at, updated_at
+                ) VALUES (
+                    ?, 'ORGANIZATION', ?, ?,
+                    'BUSINESS_INTENT', ?, 'DEVICE', ?,
+                    ?, ?,
+                    NULL, ?, NULL, ?,
+                    CAST(? AS JSON), ?,
+                    ?, ?, NULL,
+                    100, 1, ?,
+                    'PENDING', ?, NULL, NULL, NULL,
+                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                )
+                """,
+                taskUid.toString(),
+                tenantId,
+                organizationId,
+                taskType,
+                taskKey,
+                targetType,
+                targetStableKey,
+                deploymentId,
+                payloadSchemaVersion,
+                executionEnvelope,
+                payloadSha256,
+                nullableUuid(correlationUid),
+                nullableUuid(causationUid),
+                maxAutoAttempts,
+                now,
+                now,
+                now);
+        requireSingleRow(inserted, "insert device control task");
+        return taskUid;
+    }
+
     public void cancelSupersededDeviceTasks(
             long tenantId,
             long organizationId,
@@ -396,6 +459,63 @@ public class ReliableOperationsJdbcRepository {
                 conflictingInboxId,
                 rawTransportSha256,
                 normalizedContentSha256,
+                now,
+                now,
+                now,
+                now);
+        String storedUid = jdbcTemplate.queryForObject("""
+                SELECT quarantine_uid
+                FROM ops_message_quarantine
+                WHERE dedupe_key = ?
+                """, String.class, dedupeKey);
+        return UUID.fromString(storedUid);
+    }
+
+    public UUID upsertRejectedMessage(
+            byte[] dedupeKey,
+            String sourceNamespace,
+            String sourcePrincipalKey,
+            String externalMessageId,
+            String reasonCode,
+            byte[] rawTransportSha256,
+            String redactedDiagnostic,
+            LocalDateTime now) {
+        UUID proposedUid = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO ops_message_quarantine (
+                    quarantine_uid, dedupe_key, scope_kind, tenant_id,
+                    organization_id, source_namespace,
+                    source_principal_key, external_message_id,
+                    conflicting_inbox_id, reason_code,
+                    raw_transport_sha256, normalized_content_sha256,
+                    redacted_diagnostic_payload, status,
+                    first_seen_at, last_seen_at, discovery_count,
+                    acknowledged_audit_id, acknowledged_at, lock_version,
+                    created_at, updated_at
+                ) VALUES (
+                    ?, ?, 'UNRESOLVED', NULL,
+                    NULL, ?, ?, ?,
+                    NULL, ?,
+                    ?, NULL,
+                    ?, 'OPEN',
+                    ?, ?, 1,
+                    NULL, NULL, 0,
+                    ?, ?
+                )
+                ON DUPLICATE KEY UPDATE
+                    last_seen_at = VALUES(last_seen_at),
+                    discovery_count = discovery_count + 1,
+                    lock_version = lock_version + 1,
+                    updated_at = VALUES(updated_at)
+                """,
+                proposedUid.toString(),
+                dedupeKey,
+                sourceNamespace,
+                sourcePrincipalKey,
+                externalMessageId,
+                reasonCode,
+                rawTransportSha256,
+                redactedDiagnostic,
                 now,
                 now,
                 now,
@@ -581,25 +701,57 @@ public class ReliableOperationsJdbcRepository {
                     t.lease_token AS previous_lease_token,
                     t.attempt_sequence,
                     t.wake_version,
-                    c.command_uid,
-                    c.command_type,
-                    CAST(c.semantic_payload AS CHAR) AS semantic_payload,
-                    c.semantic_payload_sha256,
+                    COALESCE(
+                        c.command_uid,
+                        CONVERT(
+                            JSON_UNQUOTE(JSON_EXTRACT(
+                                t.redacted_execution_snapshot,
+                                '$.commandUid'
+                            ))
+                            USING ascii
+                        ) COLLATE ascii_bin
+                    ) AS command_uid,
+                    COALESCE(c.command_type, t.task_type)
+                        AS command_type,
+                    CASE
+                        WHEN c.id IS NULL
+                        THEN CAST(
+                            t.redacted_execution_snapshot AS CHAR
+                        )
+                        ELSE CAST(c.semantic_payload AS CHAR)
+                    END AS semantic_payload,
+                    COALESCE(
+                        c.semantic_payload_sha256,
+                        t.payload_sha256
+                    ) AS semantic_payload_sha256,
                     a.hardware_sn
                 FROM ops_reliable_task t FORCE INDEX (ix_ops_task_claim)
-                JOIN dev_device_command c
+                LEFT JOIN dev_device_command c
                   ON c.tenant_id = t.tenant_id
                  AND c.organization_id = t.organization_id
                  AND c.deployment_id = t.source_device_deployment_id
                  AND c.id = t.source_device_command_id
                 JOIN dev_device_deployment d
-                  ON d.tenant_id = c.tenant_id
-                 AND d.organization_id = c.organization_id
-                 AND d.id = c.deployment_id
+                  ON d.tenant_id = t.tenant_id
+                 AND d.organization_id = t.organization_id
+                 AND d.id = t.source_device_deployment_id
                 JOIN dev_device_asset a ON a.id = d.asset_id
                 WHERE t.state = 'PENDING'
                   AND t.task_category = 'BUSINESS_INTENT'
-                  AND t.task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                  AND (
+                      (
+                          t.task_type IN (
+                              'ENSURE_DEVICE_CONFIGURATION',
+                              'START_DELIVERY_SESSION'
+                          )
+                          AND c.id IS NOT NULL
+                      )
+                      OR
+                      (
+                          t.task_type = 'CONFIRM_EDGE_EVENT'
+                          AND c.id IS NULL
+                      )
+                  )
                   AND t.execution_lane = 'DEVICE'
                   AND t.claimable_at <= UTC_TIMESTAMP(3)
                 ORDER BY t.claimable_at, t.priority, t.id
@@ -744,6 +896,16 @@ public class ReliableOperationsJdbcRepository {
                     t.handled_wake_version,
                     t.consecutive_failure_count,
                     t.max_auto_attempts,
+                    COALESCE(
+                        c.command_uid,
+                        CONVERT(
+                            JSON_UNQUOTE(JSON_EXTRACT(
+                                t.redacted_execution_snapshot,
+                                '$.commandUid'
+                            ))
+                            USING ascii
+                        ) COLLATE ascii_bin
+                    ) AS expected_command_uid,
                     (
                         SELECT COUNT(*)
                         FROM ops_task_attempt counted
@@ -751,12 +913,25 @@ public class ReliableOperationsJdbcRepository {
                           AND counted.claimed_wake_version = t.wake_version
                     ) AS attempts_for_current_wake
                 FROM ops_reliable_task t
-                JOIN dev_device_command c
+                LEFT JOIN dev_device_command c
                   ON c.id = t.source_device_command_id
-                 AND c.command_uid = ?
                 WHERE t.task_uid = ?
                   AND t.task_category = 'BUSINESS_INTENT'
                   AND t.execution_lane = 'DEVICE'
+                  AND (
+                      (
+                          t.task_type IN (
+                              'ENSURE_DEVICE_CONFIGURATION',
+                              'START_DELIVERY_SESSION'
+                          )
+                          AND c.id IS NOT NULL
+                      )
+                      OR
+                      (
+                          t.task_type = 'CONFIRM_EDGE_EVENT'
+                          AND c.id IS NULL
+                      )
+                  )
                 FOR UPDATE
                 """,
                 (resultSet, rowNumber) -> new LockedDeviceTask(
@@ -769,9 +944,15 @@ public class ReliableOperationsJdbcRepository {
                         resultSet.getLong("handled_wake_version"),
                         resultSet.getInt("consecutive_failure_count"),
                         resultSet.getInt("max_auto_attempts"),
-                        resultSet.getInt("attempts_for_current_wake")),
-                commandUid.toString(),
+                        resultSet.getInt("attempts_for_current_wake"),
+                        UUID.fromString(
+                                resultSet.getString(
+                                        "expected_command_uid"))),
                 taskUid.toString());
+        if (!task.expectedCommandUid().equals(commandUid)) {
+            throw new IllegalStateException(
+                    "device task command identity changed after claim");
+        }
         LockedAttempt attempt = jdbcTemplate.queryForObject("""
                 SELECT
                     id,
@@ -1322,7 +1503,8 @@ public class ReliableOperationsJdbcRepository {
             long handledWakeVersion,
             int consecutiveFailureCount,
             int maxAutoAttempts,
-            int attemptsForCurrentWake) {
+            int attemptsForCurrentWake,
+            UUID expectedCommandUid) {
     }
 
     private record LockedAttempt(

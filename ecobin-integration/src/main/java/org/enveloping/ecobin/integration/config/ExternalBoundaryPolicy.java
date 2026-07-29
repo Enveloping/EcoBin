@@ -17,10 +17,9 @@ public final class ExternalBoundaryPolicy {
                     "ecobin.external.mode must be FAKE or REAL");
         }
         if (snapshot.mode() == FAKE) {
-            if (!snapshot.blockFakeInbound()
-                    && !snapshot.legacyTestRuntime()) {
+            if (!snapshot.blockFakeInbound()) {
                 throw new ExternalBoundaryException(
-                        "Fake external ingress blocking can only be disabled by legacy tests");
+                        "Fake external ingress must remain blocked");
             }
             if (snapshot.oneNetSubscriptionEnabled()
                     || snapshot.oneNetInboundConfigured()
@@ -51,7 +50,6 @@ public final class ExternalBoundaryPolicy {
     public record Snapshot(
             ExternalAdapterModeProperties.Mode mode,
             boolean blockFakeInbound,
-            boolean legacyTestRuntime,
             boolean oneNetSubscriptionEnabled,
             boolean oneNetInboundConfigured,
             boolean oneNetOutboundConfigured,

@@ -18,6 +18,7 @@ public record AuditEntry(
         AuditActorKind actorKind,
         Long platformAdminId,
         Long staffAccountId,
+        Long organizationUserId,
         String systemActorCode,
         String actorDisplaySnapshot,
         String actionCode,

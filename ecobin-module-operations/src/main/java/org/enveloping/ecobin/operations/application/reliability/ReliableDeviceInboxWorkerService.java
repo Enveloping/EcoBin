@@ -6,6 +6,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
+import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -15,14 +16,17 @@ public class ReliableDeviceInboxWorkerService
     private final ReliableInboxTaskRunner runner;
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final TrustedDeviceInboxEventPort deviceEventPort;
+    private final ApplyDeliveryCompleteUseCase deliveryComplete;
 
     public ReliableDeviceInboxWorkerService(
             ReliableInboxTaskRunner runner,
             TrustedOrganizationInboxRefFactory inboxRefFactory,
-            TrustedDeviceInboxEventPort deviceEventPort) {
+            TrustedDeviceInboxEventPort deviceEventPort,
+            ApplyDeliveryCompleteUseCase deliveryComplete) {
         this.runner = runner;
         this.inboxRefFactory = inboxRefFactory;
         this.deviceEventPort = deviceEventPort;
+        this.deliveryComplete = deliveryComplete;
     }
 
     @Override
@@ -37,16 +41,20 @@ public class ReliableDeviceInboxWorkerService
                         throw new ReliableTaskInvariantException(
                                 "device inbox task is not organization scoped");
                     }
+                    TrustedDeviceInboxEvent event =
+                            new TrustedDeviceInboxEvent(
+                                    inboxRefFactory.issue(
+                                            task.inboxId(),
+                                            task.tenantId(),
+                                            task.organizationId()),
+                                    task.messageKind(),
+                                    task.normalizedSchemaVersion(),
+                                    task.normalizedPayload());
                     TrustedDeviceEventApplyResult applied =
-                            deviceEventPort.apply(
-                                    new TrustedDeviceInboxEvent(
-                                            inboxRefFactory.issue(
-                                                    task.inboxId(),
-                                                    task.tenantId(),
-                                                    task.organizationId()),
-                                            task.messageKind(),
-                                            task.normalizedSchemaVersion(),
-                                            task.normalizedPayload()));
+                            "DELIVERY_COMPLETE".equals(
+                                    task.messageKind())
+                                    ? deliveryComplete.apply(event)
+                                    : deviceEventPort.apply(event);
                     return applied
                             == TrustedDeviceEventApplyResult.APPLIED
                             ? InboxTaskHandlerResult.APPLIED
