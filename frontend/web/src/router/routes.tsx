@@ -2,13 +2,17 @@ import { lazy, type ReactNode } from 'react';
 import {
   ApartmentOutlined,
   BankOutlined,
+  CloudServerOutlined,
+  DollarOutlined,
   IdcardOutlined,
   LinkOutlined,
-  SafetyCertificateOutlined,
+  ShoppingCartOutlined,
   SettingOutlined,
   TeamOutlined,
+  TruckOutlined,
   UserOutlined,
 } from '@ant-design/icons';
+import { Navigate } from 'react-router-dom';
 import type { LoginResponse, WebAccountType } from '@/types';
 import { hasRouteAccess } from './access';
 
@@ -17,8 +21,13 @@ const MyTenantPage = lazy(() => import('@/pages/tenant/MyTenant'));
 const OrganizationPage = lazy(() => import('@/pages/organization'));
 const OrganizationUserPage = lazy(() => import('@/pages/organization-user'));
 const StaffPage = lazy(() => import('@/pages/staff'));
-const AccessPage = lazy(() => import('@/pages/access'));
 const AccountSettingsPage = lazy(() => import('@/pages/account'));
+const DeviceManagementPage = lazy(
+  () => import('@/pages/device-management'),
+);
+const BusinessContractPendingPage = lazy(
+  () => import('@/pages/business/BusinessContractPending'),
+);
 const OrganizationUserBindingPage = lazy(
   () => import('@/pages/user/OrganizationUserBinding'),
 );
@@ -31,6 +40,16 @@ export interface AppRoute {
   allOf?: string[];
   anyOf?: string[];
   accountTypes?: WebAccountType[];
+}
+
+export interface AppMenuRoute {
+  path?: string;
+  targetPath?: string;
+  name: string;
+  icon?: ReactNode;
+  disabled?: boolean;
+  tooltip?: string;
+  routes?: AppMenuRoute[];
 }
 
 const PLATFORM: WebAccountType[] = ['PLATFORM_ADMIN'];
@@ -87,11 +106,37 @@ export const appRoutes: AppRoute[] = [
     allOf: ['user.read', 'staff.bind'],
   },
   {
+    path: '/devices',
+    name: '设备管理',
+    icon: <CloudServerOutlined />,
+    element: <DeviceManagementPage />,
+    allOf: ['device.read'],
+  },
+  {
+    path: '/deliveries',
+    name: '投递订单',
+    icon: <ShoppingCartOutlined />,
+    element: <BusinessContractPendingPage kind="delivery" />,
+    anyOf: ['delivery.read', 'review.execute'],
+  },
+  {
+    path: '/clean-records',
+    name: '清运订单',
+    icon: <TruckOutlined />,
+    element: <BusinessContractPendingPage kind="cleaning" />,
+    anyOf: ['clean.read', 'review.execute'],
+  },
+  {
+    path: '/withdrawals',
+    name: '提现订单',
+    icon: <DollarOutlined />,
+    element: <BusinessContractPendingPage kind="withdrawal" />,
+    anyOf: ['withdrawal.read', 'review.execute'],
+  },
+  {
     path: '/access',
-    name: '任职与授权',
-    icon: <SafetyCertificateOutlined />,
-    element: <AccessPage />,
-    allOf: ['permission.read'],
+    element: <Navigate to="/staff" replace />,
+    allOf: ['staff.read'],
   },
   {
     path: '/account',
@@ -109,12 +154,176 @@ export function canAccessRoute(
   return hasRouteAccess(session, route);
 }
 
-export function menuRoutesFor(session: LoginResponse | null): AppRoute[] {
-  return appRoutes.filter(
-    (route) => route.name && canAccessRoute(session, route),
-  );
+function visibleRoute(
+  session: LoginResponse | null,
+  path: string,
+): AppRoute | undefined {
+  const route = appRoutes.find((candidate) => candidate.path === path);
+  return route && canAccessRoute(session, route) ? route : undefined;
+}
+
+function leaf(
+  route: AppRoute,
+  path = route.path,
+  name = route.name ?? '',
+  withIcon = true,
+  targetPath = path,
+) {
+  return {
+    path,
+    targetPath,
+    name,
+    icon: withIcon ? route.icon : undefined,
+  } satisfies AppMenuRoute;
+}
+
+export function menuRoutesFor(
+  session: LoginResponse | null,
+): AppMenuRoute[] {
+  const menu: AppMenuRoute[] = [];
+  const tenant = visibleRoute(session, '/tenant');
+  if (tenant) {
+    menu.push({
+      path: '/menu/tenants',
+      name: '租户管理',
+      icon: tenant.icon,
+      routes: [
+        leaf(
+          tenant,
+          '/menu/tenants/all',
+          '所有租户',
+          false,
+          '/tenant',
+        ),
+        leaf(
+          tenant,
+          '/menu/tenants/disabled',
+          '已禁用的租户',
+          false,
+          '/tenant?view=disabled',
+        ),
+      ],
+    });
+  }
+
+  for (const path of ['/my-tenant', '/organizations'] as const) {
+    const route = visibleRoute(session, path);
+    if (route) menu.push(leaf(route));
+  }
+
+  const organizationUsers = visibleRoute(session, '/organization-users');
+  if (organizationUsers) {
+    menu.push({
+      path: '/menu/organization-users',
+      name: '机构用户',
+      icon: organizationUsers.icon,
+      routes: [
+        leaf(
+          organizationUsers,
+          '/menu/organization-users/all',
+          '所有用户',
+          false,
+          '/organization-users',
+        ),
+        leaf(
+          organizationUsers,
+          '/menu/organization-users/disabled',
+          '已禁用的用户',
+          false,
+          '/organization-users?view=disabled',
+        ),
+      ],
+    });
+  }
+
+  for (const path of ['/staff', '/user-bindings', '/devices'] as const) {
+    const route = visibleRoute(session, path);
+    if (route) menu.push(leaf(route));
+  }
+
+  const delivery = visibleRoute(session, '/deliveries');
+  if (delivery) {
+    menu.push({
+      path: '/menu/deliveries',
+      name: '投递订单',
+      icon: delivery.icon,
+      routes: [
+        leaf(delivery, delivery.path, delivery.name ?? '', false),
+        {
+          path: '/menu/deliveries/rejected',
+          name: '已拒绝订单',
+          disabled: true,
+          tooltip: '目标投递契约没有“拒绝”终态',
+        },
+        {
+          path: '/menu/deliveries/corrected',
+          name: '已纠正订单',
+          disabled: true,
+          tooltip: '目标契约尚未提供仅看纠正订单的列表筛选',
+        },
+      ],
+    });
+  }
+
+  const cleaning = visibleRoute(session, '/clean-records');
+  if (cleaning) {
+    menu.push({
+      path: '/menu/clean-records',
+      name: '清运订单',
+      icon: cleaning.icon,
+      routes: [
+        leaf(cleaning, cleaning.path, cleaning.name ?? '', false),
+        {
+          path: '/menu/clean-records/invalid',
+          name: '无效清运订单',
+          disabled: true,
+          tooltip: '目标契约尚未定义“无效清运订单”终态',
+        },
+      ],
+    });
+  }
+
+  const withdrawal = visibleRoute(session, '/withdrawals');
+  if (withdrawal) {
+    menu.push({
+      path: '/menu/withdrawals',
+      name: '提现订单',
+      icon: withdrawal.icon,
+      routes: [
+        leaf(withdrawal, withdrawal.path, withdrawal.name ?? '', false),
+        {
+          path: '/menu/withdrawals/organization-unpaid',
+          name: '机构未付款订单',
+          disabled: true,
+          tooltip: '目标资金模型在创建提现时同步冻结机构额度',
+        },
+        {
+          path: '/menu/withdrawals/member-refunded',
+          name: '已退款到会员订单',
+          disabled: true,
+          tooltip: '资金契约尚未提供这一单一列表状态',
+        },
+        {
+          path: '/menu/withdrawals/manual-review',
+          name: '人工审核订单',
+          disabled: true,
+          tooltip: '等待提现 Web 列表契约落地',
+        },
+      ],
+    });
+  }
+
+  const account = visibleRoute(session, '/account');
+  if (account) menu.push(leaf(account));
+  return menu;
 }
 
 export function defaultPathFor(session: LoginResponse | null): string {
-  return menuRoutesFor(session)[0]?.path ?? '/not-found';
+  const first = menuRoutesFor(session)[0];
+  const firstChild = first?.routes?.[0];
+  return firstChild?.targetPath
+    ?? firstChild?.path
+    ?? first?.targetPath
+    ?? first?.path
+    ?? '/not-found';
 }

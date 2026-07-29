@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  CheckCircleOutlined,
   EyeOutlined,
   StopOutlined,
-  ToolOutlined,
   UndoOutlined,
 } from '@ant-design/icons';
 import {
@@ -25,23 +23,24 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import { Link, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
-  changeOrganizationUserCleanOperation,
   changeOrganizationUserStatus,
   getOrganizationUser,
-  listOrganizations,
   listOrganizationUsers,
 } from '@/api/identityDirectory';
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
 import { useAuthStore } from '@/stores/authStore';
 import type { OrganizationUser } from '@/types';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
+import { directoryPath } from '@/router/directoryQuery';
 
-type UserMutation = 'freeze' | 'restore' | 'grant-clean' | 'revoke-clean';
+type UserMutation = 'freeze' | 'restore';
 
 function userInitial(user: OrganizationUser): string {
   return user.nickname.trim().slice(0, 1).toUpperCase() || '用';
@@ -49,44 +48,24 @@ function userInitial(user: OrganizationUser): string {
 
 export default function OrganizationUserPage() {
   const scope = useDirectoryScope();
+  const organizationScope = useOrganizationScope(scope);
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'disabled' ? 'disabled' : 'all';
   const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const executeCommand = useCommandExecutor();
   const canFreeze = useAuthStore((state) =>
     state.hasCapability('user.freeze'));
-  const canManageCleaner = useAuthStore((state) =>
-    state.hasCapability('cleaner.manage'));
-  const [organizationCode, setOrganizationCode] = useState<string>();
-  const [organizationOptions, setOrganizationOptions] = useState<
-    Array<{ label: string; value: string }>
-  >([]);
+  const canReadDelivery = useAuthStore((state) =>
+    state.hasCapability('delivery.read')
+    || state.hasCapability('review.execute'));
+  const canReadWithdrawal = useAuthStore((state) =>
+    state.hasCapability('withdrawal.read')
+    || state.hasCapability('review.execute'));
+  const organizationCode = organizationScope.organizationCode;
   const [detail, setDetail] = useState<OrganizationUser | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [mutating, setMutating] = useState<UserMutation | null>(null);
-
-  useEffect(() => {
-    setOrganizationCode(undefined);
-    setOrganizationOptions([]);
-    setDetail(null);
-    if (!scope.context) return;
-    let active = true;
-    listOrganizations(scope.context, { page: 1, pageSize: 200 })
-      .then((page) => {
-        if (!active) return;
-        const options = page.items.map((organization) => ({
-          label: `${organization.organizationName} · ${organization.organizationCode}`,
-          value: organization.organizationCode,
-        }));
-        setOrganizationOptions(options);
-        setOrganizationCode(options[0]?.value);
-      })
-      .catch(() => {
-        if (active) setOrganizationOptions([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [scope.context]);
 
   useEffect(() => {
     actionRef.current?.reload();
@@ -125,13 +104,10 @@ export default function OrganizationUserPage() {
 
   const mutate = async (user: OrganizationUser, mutation: UserMutation) => {
     if (!scope.context || !organizationCode) return;
-    const isStatus = mutation === 'freeze' || mutation === 'restore';
-    const enabled = mutation === 'restore' || mutation === 'grant-clean';
+    const enabled = mutation === 'restore';
     const reason = {
       freeze: 'Web 管理端冻结机构用户',
       restore: 'Web 管理端恢复机构用户',
-      'grant-clean': 'Web 管理端授予清运能力',
-      'revoke-clean': 'Web 管理端撤销清运能力',
     }[mutation];
     setMutating(mutation);
     try {
@@ -142,23 +118,14 @@ export default function OrganizationUserPage() {
           reason,
         }),
         (intent) =>
-          isStatus
-            ? changeOrganizationUserStatus(
-                scope.context!,
-                organizationCode,
-                user,
-                enabled,
-                intent,
-                reason,
-              )
-            : changeOrganizationUserCleanOperation(
-                scope.context!,
-                organizationCode,
-                user,
-                enabled,
-                intent,
-                reason,
-              ),
+          changeOrganizationUserStatus(
+            scope.context!,
+            organizationCode,
+            user,
+            enabled,
+            intent,
+            reason,
+          ),
       );
       setDetail((current) =>
         current?.organizationUserUid === updated.organizationUserUid
@@ -168,11 +135,7 @@ export default function OrganizationUserPage() {
       message.success(
         mutation === 'freeze'
           ? '用户已冻结，普通小程序会话已撤销'
-          : mutation === 'restore'
-            ? '用户已恢复，旧会话不会自动恢复'
-            : mutation === 'grant-clean'
-              ? '清运能力已授予，旧会话已撤销'
-              : '清运能力已撤销，旧会话已撤销',
+          : '用户已恢复，旧会话不会自动恢复',
       );
       actionRef.current?.reload();
     } catch (error) {
@@ -216,37 +179,6 @@ export default function OrganizationUserPage() {
           }
         >
           {user.status === 'ACTIVE' ? '冻结' : '恢复'}
-        </Button>
-      </Popconfirm>
-    ) : null,
-    canManageCleaner ? (
-      <Popconfirm
-        key="clean"
-        title={
-          user.cleanOperationEnabled
-            ? '撤销后清运入口将不再可用，确认继续？'
-            : '确认授予该用户清运能力？'
-        }
-        onConfirm={() =>
-          mutate(
-            user,
-            user.cleanOperationEnabled ? 'revoke-clean' : 'grant-clean',
-          )}
-      >
-        <Button
-          type="link"
-          size="small"
-          icon={
-            user.cleanOperationEnabled
-              ? <StopOutlined />
-              : <ToolOutlined />
-          }
-          loading={
-            mutating
-            === (user.cleanOperationEnabled ? 'revoke-clean' : 'grant-clean')
-          }
-        >
-          {user.cleanOperationEnabled ? '撤销清运' : '授予清运'}
         </Button>
       </Popconfirm>
     ) : null,
@@ -297,22 +229,7 @@ export default function OrganizationUserPage() {
       ),
     },
     {
-      title: '清运能力',
-      dataIndex: 'cleanOperation',
-      valueType: 'select',
-      valueEnum: {
-        true: { text: '已授予' },
-        false: { text: '未授予' },
-      },
-      render: (_, user) =>
-        user.cleanOperationEnabled ? (
-          <Tag icon={<CheckCircleOutlined />} color="success">已授予</Tag>
-        ) : (
-          <Tag>未授予</Tag>
-        ),
-    },
-    {
-      title: '来源部署',
+      title: '注册设备',
       dataIndex: 'sourceDeploymentCode',
       render: (_, user) => user.registrationSource?.deploymentCode ?? '-',
     },
@@ -336,9 +253,46 @@ export default function OrganizationUserPage() {
       hideInTable: true,
     },
     {
+      title: '关联记录',
+      key: 'relatedRecords',
+      search: false,
+      width: 150,
+      render: (_, user) => (
+        <Space size={12}>
+          {canReadDelivery && (
+            <Link
+              to={directoryPath('/deliveries', {
+                tenant: scope.platform ? scope.tenantCode : undefined,
+                organization: organizationCode,
+                organizationUserUid: user.organizationUserUid,
+              })}
+            >
+              投递
+            </Link>
+          )}
+          {canReadWithdrawal && (
+            <Link
+              to={directoryPath('/withdrawals', {
+                tenant: scope.platform ? scope.tenantCode : undefined,
+                organization: organizationCode,
+                organizationUserUid: user.organizationUserUid,
+              })}
+            >
+              提现
+            </Link>
+          )}
+          {!canReadDelivery && !canReadWithdrawal && (
+            <Typography.Text type="secondary">无读取权限</Typography.Text>
+          )}
+        </Space>
+      ),
+    },
+    {
       title: '操作',
+      key: 'operation',
       valueType: 'option',
-      width: 300,
+      width: 150,
+      hideInSetting: true,
       render: (_, user) => actionButtons(user),
     },
   ];
@@ -353,28 +307,37 @@ export default function OrganizationUserPage() {
       <DirectoryScopeBar scope={scope} />
       {!scope.context && !scope.loading ? (
         <Empty description="请选择目标租户" />
-      ) : !organizationOptions.length && !scope.loading ? (
+      ) : !organizationScope.organizationOptions.length
+        && !scope.loading
+        && !organizationScope.loading ? (
         <Empty description="当前租户尚无机构" />
       ) : (
-        <>
-          <Space style={{ marginBottom: 16 }}>
-            <Typography.Text strong>目标机构</Typography.Text>
-            <Select
-              aria-label="目标机构"
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 360 }}
-              value={organizationCode}
-              options={organizationOptions}
-              onChange={setOrganizationCode}
-            />
-          </Space>
           <ProTable<OrganizationUser>
             {...proTableConfig}
             actionRef={actionRef}
             rowKey="organizationUserUid"
             columns={columns}
-            scroll={{ x: 1180 }}
+            params={{ view }}
+            columnsState={{
+              persistenceKey: 'ecobin.web.columns.organization-users.v1',
+              persistenceType: 'localStorage',
+            }}
+            headerTitle={(
+              <Space>
+                <Typography.Text strong>目标机构</Typography.Text>
+                <Select
+                  aria-label="目标机构"
+                  showSearch
+                  optionFilterProp="label"
+                  style={{ width: 360 }}
+                  value={organizationCode}
+                  options={organizationScope.organizationOptions}
+                  loading={organizationScope.loading}
+                  onChange={organizationScope.setOrganizationCode}
+                />
+              </Space>
+            )}
+            scroll={{ x: 1100 }}
             request={async (params) => {
               if (!scope.context || !organizationCode) {
                 return { data: [], total: 0, success: true };
@@ -386,7 +349,11 @@ export default function OrganizationUserPage() {
                   {
                     page: params.current,
                     pageSize: params.pageSize,
-                    status: params.status as OrganizationUser['status'] | undefined,
+                    status: view === 'disabled'
+                      ? 'FROZEN'
+                      : params.status as
+                        | OrganizationUser['status']
+                        | undefined,
                     phoneBound:
                       params.phoneBound === undefined
                         ? undefined
@@ -399,10 +366,6 @@ export default function OrganizationUserPage() {
                       : undefined,
                     sourceDeploymentCode:
                       params.sourceDeploymentCode as string | undefined,
-                    cleanOperation:
-                      params.cleanOperation === undefined
-                        ? undefined
-                        : String(params.cleanOperation) === 'true',
                   },
                 );
                 return {
@@ -415,7 +378,6 @@ export default function OrganizationUserPage() {
               }
             }}
           />
-        </>
       )}
 
       <Drawer
@@ -443,9 +405,6 @@ export default function OrganizationUserPage() {
             </ProDescriptions.Item>
             <ProDescriptions.Item label="状态">
               {detail.status === 'ACTIVE' ? '正常' : '已冻结'}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="清运能力">
-              {detail.cleanOperationEnabled ? '已授予' : '未授予'}
             </ProDescriptions.Item>
             <ProDescriptions.Item label="注册时间">
               {dayjs(detail.registeredAt).format('YYYY-MM-DD HH:mm:ss')}

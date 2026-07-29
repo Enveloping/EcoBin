@@ -17,12 +17,13 @@ export function pageHeader(title: ReactNode, subTitle?: ReactNode) {
 
 /** ProTable 统一配置：卡片化、去默认边框 */
 export const proTableConfig = {
+  className: 'data-table-workbench',
   cardBordered: false,
   options: {
     density: false,
     fullScreen: false,
     reload: true,
-    setting: false,
+    setting: true,
   },
   search: { labelWidth: 'auto' as const },
   scroll: { x: 'max-content' as const },

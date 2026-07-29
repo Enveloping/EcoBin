@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { listIdentityTenants, type DirectoryContext } from '@/api/identityDirectory';
+import {
+  listAllIdentityTenants,
+  type DirectoryContext,
+} from '@/api/identityDirectory';
 import { useAuthStore } from '@/stores/authStore';
 
 const PLATFORM_TENANT_KEY = 'ecobin.web.target-tenant';
@@ -48,11 +51,11 @@ export function useDirectoryScope(): DirectoryScope {
     }
     let active = true;
     setLoading(true);
-    listIdentityTenants({ page: 1, pageSize: 200 })
-      .then((page) => {
+    listAllIdentityTenants()
+      .then((tenants) => {
         if (!active) return;
         setTenantOptions(
-          page.items.map((tenant) => ({
+          tenants.map((tenant) => ({
             label: `${tenant.enterpriseName} · ${tenant.tenantCode}`,
             value: tenant.tenantCode,
           })),

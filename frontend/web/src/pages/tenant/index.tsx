@@ -13,11 +13,13 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { App, Button, Popconfirm, Space, Tag } from 'antd';
+import { App, Button, Divider, Popconfirm, Space, Tag } from 'antd';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   changeTenantStatus,
   createIdentityTenant,
   createTenantPrincipal,
+  getIdentityTenant,
   listIdentityTenants,
   resetTenantPrincipalPassword,
   updateIdentityTenant,
@@ -27,6 +29,7 @@ import type { IdentityTenant } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { palette } from '@/theme';
+import { directoryPath } from '@/router/directoryQuery';
 
 interface TenantForm {
   tenantCode: string;
@@ -49,6 +52,8 @@ interface PasswordResetForm {
 }
 
 export default function TenantPage() {
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'disabled' ? 'disabled' : 'all';
   const actionRef = useRef<ActionType>(null);
   const { message } = App.useApp();
   const [editing, setEditing] = useState<IdentityTenant | null>(null);
@@ -101,6 +106,9 @@ export default function TenantPage() {
         createTenantPrincipal(principalTenant.tenantCode, payload, intent),
     );
     message.success('主体账号已建立，可启用租户');
+    const latest = await getIdentityTenant(principalTenant.tenantCode);
+    setEditing((current) =>
+      current?.tenantCode === latest.tenantCode ? latest : current);
     setPrincipalTenant(null);
     reload();
     return true;
@@ -109,7 +117,7 @@ export default function TenantPage() {
   const toggle = async (tenant: IdentityTenant) => {
     const enable = tenant.status !== 'ENABLED';
     const reason = enable ? '平台启用租户' : '平台停用租户';
-    await executeCommand(
+    const updated = await executeCommand(
       commandKey('change-tenant-status', tenant.tenantCode, {
         enable,
         expectedVersion: tenant.version,
@@ -125,6 +133,8 @@ export default function TenantPage() {
         ),
     );
     message.success(enable ? '租户已启用' : '租户已停用，活动会话已撤销');
+    setEditing((current) =>
+      current?.tenantCode === updated.tenantCode ? updated : current);
     reload();
   };
 
@@ -150,6 +160,9 @@ export default function TenantPage() {
         ),
     );
     message.success('主体密码已重置，原有主体会话已撤销');
+    const latest = await getIdentityTenant(passwordTenant.tenantCode);
+    setEditing((current) =>
+      current?.tenantCode === latest.tenantCode ? latest : current);
     setPasswordTenant(null);
     reload();
     return true;
@@ -157,12 +170,33 @@ export default function TenantPage() {
 
   const columns: ProColumns<IdentityTenant>[] = [
     {
-      title: '租户编码',
+      title: '编码',
       dataIndex: 'tenantCode',
       copyable: true,
       width: 180,
+      search: false,
     },
-    { title: '企业名称', dataIndex: 'enterpriseName' },
+    {
+      title: '名称',
+      dataIndex: 'enterpriseName',
+      search: false,
+      render: (_, tenant) => (
+        <Link
+          className="table-link"
+          to={directoryPath('/organizations', {
+            tenant: tenant.tenantCode,
+          })}
+        >
+          {tenant.enterpriseName}
+        </Link>
+      ),
+    },
+    {
+      title: '编码 / 名称',
+      dataIndex: 'query',
+      hideInTable: true,
+      hideInSetting: true,
+    },
     { title: '联系人', dataIndex: 'contactName', search: false },
     { title: '联系电话', dataIndex: 'contactPhone', search: false },
     {
@@ -182,6 +216,7 @@ export default function TenantPage() {
     },
     {
       title: '主体账号',
+      key: 'principalAccount',
       search: false,
       render: (_, tenant) =>
         tenant.principalAccount ? (
@@ -197,8 +232,11 @@ export default function TenantPage() {
     },
     {
       title: '操作',
+      key: 'operation',
       valueType: 'option',
-      width: 300,
+      width: 88,
+      hideInTable: !canManage,
+      hideInSetting: true,
       render: (_, tenant) => canManage ? [
         <a
           key="edit"
@@ -207,31 +245,9 @@ export default function TenantPage() {
             setFormOpen(true);
           }}
         >
-          编辑资料
+          编辑
         </a>,
-        !tenant.principalAccount ? (
-          <a key="principal" onClick={() => setPrincipalTenant(tenant)}>
-            建立主体
-          </a>
-        ) : (
-          <a key="reset-password" onClick={() => setPasswordTenant(tenant)}>
-            重置主体密码
-          </a>
-        ),
-        <Popconfirm
-          key="status"
-          title={
-            tenant.status === 'ENABLED'
-              ? '停用后该租户工作人员会话将立即失效，确认继续？'
-              : '确认启用该租户？'
-          }
-          onConfirm={() => toggle(tenant)}
-        >
-          <a>
-            {tenant.status === 'ENABLED' ? '停用' : '启用'}
-          </a>
-        </Popconfirm>,
-      ] : [<span key="readonly" style={{ color: palette.textSecondary }}>只读</span>],
+      ] : [],
     },
   ];
 
@@ -247,13 +263,23 @@ export default function TenantPage() {
         actionRef={actionRef}
         rowKey="tenantCode"
         columns={columns}
+        params={{ view }}
+        columnsState={{
+          persistenceKey: 'ecobin.web.columns.tenants.v1',
+          persistenceType: 'localStorage',
+          defaultValue: {
+            principalAccount: { show: false },
+          },
+        }}
         request={async (params) => {
           try {
             const page = await listIdentityTenants({
               page: params.current,
               pageSize: params.pageSize,
-              status: params.status as string | undefined,
-              query: params.enterpriseName as string | undefined,
+              status: view === 'disabled'
+                ? 'DISABLED'
+                : params.status as string | undefined,
+              query: params.query as string | undefined,
             });
             return {
               data: page.items,
@@ -287,7 +313,7 @@ export default function TenantPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         initialValues={editing ?? undefined}
-        modalProps={{ destroyOnClose: true }}
+        modalProps={{ destroyOnClose: true, width: 680 }}
         onFinish={submitTenant}
       >
         <ProFormText
@@ -308,6 +334,42 @@ export default function TenantPage() {
         <ProFormText name="contactName" label="联系人" />
         <ProFormText name="contactPhone" label="联系电话" />
         <ProFormText name="contactAddress" label="联系地址" />
+        {editing && (
+          <>
+            <Divider orientation="left">主体账号与租户状态</Divider>
+            <Space wrap>
+              {!editing.principalAccount ? (
+                <Button
+                  onClick={() => setPrincipalTenant(editing)}
+                >
+                  建立主体账号
+                </Button>
+              ) : (
+                <Button
+                  icon={<KeyOutlined />}
+                  onClick={() => setPasswordTenant(editing)}
+                >
+                  重置主体密码
+                </Button>
+              )}
+              <Popconfirm
+                title={
+                  editing.status === 'ENABLED'
+                    ? '停用后该租户工作人员会话将立即失效，确认继续？'
+                    : '确认启用该租户？'
+                }
+                onConfirm={() => toggle(editing)}
+              >
+                <Button
+                  danger={editing.status === 'ENABLED'}
+                  icon={<PoweroffOutlined />}
+                >
+                  {editing.status === 'ENABLED' ? '停用租户' : '启用租户'}
+                </Button>
+              </Popconfirm>
+            </Space>
+          </>
+        )}
       </ModalForm>
 
       <ModalForm<PrincipalForm>

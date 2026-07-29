@@ -175,6 +175,186 @@ for (const domain of ['tenant', 'platform'] as const) {
   });
 }
 
+test('login page reuses the last non-credential backend entry preference', async ({
+  page,
+}) => {
+  let loginPath = '';
+  await page.addInitScript(() => {
+    sessionStorage.setItem('ecobin.web.login-domain', 'platform');
+  });
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/auth/csrf-token')) {
+      await json(route, {
+        token: 'csrf-domain-preference',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname.endsWith('/auth/sessions/current')
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (request.method() === 'POST' && url.pathname.endsWith('/auth/sessions')) {
+      loginPath = url.pathname;
+      await json(route, platformSession, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/login');
+  await expect(
+    page.locator('.ant-segmented-item-selected').getByText('平台管理员'),
+  ).toBeVisible();
+  await page.getByPlaceholder('登录名').fill('admin');
+  await page.getByPlaceholder('密码').fill('not-a-real-secret');
+  await page.getByRole('button', { name: /登\s*录/ }).click();
+
+  await expect.poll(() => loginPath).toBe(
+    '/api/v1/web/platform/auth/sessions',
+  );
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem('ecobin.web.login-domain')),
+  ).toBe('platform');
+});
+
+test('session recovery checks the other audience after a cross-tab Cookie switch', async ({
+  page,
+}) => {
+  const session = {
+    ...platformSession,
+    capabilities: ['tenant.read'],
+  };
+  const currentSessionRequests: string[] = [];
+  await page.addInitScript(() => {
+    sessionStorage.setItem('ecobin.web.login-domain', 'tenant');
+  });
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname.endsWith('/auth/sessions/current')
+    ) {
+      currentSessionRequests.push(url.pathname);
+      if (url.pathname === '/api/v1/web/auth/sessions/current') {
+        await route.fulfill(problem(401, 'AUTH.TOKEN_AUDIENCE_MISMATCH'));
+      } else {
+        await json(route, session);
+      }
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      await json(route, {
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/login');
+  await expect(page).toHaveURL('/tenant');
+  expect(currentSessionRequests).toContain(
+    '/api/v1/web/auth/sessions/current',
+  );
+  expect(currentSessionRequests).toContain(
+    '/api/v1/web/platform/auth/sessions/current',
+  );
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem('ecobin.web.login-domain')),
+  ).toBe('platform');
+  await expect(
+    page.getByRole('heading', { name: '管理后台登录' }),
+  ).toHaveCount(0);
+});
+
+test('session bootstrap outages are not misreported as logged-out state', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await route.fulfill(
+        problem(503, 'AUTH.SESSION_SERVICE_UNAVAILABLE', '认证服务暂不可用'),
+      );
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/tenant');
+  await expect(page).toHaveURL('/tenant');
+  await expect(page.getByText('暂时无法确认登录状态')).toBeVisible();
+  await expect(page.getByText('认证服务暂不可用')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '管理后台登录' }),
+  ).toHaveCount(0);
+});
+
+test('a completed login wins over a slower anonymous bootstrap response', async ({
+  page,
+}) => {
+  let releaseBootstrap: (() => void) | undefined;
+  const bootstrapGate = new Promise<void>((resolve) => {
+    releaseBootstrap = resolve;
+  });
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/auth/csrf-token')) {
+      await json(route, {
+        token: 'csrf-login-race',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname.endsWith('/auth/sessions/current')
+    ) {
+      await bootstrapGate;
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (request.method() === 'POST' && url.pathname.endsWith('/auth/sessions')) {
+      await json(route, tenantSession, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/login');
+  await page.getByPlaceholder('登录名').fill('operator');
+  await page.getByPlaceholder('密码').fill('not-a-real-secret');
+  await page.getByRole('button', { name: /登\s*录/ }).click();
+  await expect(page).toHaveURL('/account');
+
+  releaseBootstrap?.();
+  await page.waitForTimeout(150);
+  await expect(page).toHaveURL('/account');
+  await expect(
+    page.getByRole('heading', { name: '管理后台登录' }),
+  ).toHaveCount(0);
+});
+
 test('429 login feedback honors Retry-After', async ({ page }) => {
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -387,7 +567,7 @@ test('organization-user commands reuse idempotency after a retryable failure', a
 }) => {
   const session = {
     ...tenantSession,
-    capabilities: ['user.read', 'user.freeze', 'cleaner.manage'],
+    capabilities: ['user.read', 'user.freeze'],
   };
   let currentUser = {
     organizationUserUid: '30000000-0000-4000-8000-000000000001',
@@ -407,7 +587,6 @@ test('organization-user commands reuse idempotency after a retryable failure', a
   };
   const idempotencyKeys: string[] = [];
   let freezeAttempts = 0;
-  let grantAttempts = 0;
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -483,21 +662,6 @@ test('organization-user commands reuse idempotency after a retryable failure', a
       await json(route, currentUser);
       return;
     }
-    if (
-      url.pathname.endsWith('/capabilities/clean-operation/grants')
-      && request.method() === 'POST'
-    ) {
-      grantAttempts += 1;
-      currentUser = {
-        ...currentUser,
-        version: 9,
-        authVersion: 6,
-      };
-      await route.fulfill(
-        problem(409, 'IDENTITY.VERSION_CONFLICT', '数据版本冲突'),
-      );
-      return;
-    }
     await route.fulfill(problem(404));
   });
 
@@ -515,13 +679,6 @@ test('organization-user commands reuse idempotency after a retryable failure', a
   );
   expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
   await expect(page.getByText('已冻结', { exact: true }).first()).toBeVisible();
-
-  await page.getByRole('button', { name: '授予清运' }).click();
-  await page.getByRole('button', { name: '确 定' }).last().click();
-  await expect.poll(() => grantAttempts).toBe(1);
-  await expect(
-    page.getByText('数据版本已经变化，已载入最新状态；请核对后重新确认'),
-  ).toBeVisible();
 });
 
 test('organization-user list renders both empty and service-error states', async ({
@@ -673,14 +830,32 @@ test('platform principal reset sends both versions and reports session revocatio
       });
       return;
     }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants/tenant-a'
+    ) {
+      await json(route, {
+        ...tenant,
+        principalAccount: {
+          ...tenant.principalAccount,
+          version: 12,
+          authVersion: 10,
+        },
+      });
+      return;
+    }
     await route.fulfill(problem(404));
   });
 
   await page.goto('/tenant');
+  await page.getByText('编辑', { exact: true }).click();
   await page.getByText('重置主体密码', { exact: true }).click();
   await page.locator('input#newPassword').fill('new-password-2026');
   await page.locator('input#confirmPassword').fill('new-password-2026');
-  await page.getByRole('button', { name: '确 定' }).click();
+  await page
+    .getByLabel('重置主体密码 · 清源再生资源')
+    .getByRole('button', { name: '确 定' })
+    .click();
 
   await expect.poll(() => resetPayload).toEqual({
     newPassword: 'new-password-2026',
@@ -690,4 +865,526 @@ test('platform principal reset sends both versions and reports session revocatio
   await expect(
     page.getByText('主体密码已重置，原有主体会话已撤销'),
   ).toBeVisible();
+});
+
+test('user binding recovers stale CSRF and explains an unmatched organization phone', async ({
+  page,
+}) => {
+  const session = {
+    ...platformSession,
+    capabilities: [
+      'tenant.read',
+      'organization.read',
+      'staff.read',
+      'staff.bind',
+      'user.read',
+    ],
+  };
+  let csrfRequestCount = 0;
+  let lookupAttemptCount = 0;
+  const lookupHeaders: Array<string | undefined> = [];
+  let staleLookupStarted = false;
+  let staleLookupCompleted = false;
+  let releaseStaleLookup = () => {};
+  const staleLookupGate = new Promise<void>((resolve) => {
+    releaseStaleLookup = resolve;
+  });
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      csrfRequestCount += 1;
+      await json(route, {
+        token: `binding-csrf-${csrfRequestCount}`,
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      await json(route, {
+        items: [{
+          tenantCode: 'v02-local-dev',
+          enterpriseName: '本地开发租户',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-01T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/platform/tenants/v02-local-dev/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'v02-local',
+          organizationName: '本地机构',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-01T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/platform/tenants/v02-local-dev/staff-accounts'
+    ) {
+      await json(route, {
+        items: [{
+          staffAccountUid: '3102b64d-433d-4015-9a29-b21f309ddf8a',
+          accountKind: 'STAFF',
+          loginName: 'operator',
+          displayName: '现场工作人员',
+          status: 'ENABLED',
+          version: 2,
+          authVersion: 3,
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-01T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname.endsWith(
+        '/staff-accounts/3102b64d-433d-4015-9a29-b21f309ddf8a/miniapp-binding',
+      )
+    ) {
+      await json(route, { currentMiniappBinding: null });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname.endsWith('/organization-users/phone-lookups')
+    ) {
+      lookupAttemptCount += 1;
+      lookupHeaders.push(request.headers()['x-csrf-token']);
+      const { phoneNumber } = request.postDataJSON() as {
+        phoneNumber: string;
+      };
+      if (phoneNumber === '13800138000' && lookupAttemptCount === 1) {
+        await route.fulfill(
+          problem(403, 'SECURITY.CSRF_INVALID', 'CSRF 校验失败'),
+        );
+      } else if (phoneNumber === '13800138000') {
+        await route.fulfill(
+          problem(404, 'COMMON.NOT_FOUND', '未找到指定资源'),
+        );
+      } else if (phoneNumber === '13900139000') {
+        staleLookupStarted = true;
+        await staleLookupGate;
+        await json(route, {
+          organizationUserUid: '40000000-0000-4000-8000-000000000001',
+          nickname: '过期核验用户',
+          maskedPhoneNumber: '139****9000',
+          registeredAt: '2026-07-01T00:00:00Z',
+          status: 'ACTIVE',
+          currentMiniappBinding: null,
+        });
+        staleLookupCompleted = true;
+      } else if (phoneNumber === '13700137000') {
+        await json(route, {
+          organizationUserUid: '40000000-0000-4000-8000-000000000002',
+          nickname: '当前核验用户',
+          maskedPhoneNumber: '137****7000',
+          registeredAt: '2026-07-02T00:00:00Z',
+          status: 'ACTIVE',
+          currentMiniappBinding: null,
+        });
+      } else {
+        await route.fulfill(problem(400));
+      }
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto(
+    '/user-bindings?tenant=v02-local-dev&organization=v02-local',
+  );
+  await page.getByRole('combobox', { name: '工作人员' }).click();
+  await page.getByText('现场工作人员 · operator').click();
+  await page.getByLabel('完整手机号').fill('13800138000');
+  await page.getByRole('button', { name: '取得双侧快照' }).click();
+
+  await expect.poll(() => lookupAttemptCount).toBe(2);
+  expect(lookupHeaders).toEqual(['binding-csrf-1', 'binding-csrf-2']);
+  await expect(
+    page.getByText(
+      '当前机构没有绑定此手机号的用户，请核对机构，或先让用户在该机构小程序完成手机号绑定',
+    ),
+  ).toBeVisible();
+
+  await page.getByLabel('完整手机号').fill('13900139000');
+  await page.getByRole('button', { name: '取得双侧快照' }).click();
+  await expect.poll(() => staleLookupStarted).toBe(true);
+  await page.getByLabel('完整手机号').fill('13700137000');
+  await page.getByRole('button', { name: '取得双侧快照' }).click();
+  await expect(page.getByText('当前核验用户', { exact: true })).toBeVisible();
+
+  releaseStaleLookup();
+  await expect.poll(() => staleLookupCompleted).toBe(true);
+  await expect(
+    page.getByText('过期核验用户', { exact: true }),
+  ).toHaveCount(0);
+});
+
+test('tenant sidebar preset and name link apply real directory filters', async ({
+  page,
+}) => {
+  const session = {
+    ...platformSession,
+    capabilities: [
+      'tenant.read',
+      'tenant.manage',
+      'organization.read',
+      'delivery.read',
+      'clean.read',
+      'withdrawal.read',
+    ],
+  };
+  const tenant = {
+    tenantCode: 'tenant-disabled',
+    enterpriseName: '停用租户',
+    status: 'DISABLED',
+    contactName: '陈卓',
+    contactPhone: '138****1008',
+    contactAddress: '湖州市吴兴区',
+    version: 6,
+    principalAccount: null,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-20T00:00:00Z',
+  };
+  const tenantStatuses: Array<string | null> = [];
+  let scopedOrganizationsRequested = false;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      tenantStatuses.push(url.searchParams.get('status'));
+      await json(route, {
+        items: [tenant],
+        page: Number(url.searchParams.get('page') ?? 1),
+        pageSize: Number(url.searchParams.get('pageSize') ?? 20),
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/platform/tenants/tenant-disabled/organizations'
+    ) {
+      scopedOrganizationsRequested = true;
+      await json(route, {
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/tenant?view=disabled');
+  await expect(
+    page.locator('.ant-pro-sider').getByText('已禁用的租户', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('停用租户', { exact: true })).toBeVisible();
+  await expect.poll(() => tenantStatuses).toContain('DISABLED');
+  await expect(page.getByText('编辑', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('重置主体密码', { exact: true }),
+  ).toHaveCount(0);
+  const sider = page.locator('.ant-pro-sider');
+  const selectedMenuItems = sider.locator('.ant-menu-item-selected');
+  await expect(selectedMenuItems).toHaveCount(1);
+  await expect(selectedMenuItems).toContainText('已禁用的租户');
+
+  await sider.getByText('所有租户', { exact: true }).click();
+  await expect(page).toHaveURL(/\/tenant(?:\?tenant=[^&]+)?$/);
+  await expect(selectedMenuItems).toHaveCount(1);
+  await expect(selectedMenuItems).toContainText('所有租户');
+
+  await sider.getByText('已禁用的租户', { exact: true }).click();
+  await expect(page).toHaveURL(/\/tenant\?view=disabled/);
+  await expect(selectedMenuItems).toHaveCount(1);
+  await expect(selectedMenuItems).toContainText('已禁用的租户');
+
+  await sider
+    .locator('.ant-menu-submenu-title')
+    .filter({ hasText: '投递订单' })
+    .click();
+  await expect(
+    sider.getByText('已拒绝订单', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    sider.getByText('已纠正订单', { exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/tenant\?view=disabled/);
+
+  await page.getByText('停用租户', { exact: true }).click();
+  await expect(page).toHaveURL(/\/organizations\?tenant=tenant-disabled/);
+  await expect.poll(() => scopedOrganizationsRequested).toBe(true);
+});
+
+test('staff table hides security versions and keeps access actions inside edit', async ({
+  page,
+}) => {
+  const staffUid = '50000000-0000-4000-8000-000000000001';
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'staff.read',
+      'staff.manage',
+      'permission.read',
+      'permission.manage',
+      'organization.read',
+    ],
+  };
+  const staff = {
+    staffAccountUid: staffUid,
+    accountKind: 'STAFF',
+    loginName: 'field.operator',
+    displayName: '现场工作人员',
+    contactPhone: '138****2001',
+    status: 'ENABLED',
+    version: 7,
+    authVersion: 4,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-20T00:00:00Z',
+  };
+  const organization = {
+    organizationCode: 'org-a',
+    organizationName: '湖州运营中心',
+    status: 'ENABLED',
+    version: 2,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-01T00:00:00Z',
+  };
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/staff-accounts'
+    ) {
+      await json(route, {
+        items: [staff],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [organization],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/permission-definitions'
+    ) {
+      await json(route, [{
+        permissionCode: 'device.read',
+        scopeKind: 'ORGANIZATION',
+        permissionName: '读取设备',
+        description: '读取机构设备',
+      }]);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/staff-accounts/${staffUid}/effective-access`
+    ) {
+      await json(route, {
+        staffAccountUid: staffUid,
+        tenantPermissionCodes: [],
+        organizations: [],
+        authVersion: 4,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-a/staff-memberships'
+    ) {
+      await json(route, {
+        items: [],
+        page: 1,
+        pageSize: 200,
+        total: 0,
+      });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/staff');
+  await expect(page.getByText('现场工作人员', { exact: true })).toBeVisible();
+  await expect(page.getByText('v7 / auth 4', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('编辑', { exact: true })).toBeVisible();
+  await expect(page.getByText('重置密码', { exact: true })).toHaveCount(0);
+
+  await page.getByText('编辑', { exact: true }).click();
+  await expect(page.getByText('账号安全', { exact: true })).toBeVisible();
+  await expect(page.getByText('任职与授权', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '重置密码' })).toBeVisible();
+  await expect(page.getByText('机构任职', { exact: true })).toBeVisible();
+});
+
+test('device management consumes the organization deep link and target API', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: ['organization.read', 'device.read'],
+  };
+  let requestedOrganization = false;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-b',
+          organizationName: '设备运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-01T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-b/device-deployments'
+    ) {
+      requestedOrganization = true;
+      await json(route, {
+        items: [{
+          deploymentCode: 'dp-hz-01',
+          tenantCode: 'tenant-a',
+          organizationCode: 'org-b',
+          asset: {
+            hardwareSn: 'EC-BOX-0001',
+            modelCode: 'ECO-6P',
+            expectedPortCount: 6,
+            lifecycleStatus: 'IN_USE',
+            version: 2,
+          },
+          lifecycleStatus: 'ENABLED',
+          businessEnabled: true,
+          portCount: 6,
+          latestConfigurationVersion: 8,
+          appliedConfigurationVersion: 8,
+          configurationApplicationStatus: 'APPLIED',
+          edgeConnectionStatus: 'ONLINE',
+          version: 5,
+          commissionedAt: '2026-07-02T00:00:00Z',
+          enabledAt: '2026-07-03T00:00:00Z',
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-20T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/devices?organization=org-b');
+  await expect.poll(() => requestedOrganization).toBe(true);
+  await expect(page).toHaveURL(/organization=org-b/);
+  await expect(page.getByText('dp-hz-01', { exact: true })).toBeVisible();
+  await expect(page.getByText('EC-BOX-0001', { exact: true })).toBeVisible();
+  await expect(page.getByText('在线', { exact: true })).toBeVisible();
 });

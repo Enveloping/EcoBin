@@ -1,26 +1,65 @@
 import { ProLayout } from '@ant-design/pro-components';
+import { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Dropdown } from 'antd';
 import { LogoutOutlined, UserOutlined, SettingOutlined } from '@ant-design/icons';
 import { useAuthStore } from '@/stores/authStore';
-import { menuRoutesFor } from '@/router/routes';
+import { type AppMenuRoute, menuRoutesFor } from '@/router/routes';
+import { menuTargetPath } from '@/router/directoryQuery';
 import { logout } from '@/api/auth';
 import { palette, alpha } from '@/theme';
 import EcoBinLogo from '@/components/Logo';
+
+function toMenuData(route: AppMenuRoute): AppMenuRoute {
+  return {
+    ...route,
+    routes: route.routes?.map(toMenuData),
+  };
+}
+
+function selectedMenuKey(pathname: string, search: string): string {
+  const view = new URLSearchParams(search).get('view');
+  if (pathname === '/tenant') {
+    return view === 'disabled'
+      ? '/menu/tenants/disabled'
+      : '/menu/tenants/all';
+  }
+  if (pathname === '/organization-users') {
+    return view === 'disabled'
+      ? '/menu/organization-users/disabled'
+      : '/menu/organization-users/all';
+  }
+  return pathname;
+}
+
+function activeMenuParent(pathname: string): string | undefined {
+  const parentByPath: Record<string, string> = {
+    '/tenant': '/menu/tenants',
+    '/organization-users': '/menu/organization-users',
+    '/deliveries': '/menu/deliveries',
+    '/clean-records': '/menu/clean-records',
+    '/withdrawals': '/menu/withdrawals',
+  };
+  return parentByPath[pathname];
+}
 
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { session, domain, clear } = useAuthStore();
-  const targetTenant = domain === 'platform'
-    ? new URLSearchParams(location.search).get('tenant')
-    : null;
+  const activeParent = activeMenuParent(location.pathname);
+  const [openKeys, setOpenKeys] = useState<string[]>(
+    activeParent ? [activeParent] : [],
+  );
 
-  const menuData = menuRoutesFor(session).map((r) => ({
-    path: r.path,
-    name: r.name,
-    icon: r.icon,
-  }));
+  const menuData = menuRoutesFor(session).map(toMenuData);
+
+  useEffect(() => {
+    if (!activeParent) return;
+    setOpenKeys((current) => (
+      current.includes(activeParent) ? current : [...current, activeParent]
+    ));
+  }, [activeParent]);
 
   const handleLogout = async () => {
     try {
@@ -42,30 +81,38 @@ export default function MainLayout() {
       layout="mix"
       fixedHeader
       fixSiderbar
-      location={{ pathname: location.pathname }}
+      location={{ pathname: selectedMenuKey(location.pathname, location.search) }}
       route={{ path: '/', routes: menuData }}
       siderWidth={220}
       collapsedButtonRender={false}
-      siderMenuType="group"
+      siderMenuType="sub"
       // 浅色侧边栏：白底 + 绿色选中高亮
       menuProps={{
+        selectedKeys: [
+          selectedMenuKey(location.pathname, location.search),
+        ],
+        openKeys,
+        onOpenChange: setOpenKeys,
         style: {
           background: palette.bgContainer,
           borderRight: `1px solid ${palette.border}`,
         },
       }}
       menuItemRender={(item, dom) => (
-        <a
-          onClick={() => {
-            if (!item.path) return;
-            const search = targetTenant
-              ? `?tenant=${encodeURIComponent(targetTenant)}`
-              : '';
-            navigate(`${item.path}${search}`);
-          }}
-        >
-          {dom}
-        </a>
+        item.disabled || !item.path
+          ? <span title={item.tooltip}>{dom}</span>
+          : (
+              <a
+                title={item.tooltip}
+                onClick={() => navigate(menuTargetPath(
+                  (item as AppMenuRoute).targetPath ?? item.path!,
+                  location.search,
+                  domain === 'platform',
+                ))}
+              >
+                {dom}
+              </a>
+            )
       )}
       // 侧边栏 token：浅色 + 主色高亮（通过 ProLayout 全局 token 覆盖）
       token={{

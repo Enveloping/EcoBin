@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, Button, Segmented, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { login } from '@/api/auth';
@@ -8,6 +8,11 @@ import { defaultPathFor } from '@/router/routes';
 import { palette } from '@/theme';
 import EcoBinLogo from '@/components/Logo';
 import type { WebLoginDomain } from '@/types';
+import {
+  parseWebLoginDomain,
+  preferredLoginDomain,
+  rememberLoginDomain,
+} from '@/security/loginDomain';
 
 const { Title, Text } = Typography;
 
@@ -16,8 +21,31 @@ export default function Login() {
   const location = useLocation();
   const { message } = App.useApp();
   const setSession = useAuthStore((state) => state.setSession);
-  const [domain, setDomain] = useState<WebLoginDomain>('tenant');
+  const status = useAuthStore((state) => state.status);
+  const currentSession = useAuthStore((state) => state.session);
+  const requestedDomain = parseWebLoginDomain(
+    new URLSearchParams(location.search).get('domain'),
+  );
+  const [domain, setDomain] = useState<WebLoginDomain>(
+    () => requestedDomain ?? preferredLoginDomain(),
+  );
   const [loading, setLoading] = useState(false);
+
+  const from = (location.state as { from?: unknown } | null)?.from;
+  const safeFrom = typeof from === 'string'
+    && from.startsWith('/')
+    && !from.startsWith('//')
+    ? from
+    : undefined;
+
+  if (status === 'authenticated' && currentSession) {
+    return (
+      <Navigate
+        to={safeFrom || defaultPathFor(currentSession)}
+        replace
+      />
+    );
+  }
 
   const onFinish = async (values: { loginName: string; password: string }) => {
     setLoading(true);
@@ -25,13 +53,17 @@ export default function Login() {
       const session = await login(domain, values);
       setSession(session, domain);
       message.success('登录成功');
-      const from = (location.state as { from?: string })?.from;
-      navigate(from || defaultPathFor(session), { replace: true });
+      navigate(safeFrom || defaultPathFor(session), { replace: true });
     } catch {
       // 错误已由拦截器统一弹窗
     } finally {
       setLoading(false);
     }
+  };
+
+  const selectDomain = (value: WebLoginDomain) => {
+    setDomain(value);
+    rememberLoginDomain(value);
   };
 
   return (
@@ -82,7 +114,7 @@ export default function Login() {
         <Segmented<WebLoginDomain>
           block
           value={domain}
-          onChange={setDomain}
+          onChange={selectDomain}
           options={[
             { label: '租户与工作人员', value: 'tenant' },
             { label: '平台管理员', value: 'platform' },

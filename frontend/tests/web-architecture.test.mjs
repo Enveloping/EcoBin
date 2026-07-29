@@ -9,6 +9,18 @@ import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { hasRouteAccess } from '../web/src/router/access.ts';
+import {
+  directoryPath,
+  menuTargetPath,
+} from '../web/src/router/directoryQuery.ts';
+import {
+  loginDomainCandidates,
+  preferredLoginDomain,
+  rememberLoginDomain,
+  sessionBelongsToDomain,
+  storedLoginDomain,
+  WEB_LOGIN_DOMAIN_KEY,
+} from '../web/src/security/loginDomain.ts';
 
 const webRoot = new URL('../web/', import.meta.url);
 const sourceRoot = fileURLToPath(new URL('../web/src/', import.meta.url));
@@ -40,6 +52,7 @@ test('legacy pages, APIs, numeric DTOs and decorative effects stay removed', () 
     'src/pages/statistics/index.tsx',
     'src/pages/user/index.tsx',
     'src/pages/withdraw/index.tsx',
+    'src/pages/access/index.tsx',
     'src/api/admin.ts',
     'src/api/clean.ts',
     'src/api/delivery.ts',
@@ -155,4 +168,76 @@ test('allOf and anyOf capability semantics are evaluated independently', () => {
     hasRouteAccess(session, { accountTypes: ['PLATFORM_ADMIN'] }),
     false,
   );
+});
+
+test('Web login-domain recovery follows the shared Cookie audience', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+
+  assert.equal(preferredLoginDomain(storage), 'tenant');
+  rememberLoginDomain('platform', storage);
+  assert.equal(values.get(WEB_LOGIN_DOMAIN_KEY), 'platform');
+  assert.equal(storedLoginDomain(storage), 'platform');
+  assert.deepEqual(
+    loginDomainCandidates(storedLoginDomain(storage)),
+    ['platform', 'tenant'],
+  );
+  assert.deepEqual(loginDomainCandidates('tenant'), ['tenant', 'platform']);
+  assert.equal(
+    sessionBelongsToDomain({ accountType: 'PLATFORM_ADMIN' }, 'platform'),
+    true,
+  );
+  assert.equal(
+    sessionBelongsToDomain({ accountType: 'STAFF' }, 'platform'),
+    false,
+  );
+  assert.equal(
+    sessionBelongsToDomain({ accountType: 'TENANT_PRINCIPAL' }, 'tenant'),
+    true,
+  );
+});
+
+test('directory deep links preserve only explicit non-sensitive scope', () => {
+  assert.equal(
+    directoryPath('/organization-users', {
+      tenant: 'tenant-a',
+      organization: 'org-a',
+    }),
+    '/organization-users?tenant=tenant-a&organization=org-a',
+  );
+  assert.equal(
+    directoryPath('/deliveries', {
+      tenant: 'tenant-a',
+      organization: 'org-a',
+      organizationUserUid: 'user-public-uid',
+    }),
+    '/deliveries?tenant=tenant-a&organization=org-a&organizationUserUid=user-public-uid',
+  );
+  assert.equal(
+    menuTargetPath(
+      '/organization-users?view=disabled',
+      '?tenant=tenant-a&organization=org-secret&phone=13800138000',
+      true,
+    ),
+    '/organization-users?view=disabled&tenant=tenant-a',
+  );
+});
+
+test('data tables expose persisted column settings with safe defaults', () => {
+  const pageStyle = readFileSync(
+    new URL('src/utils/pageStyle.tsx', webRoot),
+    'utf8',
+  );
+  const staffPage = readFileSync(
+    new URL('src/pages/staff/index.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(pageStyle, /setting:\s*true/);
+  assert.match(pageStyle, /data-table-workbench/);
+  assert.match(staffPage, /securityVersion:\s*\{\s*show:\s*false\s*\}/);
+  assert.match(staffPage, /<StaffAccessPanel/);
 });

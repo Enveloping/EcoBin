@@ -32,6 +32,11 @@ export interface DirectoryPageParams {
   query?: string;
 }
 
+type DirectoryFilterParams = Omit<
+  DirectoryPageParams,
+  'page' | 'pageSize'
+>;
+
 export interface OrganizationUserPageParams {
   page?: number;
   pageSize?: number;
@@ -87,12 +92,40 @@ function write<T>(
   });
 }
 
+const DIRECTORY_OPTION_PAGE_SIZE = 200;
+
+async function collectDirectoryItems<T>(
+  loadPage: (page: number) => Promise<PageData<T>>,
+): Promise<T[]> {
+  const items: T[] = [];
+  let page = 1;
+  while (true) {
+    const result = await loadPage(page);
+    items.push(...result.items);
+    if (items.length >= result.total || result.items.length === 0) {
+      return items;
+    }
+    page += 1;
+  }
+}
+
 export function listIdentityTenants(params: DirectoryPageParams = {}) {
   return request<PageData<IdentityTenant>>({
     url: '/api/v1/web/platform/tenants',
     method: 'GET',
     params,
   });
+}
+
+export function listAllIdentityTenants(
+  params: DirectoryFilterParams = {},
+) {
+  return collectDirectoryItems((page) =>
+    listIdentityTenants({
+      ...params,
+      page,
+      pageSize: DIRECTORY_OPTION_PAGE_SIZE,
+    }));
 }
 
 export function getIdentityTenant(tenantCode: string) {
@@ -217,6 +250,18 @@ export function listOrganizations(
   });
 }
 
+export function listAllOrganizations(
+  context: DirectoryContext,
+  params: DirectoryFilterParams = {},
+) {
+  return collectDirectoryItems((page) =>
+    listOrganizations(context, {
+      ...params,
+      page,
+      pageSize: DIRECTORY_OPTION_PAGE_SIZE,
+    }));
+}
+
 export function createOrganization(
   context: DirectoryContext,
   data: {
@@ -274,6 +319,30 @@ export function listStaffAccounts(
     url: `${scopedBase(context)}/staff-accounts`,
     method: 'GET',
     params,
+  });
+}
+
+export function listAllStaffAccounts(
+  context: DirectoryContext,
+  params: DirectoryFilterParams = {},
+) {
+  return collectDirectoryItems((page) =>
+    listStaffAccounts(context, {
+      ...params,
+      page,
+      pageSize: DIRECTORY_OPTION_PAGE_SIZE,
+    }));
+}
+
+export function getStaffAccount(
+  context: DirectoryContext,
+  staffUid: string,
+) {
+  return request<StaffAccount>({
+    url: `${scopedBase(context)}/staff-accounts/${encodeURIComponent(
+      staffUid,
+    )}`,
+    method: 'GET',
   });
 }
 
@@ -610,6 +679,7 @@ export function lookupOrganizationUserByPhone(
   context: DirectoryContext,
   organizationCode: string,
   phoneNumber: string,
+  options: { silent?: boolean } = {},
 ) {
   const url = context.domain === 'platform'
     ? `${scopedBase(context)}/organizations/${encodeURIComponent(
@@ -622,6 +692,7 @@ export function lookupOrganizationUserByPhone(
     url,
     method: 'POST',
     data: { phoneNumber },
+    silent: options.silent,
   });
 }
 
