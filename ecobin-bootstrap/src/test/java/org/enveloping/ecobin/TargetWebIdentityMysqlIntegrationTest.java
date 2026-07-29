@@ -619,6 +619,36 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void unknownPlatformLoginUsingDevelopmentPasswordIsRejected()
+            throws Exception {
+        MvcResult result = login(
+                new BrowserClient(),
+                "/api/v1/web/platform/auth/sessions",
+                "missing-platform-" + run,
+                "admin123",
+                401);
+
+        assertEquals(
+                "AUTH.INVALID_CREDENTIALS",
+                json(result).path("code").asText());
+    }
+
+    @Test
+    void unknownStaffLoginUsingDevelopmentPasswordIsRejected()
+            throws Exception {
+        MvcResult result = login(
+                new BrowserClient(),
+                "/api/v1/web/auth/sessions",
+                "missing-staff-" + run,
+                "admin123",
+                401);
+
+        assertEquals(
+                "AUTH.INVALID_CREDENTIALS",
+                json(result).path("code").asText());
+    }
+
+    @Test
     void auditIsRedactedAndCoversPrivilegedReadsAndLoginDenials()
             throws Exception {
         BrowserClient platform = platformClient();

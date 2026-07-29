@@ -61,7 +61,8 @@ public class TargetWebSessionService {
                 repository.findPlatformLogin(normalized).orElse(null);
         String hash = principal == null
                 ? DUMMY_PASSWORD_HASH : principal.passwordHash();
-        if (!passwordEncoder.matches(password, hash)) {
+        boolean passwordMatches = passwordEncoder.matches(password, hash);
+        if (principal == null || !passwordMatches) {
             if (principal != null) {
                 repository.recordPlatformLoginFailure(
                         principal.id(),
@@ -113,7 +114,8 @@ public class TargetWebSessionService {
                 repository.findStaffLogin(normalized).orElse(null);
         String hash = principal == null
                 ? DUMMY_PASSWORD_HASH : principal.passwordHash();
-        if (!passwordEncoder.matches(password, hash)) {
+        boolean passwordMatches = passwordEncoder.matches(password, hash);
+        if (principal == null || !passwordMatches) {
             if (principal != null) {
                 repository.recordStaffLoginFailure(
                         principal.id(),
