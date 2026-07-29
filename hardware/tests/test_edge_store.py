@@ -3,9 +3,11 @@
 测试 SQLite schema 创建、五个原子事务、工单槽操作、事件/照片发件箱、故障和完整性校验。
 """
 
+import json
 import os
 import sqlite3
 import tempfile
+import uuid
 from datetime import datetime, timezone
 
 from edge_store import (
@@ -547,6 +549,115 @@ class TestFaultOperations:
         ok = store.mark_fault_recovered(uid)
         assert ok
         assert len(store.list_active_faults()) == 0
+        store.close()
+
+    def test_reliable_fault_lifecycle_deduplicates_and_upgrades(self):
+        store = make_store()
+        fault_uid = str(uuid.uuid4())
+
+        assert store.observe_fault_and_create_event(
+            deployment_code="Dp_demo_01",
+            component="CAMERA",
+            fault_code="CAMERA_CAPTURE",
+            severity="WARNING",
+            fault_uid=fault_uid,
+        ) == "ACCEPTED"
+        assert store.observe_fault_and_create_event(
+            deployment_code="Dp_demo_01",
+            component="CAMERA",
+            fault_code="CAMERA_CAPTURE",
+            severity="WARNING",
+            fault_uid=str(uuid.uuid4()),
+        ) == "DUPLICATE"
+        assert store.observe_fault_and_create_event(
+            deployment_code="Dp_demo_01",
+            component="CAMERA",
+            fault_code="CAMERA_CAPTURE",
+            severity="BLOCK_DEVICE",
+        ) == "ACCEPTED"
+
+        observed = store._conn.execute(
+            """SELECT payload_json FROM event_outbox
+               WHERE event_type='DEVICE_FAULT_OBSERVED'
+               ORDER BY edge_event_sequence"""
+        ).fetchall()
+        assert len(observed) == 2
+        assert {
+            json.loads(row["payload_json"])["payload"]["faultUid"]
+            for row in observed
+        } == {fault_uid}
+        active = store.list_active_faults()
+        assert len(active) == 1
+        assert active[0]["severity"] == "BLOCK_DEVICE"
+        assert active[0]["discovery_count"] == 3
+
+        assert store.recover_fault_and_create_event(
+            deployment_code="Dp_demo_01",
+            fault_uid=fault_uid,
+            component="CAMERA",
+            fault_code="CAMERA_CAPTURE",
+            port_no=None,
+            recovery_evidence="CAPTURE_SUCCEEDED",
+        ) == "ACCEPTED"
+        assert store.recover_fault_and_create_event(
+            deployment_code="Dp_demo_01",
+            fault_uid=fault_uid,
+            component="CAMERA",
+            fault_code="CAMERA_CAPTURE",
+            port_no=None,
+            recovery_evidence="CAPTURE_SUCCEEDED",
+        ) == "DUPLICATE"
+        recovered = store._conn.execute(
+            """SELECT COUNT(*) AS count FROM event_outbox
+               WHERE event_type='DEVICE_FAULT_RECOVERED'"""
+        ).fetchone()
+        assert recovered["count"] == 1
+        assert store.list_active_faults() == []
+        store.close()
+
+    def test_real_safety_event_atomically_finishes_mcu_inbox(self):
+        store = make_store()
+        generation = store.begin_mcu_receive_generation(101)
+        frame = {
+            "message_name": "SAFETY_SENSOR_EVENT",
+            "message_type": 54,
+            "tx_sequence": 9,
+            "payload": {
+                "mcuBootId": 101,
+                "mcuEventSequence": 7,
+                "portNo": 1,
+                "smokeState": "ALARM",
+                "smokeSensorHealth": "OK",
+                "faultCode": "NONE",
+                "workType": "NONE",
+                "workUid": None,
+            },
+        }
+        assert store.receive_mcu_frame(frame) == "ACCEPTED"
+
+        assert store.record_safety_state_and_event(
+            deployment_code="Dp_demo_01",
+            mcu_receive_generation=generation,
+            payload=frame["payload"],
+        ) == "ACCEPTED"
+        inbox = store._conn.execute(
+            """SELECT state FROM mcu_event_inbox
+               WHERE mcu_receive_generation=?
+                 AND mcu_boot_id=101 AND mcu_event_sequence=7""",
+            (generation,),
+        ).fetchone()
+        assert inbox["state"] == "PROCESSED"
+        assert store.get_state("port_1_smoke_state") == "ALARM"
+        assert store.record_safety_state_and_event(
+            deployment_code="Dp_demo_01",
+            mcu_receive_generation=generation,
+            payload=frame["payload"],
+        ) == "DUPLICATE"
+        count = store._conn.execute(
+            """SELECT COUNT(*) AS count FROM event_outbox
+               WHERE event_type='SAFETY_SENSOR_STATE_CHANGED'"""
+        ).fetchone()["count"]
+        assert count == 1
         store.close()
 
 

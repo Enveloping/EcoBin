@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -876,12 +877,17 @@ def test_cloud_clean_resume_does_not_reset_already_recovered_window(tmp_path):
     store.close()
 
 
-def test_smoke_alarm_is_recorded_without_blocking_delivery(tmp_path):
+def test_real_smoke_alarm_is_recorded_and_blocks_new_delivery(tmp_path):
     store = make_store(tmp_path)
     store.set_state("applied_config_version", "8")
     store.set_state("applied_config_content_sha256", "a" * 64)
     uart = FakeUart()
-    work = WorkManager(store, uart, None, FakePhotoManager())
+    mqtt = type(
+        "FakeMqtt",
+        (),
+        {"deployment_code": "Dp_demo_01"},
+    )()
+    work = WorkManager(store, uart, mqtt, FakePhotoManager())
     processor = CommandProcessor(store, uart, work)
 
     processor.process_mcu_event({
@@ -904,11 +910,17 @@ def test_smoke_alarm_is_recorded_without_blocking_delivery(tmp_path):
     assert store.get_state("smoke_state") == "ALARM"
     assert store.list_active_faults() == []
     command = valid_service_command("start-delivery-session.service-wire.json")
+    command["payload"]["portNo"] = 1
+    command["payloadSha256"] = canonical_payload_sha256(
+        command["payload"]
+    )
     store.receive_command(command["commandUid"], command["commandType"], command)
     processor.process_next()
-    assert store.get_command(command["commandUid"])["state"] == (
-        "WAITING_MCU_RESULT"
+    assert store.get_command(command["commandUid"])["state"] == "FAILED"
+    assert store.get_command(command["commandUid"])["last_error"] == (
+        "SAFETY_SMOKE_ALARM"
     )
+    assert uart.calls == []
     store.close()
 
 
@@ -1009,7 +1021,7 @@ def test_compat_dd_completes_delivery_and_caches_raw_fullness(tmp_path):
     store.close()
 
 
-def test_compat_start_does_not_dispatch_without_persisted_open_photos(
+def test_compat_start_dispatches_when_open_photo_capture_fails(
     tmp_path,
 ):
     store = make_store(tmp_path)
@@ -1030,10 +1042,12 @@ def test_compat_start_does_not_dispatch_without_persisted_open_photos(
     processor.process_next()
 
     inbox = store.get_command(command["commandUid"])
-    assert inbox["state"] == "FAILED"
-    assert inbox["last_error"] == "PHOTO_CAPTURE_NOT_PERSISTED"
-    assert store.get_work_slot() is None
-    assert uart.calls == []
+    assert inbox["state"] == "WAITING_MCU_RESULT"
+    assert inbox["last_error"] is None
+    assert store.get_work_slot()["work_uid"] == (
+        command["payload"]["sessionUid"]
+    )
+    assert uart.calls[0][0] == "START_DELIVERY_SESSION"
     store.close()
 
 
@@ -1047,6 +1061,10 @@ def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     processor = CommandProcessor(store, uart, work)
     command = valid_compat_service_command(
         "start-clean-operation.service-wire.json"
+    )
+    command["payload"]["oldBaselineWeightGrams"] = 1_500
+    command["payloadSha256"] = canonical_payload_sha256(
+        command["payload"]
     )
     store.receive_command(
         command["commandUid"],
@@ -1084,7 +1102,7 @@ def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     assert len(clean_events) == 1
     payload = clean_events[0]["payload"]
     encode_event_post("CLEAN_COMPLETE", clean_events[0])
-    assert payload["removedNetWeightGrams"] == 48_000
+    assert payload["removedNetWeightGrams"] == 48_500
     assert payload["newBaselineWeightGrams"] == 2_000
     confirmation = payload["cleanLockAndManualDoorConfirmation"]
     assert confirmation["lockPowerState"] == "DEENERGIZED"
@@ -1194,7 +1212,7 @@ def test_compat_fullness_uses_latest_dd_observation_without_uart(tmp_path):
     store.close()
 
 
-def test_compat_unsupported_baseline_fails_without_reserving_slot(tmp_path):
+def test_compat_baseline_uses_zero_without_history(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)
     uart = FakeCompatUart()
@@ -1212,14 +1230,23 @@ def test_compat_unsupported_baseline_fails_without_reserving_slot(tmp_path):
     processor.process_next()
 
     inbox = store.get_command(command["commandUid"])
-    assert inbox["state"] == "FAILED"
-    assert inbox["last_error"] == "MCU_FEATURE_NOT_SUPPORTED"
+    assert inbox["state"] == "COMPLETED"
+    assert inbox["result"]["reportedWeightGrams"] == 0
+    events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "BASELINE_MEASUREMENT_COMPLETE"
+    ]
+    assert len(events) == 1
+    assert events[0]["payload"]["totalWeightMeasurement"][
+        "reportedWeightGrams"
+    ] == 0
     assert store.get_work_slot() is None
     assert uart.calls == []
     store.close()
 
 
-def test_compat_corrupt_fullness_cache_fails_without_reserving_slot(
+def test_compat_corrupt_fullness_cache_falls_back_to_zero(
     tmp_path,
 ):
     store = make_store(tmp_path)
@@ -1249,8 +1276,238 @@ def test_compat_corrupt_fullness_cache_fails_without_reserving_slot(
     processor.process_next()
 
     inbox = store.get_command(command["commandUid"])
-    assert inbox["state"] == "FAILED"
-    assert inbox["last_error"] == "MCU_FEATURE_NOT_SUPPORTED"
+    assert inbox["state"] == "COMPLETED"
+    assert inbox["result"]["fullnessPercent"] == 0
+    assert inbox["result"]["fullnessState"] == "NOT_FULL"
     assert store.get_work_slot() is None
+    assert uart.calls == []
+    store.close()
+
+
+def test_compat_delivery_timeout_fails_and_never_replays_uart(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+    processor.process_next()
+    calls_after_start = list(uart.calls)
+    slot = store.get_work_slot()
+    context = slot["context"]
+    context["expires_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    store.update_work_context(slot["work_uid"], context)
+
+    assert work.expire_fixed_frame_work()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "MCU_RESULT_TIMEOUT"
+    assert store.get_work_slot() is None
+    assert uart.calls == calls_after_start
+    observations = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+    ]
+    assert [
+        event["payload"]["stage"]
+        for event in observations
+    ] == ["ACCEPTED", "MCU_ACCEPTED", "FAILED"]
+    assert all(
+        uuid.UUID(event["eventUid"]).version == 4
+        for event in observations
+    )
+    store.close()
+
+
+def test_compat_clean_continues_when_all_photo_captures_fail(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    photos = FakePhotoManager(capture_result=False)
+    work = WorkManager(store, uart, None, photos)
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-clean-operation.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    assert uart.calls[0][0] == "START_CLEAN_OPERATION"
+    assert store.get_command(command["commandUid"])["state"] == (
+        "WAITING_MCU_RESULT"
+    )
+    processor.process_mcu_event({
+        "message_name": "COMPAT_CLEAN_RESULT",
+        "message_type": 241,
+        "source_tx_sequence": 2,
+        "payload": {
+            "mcuBootId": 42,
+            "mcuEventSequence": 2,
+            "uptimeMs": 2000,
+            "preWeightGrams": 50_000,
+            "postWeightGrams": 2_000,
+            "infraredBlocked": False,
+            "rawFrameHex": "ef00c3500007d000ef",
+        },
+    })
+    assert store.get_command(command["commandUid"])["state"] == (
+        "COMPLETED"
+    )
+    assert store.get_work_slot() is None
+    assert photos.captured == [
+        ("clean_open", command["payload"]["operationUid"]),
+        ("clean_close", command["payload"]["operationUid"]),
+    ]
+    store.close()
+
+
+def test_compat_fullness_supports_all_roles_without_history(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+
+    for role in ("INITIAL", "CONFIRMATION", "MANUAL_RECHECK"):
+        command = valid_compat_service_command(
+            "sample-fullness.service-wire.json"
+        )
+        command["commandUid"] = str(uuid.uuid4())
+        command["payload"]["detectionUid"] = str(uuid.uuid4())
+        command["payload"]["sampleRole"] = role
+        command["target"]["uid"] = command["payload"]["detectionUid"]
+        command["payloadSha256"] = canonical_payload_sha256(
+            command["payload"]
+        )
+        store.receive_command(
+            command["commandUid"],
+            command["commandType"],
+            command,
+        )
+        processor.process_next()
+        result = store.get_command(command["commandUid"])["result"]
+        assert result["fullnessPercent"] == 0
+        assert result["fullnessState"] == "NOT_FULL"
+
+    events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "FULLNESS_SAMPLE_COMPLETE"
+    ]
+    assert {
+        event["payload"]["sampleRole"]
+        for event in events
+    } == {"INITIAL", "CONFIRMATION", "MANUAL_RECHECK"}
+    assert store.get_work_slot() is None
+    assert uart.calls == []
+    store.close()
+
+
+def test_compat_baseline_reuses_saved_bag_value_after_restart(
+    tmp_path,
+):
+    database_path = tmp_path / "edge.db"
+    store = EdgeStore(str(database_path))
+    store.initialize()
+    mark_configuration_applied(store)
+    store.set_state(
+        "fixed_frame_latest_observation_json",
+        json.dumps({
+            "sourceWorkType": "DELIVERY",
+            "sourceWorkUid": str(uuid.uuid4()),
+            "portNo": 1,
+            "postWeightGrams": 7_777,
+            "infraredBlocked": False,
+            "mcuBootId": 42,
+            "mcuEventSequence": 4,
+        }),
+    )
+    uart = FakeCompatUart()
+    processor = CommandProcessor(
+        store,
+        uart,
+        WorkManager(store, uart, None, FakePhotoManager()),
+    )
+    first = valid_compat_service_command(
+        "measure-empty-bag-baseline.service-wire.json"
+    )
+    store.receive_command(
+        first["commandUid"],
+        first["commandType"],
+        first,
+    )
+    processor.process_next()
+    assert store.get_command(first["commandUid"])["result"] == {
+        "measurementStatus": "STABLE",
+        "weightValuePresent": True,
+        "reportedWeightGrams": 7_777,
+        "compatibilitySource": "LATEST_FLOW_POST",
+    }
+    bag_uid = first["payload"]["bagUid"]
+    store.close()
+
+    store = EdgeStore(str(database_path))
+    store.initialize()
+    store.set_state(
+        "fixed_frame_latest_observation_json",
+        json.dumps({
+            "sourceWorkType": "CLEAN",
+            "sourceWorkUid": str(uuid.uuid4()),
+            "portNo": 1,
+            "postWeightGrams": 9_999,
+            "infraredBlocked": False,
+            "mcuBootId": 42,
+            "mcuEventSequence": 5,
+        }),
+    )
+    uart = FakeCompatUart()
+    processor = CommandProcessor(
+        store,
+        uart,
+        WorkManager(store, uart, None, FakePhotoManager()),
+    )
+    second = valid_compat_service_command(
+        "measure-empty-bag-baseline.service-wire.json"
+    )
+    second["commandUid"] = str(uuid.uuid4())
+    second["payload"]["measurementUid"] = str(uuid.uuid4())
+    second["payload"]["bagUid"] = bag_uid
+    second["target"]["uid"] = second["payload"]["measurementUid"]
+    second["payloadSha256"] = canonical_payload_sha256(
+        second["payload"]
+    )
+    store.receive_command(
+        second["commandUid"],
+        second["commandType"],
+        second,
+    )
+    processor.process_next()
+
+    result = store.get_command(second["commandUid"])["result"]
+    assert result["reportedWeightGrams"] == 7_777
+    assert result["compatibilitySource"] == "LATEST_FLOW_POST"
+    assert store.get_bag_baseline(bag_uid)["weight_grams"] == 7_777
     assert uart.calls == []
     store.close()
