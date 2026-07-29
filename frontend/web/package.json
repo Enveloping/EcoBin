@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "api:types": "openapi-typescript ../../contracts/http/openapi.yaml -o src/api/generated/openapi.d.ts",
+    "api:types:check": "openapi-typescript ../../contracts/http/openapi.yaml -o src/api/generated/openapi.d.ts --check",
+    "test:architecture": "node --no-warnings --experimental-strip-types --test ../tests/web-architecture.test.mjs",
+    "test:e2e": "playwright test",
     "test:http-foundation": "node --no-warnings --experimental-strip-types --test ../tests/http-foundation.test.mjs",
+    "test:bundle-budget": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -21,10 +26,12 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/node": "^25.9.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "openapi-typescript": "^7.9.1",
     "typescript": "~5.6.3",
     "vite": "^6.0.5"
   }

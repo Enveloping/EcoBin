@@ -58,8 +58,13 @@ export class ApiProblem extends Error {
   readonly requestId: string;
   readonly retryable: boolean;
   readonly details: Record<string, unknown>;
+  readonly retryAfterSeconds?: number;
 
-  constructor(status: number, problem: ProblemDetail) {
+  constructor(
+    status: number,
+    problem: ProblemDetail,
+    retryAfterSeconds?: number,
+  ) {
     super(problem.message);
     this.name = 'ApiProblem';
     this.status = status;
@@ -67,6 +72,7 @@ export class ApiProblem extends Error {
     this.requestId = problem.requestId;
     this.retryable = problem.retryable;
     this.details = problem.details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 
   get isIdempotencyConflict(): boolean {
@@ -82,7 +88,9 @@ export class ApiProblem extends Error {
 }
 
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
+  // Web authentication is intentionally same-origin. Development uses Vite's
+  // /api proxy; production serves the SPA and API behind one origin.
+  baseURL: '',
   timeout: 15000,
   withCredentials: true,
 });
@@ -92,11 +100,19 @@ let csrfBootstrap: Promise<string> | null = null;
 let lastTrace: RequestTrace = {};
 let redirecting = false;
 
-function normalizeApiUrl(url: string | undefined): string | undefined {
-  if (!url || /^https?:\/\//i.test(url) || url.startsWith('//')) return url;
-  if (url.startsWith('/api/')) return url;
-  if (url.startsWith('/')) return `/api${url}`;
-  return `/api/${url}`;
+export function normalizeApiUrl(url: string | undefined): string {
+  if (!url) {
+    throw new TypeError('API request URL is required');
+  }
+  if (
+    /^([a-z][a-z\d+\-.]*:)?\/\//i.test(url)
+    || !url.startsWith('/api/v1/')
+  ) {
+    throw new TypeError(
+      `Only same-origin /api/v1/** requests are allowed: ${url}`,
+    );
+  }
+  return url;
 }
 
 function isUnsafe(method: string | undefined): boolean {
@@ -126,18 +142,61 @@ function isProblemDetail(value: unknown): value is ProblemDetail {
   );
 }
 
+function parseRetryAfter(value: unknown): number | undefined {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (typeof candidate !== 'string' && typeof candidate !== 'number') {
+    return undefined;
+  }
+  const raw = String(candidate).trim();
+  if (/^\d+$/.test(raw)) {
+    return Number(raw);
+  }
+  const deadline = Date.parse(raw);
+  if (Number.isNaN(deadline)) {
+    return undefined;
+  }
+  return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+}
+
+function retryAfterSeconds(error: AxiosError): number | undefined {
+  return parseRetryAfter(error.response?.headers?.['retry-after']);
+}
+
+function retryAfterLabel(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds} 秒`;
+  }
+  if (seconds < 3600) {
+    return `${Math.ceil(seconds / 60)} 分钟`;
+  }
+  return `${Math.ceil(seconds / 3600)} 小时`;
+}
+
+function problemMessage(problem: ApiProblem): string {
+  if (problem.status !== 429 || problem.retryAfterSeconds === undefined) {
+    return problem.message;
+  }
+  return `${problem.message}，请在 ${retryAfterLabel(
+    problem.retryAfterSeconds,
+  )}后重试`;
+}
+
 function networkProblem(error: AxiosError): ApiProblem {
   const status = error.response?.status || 0;
   const hasResponse = !!error.response;
-  return new ApiProblem(status, {
-    code: hasResponse ? 'COMMON.INVALID_RESPONSE' : 'COMMON.NETWORK_ERROR',
-    message: hasResponse
-      ? `服务端返回了无法识别的错误响应(${status})`
-      : error.message || '网络异常，请稍后重试',
-    requestId: '',
-    retryable: !hasResponse || status >= 500,
-    details: {},
-  });
+  return new ApiProblem(
+    status,
+    {
+      code: hasResponse ? 'COMMON.INVALID_RESPONSE' : 'COMMON.NETWORK_ERROR',
+      message: hasResponse
+        ? `服务端返回了无法识别的错误响应(${status})`
+        : error.message || '网络异常，请稍后重试',
+      requestId: '',
+      retryable: !hasResponse || status >= 500,
+      details: {},
+    },
+    retryAfterSeconds(error),
+  );
 }
 
 function parseProblem(error: unknown): ApiProblem {
@@ -152,7 +211,11 @@ function parseProblem(error: unknown): ApiProblem {
     });
   }
   if (isProblemDetail(error.response?.data)) {
-    return new ApiProblem(error.response?.status || 0, error.response.data);
+    return new ApiProblem(
+      error.response?.status || 0,
+      error.response.data,
+      retryAfterSeconds(error),
+    );
   }
   return networkProblem(error);
 }
@@ -190,6 +253,20 @@ export function invalidateCsrfToken(): void {
   csrfBootstrap = null;
 }
 
+export async function refreshCsrfToken(): Promise<void> {
+  invalidateCsrfToken();
+  try {
+    await getCsrfToken();
+  } catch (error) {
+    const problem = parseProblem(error);
+    if (problem.status === 401) {
+      handleUnauthorized();
+    }
+    message.error(problemMessage(problem));
+    throw problem;
+  }
+}
+
 export function getLastRequestTrace(): Readonly<RequestTrace> {
   return lastTrace;
 }
@@ -222,7 +299,21 @@ async function execute<T, D = unknown>(
   }
   const needsCsrf = config.csrf ?? isUnsafe(config.method);
   if (needsCsrf) {
-    headers.set('X-CSRF-TOKEN', await getCsrfToken());
+    try {
+      headers.set('X-CSRF-TOKEN', await getCsrfToken());
+    } catch (error) {
+      const problem = parseProblem(error);
+      if (problem.status === 401 && original.unauthorized !== 'ignore') {
+        handleUnauthorized();
+      }
+      if (
+        !original.silent
+        && (problem.status !== 401 || original.unauthorized === 'ignore')
+      ) {
+        message.error(problemMessage(problem));
+      }
+      throw problem;
+    }
   }
   config.headers = headers;
 
@@ -275,7 +366,7 @@ async function execute<T, D = unknown>(
       !original.silent
       && (problem.status !== 401 || original.unauthorized === 'ignore')
     ) {
-      message.error(problem.message);
+      message.error(problemMessage(problem));
     }
     throw problem;
   }

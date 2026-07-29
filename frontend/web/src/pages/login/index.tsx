@@ -1,13 +1,18 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, Button, Segmented, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { login } from '@/api/auth';
 import { useAuthStore } from '@/stores/authStore';
 import { defaultPathFor } from '@/router/routes';
-import { loginGradient, palette } from '@/theme';
-import ParticleBackground from '@/components/ParticleBackground';
+import { palette } from '@/theme';
+import EcoBinLogo from '@/components/Logo';
 import type { WebLoginDomain } from '@/types';
+import {
+  parseWebLoginDomain,
+  preferredLoginDomain,
+  rememberLoginDomain,
+} from '@/security/loginDomain';
 
 const { Title, Text } = Typography;
 
@@ -16,8 +21,31 @@ export default function Login() {
   const location = useLocation();
   const { message } = App.useApp();
   const setSession = useAuthStore((state) => state.setSession);
-  const [domain, setDomain] = useState<WebLoginDomain>('tenant');
+  const status = useAuthStore((state) => state.status);
+  const currentSession = useAuthStore((state) => state.session);
+  const requestedDomain = parseWebLoginDomain(
+    new URLSearchParams(location.search).get('domain'),
+  );
+  const [domain, setDomain] = useState<WebLoginDomain>(
+    () => requestedDomain ?? preferredLoginDomain(),
+  );
   const [loading, setLoading] = useState(false);
+
+  const from = (location.state as { from?: unknown } | null)?.from;
+  const safeFrom = typeof from === 'string'
+    && from.startsWith('/')
+    && !from.startsWith('//')
+    ? from
+    : undefined;
+
+  if (status === 'authenticated' && currentSession) {
+    return (
+      <Navigate
+        to={safeFrom || defaultPathFor(currentSession)}
+        replace
+      />
+    );
+  }
 
   const onFinish = async (values: { loginName: string; password: string }) => {
     setLoading(true);
@@ -25,8 +53,7 @@ export default function Login() {
       const session = await login(domain, values);
       setSession(session, domain);
       message.success('登录成功');
-      const from = (location.state as { from?: string })?.from;
-      navigate(from || defaultPathFor(session), { replace: true });
+      navigate(safeFrom || defaultPathFor(session), { replace: true });
     } catch {
       // 错误已由拦截器统一弹窗
     } finally {
@@ -34,83 +61,44 @@ export default function Login() {
     }
   };
 
+  const selectDomain = (value: WebLoginDomain) => {
+    setDomain(value);
+    rememberLoginDomain(value);
+  };
+
   return (
     <div
+      className="login-page"
       style={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: `linear-gradient(135deg, ${loginGradient.from} 0%, ${loginGradient.via} 50%, ${loginGradient.to} 100%)`,
+        padding: '96px 16px 32px',
+        boxSizing: 'border-box',
+        background: palette.bgLayout,
         position: 'relative',
-        overflow: 'hidden',
       }}
     >
-      {/* 粒子动效背景 */}
-      <ParticleBackground color="255, 255, 255" density={0.1} />
-
-      {/* 背景装饰 - 环保元素 */}
       <div
         style={{
           position: 'absolute',
-          top: '10%',
-          left: '5%',
-          width: 200,
-          height: 200,
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.08)',
-          filter: 'blur(40px)',
-          zIndex: 0,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '15%',
-          right: '10%',
-          width: 300,
-          height: 300,
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.06)',
-          filter: 'blur(60px)',
-          zIndex: 0,
-        }}
-      />
-
-      {/* Logo 区域 */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 40,
-          left: 40,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          zIndex: 2,
+          top: 20,
+          left: 0,
         }}
       >
-        <svg width="36" height="36" viewBox="0 0 48 48" fill="none">
-          <circle cx="24" cy="24" r="22" fill="#FFFFFF" fillOpacity="0.2" />
-          <path d="M24 8C15.16 8 8 15.16 8 24C8 32.84 15.16 40 24 40C32.84 40 40 32.84 40 24" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
-          <path d="M32 16L40 24L32 32" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M24 24L24 8" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
-        </svg>
-        <div>
-          <div style={{ fontSize: 24, fontWeight: 600, color: '#FFFFFF' }}>EcoBin</div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>智慧环保回收箱</div>
-        </div>
+        <EcoBinLogo />
       </div>
 
-      {/* 登录卡片 */}
       <Card
+        className="login-card"
         style={{
-          width: 400,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-          borderRadius: 16,
-          backdropFilter: 'blur(10px)',
-          background: 'rgba(255, 255, 255, 0.95)',
-          position: 'relative',
-          zIndex: 2,
+          width: '100%',
+          maxWidth: 400,
+          border: `1px solid ${palette.border}`,
+          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
+          borderRadius: 12,
+          background: palette.bgContainer,
         }}
         styles={{
           body: { padding: 32 },
@@ -126,7 +114,7 @@ export default function Login() {
         <Segmented<WebLoginDomain>
           block
           value={domain}
-          onChange={setDomain}
+          onChange={selectDomain}
           options={[
             { label: '租户与工作人员', value: 'tenant' },
             { label: '平台管理员', value: 'platform' },
@@ -137,14 +125,14 @@ export default function Login() {
         <Form onFinish={onFinish} size="large" initialValues={{ loginName: '', password: '' }}>
           <Form.Item name="loginName" rules={[{ required: true, message: '请输入登录名' }]}>
             <Input
-              prefix={<UserOutlined style={{ color: '#94A3B8' }} />}
+              prefix={<UserOutlined style={{ color: palette.textSecondary }} />}
               placeholder="登录名"
               autoComplete="username"
             />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
             <Input.Password
-              prefix={<LockOutlined style={{ color: '#94A3B8' }} />}
+              prefix={<LockOutlined style={{ color: palette.textSecondary }} />}
               placeholder="密码"
               autoComplete="current-password"
             />

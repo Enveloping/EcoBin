@@ -1,23 +1,65 @@
 import { ProLayout } from '@ant-design/pro-components';
+import { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Dropdown } from 'antd';
 import { LogoutOutlined, UserOutlined, SettingOutlined } from '@ant-design/icons';
 import { useAuthStore } from '@/stores/authStore';
-import { menuRoutesFor } from '@/router/routes';
+import { type AppMenuRoute, menuRoutesFor } from '@/router/routes';
+import { menuTargetPath } from '@/router/directoryQuery';
 import { logout } from '@/api/auth';
 import { palette, alpha } from '@/theme';
 import EcoBinLogo from '@/components/Logo';
+
+function toMenuData(route: AppMenuRoute): AppMenuRoute {
+  return {
+    ...route,
+    routes: route.routes?.map(toMenuData),
+  };
+}
+
+function selectedMenuKey(pathname: string, search: string): string {
+  const view = new URLSearchParams(search).get('view');
+  if (pathname === '/tenant') {
+    return view === 'disabled'
+      ? '/menu/tenants/disabled'
+      : '/menu/tenants/all';
+  }
+  if (pathname === '/organization-users') {
+    return view === 'disabled'
+      ? '/menu/organization-users/disabled'
+      : '/menu/organization-users/all';
+  }
+  return pathname;
+}
+
+function activeMenuParent(pathname: string): string | undefined {
+  const parentByPath: Record<string, string> = {
+    '/tenant': '/menu/tenants',
+    '/organization-users': '/menu/organization-users',
+    '/deliveries': '/menu/deliveries',
+    '/clean-records': '/menu/clean-records',
+    '/withdrawals': '/menu/withdrawals',
+  };
+  return parentByPath[pathname];
+}
 
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { session, domain, clear } = useAuthStore();
+  const activeParent = activeMenuParent(location.pathname);
+  const [openKeys, setOpenKeys] = useState<string[]>(
+    activeParent ? [activeParent] : [],
+  );
 
-  const menuData = menuRoutesFor(session).map((r) => ({
-    path: r.path,
-    name: r.name,
-    icon: r.icon,
-  }));
+  const menuData = menuRoutesFor(session).map(toMenuData);
+
+  useEffect(() => {
+    if (!activeParent) return;
+    setOpenKeys((current) => (
+      current.includes(activeParent) ? current : [...current, activeParent]
+    ));
+  }, [activeParent]);
 
   const handleLogout = async () => {
     try {
@@ -29,31 +71,53 @@ export default function MainLayout() {
   };
 
   return (
-    <ProLayout
+    <>
+      <a className="skip-link" href="#main-content">
+        跳到主内容
+      </a>
+      <ProLayout
       title=""
       logo={<EcoBinLogo collapsed={false} />}
       layout="mix"
       fixedHeader
       fixSiderbar
-      location={{ pathname: location.pathname }}
+      location={{ pathname: selectedMenuKey(location.pathname, location.search) }}
       route={{ path: '/', routes: menuData }}
       siderWidth={220}
       collapsedButtonRender={false}
-      siderMenuType="group"
+      siderMenuType="sub"
       // 浅色侧边栏：白底 + 绿色选中高亮
       menuProps={{
+        selectedKeys: [
+          selectedMenuKey(location.pathname, location.search),
+        ],
+        openKeys,
+        onOpenChange: setOpenKeys,
         style: {
-          background: '#FFFFFF',
-          borderRight: '1px solid #E2E8F0',
+          background: palette.bgContainer,
+          borderRight: `1px solid ${palette.border}`,
         },
       }}
       menuItemRender={(item, dom) => (
-        <a onClick={() => item.path && navigate(item.path)}>{dom}</a>
+        item.disabled || !item.path
+          ? <span title={item.tooltip}>{dom}</span>
+          : (
+              <a
+                title={item.tooltip}
+                onClick={() => navigate(menuTargetPath(
+                  (item as AppMenuRoute).targetPath ?? item.path!,
+                  location.search,
+                  domain === 'platform',
+                ))}
+              >
+                {dom}
+              </a>
+            )
       )}
       // 侧边栏 token：浅色 + 主色高亮（通过 ProLayout 全局 token 覆盖）
       token={{
         sider: {
-          colorMenuBackground: '#FFFFFF',
+          colorMenuBackground: palette.bgContainer,
           colorTextMenu: palette.textRegular,
           colorTextMenuSecondary: palette.textSecondary,
           colorTextMenuSelected: palette.primary,
@@ -63,7 +127,7 @@ export default function MainLayout() {
         },
         // 顶部导航栏样式（ProLayout 通过 token.header 控制，headerStyle 已不生效）
         header: {
-          colorBgHeader: '#FFFFFF',
+          colorBgHeader: palette.bgContainer,
         },
       }}
       // 右上角用户头像
@@ -100,12 +164,15 @@ export default function MainLayout() {
       }}
       // 内容区域样式
       contentStyle={{
-        minHeight: 'calc(100vh - 64px)',
+        minHeight: 'calc(100dvh - 64px)',
         padding: 24,
-        background: '#F8FAFC',
+        background: palette.bgLayout,
       }}
     >
-      <Outlet />
-    </ProLayout>
+        <main id="main-content" className="workspace-main" tabIndex={-1}>
+          <Outlet />
+        </main>
+      </ProLayout>
+    </>
   );
 }

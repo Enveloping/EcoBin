@@ -35,6 +35,10 @@
 - [当前前端对接接口](api/api-frontend.md)：用于旧实现联调，不是目标接口设计基线。
 - [Postman 集合](api/EcoBin.postman_collection.json)
 
+### `frontend/` — 当前客户端接入状态
+
+- [Web 管理端能力地图](frontend/web-capability-map.md)：记录当前 `/api/v1` 页面、能力组合、后续业务切片和交付门槛。
+
 ### `iot/` — OneNet 与设备云端集成
 
 - [OneNet 物模型说明](iot/onenet-thing-model.md)：当前旧实现资料；目标契约以 `planning/interface-design/` 为准。

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  KeyOutlined,
+  PlusOutlined,
+  PoweroffOutlined,
+} from '@ant-design/icons';
 import {
   ModalForm,
   PageContainer,
@@ -9,10 +13,12 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { App, Button, Empty, Popconfirm, Tag } from 'antd';
+import { App, Button, Divider, Empty, Popconfirm, Space, Tag } from 'antd';
 import {
   changeStaffStatus,
   createStaffAccount,
+  getStaffAccount,
+  listAllOrganizations,
   listPermissionDefinitions,
   listStaffAccounts,
   resetStaffPassword,
@@ -21,8 +27,12 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import type { PermissionDefinition, StaffAccount } from '@/types';
+import type { IdentityOrganization } from '@/types';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { palette } from '@/theme';
+import StaffAccessPanel from './StaffAccessPanel';
 
 interface StaffForm {
   loginName: string;
@@ -45,22 +55,37 @@ export default function StaffPage() {
     state.hasCapability('staff.manage'));
   const canGrant = useAuthStore((state) =>
     state.hasCapability('permission.manage'));
+  const canReadAccess = useAuthStore((state) =>
+    state.hasCapability('permission.read'));
   const [definitions, setDefinitions] = useState<PermissionDefinition[]>([]);
+  const [organizations, setOrganizations] =
+    useState<IdentityOrganization[]>([]);
   const [editing, setEditing] = useState<StaffAccount | null>(null);
   const [passwordTarget, setPasswordTarget] =
     useState<StaffAccount | null>(null);
   const [open, setOpen] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   useEffect(() => {
     actionRef.current?.reload();
-    if (!scope.context || !canGrant) {
+    if (!scope.context || !canReadAccess) {
       setDefinitions([]);
+      setOrganizations([]);
       return;
     }
-    listPermissionDefinitions(scope.context)
-      .then(setDefinitions)
-      .catch(() => setDefinitions([]));
-  }, [canGrant, scope.context]);
+    Promise.all([
+      listPermissionDefinitions(scope.context),
+      listAllOrganizations(scope.context),
+    ])
+      .then(([nextDefinitions, nextOrganizations]) => {
+        setDefinitions(nextDefinitions);
+        setOrganizations(nextOrganizations);
+      })
+      .catch(() => {
+        setDefinitions([]);
+        setOrganizations([]);
+      });
+  }, [canReadAccess, scope.context]);
 
   const tenantPermissionOptions = useMemo(
     () =>
@@ -76,24 +101,38 @@ export default function StaffPage() {
   const submit = async (values: StaffForm) => {
     if (!scope.context) return false;
     if (editing) {
-      await updateStaffAccount(
-        scope.context,
-        editing.staffAccountUid,
-        {
-          displayName: values.displayName,
-          contactPhone: values.contactPhone,
-          expectedVersion: editing.version,
-        },
+      if (!canManage || editing.accountKind === 'TENANT_PRINCIPAL') {
+        setOpen(false);
+        return true;
+      }
+      const payload = {
+        displayName: values.displayName,
+        contactPhone: values.contactPhone,
+        expectedVersion: editing.version,
+      };
+      await executeCommand(
+        commandKey('update-staff', editing.staffAccountUid, payload),
+        (intent) =>
+          updateStaffAccount(
+            scope.context!,
+            editing.staffAccountUid,
+            payload,
+            intent,
+          ),
       );
       message.success('工作人员资料已更新');
     } else {
-      await createStaffAccount(scope.context, {
+      const payload = {
         loginName: values.loginName,
         initialPassword: values.initialPassword,
         displayName: values.displayName,
         contactPhone: values.contactPhone,
         permissionCodes: values.permissionCodes ?? [],
-      });
+      };
+      await executeCommand(
+        commandKey('create-staff', values.loginName, payload),
+        (intent) => createStaffAccount(scope.context!, payload, intent),
+      );
       message.success('工作人员账号已创建');
     }
     setOpen(false);
@@ -104,13 +143,32 @@ export default function StaffPage() {
   const toggle = async (staff: StaffAccount) => {
     if (!scope.context) return;
     const enable = staff.status !== 'ENABLED';
-    await changeStaffStatus(
-      scope.context,
-      staff,
-      enable,
-      enable ? '恢复工作人员账号' : '停用工作人员账号',
+    const reason = enable ? '恢复工作人员账号' : '停用工作人员账号';
+    const updated = await executeCommand(
+      commandKey('change-staff-status', staff.staffAccountUid, {
+        enable,
+        expectedVersion: staff.version,
+        expectedAuthVersion: staff.authVersion,
+        reason,
+      }),
+      (intent) =>
+        changeStaffStatus(scope.context!, staff, enable, intent, reason),
     );
     message.success(enable ? '账号已恢复' : '账号已停用，会话已撤销');
+    setEditing((current) =>
+      current?.staffAccountUid === updated.staffAccountUid
+        ? updated
+        : current);
+    actionRef.current?.reload();
+  };
+
+  const refreshEditing = async (staffUid: string) => {
+    if (!scope.context) return;
+    const latest = await getStaffAccount(scope.context, staffUid);
+    setEditing((current) =>
+      current?.staffAccountUid === latest.staffAccountUid
+        ? latest
+        : current);
     actionRef.current?.reload();
   };
 
@@ -120,12 +178,25 @@ export default function StaffPage() {
       message.error('两次输入的密码不一致');
       return false;
     }
-    await resetStaffPassword(
-      scope.context,
-      passwordTarget,
-      values.newPassword,
+    const updated = await executeCommand(
+      commandKey('reset-staff-password', passwordTarget.staffAccountUid, {
+        newPassword: values.newPassword,
+        expectedVersion: passwordTarget.version,
+        expectedAuthVersion: passwordTarget.authVersion,
+      }),
+      (intent) =>
+        resetStaffPassword(
+          scope.context!,
+          passwordTarget,
+          values.newPassword,
+          intent,
+        ),
     );
     message.success('密码已重置，目标账号的会话已撤销');
+    setEditing((current) =>
+      current?.staffAccountUid === updated.staffAccountUid
+        ? updated
+        : current);
     setPasswordTarget(null);
     actionRef.current?.reload();
     return true;
@@ -138,7 +209,7 @@ export default function StaffPage() {
       render: (_, staff) => (
         <div>
           <div>{staff.displayName}</div>
-          <div style={{ color: '#64748B', fontSize: 12 }}>
+          <div style={{ color: palette.textSecondary, fontSize: 12 }}>
             {staff.loginName}
           </div>
         </div>
@@ -171,6 +242,7 @@ export default function StaffPage() {
     },
     {
       title: '安全版本',
+      key: 'securityVersion',
       search: false,
       width: 120,
       render: (_, staff) => `v${staff.version} / auth ${staff.authVersion}`,
@@ -184,13 +256,12 @@ export default function StaffPage() {
     },
     {
       title: '操作',
+      key: 'operation',
       valueType: 'option',
-      width: 210,
-      hideInTable: !canManage,
-      render: (_, staff) =>
-        staff.accountKind === 'TENANT_PRINCIPAL'
-          ? [<span key="protected" style={{ color: '#94A3B8' }}>主体账号受保护</span>]
-          : [
+      width: 88,
+      hideInTable: !canManage && !canReadAccess,
+      hideInSetting: true,
+      render: (_, staff) => [
               <a
                 key="edit"
                 onClick={() => {
@@ -200,20 +271,6 @@ export default function StaffPage() {
               >
                 编辑
               </a>,
-              <a key="password" onClick={() => setPasswordTarget(staff)}>
-                重置密码
-              </a>,
-              <Popconfirm
-                key="status"
-                title={
-                  staff.status === 'ENABLED'
-                    ? '停用后该账号的全部工作人员会话立即失效，确认继续？'
-                    : '确认恢复该账号？'
-                }
-                onConfirm={() => toggle(staff)}
-              >
-                <a>{staff.status === 'ENABLED' ? '停用' : '恢复'}</a>
-              </Popconfirm>,
             ],
     },
   ];
@@ -234,6 +291,14 @@ export default function StaffPage() {
           actionRef={actionRef}
           rowKey="staffAccountUid"
           columns={columns}
+          columnsState={{
+            persistenceKey: 'ecobin.web.columns.staff.v1',
+            persistenceType: 'localStorage',
+            defaultValue: {
+              securityVersion: { show: false },
+              staffAccountUid: { show: false },
+            },
+          }}
           request={async (params) => {
             if (!scope.context) {
               return { data: [], total: 0, success: true };
@@ -279,13 +344,32 @@ export default function StaffPage() {
         open={open}
         onOpenChange={setOpen}
         initialValues={editing ?? { permissionCodes: [] }}
-        modalProps={{ destroyOnClose: true }}
+        modalProps={{
+          destroyOnClose: true,
+          width: editing ? 1080 : 640,
+          style: { top: editing ? 24 : undefined },
+          styles: editing
+            ? { body: { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } }
+            : undefined,
+        }}
+        submitter={{
+          searchConfig: {
+            submitText:
+              editing
+              && (!canManage || editing.accountKind === 'TENANT_PRINCIPAL')
+                ? '关闭'
+                : editing
+                  ? '保存资料'
+                  : '创建',
+            resetText: '取消',
+          },
+        }}
         onFinish={submit}
       >
         <ProFormText
           name="loginName"
           label="全局登录名"
-          disabled={!!editing}
+          disabled={!!editing || !canManage}
           rules={
             editing
               ? []
@@ -305,9 +389,20 @@ export default function StaffPage() {
         <ProFormText
           name="displayName"
           label="展示名"
+          disabled={
+            !!editing
+            && (!canManage || editing.accountKind === 'TENANT_PRINCIPAL')
+          }
           rules={[{ required: true }]}
         />
-        <ProFormText name="contactPhone" label="联系电话" />
+        <ProFormText
+          name="contactPhone"
+          label="联系电话"
+          disabled={
+            !!editing
+            && (!canManage || editing.accountKind === 'TENANT_PRINCIPAL')
+          }
+        />
         {!editing && canGrant && (
           <ProFormSelect
             name="permissionCodes"
@@ -316,6 +411,55 @@ export default function StaffPage() {
             options={tenantPermissionOptions}
             tooltip="只能授予当前操作者在相同或更大作用域拥有的权限。"
           />
+        )}
+        {editing && (
+          <>
+            <Divider orientation="left">账号安全</Divider>
+            {editing.accountKind === 'TENANT_PRINCIPAL' ? (
+              <Tag color="gold">租户主体账号受保护</Tag>
+            ) : canManage ? (
+              <Space wrap>
+                <Button
+                  icon={<KeyOutlined />}
+                  onClick={() => setPasswordTarget(editing)}
+                >
+                  重置密码
+                </Button>
+                <Popconfirm
+                  title={
+                    editing.status === 'ENABLED'
+                      ? '停用后该账号的全部工作人员会话立即失效，确认继续？'
+                      : '确认恢复该账号？'
+                  }
+                  onConfirm={() => toggle(editing)}
+                >
+                  <Button
+                    danger={editing.status === 'ENABLED'}
+                    icon={<PoweroffOutlined />}
+                  >
+                    {editing.status === 'ENABLED' ? '停用账号' : '恢复账号'}
+                  </Button>
+                </Popconfirm>
+              </Space>
+            ) : (
+              <Tag>账号安全信息只读</Tag>
+            )}
+
+            {canReadAccess && scope.context && (
+              <>
+                <Divider orientation="left">任职与授权</Divider>
+                <StaffAccessPanel
+                  context={scope.context}
+                  staff={editing}
+                  organizations={organizations}
+                  definitions={definitions}
+                  canManage={canGrant}
+                  onChanged={() =>
+                    void refreshEditing(editing.staffAccountUid)}
+                />
+              </>
+            )}
+          </>
         )}
       </ModalForm>
 
