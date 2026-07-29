@@ -41,8 +41,14 @@ class CommandProcessor:
         if not isinstance(grant, dict):
             return False
         row = self._store.get_command(command_uid)
-        if not row or row["state"] == "COMPLETED":
+        if not row:
             return False
+        if row["state"] == "COMPLETED":
+            if not self._store.requeue_completed_photo_grant_command(
+                command_uid
+            ):
+                return False
+            row = self._store.get_command(command_uid)
         if row["state"] == "FAILED":
             if not self._store.requeue_failed_command(
                 command_uid,
@@ -62,6 +68,41 @@ class CommandProcessor:
     def wake(self) -> None:
         self._wake_event.set()
 
+    def accept_photo_upload_grant_now(
+        self,
+        command: dict,
+    ) -> bool:
+        """Install execution-only STS data before the service reply."""
+        if self._work is None:
+            return False
+        existing = self._store.get_command(command["commandUid"])
+        already_completed = bool(
+            existing and existing["state"] == "COMPLETED"
+        )
+        try:
+            result = self._work.accept_photo_upload_grant(command)
+            self._store.complete_command(
+                command["commandUid"],
+                result,
+            )
+            return True
+        except Exception as error:
+            if (
+                already_completed
+                and "PHOTO GRANT REQUEST IS NOT PENDING"
+                in str(error).upper()
+            ):
+                return True
+            self._store.fail_command(
+                command["commandUid"],
+                _error_code(error),
+            )
+            logger.warning(
+                "photo upload grant rejected before reply: %s",
+                type(error).__name__,
+            )
+            return False
+
     def wait(self, timeout_s: float = 0.5) -> None:
         self._wake_event.wait(timeout_s)
         self._wake_event.clear()
@@ -72,6 +113,7 @@ class CommandProcessor:
             return False
         command = row["payload"]
         command_uid = row["command_uid"]
+        validated = False
         try:
             with self._grant_lock:
                 grant = self._volatile_cos_grants.pop(
@@ -90,6 +132,7 @@ class CommandProcessor:
                 command,
                 trusted_environment=self._trusted_cos_environment,
             )
+            validated = True
             if command["commandType"] == "APPLY_CONFIGURATION":
                 self._apply_configuration(command)
             elif command["commandType"] == "START_DELIVERY_SESSION":
@@ -116,7 +159,24 @@ class CommandProcessor:
                 )
         except Exception as error:
             error_code = _error_code(error)
-            self._store.fail_command(command_uid, error_code)
+            if (
+                validated
+                and command.get("commandType") in {
+                    "START_DELIVERY_SESSION",
+                    "START_CLEAN_OPERATION",
+                    "END_CLEAN_BEFORE_UNLOCK",
+                    "RESUME_CLEAN_OPERATION",
+                    "SAMPLE_FULLNESS",
+                    "MEASURE_EMPTY_BAG_BASELINE",
+                }
+            ):
+                self._store.fail_command_and_observe(
+                    command,
+                    error_code,
+                    stage="FAILED",
+                )
+            else:
+                self._store.fail_command(command_uid, error_code)
             logger.error("command %s failed: %s", command_uid, error)
         return True
 
@@ -169,6 +229,8 @@ class CommandProcessor:
             raise RuntimeError("work manager is required")
         result = self._work.start_baseline_command(command)
         if not self._accept_dispatch_result(command, result):
+            return
+        if result.get("completed_locally"):
             return
         self._store.mark_command_waiting_mcu(
             command["commandUid"],
@@ -246,6 +308,18 @@ class CommandProcessor:
                 raise ValueError(
                     f"local configuration result {applied.lower()}"
                 )
+            self._store.complete_command(
+                command["commandUid"],
+                {
+                    "applicationUid": application_uid,
+                    "configVersion": config["version"],
+                    "disposition": (
+                        "APPLIED"
+                        if applied == "ACCEPTED"
+                        else "DUPLICATE_APPLIED"
+                    ),
+                },
+            )
             self._store.set_state(
                 "mcu_configuration_projection",
                 "NOT_SUPPORTED",
@@ -297,6 +371,10 @@ class CommandProcessor:
                 "message_name": message_name,
                 "message_type": event["message_type"],
                 "tx_sequence": event["source_tx_sequence"],
+                "mcu_receive_generation": event.get(
+                    "mcu_receive_generation",
+                    0,
+                ),
                 "payload": payload,
             })
 

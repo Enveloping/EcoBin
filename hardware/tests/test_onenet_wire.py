@@ -314,3 +314,88 @@ def test_store_confirmation_creates_receipt_event(tmp_path):
     ).fetchall()
     assert len(receipts) == 1
     store.close()
+
+
+def test_duplicate_confirmation_reuses_and_requeues_exact_receipt(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    original_event_uid = str(uuid.uuid4())
+    original_sha256 = "9" * 64
+    store.receive_mcu_event(
+        original_event_uid,
+        "DELIVERY_COMPLETE",
+        {"payloadSha256": original_sha256},
+    )
+    confirmation_uid = str(uuid.uuid4())
+    command_uid = str(uuid.uuid4())
+    confirmation = {
+        "confirmationUid": confirmation_uid,
+        "originalEventUid": original_event_uid,
+        "originalPayloadSha256": original_sha256,
+        "outcome": "BUSINESS_APPLIED",
+        "processedAt": datetime.now(timezone.utc).isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z"),
+        "errorCode": None,
+        "quarantineUid": None,
+    }
+    command = {
+        "schemaVersion": 1,
+        "commandUid": command_uid,
+        "commandType": "CONFIRM_EDGE_EVENT",
+        "deploymentCode": "Dp_demo_01",
+        "target": {
+            "type": "EDGE_EVENT",
+            "uid": original_event_uid,
+        },
+        "issuedAt": confirmation["processedAt"],
+        "expiresAt": (
+            datetime.now(timezone.utc) + timedelta(minutes=5)
+        ).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "payloadSchemaVersion": 1,
+        "payloadSha256": canonical_payload_sha256(confirmation),
+        "payload": confirmation,
+    }
+
+    assert store.receive_business_confirmation_and_create_receipt(
+        deployment_code="Dp_demo_01",
+        command=command,
+    ) == "ACCEPTED"
+    receipt = store._conn.execute(
+        """SELECT event_uid FROM event_outbox
+           WHERE event_type='BUSINESS_CONFIRMATION_RECEIPT'"""
+    ).fetchone()
+    receipt_uid = receipt["event_uid"]
+    assert store.mark_control_receipt_published(receipt_uid)
+    assert store.get_event(receipt_uid)["state"] == "CONFIRMED"
+
+    assert store.receive_business_confirmation_and_create_receipt(
+        deployment_code="Dp_demo_01",
+        command=command,
+    ) == "DUPLICATE"
+    assert store.get_event(receipt_uid)["state"] == "PENDING"
+    receipt_count = store._conn.execute(
+        """SELECT COUNT(*) AS count FROM event_outbox
+           WHERE event_type='BUSINESS_CONFIRMATION_RECEIPT'"""
+    ).fetchone()["count"]
+    assert receipt_count == 1
+
+    conflicting = {
+        **command,
+        "payload": {
+            **confirmation,
+            "processedAt": (
+                datetime.now(timezone.utc) + timedelta(seconds=1)
+            ).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        },
+    }
+    conflicting["payloadSha256"] = canonical_payload_sha256(
+        conflicting["payload"]
+    )
+    assert store.receive_business_confirmation_and_create_receipt(
+        deployment_code="Dp_demo_01",
+        command=conflicting,
+    ) == "CONFLICT"
+    store.close()

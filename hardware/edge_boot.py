@@ -2,6 +2,8 @@
 from __future__ import annotations
 import json
 import logging
+import os
+import shutil
 import time
 import uuid as _uuid
 from edge_identity import is_valid_edge_boot_id, new_edge_boot_id
@@ -10,11 +12,80 @@ from onenet_wire import canonical_payload_sha256, utc_now_rfc3339
 logger = logging.getLogger("edge-boot")
 
 
+def _deployment_code(mqtt_client) -> str:
+    return str(
+        getattr(mqtt_client, "deployment_code", "") or ""
+    )
+
+
+def _observe_edge_fault(
+    store,
+    mqtt_client,
+    component,
+    fault_code,
+    severity,
+    detail=None,
+):
+    deployment_code = _deployment_code(mqtt_client)
+    if not deployment_code:
+        logger.error(
+            "cannot persist reliable fault without deployment code: %s/%s",
+            component,
+            fault_code,
+        )
+        return "REJECTED"
+    try:
+        return store.observe_fault_and_create_event(
+            deployment_code=deployment_code,
+            component=component,
+            fault_code=fault_code,
+            severity=severity,
+            detail=detail,
+        )
+    except Exception:
+        logger.exception(
+            "failed to persist reliable fault: %s/%s",
+            component,
+            fault_code,
+        )
+        return "REJECTED"
+
+
+def _recover_edge_fault(
+    store,
+    mqtt_client,
+    component,
+    fault_code,
+    recovery_evidence,
+):
+    fault = store.get_active_edge_fault(component, fault_code)
+    if fault is None:
+        return "UNKNOWN"
+    deployment_code = _deployment_code(mqtt_client)
+    if not deployment_code:
+        return "REJECTED"
+    return store.recover_fault_and_create_event(
+        deployment_code=deployment_code,
+        fault_uid=fault["fault_uid"],
+        component=component,
+        fault_code=fault_code,
+        port_no=fault["port_no"],
+        recovery_evidence=recovery_evidence,
+    )
+
+
 def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, test_mode=False):
     """Execute the full boot sequence. Returns status dict."""
     if not store.integrity_check():
         logger.critical("BOOT: SQLite integrity FAILED")
-        store.record_fault("MCU_STORAGE", 1792, "BLOCK_DEVICE")
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "EDGE_STORAGE",
+            "EDGE_STORAGE",
+            "BLOCK_DEVICE",
+            {"reasonCode": "SQLITE_INTEGRITY_FAILED"},
+        )
         return {"status": "SAFETY_LOCKED", "reason": "sqlite_integrity_failed"}
     boot_id = store.get_edge_boot_id()
     if not is_valid_edge_boot_id(boot_id):
@@ -25,7 +96,14 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
         logger.info("BOOT: resume edge boot ID: %s", boot_id)
     if not uart_link.open():
         logger.error("BOOT: UART open failed")
-        store.record_fault("UART", 256, "BLOCK_DEVICE")
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "UART",
+            "UART_PROTOCOL",
+            "BLOCK_DEVICE",
+            {"reasonCode": "UART_OPEN_FAILED"},
+        )
         return {"status": "SAFETY_LOCKED", "reason": "uart_open_failed"}
     try:
         mcu_info = uart_link.handshake()
@@ -39,7 +117,14 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
         )
     except Exception as e:
         logger.error("BOOT: HELLO failed: %s", e)
-        store.record_fault("UART", 256, "BLOCK_DEVICE")
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "UART",
+            "UART_PROTOCOL",
+            "BLOCK_DEVICE",
+            {"reasonCode": "UART_HANDSHAKE_FAILED"},
+        )
         uart_link.close()
         return {"status": "SAFETY_LOCKED", "reason": str(e)}
     if getattr(uart_link, "compatibility_mode", False):
@@ -58,7 +143,14 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
         logger.info("BOOT: QUERY_STATE %d segments", len(snapshots))
     except Exception as e:
         logger.error("BOOT: QUERY_STATE failed: %s", e)
-        store.record_fault("UART", 256, "BLOCK_DEVICE", {"reason": str(e)})
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "UART",
+            "UART_PROTOCOL",
+            "BLOCK_DEVICE",
+            {"reasonCode": "UART_QUERY_STATE_FAILED"},
+        )
         uart_link.close()
         return {"status": "SAFETY_LOCKED", "reason": f"query_state_failed: {e}"}
     snapshot_begin = _snapshot_begin(snapshots)
@@ -101,10 +193,37 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, te
         )
     elif active_work and not slot:
         logger.warning("BOOT: MCU has active work but SQLite has none")
-        store.record_fault("MCU_INTERNAL", 2048, "WARNING", {"mcu_work": active_work})
+        store.record_fault(
+            "MCU_INTERNAL",
+            2048,
+            "WARNING",
+            {"mcu_work": active_work},
+        )
+    _recover_edge_fault(
+        store,
+        mqtt_client,
+        "UART",
+        "UART_PROTOCOL",
+        "BOOT_UART_READY",
+    )
     if not mqtt_client.connect():
         logger.error("BOOT: MQTT connect failed")
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "NETWORK",
+            "NETWORK_CONNECTIVITY",
+            "WARNING",
+            {"reasonCode": "MQTT_CONNECT_FAILED"},
+        )
         return {"status": "DEGRADED", "reason": "mqtt_connect_failed", "mcu_info": mcu_info}
+    _recover_edge_fault(
+        store,
+        mqtt_client,
+        "NETWORK",
+        "NETWORK_CONNECTIVITY",
+        "MQTT_CONNECTED",
+    )
     time.sleep(0.5)
     _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots)
     logger.info("BOOT: sequence complete, READY")
@@ -118,8 +237,15 @@ def _boot_fixed_frame_compatibility(
     mcu_info,
 ):
     """Boot without sending unsupported HELLO/QUERY_STATE/recovery frames."""
-    store.set_state("fixed_frame_latest_observation_json", "")
-    store.set_state("latest_runtime_ports_json", "[]")
+    _recover_edge_fault(
+        store,
+        mqtt_client,
+        "UART",
+        "UART_PROTOCOL",
+        "BOOT_UART_READY",
+    )
+    store.set_state("smoke_state", "NORMAL")
+    store.set_state("smoke_sensor_health", "OK")
     slot = store.get_work_slot()
     if slot:
         context = slot.get("context") or {}
@@ -128,15 +254,32 @@ def _boot_fixed_frame_compatibility(
             or context.get("command_uid")
         )
         if command_uid:
-            store.fail_command(
-                command_uid,
-                "PROCESS_RESTARTED_MCU_STATE_UNKNOWN",
+            command_row = store.get_command(command_uid)
+            command = (
+                command_row.get("payload")
+                if command_row
+                else None
             )
+            if command:
+                store.fail_fixed_frame_work(
+                    work_uid=slot["work_uid"],
+                    command=command,
+                    error_code=(
+                        "PROCESS_RESTARTED_MCU_STATE_UNKNOWN"
+                    ),
+                    mcu_command_uid=context.get(
+                        "start_mcu_command_uid"
+                    ),
+                    stage="FAILED",
+                )
+            else:
+                store.release_work_slot(slot["work_uid"])
+        else:
+            store.release_work_slot(slot["work_uid"])
         store.set_state(
             "fixed_frame_last_abandoned_work_uid",
             str(slot["work_uid"]),
         )
-        store.release_work_slot(slot["work_uid"])
         logger.warning(
             "BOOT: abandoned stale local work without MCU replay: "
             "type=%s uid=%s",
@@ -145,11 +288,26 @@ def _boot_fixed_frame_compatibility(
         )
     if not mqtt_client.connect():
         logger.error("BOOT: MQTT connect failed")
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "NETWORK",
+            "NETWORK_CONNECTIVITY",
+            "WARNING",
+            {"reasonCode": "MQTT_CONNECT_FAILED"},
+        )
         return {
             "status": "DEGRADED",
             "reason": "mqtt_connect_failed",
             "mcu_info": mcu_info,
         }
+    _recover_edge_fault(
+        store,
+        mqtt_client,
+        "NETWORK",
+        "NETWORK_CONNECTIVITY",
+        "MQTT_CONNECTED",
+    )
     time.sleep(0.5)
     _publish_runtime_snapshot(store, mqtt_client, mcu_info, [])
     logger.info("BOOT: fixed-frame compatibility sequence complete, READY")
@@ -489,8 +647,13 @@ def _persist_and_ack_mcu_frame(store, uart_link, frame):
 def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
     faults = store.list_active_faults()
     compatibility_mode = bool(mcu_info.get("compatibility_mode"))
+    applied = store.get_latest_applied_configuration()
     ports = (
-        []
+        _fixed_frame_runtime_ports(
+            store,
+            applied,
+            faults,
+        )
         if compatibility_mode
         else _runtime_ports_from_snapshots(snapshots)
     )
@@ -506,7 +669,7 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
             )
         except (TypeError, ValueError):
             ports = []
-    if not ports:
+    if not ports and not compatibility_mode:
         port_count = int(mcu_info.get("mcu_port_count") or 1)
         fullness_sensor_kind = mcu_info.get(
             "fullness_sensor_kind",
@@ -516,7 +679,6 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
             _unknown_runtime_port(port_no, fullness_sensor_kind)
             for port_no in range(1, port_count + 1)
         ]
-    applied = store.get_latest_applied_configuration()
     applied_config = None
     if applied:
         applied_config = {
@@ -525,9 +687,14 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
             "mcuPayloadSha256": applied["mcu_payload_sha256"],
         }
     mcu_boot_id = mcu_info.get("mcu_boot_id")
+    edge_boot_id = int(store.get_edge_boot_id() or 0)
+    if compatibility_mode:
+        mcu_boot_id = edge_boot_id
     if not isinstance(mcu_boot_id, int) or mcu_boot_id <= 0:
         mcu_boot_id = None
     firmware_version = mcu_info.get("mcu_firmware_version")
+    if compatibility_mode:
+        firmware_version = "fixed-frame-compat"
     if not firmware_version:
         firmware_version = None
     uart_state = mcu_info.get("uart_state")
@@ -540,17 +707,22 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
     }:
         uart_state = "READY" if mcu_boot_id is not None else "DISCONNECTED"
     payload = {
-        "edgeBootId": int(store.get_edge_boot_id() or 0),
-        "edgeVersion": "1.0.0-rc.3",
+        "edgeBootId": edge_boot_id,
+        "edgeVersion": (
+            mcu_info.get("edge_version")
+            or os.getenv("ECOBIN_EDGE_VERSION", "0.1.0")
+        ),
         "mcuBootId": mcu_boot_id,
         "mcuFirmwareVersion": firmware_version,
         "uartProtocolMajor": mcu_info.get("uart_protocol_major", 1),
         "uartProtocolMinor": mcu_info.get("uart_protocol_minor", 0),
         "uartState": uart_state,
-        "localStorageState": "HEALTHY",
-        "clockState": "SYNCED",
+        "localStorageState": _local_storage_state(store),
+        "clockState": _clock_state(),
         "appliedConfig": applied_config,
-        "pendingReliableEventCount": len(store.list_pending_events(limit=1000)),
+        "pendingReliableEventCount": (
+            store.count_pending_reliable_events()
+        ),
         "capabilityBitmapHex": f"{int(mcu_info.get('mcu_capability', 0)):016x}",
         "ports": ports,
     }
@@ -576,6 +748,191 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
     }
     mqtt_client.publish_event("DEVICE_RUNTIME_SNAPSHOT", payload)
     logger.info("BOOT: published DEVICE_RUNTIME_SNAPSHOT (%d faults)", len(faults))
+
+
+def _fixed_frame_runtime_ports(store, applied, faults):
+    port_count = 1
+    if applied:
+        configured_ports = applied["payload"].get("ports")
+        if isinstance(configured_ports, list) and configured_ports:
+            port_count = len(configured_ports)
+    try:
+        observation = json.loads(
+            store.get_state(
+                "fixed_frame_latest_observation_json",
+                "",
+            )
+        )
+    except (TypeError, ValueError):
+        observation = None
+    if not isinstance(observation, dict):
+        observation = None
+    ports = []
+    for port_no in range(1, port_count + 1):
+        port_observation = (
+            observation
+            if observation
+            and observation.get("portNo") == port_no
+            else None
+        )
+        if port_observation:
+            weight = port_observation.get("postWeightGrams")
+            has_weight = (
+                isinstance(weight, int)
+                and not isinstance(weight, bool)
+                and 0 <= weight <= 350_000
+            )
+        else:
+            weight = 0
+            has_weight = False
+        measurement_uid = (
+            port_observation.get("measurementUid")
+            if port_observation
+            else None
+        )
+        if not measurement_uid:
+            state_key = (
+                f"port_{port_no}_fixed_frame_zero_weight_uid"
+            )
+            measurement_uid = store.get_state(state_key)
+            try:
+                _uuid.UUID(str(measurement_uid), version=4)
+            except (ValueError, AttributeError):
+                measurement_uid = str(_uuid.uuid4())
+                store.set_state(state_key, measurement_uid)
+        delivery_context = _state_json(
+            store,
+            f"port_{port_no}_delivery_runtime_context_json",
+        )
+        clean_context = _state_json(
+            store,
+            f"port_{port_no}_clean_runtime_context_json",
+        )
+        ports.append({
+            "portNo": port_no,
+            "lastDeliveryDoorCommand": delivery_context.get(
+                "last_delivery_door_command",
+                "NONE",
+            ),
+            "lastDeliveryDoorOutputStatus": delivery_context.get(
+                "last_delivery_door_output_status",
+                "NOT_DISPATCHED",
+            ),
+            "deliveryDoorPhysicalStateBasis": "NOT_OBSERVABLE",
+            "cleanLockPowerState": "DEENERGIZED",
+            "solenoidHealth": (
+                "UNKNOWN"
+                if _port_has_active_fault(
+                    faults,
+                    port_no,
+                    {"UART", "CLEAN_SOLENOID"},
+                )
+                else "OK"
+            ),
+            "cleanDoorStateBasis": "NOT_OBSERVABLE",
+            "cleanerPhysicalCloseConfirmed": bool(
+                clean_context.get(
+                    "cleaner_physical_close_confirmed",
+                    False,
+                )
+            ),
+            "weightMeasurementUid": measurement_uid,
+            "weightMeasurementStatus": "STABLE",
+            "weightValueAvailable": True,
+            "reportedWeightGrams": weight if has_weight else 0,
+            "weightValueKind": "LAST_OBSERVED",
+            "measurementElapsedMs": 0,
+            "weightSampleCount": 1 if has_weight else 0,
+            "calibrationVersion": 0,
+            "weightSensorHealth": "OK",
+            "weightFaultCode": None,
+            "weightMcuBootId": None,
+            "weightMcuEventSequence": None,
+            "fullnessSensorKind": "DIGITAL_INFRARED",
+            "fullnessSensorValue": (
+                "BLOCKED"
+                if port_observation
+                and port_observation.get("infraredBlocked") is True
+                else "CLEAR"
+            ),
+            "fullnessSampleBasis": "NOT_SAMPLED",
+            "representativeDistanceMm": None,
+            "fullnessValidSampleCount": (
+                1 if has_weight else 0
+            ),
+            "smokeState": "NORMAL",
+            "smokeSensorHealth": "OK",
+            "faultBitmap": _fault_bitmap(faults, port_no),
+        })
+    return ports
+
+
+def _state_json(store, key):
+    try:
+        value = json.loads(store.get_state(key, "{}"))
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _fault_bitmap(faults, port_no):
+    component_bits = {
+        "UART": 1,
+        "EDGE_STORAGE": 2,
+        "CAMERA": 4,
+        "NETWORK": 8,
+        "CLOCK": 16,
+    }
+    bitmap = 0
+    for fault in faults:
+        fault_port = fault.get("port_no")
+        if fault_port not in (None, port_no):
+            continue
+        bitmap |= component_bits.get(fault.get("component"), 32)
+    return bitmap
+
+
+def _port_has_active_fault(faults, port_no, components):
+    return any(
+        fault.get("component") in components
+        and fault.get("port_no") in (None, port_no)
+        for fault in faults
+    )
+
+
+def _local_storage_state(store):
+    if not store.integrity_check():
+        return "CORRUPT"
+    try:
+        usage = shutil.disk_usage(
+            os.path.dirname(os.path.abspath(store.db_path))
+        )
+    except OSError:
+        return "DEGRADED"
+    if usage.free <= 0:
+        return "FULL"
+    if usage.total and usage.free / usage.total < 0.02:
+        return "DEGRADED"
+    if not os.access(store.db_path, os.W_OK):
+        return "READ_ONLY"
+    return "HEALTHY"
+
+
+def _clock_state():
+    if time.time() < 1_735_689_600:
+        return "UNAVAILABLE"
+    sync_marker = "/run/systemd/timesync/synchronized"
+    if os.path.isfile(sync_marker):
+        try:
+            with open(sync_marker, encoding="ascii") as marker:
+                return (
+                    "SYNCED"
+                    if marker.read().strip().lower() == "yes"
+                    else "ESTIMATED"
+                )
+        except OSError:
+            return "ESTIMATED"
+    return "SYNCED" if os.name == "nt" else "ESTIMATED"
 
 
 def _runtime_ports_from_snapshots(snapshots):

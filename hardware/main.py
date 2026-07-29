@@ -91,6 +91,18 @@ class EcoBinEdge:
             deployment_code=DEPLOYMENT_CODE, edge_boot_id=self._edge_boot_id,
             clean_session=MQTT_CLEAN_SESSION,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
+            unsupported_command_types=(
+                {
+                    "END_CLEAN_BEFORE_UNLOCK",
+                    "RESUME_CLEAN_OPERATION",
+                }
+                if getattr(
+                    self.uart,
+                    "compatibility_mode",
+                    False,
+                )
+                else set()
+            ),
         )
 
         # -- Photo Manager --
@@ -144,11 +156,16 @@ class EcoBinEdge:
 
     def _on_command(self, cmd_id, cmd_type, payload):
         logger.info("command received: type=%s id=%s", cmd_type, cmd_id)
+        if cmd_type == "PROVIDE_PHOTO_UPLOAD_GRANT":
+            return self.commands.accept_photo_upload_grant_now(
+                payload
+            )
         self.commands.offer_cos_grant(
             cmd_id,
             payload.get("cosGrant"),
         )
         self.commands.wake()
+        return True
 
     def _on_confirmation(self, topic, payload):
         logger.debug("confirmation received: topic=%s", topic)
@@ -170,6 +187,7 @@ class EcoBinEdge:
             self._shutdown()
             return
         logger.info("Boot result: %s", result["status"])
+        self.mqtt.on_connected = self._publish_runtime_snapshot_now
 
         recovered = self.store.recover_interrupted_commands(
             physical_recovery_required=not getattr(
@@ -277,6 +295,8 @@ class EcoBinEdge:
         while not self._exit_flag.is_set():
             progressed = False
             try:
+                if self.work.expire_fixed_frame_work():
+                    progressed = True
                 for event in self.store.list_pending_mcu_events(limit=20):
                     try:
                         self.commands.process_mcu_event(event)
@@ -319,58 +339,52 @@ class EcoBinEdge:
                 break
             try:
                 if self.mqtt.connected:
-                    from edge_boot import _publish_runtime_snapshot
-                    _publish_runtime_snapshot(
-                        self.store, self.mqtt,
-                        {
-                            "mcu_boot_id": (
-                                getattr(self.uart, "_mcu_boot_id", None) or 0
-                            ),
-                            "mcu_capability": (
-                                getattr(self.uart, "_mcu_capability", None) or 0
-                            ),
-                            "mcu_firmware_version": getattr(
-                                self.uart,
-                                "_mcu_firmware_version",
-                                "",
-                            ),
-                            "uart_protocol_major": (
-                                None
-                                if getattr(
-                                    self.uart,
-                                    "compatibility_mode",
-                                    False,
-                                )
-                                else 1
-                            ),
-                            "uart_protocol_minor": (
-                                None
-                                if getattr(
-                                    self.uart,
-                                    "compatibility_mode",
-                                    False,
-                                )
-                                else 0
-                            ),
-                            "fullness_sensor_kind": (
-                                "DIGITAL_INFRARED"
-                                if getattr(
-                                    self.uart,
-                                    "compatibility_mode",
-                                    False,
-                                )
-                                else "ULTRASONIC"
-                            ),
-                            "compatibility_mode": getattr(
-                                self.uart,
-                                "compatibility_mode",
-                                False,
-                            ),
-                        },
-                        [],
-                    )
+                    self._publish_runtime_snapshot_now()
             except Exception as e:
                 logger.error("runtime snapshot error: %s", e)
+
+    def _publish_runtime_snapshot_now(self):
+        from edge_boot import _publish_runtime_snapshot
+        compatibility_mode = getattr(
+            self.uart,
+            "compatibility_mode",
+            False,
+        )
+        _publish_runtime_snapshot(
+            self.store,
+            self.mqtt,
+            {
+                "mcu_boot_id": (
+                    getattr(self.uart, "_mcu_boot_id", None) or 0
+                ),
+                "mcu_capability": (
+                    getattr(self.uart, "_mcu_capability", None) or 0
+                ),
+                "mcu_firmware_version": getattr(
+                    self.uart,
+                    "_mcu_firmware_version",
+                    "",
+                ),
+                "uart_protocol_major": (
+                    None if compatibility_mode else 1
+                ),
+                "uart_protocol_minor": (
+                    None if compatibility_mode else 0
+                ),
+                "fullness_sensor_kind": (
+                    "DIGITAL_INFRARED"
+                    if compatibility_mode
+                    else "ULTRASONIC"
+                ),
+                "uart_state": (
+                    "READY"
+                    if getattr(self.uart, "is_open", False)
+                    else "DISCONNECTED"
+                ),
+                "compatibility_mode": compatibility_mode,
+            },
+            [],
+        )
 
     def _shutdown(self):
         logger.info("shutting down...")
