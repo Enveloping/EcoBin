@@ -219,4 +219,5 @@
 - [当前旧权限设计](docs/architecture/permission-design.md)
 - [当前旧数据库结构](docs/architecture/database-design.md)
 - [当前旧前端接口](docs/api/api-frontend.md)
+- [Web 管理端能力地图](docs/frontend/web-capability-map.md)
 - [UART 审计](hardware/docs/review/uart-protocol-audit.md)

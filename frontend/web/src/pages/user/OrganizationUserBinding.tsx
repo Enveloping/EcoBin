@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircleFilled,
   LinkOutlined,
@@ -21,33 +21,37 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import { useSearchParams } from 'react-router-dom';
 import {
   getStaffMiniappBinding,
-  listOrganizations,
-  listStaffAccounts,
+  listAllStaffAccounts,
   lookupOrganizationUserByPhone,
   revokeStaffMiniappBinding,
   setStaffMiniappBinding,
   type OrganizationUserLookup,
   type StaffMiniappBindingLookup,
 } from '@/api/identityDirectory';
+import { ApiProblem } from '@/api/request';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
 import { useAuthStore } from '@/stores/authStore';
 import { pageHeader } from '@/utils/pageStyle';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { palette } from '@/theme';
 
 export default function OrganizationUserBindingPage() {
   const scope = useDirectoryScope();
+  const organizationScope = useOrganizationScope(scope);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedStaffUid = searchParams.get('staff')?.trim() || undefined;
   const { message } = App.useApp();
   const canBind = useAuthStore((state) =>
     state.hasCapability('staff.bind'));
-  const [organizationCode, setOrganizationCode] = useState<string>();
+  const organizationCode = organizationScope.organizationCode;
   const [staffUid, setStaffUid] = useState<string>();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [reason, setReason] = useState('');
-  const [organizationOptions, setOrganizationOptions] = useState<
-    Array<{ label: string; value: string }>
-  >([]);
   const [staffOptions, setStaffOptions] = useState<
     Array<{ label: string; value: string }>
   >([]);
@@ -57,43 +61,64 @@ export default function OrganizationUserBindingPage() {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [lookupIssue, setLookupIssue] = useState<string>();
+  const lookupRequestId = useRef(0);
+  const executeCommand = useCommandExecutor();
 
   useEffect(() => {
-    setOrganizationCode(undefined);
+    lookupRequestId.current += 1;
+    setLookingUp(false);
     setStaffUid(undefined);
     setUser(null);
     setStaffBinding(null);
     if (!scope.context) {
-      setOrganizationOptions([]);
       setStaffOptions([]);
       return;
     }
     let active = true;
     setLoadingOptions(true);
-    Promise.all([
-      listOrganizations(scope.context, { page: 1, pageSize: 200 }),
-      listStaffAccounts(scope.context, { page: 1, pageSize: 200 }),
-    ])
-      .then(([organizations, staff]) => {
+    listAllStaffAccounts(scope.context)
+      .then((staff) => {
         if (!active) return;
-        const organizationsNext = organizations.items.map((item) => ({
-          value: item.organizationCode,
-          label: `${item.organizationName} · ${item.organizationCode}`,
-        }));
-        setOrganizationOptions(organizationsNext);
-        setOrganizationCode(organizationsNext[0]?.value);
-        setStaffOptions(staff.items
-          .filter((item) => item.status === 'ENABLED')
+        const next = staff
+          .filter(
+            (item) =>
+              item.status === 'ENABLED' && item.accountKind === 'STAFF',
+          )
           .map((item) => ({
             value: item.staffAccountUid,
             label: `${item.displayName} · ${item.loginName}`,
-          })));
+          }));
+        setStaffOptions(next);
+        if (
+          requestedStaffUid
+          && next.some((option) => option.value === requestedStaffUid)
+        ) {
+          setStaffUid(requestedStaffUid);
+        }
       })
       .finally(() => active && setLoadingOptions(false));
     return () => {
       active = false;
     };
-  }, [scope.context]);
+  }, [requestedStaffUid, scope.context]);
+
+  const selectStaff = (value: string) => {
+    lookupRequestId.current += 1;
+    setLookingUp(false);
+    setStaffUid(value);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set('staff', value);
+        return next;
+      },
+      { replace: true },
+    );
+    setUser(null);
+    setStaffBinding(null);
+    setLookupIssue(undefined);
+  };
 
   const selectionReady = !!scope.context
     && !!organizationCode
@@ -121,22 +146,55 @@ export default function OrganizationUserBindingPage() {
       message.warning('请先选择机构、工作人员并填写完整手机号');
       return;
     }
+    const requestId = ++lookupRequestId.current;
+    const context = scope.context;
+    const selectedOrganization = organizationCode;
+    const selectedStaff = staffUid;
+    const selectedPhone = phoneNumber.trim();
     setLookingUp(true);
+    setLookupIssue(undefined);
+    setUser(null);
+    setStaffBinding(null);
     try {
-      const [foundUser, foundStaffBinding] = await Promise.all([
-        lookupOrganizationUserByPhone(
-          scope.context, organizationCode, phoneNumber.trim()),
-        getStaffMiniappBinding(
-          scope.context, organizationCode, staffUid),
-      ]);
-      setUser(foundUser);
+      const foundStaffBinding = await getStaffMiniappBinding(
+        context,
+        selectedOrganization,
+        selectedStaff,
+      );
+      if (lookupRequestId.current !== requestId) return;
       setStaffBinding(foundStaffBinding);
+      const foundUser = await lookupOrganizationUserByPhone(
+        context,
+        selectedOrganization,
+        selectedPhone,
+        { silent: true },
+      );
+      if (lookupRequestId.current !== requestId) return;
+      setUser(foundUser);
       message.success('已取得两侧最新绑定快照');
-    } catch {
+    } catch (error) {
+      if (lookupRequestId.current !== requestId) return;
       setUser(null);
-      setStaffBinding(null);
+      if (
+        error instanceof ApiProblem
+        && error.status === 404
+        && error.code === 'COMMON.NOT_FOUND'
+      ) {
+        setLookupIssue(
+          '当前机构没有绑定此手机号的用户，请核对机构，'
+          + '或先让用户在该机构小程序完成手机号绑定',
+        );
+      } else {
+        const text = error instanceof Error
+          ? error.message
+          : '机构用户核验失败，请稍后重试';
+        setLookupIssue(text);
+        message.error(text);
+      }
     } finally {
-      setLookingUp(false);
+      if (lookupRequestId.current === requestId) {
+        setLookingUp(false);
+      }
     }
   };
 
@@ -144,15 +202,25 @@ export default function OrganizationUserBindingPage() {
     if (!scope.context || !organizationCode || !staffUid || !user) return;
     setSubmitting(true);
     try {
-      await setStaffMiniappBinding(
-        scope.context,
-        organizationCode,
-        staffUid,
-        {
-          organizationUserUid: user.organizationUserUid,
-          ...snapshots,
-          reason: reason.trim() || undefined,
-        },
+      const payload = {
+        organizationUserUid: user.organizationUserUid,
+        ...snapshots,
+        reason: reason.trim() || undefined,
+      };
+      await executeCommand(
+        commandKey(
+          'set-staff-miniapp-binding',
+          `${organizationCode}:${staffUid}`,
+          payload,
+        ),
+        (intent) =>
+          setStaffMiniappBinding(
+            scope.context!,
+            organizationCode,
+            staffUid,
+            payload,
+            intent,
+          ),
       );
       message.success('绑定已生效，相关旧会话已撤销');
       await lookup();
@@ -166,11 +234,21 @@ export default function OrganizationUserBindingPage() {
     if (!scope.context || !organizationCode || !binding) return;
     setSubmitting(true);
     try {
-      await revokeStaffMiniappBinding(
-        scope.context,
-        organizationCode,
-        binding,
-        reason.trim() || undefined,
+      const revokeReason = reason.trim() || undefined;
+      await executeCommand(
+        commandKey(
+          'revoke-staff-miniapp-binding',
+          binding.bindingUid,
+          { expectedVersion: binding.version, reason: revokeReason },
+        ),
+        (intent) =>
+          revokeStaffMiniappBinding(
+            scope.context!,
+            organizationCode,
+            binding,
+            intent,
+            revokeReason,
+          ),
       );
       message.success('工作人员小程序绑定已撤销');
       await lookup();
@@ -197,7 +275,7 @@ export default function OrganizationUserBindingPage() {
       )}
       <ProCard
         bordered
-        style={{ borderTop: '3px solid #1677ff' }}
+        style={{ borderTop: `3px solid ${palette.primary}` }}
         title={(
           <Space>
             <SafetyCertificateOutlined />
@@ -209,15 +287,18 @@ export default function OrganizationUserBindingPage() {
         <Space wrap size={12} style={{ width: '100%' }}>
           <Select
             aria-label="机构"
-            loading={loadingOptions}
+            loading={organizationScope.loading}
             value={organizationCode}
-            options={organizationOptions}
+            options={organizationScope.organizationOptions}
             placeholder="选择机构"
             style={{ width: 300 }}
             onChange={(value) => {
-              setOrganizationCode(value);
+              lookupRequestId.current += 1;
+              setLookingUp(false);
+              organizationScope.setOrganizationCode(value);
               setUser(null);
               setStaffBinding(null);
+              setLookupIssue(undefined);
             }}
           />
           <Select
@@ -229,11 +310,7 @@ export default function OrganizationUserBindingPage() {
             options={staffOptions}
             placeholder="选择工作人员"
             style={{ width: 300 }}
-            onChange={(value) => {
-              setStaffUid(value);
-              setUser(null);
-              setStaffBinding(null);
-            }}
+            onChange={selectStaff}
           />
           <Input
             aria-label="完整手机号"
@@ -243,9 +320,12 @@ export default function OrganizationUserBindingPage() {
             maxLength={24}
             style={{ width: 260 }}
             onChange={(event) => {
+              lookupRequestId.current += 1;
+              setLookingUp(false);
               setPhoneNumber(event.target.value);
               setUser(null);
               setStaffBinding(null);
+              setLookupIssue(undefined);
             }}
             onPressEnter={lookup}
           />
@@ -259,6 +339,14 @@ export default function OrganizationUserBindingPage() {
             取得双侧快照
           </Button>
         </Space>
+        {lookupIssue && (
+          <Alert
+            showIcon
+            type="warning"
+            message={lookupIssue}
+            style={{ marginTop: 16 }}
+          />
+        )}
       </ProCard>
 
       <ProCard gutter={16} style={{ marginTop: 16 }}>

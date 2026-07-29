@@ -5204,6 +5204,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/OrganizationMembership"
+                },
+                {
+                  "$ref": "#/components/schemas/OrganizationUser"
                 }
               ]
             }
@@ -5511,6 +5514,9 @@
               },
               {
                 "$ref": "#/components/schemas/OrganizationUserLookup"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationUser"
               },
               {
                 "$ref": "#/components/schemas/StaffMiniappBindingLookup"

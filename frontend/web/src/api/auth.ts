@@ -1,7 +1,15 @@
-import request, { ApiProblem, invalidateCsrfToken } from './request';
+import request, {
+  ApiProblem,
+  invalidateCsrfToken,
+  refreshCsrfToken,
+} from './request';
 import type { LoginRequest, LoginResponse, WebLoginDomain } from '@/types';
-
-const DOMAIN_KEY = 'ecobin.web.login-domain';
+import {
+  loginDomainCandidates,
+  rememberLoginDomain,
+  sessionBelongsToDomain,
+  storedLoginDomain,
+} from '@/security/loginDomain';
 
 function sessionPath(domain: WebLoginDomain): string {
   return domain === 'platform'
@@ -9,52 +17,62 @@ function sessionPath(domain: WebLoginDomain): string {
     : '/api/v1/web/auth/sessions';
 }
 
-function rememberDomain(domain: WebLoginDomain): void {
-  sessionStorage.setItem(DOMAIN_KEY, domain);
-}
-
-function rememberedDomain(): WebLoginDomain | null {
-  const value = sessionStorage.getItem(DOMAIN_KEY);
-  return value === 'platform' || value === 'tenant' ? value : null;
+function requireDomainSession(
+  session: LoginResponse,
+  domain: WebLoginDomain,
+): LoginResponse {
+  if (sessionBelongsToDomain(session, domain)) return session;
+  throw new ApiProblem(0, {
+    code: 'AUTH.SESSION_DOMAIN_MISMATCH',
+    message: '服务端返回的账号类型与登录入口不一致',
+    requestId: '',
+    retryable: false,
+    details: {},
+  });
 }
 
 export async function login(domain: WebLoginDomain, data: LoginRequest) {
-  const session = await request<LoginResponse>({
-    url: sessionPath(domain),
-    method: 'POST',
-    data,
-    noStore: true,
-    unauthorized: 'ignore',
-  });
-  rememberDomain(domain);
-  invalidateCsrfToken();
+  const session = requireDomainSession(
+    await request<LoginResponse>({
+      url: sessionPath(domain),
+      method: 'POST',
+      data,
+      noStore: true,
+      unauthorized: 'ignore',
+    }),
+    domain,
+  );
+  rememberLoginDomain(domain);
+  await refreshCsrfToken();
   return session;
 }
 
 export async function getCurrentSession(
   domain: WebLoginDomain,
 ): Promise<LoginResponse> {
-  return request<LoginResponse>({
-    url: `${sessionPath(domain)}/current`,
-    method: 'GET',
-    noStore: true,
-    silent: true,
-    unauthorized: 'ignore',
-  });
+  return requireDomainSession(
+    await request<LoginResponse>({
+      url: `${sessionPath(domain)}/current`,
+      method: 'GET',
+      noStore: true,
+      silent: true,
+      unauthorized: 'ignore',
+    }),
+    domain,
+  );
 }
 
 export async function bootstrapCurrentSession(): Promise<{
   session: LoginResponse;
   domain: WebLoginDomain;
 }> {
-  const remembered = rememberedDomain();
-  const domains: WebLoginDomain[] = remembered
-    ? [remembered]
-    : ['tenant', 'platform'];
+  const domains = loginDomainCandidates(storedLoginDomain());
   let lastProblem: ApiProblem | null = null;
   for (const domain of domains) {
     try {
-      return { session: await getCurrentSession(domain), domain };
+      const session = await getCurrentSession(domain);
+      rememberLoginDomain(domain);
+      return { session, domain };
     } catch (error) {
       if (error instanceof ApiProblem && error.status === 401) {
         lastProblem = error;
@@ -75,7 +93,7 @@ export async function logout(domain: WebLoginDomain): Promise<void> {
       unauthorized: 'ignore',
     });
   } finally {
-    sessionStorage.removeItem(DOMAIN_KEY);
+    rememberLoginDomain(domain);
     invalidateCsrfToken();
   }
 }

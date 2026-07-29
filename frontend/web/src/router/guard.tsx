@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { Result, Button, Spin } from 'antd';
+import { Result, Button, Skeleton } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
 import {
   canAccessRoute,
@@ -10,16 +10,37 @@ import {
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const status = useAuthStore((state) => state.status);
+  const bootstrapIssue = useAuthStore((state) => state.bootstrapIssue);
   const location = useLocation();
   if (status === 'checking') {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-        <Spin size="large" />
+      <div className="route-loading" aria-label="正在载入会话">
+        <Skeleton active paragraph={{ rows: 4 }} />
       </div>
     );
   }
+  if (status === 'unavailable') {
+    const requestId = bootstrapIssue?.requestId
+      ? `请求编号：${bootstrapIssue.requestId}`
+      : undefined;
+    return (
+      <Result
+        status="500"
+        title="暂时无法确认登录状态"
+        subTitle={[bootstrapIssue?.message, requestId]
+          .filter(Boolean)
+          .join('；')}
+        extra={
+          <Button type="primary" onClick={() => window.location.reload()}>
+            重新检查
+          </Button>
+        }
+      />
+    );
+  }
   if (status !== 'authenticated') {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    const from = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to="/login" replace state={{ from }} />;
   }
   return <>{children}</>;
 }
@@ -28,7 +49,7 @@ export function CapabilityGuard({
   route,
   children,
 }: {
-  route: Pick<AppRoute, 'capability' | 'accountTypes'>;
+  route: Pick<AppRoute, 'allOf' | 'anyOf' | 'accountTypes'>;
   children: ReactNode;
 }) {
   const session = useAuthStore((state) => state.session);

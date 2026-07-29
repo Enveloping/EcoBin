@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PlusOutlined } from '@ant-design/icons';
+import { DownOutlined, PlusOutlined, PoweroffOutlined } from '@ant-design/icons';
 import {
   ModalForm,
   PageContainer,
@@ -8,7 +8,17 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { App, Button, Empty, Popconfirm, Tag } from 'antd';
+import {
+  App,
+  Button,
+  Divider,
+  Dropdown,
+  Empty,
+  Popconfirm,
+  Space,
+  Tag,
+} from 'antd';
+import { Link } from 'react-router-dom';
 import {
   changeOrganizationStatus,
   createOrganization,
@@ -20,6 +30,8 @@ import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import type { IdentityOrganization } from '@/types';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
+import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { directoryPath } from '@/router/directoryQuery';
 
 interface OrganizationForm {
   organizationCode: string;
@@ -36,6 +48,7 @@ export default function OrganizationPage() {
     state.hasCapability('organization.manage'));
   const [editing, setEditing] = useState<IdentityOrganization | null>(null);
   const [open, setOpen] = useState(false);
+  const executeCommand = useCommandExecutor();
 
   useEffect(() => {
     actionRef.current?.reload();
@@ -44,19 +57,28 @@ export default function OrganizationPage() {
   const submit = async (values: OrganizationForm) => {
     if (!scope.context) return false;
     if (editing) {
-      await updateOrganization(
-        scope.context,
-        editing.organizationCode,
-        {
-          organizationName: values.organizationName,
-          contactPhone: values.contactPhone,
-          contactAddress: values.contactAddress,
-          expectedVersion: editing.version,
-        },
+      const payload = {
+        organizationName: values.organizationName,
+        contactPhone: values.contactPhone,
+        contactAddress: values.contactAddress,
+        expectedVersion: editing.version,
+      };
+      await executeCommand(
+        commandKey('update-organization', editing.organizationCode, payload),
+        (intent) =>
+          updateOrganization(
+            scope.context!,
+            editing.organizationCode,
+            payload,
+            intent,
+          ),
       );
       message.success('机构资料已更新');
     } else {
-      await createOrganization(scope.context, values);
+      await executeCommand(
+        commandKey('create-organization', values.organizationCode, values),
+        (intent) => createOrganization(scope.context!, values, intent),
+      );
       message.success('机构已创建，默认处于停用状态');
     }
     setOpen(false);
@@ -67,15 +89,37 @@ export default function OrganizationPage() {
   const toggle = async (organization: IdentityOrganization) => {
     if (!scope.context) return;
     const enable = organization.status !== 'ENABLED';
-    await changeOrganizationStatus(
-      scope.context,
-      organization,
-      enable,
-      enable ? '启用机构' : '停用机构',
+    const reason = enable ? '启用机构' : '停用机构';
+    const updated = await executeCommand(
+      commandKey('change-organization-status', organization.organizationCode, {
+        enable,
+        expectedVersion: organization.version,
+        reason,
+      }),
+      (intent) =>
+        changeOrganizationStatus(
+          scope.context!,
+          organization,
+          enable,
+          intent,
+          reason,
+        ),
     );
     message.success(enable ? '机构已启用' : '机构已停用');
+    setEditing((current) =>
+      current?.organizationCode === updated.organizationCode
+        ? updated
+        : current);
     actionRef.current?.reload();
   };
+
+  const relatedPath = (
+    pathname: string,
+    organization: IdentityOrganization,
+  ) => directoryPath(pathname, {
+    tenant: scope.platform ? scope.tenantCode : undefined,
+    organization: organization.organizationCode,
+  });
 
   const columns: ProColumns<IdentityOrganization>[] = [
     {
@@ -83,8 +127,27 @@ export default function OrganizationPage() {
       dataIndex: 'organizationCode',
       copyable: true,
       width: 180,
+      search: false,
     },
-    { title: '机构名称', dataIndex: 'organizationName' },
+    {
+      title: '机构名称',
+      dataIndex: 'organizationName',
+      search: false,
+      render: (_, organization) => (
+        <Link
+          className="table-link"
+          to={relatedPath('/organization-users', organization)}
+        >
+          {organization.organizationName}
+        </Link>
+      ),
+    },
+    {
+      title: '机构编码 / 名称',
+      dataIndex: 'query',
+      hideInTable: true,
+      hideInSetting: true,
+    },
     { title: '联系电话', dataIndex: 'contactPhone', search: false },
     { title: '联系地址', dataIndex: 'contactAddress', search: false },
     {
@@ -102,12 +165,91 @@ export default function OrganizationPage() {
         </Tag>
       ),
     },
-    { title: '版本', dataIndex: 'version', search: false, width: 80 },
+    {
+      title: '版本',
+      dataIndex: 'version',
+      search: false,
+      width: 80,
+    },
+    {
+      title: '关联数据',
+      key: 'relatedData',
+      search: false,
+      width: 130,
+      render: (_, organization) => (
+        <Dropdown
+          menu={{
+            items: [
+              {
+                key: 'users',
+                label: (
+                  <Link to={relatedPath('/organization-users', organization)}>
+                    机构用户
+                  </Link>
+                ),
+              },
+              {
+                key: 'devices',
+                disabled: !useAuthStore.getState()
+                  .hasCapability('device.read'),
+                label: (
+                  <Link to={relatedPath('/devices', organization)}>
+                    设备
+                  </Link>
+                ),
+              },
+              {
+                key: 'deliveries',
+                disabled: !(
+                  useAuthStore.getState().hasCapability('delivery.read')
+                  || useAuthStore.getState().hasCapability('review.execute')
+                ),
+                label: (
+                  <Link to={relatedPath('/deliveries', organization)}>
+                    投递订单
+                  </Link>
+                ),
+              },
+              {
+                key: 'cleaning',
+                disabled: !(
+                  useAuthStore.getState().hasCapability('clean.read')
+                  || useAuthStore.getState().hasCapability('review.execute')
+                ),
+                label: (
+                  <Link to={relatedPath('/clean-records', organization)}>
+                    清运订单
+                  </Link>
+                ),
+              },
+              {
+                key: 'withdrawals',
+                disabled: !(
+                  useAuthStore.getState().hasCapability('withdrawal.read')
+                  || useAuthStore.getState().hasCapability('review.execute')
+                ),
+                label: (
+                  <Link to={relatedPath('/withdrawals', organization)}>
+                    提现订单
+                  </Link>
+                ),
+              },
+            ],
+          }}
+        >
+          <Button type="link" size="small">
+            查看 <DownOutlined />
+          </Button>
+        </Dropdown>
+      ),
+    },
     {
       title: '操作',
+      key: 'operation',
       valueType: 'option',
-      width: 150,
+      width: 88,
       hideInTable: !canManage,
+      hideInSetting: true,
       render: (_, organization) => [
         <a
           key="edit"
@@ -118,17 +260,6 @@ export default function OrganizationPage() {
         >
           编辑
         </a>,
-        <Popconfirm
-          key="status"
-          title={
-            organization.status === 'ENABLED'
-              ? '停用后该机构会立即从工作人员实时授权中移除，确认继续？'
-              : '确认启用该机构？'
-          }
-          onConfirm={() => toggle(organization)}
-        >
-          <a>{organization.status === 'ENABLED' ? '停用' : '启用'}</a>
-        </Popconfirm>,
       ],
     },
   ];
@@ -146,6 +277,13 @@ export default function OrganizationPage() {
           actionRef={actionRef}
           rowKey="organizationCode"
           columns={columns}
+          columnsState={{
+            persistenceKey: 'ecobin.web.columns.organizations.v1',
+            persistenceType: 'localStorage',
+            defaultValue: {
+              version: { show: false },
+            },
+          }}
           request={async (params) => {
             if (!scope.context) {
               return { data: [], total: 0, success: true };
@@ -155,7 +293,7 @@ export default function OrganizationPage() {
                 page: params.current,
                 pageSize: params.pageSize,
                 status: params.status as string | undefined,
-                query: params.organizationName as string | undefined,
+                query: params.query as string | undefined,
               });
               return {
                 data: page.items,
@@ -191,7 +329,7 @@ export default function OrganizationPage() {
         open={open}
         onOpenChange={setOpen}
         initialValues={editing ?? undefined}
-        modalProps={{ destroyOnClose: true }}
+        modalProps={{ destroyOnClose: true, width: 640 }}
         onFinish={submit}
       >
         <ProFormText
@@ -210,6 +348,31 @@ export default function OrganizationPage() {
         />
         <ProFormText name="contactPhone" label="联系电话" />
         <ProFormText name="contactAddress" label="联系地址" />
+        {editing && (
+          <>
+            <Divider orientation="left">机构状态</Divider>
+            <Space>
+              <Tag color={editing.status === 'ENABLED' ? 'green' : 'default'}>
+                {editing.status === 'ENABLED' ? '已启用' : '已停用'}
+              </Tag>
+              <Popconfirm
+                title={
+                  editing.status === 'ENABLED'
+                    ? '停用后该机构会立即从工作人员实时授权中移除，确认继续？'
+                    : '确认启用该机构？'
+                }
+                onConfirm={() => toggle(editing)}
+              >
+                <Button
+                  danger={editing.status === 'ENABLED'}
+                  icon={<PoweroffOutlined />}
+                >
+                  {editing.status === 'ENABLED' ? '停用机构' : '启用机构'}
+                </Button>
+              </Popconfirm>
+            </Space>
+          </>
+        )}
       </ModalForm>
     </PageContainer>
   );
