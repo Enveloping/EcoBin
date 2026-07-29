@@ -5,3 +5,4 @@
 *.timer text eol=lf
 hardware/docs/onenet(物模型格式判断).js -text
 contracts/onenet/generated/onenet-thing-model.candidate.json text eol=lf
+frontend/web/src/api/generated/openapi.d.ts text eol=lf
