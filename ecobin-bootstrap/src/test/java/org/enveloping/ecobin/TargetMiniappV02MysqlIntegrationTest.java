@@ -59,7 +59,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "spring.datasource.password=${ECOBIN_V02_MYSQL_PASSWORD}",
         "spring.sql.init.mode=never",
         "jwt.secret=v02_mysql_test_jwt_secret_at_least_32_bytes_long",
-        "app.crypto.aes-key=v02_mysql_test_aes_key",
         "ecobin.database.epoch.test-bypass=false",
         "ecobin.external.mode=fake",
         "ecobin.external.fake.block-inbound=true",
@@ -1055,7 +1054,7 @@ class TargetMiniappV02MysqlIntegrationTest {
         @Bean
         @Primary
         ProbeParticipant v02ProbeParticipant(
-                @Qualifier("legacyEmbeddedWalletRegistrationParticipant")
+                @Qualifier("jdbcOrganizationUserRegistrationParticipant")
                 OrganizationUserRegistrationParticipant delegate) {
             return new ProbeParticipant(delegate);
         }

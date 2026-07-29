@@ -29,14 +29,6 @@
         </dependency>
         <dependency>
             <groupId>org.enveloping</groupId>
-            <artifactId>ecobin-module-funds</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.enveloping</groupId>
-            <artifactId>ecobin-module-recycling</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.enveloping</groupId>
             <artifactId>ecobin-module-operations</artifactId>
         </dependency>
 

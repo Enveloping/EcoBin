@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>STS 凭证占位模式 → 返回非空占位三件套 + bucket/region/baseUrl。</li>
  * </ul>
  * 照片 key 由设备自定、URL 随上行事件回传（投递/清运一致），后端不再算 key；
- * 照片 URL 入账的端到端验证见 {@code DeliveryTwoPhaseTest} / {@code CleanFlowTest}。
+ * 真实上传链路由目标纪元的设备/回收集成测试覆盖。
  */
 @SpringBootTest
 @ActiveProfiles("test")

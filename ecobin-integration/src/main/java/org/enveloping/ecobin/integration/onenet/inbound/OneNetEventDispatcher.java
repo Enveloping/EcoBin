@@ -22,9 +22,9 @@ import java.util.UUID;
 /**
  * OneNet target-contract inbound Adapter.
  *
- * <p>Only {@code configurationProgress} is currently registered. Legacy
- * identifiers are deliberately rejected without invoking old business
- * interfaces. A valid event is normalized, digest-checked and durably
+ * <p>Only {@code configurationProgress} is currently registered. Unsupported
+ * identifiers are rejected before business dispatch. A valid event is
+ * normalized, digest-checked and durably
  * accepted by the operations inbox before the Pulsar transport is ACKed.</p>
  */
 @Slf4j

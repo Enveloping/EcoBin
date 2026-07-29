@@ -53,9 +53,6 @@ class RuntimeSafetyConfigurationTest {
                 "${jwtSecret}",
                 property(sources, "jwt.secret"));
         assertEquals(
-                "${appAesKey}",
-                property(sources, "app.crypto.aes-key"));
-        assertEquals(
                 "${defaultPlatformAdminEnabled:true}",
                 property(
                         sources,

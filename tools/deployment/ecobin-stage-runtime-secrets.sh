@@ -28,8 +28,7 @@ for secret_name in \
     mysql-root-password \
     db-app-password \
     db-backup-password \
-    jwt-secret \
-    app-aes-key
+    jwt-secret
 do
     require_root_secret "${secret_name}"
 done
@@ -41,16 +40,14 @@ install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/db-app-password" "${backend_dir}/dbPassword"
 install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/jwt-secret" "${backend_dir}/jwtSecret"
-install -o root -g "${backend_gid}" -m 0440 \
-    "${source_dir}/app-aes-key" "${backend_dir}/appAesKey"
-
 # These names are explicitly forbidden in the backend runtime directory.
 rm -f \
+    "${backend_dir}/appAesKey" \
     "${backend_dir}/mysql-root-password" \
     "${backend_dir}/db-backup-password" \
     "${backend_dir}/schema-owner-password"
 
-for runtime_secret in dbPassword jwtSecret appAesKey; do
+for runtime_secret in dbPassword jwtSecret; do
     metadata="$(stat -c '%u:%g:%a' "${backend_dir}/${runtime_secret}")"
     if [[ "${metadata}" != "0:${backend_gid}:440" ]]; then
         echo "invalid runtime secret owner/mode for ${runtime_secret}: ${metadata}" >&2
