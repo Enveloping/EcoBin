@@ -4,7 +4,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.enveloping.ecobin.recycling.application.delivery.StartDeliverySessionService;
+import org.enveloping.ecobin.recycling.application.deliveryorder.DeliveryOrderQueryService;
 import org.enveloping.ecobin.recycling.application.deliveryquery.MiniappDeliveryQueryService;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.CursorPage;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderDetail;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.MiniappDeliveryOrderItem;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryModels.DeliveryOptionsView;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryModels.DeliverySessionAccepted;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryModels.DeliverySessionView;
@@ -13,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
@@ -23,12 +28,15 @@ public class MiniappDeliveryController {
 
     private final StartDeliverySessionService startService;
     private final MiniappDeliveryQueryService queryService;
+    private final DeliveryOrderQueryService orderQueryService;
 
     public MiniappDeliveryController(
             StartDeliverySessionService startService,
-            MiniappDeliveryQueryService queryService) {
+            MiniappDeliveryQueryService queryService,
+            DeliveryOrderQueryService orderQueryService) {
         this.startService = startService;
         this.queryService = queryService;
+        this.orderQueryService = orderQueryService;
     }
 
     @GetMapping(
@@ -48,6 +56,31 @@ public class MiniappDeliveryController {
             HttpServletRequest request) {
         return TargetApiEnvelope.ok(
                 queryService.deliverySession(sessionUid),
+                TargetRequestIds.resolve(request));
+    }
+
+    @GetMapping("/api/v1/miniapp/me/delivery-orders")
+    public TargetApiEnvelope<CursorPage<MiniappDeliveryOrderItem>>
+    deliveryOrders(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String reviewStatus,
+            HttpServletRequest request) {
+        return TargetApiEnvelope.ok(
+                orderQueryService.miniappOrders(
+                        cursor,
+                        limit,
+                        reviewStatus),
+                TargetRequestIds.resolve(request));
+    }
+
+    @GetMapping(
+            "/api/v1/miniapp/me/delivery-orders/{deliveryOrderNo}")
+    public TargetApiEnvelope<MiniappDeliveryOrderDetail> deliveryOrder(
+            @PathVariable String deliveryOrderNo,
+            HttpServletRequest request) {
+        return TargetApiEnvelope.ok(
+                orderQueryService.miniappOrder(deliveryOrderNo),
                 TargetRequestIds.resolve(request));
     }
 

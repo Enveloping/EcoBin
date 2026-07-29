@@ -1,0 +1,725 @@
+package org.enveloping.ecobin.recycling.application.deliveryorder;
+
+import org.enveloping.ecobin.framework.audit.AuditActorKind;
+import org.enveloping.ecobin.framework.audit.AuditEntry;
+import org.enveloping.ecobin.framework.audit.AuditPort;
+import org.enveloping.ecobin.framework.audit.AuditScopeKind;
+import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
+import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.funds.api.command.ApplyDeliveryRevisionDeltaCommand;
+import org.enveloping.ecobin.funds.api.port.ApplyDeliveryRevisionDeltaPort;
+import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
+import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
+import org.enveloping.ecobin.identity.api.port.DeliveryOrderIdentityQueryPort;
+import org.enveloping.ecobin.identity.api.port.DeliveryScopeAuthorizationPort;
+import org.enveloping.ecobin.identity.api.query.DeliveryScopeAuthorizationQuery;
+import org.enveloping.ecobin.identity.api.result.AuthorizedDeliveryScope;
+import org.enveloping.ecobin.identity.api.value.DeliveryIdentityFactToken;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewResult;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+
+@Service
+public class DeliveryOrderReviewService {
+
+    private static final String REVIEW_ACTION = "delivery.review";
+    private static final String CORRECT_ACTION = "delivery.correct";
+    private static final String TARGET_TYPE = "DELIVERY_ORDER";
+
+    private final DeliveryScopeAuthorizationPort authorization;
+    private final DeliveryOrderIdentityQueryPort identityFacts;
+    private final JdbcDeliveryOrderRepository repository;
+    private final ApplyDeliveryRevisionDeltaPort funds;
+    private final AuditPort audit;
+    private final ObjectMapper objectMapper;
+    private final Clock clock;
+
+    @Autowired
+    public DeliveryOrderReviewService(
+            DeliveryScopeAuthorizationPort authorization,
+            DeliveryOrderIdentityQueryPort identityFacts,
+            JdbcDeliveryOrderRepository repository,
+            ApplyDeliveryRevisionDeltaPort funds,
+            AuditPort audit,
+            ObjectMapper objectMapper) {
+        this(
+                authorization,
+                identityFacts,
+                repository,
+                funds,
+                audit,
+                objectMapper,
+                Clock.systemUTC());
+    }
+
+    DeliveryOrderReviewService(
+            DeliveryScopeAuthorizationPort authorization,
+            DeliveryOrderIdentityQueryPort identityFacts,
+            JdbcDeliveryOrderRepository repository,
+            ApplyDeliveryRevisionDeltaPort funds,
+            AuditPort audit,
+            ObjectMapper objectMapper,
+            Clock clock) {
+        this.authorization = authorization;
+        this.identityFacts = identityFacts;
+        this.repository = repository;
+        this.funds = funds;
+        this.audit = audit;
+        this.objectMapper = objectMapper;
+        this.clock = clock;
+    }
+
+    @Transactional(
+            isolation = Isolation.READ_COMMITTED,
+            readOnly = false)
+    public DeliveryReviewResult review(
+            boolean platformPath,
+            String tenantCode,
+            String organizationCode,
+            String deliveryOrderNo,
+            UUID operationUid,
+            ReviewDeliveryOrderRequest request) {
+        return execute(
+                Operation.INITIAL_REVIEW,
+                platformPath,
+                tenantCode,
+                organizationCode,
+                deliveryOrderNo,
+                operationUid,
+                request);
+    }
+
+    @Transactional(
+            isolation = Isolation.READ_COMMITTED,
+            readOnly = false)
+    public DeliveryReviewResult correct(
+            boolean platformPath,
+            String tenantCode,
+            String organizationCode,
+            String deliveryOrderNo,
+            UUID operationUid,
+            ReviewDeliveryOrderRequest request) {
+        return execute(
+                Operation.CORRECTION,
+                platformPath,
+                tenantCode,
+                organizationCode,
+                deliveryOrderNo,
+                operationUid,
+                request);
+    }
+
+    private DeliveryReviewResult execute(
+            Operation operation,
+            boolean platformPath,
+            String tenantCode,
+            String organizationCode,
+            String deliveryOrderNo,
+            UUID operationUid,
+            ReviewDeliveryOrderRequest request) {
+        AuthorizedDeliveryScope authorized = authorization.authorize(
+                new DeliveryScopeAuthorizationQuery(
+                        platformPath,
+                        tenantCode,
+                        organizationCode));
+        requireCapability(operation, authorized);
+        validateOperationUid(operationUid);
+        String normalizedOrderNo = requiredOrderNo(deliveryOrderNo);
+        NormalizedReviewRequest normalized =
+                normalizeRequest(request);
+        TargetWebAuditRequestContext.describe(
+                operation.actionCode,
+                normalizedOrderNo);
+        Fingerprint fingerprint = fingerprint(
+                operation,
+                authorized,
+                normalizedOrderNo,
+                normalized);
+        return authorized.persistenceRef().withScopeOnce(
+                (tenantId,
+                 organizationId,
+                 platformAdminId,
+                 staffAccountId) -> executeInScope(
+                        operation,
+                        authorized,
+                        new DeliveryReviewScope(
+                                tenantId,
+                                organizationId,
+                                platformAdminId,
+                                staffAccountId),
+                        normalizedOrderNo,
+                        operationUid,
+                        normalized,
+                        fingerprint));
+    }
+
+    private DeliveryReviewResult executeInScope(
+            Operation operation,
+            AuthorizedDeliveryScope authorized,
+            DeliveryReviewScope scope,
+            String deliveryOrderNo,
+            UUID operationUid,
+            NormalizedReviewRequest request,
+            Fingerprint fingerprint) {
+        Optional<SuccessfulAudit> prior =
+                audit.findSuccessful(operationUid);
+        if (prior.isPresent()) {
+            return replay(
+                    prior.orElseThrow(),
+                    operation,
+                    authorized,
+                    scope,
+                    deliveryOrderNo,
+                    fingerprint.hex());
+        }
+
+        DeliveryOrderScope orderScope = new DeliveryOrderScope(
+                scope.tenantId(),
+                scope.organizationId(),
+                null);
+        long currentStopThresholdCent =
+                repository.lockCurrentOpenBalanceFloor(orderScope);
+        /*
+         * Another request with the same key may have committed while this
+         * transaction was waiting for the organization configuration lock.
+         * READ_COMMITTED must re-read the audit fact here so the concurrent
+         * duplicate receives the original success instead of a stale revision
+         * conflict.
+         */
+        Optional<SuccessfulAudit> concurrentPrior =
+                audit.findSuccessful(operationUid);
+        if (concurrentPrior.isPresent()) {
+            return replay(
+                    concurrentPrior.orElseThrow(),
+                    operation,
+                    authorized,
+                    scope,
+                    deliveryOrderNo,
+                    fingerprint.hex());
+        }
+        LockedDeliveryOrderRow order = repository.lockOrder(
+                        orderScope,
+                        deliveryOrderNo)
+                .orElseThrow(
+                        DeliveryOrderReviewService::notFound);
+        requireCurrentState(operation, order, request.expectedRevisionNo());
+
+        DeliveryReviewPolicy.ReviewValues values =
+                DeliveryReviewPolicy.calculate(
+                        order,
+                        request.decision(),
+                        request.finalWeightKg());
+        long beforeAmountCent = order.finalAmountCent() == null
+                ? 0L
+                : order.finalAmountCent();
+        long amountDeltaCent;
+        try {
+            amountDeltaCent = Math.subtractExact(
+                    values.finalAmountCent(),
+                    beforeAmountCent);
+        } catch (ArithmeticException exception) {
+            throw new TargetApiException(
+                    422,
+                    "DELIVERY.FINAL_AMOUNT_OUT_OF_RANGE",
+                    "本次审核金额差额超出系统可精确保存的范围");
+        }
+
+        Instant reviewedAt = clock.instant()
+                .truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime reviewedAtDatabase =
+                LocalDateTime.ofInstant(reviewedAt, ZoneOffset.UTC);
+        UUID revisionUid = UUID.randomUUID();
+        long revisionNo = Math.addExact(
+                order.currentRevisionNo(),
+                1L);
+        DeliveryRevisionInsert revisionInsert =
+                new DeliveryRevisionInsert(
+                        revisionUid,
+                        revisionNo,
+                        order.currentRevisionId(),
+                        order.currentRevisionId() == null
+                                ? null
+                                : order.currentRevisionNo(),
+                        operation.revisionKind,
+                        values.decision(),
+                        order.finalWeightKg(),
+                        order.finalAmountCent(),
+                        values.finalWeightKg(),
+                        values.finalAmountCent(),
+                        amountDeltaCent,
+                        authorized.platformActor()
+                                ? "PLATFORM_ADMIN"
+                                : "STAFF",
+                        scope.platformAdminId(),
+                        scope.staffAccountId(),
+                        request.reason(),
+                        fingerprint.digest(),
+                        reviewedAtDatabase);
+        InsertedDeliveryRevision revision =
+                repository.insertRevision(
+                        orderScope,
+                        order,
+                        revisionInsert);
+        repository.updateCurrentRevision(
+                orderScope,
+                order,
+                revision,
+                values.finalWeightKg(),
+                values.finalAmountCent(),
+                reviewedAtDatabase);
+
+        String walletEffect = "NO_CHANGE";
+        if (amountDeltaCent != 0) {
+            OrganizationUserUid ownerUid =
+                    resolveOrganizationUserUid(
+                            orderScope,
+                            order.organizationUserId());
+            funds.applyDeliveryRevisionDelta(
+                    new ApplyDeliveryRevisionDeltaCommand(
+                    ownerUid,
+                    revisionUid,
+                    TransactionBoundDeliveryRevisionWalletEntryRef.issue(
+                            scope.tenantId(),
+                            scope.organizationId(),
+                            order.organizationUserId(),
+                            revision.id()),
+                    operation.fundsRevisionKind,
+                    amountDeltaCent,
+                    currentStopThresholdCent,
+                            reviewedAt));
+            walletEffect = "APPLIED";
+        }
+
+        DeliveryReviewResult response =
+                new DeliveryReviewResult(
+                        deliveryOrderNo,
+                        revisionUid,
+                        revisionNo,
+                        "APPROVED",
+                        values.decision(),
+                        decimal(values.finalWeightKg()),
+                        money(values.finalAmountCent()),
+                        money(amountDeltaCent),
+                        walletEffect,
+                        reviewedAt);
+        appendAudit(
+                operation,
+                authorized,
+                scope,
+                order,
+                operationUid,
+                request,
+                fingerprint.hex(),
+                response);
+        return response;
+    }
+
+    private OrganizationUserUid resolveOrganizationUserUid(
+            DeliveryOrderScope scope,
+            long organizationUserId) {
+        DeliveryIdentityFactToken token =
+                DeliveryIdentityFactToken.create();
+        var reference =
+                TransactionBoundDeliveryOrderIdentityBatchRef.issue(
+                        List.of(new TransactionBoundDeliveryOrderIdentityBatchRef
+                                .OrganizationUserEntry(
+                                token,
+                                scope.tenantId(),
+                                scope.organizationId(),
+                                organizationUserId)),
+                        List.of());
+        OrganizationUserUid uid = identityFacts
+                .resolveFacts(reference)
+                .organizationUsers()
+                .get(token);
+        if (uid == null) {
+            throw new IllegalStateException(
+                    "delivery order owner identity was not resolved");
+        }
+        return uid;
+    }
+
+    private void appendAudit(
+            Operation operation,
+            AuthorizedDeliveryScope authorized,
+            DeliveryReviewScope scope,
+            LockedDeliveryOrderRow order,
+            UUID operationUid,
+            NormalizedReviewRequest request,
+            String fingerprint,
+            DeliveryReviewResult response) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("fingerprint", fingerprint);
+        summary.put("before", Map.of(
+                "reviewStatus", order.reviewStatus(),
+                "revisionNo", order.currentRevisionNo(),
+                "finalWeightKg",
+                order.finalWeightKg() == null
+                        ? ""
+                        : decimal(order.finalWeightKg()),
+                "finalAmountYuan",
+                order.finalAmountCent() == null
+                        ? ""
+                        : money(order.finalAmountCent())));
+        summary.put("after", Map.of(
+                "reviewStatus", response.reviewStatus(),
+                "revisionNo", response.revisionNo(),
+                "finalWeightKg", response.finalWeightKg(),
+                "finalAmountYuan", response.finalAmountYuan()));
+        summary.put("response", response);
+        summary.put("reasonPresent", request.reason() != null);
+        try {
+            audit.append(new AuditEntry(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    operationUid,
+                    AuditScopeKind.ORGANIZATION,
+                    scope.tenantId(),
+                    scope.organizationId(),
+                    authorized.platformActor()
+                            ? AuditActorKind.PLATFORM_ADMIN
+                            : AuditActorKind.STAFF_ACCOUNT,
+                    scope.platformAdminId(),
+                    scope.staffAccountId(),
+                    null,
+                    null,
+                    authorized.actorDisplayName(),
+                    operation.actionCode,
+                    TARGET_TYPE,
+                    order.deliveryOrderNo(),
+                    "WEB",
+                    "SUCCEEDED",
+                    authorized.sessionUid(),
+                    request.reason(),
+                    writeJson(summary),
+                    response.reviewedAt()));
+        } catch (DuplicateKeyException exception) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private DeliveryReviewResult replay(
+            SuccessfulAudit previous,
+            Operation operation,
+            AuthorizedDeliveryScope authorized,
+            DeliveryReviewScope scope,
+            String deliveryOrderNo,
+            String fingerprint) {
+        JsonNode summary = readJson(
+                previous.safeChangeSummaryJson());
+        boolean sameActor = authorized.platformActor()
+                ? previous.actorKind()
+                == AuditActorKind.PLATFORM_ADMIN
+                && Objects.equals(
+                previous.platformAdminId(),
+                scope.platformAdminId())
+                : previous.actorKind()
+                == AuditActorKind.STAFF_ACCOUNT
+                && Objects.equals(
+                previous.staffAccountId(),
+                scope.staffAccountId());
+        if (!sameActor
+                || previous.scopeKind()
+                != AuditScopeKind.ORGANIZATION
+                || !Objects.equals(
+                previous.tenantId(),
+                scope.tenantId())
+                || !Objects.equals(
+                previous.organizationId(),
+                scope.organizationId())
+                || !operation.actionCode.equals(
+                previous.actionCode())
+                || !TARGET_TYPE.equals(previous.targetType())
+                || !deliveryOrderNo.equals(
+                previous.targetStableKey())
+                || !fingerprint.equals(
+                summary.path("fingerprint").asText())) {
+            throw idempotencyConflict();
+        }
+        try {
+            DeliveryReviewResult response =
+                    objectMapper.treeToValue(
+                            summary.path("response"),
+                            DeliveryReviewResult.class);
+            if (response == null
+                    || !deliveryOrderNo.equals(
+                    response.deliveryOrderNo())) {
+                throw idempotencyConflict();
+            }
+            return response;
+        } catch (TargetApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private Fingerprint fingerprint(
+            Operation operation,
+            AuthorizedDeliveryScope authorized,
+            String deliveryOrderNo,
+            NormalizedReviewRequest request) {
+        Map<String, Object> canonical = new LinkedHashMap<>();
+        canonical.put("principalUid", authorized.principalUid());
+        canonical.put("action", operation.actionCode);
+        canonical.put("tenantCode", authorized.tenantCode());
+        canonical.put(
+                "organizationCode",
+                authorized.organizationCode());
+        canonical.put("deliveryOrderNo", deliveryOrderNo);
+        canonical.put(
+                "expectedRevisionNo",
+                request.expectedRevisionNo());
+        canonical.put("decision", request.decision());
+        canonical.put("finalWeightKg", request.finalWeightKg());
+        canonical.put("reason", request.reason());
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(objectMapper.writeValueAsBytes(canonical));
+            return new Fingerprint(
+                    digest,
+                    HexFormat.of().formatHex(digest));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(
+                    "SHA-256 is unavailable",
+                    exception);
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "delivery review fingerprint cannot be encoded",
+                    exception);
+        }
+    }
+
+    private static void requireCapability(
+            Operation operation,
+            AuthorizedDeliveryScope authorized) {
+        boolean allowed = operation == Operation.INITIAL_REVIEW
+                ? authorized.reviewExecute()
+                : authorized.deliveryCorrect();
+        if (!allowed) {
+            throw new TargetApiException(
+                    403,
+                    "AUTH.CAPABILITY_REQUIRED",
+                    operation == Operation.INITIAL_REVIEW
+                            ? "当前账号没有投递审核权限"
+                            : "当前账号没有投递纠错权限");
+        }
+    }
+
+    private static void requireCurrentState(
+            Operation operation,
+            LockedDeliveryOrderRow order,
+            long expectedRevisionNo) {
+        if (operation == Operation.INITIAL_REVIEW
+                && (!"PENDING".equals(order.reviewStatus())
+                || order.currentRevisionNo() != 0)) {
+            throw new TargetApiException(
+                    409,
+                    "DELIVERY.ORDER_ALREADY_APPROVED",
+                    "只有待审核且尚无修订的订单可以首次审核");
+        }
+        if (operation == Operation.CORRECTION
+                && !"APPROVED".equals(order.reviewStatus())) {
+            throw new TargetApiException(
+                    409,
+                    "DELIVERY.ORDER_NOT_APPROVED",
+                    "只有已经通过审核的订单可以追加纠错");
+        }
+        if (order.currentRevisionNo() != expectedRevisionNo) {
+            throw new TargetApiException(
+                    409,
+                    "DELIVERY.REVISION_VERSION_CONFLICT",
+                    "投递订单已被其他审核操作更新，请刷新后重试");
+        }
+    }
+
+    private static NormalizedReviewRequest normalizeRequest(
+            ReviewDeliveryOrderRequest request) {
+        if (request == null || request.expectedRevisionNo() == null) {
+            throw validation(
+                    "expectedRevisionNo",
+                    "expectedRevisionNo 不能为空");
+        }
+        if (request.expectedRevisionNo() < 0) {
+            throw validation(
+                    "expectedRevisionNo",
+                    "expectedRevisionNo 不能为负数");
+        }
+        String decision = request.decision() == null
+                ? null
+                : request.decision().trim();
+        if (decision == null
+                || decision.isBlank()
+                || decision.length() > 24) {
+            throw validation(
+                    "decision",
+                    "decision 不能为空且长度不能超过 24");
+        }
+        String finalWeight = request.finalWeightKg();
+        if (finalWeight != null && finalWeight.length() > 64) {
+            throw validation(
+                    "finalWeightKg",
+                    "finalWeightKg 长度不能超过 64");
+        }
+        String reason = blankToNull(request.reason());
+        if (reason != null && reason.length() > 500) {
+            throw validation(
+                    "reason",
+                    "reason 长度不能超过 500");
+        }
+        return new NormalizedReviewRequest(
+                request.expectedRevisionNo(),
+                decision,
+                finalWeight,
+                reason);
+    }
+
+    private static String requiredOrderNo(String value) {
+        if (value == null || value.isBlank()) {
+            throw validation(
+                    "deliveryOrderNo",
+                    "deliveryOrderNo 不能为空");
+        }
+        return value.trim();
+    }
+
+    private static void validateOperationUid(UUID value) {
+        if (value == null || value.version() != 4 || value.variant() != 2) {
+            throw new TargetApiException(
+                    400,
+                    "COMMON.INVALID_IDEMPOTENCY_KEY",
+                    "Idempotency-Key 必须是 UUIDv4");
+        }
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "delivery review audit summary cannot be encoded",
+                    exception);
+        }
+    }
+
+    private JsonNode readJson(String value) {
+        try {
+            return objectMapper.readTree(value);
+        } catch (Exception exception) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private static String decimal(java.math.BigDecimal value) {
+        return value.setScale(2).toPlainString();
+    }
+
+    private static String money(long amountCent) {
+        return java.math.BigDecimal.valueOf(amountCent, 2)
+                .toPlainString();
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private static TargetApiException notFound() {
+        return new TargetApiException(
+                404,
+                "RESOURCE.NOT_FOUND",
+                "投递订单不存在");
+    }
+
+    private static TargetApiException validation(
+            String field,
+            String message) {
+        return new TargetApiException(
+                400,
+                "COMMON.VALIDATION_FAILED",
+                "审核请求字段不符合接口契约",
+                false,
+                Map.of(field, message));
+    }
+
+    private static TargetApiException idempotencyConflict() {
+        return new TargetApiException(
+                409,
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                "该 Idempotency-Key 已用于另一项投递订单操作");
+    }
+
+    private enum Operation {
+        INITIAL_REVIEW(
+                REVIEW_ACTION,
+                "INITIAL_REVIEW",
+                DeliveryRevisionKind.INITIAL_REVIEW),
+        CORRECTION(
+                CORRECT_ACTION,
+                "CORRECTION",
+                DeliveryRevisionKind.CORRECTION);
+
+        private final String actionCode;
+        private final String revisionKind;
+        private final DeliveryRevisionKind fundsRevisionKind;
+
+        Operation(
+                String actionCode,
+                String revisionKind,
+                DeliveryRevisionKind fundsRevisionKind) {
+            this.actionCode = actionCode;
+            this.revisionKind = revisionKind;
+            this.fundsRevisionKind = fundsRevisionKind;
+        }
+    }
+
+    private record DeliveryReviewScope(
+            long tenantId,
+            long organizationId,
+            Long platformAdminId,
+            Long staffAccountId) {
+    }
+
+    private record NormalizedReviewRequest(
+            long expectedRevisionNo,
+            String decision,
+            String finalWeightKg,
+            String reason) {
+    }
+
+    private record Fingerprint(byte[] digest, String hex) {
+
+        private Fingerprint {
+            digest = digest.clone();
+        }
+
+        @Override
+        public byte[] digest() {
+            return digest.clone();
+        }
+    }
+}

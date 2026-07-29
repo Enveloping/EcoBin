@@ -120,4 +120,78 @@ class DeliveryReadQueryReferenceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("cross transactions");
     }
+
+    @Test
+    void orderFilterReferenceCarriesScopeOnceAndRedactsEveryKey() {
+        DeliveryOrderDeviceFilterRef reference =
+                new DeliveryOrderDeviceFilterRef(
+                        11L,
+                        12L,
+                        101L,
+                        List.of(201L),
+                        TransactionSynchronizationManager
+                                .getResourceMap());
+
+        String result = reference.withFilterKeysOnce(
+                (tenantId,
+                 organizationId,
+                 deploymentId,
+                 portIds) -> tenantId + ":"
+                        + organizationId + ":"
+                        + deploymentId + ":"
+                        + portIds.getFirst());
+
+        assertThat(result).isEqualTo("11:12:101:201");
+        assertThat(reference.toString())
+                .isEqualTo(
+                        "DeliveryOrderDeviceFilterRef[REDACTED]")
+                .doesNotContain("11", "12", "101", "201");
+        assertThatThrownBy(() -> reference.withFilterKeysOnce(
+                (tenantId,
+                 organizationId,
+                 deploymentId,
+                 portId) -> null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already consumed");
+    }
+
+    @Test
+    void deploymentOnlyFilterReferenceExplicitlyCarriesNoPort() {
+        DeliveryOrderDeviceFilterRef reference =
+                new DeliveryOrderDeviceFilterRef(
+                        11L,
+                        12L,
+                        101L,
+                        List.of(),
+                        TransactionSynchronizationManager
+                                .getResourceMap());
+
+        List<Long> portIds = reference.withFilterKeysOnce(
+                (tenantId,
+                 organizationId,
+                 deploymentId,
+                 resolvedPortIds) -> resolvedPortIds);
+
+        assertThat(portIds).isEmpty();
+    }
+
+    @Test
+    void portOnlyFilterCarriesAllScopedPortKeysWithoutDeployment() {
+        DeliveryOrderDeviceFilterRef reference =
+                new DeliveryOrderDeviceFilterRef(
+                        11L,
+                        12L,
+                        null,
+                        List.of(201L, 202L),
+                        TransactionSynchronizationManager
+                                .getResourceMap());
+
+        String result = reference.withFilterKeysOnce(
+                (tenantId,
+                 organizationId,
+                 deploymentId,
+                 portIds) -> deploymentId + ":" + portIds);
+
+        assertThat(result).isEqualTo("null:[201, 202]");
+    }
 }
