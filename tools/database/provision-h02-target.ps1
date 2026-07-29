@@ -854,10 +854,10 @@ WHERE table_schema = '$DatabaseName'
             -Database $DatabaseName `
             -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1;")
         if (
-            $existingDomainTableCount -ne 83 -or
-            $existingHistoryCount -ne 10
+            $existingDomainTableCount -ne 84 -or
+            $existingHistoryCount -ne 13
         ) {
-            throw "Migrated resume requires the complete V10 target database"
+            throw "Migrated resume requires the complete V13 target database"
         }
         $migrationCompleted = $true
         $skipMigration = $true
@@ -898,7 +898,7 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 10 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 13 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -916,8 +916,8 @@ ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 83) {
-        throw "Expected 83 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 84) {
+        throw "Expected 84 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -956,8 +956,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 10) {
-        throw "Expected ten successful Flyway migrations"
+    if ($historyCount -ne 13) {
+        throw "Expected thirteen successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `

@@ -62,7 +62,17 @@ public class OneNetClient
             JsonNode envelope =
                     objectMapper.readTree(submission.semanticEnvelopeJson());
             requireEnvelopeIdentity(envelope, submission);
-            if (!"APPLY_CONFIGURATION".equals(submission.commandType())) {
+            String identifier;
+            Map<String, Object> params;
+            if ("APPLY_CONFIGURATION".equals(
+                    submission.commandType())) {
+                identifier = "applyConfiguration";
+                params = projectApplyConfiguration(envelope);
+            } else if ("CONFIRM_EDGE_EVENT".equals(
+                    submission.commandType())) {
+                identifier = "confirmEdgeEvent";
+                params = projectConfirmEdgeEvent(envelope);
+            } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
                         "target OneNet Adapter does not support this command type");
@@ -70,8 +80,8 @@ public class OneNetClient
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("product_id", properties.getProductId());
             body.put("device_name", submission.hardwareSn());
-            body.put("identifier", "applyConfiguration");
-            body.put("params", projectApplyConfiguration(envelope));
+            body.put("identifier", identifier);
+            body.put("params", params);
             DeviceCommandSubmissionResult result = submitWireBody(body);
             log.info(
                     "[OneNet] reliable command attempt type={} task={} outcome={} http={}",
@@ -242,6 +252,149 @@ public class OneNetClient
         params.put("ports", projectedPorts);
         params.put("cosGrantPresent", false);
         return params;
+    }
+
+    private Map<String, Object> projectConfirmEdgeEvent(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        if (!"EDGE_EVENT".equals(requiredText(target, "type"))) {
+            throw new IllegalArgumentException(
+                    "confirmation target type is invalid");
+        }
+        Map<String, Object> scalar = new LinkedHashMap<>();
+        scalar.put("schemaVersion", envelope.path(
+                "schemaVersion").asInt());
+        scalar.put(
+                "commandUid",
+                requiredText(envelope, "commandUid"));
+        scalar.put("commandType", 1);
+        scalar.put(
+                "deploymentCode",
+                requiredText(envelope, "deploymentCode"));
+        scalar.put("issuedAt", requiredText(envelope, "issuedAt"));
+        scalar.put("expiresAt", requiredText(envelope, "expiresAt"));
+        scalar.put(
+                "payloadSchemaVersion",
+                envelope.path("payloadSchemaVersion").asInt());
+        scalar.put(
+                "payloadSha256",
+                requiredText(envelope, "payloadSha256"));
+        scalar.put(
+                "confirmationUid",
+                requiredText(payload, "confirmationUid"));
+        scalar.put(
+                "originalEventUid",
+                requiredText(payload, "originalEventUid"));
+        scalar.put(
+                "originalPayloadSha256",
+                requiredText(payload, "originalPayloadSha256"));
+        scalar.put(
+                "outcome",
+                confirmationOutcomeCode(
+                        requiredText(payload, "outcome")));
+        putNullableEnum(
+                scalar,
+                "effectKind",
+                payload.get("effectKind"),
+                OneNetClient::confirmationEffectCode);
+        scalar.put(
+                "processedAt",
+                requiredText(payload, "processedAt"));
+        putNullableText(
+                scalar, "errorCode", payload.get("errorCode"));
+        putNullableText(
+                scalar,
+                "quarantineUid",
+                payload.get("quarantineUid"));
+        scalar.put("cosGrantPresent", false);
+
+        Map<String, Object> projectedTarget =
+                new LinkedHashMap<>();
+        projectedTarget.put("type", 1);
+        projectedTarget.put("uid", requiredText(target, "uid"));
+        JsonNode references = payload.get("resultReferences");
+        if (references == null || !references.isArray()) {
+            throw new IllegalArgumentException(
+                    "resultReferences must be an array");
+        }
+        List<Map<String, Object>> projectedReferences =
+                new ArrayList<>();
+        for (JsonNode reference : references) {
+            projectedReferences.add(Map.of(
+                    "type",
+                    resultReferenceCode(
+                            requiredText(reference, "type")),
+                    "key",
+                    requiredText(reference, "key")));
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields", scalar);
+        params.put("target", projectedTarget);
+        params.put("resultReferences", projectedReferences);
+        return params;
+    }
+
+    private static void putNullableText(
+            Map<String, Object> target,
+            String field,
+            JsonNode value) {
+        boolean present = value != null && !value.isNull();
+        target.put(field + "Present", present);
+        if (present) {
+            if (!value.isTextual() || value.asText().isBlank()) {
+                throw new IllegalArgumentException(
+                        field + " must be nullable text");
+            }
+            target.put(field, value.asText());
+        } else {
+            target.put(field, "");
+        }
+    }
+
+    private static void putNullableEnum(
+            Map<String, Object> target,
+            String field,
+            JsonNode value,
+            java.util.function.ToIntFunction<String> encoder) {
+        boolean present = value != null && !value.isNull();
+        target.put(field + "Present", present);
+        target.put(
+                field,
+                present ? encoder.applyAsInt(value.asText()) : 1);
+    }
+
+    private static int confirmationOutcomeCode(String value) {
+        return switch (value) {
+            case "BUSINESS_APPLIED" -> 1;
+            case "EVENT_QUARANTINED" -> 2;
+            default -> throw new IllegalArgumentException(
+                    "unsupported confirmation outcome");
+        };
+    }
+
+    private static int confirmationEffectCode(String value) {
+        return switch (value) {
+            case "CREATED" -> 1;
+            case "UPDATED" -> 2;
+            case "NO_ACTION_REQUIRED" -> 3;
+            default -> throw new IllegalArgumentException(
+                    "unsupported confirmation effect");
+        };
+    }
+
+    private static int resultReferenceCode(String value) {
+        return switch (value) {
+            case "DELIVERY_ORDER" -> 1;
+            case "CLEAN_RECORD" -> 2;
+            case "FULLNESS_DETECTION" -> 3;
+            case "BASELINE_MEASUREMENT" -> 4;
+            case "CONFIGURATION_APPLICATION" -> 5;
+            case "PHOTO_SLOT" -> 6;
+            case "DEVICE_FAULT" -> 7;
+            default -> throw new IllegalArgumentException(
+                    "unsupported confirmation result reference");
+        };
     }
 
     private static void requireEnvelopeIdentity(

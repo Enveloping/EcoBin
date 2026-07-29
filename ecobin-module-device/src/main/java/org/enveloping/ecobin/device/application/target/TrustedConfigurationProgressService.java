@@ -1,9 +1,10 @@
 package org.enveloping.ecobin.device.application.target;
 
-import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
+import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
+import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -20,10 +21,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class TrustedConfigurationProgressService
-        implements TrustedDeviceInboxEventPort {
+{
 
     private static final String MESSAGE_KIND = "CONFIGURATION_PROGRESS";
     private static final String TASK_TYPE =
@@ -40,17 +42,25 @@ public class TrustedConfigurationProgressService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final ReliableDeviceTaskProofPort taskProofPort;
+    private final ReliableEdgeConfirmationService confirmationService;
+    private final TrustedInboxQuarantinePort quarantinePort;
+    private final TrustedOrganizationInboxRefFactory inboxRefFactory;
 
     public TrustedConfigurationProgressService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            ReliableDeviceTaskProofPort taskProofPort) {
+            ReliableDeviceTaskProofPort taskProofPort,
+            ReliableEdgeConfirmationService confirmationService,
+            TrustedInboxQuarantinePort quarantinePort,
+            TrustedOrganizationInboxRefFactory inboxRefFactory) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.taskProofPort = taskProofPort;
+        this.confirmationService = confirmationService;
+        this.quarantinePort = quarantinePort;
+        this.inboxRefFactory = inboxRefFactory;
     }
 
-    @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public TrustedDeviceEventApplyResult apply(
             TrustedDeviceInboxEvent inboxEvent) {
@@ -95,7 +105,6 @@ public class TrustedConfigurationProgressService
                                 deployment_id = ?
                                 AND edge_event_sequence = ?
                            )
-                        FOR UPDATE
                         """,
                 (rs, ignored) -> new ExistingEvent(
                         rs.getString("event_uid"),
@@ -114,13 +123,31 @@ public class TrustedConfigurationProgressService
                             inboxKey)) {
                 return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
             }
-            throw new IllegalStateException(
-                    "trusted edge event identity or sequence conflicts");
+            UUID quarantineUid =
+                    quarantinePort.quarantineIdentityConflict(
+                    inboxRefFactory.issue(
+                            inboxKey,
+                            tenantKey,
+                            organizationKey),
+                    "trusted configuration event identity or sequence conflicts");
+            LocalDateTime now = jdbc.queryForObject(
+                    "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+            confirmationService.registerQuarantined(
+                    tenantKey,
+                    organizationKey,
+                    target.deploymentId(),
+                    event.deploymentCode(),
+                    event.eventUid(),
+                    event.payloadSha256(),
+                    "EVENT_IDENTITY_CONFLICT",
+                    quarantineUid,
+                    now);
+            return TrustedDeviceEventApplyResult.QUARANTINED;
         }
 
         LocalDateTime now = jdbc.queryForObject(
                 "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
-        insertEdgeEvent(
+        long edgeEventId = insertEdgeEvent(
                 event,
                 target,
                 inboxKey,
@@ -137,6 +164,15 @@ public class TrustedConfigurationProgressService
                     TARGET_TYPE,
                     event.applicationUid());
         }
+        confirmationService.registerApplied(
+                tenantKey,
+                organizationKey,
+                target.deploymentId(),
+                event.deploymentCode(),
+                event.eventUid(),
+                event.payloadSha256(),
+                "UPDATED",
+                now);
         return TrustedDeviceEventApplyResult.APPLIED;
     }
 
@@ -159,6 +195,10 @@ public class TrustedConfigurationProgressService
             ConfigurationProgress event,
             long tenantKey,
             long organizationKey) {
+        lockMutableTargetRows(
+                event,
+                tenantKey,
+                organizationKey);
         List<ConfigurationTarget> rows = jdbc.query("""
                         SELECT
                             deployment.id AS deployment_id,
@@ -200,7 +240,6 @@ public class TrustedConfigurationProgressService
                           AND command_row.command_uid = ?
                           AND command_row.command_type =
                               'APPLY_CONFIGURATION'
-                        FOR UPDATE
                         """,
                 (rs, ignored) -> new ConfigurationTarget(
                         rs.getLong("deployment_id"),
@@ -224,6 +263,43 @@ public class TrustedConfigurationProgressService
         return rows.getFirst();
     }
 
+    private void lockMutableTargetRows(
+            ConfigurationProgress event,
+            long tenantKey,
+            long organizationKey) {
+        List<Long> applicationIds = jdbc.query("""
+                        SELECT id
+                        FROM dev_config_application
+                        WHERE application_uid = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                event.applicationUid(),
+                tenantKey,
+                organizationKey);
+        List<Long> commandIds = jdbc.query("""
+                        SELECT id
+                        FROM dev_device_command
+                        WHERE command_uid = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND command_type =
+                              'APPLY_CONFIGURATION'
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                event.commandUid(),
+                tenantKey,
+                organizationKey);
+        if (applicationIds.size() != 1
+                || commandIds.size() != 1) {
+            throw new UntrustedInboxSourceException(
+                    "configuration progress target is not authoritative");
+        }
+    }
+
     private static void verifyTarget(
             ConfigurationProgress event,
             ConfigurationTarget target) {
@@ -237,14 +313,14 @@ public class TrustedConfigurationProgressService
         }
     }
 
-    private void insertEdgeEvent(
+    private long insertEdgeEvent(
             ConfigurationProgress event,
             ConfigurationTarget target,
             long inboxKey,
             long tenantKey,
             long organizationKey,
             LocalDateTime now) {
-        jdbc.update("""
+        int inserted = jdbc.update("""
                         INSERT INTO dev_edge_event (
                             event_uid, tenant_id, organization_id,
                             deployment_id, edge_event_sequence,
@@ -273,6 +349,19 @@ public class TrustedConfigurationProgressService
                 HexFormat.of().parseHex(event.canonicalSha256()),
                 inboxKey,
                 now);
+        requireSingle(inserted, "insert configuration edge event");
+        Long id = jdbc.queryForObject("""
+                        SELECT id
+                        FROM dev_edge_event
+                        WHERE event_uid = ?
+                        """,
+                Long.class,
+                event.eventUid());
+        if (id == null) {
+            throw new IllegalStateException(
+                    "configuration edge event id is missing");
+        }
+        return id;
     }
 
     private void mergeApplication(
@@ -396,7 +485,6 @@ public class TrustedConfigurationProgressService
             requireSingle(jdbc.update("""
                             UPDATE dev_device_command
                             SET physical_state = 'PHYSICAL_SUCCEEDED',
-                                queued_at = COALESCE(queued_at, ?),
                                 edge_accepted_at =
                                     COALESCE(edge_accepted_at, ?),
                                 physical_started_at =
@@ -406,7 +494,6 @@ public class TrustedConfigurationProgressService
                                 updated_at = ?
                             WHERE id = ?
                             """,
-                    now,
                     now,
                     now,
                     now,

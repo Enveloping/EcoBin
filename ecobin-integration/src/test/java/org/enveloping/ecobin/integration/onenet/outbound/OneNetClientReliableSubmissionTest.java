@@ -129,14 +129,66 @@ class OneNetClientReliableSubmissionTest {
                 eq(String.class));
     }
 
+    @Test
+    void projectsFrozenEdgeConfirmationToGeneratedWireContract()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        JsonNode wireExample = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "confirm-edge-event.service-wire.json")));
+        ObjectNode expected = (ObjectNode) wireExample
+                .path("callServiceApiBodyTemplate")
+                .deepCopy();
+        expected.put("product_id", PRODUCT_ID);
+        expected.put("device_name", HARDWARE_SN);
+        assertEquals(expected, actual);
+    }
+
     private DeviceCommandSubmission submission(
             String envelope,
             UUID commandUid) throws Exception {
+        return submission(
+                envelope,
+                commandUid,
+                "APPLY_CONFIGURATION");
+    }
+
+    private DeviceCommandSubmission submission(
+            String envelope,
+            UUID commandUid,
+            String commandType) throws Exception {
         byte[] bytes = envelope.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         return new DeviceCommandSubmission(
                 TASK_UID,
                 commandUid,
-                "APPLY_CONFIGURATION",
+                commandType,
                 HARDWARE_SN,
                 envelope,
                 MessageDigest.getInstance("SHA-256").digest(bytes));

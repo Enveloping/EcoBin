@@ -5,6 +5,7 @@ import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.device.application.target.DeviceConfigurationCanonicalizer;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
@@ -31,6 +32,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -58,6 +61,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.external.mode=fake",
         "ecobin.external.fake.block-inbound=true",
         "ecobin.operations.reliable.workers-enabled=false",
+        "ecobin.operations.reliable.iot-device.batch-size=1",
         "onenet.subscription.enabled=false",
         "jwt.secret=DEVICE_TEST_SECRET_MUST_BE_AT_LEAST_32_BYTES_LONG",
 })
@@ -89,6 +93,8 @@ class TargetDeviceMysqlIntegrationTest {
     private TrustedDeviceSourceScopePort sourceScopePort;
     @Autowired
     private AcceptedSubmissionProbe submissionProbe;
+    @Autowired
+    private DeviceConfigurationCanonicalizer canonicalizer;
 
     private String run;
     private String platformLogin;
@@ -98,6 +104,7 @@ class TargetDeviceMysqlIntegrationTest {
         run = Long.toUnsignedString(System.nanoTime(), 36);
         platformLogin = "device-platform-" + run;
         submissionProbe.reset();
+        deferPriorIntegrationTasks();
         jdbc.update("""
                         INSERT INTO iam_platform_admin (
                             platform_admin_uid, login_name, password_hash,
@@ -113,6 +120,33 @@ class TargetDeviceMysqlIntegrationTest {
                 UUID.randomUUID().toString(),
                 platformLogin,
                 passwordEncoder.encode(PLATFORM_PASSWORD));
+    }
+
+    private void deferPriorIntegrationTasks() {
+        jdbc.update("""
+                UPDATE ops_reliable_task task
+                LEFT JOIN dev_device_deployment deployment
+                  ON deployment.tenant_id = task.tenant_id
+                 AND deployment.organization_id =
+                     task.organization_id
+                 AND deployment.id =
+                     task.source_device_deployment_id
+                LEFT JOIN dev_device_asset asset
+                  ON asset.id = deployment.asset_id
+                LEFT JOIN ops_inbox_message inbox
+                  ON inbox.id = task.source_inbox_id
+                SET task.next_run_at =
+                    DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 1 DAY),
+                    task.updated_at = UTC_TIMESTAMP(3),
+                    task.lock_version = task.lock_version + 1
+                WHERE task.state = 'PENDING'
+                  AND task.lease_token IS NULL
+                  AND (
+                      asset.hardware_sn LIKE 'HW-DEVICE-%'
+                      OR inbox.source_principal_key LIKE
+                          '%HW-DEVICE-%'
+                  )
+                """);
     }
 
     @Test
@@ -381,7 +415,8 @@ class TargetDeviceMysqlIntegrationTest {
                 "DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED",
                 json(prematureResync).path("code").asText());
 
-        applyTrustedConfigurationProgress(
+        EdgeFactEvidence configurationEvidence =
+                applyTrustedConfigurationProgress(
                 hardwareSn,
                 deploymentCode,
                 applicationUid);
@@ -437,6 +472,403 @@ class TargetDeviceMysqlIntegrationTest {
                 "DONE",
                 appliedApplication.path("dispatchState").asText());
 
+        Map<String, Object> confirmationTask = jdbc.queryForMap("""
+                SELECT
+                    task.target_stable_key AS confirmation_uid,
+                    task.state,
+                    task.source_device_command_id,
+                    CAST(task.redacted_execution_snapshot AS CHAR)
+                        AS execution_envelope
+                FROM ops_reliable_task task
+                WHERE task.task_key = ?
+                  AND task.task_type = 'CONFIRM_EDGE_EVENT'
+                  AND task.source_device_deployment_id = (
+                      SELECT deployment.id
+                      FROM dev_device_deployment deployment
+                      WHERE deployment.public_code = ?
+                  )
+                """,
+                "CONFIRM_EDGE_EVENT:"
+                        + configurationEvidence.eventUid()
+                        .toUpperCase(),
+                deploymentCode);
+        assertEquals(
+                "PENDING", confirmationTask.get("state").toString());
+        assertEquals(
+                null, confirmationTask.get("source_device_command_id"));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_command
+                        WHERE command_type = 'CONFIRM_EDGE_EVENT'
+                        """, Integer.class));
+
+        JsonNode confirmationEnvelope = objectMapper.readTree(
+                confirmationTask.get("execution_envelope").toString());
+        assertEquals(
+                configurationEvidence.eventUid(),
+                confirmationEnvelope.path("payload")
+                        .path("originalEventUid").asText());
+        assertEquals(
+                configurationEvidence.payloadSha256(),
+                confirmationEnvelope.path("payload")
+                        .path("originalPayloadSha256").asText());
+        assertEquals(
+                "BUSINESS_APPLIED",
+                confirmationEnvelope.path("payload")
+                        .path("outcome").asText());
+
+        ReliableWorkerBatchResult confirmationBatch =
+                worker.runBatch("device-confirmation-integration-worker");
+        assertEquals(1, confirmationBatch.claimed());
+        assertEquals(1, confirmationBatch.accepted());
+        assertEquals(0, confirmationBatch.failed());
+        assertEquals(2, submissionProbe.submissionCount());
+        assertEquals(
+                "CONFIRM_EDGE_EVENT",
+                submissionProbe.lastSubmission().commandType());
+        assertEquals(
+                "PENDING",
+                jdbc.queryForObject("""
+                                SELECT state
+                                FROM ops_reliable_task
+                                WHERE task_key = ?
+                                """,
+                        String.class,
+                        "CONFIRM_EDGE_EVENT:"
+                                + configurationEvidence.eventUid()
+                                .toUpperCase()));
+
+        EdgeFactEvidence receiptEvidence =
+                applyBusinessConfirmationReceipt(
+                        hardwareSn,
+                        deploymentCode,
+                        confirmationEnvelope,
+                        2);
+        assertEquals(
+                "DONE",
+                jdbc.queryForObject("""
+                                SELECT state
+                                FROM ops_reliable_task
+                                WHERE task_key = ?
+                                """,
+                        String.class,
+                        "CONFIRM_EDGE_EVENT:"
+                                + configurationEvidence.eventUid()
+                                .toUpperCase()));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                        """,
+                Integer.class,
+                "CONFIRM_EDGE_EVENT:"
+                        + receiptEvidence.eventUid().toUpperCase()));
+
+        EdgeFactEvidence runtimeEvidence =
+                applyTrustedRuntimeSnapshot(
+                        hardwareSn,
+                        deploymentCode,
+                        applicationUid,
+                        3);
+        assertEquals("ONLINE|OFFLINE|FAULT", jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            edge_connection_status, '|',
+                            mcu_link_status, '|',
+                            uart_state
+                        )
+                        FROM dev_deployment_runtime_state runtime
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = runtime.deployment_id
+                        WHERE deployment.public_code = ?
+                        """, String.class, deploymentCode));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                        """,
+                Integer.class,
+                "CONFIRM_EDGE_EVENT:"
+                        + runtimeEvidence.eventUid().toUpperCase()));
+
+        JsonNode activated = data(write(
+                platform,
+                post(deploymentBase + "/" + deploymentCode
+                        + "/activations"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", 0,
+                        "expectedConfigurationVersion", 1,
+                        "acceptanceConfirmed", true,
+                        "reason",
+                        "trusted Orange Pi runtime accepted"),
+                200));
+        assertEquals(
+                "ENABLED",
+                activated.path("lifecycleStatus").asText());
+        JsonNode businessEnabled = data(write(
+                platform,
+                post(deploymentBase + "/" + deploymentCode
+                        + "/business-switch/enablements"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", 1,
+                        "reason",
+                        "trusted Orange Pi runtime accepted"),
+                200));
+        assertTrue(
+                businessEnabled.path("businessEnabled").asBoolean());
+        JsonNode enabledRuntime = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode + "/runtime",
+                200));
+        assertTrue(enabledRuntime.path("deliveryAllowed").asBoolean());
+        assertEquals(
+                "OFFLINE",
+                enabledRuntime.path("health")
+                        .path("mcuLinkStatus").asText());
+        assertEquals(
+                "FAULT",
+                enabledRuntime.path("health")
+                        .path("uartState").asText());
+
+        String faultUid = UUID.randomUUID().toString();
+        EdgeFactEvidence faultEvidence = applyTrustedFaultFact(
+                "deviceFaultObserved",
+                "device-fault-observed.event.json",
+                "device-fault-observed.event-wire.json",
+                hardwareSn,
+                deploymentCode,
+                faultUid,
+                4,
+                48);
+        assertEquals(
+                "OPEN|BUSINESS_BLOCKING|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    status, '|',
+                                    impact_level, '|',
+                                    discovery_count
+                                )
+                                FROM dev_device_fault_event
+                                WHERE fault_uid = ?
+                                """,
+                        String.class,
+                        faultUid));
+        assertPendingConfirmation(faultEvidence);
+        JsonNode faultBlockedRuntime = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode + "/runtime",
+                200));
+        assertFalse(
+                faultBlockedRuntime.path("deliveryAllowed").asBoolean());
+        assertEquals(
+                "OPERATION_BLOCKED",
+                faultBlockedRuntime.path("health")
+                        .path("safetyStatus").asText());
+        assertTrue(contains(
+                faultBlockedRuntime.path("deliveryBlockers"),
+                "SAFETY_LOCKED"));
+
+        EdgeFactEvidence recoveryEvidence = applyTrustedFaultFact(
+                "deviceFaultRecovered",
+                "device-fault-recovered.event.json",
+                "device-fault-recovered.event-wire.json",
+                hardwareSn,
+                deploymentCode,
+                faultUid,
+                5,
+                49);
+        assertEquals(
+                "RECOVERED|DEVICE_REPORTED|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    status, '|',
+                                    recovery_method, '|',
+                                    device_recovery_observed_edge_event_id
+                                        IS NOT NULL
+                                )
+                                FROM dev_device_fault_event
+                                WHERE fault_uid = ?
+                                """,
+                        String.class,
+                        faultUid));
+        assertPendingConfirmation(recoveryEvidence);
+        JsonNode recoveredRuntime = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode + "/runtime",
+                200));
+        assertTrue(recoveredRuntime.path("deliveryAllowed").asBoolean());
+        assertEquals(
+                "SAFE",
+                recoveredRuntime.path("health")
+                        .path("safetyStatus").asText());
+
+        EdgeFactEvidence alarmEvidence = applyTrustedSafetyState(
+                hardwareSn,
+                deploymentCode,
+                "ALARM",
+                6,
+                50);
+        assertEquals(
+                "SAFETY_BLOCKED|SAFETY_BLOCKED",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    deployment_runtime.safety_status, '|',
+                                    port_runtime.safety_status
+                                )
+                                FROM dev_deployment_runtime_state
+                                    deployment_runtime
+                                JOIN dev_device_deployment deployment
+                                  ON deployment.id =
+                                     deployment_runtime.deployment_id
+                                JOIN dev_port port
+                                  ON port.deployment_id = deployment.id
+                                 AND port.port_no = 2
+                                JOIN dev_port_runtime_state port_runtime
+                                  ON port_runtime.port_id = port.id
+                                WHERE deployment.public_code = ?
+                                """,
+                        String.class,
+                        deploymentCode));
+        assertPendingConfirmation(alarmEvidence);
+        JsonNode alarmRuntime = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode + "/runtime",
+                200));
+        assertFalse(alarmRuntime.path("deliveryAllowed").asBoolean());
+        assertTrue(contains(
+                alarmRuntime.path("deliveryBlockers"),
+                "SAFETY_LOCKED"));
+
+        EdgeFactEvidence safeEvidence = applyTrustedSafetyState(
+                hardwareSn,
+                deploymentCode,
+                "NORMAL",
+                7,
+                51);
+        assertEquals(
+                "SAFE|SAFE",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    deployment_runtime.safety_status, '|',
+                                    port_runtime.safety_status
+                                )
+                                FROM dev_deployment_runtime_state
+                                    deployment_runtime
+                                JOIN dev_device_deployment deployment
+                                  ON deployment.id =
+                                     deployment_runtime.deployment_id
+                                JOIN dev_port port
+                                  ON port.deployment_id = deployment.id
+                                 AND port.port_no = 2
+                                JOIN dev_port_runtime_state port_runtime
+                                  ON port_runtime.port_id = port.id
+                                WHERE deployment.public_code = ?
+                                """,
+                        String.class,
+                        deploymentCode));
+        assertPendingConfirmation(safeEvidence);
+        JsonNode safeRuntime = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode + "/runtime",
+                200));
+        assertTrue(safeRuntime.path("deliveryAllowed").asBoolean());
+        assertEquals(
+                "OFFLINE",
+                safeRuntime.path("health")
+                        .path("mcuLinkStatus").asText());
+        assertEquals(
+                "FAULT",
+                safeRuntime.path("health")
+                        .path("uartState").asText());
+
+        EdgeFactEvidence conflictEvidence =
+                applyTrustedSafetyState(
+                        hardwareSn,
+                        deploymentCode,
+                        "ALARM",
+                        7,
+                        52);
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_edge_event
+                        WHERE event_uid = ?
+                        """,
+                Integer.class,
+                conflictEvidence.eventUid()));
+        String quarantineUid = jdbc.queryForObject("""
+                        SELECT quarantine.quarantine_uid
+                        FROM ops_message_quarantine quarantine
+                        JOIN ops_inbox_message inbox
+                          ON inbox.id =
+                             quarantine.conflicting_inbox_id
+                        WHERE inbox.external_message_id = ?
+                          AND quarantine.reason_code =
+                              'IDENTITY_CONTENT_CONFLICT'
+                        """,
+                String.class,
+                conflictEvidence.eventUid());
+        assertNotNull(quarantineUid);
+        Map<String, Object> quarantineConfirmation =
+                jdbc.queryForMap("""
+                        SELECT
+                            task.state,
+                            task.source_device_command_id,
+                            CAST(
+                                task.redacted_execution_snapshot
+                                AS CHAR
+                            ) AS execution_envelope
+                        FROM ops_reliable_task task
+                        WHERE task.task_key = ?
+                          AND task.task_type =
+                              'CONFIRM_EDGE_EVENT'
+                        """,
+                        "CONFIRM_EDGE_EVENT:"
+                                + conflictEvidence.eventUid()
+                                .toUpperCase()
+                                + ":"
+                                + conflictEvidence.payloadSha256()
+                                .toUpperCase());
+        assertEquals(
+                "PENDING",
+                quarantineConfirmation.get("state").toString());
+        assertEquals(
+                null,
+                quarantineConfirmation.get(
+                        "source_device_command_id"));
+        JsonNode quarantineEnvelope = objectMapper.readTree(
+                quarantineConfirmation.get(
+                        "execution_envelope").toString());
+        assertEquals(
+                "EVENT_QUARANTINED",
+                quarantineEnvelope.path("payload")
+                        .path("outcome").asText());
+        assertEquals(
+                "EVENT_IDENTITY_CONFLICT",
+                quarantineEnvelope.path("payload")
+                        .path("errorCode").asText());
+        assertTrue(
+                quarantineEnvelope.path("payload")
+                        .path("effectKind").isNull());
+        assertEquals(
+                quarantineUid,
+                quarantineEnvelope.path("payload")
+                        .path("quarantineUid").asText());
+        assertEquals(
+                conflictEvidence.payloadSha256(),
+                quarantineEnvelope.path("payload")
+                        .path("originalPayloadSha256").asText());
+        JsonNode stillSafeRuntime = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode + "/runtime",
+                200));
+        assertTrue(
+                stillSafeRuntime.path("deliveryAllowed").asBoolean());
+        assertEquals(
+                "SAFE",
+                stillSafeRuntime.path("health")
+                        .path("safetyStatus").asText());
+
         BrowserClient principal = new BrowserClient();
         login(
                 principal,
@@ -462,7 +894,7 @@ class TargetDeviceMysqlIntegrationTest {
         assertFalse(audit.contains("测试回收设备"));
     }
 
-    private void applyTrustedConfigurationProgress(
+    private EdgeFactEvidence applyTrustedConfigurationProgress(
             String hardwareSn,
             String deploymentCode,
             String applicationUid) {
@@ -533,9 +965,310 @@ class TargetDeviceMysqlIntegrationTest {
         wire.put("target", wireTarget);
         wire.put("version", version);
 
+        acceptTrustedWireEvent(
+                "configurationProgress",
+                wire,
+                hardwareSn);
+        return new EdgeFactEvidence(
+                wire.get("eventUid").toString(),
+                payloadSha256);
+    }
+
+    private EdgeFactEvidence applyBusinessConfirmationReceipt(
+            String hardwareSn,
+            String deploymentCode,
+            JsonNode confirmationEnvelope,
+            long edgeEventSequence) {
+        JsonNode confirmation =
+                confirmationEnvelope.path("payload");
+        Map<String, Object> semanticPayload = new TreeMap<>();
+        semanticPayload.put(
+                "confirmationUid",
+                confirmation.path("confirmationUid").asText());
+        semanticPayload.put(
+                "originalEventUid",
+                confirmation.path("originalEventUid").asText());
+        semanticPayload.put(
+                "originalPayloadSha256",
+                confirmation.path("originalPayloadSha256").asText());
+        semanticPayload.put(
+                "outcome",
+                confirmation.path("outcome").asText());
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semanticPayload));
+        String eventUid = UUID.randomUUID().toString();
+
+        Map<String, Object> target = new LinkedHashMap<>();
+        target.put("type", 1);
+        target.put(
+                "uid",
+                confirmation.path("confirmationUid").asText());
+        Map<String, Object> wire = new LinkedHashMap<>();
+        wire.put("clockQuality", 1);
+        wire.put(
+                "commandUid",
+                confirmationEnvelope.path("commandUid").asText());
+        wire.put(
+                "confirmationUid",
+                confirmation.path("confirmationUid").asText());
+        wire.put("deliveryClass", 1);
+        wire.put("deploymentCode", deploymentCode);
+        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("eventType", 1);
+        wire.put("eventUid", eventUid);
+        wire.put(
+                "occurredAt",
+                Instant.now().truncatedTo(
+                        ChronoUnit.MILLIS).toString());
+        wire.put("occurredAtPresent", true);
+        wire.put(
+                "originalEventUid",
+                confirmation.path("originalEventUid").asText());
+        wire.put(
+                "originalPayloadSha256",
+                confirmation.path("originalPayloadSha256").asText());
+        wire.put("outcome", 1);
+        wire.put("payloadSha256", payloadSha256);
+        wire.put("schemaVersion", 1);
+        wire.put("target", target);
+
+        acceptTrustedWireEvent(
+                "businessConfirmationReceipt",
+                wire,
+                hardwareSn);
+        return new EdgeFactEvidence(eventUid, payloadSha256);
+    }
+
+    private EdgeFactEvidence applyTrustedRuntimeSnapshot(
+            String hardwareSn,
+            String deploymentCode,
+            String applicationUid,
+            long edgeEventSequence) throws Exception {
+        Map<String, Object> configuration = jdbc.queryForMap("""
+                SELECT
+                    version.version_no,
+                    LOWER(HEX(version.content_sha256))
+                        AS content_sha256,
+                    LOWER(HEX(version.mcu_payload_sha256))
+                        AS mcu_payload_sha256
+                FROM dev_config_application application
+                JOIN dev_config_version version
+                  ON version.id = application.config_version_id
+                WHERE application.application_uid = ?
+                """, applicationUid);
+        long version = ((Number) configuration.get(
+                "version_no")).longValue();
+        String contentSha256 =
+                configuration.get("content_sha256").toString();
+        String mcuPayloadSha256 =
+                configuration.get("mcu_payload_sha256").toString();
+
+        Map<String, Object> semanticEvent = objectMapper.readValue(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "device-runtime-snapshot.event.json")),
+                Map.class);
+        Map<String, Object> semanticPayload =
+                mutableMap(semanticEvent.get("payload"));
+        Map<String, Object> semanticConfig =
+                mutableMap(semanticPayload.get("appliedConfig"));
+        semanticConfig.put("version", version);
+        semanticConfig.put("contentSha256", contentSha256);
+        semanticConfig.put(
+                "mcuPayloadSha256", mcuPayloadSha256);
+        semanticPayload.put("mcuBootId", null);
+        semanticPayload.put("mcuFirmwareVersion", null);
+        semanticPayload.put("uartProtocolMajor", null);
+        semanticPayload.put("uartProtocolMinor", null);
+        semanticPayload.put("uartState", "FAULT");
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semanticPayload));
+
+        Map<String, Object> fixture = objectMapper.readValue(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "device-runtime-snapshot.event-wire.json")),
+                Map.class);
+        Map<String, Object> oneJson =
+                mutableMap(fixture.get("oneJsonPayload"));
+        Map<String, Object> params =
+                mutableMap(oneJson.get("params"));
+        Map<String, Object> eventWrapper =
+                mutableMap(params.get("deviceRuntimeSnapshot"));
+        Map<String, Object> wire =
+                mutableMap(eventWrapper.get("value"));
+        Map<String, Object> wireConfig =
+                mutableMap(wire.get("appliedConfig"));
+        wireConfig.put("version", version);
+        wireConfig.put("contentSha256", contentSha256);
+        wireConfig.put("mcuPayloadSha256", mcuPayloadSha256);
+        wire.put("deploymentCode", deploymentCode);
+        wire.put("edgeEventSequence", edgeEventSequence);
+        String eventUid = UUID.randomUUID().toString();
+        wire.put("eventUid", eventUid);
+        wire.put(
+                "occurredAt",
+                Instant.now().truncatedTo(
+                        ChronoUnit.MILLIS).toString());
+        wire.put("mcuBootIdPresent", false);
+        wire.put("mcuFirmwareVersionPresent", false);
+        wire.put("uartProtocolMajorPresent", false);
+        wire.put("uartProtocolMinorPresent", false);
+        wire.remove("mcuBootId");
+        wire.remove("mcuFirmwareVersion");
+        wire.remove("uartProtocolMajor");
+        wire.remove("uartProtocolMinor");
+        wire.put("uartState", 5);
+        wire.put("payloadSha256", payloadSha256);
+        mutableMap(wire.get("target")).put(
+                "uid", deploymentCode);
+
+        acceptTrustedWireEvent(
+                "deviceRuntimeSnapshot",
+                wire,
+                hardwareSn);
+        return new EdgeFactEvidence(eventUid, payloadSha256);
+    }
+
+    private EdgeFactEvidence applyTrustedFaultFact(
+            String identifier,
+            String semanticFixture,
+            String wireFixture,
+            String hardwareSn,
+            String deploymentCode,
+            String faultUid,
+            long edgeEventSequence,
+            long mcuEventSequence) throws Exception {
+        Map<String, Object> semanticEvent = objectMapper.readValue(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + semanticFixture)),
+                Map.class);
+        Map<String, Object> semanticPayload =
+                mutableMap(semanticEvent.get("payload"));
+        semanticPayload.put("faultUid", faultUid);
+        semanticPayload.put(
+                "mcuEventSequence", mcuEventSequence);
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semanticPayload));
+
+        Map<String, Object> fixture = objectMapper.readValue(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + wireFixture)),
+                Map.class);
+        Map<String, Object> oneJson =
+                mutableMap(fixture.get("oneJsonPayload"));
+        Map<String, Object> params =
+                mutableMap(oneJson.get("params"));
+        Map<String, Object> eventWrapper =
+                mutableMap(params.get(identifier));
+        Map<String, Object> wire =
+                mutableMap(eventWrapper.get("value"));
+        String eventUid = UUID.randomUUID().toString();
+        wire.put("deploymentCode", deploymentCode);
+        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("eventUid", eventUid);
+        wire.put("faultUid", faultUid);
+        wire.put("mcuEventSequence", mcuEventSequence);
+        wire.put(
+                "occurredAt",
+                Instant.now().truncatedTo(
+                        ChronoUnit.MILLIS).toString());
+        wire.put("payloadSha256", payloadSha256);
+        mutableMap(wire.get("target")).put(
+                "uid", deploymentCode);
+
+        acceptTrustedWireEvent(identifier, wire, hardwareSn);
+        return new EdgeFactEvidence(eventUid, payloadSha256);
+    }
+
+    private EdgeFactEvidence applyTrustedSafetyState(
+            String hardwareSn,
+            String deploymentCode,
+            String smokeState,
+            long edgeEventSequence,
+            long mcuEventSequence) throws Exception {
+        Map<String, Object> semanticEvent = objectMapper.readValue(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "safety-sensor-state-changed"
+                                + ".event.json")),
+                Map.class);
+        Map<String, Object> semanticPayload =
+                mutableMap(semanticEvent.get("payload"));
+        semanticPayload.put(
+                "mcuEventSequence", mcuEventSequence);
+        semanticPayload.put("smokeState", smokeState);
+        semanticPayload.put("workType", "NONE");
+        semanticPayload.put("workUid", null);
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semanticPayload));
+
+        Map<String, Object> fixture = objectMapper.readValue(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "safety-sensor-state-changed"
+                                + ".event-wire.json")),
+                Map.class);
+        Map<String, Object> oneJson =
+                mutableMap(fixture.get("oneJsonPayload"));
+        Map<String, Object> params =
+                mutableMap(oneJson.get("params"));
+        Map<String, Object> eventWrapper =
+                mutableMap(params.get(
+                        "safetySensorStateChanged"));
+        Map<String, Object> wire =
+                mutableMap(eventWrapper.get("value"));
+        String eventUid = UUID.randomUUID().toString();
+        wire.put("deploymentCode", deploymentCode);
+        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("eventUid", eventUid);
+        wire.put("mcuEventSequence", mcuEventSequence);
+        wire.put("smokeState",
+                "ALARM".equals(smokeState) ? 2 : 1);
+        wire.put("workType", 1);
+        wire.put("workUidPresent", false);
+        wire.remove("workUid");
+        wire.put(
+                "occurredAt",
+                Instant.now().truncatedTo(
+                        ChronoUnit.MILLIS).toString());
+        wire.put("payloadSha256", payloadSha256);
+        mutableMap(wire.get("target")).put(
+                "uid", deploymentCode);
+
+        acceptTrustedWireEvent(
+                "safetySensorStateChanged",
+                wire,
+                hardwareSn);
+        return new EdgeFactEvidence(eventUid, payloadSha256);
+    }
+
+    private void assertPendingConfirmation(
+            EdgeFactEvidence evidence) {
+        assertEquals(
+                "PENDING",
+                jdbc.queryForObject("""
+                                SELECT state
+                                FROM ops_reliable_task
+                                WHERE task_key = ?
+                                  AND task_type =
+                                      'CONFIRM_EDGE_EVENT'
+                                  AND source_device_command_id IS NULL
+                                """,
+                        String.class,
+                        "CONFIRM_EDGE_EVENT:"
+                                + evidence.eventUid().toUpperCase()));
+    }
+
+    private void acceptTrustedWireEvent(
+            String identifier,
+            Map<String, Object> wire,
+            String hardwareSn) {
         Map<String, Object> wrapped = Map.of("value", wire);
         Map<String, Object> params =
-                Map.of("configurationProgress", wrapped);
+                Map.of(identifier, wrapped);
         Map<String, Object> subData = new LinkedHashMap<>();
         subData.put("productId", "device-integration-product");
         subData.put("deviceName", hardwareSn);
@@ -552,9 +1285,10 @@ class TargetDeviceMysqlIntegrationTest {
                         sourceScopePort,
                         properties,
                         objectMapper);
+        String eventUid = wire.get("eventUid").toString();
         dispatcher.handle(
                 objectMapper.writeValueAsString(decrypted),
-                "device-integration-message",
+                "device-integration-message-" + eventUid,
                 "encrypted-device-integration-envelope"
                         .getBytes(StandardCharsets.UTF_8));
         assertEquals("ORGANIZATION|RECEIVED", jdbc.queryForObject("""
@@ -563,13 +1297,55 @@ class TargetDeviceMysqlIntegrationTest {
                         WHERE external_message_id = ?
                         """,
                 String.class,
-                wire.get("eventUid").toString()));
+                eventUid));
 
         ReliableWorkerBatchResult result = inboxWorker.runBatch(
-                "device-inbox-integration-worker");
+                "device-inbox-" + eventUid);
         assertEquals(1, result.claimed());
+        assertEquals(
+                0,
+                result.failed(),
+                () -> inboxFailureDiagnostic(eventUid));
         assertEquals(1, result.accepted());
-        assertEquals(0, result.failed());
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """,
+                String.class,
+                eventUid));
+    }
+
+    private String inboxFailureDiagnostic(String eventUid) {
+        return jdbc.queryForObject("""
+                        SELECT attempt.redacted_diagnostic
+                        FROM ops_task_attempt attempt
+                        JOIN ops_reliable_task task
+                          ON task.id = attempt.task_id
+                        JOIN ops_inbox_message inbox
+                          ON inbox.id = task.source_inbox_id
+                        WHERE inbox.external_message_id = ?
+                        ORDER BY attempt.id DESC
+                        LIMIT 1
+                        """,
+                String.class,
+                eventUid);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> mutableMap(Object value) {
+        return (Map<String, Object>) value;
+    }
+
+    private static Path contractPath(String relative) {
+        Path workingDirectory = Path.of("")
+                .toAbsolutePath()
+                .normalize();
+        Path repository = Files.isDirectory(
+                workingDirectory.resolve("contracts"))
+                ? workingDirectory
+                : workingDirectory.getParent();
+        return repository.resolve(relative).normalize();
     }
 
     private static String sha256Hex(byte[] value) {
@@ -580,6 +1356,11 @@ class TargetDeviceMysqlIntegrationTest {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    private record EdgeFactEvidence(
+            String eventUid,
+            String payloadSha256) {
     }
 
     private void createEnabledScope(
