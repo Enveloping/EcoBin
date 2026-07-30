@@ -11,6 +11,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
+import org.enveloping.ecobin.recycling.application.photo.RecyclingPhotoStatusService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -76,14 +77,17 @@ public class ApplyDeliveryCompleteService
     private final CompleteDeliveryDeviceParticipationPort deviceCompletion;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final RecyclingPhotoStatusService photoStatusService;
 
     public ApplyDeliveryCompleteService(
             CompleteDeliveryDeviceParticipationPort deviceCompletion,
             JdbcTemplate jdbc,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            RecyclingPhotoStatusService photoStatusService) {
         this.deviceCompletion = deviceCompletion;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.photoStatusService = photoStatusService;
     }
 
     @Override
@@ -116,6 +120,8 @@ public class ApplyDeliveryCompleteService
 
         insertAnomalies(facts, orderId, calculation);
         insertPhotos(facts, orderId);
+        photoStatusService.mergeStagedDeliveryFacts(
+                facts, orderId);
         DetectionResult detection = createPendingDetection(
                 facts,
                 orderId,

@@ -72,6 +72,24 @@ class OneNetClientReliableSubmissionTest {
                                 .getEpochSecond(),
                         "ecobin-contract-1250000000",
                         "ap-guangzhou",
+                                "https://ecobin-contract-1250000000"
+                                + ".cos.ap-guangzhou.myqcloud.com"));
+        when(cosUploadCredentialPort.issue(
+                anyString(),
+                eq(1),
+                anyString()))
+                .thenReturn(new CosUploadCredential(
+                        "TMP_SECRET_ID",
+                        "TMP_SECRET_KEY",
+                        "SESSION_TOKEN",
+                        Instant.parse(
+                                        "2026-07-24T01:00:00Z")
+                                .getEpochSecond(),
+                        Instant.parse(
+                                        "2026-07-24T01:30:00Z")
+                                .getEpochSecond(),
+                        "ecobin-contract-1250000000",
+                        "ap-guangzhou",
                         "https://ecobin-contract-1250000000"
                                 + ".cos.ap-guangzhou.myqcloud.com"));
         client = new OneNetClient(
@@ -268,6 +286,64 @@ class OneNetClientReliableSubmissionTest {
                 anyString(),
                 any(HttpEntity.class),
                 eq(String.class));
+    }
+
+    @Test
+    void signsPhotoGrantOnlyWhenProjectingOutboundCall()
+            throws Exception {
+        ObjectNode envelope = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "provide-photo-upload-grant"
+                                + ".command.json")));
+        envelope.set("cosGrant", null);
+        UUID commandUid = UUID.fromString(
+                "83000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        objectMapper.writeValueAsString(envelope),
+                        commandUid,
+                        "PROVIDE_PHOTO_UPLOAD_GRANT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        JsonNode params = actual.path("params");
+        assertEquals(
+                "providePhotoUploadGrant",
+                actual.path("identifier").asText());
+        assertEquals(
+                "TMP_SECRET_ID",
+                params.path("scalarFields")
+                        .path("cosGrantTmpSecretId")
+                        .asText());
+        assertEquals(
+                "ecobin/Dp_demo_01/delivery-session/"
+                        + "30000000-0000-4000-8000-000000000001/",
+                params.path("scalarFields")
+                        .path("cosGrantKeyPrefix")
+                        .asText());
+        assertEquals(
+                4,
+                params.path("authorizedSlots").size());
+        verify(cosUploadCredentialPort).issue(
+                HARDWARE_SN,
+                1,
+                "ecobin/Dp_demo_01/delivery-session/"
+                        + "30000000-0000-4000-8000-000000000001/");
     }
 
     private DeviceCommandSubmission submission(

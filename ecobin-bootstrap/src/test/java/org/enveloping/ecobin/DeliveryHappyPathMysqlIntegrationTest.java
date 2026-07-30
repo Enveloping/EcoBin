@@ -225,6 +225,31 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         .path("uid")
                         .asText());
 
+        PhotoStatusEvent earlyPhoto =
+                trustedPhotoStatus(ready, sessionUid);
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """, String.class, earlyPhoto.eventUid()));
+        assertEquals(
+                "AVAILABLE|0|0",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            status, '|',
+                            delivery_photo_id IS NOT NULL, '|',
+                            linked_at IS NOT NULL
+                        )
+                        FROM rec_photo_terminal_fact
+                        WHERE edge_event_id = (
+                            SELECT id
+                            FROM dev_edge_event
+                            WHERE event_uid = ?
+                        )
+                        """,
+                        String.class,
+                        earlyPhoto.eventUid()));
+
         DeliveryEvent deliveryEvent =
                 trustedDeliveryComplete(ready, sessionUid);
         assertEquals("PROCESSED", jdbc.queryForObject("""
@@ -339,13 +364,45 @@ class DeliveryHappyPathMysqlIntegrationTest {
                              order_row.delivery_session_id
                         WHERE session_row.session_uid = ?
                         """, Integer.class, sessionUid.toString()));
-        assertEquals(4, jdbc.queryForObject("""
+        assertEquals(3, jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM rec_delivery_photo
                         WHERE delivery_order_id = ?
                           AND status = 'UPLOAD_PENDING'
                           AND missing_reason = 'CAMERA_NOT_READY'
                         """, Integer.class, order.get("id")));
+        assertEquals(
+                "AVAILABLE|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            status, '|',
+                            object_url = ?, '|',
+                            photo_uid = ?
+                        )
+                        FROM rec_delivery_photo
+                        WHERE delivery_order_id = ?
+                          AND position = 'AFTER_INNER'
+                        """,
+                        String.class,
+                        earlyPhoto.objectUrl(),
+                        earlyPhoto.photoUid(),
+                        order.get("id")));
+        assertEquals(
+                "1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            delivery_photo_id IS NOT NULL, '|',
+                            linked_at IS NOT NULL
+                        )
+                        FROM rec_photo_terminal_fact
+                        WHERE edge_event_id = (
+                            SELECT id
+                            FROM dev_edge_event
+                            WHERE event_uid = ?
+                        )
+                        """,
+                        String.class,
+                        earlyPhoto.eventUid()));
         assertEquals(4, jdbc.queryForObject("""
                         SELECT COUNT(DISTINCT position)
                         FROM rec_delivery_photo
@@ -1331,7 +1388,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         String afterMeasurementUid =
                 UUID.randomUUID().toString();
         wire.put("eventUid", eventUid);
-        wire.put("edgeEventSequence", 2);
+        wire.put("edgeEventSequence", 3);
         wire.put("deploymentCode", ready.deploymentCode());
         wire.put("commandUid", commandUid);
         wire.put("sessionUid", sessionUid.toString());
@@ -1402,6 +1459,91 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 eventUid,
                 payloadSha256,
                 wire);
+    }
+
+    private PhotoStatusEvent trustedPhotoStatus(
+            ReadyDeployment ready,
+            UUID sessionUid) throws Exception {
+        ObjectNode wire = (ObjectNode) objectMapper.readTree(
+                        Files.readString(contractPath(
+                                "contracts/examples/onenet-wire/"
+                                        + "photo-status-reported"
+                                        + ".event-wire.json")))
+                .path("oneJsonPayload")
+                .path("params")
+                .path("photoStatusReported")
+                .path("value")
+                .deepCopy();
+        String eventUid = UUID.randomUUID().toString();
+        String photoUid = UUID.randomUUID().toString();
+        String occurredAt = Instant.now()
+                .minusSeconds(1)
+                .truncatedTo(ChronoUnit.MILLIS)
+                .toString();
+        String capturedAt = Instant.now()
+                .minusSeconds(2)
+                .truncatedTo(ChronoUnit.MILLIS)
+                .toString();
+        String objectUrl = COS_BASE_URL
+                + "/ecobin/"
+                + ready.deploymentCode()
+                + "/delivery-session/"
+                + sessionUid
+                + "/AFTER_INNER/"
+                + photoUid
+                + ".jpg";
+        wire.put("eventUid", eventUid);
+        wire.put("edgeEventSequence", 2);
+        wire.put("deploymentCode", ready.deploymentCode());
+        wire.put("occurredAt", occurredAt);
+        wire.put("workUid", sessionUid.toString());
+        ((ObjectNode) wire.path("target"))
+                .put("uid", sessionUid.toString());
+        ObjectNode wirePhoto = (ObjectNode) wire.path("photo");
+        wirePhoto.put("photoUid", photoUid);
+        wirePhoto.put("url", objectUrl);
+        wirePhoto.put("capturedAt", capturedAt);
+
+        ObjectNode semanticPayload =
+                (ObjectNode) objectMapper.readTree(
+                                Files.readString(contractPath(
+                                        "contracts/examples/onenet/"
+                                                + "photo-status-reported"
+                                                + ".event.json")))
+                        .path("payload")
+                        .deepCopy();
+        semanticPayload.put("workUid", sessionUid.toString());
+        ObjectNode semanticPhoto =
+                (ObjectNode) semanticPayload.path("photo");
+        semanticPhoto.put("photoUid", photoUid);
+        semanticPhoto.put("url", objectUrl);
+        semanticPhoto.put("capturedAt", capturedAt);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semantic =
+                objectMapper.convertValue(
+                        semanticPayload,
+                        Map.class);
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semantic));
+        wire.put("payloadSha256", payloadSha256);
+
+        dispatchTrustedWireEvent(
+                "photoStatusReported",
+                wire,
+                ready.hardwareSn());
+        ReliableWorkerBatchResult result =
+                inboxWorker.runBatch(
+                        "photo-status-" + sessionUid);
+        assertEquals(1, result.claimed());
+        assertEquals(
+                0,
+                result.failed(),
+                () -> inboxFailureDiagnostic(eventUid));
+        assertEquals(1, result.accepted());
+        return new PhotoStatusEvent(
+                eventUid,
+                photoUid,
+                objectUrl);
     }
 
     private void applyTrustedRuntimeSnapshot(
@@ -1981,6 +2123,12 @@ class DeliveryHappyPathMysqlIntegrationTest {
             String eventUid,
             String payloadSha256,
             ObjectNode wire) {
+    }
+
+    private record PhotoStatusEvent(
+            String eventUid,
+            String photoUid,
+            String objectUrl) {
     }
 
     private static final class BrowserClient {

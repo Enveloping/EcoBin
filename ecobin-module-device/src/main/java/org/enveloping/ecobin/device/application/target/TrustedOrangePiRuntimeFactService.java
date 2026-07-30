@@ -1,7 +1,10 @@
 package org.enveloping.ecobin.device.application.target;
 
+import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
+import org.enveloping.ecobin.device.api.result.PhotoStatusBusinessResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
+import org.enveloping.ecobin.device.api.result.TrustedPhotoStatusFact;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
@@ -26,6 +29,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Applies trusted runtime facts reported by the Orange Pi through OneNet.
@@ -37,10 +41,13 @@ import java.util.Set;
 public class TrustedOrangePiRuntimeFactService {
 
     private static final Set<String> SUPPORTED = Set.of(
+            "DEVICE_COMMAND_OBSERVED",
             "DEVICE_RUNTIME_SNAPSHOT",
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
+            "PHOTO_STATUS_REPORTED",
+            "PHOTO_UPLOAD_GRANT_REQUESTED",
             "BUSINESS_CONFIRMATION_RECEIPT");
 
     private final JdbcTemplate jdbc;
@@ -49,6 +56,8 @@ public class TrustedOrangePiRuntimeFactService {
     private final ReliableDeviceTaskProofPort taskProofPort;
     private final TrustedInboxQuarantinePort quarantinePort;
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
+    private final ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness;
+    private final ReliablePhotoUploadGrantService photoUploadGrants;
 
     public TrustedOrangePiRuntimeFactService(
             JdbcTemplate jdbc,
@@ -56,13 +65,17 @@ public class TrustedOrangePiRuntimeFactService {
             ReliableEdgeConfirmationService confirmationService,
             ReliableDeviceTaskProofPort taskProofPort,
             TrustedInboxQuarantinePort quarantinePort,
-            TrustedOrganizationInboxRefFactory inboxRefFactory) {
+            TrustedOrganizationInboxRefFactory inboxRefFactory,
+            ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness,
+            ReliablePhotoUploadGrantService photoUploadGrants) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
         this.taskProofPort = taskProofPort;
         this.quarantinePort = quarantinePort;
         this.inboxRefFactory = inboxRefFactory;
+        this.photoStatusBusiness = photoStatusBusiness;
+        this.photoUploadGrants = photoUploadGrants;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -106,6 +119,38 @@ public class TrustedOrangePiRuntimeFactService {
 
         String effectKind;
         switch (event.eventType()) {
+            case "DEVICE_COMMAND_OBSERVED" -> {
+                CommandObservationResult result =
+                        applyCommandObservation(
+                                event,
+                                deployment,
+                                edge.eventId(),
+                                tenantId,
+                                organizationId,
+                                edge.receivedAt());
+                if (result.conflict()) {
+                    UUID quarantineUid =
+                            quarantinePort.quarantineIdentityConflict(
+                                    inboxRefFactory.issue(
+                                            inboxId,
+                                            tenantId,
+                                            organizationId),
+                                    "device command stage was reported "
+                                            + "with another event identity");
+                    confirmationService.registerQuarantined(
+                            tenantId,
+                            organizationId,
+                            deployment.deploymentId(),
+                            event.deploymentCode(),
+                            event.eventUid(),
+                            event.payloadSha256(),
+                            "DEVICE_COMMAND_STAGE_CONFLICT",
+                            quarantineUid,
+                            edge.receivedAt());
+                    return TrustedDeviceEventApplyResult.QUARANTINED;
+                }
+                effectKind = result.effectKind();
+            }
             case "DEVICE_RUNTIME_SNAPSHOT" -> {
                 applyRuntimeSnapshot(
                         event,
@@ -116,22 +161,46 @@ public class TrustedOrangePiRuntimeFactService {
                         edge.receivedAt());
                 return TrustedDeviceEventApplyResult.APPLIED;
             }
-            case "DEVICE_FAULT_OBSERVED" ->
-                    effectKind = observeFault(
+            case "DEVICE_FAULT_OBSERVED" -> {
+                FaultApplyResult result = observeFault(
+                        event,
+                        deployment,
+                        edge.eventId(),
+                        tenantId,
+                        organizationId,
+                        edge.receivedAt());
+                if (result.conflict()) {
+                    return quarantineFaultConflict(
                             event,
                             deployment,
-                            edge.eventId(),
+                            inboxId,
                             tenantId,
                             organizationId,
-                            edge.receivedAt());
-            case "DEVICE_FAULT_RECOVERED" ->
-                    effectKind = observeFaultRecovery(
+                            edge.receivedAt(),
+                            result);
+                }
+                effectKind = result.effectKind();
+            }
+            case "DEVICE_FAULT_RECOVERED" -> {
+                FaultApplyResult result = observeFaultRecovery(
+                        event,
+                        deployment,
+                        edge.eventId(),
+                        tenantId,
+                        organizationId,
+                        edge.receivedAt());
+                if (result.conflict()) {
+                    return quarantineFaultConflict(
                             event,
                             deployment,
-                            edge.eventId(),
+                            inboxId,
                             tenantId,
                             organizationId,
-                            edge.receivedAt());
+                            edge.receivedAt(),
+                            result);
+                }
+                effectKind = result.effectKind();
+            }
             case "SAFETY_SENSOR_STATE_CHANGED" -> {
                 applySafetyChange(
                         event,
@@ -141,6 +210,94 @@ public class TrustedOrangePiRuntimeFactService {
                         organizationId,
                         edge.receivedAt());
                 effectKind = "UPDATED";
+            }
+            case "PHOTO_STATUS_REPORTED" -> {
+                PhotoStatusBusinessResult result =
+                        photoStatusBusiness.apply(photoStatusFact(
+                                event,
+                                deployment,
+                                edge.eventId(),
+                                tenantId,
+                                organizationId,
+                                edge.receivedAt()));
+                if (result.outcome()
+                        == PhotoStatusBusinessResult.Outcome.CONFLICT) {
+                    UUID quarantineUid =
+                            quarantinePort.quarantineIdentityConflict(
+                                    inboxRefFactory.issue(
+                                            inboxId,
+                                            tenantId,
+                                            organizationId),
+                                    "photo terminal fact conflicts with "
+                                            + "the accepted work slot");
+                    confirmationService.registerQuarantined(
+                            tenantId,
+                            organizationId,
+                            deployment.deploymentId(),
+                            event.deploymentCode(),
+                            event.eventUid(),
+                            event.payloadSha256(),
+                            result.conflictCode(),
+                            quarantineUid,
+                            edge.receivedAt());
+                    return TrustedDeviceEventApplyResult.QUARANTINED;
+                }
+                confirmationService.registerApplied(
+                        tenantId,
+                        organizationId,
+                        deployment.deploymentId(),
+                        event.deploymentCode(),
+                        event.eventUid(),
+                        event.payloadSha256(),
+                        result.effectKind(),
+                        result.resultReferences(),
+                        edge.receivedAt());
+                return TrustedDeviceEventApplyResult.APPLIED;
+            }
+            case "PHOTO_UPLOAD_GRANT_REQUESTED" -> {
+                ReliablePhotoUploadGrantService
+                        .PhotoGrantRequestApplyResult result =
+                        photoUploadGrants.apply(
+                                tenantId,
+                                organizationId,
+                                deployment.deploymentId(),
+                                edge.eventId(),
+                                event.deploymentCode(),
+                                event.eventUid(),
+                                event.payload(),
+                                event.occurredAt(),
+                                edge.receivedAt());
+                if (result.conflict()) {
+                    UUID quarantineUid =
+                            quarantinePort.quarantineIdentityConflict(
+                                    inboxRefFactory.issue(
+                                            inboxId,
+                                            tenantId,
+                                            organizationId),
+                                    "photo grant request targets an "
+                                            + "unknown work identity");
+                    confirmationService.registerQuarantined(
+                            tenantId,
+                            organizationId,
+                            deployment.deploymentId(),
+                            event.deploymentCode(),
+                            event.eventUid(),
+                            event.payloadSha256(),
+                            result.conflictCode(),
+                            quarantineUid,
+                            edge.receivedAt());
+                    return TrustedDeviceEventApplyResult.QUARANTINED;
+                }
+                confirmationService.registerApplied(
+                        tenantId,
+                        organizationId,
+                        deployment.deploymentId(),
+                        event.deploymentCode(),
+                        event.eventUid(),
+                        event.payloadSha256(),
+                        result.effectKind(),
+                        edge.receivedAt());
+                return TrustedDeviceEventApplyResult.APPLIED;
             }
             case "BUSINESS_CONFIRMATION_RECEIPT" -> {
                 applyConfirmationReceipt(
@@ -162,6 +319,34 @@ public class TrustedOrangePiRuntimeFactService {
                 effectKind,
                 edge.receivedAt());
         return TrustedDeviceEventApplyResult.APPLIED;
+    }
+
+    private TrustedDeviceEventApplyResult quarantineFaultConflict(
+            ParsedEvent event,
+            DeploymentTarget deployment,
+            long inboxId,
+            long tenantId,
+            long organizationId,
+            LocalDateTime receivedAt,
+            FaultApplyResult result) {
+        UUID quarantineUid =
+                quarantinePort.quarantineIdentityConflict(
+                        inboxRefFactory.issue(
+                                inboxId,
+                                tenantId,
+                                organizationId),
+                        result.detail());
+        confirmationService.registerQuarantined(
+                tenantId,
+                organizationId,
+                deployment.deploymentId(),
+                event.deploymentCode(),
+                event.eventUid(),
+                event.payloadSha256(),
+                result.conflictCode(),
+                quarantineUid,
+                receivedAt);
+        return TrustedDeviceEventApplyResult.QUARANTINED;
     }
 
     private DeploymentTarget loadDeployment(
@@ -474,6 +659,188 @@ public class TrustedOrangePiRuntimeFactService {
                 now);
     }
 
+    private CommandObservationResult applyCommandObservation(
+            ParsedEvent event,
+            DeploymentTarget deployment,
+            long edgeEventId,
+            long tenantId,
+            long organizationId,
+            LocalDateTime now) {
+        JsonNode payload = event.payload();
+        String observedType = requiredText(
+                payload, "observedCommandType");
+        String stage = requiredText(payload, "stage");
+        List<CommandRow> commands = jdbc.query("""
+                        SELECT
+                            id, command_type, delivery_session_id,
+                            physical_state
+                        FROM dev_device_command
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                          AND command_uid = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new CommandRow(
+                        rs.getLong("id"),
+                        rs.getString("command_type"),
+                        nullableDatabaseLong(
+                                rs, "delivery_session_id"),
+                        rs.getString("physical_state")),
+                tenantId,
+                organizationId,
+                deployment.deploymentId(),
+                event.commandUid());
+        if (commands.size() != 1
+                || !commands.getFirst().commandType().equals(
+                observedType)
+                || !event.commandUid().equals(event.targetUid())) {
+            throw new UntrustedInboxSourceException(
+                    "observed device command is not authoritative");
+        }
+        CommandRow command = commands.getFirst();
+        String mcuCommandUid = nullableText(
+                payload, "mcuCommandUid");
+        String errorCode = nullableText(payload, "errorCode");
+        List<CommandStageRow> existing = jdbc.query("""
+                        SELECT
+                            event_row.edge_event_id,
+                            event_row.mcu_command_uid,
+                            event_row.error_code
+                        FROM dev_device_command_event event_row
+                        WHERE event_row.command_id = ?
+                          AND event_row.observation_stage = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new CommandStageRow(
+                        rs.getLong("edge_event_id"),
+                        rs.getString("mcu_command_uid"),
+                        rs.getString("error_code")),
+                command.id(),
+                stage);
+        if (!existing.isEmpty()) {
+            return new CommandObservationResult(null, true);
+        }
+        requireSingle(jdbc.update("""
+                        INSERT INTO dev_device_command_event (
+                            tenant_id, organization_id, deployment_id,
+                            edge_event_id, edge_event_type,
+                            command_id, delivery_session_id,
+                            observed_command_type, observation_stage,
+                            mcu_command_uid, error_code, created_at
+                        ) VALUES (
+                            ?, ?, ?,
+                            ?, 'DEVICE_COMMAND_OBSERVED',
+                            ?, ?,
+                            ?, ?,
+                            ?, ?, ?
+                        )
+                        """,
+                tenantId,
+                organizationId,
+                deployment.deploymentId(),
+                edgeEventId,
+                command.id(),
+                "START_DELIVERY_SESSION".equals(observedType)
+                        ? command.deliverySessionId()
+                        : null,
+                observedType,
+                stage,
+                mcuCommandUid,
+                errorCode,
+                now),
+                "insert device command observation");
+
+        String desiredState = switch (stage) {
+            case "RECEIVED", "ACCEPTED" -> "EDGE_ACCEPTED";
+            case "MCU_ACCEPTED" -> "PHYSICAL_STARTED";
+            case "REJECTED", "PRE_START_FAILED" ->
+                    "PRE_START_FAILED";
+            case "FAILED" -> "PHYSICAL_FAILED";
+            default -> throw new IllegalArgumentException(
+                    "device command stage is unsupported");
+        };
+        boolean shouldAdvance = shouldAdvanceCommand(
+                command.physicalState(), desiredState);
+        if (!shouldAdvance) {
+            return new CommandObservationResult(
+                    "NO_ACTION_REQUIRED", false);
+        }
+        requireSingle(jdbc.update("""
+                        UPDATE dev_device_command
+                        SET physical_state = ?,
+                            edge_accepted_at =
+                                COALESCE(edge_accepted_at, ?),
+                            physical_started_at =
+                                CASE
+                                    WHEN ? IN (
+                                        'PHYSICAL_STARTED',
+                                        'PHYSICAL_FAILED'
+                                    )
+                                    THEN COALESCE(
+                                        physical_started_at, ?)
+                                    ELSE physical_started_at
+                                END,
+                            physical_ended_at =
+                                CASE
+                                    WHEN ? IN (
+                                        'PRE_START_FAILED',
+                                        'PHYSICAL_FAILED'
+                                    )
+                                    THEN COALESCE(
+                                        physical_ended_at, ?)
+                                    ELSE physical_ended_at
+                                END,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                        """,
+                desiredState,
+                now,
+                desiredState,
+                now,
+                desiredState,
+                now,
+                now,
+                command.id(),
+                tenantId,
+                organizationId,
+                deployment.deploymentId()),
+                "advance observed device command");
+        return new CommandObservationResult(
+                "UPDATED", false);
+    }
+
+    private static boolean shouldAdvanceCommand(
+            String current,
+            String desired) {
+        if (Set.of(
+                "PHYSICAL_SUCCEEDED",
+                "PHYSICAL_FAILED",
+                "PRE_START_FAILED").contains(current)) {
+            return false;
+        }
+        int currentRank = switch (current) {
+            case "CREATED" -> 0;
+            case "QUEUED" -> 1;
+            case "EDGE_ACCEPTED" -> 2;
+            case "PHYSICAL_STARTED" -> 3;
+            default -> throw new IllegalStateException(
+                    "device command has an unsupported state");
+        };
+        int desiredRank = switch (desired) {
+            case "EDGE_ACCEPTED" -> 2;
+            case "PHYSICAL_STARTED" -> 3;
+            case "PRE_START_FAILED", "PHYSICAL_FAILED" -> 4;
+            default -> throw new IllegalArgumentException(
+                    "desired command state is unsupported");
+        };
+        return desiredRank > currentRank;
+    }
+
     private void mergePortRuntime(
             JsonNode port,
             long portId,
@@ -537,33 +904,7 @@ public class TrustedOrangePiRuntimeFactService {
                             fullness_sample_basis = ?,
                             representative_distance_mm = ?,
                             fullness_valid_sample_count = ?,
-                            smoke_state = ?,
-                            smoke_sensor_health = ?,
                             runtime_fault_bitmap = ?,
-                            safety_status = CASE
-                                WHEN safety_projection_sequence IS NULL
-                                  OR safety_projection_sequence < ?
-                                THEN ?
-                                ELSE safety_status
-                            END,
-                            safety_projection_edge_event_id = CASE
-                                WHEN safety_projection_sequence IS NULL
-                                  OR safety_projection_sequence < ?
-                                THEN ?
-                                ELSE safety_projection_edge_event_id
-                            END,
-                            safety_projection_edge_event_type = CASE
-                                WHEN safety_projection_sequence IS NULL
-                                  OR safety_projection_sequence < ?
-                                THEN 'DEVICE_RUNTIME_SNAPSHOT'
-                                ELSE safety_projection_edge_event_type
-                            END,
-                            safety_projection_sequence = CASE
-                                WHEN safety_projection_sequence IS NULL
-                                  OR safety_projection_sequence < ?
-                                THEN ?
-                                ELSE safety_projection_sequence
-                            END,
                             trusted_runtime_edge_event_id = ?,
                             trusted_runtime_edge_event_type =
                                 'DEVICE_RUNTIME_SNAPSHOT',
@@ -610,16 +951,68 @@ public class TrustedOrangePiRuntimeFactService {
                 requiredText(port, "fullnessSampleBasis"),
                 nullableLong(port, "representativeDistanceMm"),
                 nonNegativeLong(port, "fullnessValidSampleCount"),
-                smokeState,
-                smokeHealth,
                 nonNegativeLong(port, "faultBitmap"),
-                sequence,
-                portSafety,
-                sequence,
                 edgeEventId,
                 sequence,
+                now,
+                now,
+                tenantId,
+                organizationId,
+                deploymentId,
+                portId,
+                sequence);
+        mergeSnapshotSafety(
+                portId,
+                edgeEventId,
                 sequence,
-                sequence,
+                smokeState,
+                smokeHealth,
+                portSafety,
+                tenantId,
+                organizationId,
+                deploymentId,
+                now);
+    }
+
+    private void mergeSnapshotSafety(
+            long portId,
+            long edgeEventId,
+            long sequence,
+            String smokeState,
+            String smokeHealth,
+            String safetyStatus,
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            LocalDateTime now) {
+        jdbc.update("""
+                        UPDATE dev_port_runtime_state
+                        SET smoke_state = ?,
+                            smoke_sensor_health = ?,
+                            safety_status = ?,
+                            safety_projection_edge_event_id = ?,
+                            safety_projection_edge_event_type =
+                                'DEVICE_RUNTIME_SNAPSHOT',
+                            safety_projection_sequence = ?,
+                            last_observed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                          AND port_id = ?
+                          AND (
+                              safety_projection_sequence IS NULL
+                              OR (
+                                  safety_projection_edge_event_type =
+                                      'DEVICE_RUNTIME_SNAPSHOT'
+                                  AND safety_projection_sequence < ?
+                              )
+                          )
+                        """,
+                smokeState,
+                smokeHealth,
+                safetyStatus,
                 edgeEventId,
                 sequence,
                 now,
@@ -631,7 +1024,7 @@ public class TrustedOrangePiRuntimeFactService {
                 sequence);
     }
 
-    private String observeFault(
+    private FaultApplyResult observeFault(
             ParsedEvent event,
             DeploymentTarget deployment,
             long edgeEventId,
@@ -651,6 +1044,26 @@ public class TrustedOrangePiRuntimeFactService {
         List<FaultRow> rows = loadFault(faultUid);
         String effect = "CREATED";
         if (rows.isEmpty()) {
+            List<RecoveryObservation> recoveries =
+                    loadRecovery(faultUid);
+            if (!recoveries.isEmpty()) {
+                RecoveryObservation recovery =
+                        recoveries.getFirst();
+                if (!recovery.matches(
+                        deployment.deploymentId(),
+                        portId,
+                        component,
+                        faultCode)
+                        || impactRank(impact)
+                        > impactRank(recovery.impact())) {
+                    return FaultApplyResult.conflict(
+                            "FAULT_RECOVERY_IDENTITY_CONFLICT",
+                            "late fault observation conflicts with "
+                                    + "the stored recovery evidence");
+                }
+                impact = strongerImpact(
+                        impact, recovery.impact());
+            }
             int inserted = jdbc.update("""
                             INSERT INTO dev_device_fault_event (
                                 fault_uid, tenant_id, organization_id,
@@ -715,21 +1128,37 @@ public class TrustedOrangePiRuntimeFactService {
             rows = loadFault(faultUid);
         } else {
             FaultRow row = rows.getFirst();
-            verifyFaultIdentity(
+            if (!sameFaultIdentity(
                     row, deployment.deploymentId(), portId,
-                    component, faultCode, impact);
+                    component, faultCode)) {
+                return FaultApplyResult.conflict(
+                        "FAULT_IDENTITY_CONFLICT",
+                        "fault uid carries another deployment, port, "
+                                + "component or fault code");
+            }
+            if (!"OPEN".equals(row.status())
+                    && impactRank(impact)
+                    > impactRank(row.impact())) {
+                return FaultApplyResult.conflict(
+                        "FAULT_LIFECYCLE_CONFLICT",
+                        "a recovered fault uid cannot be escalated or "
+                                + "opened again");
+            }
             if ("OPEN".equals(row.status())) {
                 requireSingle(jdbc.update("""
                                 UPDATE dev_device_fault_event
-                                SET last_detected_at = ?,
+                                SET impact_level = ?,
+                                    last_detected_at = ?,
                                     discovery_count =
                                         discovery_count + 1,
                                     lock_version = lock_version + 1
                                 WHERE id = ?
                                 """,
+                        strongerImpact(row.impact(), impact),
                         now,
                         row.id()),
                         "merge repeated trusted device fault");
+                rows = loadFault(faultUid);
             }
             effect = "UPDATED";
         }
@@ -740,10 +1169,10 @@ public class TrustedOrangePiRuntimeFactService {
                 tenantId,
                 organizationId,
                 now);
-        return effect;
+        return FaultApplyResult.applied(effect);
     }
 
-    private String observeFaultRecovery(
+    private FaultApplyResult observeFaultRecovery(
             ParsedEvent event,
             DeploymentTarget deployment,
             long edgeEventId,
@@ -760,6 +1189,46 @@ public class TrustedOrangePiRuntimeFactService {
         String faultCode = requiredText(payload, "faultCode");
         String impact = impact(payload);
         String faultUid = requiredText(payload, "faultUid");
+        List<RecoveryObservation> existingRecoveries =
+                loadRecovery(faultUid);
+        if (!existingRecoveries.isEmpty()) {
+            return FaultApplyResult.conflict(
+                    "FAULT_RECOVERY_IDENTITY_CONFLICT",
+                    "fault uid already has recovery evidence from "
+                            + "another event");
+        }
+        List<FaultRow> faults = loadFault(faultUid);
+        if (!faults.isEmpty()) {
+            FaultRow fault = faults.getFirst();
+            if (!sameFaultIdentity(
+                    fault, deployment.deploymentId(), portId,
+                    component, faultCode)) {
+                return FaultApplyResult.conflict(
+                        "FAULT_RECOVERY_IDENTITY_CONFLICT",
+                        "fault recovery does not identify the same "
+                                + "deployment, port, component and code");
+            }
+            if (impactRank(impact) < impactRank(fault.impact())) {
+                return FaultApplyResult.conflict(
+                        "FAULT_RECOVERY_SEVERITY_CONFLICT",
+                        "fault recovery reports a lower severity than "
+                                + "the stored fault maximum");
+            }
+            if ("OPEN".equals(fault.status())
+                    && impactRank(impact)
+                    > impactRank(fault.impact())) {
+                requireSingle(jdbc.update("""
+                                UPDATE dev_device_fault_event
+                                SET impact_level = ?,
+                                    lock_version = lock_version + 1
+                                WHERE id = ?
+                                """,
+                        impact,
+                        fault.id()),
+                        "merge recovery maximum fault severity");
+                faults = loadFault(faultUid);
+            }
+        }
         int inserted = jdbc.update("""
                         INSERT INTO dev_fault_recovery_observation (
                             fault_uid, tenant_id, organization_id,
@@ -789,12 +1258,8 @@ public class TrustedOrangePiRuntimeFactService {
                 now,
                 now);
         requireSingle(inserted, "store trusted fault recovery evidence");
-        List<FaultRow> faults = loadFault(faultUid);
         if (!faults.isEmpty()) {
             FaultRow fault = faults.getFirst();
-            verifyFaultIdentity(
-                    fault, deployment.deploymentId(), portId,
-                    component, faultCode, impact);
             applyRecovery(
                     fault,
                     edgeEventId,
@@ -805,21 +1270,15 @@ public class TrustedOrangePiRuntimeFactService {
                 tenantId,
                 organizationId,
                 now);
-        return faults.isEmpty() ? "CREATED" : "UPDATED";
+        return FaultApplyResult.applied(
+                faults.isEmpty() ? "CREATED" : "UPDATED");
     }
 
     private void applyStoredRecoveryIfPresent(
             FaultRow fault,
             String faultUid,
             LocalDateTime now) {
-        List<RecoveryObservation> rows = jdbc.query("""
-                        SELECT source_edge_event_id
-                        FROM dev_fault_recovery_observation
-                        WHERE fault_uid = ?
-                        """,
-                (rs, ignored) -> new RecoveryObservation(
-                        rs.getLong("source_edge_event_id")),
-                faultUid);
+        List<RecoveryObservation> rows = loadRecovery(faultUid);
         if (!rows.isEmpty()) {
             RecoveryObservation observation = rows.getFirst();
             applyRecovery(
@@ -1218,21 +1677,54 @@ public class TrustedOrangePiRuntimeFactService {
                 faultUid);
     }
 
-    private static void verifyFaultIdentity(
+    private List<RecoveryObservation> loadRecovery(
+            String faultUid) {
+        return jdbc.query("""
+                        SELECT
+                            source_edge_event_id, deployment_id,
+                            port_id, component_type, fault_code,
+                            impact_level
+                        FROM dev_fault_recovery_observation
+                        WHERE fault_uid = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new RecoveryObservation(
+                        rs.getLong("source_edge_event_id"),
+                        rs.getLong("deployment_id"),
+                        nullableDatabaseLong(rs, "port_id"),
+                        rs.getString("component_type"),
+                        rs.getString("fault_code"),
+                        rs.getString("impact_level")),
+                faultUid);
+    }
+
+    private static boolean sameFaultIdentity(
             FaultRow row,
             long deploymentId,
             Long portId,
             String component,
-            String faultCode,
-            String impact) {
-        if (row.deploymentId() != deploymentId
-                || !java.util.Objects.equals(row.portId(), portId)
-                || !row.component().equals(component)
-                || !row.faultCode().equals(faultCode)
-                || !row.impact().equals(impact)) {
-            throw new UntrustedInboxSourceException(
-                    "fault identity carries conflicting semantics");
-        }
+            String faultCode) {
+        return row.deploymentId() == deploymentId
+                && java.util.Objects.equals(row.portId(), portId)
+                && row.component().equals(component)
+                && row.faultCode().equals(faultCode);
+    }
+
+    private static String strongerImpact(
+            String left, String right) {
+        return impactRank(left) >= impactRank(right)
+                ? left
+                : right;
+    }
+
+    private static int impactRank(String impact) {
+        return switch (impact) {
+            case "DEGRADED" -> 1;
+            case "BUSINESS_BLOCKING" -> 2;
+            case "SAFETY_BLOCKING" -> 3;
+            default -> throw new IllegalArgumentException(
+                    "fault impact is unsupported");
+        };
     }
 
     private ParsedEvent parse(
@@ -1259,6 +1751,15 @@ public class TrustedOrangePiRuntimeFactService {
         String expectedTarget =
                 "BUSINESS_CONFIRMATION_RECEIPT".equals(eventType)
                         ? "BUSINESS_CONFIRMATION"
+                        : "DEVICE_COMMAND_OBSERVED".equals(eventType)
+                        ? "DEVICE_COMMAND"
+                        : Set.of(
+                                "PHOTO_STATUS_REPORTED",
+                                "PHOTO_UPLOAD_GRANT_REQUESTED")
+                        .contains(eventType)
+                        ? requiredText(
+                                requiredObject(event, "payload"),
+                                "workType")
                         : "DEVICE_DEPLOYMENT";
         if (!expectedDelivery.equals(delivery)
                 || !expectedTarget.equals(targetType)) {
@@ -1272,6 +1773,17 @@ public class TrustedOrangePiRuntimeFactService {
                 requiredText(target, "uid"))) {
             throw new IllegalArgumentException(
                     "runtime target differs from deployment");
+        }
+        if (Set.of(
+                "PHOTO_STATUS_REPORTED",
+                "PHOTO_UPLOAD_GRANT_REQUESTED").contains(eventType)) {
+            JsonNode payload = requiredObject(event, "payload");
+            if (!requiredText(payload, "workUid").equals(
+                    requiredText(target, "uid"))
+                    || nullableText(event, "commandUid") != null) {
+                throw new IllegalArgumentException(
+                        "photo target differs from payload");
+            }
         }
         return new ParsedEvent(
                 requiredText(source, "deviceName"),
@@ -1290,6 +1802,72 @@ public class TrustedOrangePiRuntimeFactService {
                 requiredText(event, "payloadSha256"),
                 requiredText(root, "eventCanonicalSha256"),
                 requiredObject(event, "payload"));
+    }
+
+    private static TrustedPhotoStatusFact photoStatusFact(
+            ParsedEvent event,
+            DeploymentTarget deployment,
+            long edgeEventId,
+            long tenantId,
+            long organizationId,
+            LocalDateTime receivedAt) {
+        JsonNode payload = event.payload();
+        JsonNode photo = requiredObject(payload, "photo");
+        String workType = requiredText(payload, "workType");
+        String status = requiredText(photo, "status");
+        UUID photoUid = nullableUuid(photo, "photoUid");
+        String objectUrl = nullableText(photo, "url");
+        byte[] photoSha256 = nullableDigest(photo, "sha256");
+        Long sizeBytes = nullableLong(photo, "sizeBytes");
+        LocalDateTime capturedAt =
+                nullableInstant(photo, "capturedAt");
+        String missingReason = nullableText(
+                photo, "missingReason");
+        boolean valid = switch (status) {
+            case "AVAILABLE" ->
+                    photoUid != null
+                            && objectUrl != null
+                            && photoSha256 != null
+                            && sizeBytes != null
+                            && sizeBytes > 0
+                            && capturedAt != null
+                            && missingReason == null;
+            case "PERMANENTLY_MISSING" ->
+                    objectUrl == null
+                            && missingReason != null
+                            && (
+                            photoUid == null
+                                    && photoSha256 == null
+                                    && sizeBytes == null
+                                    && capturedAt == null
+                            || photoUid != null
+                                    && photoSha256 != null
+                                    && sizeBytes != null
+                                    && sizeBytes > 0
+                                    && capturedAt != null);
+            default -> false;
+        };
+        if (!valid) {
+            throw new IllegalArgumentException(
+                    "photo terminal fact has an invalid state");
+        }
+        return new TrustedPhotoStatusFact(
+                tenantId,
+                organizationId,
+                deployment.deploymentId(),
+                edgeEventId,
+                UUID.fromString(requiredText(payload, "workUid")),
+                workType,
+                requiredText(photo, "slot"),
+                status,
+                photoUid,
+                objectUrl,
+                photoSha256,
+                sizeBytes,
+                capturedAt,
+                missingReason,
+                event.occurredAt(),
+                receivedAt);
     }
 
     private static LocalDateTime parseOccurredAt(
@@ -1475,6 +2053,57 @@ public class TrustedOrangePiRuntimeFactService {
         return value.asText();
     }
 
+    private static UUID nullableUuid(
+            JsonNode node, String field) {
+        String value = nullableText(node, field);
+        if (value == null) {
+            return null;
+        }
+        UUID parsed;
+        try {
+            parsed = UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                    field + " must be a UUID", exception);
+        }
+        if (parsed.version() != 4
+                || parsed.variant() != 2
+                || !parsed.toString().equals(value)) {
+            throw new IllegalArgumentException(
+                    field + " must be a lowercase UUIDv4");
+        }
+        return parsed;
+    }
+
+    private static byte[] nullableDigest(
+            JsonNode node, String field) {
+        String value = nullableText(node, field);
+        if (value == null) {
+            return null;
+        }
+        if (!value.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException(
+                    field + " must be a lowercase SHA-256");
+        }
+        return HexFormat.of().parseHex(value);
+    }
+
+    private static LocalDateTime nullableInstant(
+            JsonNode node, String field) {
+        String value = nullableText(node, field);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDateTime.ofInstant(
+                    Instant.parse(value), ZoneOffset.UTC);
+        } catch (java.time.format.DateTimeParseException exception) {
+            throw new IllegalArgumentException(
+                    field + " must be an RFC3339 instant",
+                    exception);
+        }
+    }
+
     private static long positiveLong(
             JsonNode node, String field) {
         JsonNode value = node == null ? null : node.get(field);
@@ -1623,11 +2252,69 @@ public class TrustedOrangePiRuntimeFactService {
     }
 
     private record RecoveryObservation(
-            long edgeEventId) {
+            long edgeEventId,
+            long deploymentId,
+            Long portId,
+            String component,
+            String faultCode,
+            String impact) {
+
+        private boolean matches(
+                long expectedDeploymentId,
+                Long expectedPortId,
+                String expectedComponent,
+                String expectedFaultCode) {
+            return deploymentId == expectedDeploymentId
+                    && java.util.Objects.equals(
+                    portId, expectedPortId)
+                    && component.equals(expectedComponent)
+                    && faultCode.equals(expectedFaultCode);
+        }
     }
 
     private record ConfirmationTarget(
             String taskState,
             String semanticEnvelope) {
+    }
+
+    private record CommandRow(
+            long id,
+            String commandType,
+            Long deliverySessionId,
+            String physicalState) {
+    }
+
+    private record CommandStageRow(
+            long edgeEventId,
+            String mcuCommandUid,
+            String errorCode) {
+    }
+
+    private record CommandObservationResult(
+            String effectKind,
+            boolean conflict) {
+    }
+
+    private record FaultApplyResult(
+            String effectKind,
+            String conflictCode,
+            String detail) {
+
+        private static FaultApplyResult applied(
+                String effectKind) {
+            return new FaultApplyResult(
+                    effectKind, null, null);
+        }
+
+        private static FaultApplyResult conflict(
+                String conflictCode,
+                String detail) {
+            return new FaultApplyResult(
+                    null, conflictCode, detail);
+        }
+
+        private boolean conflict() {
+            return conflictCode != null;
+        }
     }
 }

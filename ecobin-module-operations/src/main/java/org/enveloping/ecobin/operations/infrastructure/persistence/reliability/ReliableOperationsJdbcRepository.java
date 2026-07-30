@@ -412,6 +412,48 @@ public class ReliableOperationsJdbcRepository {
                 taskType);
     }
 
+    public void cancelPendingDeviceControlTask(
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            String taskType,
+            String targetType,
+            String targetStableKey,
+            LocalDateTime now) {
+        jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'CANCELLED',
+                    next_run_at = NULL,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    handled_wake_version = wake_version,
+                    completed_at = COALESCE(completed_at, ?),
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ?
+                  AND organization_id = ?
+                  AND source_device_deployment_id = ?
+                  AND source_device_command_id IS NULL
+                  AND task_type = ?
+                  AND target_type = ?
+                  AND target_stable_key = ?
+                  AND state IN ('PENDING', 'BLOCKED')
+                  AND lease_token IS NULL
+                """,
+                now,
+                now,
+                tenantId,
+                organizationId,
+                deploymentId,
+                taskType,
+                targetType,
+                targetStableKey);
+    }
+
     public UUID upsertIdentityConflict(
             byte[] dedupeKey,
             String scopeKind,

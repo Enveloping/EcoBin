@@ -8,4 +8,10 @@ import java.util.UUID;
 public interface ReliableDeviceControlTaskRegistrationPort {
 
     UUID register(ReliableDeviceControlTaskRegistration registration);
+
+    void cancelPending(
+            DeviceDeploymentTaskRef sourceDeployment,
+            String taskType,
+            String targetType,
+            String targetStableKey);
 }
