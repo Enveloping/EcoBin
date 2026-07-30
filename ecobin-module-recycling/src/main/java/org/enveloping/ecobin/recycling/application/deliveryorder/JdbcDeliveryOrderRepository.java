@@ -39,6 +39,9 @@ class JdbcDeliveryOrderRepository {
                         "last_visibility_sequence_no"),
                 scope.tenantId(),
                 scope.organizationId());
+        if (rows.isEmpty()) {
+            return 0L;
+        }
         if (rows.size() != 1) {
             throw new IllegalStateException(
                     "organization delivery order counter is unavailable");
