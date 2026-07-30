@@ -142,6 +142,40 @@ test('route capability composition and caller-owned command intents are fixed', 
   assert.match(directorySource, /listOrganizationUsers/);
 });
 
+test('delivery Web slice stays on generated contracts and additive commands', () => {
+  const routeSource = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+  const apiSource = readFileSync(
+    new URL('src/api/deliveryOrders.ts', webRoot),
+    'utf8',
+  );
+  const pageSource = readFileSync(
+    new URL('src/pages/delivery-orders/index.tsx', webRoot),
+    'utf8',
+  );
+  const modalSource = readFileSync(
+    new URL('src/pages/delivery-orders/DeliveryReviewModal.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(
+    routeSource,
+    /path: '\/deliveries'[\s\S]*?<DeliveryOrdersPage \/>/,
+  );
+  assert.match(apiSource, /Schemas\['WebDeliveryOrderItem'\]/);
+  assert.match(apiSource, /operations\['listWebDeliveryOrders'\]/);
+  assert.match(apiSource, /intent\.execute/);
+  assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
+  assert.match(pageSource, /page\.nextCursor/);
+  assert.match(modalSource, /expectedRevisionNo/);
+  assert.doesNotMatch(
+    modalSource,
+    /return onSubmit\(\{[\s\S]{0,400}finalAmountYuan/,
+  );
+});
+
 test('allOf and anyOf capability semantics are evaluated independently', () => {
   const session = {
     accountType: 'STAFF',
