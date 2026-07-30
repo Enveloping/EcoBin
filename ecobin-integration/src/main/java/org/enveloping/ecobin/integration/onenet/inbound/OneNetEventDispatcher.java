@@ -58,6 +58,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "CONFIGURATION_PROGRESS",
                     "RELIABLE_FACT",
                     "CONFIGURATION_APPLICATION"),
+            "deviceCommandObserved",
+            new EventContract(
+                    "DEVICE_COMMAND_OBSERVED",
+                    "RELIABLE_FACT",
+                    "DEVICE_COMMAND"),
             "deliveryComplete",
             new EventContract(
                     "DELIVERY_COMPLETE",
@@ -83,6 +88,16 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "SAFETY_SENSOR_STATE_CHANGED",
                     "RELIABLE_FACT",
                     "DEVICE_DEPLOYMENT"),
+            "photoStatusReported",
+            new EventContract(
+                    "PHOTO_STATUS_REPORTED",
+                    "RELIABLE_FACT",
+                    "WORK"),
+            "photoUploadGrantRequested",
+            new EventContract(
+                    "PHOTO_UPLOAD_GRANT_REQUESTED",
+                    "RELIABLE_FACT",
+                    "WORK"),
             "businessConfirmationReceipt",
             new EventContract(
                     "BUSINESS_CONFIRMATION_RECEIPT",
@@ -157,6 +172,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "BEFORE_OUTER",
             "AFTER_INNER",
             "AFTER_OUTER");
+    private static final Set<String> CLEAN_PHOTO_SLOTS = Set.of(
+            "FIRST_OPEN_INNER",
+            "FIRST_OPEN_OUTER",
+            "FINAL_CLOSE_INNER",
+            "FINAL_CLOSE_OUTER");
     private static final Set<String> MEASUREMENT_FAULT_CODES = Set.of(
             "UART_PROTOCOL",
             "UART_STORAGE",
@@ -394,17 +414,20 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         1,
                         contract.deliveryClass()));
         JsonNode wireTarget = object(wire, "target");
+        String targetType = targetType(contract, wire, payload);
         Map<String, Object> target = new LinkedHashMap<>();
         target.put(
                 "type",
                 exactEnum(
                         wireTarget,
                         "type",
-                        1,
-                        contract.targetType()));
+                        "WORK".equals(contract.targetType())
+                                ? integer(wire, "workType")
+                                : 1,
+                        targetType));
         target.put(
                 "uid",
-                targetUid(contract.targetType(), wireTarget));
+                targetUid(targetType, wireTarget));
         event.put("target", target);
         event.put(
                 "commandUid",
@@ -429,16 +452,39 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     pattern(target, "uid", DEPLOYMENT_CODE);
             case "CONFIGURATION_APPLICATION",
                  "BUSINESS_CONFIRMATION",
-                 "DELIVERY_SESSION" ->
+                 "DEVICE_COMMAND",
+                 "DELIVERY_SESSION",
+                 "CLEAN_OPERATION" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
                     "unsupported trusted event target");
         };
     }
 
+    private static String targetType(
+            EventContract contract,
+            JsonNode wire,
+            Map<String, Object> payload) {
+        if (!"WORK".equals(contract.targetType())) {
+            return contract.targetType();
+        }
+        String workType = enumText(
+                integer(wire, "workType"),
+                Map.of(
+                        1L, "DELIVERY_SESSION",
+                        2L, "CLEAN_OPERATION"),
+                "workType");
+        if (!workType.equals(payload.get("workType"))) {
+            throw permanent(
+                    "work target type differs from payload");
+        }
+        return workType;
+    }
+
     private static String commandUid(
             String messageKind, JsonNode wire) {
         if ("CONFIGURATION_PROGRESS".equals(messageKind)
+                || "DEVICE_COMMAND_OBSERVED".equals(messageKind)
                 || "BUSINESS_CONFIRMATION_RECEIPT".equals(
                 messageKind)
                 || "DELIVERY_COMPLETE".equals(messageKind)) {
@@ -459,10 +505,18 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return switch (messageKind) {
             case "CONFIGURATION_PROGRESS" ->
                     configurationPayload(wire);
+            case "DEVICE_COMMAND_OBSERVED" ->
+                    commandObservedPayload(wire);
             case "DELIVERY_COMPLETE" ->
                     deliveryCompletePayload(
                             wire,
                             trustedCosBaseUrl);
+            case "PHOTO_STATUS_REPORTED" ->
+                    photoStatusPayload(
+                            wire,
+                            trustedCosBaseUrl);
+            case "PHOTO_UPLOAD_GRANT_REQUESTED" ->
+                    photoGrantRequestPayload(wire);
             case "DEVICE_RUNTIME_SNAPSHOT" ->
                     runtimePayload(wire);
             case "DEVICE_FAULT_OBSERVED",
@@ -524,6 +578,156 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         }
         payload.put("mcuCommandUid", mcuCommandUid);
         payload.put("errorCode", errorCode);
+        return payload;
+    }
+
+    private static Map<String, Object> commandObservedPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "observedCommandType",
+                enumText(
+                        integer(wire, "observedCommandType"),
+                        Map.of(
+                                1L, "START_DELIVERY_SESSION",
+                                2L, "START_CLEAN_OPERATION",
+                                3L, "END_CLEAN_BEFORE_UNLOCK",
+                                4L, "RESUME_CLEAN_OPERATION",
+                                5L, "SAMPLE_FULLNESS",
+                                6L, "MEASURE_EMPTY_BAG_BASELINE"),
+                        "observedCommandType"));
+        String stage = enumText(
+                integer(wire, "stage"),
+                Map.of(
+                        1L, "RECEIVED",
+                        2L, "ACCEPTED",
+                        3L, "REJECTED",
+                        4L, "MCU_ACCEPTED",
+                        5L, "PRE_START_FAILED",
+                        6L, "FAILED"),
+                "stage");
+        String mcuCommandUid = nullablePresenceText(
+                wire,
+                "mcuCommandUidPresent",
+                "mcuCommandUid",
+                UUID_V4,
+                64);
+        String errorCode = nullablePresenceText(
+                wire,
+                "errorCodePresent",
+                "errorCode",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        boolean valid = switch (stage) {
+            case "RECEIVED", "ACCEPTED" ->
+                    mcuCommandUid == null && errorCode == null;
+            case "REJECTED" ->
+                    mcuCommandUid == null && errorCode != null;
+            case "MCU_ACCEPTED" ->
+                    mcuCommandUid != null && errorCode == null;
+            case "PRE_START_FAILED", "FAILED" ->
+                    errorCode != null;
+            default -> false;
+        };
+        if (!valid) {
+            throw permanent(
+                    "device command stage presence flags differ");
+        }
+        payload.put("stage", stage);
+        payload.put("mcuCommandUid", mcuCommandUid);
+        payload.put("errorCode", errorCode);
+        return payload;
+    }
+
+    private static Map<String, Object> photoStatusPayload(
+            JsonNode wire,
+            String trustedCosBaseUrl) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String workType = enumText(
+                integer(wire, "workType"),
+                Map.of(
+                        1L, "DELIVERY_SESSION",
+                        2L, "CLEAN_OPERATION"),
+                "workType");
+        String workUid = pattern(wire, "workUid", UUID_V4);
+        String deploymentCode =
+                pattern(wire, "deploymentCode", DEPLOYMENT_CODE);
+        payload.put("workType", workType);
+        payload.put("workUid", workUid);
+        payload.put(
+                "photo",
+                terminalPhoto(
+                        object(wire, "photo"),
+                        deploymentCode,
+                        workType,
+                        workUid,
+                        trustedCosBaseUrl));
+        return payload;
+    }
+
+    private static Map<String, Object> photoGrantRequestPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String workType = enumText(
+                integer(wire, "workType"),
+                Map.of(
+                        1L, "DELIVERY_SESSION",
+                        2L, "CLEAN_OPERATION"),
+                "workType");
+        payload.put("workType", workType);
+        payload.put(
+                "workUid",
+                pattern(wire, "workUid", UUID_V4));
+        JsonNode requested = wire.get("requestedSlots");
+        if (requested == null
+                || !requested.isArray()
+                || requested.isEmpty()
+                || requested.size() > 4) {
+            throw permanent(
+                    "requestedSlots must contain one to four slots");
+        }
+        Map<Long, String> slots =
+                "DELIVERY_SESSION".equals(workType)
+                        ? Map.of(
+                                1L, "BEFORE_INNER",
+                                2L, "BEFORE_OUTER",
+                                3L, "AFTER_INNER",
+                                4L, "AFTER_OUTER")
+                        : Map.of(
+                                5L, "FIRST_OPEN_INNER",
+                                6L, "FIRST_OPEN_OUTER",
+                                7L, "FINAL_CLOSE_INNER",
+                                8L, "FINAL_CLOSE_OUTER");
+        List<String> normalized = new ArrayList<>();
+        Set<String> unique = new HashSet<>();
+        long previous = 0;
+        for (JsonNode slot : requested) {
+            if (!slot.isIntegralNumber()) {
+                throw permanent(
+                        "requestedSlots must contain enums");
+            }
+            long wireSlot = slot.longValue();
+            String normalizedSlot = enumText(
+                    wireSlot, slots, "requestedSlots");
+            if (wireSlot <= previous
+                    || !unique.add(normalizedSlot)) {
+                throw permanent(
+                        "requestedSlots must be unique and ordered");
+            }
+            previous = wireSlot;
+            normalized.add(normalizedSlot);
+        }
+        payload.put("requestedSlots", normalized);
+        payload.put(
+                "reason",
+                enumText(
+                        integer(wire, "reason"),
+                        Map.of(
+                                1L, "INITIAL_GRANT_MISSING",
+                                2L, "GRANT_EXPIRED",
+                                3L, "EDGE_RESTARTED",
+                                4L, "UPLOAD_RETRY"),
+                        "reason"));
         return payload;
     }
 
@@ -936,6 +1140,125 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     + deploymentCode
                     + "/delivery-session/"
                     + sessionUid
+                    + "/"
+                    + slot
+                    + "/"
+                    + photoUid
+                    + ".jpg";
+            if (baseUrl.isEmpty()
+                    || !expectedUrl.equals(url)) {
+                throw permanent(
+                        "available photo URL is outside the trusted COS work path");
+            }
+        }
+        return photo;
+    }
+
+    private static Map<String, Object> terminalPhoto(
+            JsonNode wire,
+            String deploymentCode,
+            String workType,
+            String workUid,
+            String trustedCosBaseUrl) {
+        Map<Long, String> slotMapping;
+        Set<String> allowedSlots;
+        String workPath;
+        if ("DELIVERY_SESSION".equals(workType)) {
+            slotMapping = Map.of(
+                    1L, "BEFORE_INNER",
+                    2L, "BEFORE_OUTER",
+                    3L, "AFTER_INNER",
+                    4L, "AFTER_OUTER");
+            allowedSlots = DELIVERY_PHOTO_SLOTS;
+            workPath = "delivery-session";
+        } else if ("CLEAN_OPERATION".equals(workType)) {
+            slotMapping = Map.of(
+                    5L, "FIRST_OPEN_INNER",
+                    6L, "FIRST_OPEN_OUTER",
+                    7L, "FINAL_CLOSE_INNER",
+                    8L, "FINAL_CLOSE_OUTER");
+            allowedSlots = CLEAN_PHOTO_SLOTS;
+            workPath = "clean-operation";
+        } else {
+            throw permanent("photo work type is unsupported");
+        }
+
+        Map<String, Object> photo = new LinkedHashMap<>();
+        String slot = enumText(
+                integer(wire, "slot"),
+                slotMapping,
+                "photo.slot");
+        if (!allowedSlots.contains(slot)) {
+            throw permanent(
+                    "photo slot is outside its work type");
+        }
+        photo.put("slot", slot);
+        String status = enumText(
+                integer(wire, "status"),
+                Map.of(
+                        1L, "AVAILABLE",
+                        2L, "PERMANENTLY_MISSING"),
+                "photo.status");
+        photo.put("status", status);
+        String photoUid = nullablePresenceText(
+                wire,
+                "photoUidPresent",
+                "photoUid",
+                UUID_V4,
+                36);
+        photo.put("photoUid", photoUid);
+        String url = nullablePresenceText(
+                wire,
+                "urlPresent",
+                "url",
+                "^https://[^?#]+$",
+                512);
+        photo.put("url", url);
+        String sha256 = nullablePresenceText(
+                wire,
+                "sha256Present",
+                "sha256",
+                SHA256,
+                64);
+        photo.put("sha256", sha256);
+        Long sizeBytes = nullablePresenceIntegerInRange(
+                wire,
+                "sizeBytesPresent",
+                "sizeBytes",
+                1,
+                20_971_520);
+        photo.put("sizeBytes", sizeBytes);
+        String capturedAt = nullablePresenceInstant(
+                wire,
+                "capturedAtPresent",
+                "capturedAt");
+        photo.put("capturedAt", capturedAt);
+        String missingReason = nullablePresenceText(
+                wire,
+                "missingReasonPresent",
+                "missingReason",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        photo.put("missingReason", missingReason);
+        validatePhotoShape(
+                status,
+                photoUid,
+                url,
+                sha256,
+                sizeBytes,
+                capturedAt,
+                missingReason);
+        if ("AVAILABLE".equals(status)) {
+            String baseUrl = trustedCosBaseUrl == null
+                    ? ""
+                    : trustedCosBaseUrl.replaceFirst("/+$", "");
+            String expectedUrl = baseUrl
+                    + "/ecobin/"
+                    + deploymentCode
+                    + "/"
+                    + workPath
+                    + "/"
+                    + workUid
                     + "/"
                     + slot
                     + "/"
@@ -1461,10 +1784,29 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "configuration application target differs from payload");
         }
+        if ("DEVICE_COMMAND_OBSERVED".equals(
+                contract.messageKind())
+                && (event.get("commandUid") == null
+                || !event.get("commandUid").equals(targetUid))) {
+            throw permanent(
+                    "device command target differs from envelope");
+        }
         if ("DELIVERY_COMPLETE".equals(contract.messageKind())
                 && !payload.get("sessionUid").equals(targetUid)) {
             throw permanent(
                     "delivery session target differs from payload");
+        }
+        if (Set.of(
+                "PHOTO_STATUS_REPORTED",
+                "PHOTO_UPLOAD_GRANT_REQUESTED").contains(
+                contract.messageKind())) {
+            if (!payload.get("workUid").equals(targetUid)
+                    || !payload.get("workType").equals(
+                    target.get("type"))
+                    || event.get("commandUid") != null) {
+                throw permanent(
+                        "photo work target differs from payload");
+            }
         }
         if ("BUSINESS_CONFIRMATION_RECEIPT".equals(
                 contract.messageKind())

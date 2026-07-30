@@ -76,6 +76,11 @@ public class OneNetClient
                 envelope = attachInitialDeliveryCosGrant(
                         envelope,
                         submission);
+            } else if ("PROVIDE_PHOTO_UPLOAD_GRANT".equals(
+                    submission.commandType())) {
+                envelope = attachPhotoUploadGrant(
+                        envelope,
+                        submission);
             }
             String identifier;
             Map<String, Object> params;
@@ -91,6 +96,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "confirmEdgeEvent";
                 params = projectConfirmEdgeEvent(envelope);
+            } else if ("PROVIDE_PHOTO_UPLOAD_GRANT".equals(
+                    submission.commandType())) {
+                identifier = "providePhotoUploadGrant";
+                params = projectProvidePhotoUploadGrant(envelope);
             } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
@@ -188,6 +197,63 @@ public class OneNetClient
                     Math.min(start + 512, token.length())));
         }
         return parts;
+    }
+
+    private JsonNode attachPhotoUploadGrant(
+            JsonNode frozenEnvelope,
+            DeviceCommandSubmission submission) {
+        ObjectNode envelope =
+                (ObjectNode) frozenEnvelope.deepCopy();
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentCode = requiredMatchingText(
+                envelope,
+                "deploymentCode",
+                "^Dp_[A-Za-z0-9_-]{6,61}$",
+                64);
+        String workType = requiredText(payload, "workType");
+        String workUid = requiredUuid(payload, "workUid");
+        String workPath = switch (workType) {
+            case "DELIVERY_SESSION" -> "delivery-session";
+            case "CLEAN_OPERATION" -> "clean-operation";
+            default -> throw new IllegalArgumentException(
+                    "photo grant work type is unsupported");
+        };
+        String keyPrefix = "ecobin/"
+                + deploymentCode
+                + "/"
+                + workPath
+                + "/"
+                + workUid
+                + "/";
+        CosUploadCredential credential =
+                cosUploadCredentialPort.issue(
+                        submission.hardwareSn(),
+                        1,
+                        keyPrefix);
+        ObjectNode grant = objectMapper.createObjectNode();
+        grant.put("grantUid", UUID.randomUUID().toString());
+        grant.put("tmpSecretId", credential.tmpSecretId());
+        grant.put("tmpSecretKey", credential.tmpSecretKey());
+        ArrayNode tokenParts =
+                grant.putArray("sessionTokenParts");
+        splitSessionToken(
+                credential.sessionToken())
+                .forEach(tokenParts::add);
+        grant.put("bucket", credential.bucket());
+        grant.put("region", credential.region());
+        grant.put("baseUrl", credential.baseUrl());
+        grant.put("keyPrefix", keyPrefix);
+        grant.put(
+                "expiresAt",
+                Instant.ofEpochSecond(
+                        credential.expiredTime()).toString());
+        envelope.set("cosGrant", grant);
+        Instant issuedAt = Instant.now();
+        envelope.put("issuedAt", issuedAt.toString());
+        envelope.put(
+                "expiresAt",
+                issuedAt.plusSeconds(600).toString());
+        return envelope;
     }
 
     private DeviceCommandSubmissionResult submitWireBody(
@@ -640,6 +706,136 @@ public class OneNetClient
         params.put("scalarFields", scalar);
         params.put("target", projectedTarget);
         params.put("resultReferences", projectedReferences);
+        return params;
+    }
+
+    private Map<String, Object> projectProvidePhotoUploadGrant(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String requestEventUid = requiredUuid(
+                payload, "grantRequestEventUid");
+        if (!"PHOTO_GRANT_REQUEST".equals(
+                requiredText(target, "type"))
+                || !requestEventUid.equals(
+                requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "photo grant target differs from its request");
+        }
+        String workType = requiredText(payload, "workType");
+        List<String> allowed =
+                "DELIVERY_SESSION".equals(workType)
+                        ? List.of(
+                                "BEFORE_INNER",
+                                "BEFORE_OUTER",
+                                "AFTER_INNER",
+                                "AFTER_OUTER")
+                        : "CLEAN_OPERATION".equals(workType)
+                        ? List.of(
+                                "FIRST_OPEN_INNER",
+                                "FIRST_OPEN_OUTER",
+                                "FINAL_CLOSE_INNER",
+                                "FINAL_CLOSE_OUTER")
+                        : List.of();
+        JsonNode authorized = payload.get("authorizedSlots");
+        if (authorized == null
+                || !authorized.isArray()
+                || authorized.size() != 4) {
+            throw new IllegalArgumentException(
+                    "photo grant must authorize all work slots");
+        }
+        List<Integer> projectedSlots = new ArrayList<>();
+        for (int index = 0; index < allowed.size(); index++) {
+            if (!authorized.get(index).isTextual()
+                    || !allowed.get(index).equals(
+                    authorized.get(index).asText())) {
+                throw new IllegalArgumentException(
+                        "photo grant slots differ from the work contract");
+            }
+            projectedSlots.add(
+                    "DELIVERY_SESSION".equals(workType)
+                            ? index + 1
+                            : index + 5);
+        }
+
+        Map<String, Object> scalar = new LinkedHashMap<>();
+        scalar.put(
+                "schemaVersion",
+                requiredInteger(
+                        envelope, "schemaVersion", 1, 1));
+        scalar.put(
+                "commandUid",
+                requiredUuid(envelope, "commandUid"));
+        scalar.put("commandType", 1);
+        scalar.put(
+                "deploymentCode",
+                requiredMatchingText(
+                        envelope,
+                        "deploymentCode",
+                        "^Dp_[A-Za-z0-9_-]{6,61}$",
+                        64));
+        String issuedAtText = requiredInstant(
+                envelope, "issuedAt");
+        String expiresAtText = requiredInstant(
+                envelope, "expiresAt");
+        if (!Instant.parse(expiresAtText).isAfter(
+                Instant.parse(issuedAtText))) {
+            throw new IllegalArgumentException(
+                    "photo grant command expiry must follow issue time");
+        }
+        scalar.put("issuedAt", issuedAtText);
+        scalar.put("expiresAt", expiresAtText);
+        scalar.put(
+                "payloadSchemaVersion",
+                requiredInteger(
+                        envelope,
+                        "payloadSchemaVersion",
+                        1,
+                        1));
+        scalar.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        scalar.put(
+                "grantRequestEventUid",
+                requestEventUid);
+        scalar.put(
+                "workType",
+                "DELIVERY_SESSION".equals(workType) ? 1 : 2);
+        scalar.put(
+                "workUid",
+                requiredUuid(payload, "workUid"));
+
+        Map<String, Object> first = new LinkedHashMap<>();
+        Map<String, Object> second = new LinkedHashMap<>();
+        List<String> sessionTokenParts = new ArrayList<>();
+        projectCosGrant(
+                envelope,
+                first,
+                second,
+                sessionTokenParts);
+        if (!Boolean.TRUE.equals(
+                first.remove("cosGrantPresent"))) {
+            throw new IllegalArgumentException(
+                    "photo grant command requires COS credentials");
+        }
+        scalar.putAll(first);
+        scalar.putAll(second);
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields", scalar);
+        params.put(
+                "target",
+                Map.of(
+                        "type", 1,
+                        "uid", requestEventUid));
+        params.put("authorizedSlots", projectedSlots);
+        params.put(
+                "cosGrantSessionTokenParts",
+                sessionTokenParts);
         return params;
     }
 

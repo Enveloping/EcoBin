@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 2
+    CatalogVersion = 3
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -220,6 +220,7 @@
             "updated_at"
         )
         dev_device_fault_event = @(
+            "impact_level"
             "status"
             "last_detected_at"
             "discovery_count"
@@ -335,6 +336,16 @@
             "captured_at"
             "linked_at"
             "missing_reason"
+            "updated_at"
+        )
+        rec_photo_terminal_fact = @(
+            "delivery_photo_id"
+            "clean_photo_id"
+            "linked_at"
+            "updated_at"
+        )
+        dev_photo_upload_grant_request = @(
+            "request_status"
             "updated_at"
         )
         rec_port_baseline_measurement = @(
