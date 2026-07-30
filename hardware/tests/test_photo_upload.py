@@ -429,7 +429,7 @@ def test_grant_request_event_and_photo_assignment_are_atomic(tmp_path):
     store.close()
 
 
-def test_completion_urls_survive_auth_failure_and_fresh_grant(
+def test_completion_urls_remain_empty_until_upload_succeeds(
     tmp_path,
 ):
     work_uid = str(uuid.uuid4())
@@ -460,17 +460,17 @@ def test_completion_urls_survive_auth_failure_and_fresh_grant(
         work_uid,
         "DELIVERY_SESSION",
     )
-    original_urls = {
-        fact["slot"]: fact["url"]
-        for fact in completion
-    }
     original_photo_uids = {
         fact["slot"]: fact["photoUid"]
         for fact in completion
     }
-    assert len(original_urls) == 4
     assert all(fact["status"] == "UPLOAD_PENDING" for fact in completion)
-    assert all(url and url.startswith(base_url) for url in original_urls.values())
+    assert all(fact["url"] is None for fact in completion)
+    original_keys = {
+        photo["slot_name"]: photo["cos_key"]
+        for photo in store.get_photos_by_work(work_uid)
+    }
+    assert len(original_keys) == 4
 
     assert photos.process_uploads_once()
     first_request = store._conn.execute(
@@ -494,14 +494,15 @@ def test_completion_urls_survive_auth_failure_and_fresh_grant(
         work_uid,
         "DELIVERY_SESSION",
     )
-    assert {
-        fact["slot"]: fact["url"]
-        for fact in after_failure
-    } == original_urls
+    assert all(fact["url"] is None for fact in after_failure)
     assert {
         fact["slot"]: fact["photoUid"]
         for fact in after_failure
     } == original_photo_uids
+    assert {
+        photo["slot_name"]: photo["cos_key"]
+        for photo in store.get_photos_by_work(work_uid)
+    } == original_keys
 
     photos.offer_upload_grant(
         _grant_command(work_uid, second_request, _grant(work_uid))
@@ -512,19 +513,24 @@ def test_completion_urls_survive_auth_failure_and_fresh_grant(
         "DELIVERY_SESSION",
     )
     assert all(fact["status"] == "AVAILABLE" for fact in uploaded)
-    assert {
+    uploaded_urls = {
         fact["slot"]: fact["url"]
         for fact in uploaded
-    } == original_urls
+    }
+    assert all(
+        url and url.startswith(f"{base_url}/")
+        for url in uploaded_urls.values()
+    )
     assert {
         fact["slot"]: fact["photoUid"]
         for fact in uploaded
     } == original_photo_uids
 
-    expected_keys = {
+    expected_keys = set(original_keys.values())
+    assert {
         url.removeprefix(f"{base_url}/")
-        for url in original_urls.values()
-    }
+        for url in uploaded_urls.values()
+    } == expected_keys
     assert set(uploader.calls) == expected_keys
     assert len(uploader.calls) == 5
     photos.close()

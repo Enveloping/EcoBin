@@ -25,7 +25,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -104,6 +104,10 @@ class EdgeStore:
         if current < 5:
             self._migrate_v5()
             conn.execute("INSERT INTO schema_version (version) VALUES (5)")
+            current = 5
+        if current < 6:
+            self._migrate_v6()
+            conn.execute("INSERT INTO schema_version (version) VALUES (6)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -542,6 +546,14 @@ class EdgeStore:
                     event_type
                 )
             )"""
+        )
+
+    def _migrate_v6(self) -> None:
+        """Keep URLs as evidence of successful COS upload only."""
+        self._conn.execute(
+            """UPDATE photo_outbox
+               SET url=NULL
+               WHERE state<>'UPLOADED' AND url IS NOT NULL"""
         )
 
     def _backfill_photo_metadata(self, conn) -> None:
@@ -2267,15 +2279,14 @@ class EdgeStore:
                     continue
                 self._conn.execute(
                     """INSERT INTO photo_outbox
-                       (photo_uid, slot_name, local_path, cos_key, url,
+                       (photo_uid, slot_name, local_path, cos_key,
                         state, work_uid, work_type, deployment_code)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         capture["photo_uid"],
                         capture["slot_name"],
                         capture["local_path"],
                         capture.get("cos_key"),
-                        capture.get("url"),
                         PHOTO_CAPTURE_PENDING,
                         capture["work_uid"],
                         capture["work_type"],
@@ -2359,9 +2370,9 @@ class EdgeStore:
             rows = self._conn.execute(
                 """UPDATE photo_outbox
                    SET state='PENDING', grant_request_event_uid=NULL,
-                       grant_generation=grant_generation+1,
-                       next_retry_at=NULL,
-                       last_error='EDGE_RESTARTED'
+                        grant_generation=grant_generation+1,
+                        next_retry_at=NULL, url=NULL,
+                        last_error='EDGE_RESTARTED'
                    WHERE state IN ('PENDING', 'UPLOADING')
                      AND tombstoned=0 AND work_type IS NOT NULL"""
             ).rowcount
@@ -2452,8 +2463,8 @@ class EdgeStore:
             return self._conn.execute(
                 """UPDATE photo_outbox
                    SET state='PENDING', grant_request_event_uid=NULL,
-                       grant_generation=grant_generation+1,
-                       next_retry_at=NULL, last_error=?
+                        grant_generation=grant_generation+1,
+                        next_retry_at=NULL, url=NULL, last_error=?
                    WHERE work_type=? AND work_uid=?
                      AND state IN ('PENDING', 'UPLOADING')
                      AND tombstoned=0""",
@@ -2463,7 +2474,10 @@ class EdgeStore:
     def mark_photo_uploading(self, photo_uid: str) -> None:
         with self.transaction():
             self._conn.execute(
-                "UPDATE photo_outbox SET state='UPLOADING' WHERE photo_uid=?", (photo_uid,)
+                """UPDATE photo_outbox
+                   SET state='UPLOADING', url=NULL
+                   WHERE photo_uid=?""",
+                (photo_uid,),
             )
 
     def mark_photo_uploaded(
@@ -2473,6 +2487,8 @@ class EdgeStore:
         url: Optional[str] = None,
         status_event_uid: Optional[str] = None,
     ) -> None:
+        if not url:
+            raise ValueError("uploaded photo requires url")
         with self.transaction():
             self._conn.execute(
                 """UPDATE photo_outbox
@@ -2505,7 +2521,7 @@ class EdgeStore:
             self._conn.execute(
                 """UPDATE photo_outbox
                    SET state='PENDING', retry_count=retry_count+1,
-                       next_retry_at=?, last_error=?
+                        next_retry_at=?, last_error=?, url=NULL
                    WHERE photo_uid=?""",
                 (next_retry, error_code, photo_uid),
             )
@@ -2519,7 +2535,8 @@ class EdgeStore:
         with self.transaction():
             self._conn.execute(
                 """UPDATE photo_outbox
-                   SET state='DEAD', last_error=?, status_event_uid=?
+                   SET state='DEAD', url=NULL, last_error=?,
+                       status_event_uid=?
                    WHERE photo_uid=?""",
                 (error_code, status_event_uid, photo_uid),
             )
@@ -2538,6 +2555,10 @@ class EdgeStore:
         """Atomically persist a terminal photo state and its reliable fact."""
         if state not in (PHOTO_UPLOADED, PHOTO_DEAD):
             raise ValueError("photo status state is invalid")
+        if state == PHOTO_UPLOADED and not url:
+            raise ValueError("uploaded photo status requires url")
+        if state == PHOTO_DEAD and url is not None:
+            raise ValueError("missing photo status must not contain url")
         with self.transaction():
             photo = self._conn.execute(
                 """SELECT * FROM photo_outbox
@@ -2567,7 +2588,7 @@ class EdgeStore:
             self._conn.execute(
                 """UPDATE photo_outbox
                    SET state=?, cos_key=COALESCE(?, cos_key),
-                       url=COALESCE(?, url), uploaded_at=?,
+                       url=?, uploaded_at=?,
                        status_event_uid=?, last_error=?,
                        next_retry_at=NULL
                    WHERE photo_uid=?""",

@@ -72,6 +72,68 @@ class TestEdgeStoreInit:
         assert row[0] == CURRENT_SCHEMA_VERSION
         store.close()
 
+    def test_v6_clears_urls_that_do_not_prove_successful_upload(self):
+        path = os.path.join(tempfile.mkdtemp(), "v5-photo-url.db")
+        store = EdgeStore(path)
+        store.initialize()
+        store._conn.execute("DELETE FROM schema_version")
+        store._conn.execute(
+            "INSERT INTO schema_version (version) VALUES (5)"
+        )
+        store._conn.executemany(
+            """INSERT INTO photo_outbox
+               (photo_uid, slot_name, local_path, url, state)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                (
+                    "capture-pending",
+                    "BEFORE_INNER",
+                    "/tmp/capture-pending.jpg",
+                    "https://example.invalid/capture-pending.jpg",
+                    "CAPTURE_PENDING",
+                ),
+                (
+                    "upload-pending",
+                    "BEFORE_OUTER",
+                    "/tmp/upload-pending.jpg",
+                    "https://example.invalid/upload-pending.jpg",
+                    "PENDING",
+                ),
+                (
+                    "missing",
+                    "AFTER_INNER",
+                    "/tmp/missing.jpg",
+                    "https://example.invalid/missing.jpg",
+                    "DEAD",
+                ),
+                (
+                    "available",
+                    "AFTER_OUTER",
+                    "/tmp/available.jpg",
+                    "https://example.invalid/available.jpg",
+                    "UPLOADED",
+                ),
+            ],
+        )
+        store._conn.commit()
+        store.close()
+
+        migrated = EdgeStore(path)
+        migrated.initialize()
+        rows = {
+            row["photo_uid"]: row["url"]
+            for row in migrated._conn.execute(
+                "SELECT photo_uid, url FROM photo_outbox"
+            ).fetchall()
+        }
+        assert rows == {
+            "capture-pending": None,
+            "upload-pending": None,
+            "missing": None,
+            "available": "https://example.invalid/available.jpg",
+        }
+        migrated.close()
+
     def test_work_slot_prefilled(self):
         store = make_store()
         row = store._conn.execute(
@@ -510,12 +572,18 @@ class TestPhotoOutboxOperations:
     def test_mark_photo_uploaded(self):
         store = make_store()
         store.register_photo("p1", "OPEN_OUTSIDE", "/tmp/p1.jpg")
-        store.mark_photo_uploaded("p1", "cos/key/p1.jpg")
+        store.mark_photo_uploaded(
+            "p1",
+            "cos/key/p1.jpg",
+            "https://example.invalid/cos/key/p1.jpg",
+        )
         row = store._conn.execute(
-            "SELECT state, cos_key FROM photo_outbox WHERE photo_uid='p1'"
+            """SELECT state, cos_key, url FROM photo_outbox
+               WHERE photo_uid='p1'"""
         ).fetchone()
         assert row["state"] == PHOTO_UPLOADED
         assert row["cos_key"] == "cos/key/p1.jpg"
+        assert row["url"] == "https://example.invalid/cos/key/p1.jpg"
         store.close()
 
     def test_iso_retry_timestamp_becomes_due(self):

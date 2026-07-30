@@ -68,7 +68,7 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
   `DELIVERY_COMPLETE` 中上报；明确终态称重失败仍形成系统异常订单，后置满溢采样不在
   完成载荷内，中间继续轮次不上传。任一本地轮次重量减少达到后端下发阈值（默认 500 克）
   时，只随最终载荷上报 `negativeWeightAnomaly` 布尔标志；后端原样固化，不按整场净重补判。
-- 照片由设备决定 COS 对象 key，并在事件中回传四个 URL。后端原样保存，不自行拼 URL。
+- 照片由设备决定 COS 对象 key；投递或清运完成事件先回传四个槽位的当时状态，仍在拍摄或上传的槽位 `url=null`。实际上传完成后再由 `photoStatusReported: AVAILABLE` 回传可信 URL，后端不自行拼 URL。
 
 ### 清运：现状与目标不要混淆
 
@@ -110,7 +110,7 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - 整条链路只需要出站连接：上行订阅 MQ、下行调用 OneNet HTTP、设备访问 COS；没有 OneNet HTTP 公网入站回调需求。
 - 2026-07-23 已正式确认 [`I-041～I-045`](../planning/interface-design/09-onenet-cos-edge-confirmation-i041-i045.md)：可靠边缘事实使用稳定 `eventUid`、原作业身份、规范摘要和部署内全局 `edgeEventSequence`；OneNet 传输 ACK、设备受理、物理结果和后端业务确认严格分层。后端权威事务与确认意图共同提交，设备持久化确认并回执后才清理原事件。
 - 2026-07-23 已正式确认 [`I-046～I-050`](../planning/interface-design/10-uart-protocol-i046-i050.md)：UART 1.0 使用 `0xEC42`、最大 256 字节、big-endian 和 CRC-16/CCITT-FALSE 的有界二进制帧；启动先 HELLO/QUERY_STATE，命令 ACK 与物理结果分层，关键 MCU 事件提交边缘 SQLite 后才 ACK。`txSequence`、`mcuCommandUid`、`mcuBootId + mcuEventSequence` 和云端作业身份互不替代，任一端重启都禁止自动重放旧开门。
-- 投递和清运照片统一为设备直传 COS。对象 key 由设备在 `ecobin/{deploymentCode}/{workType}/{workUid}/` 授权前缀内生成；临时凭证只在发送时附加且不进入稳定摘要/日志，完成或补传事件回传四个槽位状态及 URL。
+- 投递和清运照片统一为设备直传 COS。对象 key 由设备在 `ecobin/{deploymentCode}/{workType}/{workUid}/` 授权前缀内生成；临时凭证只在发送时附加且不进入稳定摘要/日志。完成事件回传四个槽位状态，尚未上传完成的槽位 URL 为空；上传完成后再由照片状态事件回传可信 URL。
 - Jackson 使用 Spring Boot 4 的 Jackson 3 包 `tools.jackson.databind`；不要在 framework 模块误用 `com.fasterxml.jackson.databind`。
 - 当前物模型与消息结构见 `docs/iot/onenet-thing-model.md` 和 `docs/iot/onenet-thing-model.json`，但它们是待替换的运行现状，不是目标契约。实施 I-041～I-045 时必须同步修改代码、JSON、Markdown 与 OneNet 控制台模型，禁止保留旧写协议作为生产兼容层。
 - I-019/I-020 的目标契约要求配置以版本和摘要分别证明“香橙派已可靠落盘”和“必要 MCU 项已同步”。当前 fixed-frame 阶段采用 2026-07-29 确认的运行优先例外：`applyConfiguration` 可靠保存并成为香橙派活动配置后即可返回成功及 `APPLIED`，允许构造兼容 `mcuCommandUid`；这不表示 MCU 已真实接收配置。具体边界见 [`onenet-edge-handling-decisions.md`](../../hardware/docs/review/onenet-edge-handling-decisions.md)。
@@ -119,7 +119,8 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 
 - 香橙派是云侧/业务侧小电脑：OneNet MQTT、COS 上传、流程编排；MCU 连接屏幕、传感器和执行器，通过 UART 与香橙派通信。
 - 物理 UART 通常至少连接交叉的 TX/RX 和共地 GND。F-11 已把 `hardware/main.py`
-  的正式入口切向 SQLite v4 新骨架；当前现有单片机使用双方确定的 `AA/BB/EE` 下行与
+  的正式入口切向 SQLite 新骨架，当前 schema 已推进到 v6；当前现有单片机使用双方
+  确定的 `AA/BB/EE` 下行与
   `DD/EF` 上行固定帧适配器。规范 `uart-v1` 只保留为未来明确选择的可选实现，不是
   当前 MCU 的通信路径，也不是 F-11 完成门。
 - 固定帧兼容保留香橙派—OneNet—后端完整契约，但 MCU 实际能力不完整：配置只在香橙派
@@ -204,7 +205,7 @@ P0-FOLLOWUP-01；H-03 的 F-11 依赖已经解除并转为 `ready`，V-09 的 V-
 
 当前 OneNet MQTT 已联通，开发环境 STS/COS upload/head/delete smoke 和真实香橙派
 双摄上传/匿名下载已通过；固定帧 MCU 适配已合入，但不支持的 MCU 功能仍按“本地保存/
-明确失败/未知占位”降级。Python 3.11 硬件套件为 `166 passed, 5 subtests passed`，
+明确失败/未知占位”降级。Python 3.11 硬件套件当前为 `178 passed, 5 subtests passed`，
 契约套件为 `43 passed, 752 subtests passed`。香橙派当时的默认路由/DNS 波动按
 项目负责人决定暂不处理且不阻塞 F-11；微信支付/商家转账仍不可联调。真实条件或
 软件链路缺失时只能标记相应软件阶段，不能宣称 M0。
