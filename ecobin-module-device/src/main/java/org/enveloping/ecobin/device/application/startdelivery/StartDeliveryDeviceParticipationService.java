@@ -423,7 +423,8 @@ public class StartDeliveryDeviceParticipationService
                         command.operationUid(),
                         null,
                         MAX_AUTO_ATTEMPTS,
-                        false));
+                        false,
+                        null));
     }
 
     private Map<String, Object> deliveryPayload(

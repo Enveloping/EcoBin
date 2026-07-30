@@ -58,8 +58,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * <p>The fixture makes one deployment eligible, starts a session through the
  * miniapp HTTP boundary, submits its frozen START command through the reliable
  * command worker, then feeds one trusted OneNet DELIVERY_COMPLETE into the
- * reliable inbox worker. Assertions are made against the resulting database
- * facts, not against mocks of the device/recycling services.</p>
+ * reliable inbox worker, and closes the automatic fullness workflow through
+ * the real command and inbox workers. Assertions are made against the
+ * resulting database facts, not against mocks of the device/recycling
+ * services.</p>
  */
 @SpringBootTest(properties = {
         "spring.datasource.url=${ECOBIN_DEVICE_MYSQL_URL}",
@@ -497,6 +499,11 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         WHERE delivery_order_id = ?
                         """, Integer.class, order.get("id")));
 
+        completeAndAssertNotFullDetection(
+                ready,
+                detection.get("detection_uid").toString(),
+                4);
+
         assertDeliveryOrderQueryAndReviewFlow(
                 ready,
                 miniappUser,
@@ -504,6 +511,339 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 deliveryEvent,
                 ((Number) order.get("id")).longValue(),
                 order.get("delivery_order_no").toString());
+
+        assertFullDetectionRequiresConfirmation(
+                ready,
+                miniappUser,
+                5);
+    }
+
+    private void completeAndAssertNotFullDetection(
+            ReadyDeployment ready,
+            String detectionUid,
+            long edgeEventSequence) throws Exception {
+        FullnessSampleEvent sample = trustedFullnessSampleComplete(
+                ready,
+                detectionUid,
+                "INITIAL",
+                false,
+                edgeEventSequence);
+
+        assertEquals(
+                "COMPLETED|NOT_FULL|APPLIED|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            status, '|',
+                            final_result, '|',
+                            disposition, '|',
+                            initial_sample_id IS NOT NULL, '|',
+                            terminal_sample_id =
+                                initial_sample_id
+                        )
+                        FROM rec_fullness_detection
+                        WHERE detection_uid = ?
+                        """,
+                        String.class,
+                        detectionUid));
+        assertEquals(
+                "INITIAL|DIGITAL_INFRARED|NOT_SAMPLED|"
+                        + "1|1|FIXED_FRAME_TOTAL_WEIGHT|"
+                        + sample.totalWeightGrams()
+                        + "|50.00|NOT_FULL",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            sample_role, '|',
+                            fullness_sensor_kind, '|',
+                            fullness_sample_basis, '|',
+                            requested_sample_count, '|',
+                            valid_sample_count, '|',
+                            sample.calculation_basis, '|',
+                            stable_total_weight_g, '|',
+                            displayed_fullness_percent, '|',
+                            conclusion
+                        )
+                        FROM rec_fullness_sample sample
+                        JOIN rec_fullness_detection detection
+                          ON detection.id = sample.detection_id
+                        WHERE detection.detection_uid = ?
+                          AND sample.sample_role = 'INITIAL'
+                        """,
+                        String.class,
+                        detectionUid));
+        assertEquals(
+                "READY|NOT_FULL|"
+                        + sample.totalWeightGrams()
+                        + "|50.00|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            detection_gate, '|',
+                            confirmed_fullness_state, '|',
+                            latest_stable_total_weight_g, '|',
+                            displayed_fullness_percent, '|',
+                            current_detection_id IS NULL, '|',
+                            last_detection_id IS NOT NULL
+                        )
+                        FROM rec_port_capacity_state
+                        WHERE port_id = ?
+                        """,
+                        String.class,
+                        ready.portId()));
+        assertFullnessDeviceFactsCompleted(
+                detectionUid,
+                "INITIAL",
+                sample);
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_fullness_event
+                        WHERE port_id = ?
+                          AND status = 'ACTIVE'
+                        """,
+                Integer.class,
+                ready.portId()));
+    }
+
+    private void assertFullDetectionRequiresConfirmation(
+            ReadyDeployment ready,
+            MiniappUser miniappUser,
+            long deliveryEdgeEventSequence) throws Exception {
+        deferConfirmationTasks(ready.deploymentId());
+
+        UUID operationUid = UUID.randomUUID();
+        MvcResult started = mockMvc.perform(
+                        post("/api/v1/miniapp/device-deployments/"
+                                + ready.deploymentCode()
+                                + "/ports/2/delivery-sessions")
+                                .header(
+                                        "Authorization",
+                                        "Bearer "
+                                                + miniappUser.accessToken())
+                                .header(
+                                        "Idempotency-Key",
+                                        operationUid.toString()))
+                .andReturn();
+        assertEquals(
+                202,
+                started.getResponse().getStatus(),
+                started.getResponse().getContentAsString());
+        UUID sessionUid = UUID.fromString(
+                data(started).path("sessionUid").asText());
+
+        ReliableWorkerBatchResult startSubmission =
+                commandWorker.runBatch(
+                        "delivery-full-start-" + sessionUid);
+        assertEquals(1, startSubmission.claimed());
+        assertEquals(1, startSubmission.accepted());
+        assertEquals(0, startSubmission.failed());
+        assertEquals(
+                "START_DELIVERY_SESSION",
+                submissionProbe.lastSubmission().commandType());
+
+        trustedDeliveryComplete(
+                ready,
+                sessionUid,
+                deliveryEdgeEventSequence);
+        String detectionUid = jdbc.queryForObject("""
+                        SELECT detection.detection_uid
+                        FROM rec_fullness_detection detection
+                        JOIN rec_delivery_order order_row
+                          ON order_row.id =
+                             detection.delivery_order_id
+                        JOIN dev_delivery_session session_row
+                          ON session_row.id =
+                             order_row.delivery_session_id
+                        WHERE session_row.session_uid = ?
+                        """,
+                String.class,
+                sessionUid.toString());
+        assertNotNull(detectionUid);
+
+        FullnessSampleEvent initial =
+                trustedFullnessSampleComplete(
+                        ready,
+                        detectionUid,
+                        "INITIAL",
+                        true,
+                        deliveryEdgeEventSequence + 1);
+        assertEquals(
+                "WAITING_RECHECK|FULL|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            status, '|',
+                            initial_sample_conclusion, '|',
+                            initial_sample_id IS NOT NULL, '|',
+                            next_sample_at IS NOT NULL
+                        )
+                        FROM rec_fullness_detection
+                        WHERE detection_uid = ?
+                        """,
+                        String.class,
+                        detectionUid));
+        assertEquals(
+                "IN_PROGRESS|UNKNOWN|"
+                        + initial.totalWeightGrams()
+                        + "|100.00|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            detection_gate, '|',
+                            confirmed_fullness_state, '|',
+                            latest_stable_total_weight_g, '|',
+                            displayed_fullness_percent, '|',
+                            current_detection_id IS NOT NULL
+                        )
+                        FROM rec_port_capacity_state
+                        WHERE port_id = ?
+                        """,
+                        String.class,
+                        ready.portId()));
+        assertFullnessDeviceFactsCompleted(
+                detectionUid,
+                "INITIAL",
+                initial);
+        assertEquals(
+                "PENDING|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            task.state, '|',
+                            task.next_run_at IS NOT NULL, '|',
+                            command_row.physical_state = 'QUEUED'
+                        )
+                        FROM ops_reliable_task task
+                        JOIN dev_device_command command_row
+                          ON command_row.id =
+                             task.source_device_command_id
+                        WHERE task.task_type = 'SAMPLE_FULLNESS'
+                          AND task.target_stable_key = ?
+                        """,
+                        String.class,
+                        detectionUid + ":CONFIRMATION"));
+
+        FullnessSampleEvent confirmation =
+                trustedFullnessSampleComplete(
+                        ready,
+                        detectionUid,
+                        "CONFIRMATION",
+                        true,
+                        deliveryEdgeEventSequence + 2);
+        assertEquals(
+                "COMPLETED|FULL|APPLIED|FULL|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            status, '|',
+                            final_result, '|',
+                            disposition, '|',
+                            terminal_sample_conclusion, '|',
+                            initial_sample_id IS NOT NULL, '|',
+                            terminal_sample_id IS NOT NULL
+                        )
+                        FROM rec_fullness_detection
+                        WHERE detection_uid = ?
+                        """,
+                        String.class,
+                        detectionUid));
+        assertEquals(
+                "READY|FULL|"
+                        + confirmation.totalWeightGrams()
+                        + "|100.00|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            detection_gate, '|',
+                            confirmed_fullness_state, '|',
+                            latest_stable_total_weight_g, '|',
+                            displayed_fullness_percent, '|',
+                            current_detection_id IS NULL, '|',
+                            current_fullness_event_id IS NOT NULL
+                        )
+                        FROM rec_port_capacity_state
+                        WHERE port_id = ?
+                        """,
+                        String.class,
+                        ready.portId()));
+        assertFullnessDeviceFactsCompleted(
+                detectionUid,
+                "CONFIRMATION",
+                confirmation);
+        assertEquals(
+                "ACTIVE|WEIGHT|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            status, '|',
+                            current_reason, '|',
+                            detection_count, '|',
+                            confirmed_detection_id =
+                                latest_full_detection_id
+                        )
+                        FROM rec_fullness_event
+                        WHERE port_id = ?
+                          AND status = 'ACTIVE'
+                        """,
+                        String.class,
+                        ready.portId()));
+    }
+
+    private void assertFullnessDeviceFactsCompleted(
+            String detectionUid,
+            String sampleRole,
+            FullnessSampleEvent sample) {
+        assertEquals(
+                "PHYSICAL_SUCCEEDED|1|"
+                        + "DIGITAL_INFRARED|NOT_SAMPLED|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            command_row.physical_state, '|',
+                            EXISTS (
+                                SELECT 1
+                                FROM rec_fullness_sample sample
+                                WHERE sample.physical_result_id =
+                                      result_row.id
+                            ), '|',
+                            result_row.fullness_sensor_kind, '|',
+                            result_row.fullness_sample_basis, '|',
+                            result_row.fullness_requested_sample_count,
+                            '|',
+                            result_row.fullness_valid_sample_count
+                        )
+                        FROM dev_device_command command_row
+                        JOIN dev_physical_result result_row
+                          ON result_row.command_id = command_row.id
+                        JOIN rec_fullness_detection detection
+                          ON detection.id =
+                             command_row.fullness_detection_id
+                        WHERE detection.detection_uid = ?
+                          AND command_row.command_uid = ?
+                          AND result_row.fullness_sample_id IS NULL
+                        """,
+                        String.class,
+                        detectionUid,
+                        sample.commandUid()));
+        assertEquals(
+                "DONE|1|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            state, '|',
+                            completed_at IS NOT NULL, '|',
+                            blocked_reason_code IS NULL
+                        )
+                        FROM ops_reliable_task
+                        WHERE task_type = 'SAMPLE_FULLNESS'
+                          AND target_stable_key = ?
+                        """,
+                        String.class,
+                        detectionUid + ":" + sampleRole));
+        assertEquals(
+                "PENDING|1",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            task.state, '|',
+                            task.source_device_command_id IS NULL
+                        )
+                        FROM ops_reliable_task task
+                        WHERE task.task_key = ?
+                          AND task.task_type =
+                              'CONFIRM_EDGE_EVENT'
+                        """,
+                        String.class,
+                        "CONFIRM_EDGE_EVENT:"
+                                + sample.eventUid().toUpperCase()));
     }
 
     private void assertDeliveryOrderQueryAndReviewFlow(
@@ -1321,6 +1661,13 @@ class DeliveryHappyPathMysqlIntegrationTest {
     private DeliveryEvent trustedDeliveryComplete(
             ReadyDeployment ready,
             UUID sessionUid) throws Exception {
+        return trustedDeliveryComplete(ready, sessionUid, 3);
+    }
+
+    private DeliveryEvent trustedDeliveryComplete(
+            ReadyDeployment ready,
+            UUID sessionUid,
+            long edgeEventSequence) throws Exception {
         Map<String, Object> frozen = jdbc.queryForMap("""
                 SELECT command_row.command_uid,
                        session_row.device_config_version_no,
@@ -1379,7 +1726,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         String afterMeasurementUid =
                 UUID.randomUUID().toString();
         wire.put("eventUid", eventUid);
-        wire.put("edgeEventSequence", 3);
+        wire.put("edgeEventSequence", edgeEventSequence);
         wire.put("deploymentCode", ready.deploymentCode());
         wire.put("commandUid", commandUid);
         wire.put("sessionUid", sessionUid.toString());
@@ -1454,6 +1801,275 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 eventUid,
                 payloadSha256,
                 wire);
+    }
+
+    private FullnessSampleEvent trustedFullnessSampleComplete(
+            ReadyDeployment ready,
+            String detectionUid,
+            String sampleRole,
+            boolean full,
+            long edgeEventSequence) throws Exception {
+        String targetStableKey =
+                detectionUid + ":" + sampleRole;
+        deferConfirmationTasks(ready.deploymentId());
+        assertEquals(1, jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET next_run_at = UTC_TIMESTAMP(3),
+                            lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE task_type = 'SAMPLE_FULLNESS'
+                          AND target_stable_key = ?
+                          AND state = 'PENDING'
+                          AND lease_token IS NULL
+                        """,
+                targetStableKey));
+
+        ReliableWorkerBatchResult submission =
+                commandWorker.runBatch(
+                        "fullness-" + sampleRole.toLowerCase()
+                                + "-" + detectionUid);
+        assertEquals(1, submission.claimed());
+        assertEquals(1, submission.accepted());
+        assertEquals(0, submission.failed());
+        DeviceCommandSubmission downlink =
+                submissionProbe.lastSubmission();
+        assertNotNull(downlink);
+        assertEquals("SAMPLE_FULLNESS", downlink.commandType());
+        assertEquals(ready.hardwareSn(), downlink.hardwareSn());
+        JsonNode commandEnvelope = objectMapper.readTree(
+                downlink.semanticEnvelopeJson());
+        assertEquals(
+                detectionUid,
+                commandEnvelope.path("target")
+                        .path("uid").asText());
+        assertEquals(
+                sampleRole,
+                commandEnvelope.path("payload")
+                        .path("sampleRole").asText());
+
+        Map<String, Object> detection = jdbc.queryForMap("""
+                SELECT detection.configured_full_weight_g,
+                       snapshot.calibration_version
+                FROM rec_fullness_detection detection
+                JOIN dev_port_config_snapshot snapshot
+                  ON snapshot.id =
+                     detection.port_config_snapshot_id
+                 AND snapshot.tenant_id =
+                     detection.tenant_id
+                 AND snapshot.organization_id =
+                     detection.organization_id
+                 AND snapshot.deployment_id =
+                     detection.deployment_id
+                 AND snapshot.port_id =
+                     detection.port_id
+                WHERE detection.detection_uid = ?
+                """, detectionUid);
+        long configuredFullWeight = ((Number) detection.get(
+                "configured_full_weight_g")).longValue();
+        long calibrationVersion = ((Number) detection.get(
+                "calibration_version")).longValue();
+        long totalWeight = full
+                ? configuredFullWeight
+                : configuredFullWeight / 2;
+
+        ObjectNode wire = (ObjectNode) objectMapper.readTree(
+                        Files.readString(contractPath(
+                                "contracts/examples/onenet-wire/"
+                                        + "fullness-sample-complete"
+                                        + ".event-wire.json")))
+                .path("oneJsonPayload")
+                .path("params")
+                .path("fullnessSampleComplete")
+                .path("value")
+                .deepCopy();
+        String eventUid = UUID.randomUUID().toString();
+        String measurementUid =
+                UUID.randomUUID().toString();
+        String occurredAt = Instant.now()
+                .minusSeconds(1)
+                .truncatedTo(ChronoUnit.MILLIS)
+                .toString();
+        JsonNode commandPayload =
+                commandEnvelope.path("payload");
+        JsonNode commandConfig =
+                commandPayload.path("config");
+        wire.put("eventUid", eventUid);
+        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("deploymentCode", ready.deploymentCode());
+        wire.put(
+                "commandUid",
+                downlink.commandUid().toString());
+        wire.put("detectionUid", detectionUid);
+        wire.put("occurredAt", occurredAt);
+        wire.put("occurredAtPresent", true);
+        wire.put("sampleRole",
+                "INITIAL".equals(sampleRole) ? 1 : 2);
+        wire.put("triggerType", 1);
+        wire.put(
+                "fullnessMode",
+                fullnessModeWireValue(
+                        commandPayload.path("fullnessMode")
+                                .asText()));
+        wire.put("fullnessSensorKind", 2);
+        wire.put("fullnessSensorValue", 1);
+        wire.put("fullnessSampleBasis", 4);
+        wire.put(
+                "representativeDistanceMmPresent",
+                false);
+        wire.remove("representativeDistanceMm");
+        wire.put("requestedSampleCount", 1);
+        wire.put("validSampleCount", 1);
+        ((ObjectNode) wire.path("target"))
+                .put("uid", detectionUid);
+        ObjectNode wireConfig =
+                (ObjectNode) wire.path("frozenConfig");
+        wireConfig.put(
+                "version",
+                commandConfig.path("version").asLong());
+        wireConfig.put(
+                "contentSha256",
+                commandConfig.path("contentSha256").asText());
+        wireConfig.put(
+                "mcuPayloadSha256",
+                commandConfig.path("mcuPayloadSha256")
+                        .asText());
+        ObjectNode wireMeasurement =
+                (ObjectNode) wire.path(
+                        "totalWeightMeasurement");
+        wireMeasurement.put(
+                "measurementUid",
+                measurementUid);
+        wireMeasurement.put("status", 1);
+        wireMeasurement.put(
+                "weightValueAvailable",
+                true);
+        wireMeasurement.put(
+                "reportedWeightGrams",
+                totalWeight);
+        wireMeasurement.put(
+                "reportedWeightGramsPresent",
+                true);
+        wireMeasurement.put("weightValueKind", 2);
+        wireMeasurement.put("measurementElapsedMs", 200);
+        wireMeasurement.put("sampleCount", 1);
+        wireMeasurement.put(
+                "calibrationVersion",
+                calibrationVersion);
+        wireMeasurement.put("sensorHealth", 1);
+        wireMeasurement.put("faultCodePresent", false);
+        wireMeasurement.put("mcuBootId", 101);
+        wireMeasurement.put(
+                "mcuEventSequence",
+                edgeEventSequence);
+
+        ObjectNode semanticPayload =
+                (ObjectNode) objectMapper.readTree(
+                                Files.readString(contractPath(
+                                        "contracts/examples/onenet/"
+                                                + "fullness-sample-complete"
+                                                + ".event.json")))
+                        .path("payload")
+                        .deepCopy();
+        semanticPayload.put("detectionUid", detectionUid);
+        semanticPayload.put("portNo", 2);
+        semanticPayload.put("sampleRole", sampleRole);
+        semanticPayload.put(
+                "triggerType",
+                "DELIVERY_COMPLETE");
+        semanticPayload.put(
+                "fullnessMode",
+                commandPayload.path("fullnessMode").asText());
+        semanticPayload.put(
+                "fullnessSensorKind",
+                "DIGITAL_INFRARED");
+        semanticPayload.put(
+                "fullnessSensorValue",
+                "CLEAR");
+        semanticPayload.put(
+                "fullnessSampleBasis",
+                "NOT_SAMPLED");
+        semanticPayload.putNull(
+                "representativeDistanceMm");
+        semanticPayload.put("requestedSampleCount", 1);
+        semanticPayload.put("validSampleCount", 1);
+        ObjectNode semanticConfig =
+                (ObjectNode) semanticPayload.path(
+                        "frozenConfig");
+        semanticConfig.put(
+                "version",
+                commandConfig.path("version").asLong());
+        semanticConfig.put(
+                "contentSha256",
+                commandConfig.path("contentSha256").asText());
+        semanticConfig.put(
+                "mcuPayloadSha256",
+                commandConfig.path("mcuPayloadSha256")
+                        .asText());
+        ObjectNode semanticMeasurement =
+                (ObjectNode) semanticPayload.path(
+                        "totalWeightMeasurement");
+        semanticMeasurement.put(
+                "measurementUid",
+                measurementUid);
+        semanticMeasurement.put("status", "STABLE");
+        semanticMeasurement.put(
+                "weightValueAvailable",
+                true);
+        semanticMeasurement.put(
+                "reportedWeightGrams",
+                totalWeight);
+        semanticMeasurement.put(
+                "weightValueKind",
+                "STABLE_WINDOW_MEAN");
+        semanticMeasurement.put(
+                "measurementElapsedMs",
+                200);
+        semanticMeasurement.put("sampleCount", 1);
+        semanticMeasurement.put(
+                "calibrationVersion",
+                calibrationVersion);
+        semanticMeasurement.put("sensorHealth", "OK");
+        semanticMeasurement.putNull("faultCode");
+        semanticMeasurement.put("mcuBootId", 101);
+        semanticMeasurement.put(
+                "mcuEventSequence",
+                edgeEventSequence);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semantic =
+                objectMapper.convertValue(
+                        semanticPayload,
+                        Map.class);
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semantic));
+        wire.put("payloadSha256", payloadSha256);
+
+        dispatchTrustedWireEvent(
+                "fullnessSampleComplete",
+                wire,
+                ready.hardwareSn());
+        ReliableWorkerBatchResult result =
+                inboxWorker.runBatch(
+                        "fullness-complete-" + eventUid);
+        assertEquals(1, result.claimed());
+        assertEquals(
+                0,
+                result.failed(),
+                () -> inboxFailureDiagnostic(eventUid));
+        assertEquals(1, result.accepted());
+        return new FullnessSampleEvent(
+                eventUid,
+                downlink.commandUid().toString(),
+                totalWeight);
+    }
+
+    private static int fullnessModeWireValue(String value) {
+        return switch (value) {
+            case "SENSOR_ONLY" -> 1;
+            case "WEIGHT_ONLY" -> 2;
+            case "SENSOR_OR_WEIGHT" -> 3;
+            default -> throw new IllegalArgumentException(
+                    "unsupported fullness mode " + value);
+        };
     }
 
     private PhotoStatusEvent trustedPhotoStatus(
@@ -1701,6 +2317,24 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         """,
                 String.class,
                 eventUid);
+    }
+
+    private void deferConfirmationTasks(long deploymentId) {
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET next_run_at =
+                        DATE_ADD(
+                            UTC_TIMESTAMP(3),
+                            INTERVAL 1 DAY
+                        ),
+                    updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1
+                WHERE task_type = 'CONFIRM_EDGE_EVENT'
+                  AND source_device_deployment_id = ?
+                  AND state = 'PENDING'
+                  AND lease_token IS NULL
+                """,
+                deploymentId);
     }
 
     private void deferPriorDeliveryFixtures() {
@@ -2083,6 +2717,12 @@ class DeliveryHappyPathMysqlIntegrationTest {
             String eventUid,
             String payloadSha256,
             ObjectNode wire) {
+    }
+
+    private record FullnessSampleEvent(
+            String eventUid,
+            String commandUid,
+            long totalWeightGrams) {
     }
 
     private record PhotoStatusEvent(

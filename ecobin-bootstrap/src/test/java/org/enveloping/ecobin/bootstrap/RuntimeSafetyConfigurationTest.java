@@ -32,7 +32,8 @@ class RuntimeSafetyConfigurationTest {
             "V13__separate_device_protocol_control_tasks.sql",
             "V14__delivery_happy_path_facts.sql",
             "V15__photo_terminal_facts.sql",
-            "V16__organization_delivery_defaults.sql"
+            "V16__organization_delivery_defaults.sql",
+            "V17__delivery_fullness_normal_flow.sql"
     };
 
     @Test

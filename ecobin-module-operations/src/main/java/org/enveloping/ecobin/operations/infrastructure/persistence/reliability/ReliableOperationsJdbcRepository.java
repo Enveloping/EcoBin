@@ -264,6 +264,7 @@ public class ReliableOperationsJdbcRepository {
             UUID correlationUid,
             UUID causationUid,
             int maxAutoAttempts,
+            LocalDateTime initialRunAt,
             LocalDateTime now) {
         UUID taskUid = UUID.randomUUID();
         int inserted = jdbcTemplate.update("""
@@ -307,7 +308,7 @@ public class ReliableOperationsJdbcRepository {
                 nullableUuid(correlationUid),
                 nullableUuid(causationUid),
                 maxAutoAttempts,
-                now,
+                initialRunAt,
                 now,
                 now);
         requireSingleRow(inserted, "insert device business task");
@@ -784,7 +785,8 @@ public class ReliableOperationsJdbcRepository {
                       (
                           t.task_type IN (
                               'ENSURE_DEVICE_CONFIGURATION',
-                              'START_DELIVERY_SESSION'
+                              'START_DELIVERY_SESSION',
+                              'SAMPLE_FULLNESS'
                           )
                           AND c.id IS NOT NULL
                       )
@@ -964,7 +966,8 @@ public class ReliableOperationsJdbcRepository {
                       (
                           t.task_type IN (
                               'ENSURE_DEVICE_CONFIGURATION',
-                              'START_DELIVERY_SESSION'
+                              'START_DELIVERY_SESSION',
+                              'SAMPLE_FULLNESS'
                           )
                           AND c.id IS NOT NULL
                       )

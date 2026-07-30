@@ -1892,7 +1892,8 @@ public class TargetDeviceApplication {
                 operationUid,
                 null,
                 12,
-                true));
+                true,
+                null));
         String statusUrl = applicationBaseUrl + "/" + applicationUid;
         ConfigurationAcceptedView response =
                 new ConfigurationAcceptedView(

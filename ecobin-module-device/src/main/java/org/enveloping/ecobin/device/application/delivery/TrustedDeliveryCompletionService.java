@@ -91,6 +91,7 @@ public class TrustedDeliveryCompletionService
                    snapshot.configured_full_weight_g,
                    snapshot.fullness_settle_wait_ms,
                    snapshot.fullness_confirmation_wait_ms,
+                   snapshot.weight_measurement_timeout_ms,
                    snapshot.weight_required_sample_count,
                    snapshot.weight_minimum_g,
                    snapshot.weight_maximum_g,
@@ -267,6 +268,7 @@ public class TrustedDeliveryCompletionService
                         portConfiguration.configuredFullWeightGrams(),
                         portConfiguration.fullnessSettleWaitMs(),
                         portConfiguration.fullnessConfirmationWaitMs(),
+                        portConfiguration.fullnessMeasurementTimeoutMs(),
                         receivedAt,
                         fact);
         DeliveryCompletionBusinessResult business =
@@ -667,6 +669,7 @@ public class TrustedDeliveryCompletionService
                         rs.getLong("configured_full_weight_g"),
                         rs.getLong("fullness_settle_wait_ms"),
                         rs.getLong("fullness_confirmation_wait_ms"),
+                        rs.getLong("weight_measurement_timeout_ms"),
                         rs.getInt("weight_required_sample_count"),
                         rs.getLong("weight_minimum_g"),
                         rs.getLong("weight_maximum_g"),
@@ -1258,6 +1261,7 @@ public class TrustedDeliveryCompletionService
             long configuredFullWeightGrams,
             long fullnessSettleWaitMs,
             long fullnessConfirmationWaitMs,
+            long fullnessMeasurementTimeoutMs,
             int weightRequiredSampleCount,
             long weightMinimumGrams,
             long weightMaximumGrams,

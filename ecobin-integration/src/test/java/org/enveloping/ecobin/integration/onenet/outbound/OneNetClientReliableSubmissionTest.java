@@ -259,6 +259,53 @@ class OneNetClientReliableSubmissionTest {
     }
 
     @Test
+    void projectsFrozenFullnessSampleToGeneratedWireContract()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "sample-fullness.command.json"));
+        UUID commandUid = UUID.fromString(
+                "81000000-0000-4000-8000-000000000004");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "SAMPLE_FULLNESS"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        JsonNode wireExample = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "sample-fullness"
+                                + ".service-wire.json")));
+        ObjectNode expected = (ObjectNode) wireExample
+                .path("callServiceApiBodyTemplate")
+                .deepCopy();
+        expected.put("product_id", PRODUCT_ID);
+        expected.put("device_name", HARDWARE_SN);
+        assertEquals(expected, actual);
+        verify(cosUploadCredentialPort, never()).issue(
+                anyString(),
+                eq(1),
+                anyString());
+    }
+
+    @Test
     void rejectsDeliveryTargetThatDiffersFromPayloadSession()
             throws Exception {
         ObjectNode envelope = (ObjectNode) objectMapper.readTree(

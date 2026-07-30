@@ -1,6 +1,8 @@
 package org.enveloping.ecobin.recycling.application.delivery;
 
 import org.enveloping.ecobin.device.api.port.CompleteDeliveryDeviceParticipationPort;
+import org.enveloping.ecobin.device.api.command.ScheduleFullnessSampleCommand;
+import org.enveloping.ecobin.device.api.port.ScheduleFullnessSampleDevicePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompleteMeasurement;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletePhoto;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletePhysicalFact;
@@ -12,6 +14,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.enveloping.ecobin.recycling.application.photo.RecyclingPhotoStatusService;
+import org.enveloping.ecobin.recycling.infrastructure.fullness.TransactionBoundFullnessDetectionCommandRef;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,9 +42,8 @@ import java.util.stream.Collectors;
  * Builds the single pending recycling order and the next-delivery fullness
  * gate from a trusted, stable delivery result.
  *
- * <p>The current slice intentionally stops at a pending fullness detection.
- * It does not schedule a sample, retry a device command, or recover physical
- * state.</p>
+ * <p>The normal delivery slice schedules the initial fullness sample. Device
+ * command retries and physical recovery remain outside this use case.</p>
  */
 @Service
 public class ApplyDeliveryCompleteService
@@ -78,16 +80,19 @@ public class ApplyDeliveryCompleteService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final RecyclingPhotoStatusService photoStatusService;
+    private final ScheduleFullnessSampleDevicePort fullnessSamples;
 
     public ApplyDeliveryCompleteService(
             CompleteDeliveryDeviceParticipationPort deviceCompletion,
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            RecyclingPhotoStatusService photoStatusService) {
+            RecyclingPhotoStatusService photoStatusService,
+            ScheduleFullnessSampleDevicePort fullnessSamples) {
         this.deviceCompletion = deviceCompletion;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.photoStatusService = photoStatusService;
+        this.fullnessSamples = fullnessSamples;
     }
 
     @Override
@@ -126,6 +131,10 @@ public class ApplyDeliveryCompleteService
                 facts,
                 orderId,
                 capacity);
+        scheduleInitialSample(
+                facts,
+                capacity,
+                detection);
 
         return new DeliveryCompletionBusinessResult(
                 orderNo,
@@ -136,6 +145,38 @@ public class ApplyDeliveryCompleteService
                         new DeliveryCompletionResultReference(
                                 "FULLNESS_DETECTION",
                                 detection.uid().toString())));
+    }
+
+    private void scheduleInitialSample(
+            DeliveryCompletionPersistenceFacts facts,
+            CapacityState capacity,
+            DetectionResult detection) {
+        fullnessSamples.schedule(
+                new ScheduleFullnessSampleCommand(
+                        TransactionBoundFullnessDetectionCommandRef.issue(
+                                facts.tenantId(),
+                                facts.organizationId(),
+                                facts.deploymentId(),
+                                facts.portId(),
+                                detection.id(),
+                                facts.deviceConfigVersionId(),
+                                facts.portConfigSnapshotId()),
+                        detection.uid(),
+                        facts.physicalFact().portNo(),
+                        "INITIAL",
+                        "DELIVERY_COMPLETE",
+                        facts.fullnessMode(),
+                        capacity.baselineWeightGrams(),
+                        facts.configuredFullWeightGrams(),
+                        facts.fullnessSettleWaitMs(),
+                        facts.fullnessMeasurementTimeoutMs(),
+                        facts.physicalFact().configurationVersion(),
+                        facts.physicalFact()
+                                .configurationContentSha256(),
+                        facts.physicalFact()
+                                .configurationMcuPayloadSha256(),
+                        facts.physicalFact().sessionUid(),
+                        facts.physicalFact().eventUid()));
     }
 
     private DeliveryConfiguration requireFrozenDeliveryConfiguration(
@@ -586,6 +627,8 @@ public class ApplyDeliveryCompleteService
                             configured_full_weight_g,
                             settle_wait_ms,
                             confirmation_wait_ms,
+                            measurement_timeout_ms,
+                            calculation_basis,
                             status, final_result, failure_code,
                             disposition,
                             initial_sample_id,
@@ -614,6 +657,8 @@ public class ApplyDeliveryCompleteService
                             ?,
                             ?,
                             ?,
+                            ?,
+                            'FIXED_FRAME_TOTAL_WEIGHT',
                             'PENDING_INITIAL_SAMPLE',
                             NULL, NULL,
                             'PENDING',
@@ -643,6 +688,7 @@ public class ApplyDeliveryCompleteService
                 facts.configuredFullWeightGrams(),
                 facts.fullnessSettleWaitMs(),
                 facts.fullnessConfirmationWaitMs(),
+                facts.fullnessMeasurementTimeoutMs(),
                 nextSampleAt,
                 facts.backendReceivedAt(),
                 facts.backendReceivedAt()),

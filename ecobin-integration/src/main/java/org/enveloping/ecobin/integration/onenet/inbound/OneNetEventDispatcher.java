@@ -52,57 +52,63 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static final String DEPLOYMENT_CODE =
             "^Dp_[A-Za-z0-9_-]{6,61}$";
 
-    private static final Map<String, EventContract> CONTRACTS = Map.of(
-            "configurationProgress",
+    private static final Map<String, EventContract> CONTRACTS =
+            Map.ofEntries(
+            Map.entry("configurationProgress",
             new EventContract(
                     "CONFIGURATION_PROGRESS",
                     "RELIABLE_FACT",
-                    "CONFIGURATION_APPLICATION"),
-            "deviceCommandObserved",
+                    "CONFIGURATION_APPLICATION")),
+            Map.entry("deviceCommandObserved",
             new EventContract(
                     "DEVICE_COMMAND_OBSERVED",
                     "RELIABLE_FACT",
-                    "DEVICE_COMMAND"),
-            "deliveryComplete",
+                    "DEVICE_COMMAND")),
+            Map.entry("deliveryComplete",
             new EventContract(
                     "DELIVERY_COMPLETE",
                     "RELIABLE_FACT",
-                    "DELIVERY_SESSION"),
-            "deviceRuntimeSnapshot",
+                    "DELIVERY_SESSION")),
+            Map.entry("fullnessSampleComplete",
+            new EventContract(
+                    "FULLNESS_SAMPLE_COMPLETE",
+                    "RELIABLE_FACT",
+                    "FULLNESS_DETECTION")),
+            Map.entry("deviceRuntimeSnapshot",
             new EventContract(
                     "DEVICE_RUNTIME_SNAPSHOT",
                     "TELEMETRY_SNAPSHOT",
-                    "DEVICE_DEPLOYMENT"),
-            "deviceFaultObserved",
+                    "DEVICE_DEPLOYMENT")),
+            Map.entry("deviceFaultObserved",
             new EventContract(
                     "DEVICE_FAULT_OBSERVED",
                     "RELIABLE_FACT",
-                    "DEVICE_DEPLOYMENT"),
-            "deviceFaultRecovered",
+                    "DEVICE_DEPLOYMENT")),
+            Map.entry("deviceFaultRecovered",
             new EventContract(
                     "DEVICE_FAULT_RECOVERED",
                     "RELIABLE_FACT",
-                    "DEVICE_DEPLOYMENT"),
-            "safetySensorStateChanged",
+                    "DEVICE_DEPLOYMENT")),
+            Map.entry("safetySensorStateChanged",
             new EventContract(
                     "SAFETY_SENSOR_STATE_CHANGED",
                     "RELIABLE_FACT",
-                    "DEVICE_DEPLOYMENT"),
-            "photoStatusReported",
+                    "DEVICE_DEPLOYMENT")),
+            Map.entry("photoStatusReported",
             new EventContract(
                     "PHOTO_STATUS_REPORTED",
                     "RELIABLE_FACT",
-                    "WORK"),
-            "photoUploadGrantRequested",
+                    "WORK")),
+            Map.entry("photoUploadGrantRequested",
             new EventContract(
                     "PHOTO_UPLOAD_GRANT_REQUESTED",
                     "RELIABLE_FACT",
-                    "WORK"),
-            "businessConfirmationReceipt",
+                    "WORK")),
+            Map.entry("businessConfirmationReceipt",
             new EventContract(
                     "BUSINESS_CONFIRMATION_RECEIPT",
                     "CONTROL_RECEIPT",
-                    "BUSINESS_CONFIRMATION"));
+                    "BUSINESS_CONFIRMATION")));
 
     private static final Map<Long, String> CLOCK_QUALITY = Map.of(
             1L, "SYNCED",
@@ -454,7 +460,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                  "BUSINESS_CONFIRMATION",
                  "DEVICE_COMMAND",
                  "DELIVERY_SESSION",
-                 "CLEAN_OPERATION" ->
+                 "CLEAN_OPERATION",
+                 "FULLNESS_DETECTION" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
                     "unsupported trusted event target");
@@ -487,7 +494,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "DEVICE_COMMAND_OBSERVED".equals(messageKind)
                 || "BUSINESS_CONFIRMATION_RECEIPT".equals(
                 messageKind)
-                || "DELIVERY_COMPLETE".equals(messageKind)) {
+                || "DELIVERY_COMPLETE".equals(messageKind)
+                || "FULLNESS_SAMPLE_COMPLETE".equals(
+                messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
         }
         return nullablePresenceText(
@@ -511,6 +520,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     deliveryCompletePayload(
                             wire,
                             trustedCosBaseUrl);
+            case "FULLNESS_SAMPLE_COMPLETE" ->
+                    fullnessSampleCompletePayload(wire);
             case "PHOTO_STATUS_REPORTED" ->
                     photoStatusPayload(
                             wire,
@@ -822,6 +833,139 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 "mcuPayloadSha256",
                 pattern(wire, "mcuPayloadSha256", SHA256));
         return config;
+    }
+
+    private static Map<String, Object> fullnessSampleCompletePayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "detectionUid",
+                pattern(wire, "detectionUid", UUID_V4));
+        payload.put(
+                "portNo",
+                requiredIntegerInRange(wire, "portNo", 1, 6));
+        String sampleRole = enumText(
+                integer(wire, "sampleRole"),
+                Map.of(
+                        1L, "INITIAL",
+                        2L, "CONFIRMATION",
+                        3L, "MANUAL_RECHECK"),
+                "sampleRole");
+        String triggerType = enumText(
+                integer(wire, "triggerType"),
+                Map.of(
+                        1L, "DELIVERY_COMPLETE",
+                        2L, "CLEAN_COMPLETE",
+                        3L, "MANUAL_RECHECK"),
+                "triggerType");
+        if (("MANUAL_RECHECK".equals(triggerType))
+                != "MANUAL_RECHECK".equals(sampleRole)) {
+            throw permanent(
+                    "fullness role and trigger type differ");
+        }
+        payload.put("sampleRole", sampleRole);
+        payload.put("triggerType", triggerType);
+        payload.put(
+                "fullnessMode",
+                enumText(
+                        integer(wire, "fullnessMode"),
+                        Map.of(
+                                1L, "SENSOR_ONLY",
+                                2L, "WEIGHT_ONLY",
+                                3L, "SENSOR_OR_WEIGHT"),
+                        "fullnessMode"));
+        String sensorKind = enumText(
+                integer(wire, "fullnessSensorKind"),
+                Map.of(
+                        1L, "ULTRASONIC",
+                        2L, "DIGITAL_INFRARED"),
+                "fullnessSensorKind");
+        String sensorValue = enumText(
+                integer(wire, "fullnessSensorValue"),
+                Map.of(
+                        1L, "CLEAR",
+                        2L, "BLOCKED"),
+                "fullnessSensorValue");
+        String sampleBasis = enumText(
+                integer(wire, "fullnessSampleBasis"),
+                Map.of(
+                        1L, "MEASURED_MEDIAN",
+                        2L, "NO_ECHO_CLEAR_FALLBACK",
+                        3L,
+                        "INSUFFICIENT_VALID_SAMPLES_CLEAR_FALLBACK",
+                        4L, "NOT_SAMPLED"),
+                "fullnessSampleBasis");
+        Long distance = nullablePresenceInteger(
+                wire,
+                "representativeDistanceMmPresent",
+                "representativeDistanceMm",
+                false);
+        int requested = Math.toIntExact(
+                requiredIntegerInRange(
+                        wire,
+                        "requestedSampleCount",
+                        0,
+                        255));
+        int valid = Math.toIntExact(
+                requiredIntegerInRange(
+                        wire,
+                        "validSampleCount",
+                        0,
+                        255));
+        if (valid > requested) {
+            throw permanent(
+                    "fullness valid samples exceed requested samples");
+        }
+        if (!"DIGITAL_INFRARED".equals(sensorKind)
+                || !"NOT_SAMPLED".equals(sampleBasis)
+                || distance != null
+                || !((requested == 1 && valid == 1)
+                || (requested == 0 && valid == 0))) {
+            throw permanent(
+                    "fullness result is outside the accepted fixed-frame shape");
+        }
+        FullnessCompatibilityMeasurement compatibility =
+                requireFixedFrameFullnessMeasurement(
+                        measurement(object(
+                                wire,
+                                "totalWeightMeasurement")),
+                        requested);
+        payload.put("fullnessSensorKind", sensorKind);
+        payload.put("fullnessSensorValue", sensorValue);
+        payload.put("fullnessSampleBasis", sampleBasis);
+        payload.put("representativeDistanceMm", distance);
+        payload.put("requestedSampleCount", requested);
+        payload.put("validSampleCount", valid);
+        payload.put(
+                "totalWeightMeasurement",
+                compatibility.measurement());
+        payload.put(
+                "frozenConfig",
+                configSnapshot(object(wire, "frozenConfig")));
+        return payload;
+    }
+
+    private static FullnessCompatibilityMeasurement
+            requireFixedFrameFullnessMeasurement(
+                    Map<String, Object> measurement,
+                    int requestedSampleCount) {
+        Object weight = measurement.get("reportedWeightGrams");
+        if (!"STABLE".equals(measurement.get("status"))
+                || !Boolean.TRUE.equals(
+                measurement.get("weightValueAvailable"))
+                || !(weight instanceof Long)
+                || !"STABLE_WINDOW_MEAN".equals(
+                measurement.get("weightValueKind"))
+                || !Long.valueOf(1).equals(
+                measurement.get("sampleCount"))
+                || !"OK".equals(measurement.get("sensorHealth"))
+                || measurement.get("faultCode") != null
+                || (requestedSampleCount == 0
+                && !Long.valueOf(0).equals(weight))) {
+            throw permanent(
+                    "fullness fixed-frame weight quality fields differ");
+        }
+        return new FullnessCompatibilityMeasurement(measurement);
     }
 
     private static Map<String, Object> nullableMeasurement(
@@ -1796,6 +1940,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "delivery session target differs from payload");
         }
+        if ("FULLNESS_SAMPLE_COMPLETE".equals(
+                contract.messageKind())
+                && !payload.get("detectionUid").equals(targetUid)) {
+            throw permanent(
+                    "fullness detection target differs from payload");
+        }
         if (Set.of(
                 "PHOTO_STATUS_REPORTED",
                 "PHOTO_UPLOAD_GRANT_REQUESTED").contains(
@@ -2120,5 +2270,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             String messageKind,
             String deliveryClass,
             String targetType) {
+    }
+
+    private record FullnessCompatibilityMeasurement(
+            Map<String, Object> measurement) {
     }
 }

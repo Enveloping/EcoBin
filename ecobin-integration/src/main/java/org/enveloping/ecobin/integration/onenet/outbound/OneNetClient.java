@@ -92,6 +92,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "startDeliverySession";
                 params = projectStartDeliverySession(envelope);
+            } else if ("SAMPLE_FULLNESS".equals(
+                    submission.commandType())) {
+                identifier = "sampleFullness";
+                params = projectSampleFullness(envelope);
             } else if ("CONFIRM_EDGE_EVENT".equals(
                     submission.commandType())) {
                 identifier = "confirmEdgeEvent";
@@ -545,6 +549,145 @@ public class OneNetClient
         params.put(
                 "cosGrantSessionTokenParts",
                 sessionTokenParts);
+        return params;
+    }
+
+    private Map<String, Object> projectSampleFullness(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        JsonNode config = requiredObject(payload, "config");
+        String detectionUid =
+                requiredUuid(payload, "detectionUid");
+        if (!"FULLNESS_DETECTION".equals(
+                requiredText(target, "type"))
+                || !detectionUid.equals(
+                requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "fullness target must identify the payload detection");
+        }
+
+        Map<String, Object> scalar = new LinkedHashMap<>();
+        scalar.put(
+                "schemaVersion",
+                requiredInteger(
+                        envelope,
+                        "schemaVersion",
+                        1,
+                        1));
+        scalar.put(
+                "commandUid",
+                requiredUuid(envelope, "commandUid"));
+        scalar.put("commandType", 1);
+        scalar.put(
+                "deploymentCode",
+                requiredMatchingText(
+                        envelope,
+                        "deploymentCode",
+                        "^Dp_[A-Za-z0-9_-]{6,61}$",
+                        64));
+        String issuedAt = requiredInstant(
+                envelope,
+                "issuedAt");
+        String expiresAt = requiredInstant(
+                envelope,
+                "expiresAt");
+        if (!Instant.parse(expiresAt).isAfter(
+                Instant.parse(issuedAt))) {
+            throw new IllegalArgumentException(
+                    "fullness command expiry must follow issue time");
+        }
+        scalar.put("issuedAt", issuedAt);
+        scalar.put("expiresAt", expiresAt);
+        scalar.put(
+                "payloadSchemaVersion",
+                requiredInteger(
+                        envelope,
+                        "payloadSchemaVersion",
+                        1,
+                        1));
+        scalar.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        scalar.put("detectionUid", detectionUid);
+        scalar.put(
+                "portNo",
+                requiredInteger(payload, "portNo", 1, 6));
+        scalar.put(
+                "sampleRole",
+                switch (requiredText(payload, "sampleRole")) {
+                    case "INITIAL" -> 1;
+                    case "CONFIRMATION" -> 2;
+                    case "MANUAL_RECHECK" -> 3;
+                    default -> throw new IllegalArgumentException(
+                            "unsupported fullness sample role");
+                });
+        scalar.put(
+                "triggerType",
+                switch (requiredText(payload, "triggerType")) {
+                    case "DELIVERY_COMPLETE" -> 1;
+                    case "CLEAN_COMPLETE" -> 2;
+                    case "MANUAL_RECHECK" -> 3;
+                    default -> throw new IllegalArgumentException(
+                            "unsupported fullness trigger type");
+                });
+        scalar.put(
+                "fullnessMode",
+                fullnessModeCode(
+                        requiredText(payload, "fullnessMode")));
+        JsonNode baseline =
+                payload.get("currentBaselineWeightGrams");
+        boolean baselinePresent =
+                baseline != null && !baseline.isNull();
+        scalar.put(
+                "currentBaselineWeightGramPresent",
+                baselinePresent);
+        scalar.put(
+                "currentBaselineWeightGram",
+                baselinePresent
+                        ? requiredInteger(
+                        payload,
+                        "currentBaselineWeightGrams",
+                        Integer.MIN_VALUE,
+                        Integer.MAX_VALUE)
+                        : 0);
+        scalar.put(
+                "configuredFullWeightGrams",
+                requiredInteger(
+                        payload,
+                        "configuredFullWeightGrams",
+                        1,
+                        4_294_967_295L));
+        scalar.put(
+                "settleWaitMs",
+                requiredInteger(
+                        payload,
+                        "settleWaitMs",
+                        0,
+                        4_294_967_295L));
+        scalar.put(
+                "measurementTimeoutMs",
+                requiredInteger(
+                        payload,
+                        "measurementTimeoutMs",
+                        1_000,
+                        6_000));
+        scalar.put("cosGrantPresent", false);
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields", scalar);
+        params.put(
+                "target",
+                Map.of(
+                        "type",
+                        1,
+                        "uid",
+                        detectionUid));
+        params.put("config", config);
         return params;
     }
 

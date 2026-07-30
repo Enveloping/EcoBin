@@ -34,13 +34,14 @@ public class ReliableDeviceTaskRegistrationService
                     keys[2] = deploymentKey;
                     keys[3] = commandKey;
                 });
+        var now = repository.databaseNow();
         if (registration.supersedePriorPendingTasks()) {
             repository.cancelSupersededDeviceTasks(
                     keys[0],
                     keys[1],
                     keys[2],
                     registration.taskType(),
-                    repository.databaseNow());
+                    now);
         }
         return repository.insertDeviceBusinessTask(
                 keys[0],
@@ -57,6 +58,9 @@ public class ReliableDeviceTaskRegistrationService
                 registration.correlationUid(),
                 registration.causationUid(),
                 registration.maxAutoAttempts(),
-                repository.databaseNow());
+                registration.initialRunAt() == null
+                        ? now
+                        : registration.initialRunAt(),
+                now);
     }
 }

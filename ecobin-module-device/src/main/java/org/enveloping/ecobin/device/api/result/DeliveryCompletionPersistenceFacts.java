@@ -34,6 +34,7 @@ public record DeliveryCompletionPersistenceFacts(
         long configuredFullWeightGrams,
         long fullnessSettleWaitMs,
         long fullnessConfirmationWaitMs,
+        long fullnessMeasurementTimeoutMs,
         LocalDateTime backendReceivedAt,
         DeliveryCompletePhysicalFact physicalFact) {
 
