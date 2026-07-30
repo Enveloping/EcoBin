@@ -54,6 +54,16 @@ cos:
 
 # 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
 ecobin:
+  observability:
+    # 所有环境记录请求到达、响应状态和耗时；生产默认不记录请求体。
+    http-request-logging:
+      enabled: true
+      include-query-string: true
+      include-request-body: false
+      max-payload-length: 4096
+      excluded-path-prefixes:
+        - /actuator/health
+
   device:
     # 创建设备部署时按型号选择初始硬件档案并发布 v1。
     # 未列出的型号使用 default-profile，便于开发期新增型号后仍能完成部署。
@@ -147,5 +157,8 @@ management:
 
 # 日志
 logging:
+  # requestId 由最外层 HTTP 过滤器写入 MDC，便于把业务日志和 HTTP_IN/HTTP_OUT 串起来。
+  pattern:
+    level: "%5p requestId=%X{requestId:-}"
   level:
     org.enveloping.ecobin: INFO

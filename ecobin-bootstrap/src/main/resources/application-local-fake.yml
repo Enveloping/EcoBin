@@ -3,6 +3,9 @@
 # 本地 secrets YAML 可以长期保存真实渠道配置；本 profile 在最终绑定层统一屏蔽它们，
 # 防止本地登录/API 联调误连 OneNet、COS 或微信。
 ecobin:
+  observability:
+    http-request-logging:
+      include-request-body: true
   development:
     default-platform-admin:
       enabled: true
