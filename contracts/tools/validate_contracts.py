@@ -47,6 +47,7 @@ from contractlib import (  # noqa: E402
     validate_uart_registry,
 )
 from generate_contracts import apply_outputs, build_outputs  # noqa: E402
+from http_contract import validate_http_contract  # noqa: E402
 
 
 class ValidationSummary:
@@ -1356,6 +1357,11 @@ def validate_generation(summary: ValidationSummary) -> None:
     summary.passed(f"{len(outputs)} generated files exactly match authoritative sources")
 
 
+def validate_http(summary: ValidationSummary) -> None:
+    for check in validate_http_contract():
+        summary.passed(check)
+
+
 def run_validation(
     *,
     run_java: bool = True,
@@ -1363,6 +1369,7 @@ def run_validation(
 ) -> ValidationSummary:
     summary = ValidationSummary()
     validate_generation(summary)
+    validate_http(summary)
     validate_sources(summary)
     validate_onenet_thing_model(summary)
     validate_onenet_wire_examples(summary)

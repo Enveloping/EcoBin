@@ -2405,6 +2405,173 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/me/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current ordinary user's wallet summary
+         * @description Returns pending delivery reward, withdrawable balance and withdrawal-processing amount from one repeatable-read snapshot.
+         */
+        get: operations["getMiniappWalletSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/wallet/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the current ordinary user's wallet entries
+         * @description The opaque cursor is bound to the current user and the first page snapshot. Clients must reuse it unchanged and must not construct or decode it.
+         */
+        get: operations["listMiniappWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** Get one visible organization user's wallet summary */
+        get: operations["getWebOrganizationUserWalletSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** Get one organization user's wallet summary in an explicit platform scope */
+        get: operations["getPlatformOrganizationUserWalletSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** List one visible organization user's wallet entries */
+        get: operations["listWebOrganizationUserWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** List one organization user's wallet entries in an explicit platform scope */
+        get: operations["listPlatformOrganizationUserWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/wallet-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List wallet entries across one visible organization
+         * @description The first request fixes a high-watermark and snapshot time. Every subsequent request must preserve all filters and reuse nextCursor unchanged.
+         */
+        get: operations["listWebOrganizationWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wallet-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List wallet entries in an explicit platform organization scope
+         * @description The first request fixes a high-watermark and snapshot time. Every subsequent request must preserve all filters and reuse nextCursor unchanged.
+         */
+        get: operations["listPlatformOrganizationWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/wechat-pay/notifications/native-payments": {
         parameters: {
             query?: never;
@@ -3517,6 +3684,85 @@ export interface components {
             data: components["schemas"]["DeliverySessionView"];
             requestId: string;
         };
+        /** @description Opaque server-signed wallet cursor with a 24-hour lifetime. It is bound to the authenticated scope, snapshot and original filters. */
+        WalletEntryCursor: string;
+        /**
+         * @description Immutable reason that changed the user wallet ledger.
+         * @enum {string}
+         */
+        WalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_FREEZE" | "WITHDRAWAL_SUCCEEDED" | "WITHDRAWAL_RELEASED" | "MANUAL_ADJUSTMENT";
+        /**
+         * @description Owning business fact whose stable number is copied into the wallet entry.
+         * @enum {string}
+         */
+        WalletEntrySourceType: "DELIVERY_ORDER" | "WITHDRAWAL_ORDER" | "MANUAL_ADJUSTMENT";
+        /** @description Monotonic sequence within one user wallet; bounded to the exact JavaScript integer range. */
+        WalletEntrySequenceNo: number;
+        /** @description Immutable public delivery, withdrawal or adjustment source number. */
+        WalletEntrySourceNo: string;
+        WalletSummary: {
+            /** @description Current wallet lock version observed with the balance snapshot. */
+            walletVersion: number;
+            pendingRewardYuan: components["schemas"]["PositiveMoneyCny"];
+            availableBalanceYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingYuan: components["schemas"]["PositiveMoneyCny"];
+            asOf: components["schemas"]["UtcTimestamp"];
+        };
+        PersonalWalletEntry: {
+            entryUid: components["schemas"]["PublicUid"];
+            entrySequenceNo: components["schemas"]["WalletEntrySequenceNo"];
+            entryType: components["schemas"]["WalletEntryType"];
+            availableDeltaYuan: components["schemas"]["MoneyCny"];
+            processingDeltaYuan: components["schemas"]["MoneyCny"];
+            availableBalanceAfterYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingAfterYuan: components["schemas"]["PositiveMoneyCny"];
+            sourceType: components["schemas"]["WalletEntrySourceType"];
+            sourceNo: components["schemas"]["WalletEntrySourceNo"];
+            occurredAt: components["schemas"]["UtcTimestamp"];
+        };
+        OrganizationWalletEntry: {
+            entryUid: components["schemas"]["PublicUid"];
+            organizationUserUid: components["schemas"]["PublicUid"];
+            entrySequenceNo: components["schemas"]["WalletEntrySequenceNo"];
+            entryType: components["schemas"]["WalletEntryType"];
+            availableDeltaYuan: components["schemas"]["MoneyCny"];
+            processingDeltaYuan: components["schemas"]["MoneyCny"];
+            availableBalanceAfterYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingAfterYuan: components["schemas"]["PositiveMoneyCny"];
+            sourceType: components["schemas"]["WalletEntrySourceType"];
+            sourceNo: components["schemas"]["WalletEntrySourceNo"];
+            occurredAt: components["schemas"]["UtcTimestamp"];
+        };
+        PersonalWalletEntryCursorPage: {
+            items: components["schemas"]["PersonalWalletEntry"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            /** @description Opaque cursor for the next page, or null when the snapshot is exhausted. */
+            nextCursor: components["schemas"]["WalletEntryCursor"] | null;
+        };
+        OrganizationWalletEntryCursorPage: {
+            items: components["schemas"]["OrganizationWalletEntry"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            /** @description Opaque filter-bound cursor for the next page, or null when the high-watermark snapshot is exhausted. */
+            nextCursor: components["schemas"]["WalletEntryCursor"] | null;
+        };
+        WalletSummaryEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WalletSummary"];
+            requestId: string;
+        };
+        PersonalWalletEntryPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["PersonalWalletEntryCursorPage"];
+            requestId: string;
+        };
+        OrganizationWalletEntryPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["OrganizationWalletEntryCursorPage"];
+            requestId: string;
+        };
         WechatPayEncryptedNotification: {
             id: string;
             /** Format: date-time */
@@ -3949,6 +4195,57 @@ export interface components {
                 "application/json": components["schemas"]["DeliveryReviewResultEnvelope"];
             };
         };
+        /** @description Pending reward and wallet balances observed from one repeatable-read snapshot */
+        WalletSummaryOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["WalletSummaryEnvelope"];
+            };
+        };
+        /** @description A stable cursor page from one organization's user wallet */
+        PersonalWalletEntriesOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["PersonalWalletEntryPageEnvelope"];
+            };
+        };
+        /** @description A stable high-watermark cursor page across one visible organization */
+        OrganizationWalletEntriesOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["OrganizationWalletEntryPageEnvelope"];
+            };
+        };
+        /** @description COMMON.VALIDATION_FAILED for an unsupported filter, invalid limit or invalid time range; COMMON.INVALID_CURSOR for a malformed, expired or filter-mismatched cursor */
+        WalletQueryInvalidRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description WALLET.NOT_INITIALIZED when the organization-user wallet invariant is missing, or COMMON.INTERNAL_ERROR for an unexpected failure */
+        WalletInternalProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
     };
     parameters: {
         /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
@@ -3964,6 +4261,8 @@ export interface components {
         Page: number;
         PageSize: number;
         Cursor: components["schemas"]["Cursor"];
+        /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+        WalletCursor: components["schemas"]["WalletEntryCursor"];
         DeliveryOrderLimit: number;
         DeliveryReviewStatusFilter: components["schemas"]["DeliveryReviewStatus"];
         DeliveryOccurredFrom: components["schemas"]["UtcTimestamp"];
@@ -3973,6 +4272,17 @@ export interface components {
         DeliveryPortFilter: number;
         DeliveryAnomalyFilter: string;
         DeliveryPhotoCompletenessFilter: components["schemas"]["DeliveryPhotoCompleteness"];
+        /** @description Number of immutable wallet entries to return. */
+        WalletEntryLimit: number;
+        /** @description Restrict an organization ledger query to one public organization-user identity. */
+        WalletOrganizationUserFilter: components["schemas"]["PublicUid"];
+        WalletEntryTypeFilter: components["schemas"]["WalletEntryType"];
+        /** @description Inclusive lower UTC occurrence-time bound. */
+        WalletOccurredFrom: components["schemas"]["UtcTimestamp"];
+        /** @description Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom. */
+        WalletOccurredTo: components["schemas"]["UtcTimestamp"];
+        /** @description Exact immutable source business number. */
+        WalletSourceNoFilter: string;
         HardwareSn: components["schemas"]["HardwareSn"];
         DeploymentCode: components["schemas"]["DeploymentCode"];
         PortNo: number;
@@ -7050,6 +7360,199 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
             422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getMiniappWalletSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WalletSummaryOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listMiniappWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PersonalWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    getWebOrganizationUserWalletSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WalletSummaryOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    getPlatformOrganizationUserWalletSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WalletSummaryOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listWebOrganizationUserWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PersonalWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listPlatformOrganizationUserWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PersonalWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listWebOrganizationWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Restrict an organization ledger query to one public organization-user identity. */
+                organizationUserUid?: components["parameters"]["WalletOrganizationUserFilter"];
+                entryType?: components["parameters"]["WalletEntryTypeFilter"];
+                /** @description Inclusive lower UTC occurrence-time bound. */
+                occurredFrom?: components["parameters"]["WalletOccurredFrom"];
+                /** @description Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom. */
+                occurredTo?: components["parameters"]["WalletOccurredTo"];
+                /** @description Exact immutable source business number. */
+                sourceNo?: components["parameters"]["WalletSourceNoFilter"];
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OrganizationWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listPlatformOrganizationWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Restrict an organization ledger query to one public organization-user identity. */
+                organizationUserUid?: components["parameters"]["WalletOrganizationUserFilter"];
+                entryType?: components["parameters"]["WalletEntryTypeFilter"];
+                /** @description Inclusive lower UTC occurrence-time bound. */
+                occurredFrom?: components["parameters"]["WalletOccurredFrom"];
+                /** @description Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom. */
+                occurredTo?: components["parameters"]["WalletOccurredTo"];
+                /** @description Exact immutable source business number. */
+                sourceNo?: components["parameters"]["WalletSourceNoFilter"];
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OrganizationWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
         };
     };
     receiveWechatNativePaymentNotification: {

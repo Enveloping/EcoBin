@@ -418,6 +418,234 @@ def _validate_common_schemas(document: Mapping[str, Any]) -> None:
             raise ContractError(f"{response_name} must use application/problem+json")
 
 
+def _validate_wallet_read_contract(document: Mapping[str, Any]) -> str:
+    wallet_operations = {
+        "/api/v1/miniapp/me/wallet": {
+            "security": {"miniappBearer"},
+            "pathParameters": set(),
+            "queryParameters": set(),
+            "responses": {"200", "401", "500"},
+            "okResponse": "WalletSummaryOk",
+        },
+        "/api/v1/miniapp/me/wallet/entries": {
+            "security": {"miniappBearer"},
+            "pathParameters": set(),
+            "queryParameters": {"WalletCursor", "WalletEntryLimit"},
+            "responses": {"200", "400", "401", "500"},
+            "okResponse": "PersonalWalletEntriesOk",
+        },
+        (
+            "/api/v1/web/organizations/{organizationCode}"
+            "/organization-users/{organizationUserUid}/wallet"
+        ): {
+            "security": {"webSessionCookie"},
+            "pathParameters": {"OrganizationCode", "OrganizationUserUid"},
+            "queryParameters": set(),
+            "responses": {"200", "400", "401", "403", "404", "500"},
+            "okResponse": "WalletSummaryOk",
+        },
+        (
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}"
+            "/organization-users/{organizationUserUid}/wallet"
+        ): {
+            "security": {"webSessionCookie"},
+            "pathParameters": {
+                "TenantCode",
+                "OrganizationCode",
+                "OrganizationUserUid",
+            },
+            "queryParameters": set(),
+            "responses": {"200", "400", "401", "403", "404", "500"},
+            "okResponse": "WalletSummaryOk",
+        },
+        (
+            "/api/v1/web/organizations/{organizationCode}"
+            "/organization-users/{organizationUserUid}/wallet/entries"
+        ): {
+            "security": {"webSessionCookie"},
+            "pathParameters": {"OrganizationCode", "OrganizationUserUid"},
+            "queryParameters": {"WalletCursor", "WalletEntryLimit"},
+            "responses": {"200", "400", "401", "403", "404", "500"},
+            "okResponse": "PersonalWalletEntriesOk",
+        },
+        (
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}"
+            "/organization-users/{organizationUserUid}/wallet/entries"
+        ): {
+            "security": {"webSessionCookie"},
+            "pathParameters": {
+                "TenantCode",
+                "OrganizationCode",
+                "OrganizationUserUid",
+            },
+            "queryParameters": {"WalletCursor", "WalletEntryLimit"},
+            "responses": {"200", "400", "401", "403", "404", "500"},
+            "okResponse": "PersonalWalletEntriesOk",
+        },
+        "/api/v1/web/organizations/{organizationCode}/wallet-entries": {
+            "security": {"webSessionCookie"},
+            "pathParameters": {"OrganizationCode"},
+            "queryParameters": {
+                "WalletOrganizationUserFilter",
+                "WalletEntryTypeFilter",
+                "WalletOccurredFrom",
+                "WalletOccurredTo",
+                "WalletSourceNoFilter",
+                "WalletCursor",
+                "WalletEntryLimit",
+            },
+            "responses": {"200", "400", "401", "403", "404", "500"},
+            "okResponse": "OrganizationWalletEntriesOk",
+        },
+        (
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}/wallet-entries"
+        ): {
+            "security": {"webSessionCookie"},
+            "pathParameters": {"TenantCode", "OrganizationCode"},
+            "queryParameters": {
+                "WalletOrganizationUserFilter",
+                "WalletEntryTypeFilter",
+                "WalletOccurredFrom",
+                "WalletOccurredTo",
+                "WalletSourceNoFilter",
+                "WalletCursor",
+                "WalletEntryLimit",
+            },
+            "responses": {"200", "400", "401", "403", "404", "500"},
+            "okResponse": "OrganizationWalletEntriesOk",
+        },
+    }
+
+    def parameter_names(items: Any, location: str) -> set[str]:
+        if not isinstance(items, list):
+            raise ContractError(f"wallet {location} parameters must be a list")
+        prefix = "#/components/parameters/"
+        names: set[str] = set()
+        for item in items:
+            if not isinstance(item, Mapping):
+                raise ContractError(f"wallet {location} parameter must be a $ref")
+            ref = item.get("$ref")
+            if not isinstance(ref, str) or not ref.startswith(prefix):
+                raise ContractError(f"wallet {location} parameter must use a component")
+            names.add(ref.removeprefix(prefix))
+        return names
+
+    paths = document["paths"]
+    for path, expected in wallet_operations.items():
+        if path not in paths:
+            raise ContractError(f"wallet read path is missing: {path}")
+        path_item = paths[path]
+        operation = path_item.get("get")
+        if not isinstance(operation, Mapping):
+            raise ContractError(f"wallet read GET operation is missing: {path}")
+        security = _operation_security(operation)
+        if security != {frozenset(expected["security"])}:
+            raise ContractError(f"wallet security differs at {path}")
+        if parameter_names(
+            path_item.get("parameters", []),
+            "path",
+        ) != expected["pathParameters"]:
+            raise ContractError(f"wallet path parameters differ at {path}")
+        if parameter_names(
+            operation.get("parameters", []),
+            "query",
+        ) != expected["queryParameters"]:
+            raise ContractError(f"wallet query parameters differ at {path}")
+        responses = operation.get("responses")
+        if not isinstance(responses, Mapping):
+            raise ContractError(f"wallet responses are missing at {path}")
+        if set(responses) != expected["responses"]:
+            raise ContractError(f"wallet response statuses differ at {path}")
+        ok_ref = responses["200"].get("$ref")
+        expected_ok = (
+            "#/components/responses/" + str(expected["okResponse"])
+        )
+        if ok_ref != expected_ok:
+            raise ContractError(f"wallet success response differs at {path}")
+
+    schemas = document["components"]["schemas"]
+    required_schemas = {
+        "WalletEntryCursor",
+        "WalletEntryType",
+        "WalletEntrySourceType",
+        "WalletEntrySequenceNo",
+        "WalletEntrySourceNo",
+        "WalletSummary",
+        "WalletSummaryEnvelope",
+        "PersonalWalletEntry",
+        "OrganizationWalletEntry",
+        "PersonalWalletEntryCursorPage",
+        "OrganizationWalletEntryCursorPage",
+        "PersonalWalletEntryPageEnvelope",
+        "OrganizationWalletEntryPageEnvelope",
+    }
+    missing_schemas = required_schemas - set(schemas)
+    if missing_schemas:
+        raise ContractError(
+            f"wallet schemas are missing {sorted(missing_schemas)}"
+        )
+    expected_entry_types = {
+        "DELIVERY_INITIAL_REVIEW",
+        "DELIVERY_CORRECTION",
+        "WITHDRAWAL_FREEZE",
+        "WITHDRAWAL_SUCCEEDED",
+        "WITHDRAWAL_RELEASED",
+        "MANUAL_ADJUSTMENT",
+    }
+    if set(schemas["WalletEntryType"].get("enum", [])) != expected_entry_types:
+        raise ContractError("wallet entry types differ from funds")
+    expected_source_types = {
+        "DELIVERY_ORDER",
+        "WITHDRAWAL_ORDER",
+        "MANUAL_ADJUSTMENT",
+    }
+    if (
+        set(schemas["WalletEntrySourceType"].get("enum", []))
+        != expected_source_types
+    ):
+        raise ContractError("wallet source types differ from funds")
+    for page_name in (
+        "PersonalWalletEntryCursorPage",
+        "OrganizationWalletEntryCursorPage",
+    ):
+        items = schemas[page_name]["properties"]["items"]
+        if items.get("maxItems") != 100:
+            raise ContractError("wallet page item bound differs from funds")
+
+    parameters = document["components"]["parameters"]
+    limit = parameters["WalletEntryLimit"]["schema"]
+    if (
+        limit.get("minimum") != 1
+        or limit.get("maximum") != 100
+        or limit.get("default") != 20
+    ):
+        raise ContractError("wallet entry limit differs from funds")
+    source_no = parameters["WalletSourceNoFilter"]["schema"]
+    if source_no.get("maxLength") != 64:
+        raise ContractError("wallet sourceNo limit differs from funds")
+    cursor_description = parameters["WalletCursor"].get("description", "")
+    if "24 hours" not in cursor_description:
+        raise ContractError("wallet cursor lifetime is missing")
+    occurred_to_description = parameters["WalletOccurredTo"].get(
+        "description",
+        "",
+    )
+    if "later than occurredFrom" not in occurred_to_description:
+        raise ContractError("wallet time-range ordering rule is missing")
+
+    responses = document["components"]["responses"]
+    for response_name in ("WalletQueryInvalidRequest", "WalletInternalProblem"):
+        media = responses[response_name].get("content", {})
+        if "application/problem+json" not in media:
+            raise ContractError(
+                f"{response_name} must use application/problem+json"
+            )
+    return "8 wallet read operations match funds filters, cursors and errors"
+
+
 def validate_openapi_document(document: Mapping[str, Any]) -> list[str]:
     if document.get("openapi") != "3.1.0":
         raise ContractError("HTTP source must declare OpenAPI 3.1.0")
@@ -450,11 +678,13 @@ def validate_openapi_document(document: Mapping[str, Any]) -> list[str]:
     operation_count = _validate_operations(document)
     _validate_security(document)
     _validate_common_schemas(document)
+    wallet_check = _validate_wallet_read_contract(document)
     return [
         f"HTTP OpenAPI 3.1 source has {operation_count} uniquely identified operations",
         f"HTTP OpenAPI resolves {reference_count} local references",
         "HTTP Cookie+CSRF, miniapp Bearer, and signed notification security are distinct",
         "HTTP ProblemDetail, 202, paging, version, UUIDv4, UTC, and decimal schemas are fixed",
+        wallet_check,
     ]
 
 

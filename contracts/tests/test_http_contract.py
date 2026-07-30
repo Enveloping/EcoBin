@@ -24,6 +24,79 @@ class HttpContractTests(unittest.TestCase):
         checks = validate_http_contract()
         self.assertGreaterEqual(len(checks), 5)
 
+    def test_wallet_read_surface_is_in_authoritative_contract(self) -> None:
+        document = load_openapi()
+        expected_paths = {
+            "/api/v1/miniapp/me/wallet",
+            "/api/v1/miniapp/me/wallet/entries",
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet"
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet/entries"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet/entries"
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/wallet-entries"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/wallet-entries"
+            ),
+        }
+        missing_paths = expected_paths - set(document["paths"])
+        self.assertEqual(
+            set(),
+            missing_paths,
+            f"wallet paths missing from OpenAPI: {sorted(missing_paths)}",
+        )
+
+        expected_schemas = {
+            "WalletEntryCursor",
+            "WalletSummary",
+            "WalletSummaryEnvelope",
+            "WalletEntryType",
+            "WalletEntrySourceType",
+            "PersonalWalletEntry",
+            "OrganizationWalletEntry",
+            "PersonalWalletEntryCursorPage",
+            "OrganizationWalletEntryCursorPage",
+            "PersonalWalletEntryPageEnvelope",
+            "OrganizationWalletEntryPageEnvelope",
+        }
+        missing_schemas = (
+            expected_schemas - set(document["components"]["schemas"])
+        )
+        self.assertEqual(
+            set(),
+            missing_schemas,
+            f"wallet schemas missing from OpenAPI: {sorted(missing_schemas)}",
+        )
+
+    def test_wallet_filter_and_cursor_contract_cannot_drift(self) -> None:
+        document = load_openapi()
+        changed = copy.deepcopy(document)
+        changed["components"]["parameters"]["WalletEntryLimit"]["schema"][
+            "maximum"
+        ] = 101
+        with self.assertRaisesRegex(
+            ContractError,
+            "wallet entry limit differs",
+        ):
+            validate_openapi_document(changed)
+
     def test_web_path_cannot_silently_switch_to_bearer(self) -> None:
         document = load_openapi()
         changed = copy.deepcopy(document)

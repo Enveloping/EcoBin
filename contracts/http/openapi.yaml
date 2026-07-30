@@ -49,6 +49,10 @@
       "description": "Tenant-scoped delivery evidence, cursor queries, additive review revisions and wallet deltas."
     },
     {
+      "name": "Wallet",
+      "description": "Ordinary-user wallet summaries plus personal and organization-scoped immutable ledger queries."
+    },
+    {
       "name": "Signed external notifications",
       "description": "Exact WeChat Pay notification paths authenticated by the four APIv3 signature headers."
     }
@@ -3306,6 +3310,188 @@
         }
       }
     },
+    "/api/v1/miniapp/me/wallet": {
+      "get": {
+        "operationId": "getMiniappWalletSummary",
+        "tags": ["Wallet"],
+        "summary": "Get the current ordinary user's wallet summary",
+        "description": "Returns pending delivery reward, withdrawable balance and withdrawal-processing amount from one repeatable-read snapshot.",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WalletSummaryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/me/wallet/entries": {
+      "get": {
+        "operationId": "listMiniappWalletEntries",
+        "tags": ["Wallet"],
+        "summary": "List the current ordinary user's wallet entries",
+        "description": "The opaque cursor is bound to the current user and the first page snapshot. Clients must reuse it unchanged and must not construct or decode it.",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/WalletCursor"},
+          {"$ref": "#/components/parameters/WalletEntryLimit"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/PersonalWalletEntriesOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/OrganizationUserUid"}
+      ],
+      "get": {
+        "operationId": "getWebOrganizationUserWalletSummary",
+        "tags": ["Wallet"],
+        "summary": "Get one visible organization user's wallet summary",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WalletSummaryOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/OrganizationUserUid"}
+      ],
+      "get": {
+        "operationId": "getPlatformOrganizationUserWalletSummary",
+        "tags": ["Wallet"],
+        "summary": "Get one organization user's wallet summary in an explicit platform scope",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WalletSummaryOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/OrganizationUserUid"}
+      ],
+      "get": {
+        "operationId": "listWebOrganizationUserWalletEntries",
+        "tags": ["Wallet"],
+        "summary": "List one visible organization user's wallet entries",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/WalletCursor"},
+          {"$ref": "#/components/parameters/WalletEntryLimit"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/PersonalWalletEntriesOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/OrganizationUserUid"}
+      ],
+      "get": {
+        "operationId": "listPlatformOrganizationUserWalletEntries",
+        "tags": ["Wallet"],
+        "summary": "List one organization user's wallet entries in an explicit platform scope",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/WalletCursor"},
+          {"$ref": "#/components/parameters/WalletEntryLimit"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/PersonalWalletEntriesOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/wallet-entries": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "listWebOrganizationWalletEntries",
+        "tags": ["Wallet"],
+        "summary": "List wallet entries across one visible organization",
+        "description": "The first request fixes a high-watermark and snapshot time. Every subsequent request must preserve all filters and reuse nextCursor unchanged.",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/WalletOrganizationUserFilter"},
+          {"$ref": "#/components/parameters/WalletEntryTypeFilter"},
+          {"$ref": "#/components/parameters/WalletOccurredFrom"},
+          {"$ref": "#/components/parameters/WalletOccurredTo"},
+          {"$ref": "#/components/parameters/WalletSourceNoFilter"},
+          {"$ref": "#/components/parameters/WalletCursor"},
+          {"$ref": "#/components/parameters/WalletEntryLimit"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/OrganizationWalletEntriesOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wallet-entries": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "listPlatformOrganizationWalletEntries",
+        "tags": ["Wallet"],
+        "summary": "List wallet entries in an explicit platform organization scope",
+        "description": "The first request fixes a high-watermark and snapshot time. Every subsequent request must preserve all filters and reuse nextCursor unchanged.",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/WalletOrganizationUserFilter"},
+          {"$ref": "#/components/parameters/WalletEntryTypeFilter"},
+          {"$ref": "#/components/parameters/WalletOccurredFrom"},
+          {"$ref": "#/components/parameters/WalletOccurredTo"},
+          {"$ref": "#/components/parameters/WalletSourceNoFilter"},
+          {"$ref": "#/components/parameters/WalletCursor"},
+          {"$ref": "#/components/parameters/WalletEntryLimit"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/OrganizationWalletEntriesOk"},
+          "400": {"$ref": "#/components/responses/WalletQueryInvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/WalletInternalProblem"}
+        }
+      }
+    },
     "/api/v1/wechat-pay/notifications/native-payments": {
       "post": {
         "operationId": "receiveWechatNativePaymentNotification",
@@ -3528,6 +3714,15 @@
           "$ref": "#/components/schemas/Cursor"
         }
       },
+      "WalletCursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged.",
+        "schema": {
+          "$ref": "#/components/schemas/WalletEntryCursor"
+        }
+      },
       "DeliveryOrderLimit": {
         "name": "limit",
         "in": "query",
@@ -3605,6 +3800,64 @@
         "required": false,
         "schema": {
           "$ref": "#/components/schemas/DeliveryPhotoCompleteness"
+        }
+      },
+      "WalletEntryLimit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Number of immutable wallet entries to return.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "WalletOrganizationUserFilter": {
+        "name": "organizationUserUid",
+        "in": "query",
+        "required": false,
+        "description": "Restrict an organization ledger query to one public organization-user identity.",
+        "schema": {
+          "$ref": "#/components/schemas/PublicUid"
+        }
+      },
+      "WalletEntryTypeFilter": {
+        "name": "entryType",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/WalletEntryType"
+        }
+      },
+      "WalletOccurredFrom": {
+        "name": "occurredFrom",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive lower UTC occurrence-time bound.",
+        "schema": {
+          "$ref": "#/components/schemas/UtcTimestamp"
+        }
+      },
+      "WalletOccurredTo": {
+        "name": "occurredTo",
+        "in": "query",
+        "required": false,
+        "description": "Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom.",
+        "schema": {
+          "$ref": "#/components/schemas/UtcTimestamp"
+        }
+      },
+      "WalletSourceNoFilter": {
+        "name": "sourceNo",
+        "in": "query",
+        "required": false,
+        "description": "Exact immutable source business number.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       },
       "HardwareSn": {
@@ -4225,6 +4478,58 @@
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/DeliveryReviewResultEnvelope"}
+          }
+        }
+      },
+      "WalletSummaryOk": {
+        "description": "Pending reward and wallet balances observed from one repeatable-read snapshot",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/WalletSummaryEnvelope"}
+          }
+        }
+      },
+      "PersonalWalletEntriesOk": {
+        "description": "A stable cursor page from one organization's user wallet",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/PersonalWalletEntryPageEnvelope"}
+          }
+        }
+      },
+      "OrganizationWalletEntriesOk": {
+        "description": "A stable high-watermark cursor page across one visible organization",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/OrganizationWalletEntryPageEnvelope"}
+          }
+        }
+      },
+      "WalletQueryInvalidRequest": {
+        "description": "COMMON.VALIDATION_FAILED for an unsupported filter, invalid limit or invalid time range; COMMON.INVALID_CURSOR for a malformed, expired or filter-mismatched cursor",
+        "content": {
+          "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+          }
+        }
+      },
+      "WalletInternalProblem": {
+        "description": "WALLET.NOT_INITIALIZED when the organization-user wallet invariant is missing, or COMMON.INTERNAL_ERROR for an unexpected failure",
+        "content": {
+          "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
           }
         }
       }
@@ -8081,6 +8386,280 @@
           },
           "data": {
             "$ref": "#/components/schemas/DeliverySessionView"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "WalletEntryCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "description": "Opaque server-signed wallet cursor with a 24-hour lifetime. It is bound to the authenticated scope, snapshot and original filters."
+      },
+      "WalletEntryType": {
+        "type": "string",
+        "enum": [
+          "DELIVERY_INITIAL_REVIEW",
+          "DELIVERY_CORRECTION",
+          "WITHDRAWAL_FREEZE",
+          "WITHDRAWAL_SUCCEEDED",
+          "WITHDRAWAL_RELEASED",
+          "MANUAL_ADJUSTMENT"
+        ],
+        "description": "Immutable reason that changed the user wallet ledger."
+      },
+      "WalletEntrySourceType": {
+        "type": "string",
+        "enum": [
+          "DELIVERY_ORDER",
+          "WITHDRAWAL_ORDER",
+          "MANUAL_ADJUSTMENT"
+        ],
+        "description": "Owning business fact whose stable number is copied into the wallet entry."
+      },
+      "WalletEntrySequenceNo": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991,
+        "description": "Monotonic sequence within one user wallet; bounded to the exact JavaScript integer range."
+      },
+      "WalletEntrySourceNo": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "Immutable public delivery, withdrawal or adjustment source number."
+      },
+      "WalletSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "walletVersion",
+          "pendingRewardYuan",
+          "availableBalanceYuan",
+          "withdrawalProcessingYuan",
+          "asOf"
+        ],
+        "properties": {
+          "walletVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Current wallet lock version observed with the balance snapshot."
+          },
+          "pendingRewardYuan": {
+            "$ref": "#/components/schemas/PositiveMoneyCny"
+          },
+          "availableBalanceYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "withdrawalProcessingYuan": {
+            "$ref": "#/components/schemas/PositiveMoneyCny"
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "PersonalWalletEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryUid",
+          "entrySequenceNo",
+          "entryType",
+          "availableDeltaYuan",
+          "processingDeltaYuan",
+          "availableBalanceAfterYuan",
+          "withdrawalProcessingAfterYuan",
+          "sourceType",
+          "sourceNo",
+          "occurredAt"
+        ],
+        "properties": {
+          "entryUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "entrySequenceNo": {
+            "$ref": "#/components/schemas/WalletEntrySequenceNo"
+          },
+          "entryType": {
+            "$ref": "#/components/schemas/WalletEntryType"
+          },
+          "availableDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "processingDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "availableBalanceAfterYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "withdrawalProcessingAfterYuan": {
+            "$ref": "#/components/schemas/PositiveMoneyCny"
+          },
+          "sourceType": {
+            "$ref": "#/components/schemas/WalletEntrySourceType"
+          },
+          "sourceNo": {
+            "$ref": "#/components/schemas/WalletEntrySourceNo"
+          },
+          "occurredAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "OrganizationWalletEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryUid",
+          "organizationUserUid",
+          "entrySequenceNo",
+          "entryType",
+          "availableDeltaYuan",
+          "processingDeltaYuan",
+          "availableBalanceAfterYuan",
+          "withdrawalProcessingAfterYuan",
+          "sourceType",
+          "sourceNo",
+          "occurredAt"
+        ],
+        "properties": {
+          "entryUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "organizationUserUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "entrySequenceNo": {
+            "$ref": "#/components/schemas/WalletEntrySequenceNo"
+          },
+          "entryType": {
+            "$ref": "#/components/schemas/WalletEntryType"
+          },
+          "availableDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "processingDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "availableBalanceAfterYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "withdrawalProcessingAfterYuan": {
+            "$ref": "#/components/schemas/PositiveMoneyCny"
+          },
+          "sourceType": {
+            "$ref": "#/components/schemas/WalletEntrySourceType"
+          },
+          "sourceNo": {
+            "$ref": "#/components/schemas/WalletEntrySourceNo"
+          },
+          "occurredAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "PersonalWalletEntryCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/PersonalWalletEntry"
+            }
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "nextCursor": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/WalletEntryCursor"},
+              {"type": "null"}
+            ],
+            "description": "Opaque cursor for the next page, or null when the snapshot is exhausted."
+          }
+        }
+      },
+      "OrganizationWalletEntryCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/OrganizationWalletEntry"
+            }
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "nextCursor": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/WalletEntryCursor"},
+              {"type": "null"}
+            ],
+            "description": "Opaque filter-bound cursor for the next page, or null when the high-watermark snapshot is exhausted."
+          }
+        }
+      },
+      "WalletSummaryEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WalletSummary"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "PersonalWalletEntryPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PersonalWalletEntryCursorPage"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "OrganizationWalletEntryPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OrganizationWalletEntryCursorPage"
           },
           "requestId": {
             "type": "string",
