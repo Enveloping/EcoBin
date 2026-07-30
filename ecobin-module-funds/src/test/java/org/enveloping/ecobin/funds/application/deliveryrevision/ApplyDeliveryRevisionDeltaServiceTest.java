@@ -7,7 +7,7 @@ import org.enveloping.ecobin.funds.api.result.AppliedDeliveryWalletDelta;
 import org.enveloping.ecobin.funds.api.result.DeliveryGateEffect;
 import org.enveloping.ecobin.funds.api.result.WithdrawalBalanceEffect;
 import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
-import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
+import org.enveloping.ecobin.identity.api.persistence.DeliveryWalletEntryOwnerRef;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ApplyDeliveryRevisionDeltaServiceTest {
 
@@ -35,6 +38,8 @@ class ApplyDeliveryRevisionDeltaServiceTest {
             Instant.parse("2026-07-29T08:40:15.123456Z");
     private static final LocalDateTime OCCURRED_AT_UTC =
             LocalDateTime.parse("2026-07-29T08:40:15.123");
+    private static final UUID ORGANIZATION_USER_UID =
+            UUID.fromString("11111111-1111-4111-8111-111111111111");
 
     @BeforeEach
     void beginWritableTransaction() {
@@ -116,6 +121,9 @@ class ApplyDeliveryRevisionDeltaServiceTest {
         assertEquals(-100, entry.availableAfterCent());
         assertEquals(30, entry.frozenBeforeCent());
         assertEquals(444, entry.deliveryRevisionId());
+        assertEquals(
+                ORGANIZATION_USER_UID,
+                entry.organizationUserUid());
         assertEquals(OCCURRED_AT_UTC, entry.occurredAt());
 
         DeliveryRevisionDeltaRepository.WalletUpdate walletUpdate =
@@ -424,25 +432,82 @@ class ApplyDeliveryRevisionDeltaServiceTest {
         assertTrue(failure.getMessage().contains("writable"));
     }
 
+    @Test
+    void mismatchedTrustedReferenceScopesAreRejectedBeforeDatabaseAccess() {
+        FakeRepository repository = new FakeRepository();
+        ApplyDeliveryRevisionDeltaCommand command =
+                new ApplyDeliveryRevisionDeltaCommand(
+                        "DO-TEST-0001",
+                        UUID.randomUUID(),
+                        walletOwnerRef(
+                                11,
+                                999,
+                                33,
+                                ORGANIZATION_USER_UID),
+                        new TestRevisionRef(
+                                new DeliveryRevisionWalletEntryRef
+                                        .WalletEntryForeignKeys(
+                                        11,
+                                        22,
+                                        444)),
+                        DeliveryRevisionKind.CORRECTION,
+                        1,
+                        -100,
+                        OCCURRED_AT);
+
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> new ApplyDeliveryRevisionDeltaService(repository)
+                        .applyDeliveryRevisionDelta(command));
+
+        assertTrue(failure.getMessage().contains("same tenant"));
+        assertTrue(repository.calls.isEmpty());
+    }
+
     private static ApplyDeliveryRevisionDeltaCommand command(
             DeliveryRevisionKind kind,
             long deltaCent,
             long thresholdCent) {
         return new ApplyDeliveryRevisionDeltaCommand(
-                new OrganizationUserUid(UUID.randomUUID()),
                 "DO-TEST-0001",
                 UUID.randomUUID(),
+                walletOwnerRef(
+                        11,
+                        22,
+                        33,
+                        ORGANIZATION_USER_UID),
                 new TestRevisionRef(
                         new DeliveryRevisionWalletEntryRef
                                 .WalletEntryForeignKeys(
                                 11,
                                 22,
-                                33,
                                 444)),
                 kind,
                 deltaCent,
                 thresholdCent,
                 OCCURRED_AT);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static DeliveryWalletEntryOwnerRef walletOwnerRef(
+            long tenantId,
+            long organizationId,
+            long organizationUserId,
+            UUID organizationUserUid) {
+        DeliveryWalletEntryOwnerRef reference =
+                mock(DeliveryWalletEntryOwnerRef.class);
+        when(reference.withWalletEntryOwnerOnce(any()))
+                .thenAnswer(invocation -> {
+                    DeliveryWalletEntryOwnerRef
+                            .WalletEntryOwnerFunction<Object> function =
+                            invocation.getArgument(0);
+                    return function.apply(
+                            tenantId,
+                            organizationId,
+                            organizationUserId,
+                            organizationUserUid);
+                });
+        return reference;
     }
 
     private static DeliveryRevisionDeltaRepository.WalletRow wallet(

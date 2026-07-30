@@ -11,14 +11,13 @@ import org.enveloping.ecobin.funds.api.result.AppliedDeliveryWalletDelta;
 import org.enveloping.ecobin.funds.api.result.DeliveryGateEffect;
 import org.enveloping.ecobin.funds.api.result.WithdrawalBalanceEffect;
 import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
-import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
-import org.enveloping.ecobin.identity.api.persistence.DeliveryOrderIdentityBatchRef;
+import org.enveloping.ecobin.identity.api.error.DeliveryIdentityFactMismatchException;
+import org.enveloping.ecobin.identity.api.error.DeliveryIdentityFactMismatchException.Reason;
 import org.enveloping.ecobin.identity.api.persistence.DeliveryScopePersistenceRef;
-import org.enveloping.ecobin.identity.api.port.DeliveryOrderIdentityQueryPort;
+import org.enveloping.ecobin.identity.api.persistence.DeliveryWalletEntryOwnerRef;
 import org.enveloping.ecobin.identity.api.port.DeliveryScopeAuthorizationPort;
+import org.enveloping.ecobin.identity.api.port.DeliveryWalletEntryOwnerResolverPort;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeliveryScope;
-import org.enveloping.ecobin.identity.api.result.DeliveryOrderIdentityFacts;
-import org.enveloping.ecobin.identity.api.value.DeliveryIdentityFactToken;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewResult;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -36,8 +35,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -79,7 +76,9 @@ class DeliveryOrderReviewServiceTest {
     @Mock
     private DeliveryScopeAuthorizationPort authorization;
     @Mock
-    private DeliveryOrderIdentityQueryPort identityFacts;
+    private DeliveryWalletEntryOwnerResolverPort walletOwnerResolver;
+    @Mock
+    private DeliveryWalletEntryOwnerRef walletOwnerRef;
     @Mock
     private JdbcDeliveryOrderRepository repository;
     @Mock
@@ -107,7 +106,7 @@ class DeliveryOrderReviewServiceTest {
 
         service = new DeliveryOrderReviewService(
                 authorization,
-                identityFacts,
+                walletOwnerResolver,
                 repository,
                 funds,
                 audit,
@@ -139,9 +138,19 @@ class DeliveryOrderReviewServiceTest {
                             insert.revisionUid(),
                             insert.revisionNo());
                 });
-        lenient().when(identityFacts.resolveFacts(any()))
-                .thenAnswer(invocation ->
-                        resolveOwnerFacts(invocation.getArgument(0)));
+        lenient().when(walletOwnerResolver.resolve(any()))
+                .thenReturn(walletOwnerRef);
+        lenient().when(walletOwnerRef.withWalletEntryOwnerOnce(any()))
+                .thenAnswer(invocation -> {
+                    DeliveryWalletEntryOwnerRef
+                            .WalletEntryOwnerFunction<Object> function =
+                            invocation.getArgument(0);
+                    return function.apply(
+                            TENANT_ID,
+                            ORGANIZATION_ID,
+                            ORGANIZATION_USER_ID,
+                            ORGANIZATION_USER_UID);
+                });
         lenient().when(funds.applyDeliveryRevisionDelta(any()))
                 .thenAnswer(invocation ->
                         applyFunds(invocation.getArgument(0)));
@@ -257,8 +266,8 @@ class DeliveryOrderReviewServiceTest {
         verify(funds).applyDeliveryRevisionDelta(captor.capture());
         ApplyDeliveryRevisionDeltaCommand command =
                 captor.getValue();
-        assertThat(command.organizationUserUid().value())
-                .isEqualTo(ORGANIZATION_USER_UID);
+        assertThat(command.walletOwnerRef())
+                .isSameAs(walletOwnerRef);
         assertThat(command.revisionKind())
                 .isEqualTo(DeliveryRevisionKind.INITIAL_REVIEW);
         assertThat(command.deltaCent()).isEqualTo(160);
@@ -266,7 +275,46 @@ class DeliveryOrderReviewServiceTest {
                 .isEqualTo(STOP_THRESHOLD_CENT);
         assertThat(command.trustedOccurredAt())
                 .isEqualTo(REVIEWED_AT);
-        verify(identityFacts).resolveFacts(any());
+        verify(walletOwnerResolver).resolve(any());
+    }
+
+    @Test
+    void mismatchedWalletOwnerIsRejectedBeforeReviewWrites() {
+        when(repository.lockOrder(any(), any()))
+                .thenReturn(Optional.of(pendingOrder(
+                        null,
+                        null,
+                        "INVALID")));
+        when(walletOwnerResolver.resolve(any()))
+                .thenThrow(new DeliveryIdentityFactMismatchException(
+                        Reason.ORGANIZATION_USER_MISMATCH,
+                        "内部用户编号与公开 UUID 不匹配"));
+
+        assertThatThrownBy(() -> service.review(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                OPERATION_UID,
+                request(
+                        0,
+                        "MODIFIED_APPROVED",
+                        "2.00",
+                        "人工确认重量")))
+                .isInstanceOf(DeliveryIdentityFactMismatchException.class);
+
+        verify(repository, never())
+                .insertRevision(any(), any(), any());
+        verify(repository, never()).updateCurrentRevision(
+                any(),
+                any(),
+                any(),
+                any(),
+                anyLong(),
+                any());
+        verify(funds, never())
+                .applyDeliveryRevisionDelta(any());
+        verify(audit, never()).append(any());
     }
 
     @Test
@@ -299,7 +347,7 @@ class DeliveryOrderReviewServiceTest {
                 any(),
                 anyLong(),
                 any());
-        verify(identityFacts, never()).resolveFacts(any());
+        verify(walletOwnerResolver, never()).resolve(any());
         verify(funds, never())
                 .applyDeliveryRevisionDelta(any());
     }
@@ -604,54 +652,26 @@ class DeliveryOrderReviewServiceTest {
                 persistenceRef);
     }
 
-    private static DeliveryOrderIdentityFacts resolveOwnerFacts(
-            DeliveryOrderIdentityBatchRef reference) {
-        Map<DeliveryIdentityFactToken, OrganizationUserUid> users =
-                new HashMap<>();
-        reference.consumeOnce(
-                new DeliveryOrderIdentityBatchRef.EntrySink() {
-                    @Override
-                    public void organizationUser(
-                            DeliveryIdentityFactToken token,
-                            long tenantKey,
-                            long organizationKey,
-                            long organizationUserKey) {
-                        assertThat(tenantKey).isEqualTo(TENANT_ID);
-                        assertThat(organizationKey)
-                                .isEqualTo(ORGANIZATION_ID);
-                        assertThat(organizationUserKey)
-                                .isEqualTo(ORGANIZATION_USER_ID);
-                        users.put(
-                                token,
-                                new OrganizationUserUid(
-                                        ORGANIZATION_USER_UID));
-                    }
-
-                    @Override
-                    public void reviewer(
-                            DeliveryIdentityFactToken token,
-                            long tenantKey,
-                            long organizationKey,
-                            DeliveryOrderIdentityBatchRef.ReviewerKind
-                                    reviewerKind,
-                            Long platformAdminKey,
-                            Long staffAccountKey) {
-                        throw new AssertionError(
-                                "wallet owner lookup must not "
-                                        + "request reviewer facts");
-                    }
-                });
-        return new DeliveryOrderIdentityFacts(users, Map.of());
-    }
-
     private static AppliedDeliveryWalletDelta applyFunds(
             ApplyDeliveryRevisionDeltaCommand command) {
+        command.walletOwnerRef().withWalletEntryOwnerOnce(
+                (tenantKey,
+                 organizationKey,
+                 organizationUserKey,
+                 organizationUserUid) -> {
+                    assertThat(tenantKey).isEqualTo(TENANT_ID);
+                    assertThat(organizationKey)
+                            .isEqualTo(ORGANIZATION_ID);
+                    assertThat(organizationUserKey)
+                            .isEqualTo(ORGANIZATION_USER_ID);
+                    assertThat(organizationUserUid)
+                            .isEqualTo(ORGANIZATION_USER_UID);
+                    return null;
+                });
         command.revisionRef().withWalletEntryForeignKeysOnce(keys -> {
             assertThat(keys.tenantKey()).isEqualTo(TENANT_ID);
             assertThat(keys.organizationKey())
                     .isEqualTo(ORGANIZATION_ID);
-            assertThat(keys.organizationUserKey())
-                    .isEqualTo(ORGANIZATION_USER_ID);
             assertThat(keys.deliveryRevisionKey())
                     .isEqualTo(REVISION_ID);
             return null;

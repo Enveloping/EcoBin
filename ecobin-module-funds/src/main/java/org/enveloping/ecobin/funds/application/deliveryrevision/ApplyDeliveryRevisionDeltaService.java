@@ -51,25 +51,48 @@ public class ApplyDeliveryRevisionDeltaService
         }
         return command.revisionRef()
                 .withWalletEntryForeignKeysOnce(
-                        keys -> applyLocked(command, keys));
+                        revisionKeys ->
+                                command.walletOwnerRef()
+                                        .withWalletEntryOwnerOnce(
+                                                (tenantKey,
+                                                 organizationKey,
+                                                 organizationUserKey,
+                                                 organizationUserUid) ->
+                                                        applyLocked(
+                                                                command,
+                                                                revisionKeys,
+                                                                new WalletOwnerKeys(
+                                                                        tenantKey,
+                                                                        organizationKey,
+                                                                        organizationUserKey,
+                                                                        organizationUserUid))));
     }
 
     private AppliedDeliveryWalletDelta applyLocked(
             ApplyDeliveryRevisionDeltaCommand command,
-            DeliveryRevisionWalletEntryRef.WalletEntryForeignKeys keys) {
+            DeliveryRevisionWalletEntryRef.WalletEntryForeignKeys
+                    revisionKeys,
+            WalletOwnerKeys ownerKeys) {
+        if (revisionKeys.tenantKey() != ownerKeys.tenantKey()
+                || revisionKeys.organizationKey()
+                != ownerKeys.organizationKey()) {
+            throw new IllegalArgumentException(
+                    "wallet owner and delivery revision references "
+                            + "must share the same tenant and organization");
+        }
         DeliveryRevisionDeltaRepository.WalletRow wallet =
                 repository.lockWallet(
-                                keys.tenantKey(),
-                                keys.organizationKey(),
-                                keys.organizationUserKey())
+                                ownerKeys.tenantKey(),
+                                ownerKeys.organizationKey(),
+                                ownerKeys.organizationUserKey())
                         .orElseThrow(
                                 ApplyDeliveryRevisionDeltaService
                                         ::walletMissing);
 
         DeliveryRevisionDeltaRepository.OrganizationCounterRow counter =
                 repository.lockOrganizationCounter(
-                                keys.tenantKey(),
-                                keys.organizationKey())
+                                ownerKeys.tenantKey(),
+                                ownerKeys.organizationKey())
                         .orElseThrow(() -> invariant(
                                 "organization wallet-entry counter "
                                         + "is missing"));
@@ -77,15 +100,15 @@ public class ApplyDeliveryRevisionDeltaService
         Optional<DeliveryRevisionDeltaRepository.ActiveWithdrawalRow>
                 activeWithdrawal =
                 repository.lockActiveWithdrawal(
-                        keys.tenantKey(),
-                        keys.organizationKey(),
+                        ownerKeys.tenantKey(),
+                        ownerKeys.organizationKey(),
                         wallet.id());
 
         Optional<DeliveryRevisionDeltaRepository.WithdrawalOrderRow>
                 withdrawal = activeWithdrawal.map(active ->
                 repository.lockWithdrawalOrder(
-                                keys.tenantKey(),
-                                keys.organizationKey(),
+                                ownerKeys.tenantKey(),
+                                ownerKeys.organizationKey(),
                                 wallet.id(),
                                 active.withdrawalOrderId())
                         .orElseThrow(() -> invariant(
@@ -116,11 +139,11 @@ public class ApplyDeliveryRevisionDeltaService
         long entryId = repository.insertWalletEntry(
                 new DeliveryRevisionDeltaRepository.WalletEntryInsert(
                         entryUid,
-                        keys.tenantKey(),
-                        keys.organizationKey(),
+                        ownerKeys.tenantKey(),
+                        ownerKeys.organizationKey(),
                         wallet.id(),
-                        keys.organizationUserKey(),
-                        command.organizationUserUid().value(),
+                        ownerKeys.organizationUserKey(),
+                        ownerKeys.organizationUserUid(),
                         nextEntrySequence,
                         nextVisibilitySequence,
                         eventType(command.revisionKind()),
@@ -128,7 +151,7 @@ public class ApplyDeliveryRevisionDeltaService
                         wallet.availableBalanceCent(),
                         afterBalance,
                         wallet.frozenWithdrawalCent(),
-                        keys.deliveryRevisionKey(),
+                        revisionKeys.deliveryRevisionKey(),
                         "DELIVERY_ORDER",
                         command.deliveryOrderNo(),
                         occurredAt,
@@ -137,8 +160,8 @@ public class ApplyDeliveryRevisionDeltaService
         repository.advanceOrganizationCounter(
                 new DeliveryRevisionDeltaRepository
                         .OrganizationCounterUpdate(
-                        keys.tenantKey(),
-                        keys.organizationKey(),
+                        ownerKeys.tenantKey(),
+                        ownerKeys.organizationKey(),
                         counter.lastVisibilitySequenceNo(),
                         nextVisibilitySequence,
                         counter.lockVersion(),
@@ -146,9 +169,9 @@ public class ApplyDeliveryRevisionDeltaService
 
         repository.updateWallet(
                 new DeliveryRevisionDeltaRepository.WalletUpdate(
-                        keys.tenantKey(),
-                        keys.organizationKey(),
-                        keys.organizationUserKey(),
+                        ownerKeys.tenantKey(),
+                        ownerKeys.organizationKey(),
+                        ownerKeys.organizationUserKey(),
                         wallet.id(),
                         wallet.lastEntrySequenceNo(),
                         nextEntrySequence,
@@ -167,8 +190,8 @@ public class ApplyDeliveryRevisionDeltaService
                 repository.updateWithdrawalOrder(
                         new DeliveryRevisionDeltaRepository
                                 .WithdrawalOrderUpdate(
-                                keys.tenantKey(),
-                                keys.organizationKey(),
+                                ownerKeys.tenantKey(),
+                                ownerKeys.organizationKey(),
                                 wallet.id(),
                                 update.withdrawalOrderId(),
                                 update.negativeBalancePause(),
@@ -372,6 +395,19 @@ public class ApplyDeliveryRevisionDeltaService
             Long triggerEntryId,
             LocalDateTime latchedAt,
             DeliveryGateEffect effect) {
+    }
+
+    private record WalletOwnerKeys(
+            long tenantKey,
+            long organizationKey,
+            long organizationUserKey,
+            UUID organizationUserUid) {
+
+        private WalletOwnerKeys {
+            Objects.requireNonNull(
+                    organizationUserUid,
+                    "organizationUserUid");
+        }
     }
 
     private record WithdrawalUpdate(

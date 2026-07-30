@@ -20,13 +20,11 @@ final class TransactionBoundDeliveryRevisionWalletEntryRef
     static TransactionBoundDeliveryRevisionWalletEntryRef issue(
             long tenantId,
             long organizationId,
-            long organizationUserId,
             long deliveryRevisionId) {
         return new TransactionBoundDeliveryRevisionWalletEntryRef(
                 new WalletEntryForeignKeys(
                         tenantId,
                         organizationId,
-                        organizationUserId,
                         deliveryRevisionId));
     }
 

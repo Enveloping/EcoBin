@@ -2,7 +2,7 @@ package org.enveloping.ecobin.funds.api.command;
 
 import org.enveloping.ecobin.funds.api.persistence.DeliveryRevisionWalletEntryRef;
 import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
-import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
+import org.enveloping.ecobin.identity.api.persistence.DeliveryWalletEntryOwnerRef;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 
 class ApplyDeliveryRevisionDeltaCommandTest {
 
@@ -32,10 +33,10 @@ class ApplyDeliveryRevisionDeltaCommandTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ApplyDeliveryRevisionDeltaCommand(
-                        new OrganizationUserUid(UUID.randomUUID()),
                         "DO-TEST-0001",
                         UUID.fromString(
                                 "00000000-0000-0000-0000-000000000001"),
+                        mock(DeliveryWalletEntryOwnerRef.class),
                         reference(),
                         DeliveryRevisionKind.CORRECTION,
                         1,
@@ -47,9 +48,9 @@ class ApplyDeliveryRevisionDeltaCommandTest {
             long delta,
             long threshold) {
         return new ApplyDeliveryRevisionDeltaCommand(
-                new OrganizationUserUid(UUID.randomUUID()),
                 "DO-TEST-0001",
                 UUID.randomUUID(),
+                mock(DeliveryWalletEntryOwnerRef.class),
                 reference(),
                 DeliveryRevisionKind.CORRECTION,
                 delta,
@@ -66,7 +67,6 @@ class ApplyDeliveryRevisionDeltaCommandTest {
                         new WalletEntryForeignKeys(
                                 1,
                                 2,
-                                3,
                                 4));
             }
         };

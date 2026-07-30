@@ -247,6 +247,39 @@ class DeliveryOrderIdentityQueryServiceTest {
     }
 
     @Test
+    void rejectsPublicUidFromADifferentInternalOrganizationUser() {
+        DeliveryIdentityFactToken token =
+                DeliveryIdentityFactToken.create();
+        TestBatchRef batch = new TestBatchRef(sink ->
+                sink.organizationUser(
+                        token,
+                        TENANT_ID,
+                        ORGANIZATION_ID,
+                        USER_ID));
+        stubScope();
+        long anotherUserId = USER_ID + 1;
+        UUID anotherUserUid =
+                UUID.fromString(
+                        "44444444-4444-4444-8444-444444444444");
+        when(repository.findOrganizationUsers(Set.of(USER_ID)))
+                .thenReturn(Map.of(
+                        USER_ID,
+                        new OrganizationUserRow(
+                                TENANT_ID,
+                                ORGANIZATION_ID,
+                                anotherUserId,
+                                anotherUserUid)));
+
+        DeliveryIdentityFactMismatchException failure = assertThrows(
+                DeliveryIdentityFactMismatchException.class,
+                () -> service.resolveFacts(batch));
+
+        assertEquals(
+                Reason.ORGANIZATION_USER_MISMATCH,
+                failure.reason());
+    }
+
+    @Test
     void rejectsAStaffReviewerFromAnotherTenant() {
         DeliveryIdentityFactToken token =
                 DeliveryIdentityFactToken.create();

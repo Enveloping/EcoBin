@@ -2,15 +2,8 @@
 -- Wallet entries remain append-only. The public organization-user UID and
 -- source number are copied when the ledger fact is created so funds can
 -- answer its own queries without reading identity or recycling private
--- tables at runtime.
-
-ALTER TABLE iam_organization_user
-    ADD CONSTRAINT uq_iam_org_user_scope_id_uid UNIQUE (
-        tenant_id,
-        organization_id,
-        id,
-        organization_user_uid
-    );
+-- tables at runtime. The UID is a denormalized public snapshot, not a
+-- second cross-module relationship or foreign key.
 
 ALTER TABLE fund_user_wallet_entry
     ADD COLUMN organization_user_uid
@@ -63,6 +56,31 @@ SET entry_row.source_type = 'MANUAL_ADJUSTMENT',
     entry_row.source_no = adjustment.adjustment_uid
 WHERE entry_row.adjustment_id IS NOT NULL;
 
+-- Fail the migration before making the snapshot required if any historical
+-- entry could not be resolved through its existing internal composite
+-- relationship, or if the copied UID does not match that relationship.
+CREATE TEMPORARY TABLE v18_wallet_uid_backfill_guard (
+    mismatch_value TINYINT NOT NULL,
+    CONSTRAINT ck_v18_wallet_uid_backfill_guard CHECK (
+        mismatch_value = 0
+    )
+);
+
+INSERT INTO v18_wallet_uid_backfill_guard (mismatch_value)
+SELECT 1
+FROM fund_user_wallet_entry entry_row
+LEFT JOIN iam_organization_user user_row
+  ON user_row.tenant_id = entry_row.tenant_id
+ AND user_row.organization_id = entry_row.organization_id
+ AND user_row.id = entry_row.organization_user_id
+ AND user_row.organization_user_uid =
+        entry_row.organization_user_uid
+WHERE entry_row.organization_user_uid IS NULL
+   OR user_row.id IS NULL
+LIMIT 1;
+
+DROP TEMPORARY TABLE v18_wallet_uid_backfill_guard;
+
 ALTER TABLE fund_user_wallet_entry
     MODIFY COLUMN organization_user_uid
         CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -100,20 +118,6 @@ ALTER TABLE fund_user_wallet_entry
             )
         )
     ),
-    ADD CONSTRAINT fk_fund_wallet_entry_user_uid
-        FOREIGN KEY (
-            tenant_id,
-            organization_id,
-            organization_user_id,
-            organization_user_uid
-        )
-        REFERENCES iam_organization_user (
-            tenant_id,
-            organization_id,
-            id,
-            organization_user_uid
-        )
-        ON DELETE RESTRICT ON UPDATE RESTRICT,
     ADD INDEX ix_fund_wallet_entry_org_public_page (
         tenant_id,
         organization_id,

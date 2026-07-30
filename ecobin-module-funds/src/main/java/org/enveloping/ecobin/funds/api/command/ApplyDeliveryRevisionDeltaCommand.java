@@ -2,7 +2,7 @@ package org.enveloping.ecobin.funds.api.command;
 
 import org.enveloping.ecobin.funds.api.persistence.DeliveryRevisionWalletEntryRef;
 import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
-import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
+import org.enveloping.ecobin.identity.api.persistence.DeliveryWalletEntryOwnerRef;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -11,13 +11,14 @@ import java.util.UUID;
 /**
  * 将一条已经落库的投递修订差额应用到归属用户钱包。
  *
- * <p>公开 UID 是业务与幂等身份；关系引用只负责在当前事务中建立外键，
- * 不能替代公开身份。</p>
+ * <p>归属用户的内部编号与公开 UUID 只能来自 identity 签发的同事务可信
+ * 组合，调用方不能分别传入后重新拼接。投递修订引用只负责建立 recycling
+ * 修订事实的内部复合外键。</p>
  */
 public record ApplyDeliveryRevisionDeltaCommand(
-        OrganizationUserUid organizationUserUid,
         String deliveryOrderNo,
         UUID revisionUid,
+        DeliveryWalletEntryOwnerRef walletOwnerRef,
         DeliveryRevisionWalletEntryRef revisionRef,
         DeliveryRevisionKind revisionKind,
         long deltaCent,
@@ -25,9 +26,6 @@ public record ApplyDeliveryRevisionDeltaCommand(
         Instant trustedOccurredAt) {
 
     public ApplyDeliveryRevisionDeltaCommand {
-        Objects.requireNonNull(
-                organizationUserUid,
-                "organizationUserUid");
         if (deliveryOrderNo == null
                 || deliveryOrderNo.isBlank()
                 || deliveryOrderNo.length() > 64) {
@@ -36,6 +34,7 @@ public record ApplyDeliveryRevisionDeltaCommand(
         }
         deliveryOrderNo = deliveryOrderNo.trim();
         Objects.requireNonNull(revisionUid, "revisionUid");
+        Objects.requireNonNull(walletOwnerRef, "walletOwnerRef");
         Objects.requireNonNull(revisionRef, "revisionRef");
         Objects.requireNonNull(revisionKind, "revisionKind");
         Objects.requireNonNull(trustedOccurredAt, "trustedOccurredAt");

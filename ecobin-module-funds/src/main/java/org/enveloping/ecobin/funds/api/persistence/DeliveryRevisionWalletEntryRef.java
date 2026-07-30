@@ -18,13 +18,11 @@ public interface DeliveryRevisionWalletEntryRef {
     record WalletEntryForeignKeys(
             long tenantKey,
             long organizationKey,
-            long organizationUserKey,
             long deliveryRevisionKey) {
 
         public WalletEntryForeignKeys {
             if (tenantKey <= 0
                     || organizationKey <= 0
-                    || organizationUserKey <= 0
                     || deliveryRevisionKey <= 0) {
                 throw new IllegalArgumentException(
                         "wallet entry foreign keys must be positive");

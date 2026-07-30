@@ -10,12 +10,11 @@ import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.api.command.ApplyDeliveryRevisionDeltaCommand;
 import org.enveloping.ecobin.funds.api.port.ApplyDeliveryRevisionDeltaPort;
 import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
-import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
-import org.enveloping.ecobin.identity.api.port.DeliveryOrderIdentityQueryPort;
+import org.enveloping.ecobin.identity.api.persistence.DeliveryWalletEntryOwnerRef;
 import org.enveloping.ecobin.identity.api.port.DeliveryScopeAuthorizationPort;
+import org.enveloping.ecobin.identity.api.port.DeliveryWalletEntryOwnerResolverPort;
 import org.enveloping.ecobin.identity.api.query.DeliveryScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeliveryScope;
-import org.enveloping.ecobin.identity.api.value.DeliveryIdentityFactToken;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewResult;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +34,6 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,7 +47,7 @@ public class DeliveryOrderReviewService {
     private static final String TARGET_TYPE = "DELIVERY_ORDER";
 
     private final DeliveryScopeAuthorizationPort authorization;
-    private final DeliveryOrderIdentityQueryPort identityFacts;
+    private final DeliveryWalletEntryOwnerResolverPort walletOwnerResolver;
     private final JdbcDeliveryOrderRepository repository;
     private final ApplyDeliveryRevisionDeltaPort funds;
     private final AuditPort audit;
@@ -59,14 +57,14 @@ public class DeliveryOrderReviewService {
     @Autowired
     public DeliveryOrderReviewService(
             DeliveryScopeAuthorizationPort authorization,
-            DeliveryOrderIdentityQueryPort identityFacts,
+            DeliveryWalletEntryOwnerResolverPort walletOwnerResolver,
             JdbcDeliveryOrderRepository repository,
             ApplyDeliveryRevisionDeltaPort funds,
             AuditPort audit,
             ObjectMapper objectMapper) {
         this(
                 authorization,
-                identityFacts,
+                walletOwnerResolver,
                 repository,
                 funds,
                 audit,
@@ -76,14 +74,14 @@ public class DeliveryOrderReviewService {
 
     DeliveryOrderReviewService(
             DeliveryScopeAuthorizationPort authorization,
-            DeliveryOrderIdentityQueryPort identityFacts,
+            DeliveryWalletEntryOwnerResolverPort walletOwnerResolver,
             JdbcDeliveryOrderRepository repository,
             ApplyDeliveryRevisionDeltaPort funds,
             AuditPort audit,
             ObjectMapper objectMapper,
             Clock clock) {
         this.authorization = authorization;
-        this.identityFacts = identityFacts;
+        this.walletOwnerResolver = walletOwnerResolver;
         this.repository = repository;
         this.funds = funds;
         this.audit = audit;
@@ -245,6 +243,15 @@ public class DeliveryOrderReviewService {
                     "DELIVERY.FINAL_AMOUNT_OUT_OF_RANGE",
                     "本次审核金额差额超出系统可精确保存的范围");
         }
+        DeliveryWalletEntryOwnerRef walletOwnerRef =
+                amountDeltaCent == 0
+                        ? null
+                        : walletOwnerResolver.resolve(
+                                TransactionBoundDeliveryWalletEntryOwnerRequestRef
+                                        .issue(
+                                                scope.tenantId(),
+                                                scope.organizationId(),
+                                                order.organizationUserId()));
 
         Instant reviewedAt = clock.instant()
                 .truncatedTo(ChronoUnit.MILLIS);
@@ -292,23 +299,19 @@ public class DeliveryOrderReviewService {
 
         String walletEffect = "NO_CHANGE";
         if (amountDeltaCent != 0) {
-            OrganizationUserUid ownerUid =
-                    resolveOrganizationUserUid(
-                            orderScope,
-                            order.organizationUserId());
             funds.applyDeliveryRevisionDelta(
                     new ApplyDeliveryRevisionDeltaCommand(
-                    ownerUid,
-                    deliveryOrderNo,
-                    revisionUid,
-                    TransactionBoundDeliveryRevisionWalletEntryRef.issue(
-                            scope.tenantId(),
-                            scope.organizationId(),
-                            order.organizationUserId(),
-                            revision.id()),
-                    operation.fundsRevisionKind,
-                    amountDeltaCent,
-                    currentStopThresholdCent,
+                            deliveryOrderNo,
+                            revisionUid,
+                            Objects.requireNonNull(walletOwnerRef),
+                            TransactionBoundDeliveryRevisionWalletEntryRef
+                                    .issue(
+                                            scope.tenantId(),
+                                            scope.organizationId(),
+                                            revision.id()),
+                            operation.fundsRevisionKind,
+                            amountDeltaCent,
+                            currentStopThresholdCent,
                             reviewedAt));
             walletEffect = "APPLIED";
         }
@@ -335,31 +338,6 @@ public class DeliveryOrderReviewService {
                 fingerprint.hex(),
                 response);
         return response;
-    }
-
-    private OrganizationUserUid resolveOrganizationUserUid(
-            DeliveryOrderScope scope,
-            long organizationUserId) {
-        DeliveryIdentityFactToken token =
-                DeliveryIdentityFactToken.create();
-        var reference =
-                TransactionBoundDeliveryOrderIdentityBatchRef.issue(
-                        List.of(new TransactionBoundDeliveryOrderIdentityBatchRef
-                                .OrganizationUserEntry(
-                                token,
-                                scope.tenantId(),
-                                scope.organizationId(),
-                                organizationUserId)),
-                        List.of());
-        OrganizationUserUid uid = identityFacts
-                .resolveFacts(reference)
-                .organizationUsers()
-                .get(token);
-        if (uid == null) {
-            throw new IllegalStateException(
-                    "delivery order owner identity was not resolved");
-        }
-        return uid;
     }
 
     private void appendAudit(

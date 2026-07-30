@@ -134,7 +134,9 @@ public class DeliveryOrderIdentityQueryService
             if (row == null
                     || row.tenantId() != key.tenantKey()
                     || row.organizationId()
-                    != key.organizationKey()) {
+                    != key.organizationKey()
+                    || row.organizationUserId()
+                    != key.organizationUserKey()) {
                 throw mismatch(
                         Reason.ORGANIZATION_USER_MISMATCH,
                         "投递订单关联的机构用户身份不存在或作用域不匹配");
