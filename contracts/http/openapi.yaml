@@ -41,6 +41,10 @@
       "description": "Platform asset inventory plus tenant-scoped deployment, runtime and immutable configuration management."
     },
     {
+      "name": "Delivery orders",
+      "description": "Tenant-scoped delivery evidence, cursor queries, additive review revisions and wallet deltas."
+    },
+    {
       "name": "Signed external notifications",
       "description": "Exact WeChat Pay notification paths authenticated by the four APIv3 signature headers."
     }
@@ -3017,6 +3021,227 @@
         }
       }
     },
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "listWebDeliveryOrders",
+        "tags": ["Delivery orders"],
+        "summary": "List delivery orders visible to the current tenant or staff session",
+        "description": "delivery.read can query the full visible history. A caller with review.execute but without delivery.read receives only PENDING orders.",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/DeliveryOrderLimit"},
+          {"$ref": "#/components/parameters/DeliveryReviewStatusFilter"},
+          {"$ref": "#/components/parameters/DeliveryOccurredFrom"},
+          {"$ref": "#/components/parameters/DeliveryOccurredTo"},
+          {"$ref": "#/components/parameters/DeliveryOrganizationUserFilter"},
+          {"$ref": "#/components/parameters/DeliveryDeploymentFilter"},
+          {"$ref": "#/components/parameters/DeliveryPortFilter"},
+          {"$ref": "#/components/parameters/DeliveryAnomalyFilter"},
+          {"$ref": "#/components/parameters/DeliveryPhotoCompletenessFilter"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeliveryOrderPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "get": {
+        "operationId": "getWebDeliveryOrder",
+        "tags": ["Delivery orders"],
+        "summary": "Read delivery evidence and its additive review history",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeliveryOrderDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "post": {
+        "operationId": "reviewWebDeliveryOrder",
+        "tags": ["Delivery orders"],
+        "summary": "Approve a PENDING delivery from immutable device facts or an explicit final weight",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ReviewDeliveryOrderRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DeliveryReviewCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/corrections": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "post": {
+        "operationId": "correctWebDeliveryOrder",
+        "tags": ["Delivery orders"],
+        "summary": "Append a correction to an APPROVED delivery without rewriting device facts",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ReviewDeliveryOrderRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DeliveryReviewCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "listPlatformWebDeliveryOrders",
+        "tags": ["Delivery orders"],
+        "summary": "List delivery orders in an explicit platform tenant and organization scope",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/DeliveryOrderLimit"},
+          {"$ref": "#/components/parameters/DeliveryReviewStatusFilter"},
+          {"$ref": "#/components/parameters/DeliveryOccurredFrom"},
+          {"$ref": "#/components/parameters/DeliveryOccurredTo"},
+          {"$ref": "#/components/parameters/DeliveryOrganizationUserFilter"},
+          {"$ref": "#/components/parameters/DeliveryDeploymentFilter"},
+          {"$ref": "#/components/parameters/DeliveryPortFilter"},
+          {"$ref": "#/components/parameters/DeliveryAnomalyFilter"},
+          {"$ref": "#/components/parameters/DeliveryPhotoCompletenessFilter"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeliveryOrderPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "get": {
+        "operationId": "getPlatformWebDeliveryOrder",
+        "tags": ["Delivery orders"],
+        "summary": "Read delivery evidence in an explicit platform target scope",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeliveryOrderDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "post": {
+        "operationId": "reviewPlatformWebDeliveryOrder",
+        "tags": ["Delivery orders"],
+        "summary": "Approve a PENDING delivery in an explicit platform target scope",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ReviewDeliveryOrderRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DeliveryReviewCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/corrections": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "post": {
+        "operationId": "correctPlatformWebDeliveryOrder",
+        "tags": ["Delivery orders"],
+        "summary": "Append a correction in an explicit platform target scope",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ReviewDeliveryOrderRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DeliveryReviewCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
     "/api/v1/wechat-pay/notifications/native-payments": {
       "post": {
         "operationId": "receiveWechatNativePaymentNotification",
@@ -3185,6 +3410,14 @@
           "$ref": "#/components/schemas/PublicUid"
         }
       },
+      "DeliveryOrderNo": {
+        "name": "deliveryOrderNo",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/DeliveryOrderNo"
+        }
+      },
       "DirectoryStatusFilter": {
         "name": "status",
         "in": "query",
@@ -3229,6 +3462,85 @@
         "required": false,
         "schema": {
           "$ref": "#/components/schemas/Cursor"
+        }
+      },
+      "DeliveryOrderLimit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "DeliveryReviewStatusFilter": {
+        "name": "reviewStatus",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/DeliveryReviewStatus"
+        }
+      },
+      "DeliveryOccurredFrom": {
+        "name": "occurredFrom",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/UtcTimestamp"
+        }
+      },
+      "DeliveryOccurredTo": {
+        "name": "occurredTo",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/UtcTimestamp"
+        }
+      },
+      "DeliveryOrganizationUserFilter": {
+        "name": "organizationUserUid",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/PublicUid"
+        }
+      },
+      "DeliveryDeploymentFilter": {
+        "name": "deploymentCode",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/DeploymentCode"
+        }
+      },
+      "DeliveryPortFilter": {
+        "name": "portNo",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        }
+      },
+      "DeliveryAnomalyFilter": {
+        "name": "anomalyCode",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "DeliveryPhotoCompletenessFilter": {
+        "name": "photoCompleteness",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/DeliveryPhotoCompleteness"
         }
       },
       "HardwareSn": {
@@ -3748,6 +4060,42 @@
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/DeviceConfigurationApplicationEnvelope"}
+          }
+        }
+      },
+      "DeliveryOrderPageOk": {
+        "description": "A stable cursor page of delivery order summaries",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeliveryOrderPageEnvelope"}
+          }
+        }
+      },
+      "DeliveryOrderDetailOk": {
+        "description": "Immutable device evidence with its current review projection and additive revision history",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeliveryOrderDetailEnvelope"}
+          }
+        }
+      },
+      "DeliveryReviewCreated": {
+        "description": "A review revision and its exact wallet delta were committed atomically",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeliveryReviewResultEnvelope"}
           }
         }
       }
@@ -6628,6 +6976,640 @@
           },
           "data": {
             "$ref": "#/components/schemas/MiniappPhoneBinding"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliveryOrderNo": {
+        "allOf": [
+          {"$ref": "#/components/schemas/BusinessNumber"}
+        ],
+        "description": "Stable public delivery order number"
+      },
+      "DeliveryReviewStatus": {
+        "type": "string",
+        "enum": ["PENDING", "APPROVED"]
+      },
+      "DeliveryReviewDecision": {
+        "type": "string",
+        "enum": ["ORIGINAL_APPROVED", "MODIFIED_APPROVED"]
+      },
+      "DeliveryRevisionType": {
+        "type": "string",
+        "enum": ["INITIAL_REVIEW", "CORRECTION"]
+      },
+      "DeliveryWeightReliability": {
+        "type": "string",
+        "enum": ["RELIABLE", "INVALID", "MISSING", "INCONSISTENT"]
+      },
+      "DeliveryAmountReliability": {
+        "type": "string",
+        "enum": ["RELIABLE", "WEIGHT_UNRELIABLE"]
+      },
+      "DeliveryPhotoCompleteness": {
+        "type": "string",
+        "enum": ["COMPLETE", "INCOMPLETE"]
+      },
+      "DeliveryPhotoPosition": {
+        "type": "string",
+        "enum": [
+          "BEFORE_INNER",
+          "BEFORE_OUTER",
+          "AFTER_INNER",
+          "AFTER_OUTER"
+        ]
+      },
+      "DeliveryPhotoStatus": {
+        "type": "string",
+        "enum": ["UPLOAD_PENDING", "AVAILABLE", "PERMANENTLY_MISSING"]
+      },
+      "DeliveryPhotoMissingReason": {
+        "type": ["string", "null"],
+        "enum": [
+          "DEVICE_DID_NOT_PRODUCE_PHOTO",
+          "PHOTO_CAPTURE_FAILED",
+          "UPLOAD_FAILED_PERMANENTLY",
+          "PHOTO_UNAVAILABLE",
+          null
+        ]
+      },
+      "DeliveryAnomalyCategory": {
+        "type": "string",
+        "enum": ["USER", "SYSTEM"]
+      },
+      "DeliveryReviewerKind": {
+        "type": "string",
+        "enum": ["PLATFORM_ADMIN", "TENANT_PRINCIPAL", "STAFF_ACCOUNT"]
+      },
+      "DeliveryWalletEffect": {
+        "type": "string",
+        "enum": ["APPLIED", "NO_CHANGE"]
+      },
+      "WebDeliveryOrderItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveryOrderNo",
+          "organizationUserUid",
+          "deploymentCode",
+          "portNo",
+          "deviceOccurredAt",
+          "receivedAt",
+          "rawWeightKg",
+          "rawAmountYuan",
+          "rawWeightReliability",
+          "rawAmountReliability",
+          "reviewStatus",
+          "currentRevisionNo",
+          "finalWeightKg",
+          "finalAmountYuan",
+          "anomalyCodes",
+          "photoCompleteness"
+        ],
+        "properties": {
+          "deliveryOrderNo": {
+            "$ref": "#/components/schemas/DeliveryOrderNo"
+          },
+          "organizationUserUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "deploymentCode": {
+            "$ref": "#/components/schemas/DeploymentCode"
+          },
+          "portNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "deviceOccurredAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "receivedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "rawWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "rawAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "rawWeightReliability": {
+            "$ref": "#/components/schemas/DeliveryWeightReliability"
+          },
+          "rawAmountReliability": {
+            "$ref": "#/components/schemas/DeliveryAmountReliability"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/DeliveryReviewStatus"
+          },
+          "currentRevisionNo": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "finalWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "finalAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "anomalyCodes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "photoCompleteness": {
+            "$ref": "#/components/schemas/DeliveryPhotoCompleteness"
+          }
+        }
+      },
+      "DeliveryOrderCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebDeliveryOrderItem"
+            }
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "nextCursor": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
+      "DeliverySource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "eventUid",
+          "sessionUid",
+          "deploymentCode",
+          "portNo",
+          "deviceOccurredAt",
+          "receivedAt"
+        ],
+        "properties": {
+          "eventUid": {"$ref": "#/components/schemas/UuidV4"},
+          "sessionUid": {"$ref": "#/components/schemas/UuidV4"},
+          "deploymentCode": {
+            "$ref": "#/components/schemas/DeploymentCode"
+          },
+          "portNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "deviceOccurredAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "receivedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "DeliveryOwnership": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["organizationUserUid"],
+        "properties": {
+          "organizationUserUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          }
+        }
+      },
+      "DeliveryRawFacts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "firstPreOpenWeightGram",
+          "finalPostCloseWeightGram",
+          "netWeightGram",
+          "weightKg",
+          "unitPriceYuanPerKg",
+          "amountYuan",
+          "weightReliability",
+          "amountReliability",
+          "negativeWeightAnomaly"
+        ],
+        "properties": {
+          "firstPreOpenWeightGram": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "finalPostCloseWeightGram": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "netWeightGram": {
+            "type": ["integer", "null"],
+            "format": "int64"
+          },
+          "weightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "unitPriceYuanPerKg": {
+            "type": ["string", "null"],
+            "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{4}$"
+          },
+          "amountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "weightReliability": {
+            "$ref": "#/components/schemas/DeliveryWeightReliability"
+          },
+          "amountReliability": {
+            "$ref": "#/components/schemas/DeliveryAmountReliability"
+          },
+          "negativeWeightAnomaly": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DeliveryReviewProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "currentRevisionNo",
+          "maxReviewAbsoluteWeightKg",
+          "finalWeightKg",
+          "finalAmountYuan",
+          "firstApprovedAt"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/DeliveryReviewStatus"
+          },
+          "currentRevisionNo": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "maxReviewAbsoluteWeightKg": {
+            "$ref": "#/components/schemas/BusinessWeightKg"
+          },
+          "finalWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "finalAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "firstApprovedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      },
+      "WebDeliveryAnomaly": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "code",
+          "detectedAt",
+          "message",
+          "diagnosticDetails"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/DeliveryAnomalyCategory"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "detectedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "diagnosticDetails": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DeliveryPhoto": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "position",
+          "status",
+          "url",
+          "capturedAt",
+          "missingReason"
+        ],
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/DeliveryPhotoPosition"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeliveryPhotoStatus"
+          },
+          "url": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 1500
+          },
+          "capturedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "missingReason": {
+            "$ref": "#/components/schemas/DeliveryPhotoMissingReason"
+          }
+        }
+      },
+      "DeliveryRevisionOperator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actorKind", "actorUid", "displayName"],
+        "properties": {
+          "actorKind": {
+            "$ref": "#/components/schemas/DeliveryReviewerKind"
+          },
+          "actorUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "DeliveryRevision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revisionUid",
+          "revisionNo",
+          "revisionType",
+          "decision",
+          "beforeFinalWeightKg",
+          "beforeFinalAmountYuan",
+          "afterFinalWeightKg",
+          "afterFinalAmountYuan",
+          "amountDeltaYuan",
+          "reason",
+          "operator",
+          "reviewedAt"
+        ],
+        "properties": {
+          "revisionUid": {
+            "$ref": "#/components/schemas/UuidV4"
+          },
+          "revisionNo": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "revisionType": {
+            "$ref": "#/components/schemas/DeliveryRevisionType"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DeliveryReviewDecision"
+          },
+          "beforeFinalWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "beforeFinalAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "afterFinalWeightKg": {
+            "$ref": "#/components/schemas/BusinessWeightKg"
+          },
+          "afterFinalAmountYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "amountDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "maxLength": 500
+          },
+          "operator": {
+            "$ref": "#/components/schemas/DeliveryRevisionOperator"
+          },
+          "reviewedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "WebDeliveryOrderDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveryOrderNo",
+          "source",
+          "ownership",
+          "raw",
+          "review",
+          "anomalies",
+          "photos",
+          "revisions"
+        ],
+        "properties": {
+          "deliveryOrderNo": {
+            "$ref": "#/components/schemas/DeliveryOrderNo"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DeliverySource"
+          },
+          "ownership": {
+            "$ref": "#/components/schemas/DeliveryOwnership"
+          },
+          "raw": {
+            "$ref": "#/components/schemas/DeliveryRawFacts"
+          },
+          "review": {
+            "$ref": "#/components/schemas/DeliveryReviewProjection"
+          },
+          "anomalies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebDeliveryAnomaly"
+            }
+          },
+          "photos": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/DeliveryPhoto"
+            }
+          },
+          "revisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryRevision"
+            }
+          }
+        }
+      },
+      "ReviewDeliveryOrderRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedRevisionNo", "decision"],
+        "properties": {
+          "expectedRevisionNo": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DeliveryReviewDecision"
+          },
+          "finalWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$",
+            "description": "Must be null for ORIGINAL_APPROVED and present for MODIFIED_APPROVED."
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "maxLength": 500
+          }
+        }
+      },
+      "DeliveryReviewResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveryOrderNo",
+          "revisionUid",
+          "revisionNo",
+          "reviewStatus",
+          "decision",
+          "finalWeightKg",
+          "finalAmountYuan",
+          "walletDeltaYuan",
+          "walletEffect",
+          "reviewedAt"
+        ],
+        "properties": {
+          "deliveryOrderNo": {
+            "$ref": "#/components/schemas/DeliveryOrderNo"
+          },
+          "revisionUid": {
+            "$ref": "#/components/schemas/UuidV4"
+          },
+          "revisionNo": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "reviewStatus": {
+            "type": "string",
+            "const": "APPROVED"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DeliveryReviewDecision"
+          },
+          "finalWeightKg": {
+            "$ref": "#/components/schemas/BusinessWeightKg"
+          },
+          "finalAmountYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "walletDeltaYuan": {
+            "$ref": "#/components/schemas/MoneyCny"
+          },
+          "walletEffect": {
+            "$ref": "#/components/schemas/DeliveryWalletEffect"
+          },
+          "reviewedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "DeliveryOrderPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeliveryOrderCursorPage"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliveryOrderDetailEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WebDeliveryOrderDetail"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliveryReviewResultEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeliveryReviewResult"
           },
           "requestId": {
             "type": "string",

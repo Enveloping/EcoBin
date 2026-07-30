@@ -2183,6 +2183,171 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List delivery orders visible to the current tenant or staff session
+         * @description delivery.read can query the full visible history. A caller with review.execute but without delivery.read receives only PENDING orders.
+         */
+        get: operations["listWebDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        /** Read delivery evidence and its additive review history */
+        get: operations["getWebDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a PENDING delivery from immutable device facts or an explicit final weight */
+        post: operations["reviewWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a correction to an APPROVED delivery without rewriting device facts */
+        post: operations["correctWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List delivery orders in an explicit platform tenant and organization scope */
+        get: operations["listPlatformWebDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        /** Read delivery evidence in an explicit platform target scope */
+        get: operations["getPlatformWebDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a PENDING delivery in an explicit platform target scope */
+        post: operations["reviewPlatformWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a correction in an explicit platform target scope */
+        post: operations["correctPlatformWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/wechat-pay/notifications/native-payments": {
         parameters: {
             query?: never;
@@ -3044,6 +3209,181 @@ export interface components {
             data: components["schemas"]["MiniappPhoneBinding"];
             requestId: string;
         };
+        /** @description Stable public delivery order number */
+        DeliveryOrderNo: components["schemas"]["BusinessNumber"];
+        /** @enum {string} */
+        DeliveryReviewStatus: "PENDING" | "APPROVED";
+        /** @enum {string} */
+        DeliveryReviewDecision: "ORIGINAL_APPROVED" | "MODIFIED_APPROVED";
+        /** @enum {string} */
+        DeliveryRevisionType: "INITIAL_REVIEW" | "CORRECTION";
+        /** @enum {string} */
+        DeliveryWeightReliability: "RELIABLE" | "INVALID" | "MISSING" | "INCONSISTENT";
+        /** @enum {string} */
+        DeliveryAmountReliability: "RELIABLE" | "WEIGHT_UNRELIABLE";
+        /** @enum {string} */
+        DeliveryPhotoCompleteness: "COMPLETE" | "INCOMPLETE";
+        /** @enum {string} */
+        DeliveryPhotoPosition: "BEFORE_INNER" | "BEFORE_OUTER" | "AFTER_INNER" | "AFTER_OUTER";
+        /** @enum {string} */
+        DeliveryPhotoStatus: "UPLOAD_PENDING" | "AVAILABLE" | "PERMANENTLY_MISSING";
+        /** @enum {string|null} */
+        DeliveryPhotoMissingReason: "DEVICE_DID_NOT_PRODUCE_PHOTO" | "PHOTO_CAPTURE_FAILED" | "UPLOAD_FAILED_PERMANENTLY" | "PHOTO_UNAVAILABLE" | null;
+        /** @enum {string} */
+        DeliveryAnomalyCategory: "USER" | "SYSTEM";
+        /** @enum {string} */
+        DeliveryReviewerKind: "PLATFORM_ADMIN" | "TENANT_PRINCIPAL" | "STAFF_ACCOUNT";
+        /** @enum {string} */
+        DeliveryWalletEffect: "APPLIED" | "NO_CHANGE";
+        WebDeliveryOrderItem: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            organizationUserUid: components["schemas"]["PublicUid"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+            rawWeightKg: string | null;
+            rawAmountYuan: string | null;
+            rawWeightReliability: components["schemas"]["DeliveryWeightReliability"];
+            rawAmountReliability: components["schemas"]["DeliveryAmountReliability"];
+            reviewStatus: components["schemas"]["DeliveryReviewStatus"];
+            /** Format: int64 */
+            currentRevisionNo: number;
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            anomalyCodes: string[];
+            photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
+        };
+        DeliveryOrderCursorPage: {
+            items: components["schemas"]["WebDeliveryOrderItem"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            nextCursor: string | null;
+        };
+        DeliverySource: {
+            eventUid: components["schemas"]["UuidV4"];
+            sessionUid: components["schemas"]["UuidV4"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+        };
+        DeliveryOwnership: {
+            organizationUserUid: components["schemas"]["PublicUid"];
+        };
+        DeliveryRawFacts: {
+            /** Format: int64 */
+            firstPreOpenWeightGram: number | null;
+            /** Format: int64 */
+            finalPostCloseWeightGram: number | null;
+            /** Format: int64 */
+            netWeightGram: number | null;
+            weightKg: string | null;
+            unitPriceYuanPerKg: string | null;
+            amountYuan: string | null;
+            weightReliability: components["schemas"]["DeliveryWeightReliability"];
+            amountReliability: components["schemas"]["DeliveryAmountReliability"];
+            negativeWeightAnomaly: boolean;
+        };
+        DeliveryReviewProjection: {
+            status: components["schemas"]["DeliveryReviewStatus"];
+            /** Format: int64 */
+            currentRevisionNo: number;
+            maxReviewAbsoluteWeightKg: components["schemas"]["BusinessWeightKg"];
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            /** Format: date-time */
+            firstApprovedAt: string | null;
+        };
+        WebDeliveryAnomaly: {
+            category: components["schemas"]["DeliveryAnomalyCategory"];
+            code: string;
+            detectedAt: components["schemas"]["UtcTimestamp"];
+            message: string;
+            diagnosticDetails: {
+                [key: string]: unknown;
+            } | null;
+        };
+        DeliveryPhoto: {
+            position: components["schemas"]["DeliveryPhotoPosition"];
+            status: components["schemas"]["DeliveryPhotoStatus"];
+            /** Format: uri */
+            url: string | null;
+            /** Format: date-time */
+            capturedAt: string | null;
+            missingReason: components["schemas"]["DeliveryPhotoMissingReason"];
+        };
+        DeliveryRevisionOperator: {
+            actorKind: components["schemas"]["DeliveryReviewerKind"];
+            actorUid: components["schemas"]["PublicUid"];
+            displayName: string;
+        };
+        DeliveryRevision: {
+            revisionUid: components["schemas"]["UuidV4"];
+            /** Format: int64 */
+            revisionNo: number;
+            revisionType: components["schemas"]["DeliveryRevisionType"];
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            beforeFinalWeightKg: string | null;
+            beforeFinalAmountYuan: string | null;
+            afterFinalWeightKg: components["schemas"]["BusinessWeightKg"];
+            afterFinalAmountYuan: components["schemas"]["MoneyCny"];
+            amountDeltaYuan: components["schemas"]["MoneyCny"];
+            reason: string | null;
+            operator: components["schemas"]["DeliveryRevisionOperator"];
+            reviewedAt: components["schemas"]["UtcTimestamp"];
+        };
+        WebDeliveryOrderDetail: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            source: components["schemas"]["DeliverySource"];
+            ownership: components["schemas"]["DeliveryOwnership"];
+            raw: components["schemas"]["DeliveryRawFacts"];
+            review: components["schemas"]["DeliveryReviewProjection"];
+            anomalies: components["schemas"]["WebDeliveryAnomaly"][];
+            photos: components["schemas"]["DeliveryPhoto"][];
+            revisions: components["schemas"]["DeliveryRevision"][];
+        };
+        ReviewDeliveryOrderRequest: {
+            /** Format: int64 */
+            expectedRevisionNo: number;
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            /** @description Must be null for ORIGINAL_APPROVED and present for MODIFIED_APPROVED. */
+            finalWeightKg?: string | null;
+            reason?: string | null;
+        };
+        DeliveryReviewResult: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            revisionUid: components["schemas"]["UuidV4"];
+            /** Format: int64 */
+            revisionNo: number;
+            /** @constant */
+            reviewStatus: "APPROVED";
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            finalWeightKg: components["schemas"]["BusinessWeightKg"];
+            finalAmountYuan: components["schemas"]["MoneyCny"];
+            walletDeltaYuan: components["schemas"]["MoneyCny"];
+            walletEffect: components["schemas"]["DeliveryWalletEffect"];
+            reviewedAt: components["schemas"]["UtcTimestamp"];
+        };
+        DeliveryOrderPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryOrderCursorPage"];
+            requestId: string;
+        };
+        DeliveryOrderDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WebDeliveryOrderDetail"];
+            requestId: string;
+        };
+        DeliveryReviewResultEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryReviewResult"];
+            requestId: string;
+        };
         WechatPayEncryptedNotification: {
             id: string;
             /** Format: date-time */
@@ -3409,6 +3749,39 @@ export interface components {
                 "application/json": components["schemas"]["DeviceConfigurationApplicationEnvelope"];
             };
         };
+        /** @description A stable cursor page of delivery order summaries */
+        DeliveryOrderPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryOrderPageEnvelope"];
+            };
+        };
+        /** @description Immutable device evidence with its current review projection and additive revision history */
+        DeliveryOrderDetailOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryOrderDetailEnvelope"];
+            };
+        };
+        /** @description A review revision and its exact wallet delta were committed atomically */
+        DeliveryReviewCreated: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryReviewResultEnvelope"];
+            };
+        };
     };
     parameters: {
         /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
@@ -3418,11 +3791,21 @@ export interface components {
         StaffAccountUid: components["schemas"]["PublicUid"];
         BindingUid: components["schemas"]["PublicUid"];
         OrganizationUserUid: components["schemas"]["PublicUid"];
+        DeliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
         DirectoryStatusFilter: components["schemas"]["DirectoryStatus"];
         DirectoryQuery: string;
         Page: number;
         PageSize: number;
         Cursor: components["schemas"]["Cursor"];
+        DeliveryOrderLimit: number;
+        DeliveryReviewStatusFilter: components["schemas"]["DeliveryReviewStatus"];
+        DeliveryOccurredFrom: components["schemas"]["UtcTimestamp"];
+        DeliveryOccurredTo: components["schemas"]["UtcTimestamp"];
+        DeliveryOrganizationUserFilter: components["schemas"]["PublicUid"];
+        DeliveryDeploymentFilter: components["schemas"]["DeploymentCode"];
+        DeliveryPortFilter: number;
+        DeliveryAnomalyFilter: string;
+        DeliveryPhotoCompletenessFilter: components["schemas"]["DeliveryPhotoCompleteness"];
         HardwareSn: components["schemas"]["HardwareSn"];
         DeploymentCode: components["schemas"]["DeploymentCode"];
         PortNo: number;
@@ -6231,6 +6614,216 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listWebDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["DeliveryOrderLimit"];
+                reviewStatus?: components["parameters"]["DeliveryReviewStatusFilter"];
+                occurredFrom?: components["parameters"]["DeliveryOccurredFrom"];
+                occurredTo?: components["parameters"]["DeliveryOccurredTo"];
+                organizationUserUid?: components["parameters"]["DeliveryOrganizationUserFilter"];
+                deploymentCode?: components["parameters"]["DeliveryDeploymentFilter"];
+                portNo?: components["parameters"]["DeliveryPortFilter"];
+                anomalyCode?: components["parameters"]["DeliveryAnomalyFilter"];
+                photoCompleteness?: components["parameters"]["DeliveryPhotoCompletenessFilter"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderDetailOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    reviewWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    correctWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    listPlatformWebDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["DeliveryOrderLimit"];
+                reviewStatus?: components["parameters"]["DeliveryReviewStatusFilter"];
+                occurredFrom?: components["parameters"]["DeliveryOccurredFrom"];
+                occurredTo?: components["parameters"]["DeliveryOccurredTo"];
+                organizationUserUid?: components["parameters"]["DeliveryOrganizationUserFilter"];
+                deploymentCode?: components["parameters"]["DeliveryDeploymentFilter"];
+                portNo?: components["parameters"]["DeliveryPortFilter"];
+                anomalyCode?: components["parameters"]["DeliveryAnomalyFilter"];
+                photoCompleteness?: components["parameters"]["DeliveryPhotoCompletenessFilter"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderDetailOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    reviewPlatformWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    correctPlatformWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     receiveWechatNativePaymentNotification: {

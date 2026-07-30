@@ -25,6 +25,9 @@ const AccountSettingsPage = lazy(() => import('@/pages/account'));
 const DeviceManagementPage = lazy(
   () => import('@/pages/device-management'),
 );
+const DeliveryOrdersPage = lazy(
+  () => import('@/pages/delivery-orders'),
+);
 const BusinessContractPendingPage = lazy(
   () => import('@/pages/business/BusinessContractPending'),
 );
@@ -116,7 +119,7 @@ export const appRoutes: AppRoute[] = [
     path: '/deliveries',
     name: '投递订单',
     icon: <ShoppingCartOutlined />,
-    element: <BusinessContractPendingPage kind="delivery" />,
+    element: <DeliveryOrdersPage />,
     anyOf: ['delivery.read', 'review.execute'],
   },
   {
