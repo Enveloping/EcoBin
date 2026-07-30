@@ -117,8 +117,6 @@ class PhotoManager:
         self._retention = timedelta(hours=retention_hours)
         self._simulate_camera = simulate_camera
         self._trusted_cos_environment = trusted_cos_environment
-        self._urls = {}
-        self._urls_lock = threading.Lock()
         self._capture_lock = threading.Lock()
         self._grant_lock = threading.Lock()
         self._grants: dict[tuple[str, str], dict[str, Any]] = {}
@@ -288,10 +286,6 @@ class PhotoManager:
         slot_names,
     ):
         work_path = WORK_TYPE_PATH[work_type]
-        base_url = (
-            (self._trusted_cos_environment or {}).get("baseUrl")
-            or ""
-        ).rstrip("/")
         captures = []
         for slot in slot_names:
             photo_uid = str(_uuid.uuid4())
@@ -315,11 +309,6 @@ class PhotoManager:
                     "work_type": work_type,
                     "deployment_code": self._deployment_code,
                     "cos_key": object_key,
-                    "url": (
-                        f"{base_url}/{object_key}"
-                        if base_url
-                        else None
-                    ),
                 }
             )
         return self._store.reserve_photo_captures(captures)
@@ -330,15 +319,12 @@ class PhotoManager:
 
     def _capture_reserved_photos_serial(self, captures):
         results = {}
-        touched_work_uids = set()
         for reserved in captures:
             photo = self._store.get_photo(reserved["photo_uid"])
             if photo is None:
                 continue
             slot = photo["slot_name"]
             photo_uid = photo["photo_uid"]
-            work_uid = photo["work_uid"]
-            touched_work_uids.add(work_uid)
             if (
                 photo["state"] != "CAPTURE_PENDING"
                 or photo["tombstoned"]
@@ -410,9 +396,6 @@ class PhotoManager:
                     "local_path": None,
                     "status": "FAILED",
                 }
-        with self._urls_lock:
-            for work_uid in touched_work_uids:
-                self._urls.pop(work_uid, None)
         return results
 
     def _recover_interrupted_captures(self) -> None:
@@ -701,7 +684,7 @@ class PhotoManager:
             )
             if object_key != expected_key:
                 raise RuntimeError("COS_OBJECT_KEY_MISMATCH")
-            expected_url = photo.get("url") or (
+            expected_url = (
                 f"{grant['baseUrl'].rstrip('/')}/{object_key}"
             )
             self._store.mark_photo_uploading(photo["photo_uid"])
@@ -930,23 +913,22 @@ class PhotoManager:
             self._store.tombstone_photo(photo["photo_uid"])
 
     def get_slot_urls(self, work_uid):
-        with self._urls_lock:
-            if work_uid in self._urls:
-                return dict(self._urls[work_uid])
         photos = self._store.get_photos_by_work(work_uid)
-        urls = {}
-        for photo in photos:
-            urls[photo["slot_name"]] = photo.get("url")
-        with self._urls_lock:
-            self._urls[work_uid] = dict(urls)
-        return urls
+        return {
+            photo["slot_name"]: (
+                photo.get("url")
+                if photo["state"] == "UPLOADED"
+                else None
+            )
+            for photo in photos
+        }
 
     def get_completion_photo_facts(
         self,
         work_uid: str,
         work_type: str,
     ) -> list[dict[str, Any]]:
-        """Return the frozen four-slot snapshot with reserved formal URLs."""
+        """Return the four-slot snapshot without predicting future URLs."""
         photos = {
             photo["slot_name"]: photo
             for photo in self._store.get_photos_by_work(work_uid)
@@ -955,7 +937,7 @@ class PhotoManager:
         facts = []
         for slot in WORK_PHOTO_SLOTS[work_type]:
             photo = photos.get(slot)
-            if photo is None:
+            if photo is None or photo["state"] == "CAPTURE_PENDING":
                 facts.append({
                     "slot": slot,
                     "status": "UPLOAD_PENDING",
@@ -964,30 +946,71 @@ class PhotoManager:
                     "sha256": None,
                     "sizeBytes": None,
                     "capturedAt": None,
-                    "missingReason": "PHOTO_METADATA_PENDING",
+                    "missingReason": "CAMERA_NOT_READY",
                 })
                 continue
             state = photo["state"]
             if state == "UPLOADED":
-                status = "AVAILABLE"
-                missing_reason = None
-            elif state == "DEAD":
-                status = "PERMANENTLY_MISSING"
-                missing_reason = (
-                    photo.get("last_error")
-                    or "PHOTO_CAPTURE_FAILED"
-                )
+                if not photo.get("url"):
+                    raise RuntimeError("UPLOADED_PHOTO_URL_MISSING")
+                facts.append({
+                    "slot": slot,
+                    "status": "AVAILABLE",
+                    "photoUid": photo["photo_uid"],
+                    "url": photo["url"],
+                    "sha256": photo["content_sha256"],
+                    "sizeBytes": photo["size_bytes"],
+                    "capturedAt": photo["captured_at"],
+                    "missingReason": None,
+                })
+                continue
+            was_captured = bool(
+                photo.get("content_sha256")
+                and photo.get("size_bytes")
+            )
+            if state == "DEAD":
+                facts.append({
+                    "slot": slot,
+                    "status": "PERMANENTLY_MISSING",
+                    "photoUid": (
+                        photo["photo_uid"] if was_captured else None
+                    ),
+                    "url": None,
+                    "sha256": (
+                        photo["content_sha256"] if was_captured else None
+                    ),
+                    "sizeBytes": (
+                        photo["size_bytes"] if was_captured else None
+                    ),
+                    "capturedAt": (
+                        photo["captured_at"] if was_captured else None
+                    ),
+                    "missingReason": (
+                        photo.get("last_error")
+                        or "PHOTO_CAPTURE_FAILED"
+                    ),
+                })
+                continue
+            if was_captured:
+                facts.append({
+                    "slot": slot,
+                    "status": "UPLOAD_PENDING",
+                    "photoUid": photo["photo_uid"],
+                    "url": None,
+                    "sha256": photo["content_sha256"],
+                    "sizeBytes": photo["size_bytes"],
+                    "capturedAt": photo["captured_at"],
+                    "missingReason": "PHOTO_UPLOAD_PENDING",
+                })
             else:
-                status = "UPLOAD_PENDING"
-                missing_reason = None
-            facts.append({
-                "slot": slot,
-                "status": status,
-                "photoUid": photo["photo_uid"],
-                "url": photo.get("url"),
-                "sha256": photo.get("content_sha256"),
-                "sizeBytes": photo.get("size_bytes"),
-                "capturedAt": photo.get("captured_at"),
-                "missingReason": missing_reason,
-            })
+                facts.append({
+                    "slot": slot,
+                    "status": "UPLOAD_PENDING",
+                    "photoUid": None,
+                    "url": None,
+                    "sha256": None,
+                    "sizeBytes": None,
+                    "capturedAt": None,
+                    "missingReason": "CAMERA_NOT_READY",
+                })
         return facts

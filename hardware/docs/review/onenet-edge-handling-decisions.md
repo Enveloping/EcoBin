@@ -1253,40 +1253,33 @@ AFTER_INNER
 AFTER_OUTER
 ```
 
-项目负责人进一步确认：
+项目负责人最终确认继续采用现有机器契约，不在完成事件中预报尚未上传成功的 URL：
 
-> `deliveryComplete` 上报时直接携带四个已经冻结的正式目标 URL。URL 是照片将要写入的
-> 确定性 COS 对象地址，不是“对象已经上传成功”的证明。
+> `deliveryComplete` 创建时，仍在拍照、等待授权或尚未完成 COS 上传的照片槽
+> `url=null`。照片实际上传完成后，再通过独立的
+> `photoStatusReported: AVAILABLE` 向后端报告可信 URL。
 
-四个槽的 `photoUid`、对象 key 和正式 URL 必须在相应拍摄动作开始前可靠预分配。正式
-URL 使用可信 COS 基础地址以及以下身份共同推导：
+事件不等待拍照或 COS 上传完成。每个槽按事件创建时已经可靠保存的最新事实填充：
 
-```text
-deploymentCode + DELIVERY_SESSION + sessionUid + slot + photoUid
-```
-
-事件不等待拍照或 COS 上传完成。每个槽按事件创建时已经可靠保存的最新事实填充，但无论
-当时是 `AVAILABLE`、`UPLOAD_PENDING` 还是已经确定缺失，完成事件中的四个槽都保留各自
-预分配的正式目标 URL：
-
-- 已上传时使用 `AVAILABLE`，并携真实摘要、照片身份和该正式 URL；
-- 已拍摄但尚未上传时使用 `UPLOAD_PENDING`，保留本地照片身份、摘要和同一个正式 URL；
-- 尚未拍到或状态仍待收敛时使用待处理状态，同时携预分配照片身份和正式 URL；
-- 已确定无法取得时使用 `PERMANENTLY_MISSING` 和稳定缺失原因，但完成事件中保留的 URL
-  仍只表示原预留对象地址，不能当作对象存在；
+- 已实际上传成功时使用 `AVAILABLE`，携带真实照片身份、摘要、大小、拍摄时间和可信
+  URL；
+- 已拍摄但尚未上传成功时使用 `UPLOAD_PENDING`，保留真实照片身份、摘要、大小和
+  拍摄时间，但 `url=null`；
+- 尚未形成照片文件或仍在拍摄时使用未拍摄的 `UPLOAD_PENDING` 形状，
+  `photoUid/url/sha256/sizeBytes/capturedAt` 均为 `null`，并携稳定待处理原因；
+- 已确定无法取得时使用 `PERMANENTLY_MISSING` 和稳定缺失原因，`url=null`；
 - 后续终态变化由 `photoStatusReported` 报告，不修改原完成事件。
 
-照片后来上传失败或重新取得授权时，必须继续使用完成事件中的同一
-`photoUid + objectKey + URL` 重试上传，不得换 URL、换对象 key 或生成第二个照片身份。
-后续 `photoStatusReported: AVAILABLE` 携带的 URL 必须与完成事件预留 URL 完全一致。
+上传失败或重新取得授权时，应复用同一已经形成的照片身份和确定性对象 key 幂等重试；
+但在上传成功前不得把推导出的候选地址写进完成事件。后续
+`photoStatusReported: AVAILABLE` 才是该槽 URL 已可用的可靠事实。
 
 投递前后拍照失败、授权缺失和上传失败都不阻止 `deliveryComplete`、建单或业务确认，也
 不因为缺图自动禁止返现。订单仍执行正常人工审核，审核通过后才按既有资金规则返现。
 
-当前契约把 `UPLOAD_PENDING.url` 和 `PERMANENTLY_MISSING.url` 限制为 `null`，与上述
-新确认口径不一致。后续实施必须调整完成事件专用照片快照 Schema、OneNet 物模型、线格式
-映射、示例和语义校验；不得为了暂时通过旧 Schema 而把尚未上传的照片伪报成
-`AVAILABLE`。
+现有公共照片 Schema、OneNet 线格式和示例已经符合该语义：
+`UPLOAD_PENDING.url` 和 `PERMANENTLY_MISSING.url` 必须为 `null`。不得把尚未上传的
+照片伪报成 `AVAILABLE`，也不得用候选对象地址冒充实际可用 URL。
 
 `DD.FULL` 只作为最新红外原始观测保存在香橙派，不进入
 `deliveryComplete`。后端在建单事务中建立投递后满溢检测，随后通过
@@ -1356,6 +1349,8 @@ deploymentCode + DELIVERY_SESSION + sessionUid + slot + photoUid
 - 把合法 `DD` 绑定当前唯一投递槽；
 - 保存 `PRE/POST`，计算 `POST-PRE` 并缓存 `FULL`；
 - 构造 `USER_ENDED`、`negativeWeightAnomaly=false` 和不可观测门命令事实；
+- 从 PhotoManager 读取四个槽位当时的真实状态；仍在拍摄或上传的槽位
+  `url=null`，只有已经上传成功的槽位携带可信 URL；
 - 生成一条 `DELIVERY_COMPLETE` 后释放工作槽。
 
 当前仍有以下端到端阻塞或可靠性缺口：
@@ -1368,27 +1363,25 @@ deploymentCode + DELIVERY_SESSION + sessionUid + slot + photoUid
    释放分散在多个事务。断电可能发生在 `DD` 已入库而完成事件尚未建立的窗口，重启后
    该结果可能被当作无活动作业结果忽略。
 4. 在线等待 `DD` 超时尚无定时处理，会永久占用工作槽。
-5. 完成事件目前始终把四个照片槽写成空元数据的 `UPLOAD_PENDING`，没有读取已经落盘
-   的真实照片状态；照片终态事件还可能先于完成事件产生，形成状态回退或暂存依赖。
-6. 普通可靠事件发布后进入 `SENDING`，尚无重启恢复和持续重发路径。
-7. fixed-frame 合成的 MCU 接收序号会在进程重启后重复，可能把新的相同内容首帧误判为
+5. 普通可靠事件发布后进入 `SENDING`，尚无重启恢复和持续重发路径。
+6. fixed-frame 合成的 MCU 接收序号会在进程重启后重复，可能把新的相同内容首帧误判为
    历史重复。
-8. 后端当前只消费 `configurationProgress`。`deliveryComplete` 会在分发器警告后被 MQ
+7. 后端当前只消费 `configurationProgress`。`deliveryComplete` 会在分发器警告后被 MQ
    ACK，既不进入可信 inbox，也没有物理结果、订单、照片或满溢 gate 的业务写入用例。
-9. 后端数据库与当前事件仍存在直接冲突：投递结果表要求真实
+8. 后端数据库与当前事件仍存在直接冲突：投递结果表要求真实
    `CLOSED/OK`，稳定测量样本数要求大于零，部分照片状态无法无损保存，投递会话和订单
    用户字段又不允许无主值。
-10. 后端尚无本事件的 `confirmEdgeEvent` 下发及确认回执闭环。
-11. 原 `START_DELIVERY_SESSION` 仍缺少
+9. 后端尚无本事件的 `confirmEdgeEvent` 下发及确认回执闭环。
+10. 原 `START_DELIVERY_SESSION` 仍缺少
     `target.uid == payload.sessionUid` 的专项语义校验。
-12. 保留的 UART-v1 重启分支仍可构造 `DEVICE_INTERRUPTED` 完成事件；该行为不能应用到
+11. 保留的 UART-v1 重启分支仍可构造 `DEVICE_INTERRUPTED` 完成事件；该行为不能应用到
     本节确认的 fixed-frame 路径。
 
 后续实施必须优先打通 Schema 合法身份、`DD → 唯一完成事件` 原子恢复、在线超时、
-真实照片槽快照、可靠重发、后端可信消费、唯一建单、数据库兼容和业务确认，并覆盖强杀
+可靠重发、后端可信消费、唯一建单、数据库兼容和业务确认，并覆盖强杀
 进程、迟到/重复 `DD`、同会话第二事件、照片乱序和无主单测试。
 
-本轮只确认处理策略并记录决策，未修改运行代码。
+本轮已落实完成事件照片快照与 URL 语义；其余保留任务不因本项完成而视为已解决。
 
 ### 4.4 `cleanComplete`
 
@@ -1506,9 +1499,11 @@ FINAL_CLOSE_OUTER
 事件不等待拍照或 COS 上传完成。每个槽按事件创建时已经可靠保存的最新事实填充：
 
 - 已上传时使用 `AVAILABLE` 并携真实 URL、摘要和照片身份；
-- 已拍摄但尚未上传时使用 `UPLOAD_PENDING` 并保留本地照片身份和摘要；
-- 尚未拍到或状态仍待收敛时使用契约允许的待处理形状和稳定原因；
-- 已确定无法取得时使用 `PERMANENTLY_MISSING` 和稳定缺失原因；
+- 已拍摄但尚未上传时使用 `UPLOAD_PENDING`，保留本地照片身份和摘要，但
+  `url=null`；
+- 尚未拍到、仍在拍摄或状态仍待收敛时使用契约允许的未拍摄待处理形状，
+  `url=null`；
+- 已确定无法取得时使用 `PERMANENTLY_MISSING` 和稳定缺失原因，`url=null`；
 - 后续终态变化由 `photoStatusReported` 报告，不修改或回退原完成事件。
 
 清运前、清运后任意照片失败、授权缺失或上传失败，都不阻止写出 `EE`、接收 `EF`、
@@ -1587,6 +1582,8 @@ FINAL_CLOSE_OUTER
 - 将合法 `EF` 绑定当前唯一清运槽；
 - 保存 `PRE/POST` 并缓存 `FULL`；
 - 构造已确认的人工完成、断电、人工关门依据和动作序号兼容值；
+- 从 PhotoManager 读取四个槽位当时的真实状态；尚未上传完成的槽位
+  `url=null`，后续由照片状态事件补入可信 URL；
 - 生成一条 `CLEAN_COMPLETE` 后释放工作槽。
 
 当前仍有以下端到端阻塞或可靠性缺口：
@@ -1606,31 +1603,29 @@ FINAL_CLOSE_OUTER
 6. 在线等待 `EF` 超时尚无定时处理，会永久占用工作槽。
 7. 清运前照片持久化失败目前仍会阻止 fixed-frame 写出 `EE`；保留的 UART-v1 路径也会
    因前置照片失败停止解锁，违反照片非阻断决策。
-8. 完成事件目前始终生成四个空元数据的 `UPLOAD_PENDING`，没有读取 PhotoManager
-   已可靠保存的真实照片状态；照片终态事件可能先于完成事件产生。
-9. 当前照片待上传形状携带 `PHOTO_METADATA_PENDING`，但数据库要求该状态
+8. 当前照片待上传形状携带 `PHOTO_METADATA_PENDING`，但数据库要求该状态
    `missing_reason` 为空；其他已拍摄待上传和永久缺失形状也不能被当前表约束无损保存。
-10. fixed-frame 合成的 MCU 接收序号会在进程重启后重复，可能把新的相同内容首帧误判
+9. fixed-frame 合成的 MCU 接收序号会在进程重启后重复，可能把新的相同内容首帧误判
     为历史重复。
-11. 普通可靠事件发布后进入 `SENDING`，尚无重启恢复和业务确认前持续重发路径。
-12. 后端当前只消费 `configurationProgress`。`cleanComplete` 会在分发器警告后被 MQ
+10. 普通可靠事件发布后进入 `SENDING`，尚无重启恢复和业务确认前持续重发路径。
+11. 后端当前只消费 `configurationProgress`。`cleanComplete` 会在分发器警告后被 MQ
     ACK，不进入可信 inbox，也不会创建清运记录、执行袋交换、建立新皮重或满溢 gate。
-13. 后端清运结果表仍强制要求 `solenoidHealth=OK`、真实门位 `CLOSED`、门位依据
+12. 后端清运结果表仍强制要求 `solenoidHealth=OK`、真实门位 `CLOSED`、门位依据
     `INFERRED_FROM_LOCK_POWER`，与本节确认的
     `UNKNOWN / CLEANER_CONFIRMATION / 人工关门确认` 直接冲突。
-14. 后端表尚未完整保存 `cleanActionSequence` 和人工关门确认，清运照片字段长度及状态
+13. 后端表尚未完整保存 `cleanActionSequence` 和人工关门确认，清运照片字段长度及状态
     约束也与事件契约不完全一致。
-15. 后端尚无本事件的可信消费用例、原操作上下文复算、唯一归并事务、
+14. 后端尚无本事件的可信消费用例、原操作上下文复算、唯一归并事务、
     `confirmEdgeEvent` 下发及确认回执闭环。
-16. 后续 `sampleFullness` 复用 `FULL` 缓存时尚未绑定来源作业、接收时间和配置代际；
+15. 后续 `sampleFullness` 复用 `FULL` 缓存时尚未绑定来源作业、接收时间和配置代际；
     该问题留到 `fullnessSampleComplete` 事件继续收口。
 
 后续实施必须优先统一净重公式和契约生成物，打通 UUIDv4 合法身份、
-`EF → 新袋皮重 → 唯一完成事件` 的原子恢复、照片非阻断和真实快照、在线超时、可靠
+`EF → 新袋皮重 → 唯一完成事件` 的原子恢复、照片非阻断、在线超时、可靠
 重发、后端可信消费、唯一袋交换、数据库兼容和业务确认，并覆盖强杀进程、迟到/重复
 `EF`、同操作第二事件、旧皮重缺失和照片乱序测试。
 
-本轮只确认处理策略并记录决策，未修改运行代码。
+本轮已落实完成事件照片快照与 URL 语义；其余保留任务不因本项完成而视为已解决。
 
 ### 4.5 `fullnessSampleComplete`
 
@@ -2836,12 +2831,9 @@ missingReason = null
 URL 必须属于当前可信 COS 环境，并与部署、作业类型、作业身份、槽位和 `photoUid` 推导的
 对象路径一致；不得携带查询参数、临时签名或凭证。
 
-对于投递照片，`deliveryComplete` 中已经确认要预先上报的 URL 是“预留目标地址”；
-本终态事件中的 URL 则仍表达“对象已实际可用”。因此：
-
-- `AVAILABLE.url` 必须与 `deliveryComplete` 中该槽预留的 URL 完全一致；
-- `PERMANENTLY_MISSING.url` 仍为 `null`，不能因为曾经预留过地址而伪报对象存在；
-- 后端不得把完成事件里的预留 URL 单独当作上传成功证明，必须同时检查槽位状态。
+`AVAILABLE.url` 只在 COS 上传实际成功后出现。完成事件中的 `UPLOAD_PENDING` 和
+`PERMANENTLY_MISSING` 都必须保持 `url=null`；后端不得自行根据照片身份或授权前缀拼接
+URL，也不得在收到 `photoStatusReported: AVAILABLE` 前把槽位显示为可访问。
 
 从未成功拍摄时使用：
 
@@ -2906,8 +2898,8 @@ missingReason = 稳定错误码
 - 完成事件只包含 `UPLOAD_PENDING` 时，终态事件将槽位推进为
   `AVAILABLE/PERMANENTLY_MISSING`；
 - 两者终态、`photoUid`、摘要、大小或实际可用 URL 冲突时必须隔离，不能覆盖已有事实；
-- 完成事件中的预留 URL 与后续 `AVAILABLE.url` 不一致时必须隔离；后续
-  `PERMANENTLY_MISSING.url=null` 不与原预留 URL 构成冲突；
+- 完成事件为 `UPLOAD_PENDING` 时其 URL 必须为空；后续 `AVAILABLE` 事件第一次补入可信
+  URL，后续 `PERMANENTLY_MISSING` 则继续保持 URL 为空；
 - 状态只能从 `UPLOAD_PENDING` 进入一个终态；
 - `AVAILABLE` 和 `PERMANENTLY_MISSING` 均不可互相转换，也不可回退为待上传。
 
@@ -2961,32 +2953,26 @@ missingReason = 稳定错误码
 - 上传失败能够退避、请求新授权并按默认 72 小时保留期重试；
 - 上传成功能够校验预期 URL 并建立 `AVAILABLE`；
 - 照片终态和可靠事件已经由 `record_photo_status()` 在一个 SQLite 事务中保存；
-- `AVAILABLE` 本地文件只有在状态事件收到 `BUSINESS_APPLIED` 后才会删除。
+- `AVAILABLE` 本地文件只有在状态事件和对应完成事件均收到业务确认后才会删除；
+- 完成事件按槽位实际状态构造契约形状，拍照中和待上传状态均保持 `url=null`；
+- 只有上传成功事务才会保存 URL 并建立 `photoStatusReported: AVAILABLE`；
+- SQLite v6 会清理旧版本遗留在非 `UPLOADED` 照片记录中的候选 URL；
+- 缺失原因已由中心化白名单和稳定上传错误码约束。
 
 当前仍有以下缺口：
 
-1. 照片终态事件可以早于完成事件产生，而当前状态事件确认后会墓碑化照片记录，可能让
-   稍后的完成事件失去真实照片元数据。
-2. 当前缺失原因会接受任意符合格式的异常文本或截断后的异常类名，尚无中心化稳定白名单。
-3. 完成事件当前没有读取 `PhotoManager` 的真实槽位状态，仍可能固定生成空元数据
-   `UPLOAD_PENDING`。
-4. 当前照片 URL 只在上传成功时根据临时授权拼出，完成事件没有预先冻结和上报四个正式
-   URL；`get_slot_urls()` 还可能回退成本地路径或对象 key，不能满足新确认的稳定 URL
-   语义。
-5. 当前公共照片 Schema 强制 `UPLOAD_PENDING/PERMANENTLY_MISSING.url=null`，完成事件
-   需要改用能够区分“预留目标 URL”和“实际可用 URL”的专用快照形状。
-6. 当前代码对拍摄持久化失败的部分前置路径仍可能阻止开门或清运，需要与“普通照片失败
+1. 当前代码对拍摄持久化失败的部分前置路径仍可能阻止开门或清运，需要与“普通照片失败
    非阻断、SQLite 故障独立处理”统一。
-7. 后端 OneNet 分发仍只处理 `configurationProgress`；本事件会被警告后由 MQ ACK
+2. 后端 OneNet 分发仍只处理 `configurationProgress`；本事件会被警告后由 MQ ACK
    丢弃。
-8. 后端尚未实现终态先到时的可靠暂存、完成事件到达后的归并和冲突隔离。
-9. 后端 `rec_delivery_photo/rec_clean_photo` 对
+3. 后端尚未实现终态先到时的可靠暂存、完成事件到达后的归并和冲突隔离。
+4. 后端 `rec_delivery_photo/rec_clean_photo` 对
    `PERMANENTLY_MISSING` 强制清空摘要和大小，不能无损保存“已拍摄但最终无法上传”的
    契约形状。
-10. 后端现有 URL 数据库约束与可信 COS 完整路径规则需要统一，并且必须明确区分预留
-    URL 和实际可用状态。
-11. 后端尚无本事件的业务确认下行和确认回执闭环。
-12. 普通可靠事件发布后可能停留在 `SENDING`，尚无完整的重启恢复和确认前重发路径。
+5. 后端现有 URL 数据库约束与可信 COS 完整路径规则需要统一，并确保待上传/永久缺失
+   URL 为空、只有 `AVAILABLE` 保存实际可用 URL。
+6. 后端尚无本事件的业务确认下行和确认回执闭环。
+7. 普通可靠事件发布后可能停留在 `SENDING`，尚无完整的重启恢复和确认前重发路径。
 
 后续实施必须覆盖：
 
@@ -3000,7 +2986,8 @@ missingReason = 稳定错误码
 - `EVENT_QUARANTINED` 保留本地照片；
 - 后端表结构兼容、可信消费、业务确认和重启重传。
 
-本轮只确认处理策略并记录决策，未修改运行代码。
+本轮已落实香橙派完成快照、SQLite URL 状态约束和上传成功补报行为；后端归并及其余
+端到端任务仍按上述缺口推进。
 
 ### 4.11 `photoUploadGrantRequested`
 
@@ -3067,20 +3054,15 @@ missingReason = 稳定错误码
 规则授权该作业完整四个槽，因此同一作业稍后出现新的待上传照片时，可以使用已经安装的
 授权，不要求为了新增槽位修改旧事件。
 
-对于投递照片，项目负责人确认：
-
-> 上传使用的 URL 在 `deliveryComplete` 创建时已经确定。申请新授权和上传重试只获得
-> “写入同一对象地址的临时权限”，绝不改变照片的正式 URL。
-
-因此每次上传和重试必须复用同一组稳定身份：
+项目负责人确认，完成事件不预报 URL；但每次上传和重试仍必须复用同一组稳定上传身份：
 
 ```text
-photoUid + slot + objectKey + formalUrl
+photoUid + slot + objectKey
 ```
 
-`providePhotoUploadGrant` 中的可信 `baseUrl` 和 `keyPrefix` 必须能推导出该预留
-`objectKey/formalUrl`。不匹配时拒绝该授权，不能迁移照片到新地址。临时签名、密钥和
-会话令牌不进入正式 URL。
+`providePhotoUploadGrant` 中的可信 `baseUrl` 和 `keyPrefix` 必须覆盖该确定性
+`objectKey`。不匹配时拒绝该授权，不能迁移照片到新对象身份。临时签名、密钥和会话令牌
+不进入业务事件；上传成功后再校验并保存可信正式 URL，由 `photoStatusReported` 上报。
 
 #### 4.11.5 香橙派本地事务和幂等
 
@@ -3144,7 +3126,8 @@ photoUid + slot + objectKey + formalUrl
 - 临时授权只存在内存，进程重启后不恢复、不从 SQLite 读取；
 - 重启后仍有本地待上传照片时，以 `EDGE_RESTARTED` 创建新代次申请；
 - 申请和授权失败不修改完成事件，也不改变投递订单或清运记录；
-- 已确认的投递照片始终向 `deliveryComplete` 预留的同一个 URL 重试；
+- 已经形成文件的照片始终使用原 `photoUid + slot + objectKey` 重试，完成事件中的
+  `UPLOAD_PENDING.url` 始终为空；
 - 从真实拍摄时间起满 72 小时仍未上传成功时，停止申请和上传，按 4.10 收敛为
   `PERMANENTLY_MISSING`；
 - `BUSINESS_APPLIED` 只允许停止重发本申请事件，不能删除照片；
@@ -3160,29 +3143,25 @@ photoUid + slot + objectKey + formalUrl
 - 临时授权只存在内存；
 - 授权过期和进程重启能够使授权换代；
 - 上传使用 `slot/photoUid.jpg` 的确定性对象 key；
-- 上传失败会退避重试，照片默认保留 72 小时。
+- 上传失败会退避重试，照片默认保留 72 小时；
+- 上传前只保存稳定 `photoUid + slot + objectKey`，不提前保存或上报候选 URL；
+- 上传成功后在照片终态和可靠事件的同一事务中保存可信 URL。
 
 当前仍有以下缺口：
 
-1. 正式 URL 目前到上传时才由授权中的 `baseUrl/keyPrefix` 拼出，没有在
-   `deliveryComplete` 前可靠预分配和冻结。
-2. 投递完成事件尚未上报四个预留 URL，旧 Schema 也禁止
-   `UPLOAD_PENDING/PERMANENTLY_MISSING` 携带预留 URL。
-3. 上传异常尚未可靠区分“普通网络错误”和“授权已经不可用”，可能无法准确决定是否
+1. 上传异常尚未可靠区分“普通网络错误”和“授权已经不可用”，可能无法准确决定是否
    保留授权或以 `UPLOAD_RETRY` 换代。
-4. 申请复用主要依赖照片行中的一个事件 UID，尚无完整、显式的申请代次状态机和迟到
+2. 申请复用主要依赖照片行中的一个事件 UID，尚无完整、显式的申请代次状态机和迟到
    服务拒绝证明。
-5. 已发布为 `SENDING` 的可靠申请事件在重启后仍可能无法恢复到重发状态。
-6. 后端尚未消费本事件，也没有凭证签发任务、`providePhotoUploadGrant` 下行、旧代次
+3. 已发布为 `SENDING` 的可靠申请事件在重启后仍可能无法恢复到重发状态。
+4. 后端尚未消费本事件，也没有凭证签发任务、`providePhotoUploadGrant` 下行、旧代次
    作废、业务确认和回执闭环。
-7. 契约、OneNet 物模型、线格式映射、示例、语义校验和测试都需要同步落实预留 URL 与
-   实际可用状态分离的语义。
 
 后续实施必须覆盖：初次缺授权、授权过期、进程重启、授权错误、普通网络错误、重复申请、
-新旧代次乱序、服务与业务确认乱序、四 URL 稳定性、同对象幂等覆盖、72 小时终结以及
-秘密不落盘测试。
+新旧代次乱序、服务与业务确认乱序、同对象幂等覆盖、72 小时终结以及秘密不落盘测试。
 
-本轮只确认处理策略并记录决策，未修改运行代码。
+本轮已落实完成事件 URL 为空、上传成功补入 URL、授权失败后复用同一对象身份及对应
+回归测试；其余授权闭环任务仍按上述缺口推进。
 
 ### 4.12 `businessConfirmationReceipt`
 
