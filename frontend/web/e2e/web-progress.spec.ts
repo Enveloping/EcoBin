@@ -1489,6 +1489,149 @@ test('device management consumes the organization deep link and target API', asy
   await expect(page.getByText('在线', { exact: true })).toBeVisible();
 });
 
+test('late delivery detail responses cannot replace or review the selected order', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'organization.read',
+      'delivery.read',
+      'review.execute',
+    ],
+  };
+  const orderA = 'DO-20260730-RACE-A';
+  const orderB = 'DO-20260730-RACE-B';
+  let orderARequested = false;
+  let orderAFulfilled = false;
+  let releaseOrderA: (() => void) | undefined;
+  const orderAGate = new Promise<void>((resolve) => {
+    releaseOrderA = resolve;
+  });
+  let reviewedPath: string | undefined;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, {
+        token: 'delivery-race-csrf-e2e',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-delivery/delivery-orders'
+    ) {
+      await json(route, {
+        items: [
+          { ...deliveryItem('PENDING', 0), deliveryOrderNo: orderA },
+          { ...deliveryItem('PENDING', 0), deliveryOrderNo: orderB },
+        ],
+        asOf: '2026-07-30T03:10:00.123Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${orderA}`
+    ) {
+      orderARequested = true;
+      await orderAGate;
+      await json(route, {
+        ...deliveryDetail('PENDING', 0),
+        deliveryOrderNo: orderA,
+      });
+      orderAFulfilled = true;
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${orderB}`
+    ) {
+      await json(route, {
+        ...deliveryDetail('PENDING', 0),
+        deliveryOrderNo: orderB,
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname.endsWith('/reviews')
+    ) {
+      reviewedPath = url.pathname;
+      await json(route, {
+        deliveryOrderNo: orderB,
+        revisionUid: '40000000-0000-4000-8000-000000000049',
+        revisionNo: 1,
+        reviewStatus: 'APPROVED',
+        decision: 'ORIGINAL_APPROVED',
+        finalWeightKg: '1.25',
+        finalAmountYuan: '1.00',
+        walletDeltaYuan: '1.00',
+        walletEffect: 'APPLIED',
+        reviewedAt: '2026-07-30T03:00:00.123Z',
+      }, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/deliveries?organization=org-delivery');
+  await page.getByText(orderA, { exact: true }).click();
+  await expect.poll(() => orderARequested).toBe(true);
+  await page.locator('.ant-drawer-close').click();
+
+  await page.getByText(orderB, { exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: /投递订单详情/ });
+  await expect(drawer.getByText(orderB, { exact: true })).toBeVisible();
+
+  releaseOrderA?.();
+  await expect.poll(() => orderAFulfilled).toBe(true);
+  await expect(drawer.getByText(orderB, { exact: true })).toBeVisible();
+  await expect(drawer.getByText(orderA, { exact: true })).toHaveCount(0);
+
+  await drawer.getByRole('button', { name: '审核', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: '确认审核' })
+    .click();
+  await expect.poll(() => reviewedPath).toBe(
+    `/api/v1/web/organizations/org-delivery/delivery-orders/${orderB}/reviews`,
+  );
+});
+
 test('delivery list applies deep-link filters and reviews from the evidence drawer', async ({
   page,
 }) => {
