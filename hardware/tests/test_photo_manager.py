@@ -25,6 +25,13 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
             "/dev/v4l/by-id/"
             "usb-icSpring_icspring_camera-video-index0"
         ),
+        deployment_code="Dp_demo_01",
+        trusted_cos_environment={
+            "baseUrl": (
+                "https://ecobin-contract-1250000000.cos."
+                "ap-guangzhou.myqcloud.com"
+            ),
+        },
     )
     capture_started = threading.Event()
     release_capture = threading.Event()
@@ -53,6 +60,14 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
         assert {row["state"] for row in reserved} == {
             "CAPTURE_PENDING"
         }
+        completion = photos.get_completion_photo_facts(
+            "session-1",
+            "DELIVERY_SESSION",
+        )
+        assert len(completion) == 4
+        assert all(photo["status"] == "UPLOAD_PENDING" for photo in completion)
+        assert all(photo["url"] is None for photo in completion)
+        assert all(photo["photoUid"] is None for photo in completion)
     finally:
         release_capture.set()
     deadline = time.monotonic() + 2
