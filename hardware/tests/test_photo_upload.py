@@ -38,6 +38,19 @@ class FakeUploader:
         return f"{grant['baseUrl']}/{object_key}"
 
 
+class AuthFailThenSucceedUploader:
+    def __init__(self):
+        self.calls = []
+        self.failed = False
+
+    def upload(self, grant, local_path, object_key):
+        self.calls.append(object_key)
+        if not self.failed:
+            self.failed = True
+            raise PermissionError("signature expired")
+        return f"{grant['baseUrl']}/{object_key}"
+
+
 def _grant(work_uid):
     return {
         "grantUid": str(uuid.uuid4()),
@@ -348,6 +361,20 @@ def test_business_applied_photo_status_deletes_local_photo(tmp_path):
         status_event_uid,
         "BUSINESS_APPLIED",
     )
+    completion_event_uid = str(uuid.uuid4())
+    store.create_edge_event(
+        completion_event_uid,
+        "DELIVERY_COMPLETE",
+        {"sessionUid": work_uid},
+        work_uid=work_uid,
+        deployment_code=DEPLOYMENT_CODE,
+        target_type="DELIVERY_SESSION",
+    )
+    store.receive_business_confirmation(
+        str(uuid.uuid4()),
+        completion_event_uid,
+        "BUSINESS_APPLIED",
+    )
     photos = PhotoManager(
         store,
         deployment_code=DEPLOYMENT_CODE,
@@ -399,4 +426,150 @@ def test_grant_request_event_and_photo_assignment_are_atomic(tmp_path):
     ).fetchall()
     assert [row["event_uid"] for row in events] == [event_uid]
     photos.close()
+    store.close()
+
+
+def test_completion_urls_remain_empty_until_upload_succeeds(
+    tmp_path,
+):
+    work_uid = str(uuid.uuid4())
+    base_url = (
+        "https://ecobin-contract-1250000000.cos."
+        "ap-guangzhou.myqcloud.com"
+    )
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    uploader = AuthFailThenSucceedUploader()
+    photos = PhotoManager(
+        store,
+        photo_dir=str(tmp_path / "photos"),
+        deployment_code=DEPLOYMENT_CODE,
+        uploader=uploader,
+        start_upload_worker=False,
+        simulate_camera=True,
+        trusted_cos_environment={
+            "bucket": "ecobin-contract-1250000000",
+            "region": "ap-guangzhou",
+            "baseUrl": base_url,
+        },
+    )
+    assert photos.capture_open_photos(work_uid)
+    assert photos.capture_close_photos(work_uid)
+
+    completion = photos.get_completion_photo_facts(
+        work_uid,
+        "DELIVERY_SESSION",
+    )
+    original_photo_uids = {
+        fact["slot"]: fact["photoUid"]
+        for fact in completion
+    }
+    assert all(fact["status"] == "UPLOAD_PENDING" for fact in completion)
+    assert all(fact["url"] is None for fact in completion)
+    original_keys = {
+        photo["slot_name"]: photo["cos_key"]
+        for photo in store.get_photos_by_work(work_uid)
+    }
+    assert len(original_keys) == 4
+
+    assert photos.process_uploads_once()
+    first_request = store._conn.execute(
+        """SELECT event_uid FROM event_outbox
+           WHERE event_type='PHOTO_UPLOAD_GRANT_REQUESTED'
+           ORDER BY edge_event_sequence DESC LIMIT 1"""
+    ).fetchone()["event_uid"]
+    photos.offer_upload_grant(
+        _grant_command(work_uid, first_request, _grant(work_uid))
+    )
+
+    assert photos.process_uploads_once()
+    second_request = store._conn.execute(
+        """SELECT event_uid FROM event_outbox
+           WHERE event_type='PHOTO_UPLOAD_GRANT_REQUESTED'
+             AND event_uid<>?
+           ORDER BY edge_event_sequence DESC LIMIT 1""",
+        (first_request,),
+    ).fetchone()["event_uid"]
+    after_failure = photos.get_completion_photo_facts(
+        work_uid,
+        "DELIVERY_SESSION",
+    )
+    assert all(fact["url"] is None for fact in after_failure)
+    assert {
+        fact["slot"]: fact["photoUid"]
+        for fact in after_failure
+    } == original_photo_uids
+    assert {
+        photo["slot_name"]: photo["cos_key"]
+        for photo in store.get_photos_by_work(work_uid)
+    } == original_keys
+
+    photos.offer_upload_grant(
+        _grant_command(work_uid, second_request, _grant(work_uid))
+    )
+    assert photos.process_uploads_once()
+    uploaded = photos.get_completion_photo_facts(
+        work_uid,
+        "DELIVERY_SESSION",
+    )
+    assert all(fact["status"] == "AVAILABLE" for fact in uploaded)
+    uploaded_urls = {
+        fact["slot"]: fact["url"]
+        for fact in uploaded
+    }
+    assert all(
+        url and url.startswith(f"{base_url}/")
+        for url in uploaded_urls.values()
+    )
+    assert {
+        fact["slot"]: fact["photoUid"]
+        for fact in uploaded
+    } == original_photo_uids
+
+    expected_keys = set(original_keys.values())
+    assert {
+        url.removeprefix(f"{base_url}/")
+        for url in uploaded_urls.values()
+    } == expected_keys
+    assert set(uploader.calls) == expected_keys
+    assert len(uploader.calls) == 5
+    photos.close()
+    store.close()
+
+
+def test_completed_photo_grant_duplicate_remains_successful(
+    tmp_path,
+):
+    work_uid = str(uuid.uuid4())
+    request_uid = str(uuid.uuid4())
+    command = _grant_command(
+        work_uid,
+        request_uid,
+        _grant(work_uid),
+    )
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+    store.complete_command(
+        command["commandUid"],
+        {"grantRequestEventUid": request_uid},
+    )
+
+    class NoLongerPendingWork:
+        def accept_photo_upload_grant(self, received):
+            raise ValueError("photo grant request is not pending")
+
+    processor = CommandProcessor(
+        store,
+        object(),
+        NoLongerPendingWork(),
+    )
+    assert processor.accept_photo_upload_grant_now(command)
+    assert store.get_command(command["commandUid"])["state"] == (
+        "COMPLETED"
+    )
     store.close()

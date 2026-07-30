@@ -41,6 +41,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -436,6 +439,446 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         FROM rec_fullness_detection
                         WHERE delivery_order_id = ?
                         """, Integer.class, order.get("id")));
+
+        assertDeliveryOrderQueryAndReviewFlow(
+                ready,
+                miniappUser,
+                sessionUid,
+                deliveryEvent,
+                ((Number) order.get("id")).longValue(),
+                order.get("delivery_order_no").toString());
+    }
+
+    private void assertDeliveryOrderQueryAndReviewFlow(
+            ReadyDeployment ready,
+            MiniappUser owner,
+            UUID sessionUid,
+            DeliveryEvent deliveryEvent,
+            long orderId,
+            String deliveryOrderNo) throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(
+                platform,
+                "/api/v1/web/platform/auth/sessions",
+                platformLogin,
+                PLATFORM_PASSWORD,
+                201);
+        String orderBase = "/api/v1/web/platform/tenants/"
+                + ready.tenantCode()
+                + "/organizations/"
+                + ready.organizationCode()
+                + "/delivery-orders";
+
+        JsonNode pendingPage = data(read(
+                platform,
+                orderBase
+                        + "?deploymentCode="
+                        + ready.deploymentCode()
+                        + "&portNo=2&reviewStatus=PENDING&limit=20",
+                200));
+        assertEquals(1, pendingPage.path("items").size());
+        JsonNode pendingItem = pendingPage.path("items").get(0);
+        assertEquals(
+                deliveryOrderNo,
+                pendingItem.path("deliveryOrderNo").asText());
+        assertEquals(
+                owner.organizationUserUid().toString(),
+                pendingItem.path("organizationUserUid").asText());
+        assertEquals(
+                ready.deploymentCode(),
+                pendingItem.path("deploymentCode").asText());
+        assertEquals(2, pendingItem.path("portNo").asInt());
+        assertEquals("1.25", pendingItem.path("rawWeightKg").asText());
+        assertEquals("0.56", pendingItem.path("rawAmountYuan").asText());
+        assertEquals(
+                "RELIABLE",
+                pendingItem.path("rawWeightReliability").asText());
+        assertEquals(
+                "RELIABLE",
+                pendingItem.path("rawAmountReliability").asText());
+        assertEquals(
+                "PENDING",
+                pendingItem.path("reviewStatus").asText());
+        assertEquals(0, pendingItem.path("currentRevisionNo").asLong());
+        assertTrue(pendingItem.path("finalWeightKg").isNull());
+        assertTrue(pendingItem.path("finalAmountYuan").isNull());
+
+        JsonNode pendingDetail = data(read(
+                platform,
+                orderBase + "/" + deliveryOrderNo,
+                200));
+        assertEquals(
+                deliveryOrderNo,
+                pendingDetail.path("deliveryOrderNo").asText());
+        assertEquals(
+                deliveryEvent.eventUid(),
+                pendingDetail.path("source").path("eventUid").asText());
+        assertEquals(
+                sessionUid.toString(),
+                pendingDetail.path("source").path("sessionUid").asText());
+        assertEquals(
+                ready.deploymentCode(),
+                pendingDetail.path("source")
+                        .path("deploymentCode").asText());
+        assertEquals(
+                2,
+                pendingDetail.path("source").path("portNo").asInt());
+        assertEquals(
+                owner.organizationUserUid().toString(),
+                pendingDetail.path("ownership")
+                        .path("organizationUserUid").asText());
+        assertEquals(
+                12000,
+                pendingDetail.path("raw")
+                        .path("firstPreOpenWeightGram").asLong());
+        assertEquals(
+                13250,
+                pendingDetail.path("raw")
+                        .path("finalPostCloseWeightGram").asLong());
+        assertEquals(
+                1250,
+                pendingDetail.path("raw")
+                        .path("netWeightGram").asLong());
+        assertEquals(
+                "0.4502",
+                pendingDetail.path("raw")
+                        .path("unitPriceYuanPerKg").asText());
+        assertEquals(
+                "PENDING",
+                pendingDetail.path("review").path("status").asText());
+        assertEquals(0, pendingDetail.path("revisions").size());
+        assertEquals(4, pendingDetail.path("photos").size());
+
+        Map<String, Object> initialReview = Map.of(
+                "expectedRevisionNo", 0,
+                "decision", "ORIGINAL_APPROVED",
+                "reason", "delivery integration initial review");
+        UUID reviewOperationUid = UUID.randomUUID();
+        List<MvcResult> concurrentReviewResults =
+                concurrentWrites(
+                        platform,
+                        orderBase + "/" + deliveryOrderNo + "/reviews",
+                        reviewOperationUid,
+                        initialReview);
+        for (MvcResult result : concurrentReviewResults) {
+            assertEquals(
+                    201,
+                    result.getResponse().getStatus(),
+                    result.getResponse().getContentAsString());
+        }
+        JsonNode reviewed = data(concurrentReviewResults.get(0));
+        JsonNode replayed = data(concurrentReviewResults.get(1));
+        assertEquals(
+                reviewed.path("revisionUid").asText(),
+                replayed.path("revisionUid").asText());
+        assertEquals(
+                reviewed.path("reviewedAt").asText(),
+                replayed.path("reviewedAt").asText());
+        assertEquals(
+                deliveryOrderNo,
+                replayed.path("deliveryOrderNo").asText());
+        assertEquals(
+                1,
+                replayed.path("revisionNo").asLong());
+        assertEquals(
+                "APPROVED",
+                replayed.path("reviewStatus").asText());
+        assertEquals(
+                "APPLIED",
+                replayed.path("walletEffect").asText());
+        assertEquals(
+                deliveryOrderNo,
+                reviewed.path("deliveryOrderNo").asText());
+        String initialRevisionUid =
+                reviewed.path("revisionUid").asText();
+        assertEquals(
+                4,
+                UUID.fromString(initialRevisionUid).version());
+        assertEquals(1, reviewed.path("revisionNo").asLong());
+        assertEquals(
+                "APPROVED",
+                reviewed.path("reviewStatus").asText());
+        assertEquals(
+                "ORIGINAL_APPROVED",
+                reviewed.path("decision").asText());
+        assertEquals("1.25", reviewed.path("finalWeightKg").asText());
+        assertEquals("0.56", reviewed.path("finalAmountYuan").asText());
+        assertEquals("0.56", reviewed.path("walletDeltaYuan").asText());
+        assertEquals("APPLIED", reviewed.path("walletEffect").asText());
+
+        assertEquals(
+                "APPROVED|1|1.25|56|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    review_status, '|',
+                                    current_revision_no, '|',
+                                    final_business_weight_kg, '|',
+                                    final_amount_cent, '|',
+                                    first_approved_at IS NOT NULL
+                                )
+                                FROM rec_delivery_order
+                                WHERE id = ?
+                                """,
+                        String.class,
+                        orderId));
+        assertEquals(
+                "INITIAL_REVIEW|ORIGINAL_APPROVED|null|null"
+                        + "|1.25|56|56",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    revision_type, '|',
+                                    decision_type, '|',
+                                    COALESCE(
+                                        before_final_weight_kg,
+                                        'null'
+                                    ), '|',
+                                    COALESCE(
+                                        before_final_amount_cent,
+                                        'null'
+                                    ), '|',
+                                    after_final_weight_kg, '|',
+                                    after_final_amount_cent, '|',
+                                    amount_delta_cent
+                                )
+                                FROM rec_delivery_revision
+                                WHERE delivery_order_id = ?
+                                  AND revision_no = 1
+                                """,
+                        String.class,
+                        orderId));
+        assertWalletState(
+                ready,
+                owner,
+                orderId,
+                56L,
+                1L,
+                List.of(
+                        "1|DELIVERY_INITIAL_REVIEW|56|0|56"));
+
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_delivery_revision
+                        WHERE delivery_order_id = ?
+                        """, Integer.class, orderId));
+        assertWalletState(
+                ready,
+                owner,
+                orderId,
+                56L,
+                1L,
+                List.of(
+                        "1|DELIVERY_INITIAL_REVIEW|56|0|56"));
+
+        Map<String, Object> correction = Map.of(
+                "expectedRevisionNo", 1,
+                "decision", "MODIFIED_APPROVED",
+                "finalWeightKg", "2.00",
+                "reason", "delivery integration correction");
+        JsonNode corrected = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                correction,
+                201));
+        assertEquals(2, corrected.path("revisionNo").asLong());
+        assertEquals(
+                "MODIFIED_APPROVED",
+                corrected.path("decision").asText());
+        assertEquals("2.00", corrected.path("finalWeightKg").asText());
+        assertEquals("0.90", corrected.path("finalAmountYuan").asText());
+        assertEquals("0.34", corrected.path("walletDeltaYuan").asText());
+        assertEquals("APPLIED", corrected.path("walletEffect").asText());
+        assertEquals(
+                "APPROVED|2|2.00|90",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    review_status, '|',
+                                    current_revision_no, '|',
+                                    final_business_weight_kg, '|',
+                                    final_amount_cent
+                                )
+                                FROM rec_delivery_order
+                                WHERE id = ?
+                                """,
+                        String.class,
+                        orderId));
+        assertEquals(
+                "CORRECTION|MODIFIED_APPROVED|1.25|56|2.00|90|34",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    revision_type, '|',
+                                    decision_type, '|',
+                                    before_final_weight_kg, '|',
+                                    before_final_amount_cent, '|',
+                                    after_final_weight_kg, '|',
+                                    after_final_amount_cent, '|',
+                                    amount_delta_cent
+                                )
+                                FROM rec_delivery_revision
+                                WHERE delivery_order_id = ?
+                                  AND revision_no = 2
+                                """,
+                        String.class,
+                        orderId));
+        assertWalletState(
+                ready,
+                owner,
+                orderId,
+                90L,
+                2L,
+                List.of(
+                        "1|DELIVERY_INITIAL_REVIEW|56|0|56",
+                        "2|DELIVERY_CORRECTION|34|56|90"));
+
+        JsonNode approvedDetail = data(read(
+                platform,
+                orderBase + "/" + deliveryOrderNo,
+                200));
+        assertEquals(
+                "APPROVED",
+                approvedDetail.path("review").path("status").asText());
+        assertEquals(
+                2,
+                approvedDetail.path("review")
+                        .path("currentRevisionNo").asLong());
+        assertEquals(
+                "2.00",
+                approvedDetail.path("review")
+                        .path("finalWeightKg").asText());
+        assertEquals(2, approvedDetail.path("revisions").size());
+        assertEquals(
+                "INITIAL_REVIEW",
+                approvedDetail.path("revisions").get(0)
+                        .path("revisionType").asText());
+        assertEquals(
+                "CORRECTION",
+                approvedDetail.path("revisions").get(1)
+                        .path("revisionType").asText());
+        assertEquals(
+                "0.34",
+                approvedDetail.path("revisions").get(1)
+                        .path("amountDeltaYuan").asText());
+
+        JsonNode ownerPage = miniappRead(
+                owner,
+                "/api/v1/miniapp/me/delivery-orders"
+                        + "?reviewStatus=APPROVED",
+                200);
+        assertEquals(1, ownerPage.path("items").size());
+        assertEquals(
+                deliveryOrderNo,
+                ownerPage.path("items").get(0)
+                        .path("deliveryOrderNo").asText());
+        assertEquals(
+                "2.00",
+                ownerPage.path("items").get(0)
+                        .path("finalWeightKg").asText());
+        JsonNode ownerDetail = miniappRead(
+                owner,
+                "/api/v1/miniapp/me/delivery-orders/"
+                        + deliveryOrderNo,
+                200);
+        assertEquals(
+                deliveryOrderNo,
+                ownerDetail.path("deliveryOrderNo").asText());
+        assertEquals(
+                "APPROVED",
+                ownerDetail.path("review").path("status").asText());
+        assertEquals(
+                "2.00",
+                ownerDetail.path("review")
+                        .path("finalWeightKg").asText());
+
+        MiniappUser other = loginAndBindMiniappUser(
+                ready,
+                owner.appId(),
+                "other",
+                "138");
+        JsonNode otherPage = miniappRead(
+                other,
+                "/api/v1/miniapp/me/delivery-orders",
+                200);
+        assertEquals(0, otherPage.path("items").size());
+        miniappRead(
+                other,
+                "/api/v1/miniapp/me/delivery-orders/"
+                        + deliveryOrderNo,
+                404);
+    }
+
+    private void assertWalletState(
+            ReadyDeployment ready,
+            MiniappUser owner,
+            long orderId,
+            long expectedBalanceCent,
+            long expectedSequence,
+            List<String> expectedEntries) {
+        Map<String, Object> wallet = jdbc.queryForMap("""
+                SELECT wallet.id,
+                       wallet.available_balance_cent,
+                       wallet.frozen_withdrawal_cent,
+                       wallet.last_entry_sequence_no,
+                       wallet.delivery_gate_state
+                FROM fund_user_wallet wallet
+                JOIN iam_organization_user user_row
+                  ON user_row.tenant_id = wallet.tenant_id
+                 AND user_row.organization_id =
+                     wallet.organization_id
+                 AND user_row.id = wallet.organization_user_id
+                WHERE wallet.tenant_id = ?
+                  AND wallet.organization_id = ?
+                  AND user_row.organization_user_uid = ?
+                """,
+                ready.tenantId(),
+                ready.organizationId(),
+                owner.organizationUserUid().toString());
+        assertEquals(
+                expectedBalanceCent,
+                ((Number) wallet.get("available_balance_cent"))
+                        .longValue());
+        assertEquals(
+                0L,
+                ((Number) wallet.get("frozen_withdrawal_cent"))
+                        .longValue());
+        assertEquals(
+                expectedSequence,
+                ((Number) wallet.get("last_entry_sequence_no"))
+                        .longValue());
+        assertEquals("OPEN", wallet.get("delivery_gate_state").toString());
+
+        List<String> entries = jdbc.query("""
+                        SELECT CONCAT(
+                            revision.revision_no, '|',
+                            entry_row.event_type, '|',
+                            entry_row.available_delta_cent, '|',
+                            entry_row.available_before_cent, '|',
+                            entry_row.available_after_cent
+                        ) AS entry_summary
+                        FROM fund_user_wallet_entry entry_row
+                        JOIN rec_delivery_revision revision
+                          ON revision.id =
+                             entry_row.delivery_revision_id
+                        WHERE revision.delivery_order_id = ?
+                          AND entry_row.wallet_id = ?
+                        ORDER BY entry_row.entry_sequence_no
+                        """,
+                (rs, ignored) -> rs.getString("entry_summary"),
+                orderId,
+                wallet.get("id"));
+        assertEquals(expectedEntries, entries);
+        assertEquals(
+                expectedSequence,
+                jdbc.queryForObject("""
+                                SELECT last_visibility_sequence_no
+                                FROM
+                                    fund_organization_wallet_entry_counter
+                                WHERE tenant_id = ?
+                                  AND organization_id = ?
+                                """,
+                        Long.class,
+                        ready.tenantId(),
+                        ready.organizationId()));
     }
 
     private ReadyDeployment prepareReadyDeployment() throws Exception {
@@ -770,6 +1213,18 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 ready.tenantId(),
                 ready.organizationId(),
                 appId);
+        return loginAndBindMiniappUser(
+                ready,
+                appId,
+                "owner",
+                "139");
+    }
+
+    private MiniappUser loginAndBindMiniappUser(
+            ReadyDeployment ready,
+            String appId,
+            String identitySuffix,
+            String phonePrefix) throws Exception {
         MvcResult login = mockMvc.perform(
                         post("/api/v1/miniapp/auth/sessions")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -777,7 +1232,9 @@ class DeliveryHappyPathMysqlIntegrationTest {
                                         Map.of(
                                                 "appId", appId,
                                                 "wxLoginCode",
-                                                "fake:delivery:" + run,
+                                                "fake:delivery:" + run
+                                                        + ":"
+                                                        + identitySuffix,
                                                 "registrationSource",
                                                 Map.of(
                                                         "deploymentCode",
@@ -805,14 +1262,18 @@ class DeliveryHappyPathMysqlIntegrationTest {
                                 .content(objectMapper.writeValueAsBytes(
                                         Map.of(
                                                 "wechatPhoneCode",
-                                                "fake-phone:+86139"
-                                                        + digits(run, 8)))))
+                                                "fake-phone:+86"
+                                                        + phonePrefix
+                                                        + digits(
+                                                        run
+                                                                + identitySuffix,
+                                                        8)))))
                 .andReturn();
         assertEquals(
                 201,
                 phone.getResponse().getStatus(),
                 phone.getResponse().getContentAsString());
-        return new MiniappUser(accessToken, userUid);
+        return new MiniappUser(accessToken, userUid, appId);
     }
 
     private DeliveryEvent trustedDeliveryComplete(
@@ -1288,6 +1749,98 @@ class DeliveryHappyPathMysqlIntegrationTest {
         return result;
     }
 
+    private JsonNode miniappRead(
+            MiniappUser user,
+            String path,
+            int expectedStatus) throws Exception {
+        MvcResult result = mockMvc.perform(
+                        get(path).header(
+                                "Authorization",
+                                "Bearer " + user.accessToken()))
+                .andReturn();
+        assertEquals(
+                expectedStatus,
+                result.getResponse().getStatus(),
+                result.getResponse().getContentAsString());
+        return data(result);
+    }
+
+    private List<MvcResult> concurrentWrites(
+            BrowserClient client,
+            String path,
+            UUID operationUid,
+            Object body) throws Exception {
+        String csrfToken = csrf(client);
+        Cookie[] requestCookies = client.cookies.values()
+                .toArray(Cookie[]::new);
+        byte[] requestBody =
+                objectMapper.writeValueAsBytes(body);
+        CountDownLatch readyGate = new CountDownLatch(2);
+        CountDownLatch startGate = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        var first = executor.submit(
+                () -> concurrentWrite(
+                        path,
+                        operationUid,
+                        csrfToken,
+                        requestCookies,
+                        requestBody,
+                        readyGate,
+                        startGate));
+        var second = executor.submit(
+                () -> concurrentWrite(
+                        path,
+                        operationUid,
+                        csrfToken,
+                        requestCookies,
+                        requestBody,
+                        readyGate,
+                        startGate));
+        try {
+            assertTrue(
+                    readyGate.await(10, TimeUnit.SECONDS),
+                    "concurrent review requests did not become ready");
+            startGate.countDown();
+            return List.of(
+                    first.get(30, TimeUnit.SECONDS),
+                    second.get(30, TimeUnit.SECONDS));
+        } finally {
+            startGate.countDown();
+            executor.shutdownNow();
+            assertTrue(
+                    executor.awaitTermination(
+                            10,
+                            TimeUnit.SECONDS),
+                    "concurrent review executor did not terminate");
+        }
+    }
+
+    private MvcResult concurrentWrite(
+            String path,
+            UUID operationUid,
+            String csrfToken,
+            Cookie[] requestCookies,
+            byte[] requestBody,
+            CountDownLatch readyGate,
+            CountDownLatch startGate) throws Exception {
+        readyGate.countDown();
+        if (!startGate.await(10, TimeUnit.SECONDS)) {
+            throw new IllegalStateException(
+                    "concurrent review start gate timed out");
+        }
+        MockHttpServletRequestBuilder builder = post(path)
+                .header("X-CSRF-TOKEN", csrfToken)
+                .header(
+                        "Idempotency-Key",
+                        operationUid.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody);
+        if (requestCookies.length > 0) {
+            builder.cookie(requestCookies);
+        }
+        return mockMvc.perform(builder).andReturn();
+    }
+
     private MvcResult write(
             BrowserClient client,
             MockHttpServletRequestBuilder builder,
@@ -1420,7 +1973,8 @@ class DeliveryHappyPathMysqlIntegrationTest {
 
     private record MiniappUser(
             String accessToken,
-            UUID organizationUserUid) {
+            UUID organizationUserUid,
+            String appId) {
     }
 
     private record DeliveryEvent(

@@ -190,6 +190,11 @@ class FixedFrameBootUart:
         raise AssertionError("fixed-frame boot must not query MCU state")
 
 
+class FailedOpenUart:
+    def open(self):
+        return False
+
+
 def mark_configuration_applied(store):
     path = os.path.join(
         os.path.dirname(__file__),
@@ -227,6 +232,51 @@ def mark_configuration_applied(store):
         "mcuPayloadSha256": command["payload"]["config"]["mcuPayloadSha256"],
         "faultCode": "NONE",
     })
+
+
+def test_fixed_frame_boot_reports_and_recovers_uart_fault(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    mqtt = FakeMqttClient()
+
+    failed = boot_sequence(
+        store,
+        FailedOpenUart(),
+        mqtt,
+        None,
+        None,
+    )
+
+    assert failed["status"] == "SAFETY_LOCKED"
+    fault = store.get_active_edge_fault("UART", "UART_PROTOCOL")
+    assert fault is not None
+    observed = store._conn.execute(
+        """SELECT payload_json FROM event_outbox
+           WHERE event_type='DEVICE_FAULT_OBSERVED'"""
+    ).fetchone()
+    observed_payload = json.loads(observed["payload_json"])["payload"]
+    assert observed_payload["faultUid"] == fault["fault_uid"]
+    assert observed_payload["mcuBootId"] is None
+    assert observed_payload["mcuEventSequence"] is None
+
+    recovered = boot_sequence(
+        store,
+        FixedFrameBootUart(),
+        mqtt,
+        None,
+        None,
+    )
+
+    assert recovered["status"] == "READY"
+    assert store.get_active_edge_fault("UART", "UART_PROTOCOL") is None
+    recovery = store._conn.execute(
+        """SELECT payload_json FROM event_outbox
+           WHERE event_type='DEVICE_FAULT_RECOVERED'"""
+    ).fetchone()
+    assert json.loads(recovery["payload_json"])["payload"][
+        "faultUid"
+    ] == fault["fault_uid"]
+    store.close()
 
 
 def test_publish_runtime_snapshot_uses_valid_edge_boot_id_and_event_uid(tmp_path):
@@ -332,7 +382,7 @@ def test_fixed_frame_boot_skips_query_and_releases_stale_local_work(
     ) == work_uid
     assert store.get_state(
         "fixed_frame_latest_observation_json"
-    ) == ""
+    ) == '{"postWeightGrams":123}'
     snapshot = mqtt.published[-1][1]["payload"]
     assert snapshot["uartProtocolMajor"] is None
     assert snapshot["uartProtocolMinor"] is None

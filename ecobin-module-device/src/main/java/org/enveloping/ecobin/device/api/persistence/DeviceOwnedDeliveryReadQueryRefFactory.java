@@ -42,6 +42,22 @@ final class DeviceOwnedDeliveryReadQueryRefFactory
         return register(reference, reference::markTransactionCompleted);
     }
 
+    @Override
+    public DeliveryOrderDeviceFilterRef issueOrderFilter(
+            long tenantKey,
+            long organizationKey,
+            Long deploymentKey,
+            List<Long> portKeys) {
+        DeliveryOrderDeviceFilterRef reference =
+                new DeliveryOrderDeviceFilterRef(
+                        tenantKey,
+                        organizationKey,
+                        deploymentKey,
+                        portKeys,
+                        issuingResources());
+        return register(reference, reference::markTransactionCompleted);
+    }
+
     private static Map<Object, Object> issuingResources() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()
                 || !TransactionSynchronizationManager

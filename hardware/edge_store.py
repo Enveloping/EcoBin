@@ -25,7 +25,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 6
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -64,6 +64,12 @@ class EdgeStore:
         conn.execute("PRAGMA synchronous=FULL")
         self._conn = conn
         self._migrate()
+        recovered_events = self.recover_sending_events()
+        if recovered_events:
+            logger.info(
+                "Recovered %d in-flight events for retransmission",
+                recovered_events,
+            )
         logger.info("EdgeStore 初始化: %s (v%d)", self.db_path, CURRENT_SCHEMA_VERSION)
 
     def _migrate(self) -> None:
@@ -94,6 +100,14 @@ class EdgeStore:
         if current < 4:
             self._migrate_v4()
             conn.execute("INSERT INTO schema_version (version) VALUES (4)")
+            current = 4
+        if current < 5:
+            self._migrate_v5()
+            conn.execute("INSERT INTO schema_version (version) VALUES (5)")
+            current = 5
+        if current < 6:
+            self._migrate_v6()
+            conn.execute("INSERT INTO schema_version (version) VALUES (6)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -422,6 +436,126 @@ class EdgeStore:
                WHERE tombstoned=0 AND work_type IS NOT NULL"""
         )
 
+    def _migrate_v5(self) -> None:
+        """Add fixed-frame compatibility results and reliable control identity."""
+        conn = self._conn
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS confirmation_inbox (
+                confirmation_uid TEXT NOT NULL PRIMARY KEY,
+                event_uid TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                payload_json TEXT,
+                received_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""
+        )
+        conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_conf_event
+               ON confirmation_inbox(event_uid)"""
+        )
+        confirmation_columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(confirmation_inbox)"
+            ).fetchall()
+        }
+        for name, declaration in {
+            "command_uid": "TEXT",
+            "canonical_sha256": "TEXT",
+            "receipt_event_uid": "TEXT",
+        }.items():
+            if name not in confirmation_columns:
+                conn.execute(
+                    "ALTER TABLE confirmation_inbox "
+                    f"ADD COLUMN {name} {declaration}"
+                )
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_conf_receipt_event
+               ON confirmation_inbox(receipt_event_uid)
+               WHERE receipt_event_uid IS NOT NULL"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS command_observation (
+                command_uid TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                event_uid TEXT NOT NULL UNIQUE,
+                canonical_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (command_uid, stage)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS fixed_frame_local_result (
+                result_type TEXT NOT NULL,
+                result_key TEXT NOT NULL,
+                command_uid TEXT NOT NULL,
+                event_uid TEXT NOT NULL UNIQUE,
+                payload_json TEXT NOT NULL,
+                result_json TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (result_type, result_key)
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS bag_baseline (
+                bag_uid TEXT NOT NULL PRIMARY KEY,
+                weight_grams INTEGER NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_work_type TEXT,
+                source_work_uid TEXT,
+                source_mcu_boot_id INTEGER,
+                source_mcu_event_sequence INTEGER,
+                source_observed_at TEXT,
+                measurement_uid TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS edge_fault_state (
+                fault_uid TEXT NOT NULL PRIMARY KEY,
+                scope_key TEXT NOT NULL,
+                port_no INTEGER,
+                component TEXT NOT NULL,
+                fault_code TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                lifecycle TEXT NOT NULL,
+                discovery_count INTEGER NOT NULL DEFAULT 1,
+                first_detected_at TEXT NOT NULL,
+                last_detected_at TEXT NOT NULL,
+                recovered_at TEXT,
+                detail_json TEXT,
+                recovery_evidence TEXT
+            )"""
+        )
+        conn.execute(
+            """CREATE INDEX IF NOT EXISTS idx_edge_fault_active
+               ON edge_fault_state(
+                   lifecycle, scope_key, component, fault_code
+               )"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mcu_derived_event (
+                mcu_receive_generation INTEGER NOT NULL,
+                mcu_boot_id INTEGER NOT NULL,
+                mcu_event_sequence INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                event_uid TEXT NOT NULL UNIQUE,
+                PRIMARY KEY (
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                    event_type
+                )
+            )"""
+        )
+
+    def _migrate_v6(self) -> None:
+        """Keep URLs as evidence of successful COS upload only."""
+        self._conn.execute(
+            """UPDATE photo_outbox
+               SET url=NULL
+               WHERE state<>'UPLOADED' AND url IS NOT NULL"""
+        )
+
     def _backfill_photo_metadata(self, conn) -> None:
         delivery_slots = {
             "OPEN_INNER": "BEFORE_INNER",
@@ -560,6 +694,56 @@ class EdgeStore:
             )
             return "ACCEPTED"
 
+    def receive_rejected_command(
+        self,
+        command: dict,
+        error_code: str,
+    ) -> str:
+        """Persist a valid, capability-rejected command without queueing it."""
+        command_uid = command["commandUid"]
+        command_type = command["commandType"]
+        stable = dict(command)
+        stable.pop("cosGrant", None)
+        canonical_sha256 = canonical_payload_sha256(stable)
+        stored = dict(command)
+        if "cosGrant" in stored:
+            stored["cosGrant"] = None
+        with self.transaction():
+            existing = self._conn.execute(
+                """SELECT canonical_sha256, state
+                   FROM command_inbox WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if existing:
+                if existing["canonical_sha256"] != canonical_sha256:
+                    return "CONFLICT"
+                if existing["state"] != "REJECTED":
+                    return "CONFLICT"
+            else:
+                self._conn.execute(
+                    """INSERT INTO command_inbox
+                       (command_uid, command_type, payload_json,
+                        canonical_sha256, state, processed_at, last_error)
+                       VALUES (?, ?, ?, ?, 'REJECTED', ?, ?)""",
+                    (
+                        command_uid,
+                        command_type,
+                        _json.dumps(stored, ensure_ascii=False),
+                        canonical_sha256,
+                        self._now(),
+                        error_code,
+                    ),
+                )
+            observation = self._record_command_observation_in_tx(
+                self._conn,
+                command,
+                "REJECTED",
+                error_code=error_code,
+            )
+            if observation == "CONFLICT":
+                return "CONFLICT"
+            return "REJECTED"
+
     def get_command(self, command_uid: str) -> Optional[dict]:
         with self._lock:
             row = self._conn.execute(
@@ -668,6 +852,39 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def fail_command_and_observe(
+        self,
+        command: dict,
+        error_code: str,
+        *,
+        stage: str,
+        mcu_command_uid: Optional[str] = None,
+    ) -> bool:
+        """Atomically fail a command and create its stable observation."""
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL, last_error=?
+                   WHERE command_uid=?""",
+                (
+                    self._now(),
+                    error_code,
+                    command["commandUid"],
+                ),
+            )
+            if command.get("deploymentCode"):
+                observation = self._record_command_observation_in_tx(
+                    self._conn,
+                    command,
+                    stage,
+                    mcu_command_uid=mcu_command_uid,
+                    error_code=error_code,
+                )
+                if observation == "CONFLICT":
+                    raise ValueError("command observation conflict")
+            return cur.rowcount == 1
+
     def requeue_failed_command(
         self,
         command_uid: str,
@@ -682,6 +899,22 @@ class EdgeStore:
                    WHERE command_uid=? AND state='FAILED'
                      AND last_error=?""",
                 (command_uid, expected_error),
+            )
+            return cur.rowcount == 1
+
+    def requeue_completed_photo_grant_command(
+        self,
+        command_uid: str,
+    ) -> bool:
+        """Allow fresh execution-only STS credentials for one stable request."""
+        with self.transaction():
+            cur = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processed_at=NULL,
+                       processing_started_at=NULL, last_error=NULL
+                   WHERE command_uid=? AND state='COMPLETED'
+                     AND command_type='PROVIDE_PHOTO_UPLOAD_GRANT'""",
+                (command_uid,),
             )
             return cur.rowcount == 1
 
@@ -1210,6 +1443,81 @@ class EdgeStore:
             ),
         )
 
+    def _record_command_observation_in_tx(
+        self,
+        conn,
+        command: dict,
+        stage: str,
+        *,
+        mcu_command_uid: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ) -> str:
+        payload = {
+            "observedCommandType": command["commandType"],
+            "stage": stage,
+            "mcuCommandUid": mcu_command_uid,
+            "errorCode": error_code,
+        }
+        canonical_sha256 = canonical_payload_sha256(payload)
+        existing = conn.execute(
+            """SELECT event_uid, canonical_sha256
+               FROM command_observation
+               WHERE command_uid=? AND stage=?""",
+            (command["commandUid"], stage),
+        ).fetchone()
+        if existing:
+            return (
+                "DUPLICATE"
+                if existing["canonical_sha256"] == canonical_sha256
+                else "CONFLICT"
+            )
+        event_uid = self._new_uid()
+        sequence = self._next_seq(conn)
+        event = build_event_envelope(
+            event_uid=event_uid,
+            deployment_code=command["deploymentCode"],
+            edge_event_sequence=sequence,
+            event_type="DEVICE_COMMAND_OBSERVED",
+            target_type="DEVICE_COMMAND",
+            target_uid=command["commandUid"],
+            command_uid=command["commandUid"],
+            payload=payload,
+        )
+        self._insert_event(
+            conn,
+            event,
+            "DEVICE_COMMAND_OBSERVED",
+        )
+        conn.execute(
+            """INSERT INTO command_observation
+               (command_uid, stage, event_uid, canonical_sha256)
+               VALUES (?, ?, ?, ?)""",
+            (
+                command["commandUid"],
+                stage,
+                event_uid,
+                canonical_sha256,
+            ),
+        )
+        return "ACCEPTED"
+
+    def record_command_observation(
+        self,
+        command: dict,
+        stage: str,
+        *,
+        mcu_command_uid: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ) -> str:
+        with self.transaction():
+            return self._record_command_observation_in_tx(
+                self._conn,
+                command,
+                stage,
+                mcu_command_uid=mcu_command_uid,
+                error_code=error_code,
+            )
+
     @staticmethod
     def _upsert_state(conn, key: str, value: str, now: str) -> None:
         conn.execute(
@@ -1222,8 +1530,15 @@ class EdgeStore:
 
     # ── 工单槽操作 ──
 
-    def acquire_work_slot(self, work_type: str, work_uid: str, port_no: int,
-                          context: dict) -> bool:
+    def acquire_work_slot(
+        self,
+        work_type: str,
+        work_uid: str,
+        port_no: int,
+        context: dict,
+        *,
+        observed_command: Optional[dict] = None,
+    ) -> bool:
         with self.transaction():
             conn = self._conn
             slot = conn.execute("SELECT work_type FROM work_slot WHERE slot_id=1").fetchone()
@@ -1233,6 +1548,14 @@ class EdgeStore:
                 "UPDATE work_slot SET work_type=?, work_uid=?, work_state='ACTIVE', port_no=?, context_json=?, updated_at=? WHERE slot_id=1",
                 (work_type, work_uid, port_no, _json.dumps(context, ensure_ascii=False), self._now()),
             )
+            if observed_command is not None:
+                observation = self._record_command_observation_in_tx(
+                    conn,
+                    observed_command,
+                    "ACCEPTED",
+                )
+                if observation == "CONFLICT":
+                    raise ValueError("command observation conflict")
             return True
 
     # ── 事件发件箱操作 ──
@@ -1250,6 +1573,40 @@ class EdgeStore:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def recover_sending_events(self) -> int:
+        """A process restart loses MQTT packet identities; resend by event UID."""
+        with self.transaction():
+            exists = self._conn.execute(
+                """SELECT 1 FROM sqlite_master
+                   WHERE type='table' AND name='event_outbox'"""
+            ).fetchone()
+            if not exists:
+                return 0
+            return self._conn.execute(
+                """UPDATE event_outbox
+                   SET state='PENDING', mqtt_msg_id=NULL,
+                       next_retry_at=NULL
+                   WHERE state='SENDING' AND tombstoned=0"""
+            ).rowcount
+
+    def count_pending_reliable_events(self) -> int:
+        """Count unconfirmed RELIABLE_FACT rows, including in-flight rows."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT payload_json FROM event_outbox
+                   WHERE state IN ('PENDING', 'SENDING')
+                     AND tombstoned=0"""
+            ).fetchall()
+        count = 0
+        for row in rows:
+            try:
+                envelope = _json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                continue
+            if envelope.get("deliveryClass") == "RELIABLE_FACT":
+                count += 1
+        return count
 
     def get_event(self, event_uid: str) -> Optional[dict]:
         with self._lock:
@@ -1304,6 +1661,163 @@ class EdgeStore:
                 ],
             )
 
+    def record_safety_state_and_event(
+        self,
+        *,
+        deployment_code: str,
+        mcu_receive_generation: int,
+        payload: dict,
+    ) -> str:
+        """Atomically project and publish one real UART safety change."""
+        smoke_state = payload.get("smokeState")
+        smoke_health = payload.get("smokeSensorHealth")
+        fault_code = payload.get("faultCode")
+        legal = (
+            (
+                smoke_state in {"NORMAL", "ALARM"}
+                and smoke_health == "OK"
+                and fault_code in (None, "NONE")
+            )
+            or (
+                smoke_state == "UNKNOWN"
+                and smoke_health != "OK"
+                and fault_code == "SMOKE_SENSOR"
+            )
+        )
+        if not legal:
+            return "REJECTED"
+        mcu_boot_id = payload.get("mcuBootId")
+        mcu_event_sequence = payload.get("mcuEventSequence")
+        if (
+            not isinstance(mcu_boot_id, int)
+            or mcu_boot_id <= 0
+            or not isinstance(mcu_event_sequence, int)
+            or mcu_event_sequence <= 0
+        ):
+            return "REJECTED"
+        port_no = payload.get("portNo")
+        if not isinstance(port_no, int) or port_no <= 0:
+            port_no = None
+        with self.transaction():
+            existing = self._conn.execute(
+                """SELECT event_uid FROM mcu_derived_event
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=? AND mcu_event_sequence=?
+                     AND event_type='SAFETY_SENSOR_STATE_CHANGED'""",
+                (
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                ),
+            ).fetchone()
+            if existing:
+                self._conn.execute(
+                    """UPDATE mcu_event_inbox
+                       SET state='PROCESSED', processed_at=?,
+                           last_error=NULL
+                       WHERE mcu_receive_generation=?
+                         AND mcu_boot_id=?
+                         AND mcu_event_sequence=?""",
+                    (
+                        self._now(),
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                    ),
+                )
+                return "DUPLICATE"
+            now = self._now()
+            scope = (
+                f"port_{port_no}" if port_no is not None else "device"
+            )
+            self._upsert_state(
+                self._conn,
+                f"{scope}_smoke_state",
+                smoke_state,
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                f"{scope}_smoke_sensor_health",
+                smoke_health,
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                "smoke_state",
+                smoke_state,
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                "smoke_sensor_health",
+                smoke_health,
+                now,
+            )
+            event_uid = self._new_uid()
+            sequence = self._next_seq(self._conn)
+            work_type = payload.get("workType", "NONE")
+            work_uid = (
+                payload.get("workUid")
+                if work_type != "NONE"
+                else None
+            )
+            event = build_event_envelope(
+                event_uid=event_uid,
+                deployment_code=deployment_code,
+                edge_event_sequence=sequence,
+                event_type="SAFETY_SENSOR_STATE_CHANGED",
+                target_type="DEVICE_DEPLOYMENT",
+                target_uid=deployment_code,
+                payload={
+                    "portNo": port_no,
+                    "smokeState": smoke_state,
+                    "smokeSensorHealth": smoke_health,
+                    "faultCode": (
+                        None
+                        if fault_code in (None, "NONE")
+                        else fault_code
+                    ),
+                    "workType": work_type,
+                    "workUid": work_uid,
+                    "mcuBootId": mcu_boot_id,
+                    "mcuEventSequence": mcu_event_sequence,
+                },
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "SAFETY_SENSOR_STATE_CHANGED",
+            )
+            self._conn.execute(
+                """INSERT INTO mcu_derived_event
+                   (mcu_receive_generation, mcu_boot_id,
+                    mcu_event_sequence, event_type, event_uid)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                    "SAFETY_SENSOR_STATE_CHANGED",
+                    event_uid,
+                ),
+            )
+            self._conn.execute(
+                """UPDATE mcu_event_inbox
+                   SET state='PROCESSED', processed_at=?,
+                       last_error=NULL
+                   WHERE mcu_receive_generation=?
+                     AND mcu_boot_id=?
+                     AND mcu_event_sequence=?""",
+                (
+                    now,
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                ),
+            )
+            return "ACCEPTED"
+
     # ── 故障操作 ──
 
     def record_fault(self, component: str, fault_code: int, severity: str,
@@ -1349,10 +1863,333 @@ class EdgeStore:
 
     def list_active_faults(self) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
+            legacy_rows = self._conn.execute(
                 "SELECT * FROM faults WHERE lifecycle='OBSERVED' ORDER BY observed_at"
             ).fetchall()
-        return [dict(r) for r in rows]
+            edge_rows = self._conn.execute(
+                """SELECT * FROM edge_fault_state
+                   WHERE lifecycle='OBSERVED'
+                   ORDER BY first_detected_at"""
+            ).fetchall()
+        return [
+            *(dict(row) for row in legacy_rows),
+            *(dict(row) for row in edge_rows),
+        ]
+
+    def get_active_edge_fault(
+        self,
+        component: str,
+        fault_code: str,
+        port_no: Optional[int] = None,
+    ) -> Optional[dict]:
+        scope_key = (
+            f"PORT:{port_no}" if port_no is not None else "DEVICE"
+        )
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT * FROM edge_fault_state
+                   WHERE lifecycle='OBSERVED' AND scope_key=?
+                     AND component=? AND fault_code=?
+                   LIMIT 1""",
+                (scope_key, component, fault_code),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def observe_fault_and_create_event(
+        self,
+        *,
+        deployment_code: str,
+        component: str,
+        fault_code: str,
+        severity: str,
+        port_no: Optional[int] = None,
+        fault_uid: Optional[str] = None,
+        mcu_boot_id: Optional[int] = None,
+        mcu_event_sequence: Optional[int] = None,
+        mcu_receive_generation: Optional[int] = None,
+        detail: Optional[dict] = None,
+    ) -> str:
+        """Create or monotonically upgrade one active fault atomically."""
+        if not deployment_code or deployment_code == "Dp_unknown":
+            return "REJECTED"
+        scope_key = (
+            f"PORT:{port_no}" if port_no is not None else "DEVICE"
+        )
+        severity_rank = {
+            "WARNING": 1,
+            "BLOCK_PORT": 2,
+            "BLOCK_DEVICE": 3,
+        }
+        if severity not in severity_rank:
+            return "REJECTED"
+        now = self._now()
+        with self.transaction():
+            if (
+                mcu_receive_generation is not None
+                and mcu_boot_id is not None
+                and mcu_event_sequence is not None
+            ):
+                derived = self._conn.execute(
+                    """SELECT event_uid FROM mcu_derived_event
+                       WHERE mcu_receive_generation=?
+                         AND mcu_boot_id=?
+                         AND mcu_event_sequence=?
+                         AND event_type='DEVICE_FAULT_OBSERVED'""",
+                    (
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                    ),
+                ).fetchone()
+                if derived:
+                    self._mark_mcu_event_processed_in_tx(
+                        self._conn,
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                        now,
+                    )
+                    return "DUPLICATE"
+            active = self._conn.execute(
+                """SELECT * FROM edge_fault_state
+                   WHERE lifecycle='OBSERVED' AND scope_key=?
+                     AND component=? AND fault_code=?
+                   LIMIT 1""",
+                (scope_key, component, fault_code),
+            ).fetchone()
+            if active:
+                current_rank = severity_rank.get(
+                    active["severity"],
+                    0,
+                )
+                self._conn.execute(
+                    """UPDATE edge_fault_state
+                       SET discovery_count=discovery_count+1,
+                           last_detected_at=?
+                       WHERE fault_uid=?""",
+                    (now, active["fault_uid"]),
+                )
+                if severity_rank[severity] <= current_rank:
+                    return "DUPLICATE"
+                fault_uid = active["fault_uid"]
+                self._conn.execute(
+                    """UPDATE edge_fault_state SET severity=?
+                       WHERE fault_uid=?""",
+                    (severity, fault_uid),
+                )
+            else:
+                fault_uid = fault_uid or self._new_uid()
+                self._conn.execute(
+                    """INSERT INTO edge_fault_state
+                       (fault_uid, scope_key, port_no, component,
+                        fault_code, severity, lifecycle,
+                        first_detected_at, last_detected_at,
+                        detail_json)
+                       VALUES (?, ?, ?, ?, ?, ?, 'OBSERVED',
+                               ?, ?, ?)""",
+                    (
+                        fault_uid,
+                        scope_key,
+                        port_no,
+                        component,
+                        fault_code,
+                        severity,
+                        now,
+                        now,
+                        (
+                            _json.dumps(detail, ensure_ascii=False)
+                            if detail
+                            else None
+                        ),
+                    ),
+                )
+            sequence = self._next_seq(self._conn)
+            event_uid = self._new_uid()
+            event = build_event_envelope(
+                event_uid=event_uid,
+                deployment_code=deployment_code,
+                edge_event_sequence=sequence,
+                event_type="DEVICE_FAULT_OBSERVED",
+                target_type="DEVICE_DEPLOYMENT",
+                target_uid=deployment_code,
+                payload={
+                    "faultUid": fault_uid,
+                    "portNo": port_no,
+                    "component": component,
+                    "severity": severity,
+                    "faultCode": fault_code,
+                    "mcuBootId": mcu_boot_id,
+                    "mcuEventSequence": mcu_event_sequence,
+                },
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "DEVICE_FAULT_OBSERVED",
+            )
+            if (
+                mcu_receive_generation is not None
+                and mcu_boot_id is not None
+                and mcu_event_sequence is not None
+            ):
+                self._conn.execute(
+                    """INSERT INTO mcu_derived_event
+                       (mcu_receive_generation, mcu_boot_id,
+                        mcu_event_sequence, event_type, event_uid)
+                       VALUES (?, ?, ?, 'DEVICE_FAULT_OBSERVED', ?)""",
+                    (
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                        event_uid,
+                    ),
+                )
+                self._mark_mcu_event_processed_in_tx(
+                    self._conn,
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                    now,
+                )
+            return "ACCEPTED"
+
+    def recover_fault_and_create_event(
+        self,
+        *,
+        deployment_code: str,
+        fault_uid: str,
+        component: str,
+        fault_code: str,
+        port_no: Optional[int],
+        recovery_evidence: str,
+        mcu_boot_id: Optional[int] = None,
+        mcu_event_sequence: Optional[int] = None,
+        mcu_receive_generation: Optional[int] = None,
+    ) -> str:
+        """Close exactly one active fault and create its recovery fact."""
+        if not deployment_code or deployment_code == "Dp_unknown":
+            return "REJECTED"
+        with self.transaction():
+            now = self._now()
+            if (
+                mcu_receive_generation is not None
+                and mcu_boot_id is not None
+                and mcu_event_sequence is not None
+            ):
+                derived = self._conn.execute(
+                    """SELECT event_uid FROM mcu_derived_event
+                       WHERE mcu_receive_generation=?
+                         AND mcu_boot_id=?
+                         AND mcu_event_sequence=?
+                         AND event_type='DEVICE_FAULT_RECOVERED'""",
+                    (
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                    ),
+                ).fetchone()
+                if derived:
+                    self._mark_mcu_event_processed_in_tx(
+                        self._conn,
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                        now,
+                    )
+                    return "DUPLICATE"
+            fault = self._conn.execute(
+                """SELECT * FROM edge_fault_state
+                   WHERE fault_uid=?""",
+                (fault_uid,),
+            ).fetchone()
+            if not fault:
+                return "UNKNOWN"
+            if fault["lifecycle"] == "RECOVERED":
+                return "DUPLICATE"
+            if (
+                fault["component"] != component
+                or fault["fault_code"] != fault_code
+                or fault["port_no"] != port_no
+            ):
+                return "CONFLICT"
+            self._conn.execute(
+                """UPDATE edge_fault_state
+                   SET lifecycle='RECOVERED', recovered_at=?,
+                       recovery_evidence=?
+                   WHERE fault_uid=?""",
+                (now, recovery_evidence, fault_uid),
+            )
+            sequence = self._next_seq(self._conn)
+            event_uid = self._new_uid()
+            event = build_event_envelope(
+                event_uid=event_uid,
+                deployment_code=deployment_code,
+                edge_event_sequence=sequence,
+                event_type="DEVICE_FAULT_RECOVERED",
+                target_type="DEVICE_DEPLOYMENT",
+                target_uid=deployment_code,
+                payload={
+                    "faultUid": fault_uid,
+                    "portNo": port_no,
+                    "component": component,
+                    "severity": fault["severity"],
+                    "faultCode": fault_code,
+                    "mcuBootId": mcu_boot_id,
+                    "mcuEventSequence": mcu_event_sequence,
+                },
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "DEVICE_FAULT_RECOVERED",
+            )
+            if (
+                mcu_receive_generation is not None
+                and mcu_boot_id is not None
+                and mcu_event_sequence is not None
+            ):
+                self._conn.execute(
+                    """INSERT INTO mcu_derived_event
+                       (mcu_receive_generation, mcu_boot_id,
+                        mcu_event_sequence, event_type, event_uid)
+                       VALUES (?, ?, ?, 'DEVICE_FAULT_RECOVERED', ?)""",
+                    (
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                        event_uid,
+                    ),
+                )
+                self._mark_mcu_event_processed_in_tx(
+                    self._conn,
+                    mcu_receive_generation,
+                    mcu_boot_id,
+                    mcu_event_sequence,
+                    now,
+                )
+            return "ACCEPTED"
+
+    @staticmethod
+    def _mark_mcu_event_processed_in_tx(
+        conn,
+        mcu_receive_generation: int,
+        mcu_boot_id: int,
+        mcu_event_sequence: int,
+        processed_at: str,
+    ) -> None:
+        conn.execute(
+            """UPDATE mcu_event_inbox
+               SET state='PROCESSED', processed_at=?,
+                   last_error=NULL
+               WHERE mcu_receive_generation=?
+                 AND mcu_boot_id=? AND mcu_event_sequence=?""",
+            (
+                processed_at,
+                mcu_receive_generation,
+                mcu_boot_id,
+                mcu_event_sequence,
+            ),
+        )
 
     # ── 完整性校验与维护 ──
 
@@ -1442,13 +2279,14 @@ class EdgeStore:
                     continue
                 self._conn.execute(
                     """INSERT INTO photo_outbox
-                       (photo_uid, slot_name, local_path, state, work_uid,
-                        work_type, deployment_code)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (photo_uid, slot_name, local_path, cos_key,
+                        state, work_uid, work_type, deployment_code)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         capture["photo_uid"],
                         capture["slot_name"],
                         capture["local_path"],
+                        capture.get("cos_key"),
                         PHOTO_CAPTURE_PENDING,
                         capture["work_uid"],
                         capture["work_type"],
@@ -1532,9 +2370,9 @@ class EdgeStore:
             rows = self._conn.execute(
                 """UPDATE photo_outbox
                    SET state='PENDING', grant_request_event_uid=NULL,
-                       grant_generation=grant_generation+1,
-                       next_retry_at=NULL,
-                       last_error='EDGE_RESTARTED'
+                        grant_generation=grant_generation+1,
+                        next_retry_at=NULL, url=NULL,
+                        last_error='EDGE_RESTARTED'
                    WHERE state IN ('PENDING', 'UPLOADING')
                      AND tombstoned=0 AND work_type IS NOT NULL"""
             ).rowcount
@@ -1625,8 +2463,8 @@ class EdgeStore:
             return self._conn.execute(
                 """UPDATE photo_outbox
                    SET state='PENDING', grant_request_event_uid=NULL,
-                       grant_generation=grant_generation+1,
-                       next_retry_at=NULL, last_error=?
+                        grant_generation=grant_generation+1,
+                        next_retry_at=NULL, url=NULL, last_error=?
                    WHERE work_type=? AND work_uid=?
                      AND state IN ('PENDING', 'UPLOADING')
                      AND tombstoned=0""",
@@ -1636,7 +2474,10 @@ class EdgeStore:
     def mark_photo_uploading(self, photo_uid: str) -> None:
         with self.transaction():
             self._conn.execute(
-                "UPDATE photo_outbox SET state='UPLOADING' WHERE photo_uid=?", (photo_uid,)
+                """UPDATE photo_outbox
+                   SET state='UPLOADING', url=NULL
+                   WHERE photo_uid=?""",
+                (photo_uid,),
             )
 
     def mark_photo_uploaded(
@@ -1646,6 +2487,8 @@ class EdgeStore:
         url: Optional[str] = None,
         status_event_uid: Optional[str] = None,
     ) -> None:
+        if not url:
+            raise ValueError("uploaded photo requires url")
         with self.transaction():
             self._conn.execute(
                 """UPDATE photo_outbox
@@ -1678,7 +2521,7 @@ class EdgeStore:
             self._conn.execute(
                 """UPDATE photo_outbox
                    SET state='PENDING', retry_count=retry_count+1,
-                       next_retry_at=?, last_error=?
+                        next_retry_at=?, last_error=?, url=NULL
                    WHERE photo_uid=?""",
                 (next_retry, error_code, photo_uid),
             )
@@ -1692,7 +2535,8 @@ class EdgeStore:
         with self.transaction():
             self._conn.execute(
                 """UPDATE photo_outbox
-                   SET state='DEAD', last_error=?, status_event_uid=?
+                   SET state='DEAD', url=NULL, last_error=?,
+                       status_event_uid=?
                    WHERE photo_uid=?""",
                 (error_code, status_event_uid, photo_uid),
             )
@@ -1711,6 +2555,10 @@ class EdgeStore:
         """Atomically persist a terminal photo state and its reliable fact."""
         if state not in (PHOTO_UPLOADED, PHOTO_DEAD):
             raise ValueError("photo status state is invalid")
+        if state == PHOTO_UPLOADED and not url:
+            raise ValueError("uploaded photo status requires url")
+        if state == PHOTO_DEAD and url is not None:
+            raise ValueError("missing photo status must not contain url")
         with self.transaction():
             photo = self._conn.execute(
                 """SELECT * FROM photo_outbox
@@ -1739,7 +2587,8 @@ class EdgeStore:
             uploaded_at = self._now() if state == PHOTO_UPLOADED else None
             self._conn.execute(
                 """UPDATE photo_outbox
-                   SET state=?, cos_key=?, url=?, uploaded_at=?,
+                   SET state=?, cos_key=COALESCE(?, cos_key),
+                       url=?, uploaded_at=?,
                        status_event_uid=?, last_error=?,
                        next_retry_at=NULL
                    WHERE photo_uid=?""",
@@ -1782,6 +2631,18 @@ class EdgeStore:
                        FROM confirmation_inbox c
                        WHERE c.event_uid=e.event_uid
                          AND c.outcome='BUSINESS_APPLIED'
+                     )
+                     AND EXISTS (
+                       SELECT 1
+                       FROM event_outbox completed
+                       WHERE completed.work_uid=p.work_uid
+                         AND completed.event_type=CASE p.work_type
+                           WHEN 'DELIVERY_SESSION'
+                             THEN 'DELIVERY_COMPLETE'
+                           WHEN 'CLEAN_OPERATION'
+                             THEN 'CLEAN_COMPLETE'
+                         END
+                         AND completed.state='CONFIRMED'
                      )
                    ORDER BY p.uploaded_at
                    LIMIT ?""",
@@ -1893,6 +2754,288 @@ class EdgeStore:
             )
             return True
 
+    def complete_fixed_frame_work(
+        self,
+        *,
+        work_type: str,
+        work_uid: str,
+        command_uid: str,
+        command_result: dict,
+        context: dict,
+        observation: dict,
+        event_uid: str,
+        event_type: str,
+        event_payload: dict,
+        deployment_code: str,
+        target_type: str,
+        bag_baseline: Optional[dict] = None,
+    ) -> str:
+        """Atomically finish a DD/EF work item and release the single slot."""
+        with self.transaction():
+            slot = self._conn.execute(
+                """SELECT work_type, work_uid FROM work_slot
+                   WHERE slot_id=1"""
+            ).fetchone()
+            if (
+                not slot
+                or slot["work_type"] != work_type
+                or slot["work_uid"] != work_uid
+            ):
+                return "UNKNOWN"
+            existing = self._conn.execute(
+                "SELECT event_uid FROM event_outbox WHERE event_uid=?",
+                (event_uid,),
+            ).fetchone()
+            if existing:
+                return "DUPLICATE"
+            sequence = self._next_seq(self._conn)
+            event = build_event_envelope(
+                event_uid=event_uid,
+                deployment_code=deployment_code,
+                edge_event_sequence=sequence,
+                event_type=event_type,
+                target_type=target_type,
+                target_uid=work_uid,
+                command_uid=command_uid,
+                payload=event_payload,
+            )
+            self._insert_event(self._conn, event, event_type)
+            self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, result_json=?,
+                       last_error=NULL
+                   WHERE command_uid=?""",
+                (
+                    self._now(),
+                    _json.dumps(command_result, ensure_ascii=False),
+                    command_uid,
+                ),
+            )
+            now = self._now()
+            self._upsert_state(
+                self._conn,
+                "fixed_frame_latest_observation_json",
+                _json.dumps(observation, ensure_ascii=False),
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                (
+                    f"port_{context['port_no']}_"
+                    f"{work_type.lower()}_runtime_context_json"
+                ),
+                _json.dumps(context, ensure_ascii=False),
+                now,
+            )
+            if bag_baseline is not None:
+                self._upsert_bag_baseline_in_tx(
+                    self._conn,
+                    bag_baseline,
+                )
+            self._conn.execute(
+                """UPDATE work_slot
+                   SET work_type='NONE', work_uid=NULL,
+                       work_state=NULL, port_no=NULL,
+                       context_json=NULL, updated_at=?
+                   WHERE slot_id=1""",
+                (now,),
+            )
+            return "ACCEPTED"
+
+    def fail_fixed_frame_work(
+        self,
+        *,
+        work_uid: str,
+        command: dict,
+        error_code: str,
+        mcu_command_uid: Optional[str],
+        stage: str = "FAILED",
+    ) -> bool:
+        """Atomically fail a fixed-frame work item without replaying it."""
+        with self.transaction():
+            slot = self._conn.execute(
+                "SELECT work_uid FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            if not slot or slot["work_uid"] != work_uid:
+                return False
+            self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL, last_error=?
+                   WHERE command_uid=?""",
+                (
+                    self._now(),
+                    error_code,
+                    command["commandUid"],
+                ),
+            )
+            if command.get("deploymentCode"):
+                observation = self._record_command_observation_in_tx(
+                    self._conn,
+                    command,
+                    stage,
+                    mcu_command_uid=mcu_command_uid,
+                    error_code=error_code,
+                )
+                if observation == "CONFLICT":
+                    raise ValueError("command observation conflict")
+            self._conn.execute(
+                """UPDATE work_slot
+                   SET work_type='NONE', work_uid=NULL,
+                       work_state=NULL, port_no=NULL,
+                       context_json=NULL, updated_at=?
+                   WHERE slot_id=1""",
+                (self._now(),),
+            )
+            return True
+
+    def get_bag_baseline(self, bag_uid: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM bag_baseline WHERE bag_uid=?",
+                (bag_uid,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def _upsert_bag_baseline_in_tx(conn, baseline: dict) -> None:
+        conn.execute(
+            """INSERT INTO bag_baseline
+               (bag_uid, weight_grams, source_kind,
+                source_work_type, source_work_uid,
+                source_mcu_boot_id, source_mcu_event_sequence,
+                source_observed_at, measurement_uid, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(bag_uid) DO UPDATE SET
+                 weight_grams=excluded.weight_grams,
+                 source_kind=excluded.source_kind,
+                 source_work_type=excluded.source_work_type,
+                 source_work_uid=excluded.source_work_uid,
+                 source_mcu_boot_id=excluded.source_mcu_boot_id,
+                 source_mcu_event_sequence=
+                   excluded.source_mcu_event_sequence,
+                 source_observed_at=excluded.source_observed_at,
+                 measurement_uid=excluded.measurement_uid,
+                 updated_at=excluded.updated_at""",
+            (
+                baseline["bag_uid"],
+                baseline["weight_grams"],
+                baseline["source_kind"],
+                baseline.get("source_work_type"),
+                baseline.get("source_work_uid"),
+                baseline.get("source_mcu_boot_id"),
+                baseline.get("source_mcu_event_sequence"),
+                baseline.get("source_observed_at"),
+                baseline["measurement_uid"],
+                baseline["updated_at"],
+            ),
+        )
+
+    def complete_fixed_frame_local_result(
+        self,
+        *,
+        result_type: str,
+        result_key: str,
+        command: dict,
+        event_uid: str,
+        event_type: str,
+        target_type: str,
+        target_uid: str,
+        event_payload: dict,
+        result: dict,
+        bag_baseline: Optional[dict] = None,
+    ) -> str:
+        """Freeze a local fixed-frame result and its reliable event."""
+        with self.transaction():
+            existing = self._conn.execute(
+                """SELECT event_uid, result_json
+                   FROM fixed_frame_local_result
+                   WHERE result_type=? AND result_key=?""",
+                (result_type, result_key),
+            ).fetchone()
+            if existing:
+                frozen_result = (
+                    _json.loads(existing["result_json"])
+                    if existing["result_json"]
+                    else {}
+                )
+                self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='COMPLETED', processed_at=?,
+                           processing_started_at=NULL,
+                           result_json=?, last_error=NULL
+                       WHERE command_uid=?""",
+                    (
+                        self._now(),
+                        _json.dumps(
+                            frozen_result,
+                            ensure_ascii=False,
+                        ),
+                        command["commandUid"],
+                    ),
+                )
+                return "DUPLICATE"
+            sequence = self._next_seq(self._conn)
+            envelope = build_event_envelope(
+                event_uid=event_uid,
+                deployment_code=command["deploymentCode"],
+                edge_event_sequence=sequence,
+                event_type=event_type,
+                target_type=target_type,
+                target_uid=target_uid,
+                command_uid=command["commandUid"],
+                payload=event_payload,
+            )
+            self._insert_event(self._conn, envelope, event_type)
+            if bag_baseline is not None:
+                self._upsert_bag_baseline_in_tx(
+                    self._conn,
+                    bag_baseline,
+                )
+            self._conn.execute(
+                """INSERT INTO fixed_frame_local_result
+                   (result_type, result_key, command_uid, event_uid,
+                    payload_json, result_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    result_type,
+                    result_key,
+                    command["commandUid"],
+                    event_uid,
+                    _json.dumps(event_payload, ensure_ascii=False),
+                    _json.dumps(result, ensure_ascii=False),
+                ),
+            )
+            self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL,
+                       result_json=?, last_error=NULL
+                   WHERE command_uid=?""",
+                (
+                    self._now(),
+                    _json.dumps(result, ensure_ascii=False),
+                    command["commandUid"],
+                ),
+            )
+            return "ACCEPTED"
+
+    def reserve_compat_mcu_event_sequence(self) -> int:
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='fixed_frame_compat_event_sequence'"""
+            ).fetchone()
+            sequence = int(row["state_value"] if row else 0) + 1
+            self._upsert_state(
+                self._conn,
+                "fixed_frame_compat_event_sequence",
+                str(sequence),
+                self._now(),
+            )
+            return sequence
+
     # ── 原子事务 4: 接收业务确认 ──
 
     def receive_business_confirmation(self, confirmation_uid: str, event_uid: str,
@@ -1918,9 +3061,11 @@ class EdgeStore:
 
     def receive_business_confirmation_and_create_receipt(
         self,
-        command_uid: str,
-        confirmation_payload: dict,
-        deployment_code: str,
+        command_uid: Optional[str] = None,
+        confirmation_payload: Optional[dict] = None,
+        deployment_code: str = "",
+        *,
+        command: Optional[dict] = None,
     ) -> str:
         """Persist I-045 confirmation and create the required receipt event.
 
@@ -1928,22 +3073,69 @@ class EdgeStore:
         persisted because it does not match a local reliable event.
         """
 
+        if command is not None:
+            command_uid = command["commandUid"]
+            confirmation_payload = command["payload"]
+            stable_command = dict(command)
+            stable_command.pop("cosGrant", None)
+        else:
+            stable_command = {
+                "commandUid": command_uid,
+                "payload": confirmation_payload,
+            }
+        if not isinstance(confirmation_payload, dict) or not command_uid:
+            return "REJECTED"
         confirmation_uid = confirmation_payload.get("confirmationUid")
         original_event_uid = confirmation_payload.get("originalEventUid")
         original_payload_sha256 = confirmation_payload.get("originalPayloadSha256")
         outcome = confirmation_payload.get("outcome")
         if not confirmation_uid or not original_event_uid or not original_payload_sha256 or not outcome:
             return "REJECTED"
+        confirmation_sha256 = canonical_payload_sha256(stable_command)
 
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
-                "SELECT confirmation_uid FROM confirmation_inbox WHERE confirmation_uid=?",
+                """SELECT command_uid, canonical_sha256,
+                          payload_json, receipt_event_uid
+                   FROM confirmation_inbox
+                   WHERE confirmation_uid=?""",
                 (confirmation_uid,),
             ).fetchone()
             if existing:
+                stored_payload = (
+                    _json.loads(existing["payload_json"])
+                    if existing["payload_json"]
+                    else None
+                )
+                same = (
+                    existing["command_uid"] in (None, command_uid)
+                    and stored_payload == confirmation_payload
+                    and existing["canonical_sha256"] in (
+                        None,
+                        confirmation_sha256,
+                    )
+                )
+                if not same:
+                    return "CONFLICT"
+                if existing["receipt_event_uid"]:
+                    conn.execute(
+                        """UPDATE event_outbox
+                           SET state='PENDING', mqtt_msg_id=NULL,
+                               next_retry_at=NULL, tombstoned=0
+                           WHERE event_uid=? AND event_type=
+                             'BUSINESS_CONFIRMATION_RECEIPT'""",
+                        (existing["receipt_event_uid"],),
+                    )
                 return "DUPLICATE"
 
+            event_confirmation = conn.execute(
+                """SELECT confirmation_uid FROM confirmation_inbox
+                   WHERE event_uid=?""",
+                (original_event_uid,),
+            ).fetchone()
+            if event_confirmation:
+                return "CONFLICT"
             event = conn.execute(
                 "SELECT payload_json FROM event_outbox WHERE event_uid=?",
                 (original_event_uid,),
@@ -1951,23 +3143,16 @@ class EdgeStore:
             if not event:
                 return "REJECTED"
             event_json = _json.loads(event["payload_json"])
-            local_sha = event_json.get("payloadSha256") or event_json.get("payload_sha256")
-            if local_sha and local_sha != original_payload_sha256:
+            if (
+                event_json.get("deliveryClass") is not None
+                and event_json.get("deliveryClass")
+                != "RELIABLE_FACT"
+            ):
+                return "REJECTED"
+            local_sha = event_json.get("payloadSha256")
+            if local_sha != original_payload_sha256:
                 return "REJECTED"
 
-            conn.execute(
-                "INSERT INTO confirmation_inbox (confirmation_uid, event_uid, outcome, payload_json) VALUES (?,?,?,?)",
-                (
-                    confirmation_uid,
-                    original_event_uid,
-                    outcome,
-                    _json.dumps(confirmation_payload, ensure_ascii=False),
-                ),
-            )
-            conn.execute(
-                "UPDATE event_outbox SET state=?, confirmed_at=? WHERE event_uid=?",
-                (EVENT_CONFIRMED, self._now(), original_event_uid),
-            )
             seq = self._next_seq(conn)
             receipt = build_business_confirmation_receipt(
                 deployment_code=deployment_code,
@@ -1979,7 +3164,10 @@ class EdgeStore:
                 edge_event_sequence=seq,
             )
             conn.execute(
-                "INSERT INTO event_outbox (event_uid, edge_event_sequence, event_type, payload_json, work_uid) VALUES (?,?,?,?,?)",
+                """INSERT INTO event_outbox
+                   (event_uid, edge_event_sequence, event_type,
+                    payload_json, work_uid)
+                   VALUES (?, ?, ?, ?, ?)""",
                 (
                     receipt["eventUid"],
                     seq,
@@ -1988,6 +3176,52 @@ class EdgeStore:
                     original_event_uid,
                 ),
             )
+            conn.execute(
+                """INSERT INTO confirmation_inbox
+                   (confirmation_uid, event_uid, outcome, payload_json,
+                    command_uid, canonical_sha256, receipt_event_uid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    confirmation_uid,
+                    original_event_uid,
+                    outcome,
+                    _json.dumps(
+                        confirmation_payload,
+                        ensure_ascii=False,
+                    ),
+                    command_uid,
+                    confirmation_sha256,
+                    receipt["eventUid"],
+                ),
+            )
+            conn.execute(
+                """UPDATE event_outbox
+                   SET state=?, confirmed_at=?
+                   WHERE event_uid=?""",
+                (
+                    EVENT_CONFIRMED,
+                    self._now(),
+                    original_event_uid,
+                ),
+            )
+            if outcome == "EVENT_QUARANTINED":
+                self._upsert_state(
+                    conn,
+                    f"quarantined_event:{original_event_uid}",
+                    _json.dumps(
+                        {
+                            "confirmationUid": confirmation_uid,
+                            "errorCode": confirmation_payload.get(
+                                "errorCode"
+                            ),
+                            "quarantineUid": confirmation_payload.get(
+                                "quarantineUid"
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    self._now(),
+                )
             return "ACCEPTED"
 
     # ── 原子事务 5: 登记照片 ──
