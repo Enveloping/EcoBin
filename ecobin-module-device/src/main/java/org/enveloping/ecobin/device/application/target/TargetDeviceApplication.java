@@ -103,6 +103,8 @@ public class TargetDeviceApplication {
     private final JdbcTemplate jdbc;
     private final DeviceScopeAuthorizationPort authorizationPort;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final InitialDeviceConfigurationFactory
+            initialConfigurationFactory;
     private final AuditPort auditPort;
     private final ReliableDeviceTaskRegistrationPort taskRegistrationPort;
     private final ReliableDeviceTaskStatusPort taskStatusPort;
@@ -116,6 +118,7 @@ public class TargetDeviceApplication {
             JdbcTemplate jdbc,
             DeviceScopeAuthorizationPort authorizationPort,
             DeviceConfigurationCanonicalizer canonicalizer,
+            InitialDeviceConfigurationFactory initialConfigurationFactory,
             AuditPort auditPort,
             ReliableDeviceTaskRegistrationPort taskRegistrationPort,
             ReliableDeviceTaskStatusPort taskStatusPort,
@@ -127,6 +130,7 @@ public class TargetDeviceApplication {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.canonicalizer = canonicalizer;
+        this.initialConfigurationFactory = initialConfigurationFactory;
         this.auditPort = auditPort;
         this.taskRegistrationPort = taskRegistrationPort;
         this.taskStatusPort = taskStatusPort;
@@ -391,7 +395,8 @@ public class TargetDeviceApplication {
                 target,
                 normalized,
                 DeploymentView.class,
-                () -> createDeployment(scope, normalized));
+                () -> createDeployment(
+                        operationUid, scope, normalized));
     }
 
     @Transactional(readOnly = true)
@@ -453,6 +458,7 @@ public class TargetDeviceApplication {
     }
 
     private CommandResult<DeploymentView> createDeployment(
+            UUID operationUid,
             AuthorizedScope scope,
             CreateDeploymentRequest request) {
         AssetRow asset = lockAsset(request.hardwareSn());
@@ -646,6 +652,21 @@ public class TargetDeviceApplication {
                 asset.id(),
                 asset.version());
         requireSingleRow(updated, "advance deployed asset");
+        ConfigurationReleaseRequest initialConfiguration =
+                initialConfigurationFactory.create(
+                        asset.hardwareSn(),
+                        asset.modelCode(),
+                        asset.expectedPortCount());
+        releaseConfiguration(
+                operationUid,
+                scope,
+                deploymentCode,
+                applicationCollectionUrl(
+                        true,
+                        scope.tenantCode(),
+                        scope.organizationCode(),
+                        deploymentCode),
+                initialConfiguration);
         DeploymentView response = findDeployment(
                 scope, deploymentCode, false).view();
         return new CommandResult<>(

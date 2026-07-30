@@ -597,7 +597,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 pendingDetail.path("raw")
                         .path("netWeightGram").asLong());
         assertEquals(
-                "0.4502",
+                "0.4500",
                 pendingDetail.path("raw")
                         .path("unitPriceYuanPerKg").asText());
         assertEquals(
@@ -979,13 +979,20 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 201));
         String deploymentCode =
                 deployment.path("deploymentCode").asText();
-        JsonNode application = data(write(
-                platform,
-                post(deploymentBase + "/" + deploymentCode
-                        + "/configuration-releases"),
-                UUID.randomUUID(),
-                configurationBody(),
-                202));
+        String applicationUid = jdbc.queryForObject("""
+                        SELECT application.application_uid
+                        FROM dev_config_application application
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = application.deployment_id
+                        JOIN dev_config_version version
+                          ON version.id =
+                             application.config_version_id
+                        WHERE deployment.public_code = ?
+                          AND version.version_no = 1
+                        """,
+                String.class,
+                deploymentCode);
+        assertNotNull(applicationUid);
 
         jdbc.update("""
                 UPDATE dev_config_application application
@@ -1010,7 +1017,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                     application.lock_version =
                         application.lock_version + 1
                 WHERE application.application_uid = ?
-                """, application.path("applicationUid").asText());
+                """, applicationUid);
         jdbc.update("""
                 UPDATE ops_reliable_task
                 SET next_run_at =
@@ -1019,12 +1026,12 @@ class DeliveryHappyPathMysqlIntegrationTest {
                     lock_version = lock_version + 1
                 WHERE task_type = 'ENSURE_DEVICE_CONFIGURATION'
                   AND target_stable_key = ?
-                """, application.path("applicationUid").asText());
+                """, applicationUid);
 
         applyTrustedRuntimeSnapshot(
                 hardwareSn,
                 deploymentCode,
-                application.path("applicationUid").asText(),
+                applicationUid,
                 1);
         data(write(
                 platform,
@@ -1072,60 +1079,38 @@ class DeliveryHappyPathMysqlIntegrationTest {
     }
 
     private void seedDeliveryBusinessFacts(ReadyDeployment ready) {
-        byte[] deliveryRule =
-                sha256(("delivery-rule-" + run)
-                        .getBytes(StandardCharsets.UTF_8));
-        jdbc.update("""
-                        INSERT INTO rec_organization_delivery_config (
-                            tenant_id, organization_id, version_no,
-                            content_sha256, review_mode,
-                            open_balance_floor_cent,
-                            max_review_abs_weight_g,
-                            publication_source,
-                            published_by_staff_account_id,
-                            published_at, created_at
-                        ) VALUES (
-                            ?, ?, 1, ?, 'ALL_MANUAL',
-                            -1000, 100000, 'SYSTEM', NULL,
-                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
-                        )
-                        """,
-                ready.tenantId(),
-                ready.organizationId(),
-                deliveryRule);
-        long deliveryConfigId = jdbc.queryForObject("""
-                        SELECT id
-                        FROM rec_organization_delivery_config
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND version_no = 1
-                        """,
-                Long.class,
-                ready.tenantId(),
-                ready.organizationId());
-        jdbc.update("""
-                        INSERT INTO
-                            rec_organization_delivery_config_head (
-                                organization_id, tenant_id,
-                                current_config_id, current_version_no,
-                                lock_version, switched_at, updated_at
-                            ) VALUES (
-                                ?, ?, ?, 1, 0,
-                                UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
-                            )
-                        """,
-                ready.organizationId(),
-                ready.tenantId(),
-                deliveryConfigId);
-        jdbc.update("""
-                        INSERT INTO rec_organization_order_counter (
-                            organization_id, tenant_id,
-                            last_visibility_sequence_no,
-                            lock_version, updated_at
-                        ) VALUES (?, ?, 0, 0, UTC_TIMESTAMP(3))
-                        """,
-                ready.organizationId(),
-                ready.tenantId());
+        assertEquals(
+                "ALL_MANUAL|-1000|100000|SYSTEM",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    config.review_mode, '|',
+                                    config.open_balance_floor_cent, '|',
+                                    config.max_review_abs_weight_g, '|',
+                                    config.publication_source
+                                )
+                                FROM rec_organization_delivery_config_head head
+                                JOIN rec_organization_delivery_config config
+                                  ON config.id = head.current_config_id
+                                 AND config.tenant_id = head.tenant_id
+                                 AND config.organization_id =
+                                     head.organization_id
+                                WHERE head.tenant_id = ?
+                                  AND head.organization_id = ?
+                                """,
+                        String.class,
+                        ready.tenantId(),
+                        ready.organizationId()));
+        assertEquals(
+                1,
+                jdbc.queryForObject("""
+                                SELECT COUNT(*)
+                                FROM rec_organization_order_counter
+                                WHERE tenant_id = ?
+                                  AND organization_id = ?
+                                """,
+                        Integer.class,
+                        ready.tenantId(),
+                        ready.organizationId()));
 
         UUID bagUid = UUID.randomUUID();
         String bagCode = "BAG-" + run;
@@ -1345,18 +1330,22 @@ class DeliveryHappyPathMysqlIntegrationTest {
                        LOWER(HEX(
                            session_row.device_config_mcu_payload_sha256
                        )) AS mcu_payload_sha256,
-                       CAST(
-                           session_row.unit_price_yuan_per_kg
-                           * 10000 AS UNSIGNED
-                       ) AS unit_price_ten_thousandths
-                FROM dev_delivery_session session_row
-                JOIN dev_device_command command_row
-                  ON command_row.delivery_session_id =
-                     session_row.id
-                 AND command_row.command_type =
-                     'START_DELIVERY_SESSION'
-                WHERE session_row.session_uid = ?
-                """, sessionUid.toString());
+                        CAST(
+                            session_row.unit_price_yuan_per_kg
+                            * 10000 AS UNSIGNED
+                        ) AS unit_price_ten_thousandths,
+                        port_config.calibration_version
+                 FROM dev_delivery_session session_row
+                 JOIN dev_device_command command_row
+                   ON command_row.delivery_session_id =
+                      session_row.id
+                  AND command_row.command_type =
+                      'START_DELIVERY_SESSION'
+                 JOIN dev_port_config_snapshot port_config
+                   ON port_config.id =
+                      session_row.port_config_snapshot_id
+                 WHERE session_row.session_uid = ?
+                 """, sessionUid.toString());
         String commandUid =
                 frozen.get("command_uid").toString();
         long configVersion = ((Number) frozen.get(
@@ -1367,6 +1356,8 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 frozen.get("mcu_payload_sha256").toString();
         long unitPrice = ((Number) frozen.get(
                 "unit_price_ten_thousandths")).longValue();
+        long calibrationVersion = ((Number) frozen.get(
+                "calibration_version")).longValue();
 
         ObjectNode wire = (ObjectNode) objectMapper.readTree(
                         Files.readString(contractPath(
@@ -1404,9 +1395,11 @@ class DeliveryHappyPathMysqlIntegrationTest {
         wireConfig.put(
                 "mcuPayloadSha256", mcuPayloadSha256);
         ((ObjectNode) wire.path("firstPreOpenMeasurement"))
-                .put("measurementUid", beforeMeasurementUid);
+                .put("measurementUid", beforeMeasurementUid)
+                .put("calibrationVersion", calibrationVersion);
         ((ObjectNode) wire.path("finalPostCloseMeasurement"))
-                .put("measurementUid", afterMeasurementUid);
+                .put("measurementUid", afterMeasurementUid)
+                .put("calibrationVersion", calibrationVersion);
 
         ObjectNode semanticPayload =
                 (ObjectNode) objectMapper.readTree(
@@ -1429,10 +1422,12 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 "mcuPayloadSha256", mcuPayloadSha256);
         ((ObjectNode) semanticPayload.path(
                 "firstPreOpenMeasurement"))
-                .put("measurementUid", beforeMeasurementUid);
+                .put("measurementUid", beforeMeasurementUid)
+                .put("calibrationVersion", calibrationVersion);
         ((ObjectNode) semanticPayload.path(
                 "finalPostCloseMeasurement"))
-                .put("measurementUid", afterMeasurementUid);
+                .put("measurementUid", afterMeasurementUid)
+                .put("calibrationVersion", calibrationVersion);
         @SuppressWarnings("unchecked")
         Map<String, Object> semantic =
                 objectMapper.convertValue(
@@ -1591,6 +1586,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         semanticPayload.put("uartProtocolMajor", null);
         semanticPayload.put("uartProtocolMinor", null);
         semanticPayload.put("uartState", "FAULT");
+        useFixedFrameRuntimePortFacts(semanticPayload, false);
         String payloadSha256 = canonicalizer.hex(
                 canonicalizer.payloadSha256(semanticPayload));
 
@@ -1634,6 +1630,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         wire.remove("uartProtocolMajor");
         wire.remove("uartProtocolMinor");
         wire.put("uartState", 5);
+        useFixedFrameRuntimePortFacts(wire, true);
         wire.put("payloadSha256", payloadSha256);
         mutableMap(wire.get("target"))
                 .put("uid", deploymentCode);
@@ -1793,69 +1790,6 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         "expectedVersion",
                         organization.path("version").asLong()),
                 200);
-    }
-
-    private Map<String, Object> configurationBody() {
-        Map<String, Object> device = new LinkedHashMap<>();
-        device.put("displayName", "投递闭环测试设备");
-        device.put("address", "集成测试位置");
-        device.put("longitude", "113.9345000");
-        device.put("latitude", "22.5401000");
-        device.put("edgeHeartbeatIntervalMs", 30_000);
-        device.put("edgeHeartbeatMissThreshold", 3);
-        device.put("mcuHeartbeatIntervalMs", 5_000);
-        device.put("mcuHeartbeatMissThreshold", 3);
-        device.put("doorCloseRetryLimit", 3);
-        device.put("continueDeliveryWaitMs", 30_000);
-        device.put("negativeWeightThresholdGram", 500);
-        device.put("deliveryAutoCloseMs", 120_000);
-        device.put("weightMeasurementTimeoutMs", 6_000);
-        device.put("deliveryDoorTravelWaitMs", 30_000);
-        device.put("cleanSolenoidPulseMs", 1_000);
-        device.put("smokeMonitoringEnabled", true);
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("expectedLatestVersion", 0);
-        body.put("reason", "delivery happy-path fixture");
-        body.put("locationCorrectionConfirmed", false);
-        body.put("device", device);
-        body.put(
-                "ports",
-                List.of(
-                        port(1, "0.4501"),
-                        port(2, "0.4502")));
-        return body;
-    }
-
-    private static Map<String, Object> port(
-            int portNo,
-            String unitPrice) {
-        Map<String, Object> port = new LinkedHashMap<>();
-        port.put("portNo", portNo);
-        port.put("displayName", "投口" + portNo);
-        port.put("enabled", true);
-        port.put("unitPriceYuanPerKg", unitPrice);
-        port.put("fullnessMode", "INFRARED_OR_WEIGHT");
-        port.put("fullnessWeightKg", "50.000");
-        port.put("deliverySettleDelayMs", 3_000);
-        port.put("fullnessInitialDelayMs", 5_000);
-        port.put("fullnessRecheckDelayMs", 10_000);
-        port.put("doorAutoCloseTimeoutMs", 60_000);
-        port.put("fullnessSensorKind", "ULTRASONIC");
-        port.put("fullnessDistanceThresholdMm", 600);
-        port.put("fullnessSampleCount", 5);
-        port.put("fullnessMinimumValidSampleCount", 3);
-        port.put("fullnessEchoTimeoutUs", 30_000);
-        port.put("weightStableWindowMs", 1_500);
-        port.put("weightMaximumFluctuationGram", 20);
-        port.put("weightRequiredSampleCount", 10);
-        port.put("weightMeasurementTimeoutMs", 6_000);
-        port.put("weightMinimumGram", -5_000);
-        port.put("weightMaximumGram", 100_000);
-        port.put("calibrationVersion", 4);
-        port.put("infraredSampleTimeoutMs", 3_000);
-        port.put("deliveryDoorOperationTimeoutMs", 60_000);
-        return port;
     }
 
     private MvcResult login(
@@ -2080,6 +2014,32 @@ class DeliveryHappyPathMysqlIntegrationTest {
     private static Map<String, Object> mutableMap(
             Object value) {
         return (Map<String, Object>) value;
+    }
+
+    private static void useFixedFrameRuntimePortFacts(
+            Map<String, Object> payload,
+            boolean wireShape) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> ports =
+                (List<Map<String, Object>>) payload.get("ports");
+        for (Map<String, Object> port : ports) {
+            port.put("calibrationVersion", 0);
+            port.put(
+                    "fullnessSensorKind",
+                    wireShape ? 2 : "DIGITAL_INFRARED");
+            port.put(
+                    "fullnessSampleBasis",
+                    wireShape ? 4 : "NOT_SAMPLED");
+            port.put("fullnessValidSampleCount", 1);
+            if (wireShape) {
+                port.remove("representativeDistanceMm");
+                port.put(
+                        "representativeDistanceMmPresent",
+                        false);
+            } else {
+                port.put("representativeDistanceMm", null);
+            }
+        }
     }
 
     private static Path contractPath(String relative) {

@@ -54,6 +54,24 @@ cos:
 
 # 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
 ecobin:
+  device:
+    # 创建设备部署时按型号选择初始硬件档案并发布 v1。
+    # 未列出的型号使用 default-profile，便于开发期新增型号后仍能完成部署。
+    initial-configuration:
+      default-profile: fixed-frame-digital-infrared
+      model-profiles:
+        EC-M0: fixed-frame-digital-infrared
+        ECO-6P: fixed-frame-digital-infrared
+        ECOBIN-V1: fixed-frame-digital-infrared
+      unit-price-yuan-per-kg: "0.4500"
+      fullness-weight-kg: "50.000"
+
+  recycling:
+    # 新机构自动发布第一版投递规则：全部投递进入人工审核。
+    default-delivery-rule:
+      open-balance-floor-cent: -1000
+      maximum-review-absolute-weight-gram: 100000
+
   # 仅供默认 FAKE 开发运行：空表时创建一个已知平台管理员。
   # REAL/production 必须显式关闭，否则启动失败，不会写入弱默认账号。
   development:

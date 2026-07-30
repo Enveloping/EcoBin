@@ -27,7 +27,12 @@ class RuntimeSafetyConfigurationTest {
             "V8__cross_module_constraints.sql",
             "V9__immutability_guards.sql",
             "V10__permission_reference_data.sql",
-            "V11__device_controlled_vertical.sql"
+            "V11__device_controlled_vertical.sql",
+            "V12__trusted_orange_pi_runtime_facts.sql",
+            "V13__separate_device_protocol_control_tasks.sql",
+            "V14__delivery_happy_path_facts.sql",
+            "V15__photo_terminal_facts.sql",
+            "V16__organization_delivery_defaults.sql"
     };
 
     @Test

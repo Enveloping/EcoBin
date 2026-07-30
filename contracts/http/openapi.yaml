@@ -4479,7 +4479,7 @@
           "doorAutoCloseTimeoutMs": {"type": "integer", "minimum": 1000},
           "fullnessSensorKind": {
             "type": ["string", "null"],
-            "enum": ["ULTRASONIC", "INFRARED_DISTANCE", null]
+            "enum": ["ULTRASONIC", "DIGITAL_INFRARED", null]
           },
           "fullnessDistanceThresholdMm": {
             "type": ["integer", "null"],

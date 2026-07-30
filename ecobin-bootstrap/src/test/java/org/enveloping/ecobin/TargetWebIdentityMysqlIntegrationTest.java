@@ -40,7 +40,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.database.epoch.test-bypass=false",
         "ecobin.external.mode=fake",
         "ecobin.external.fake.block-inbound=true",
-        "onenet.subscription.enabled=false"
+        "onenet.subscription.enabled=false",
+        "jwt.secret=IDENTITY_TEST_SECRET_MUST_BE_AT_LEAST_32_BYTES_LONG"
 })
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(
@@ -227,6 +228,9 @@ class TargetWebIdentityMysqlIntegrationTest {
                 tenantB,
                 otherTenantOrganization,
                 "Other tenant organization");
+        assertDefaultDeliveryRule(tenantA, organizationA);
+        assertDefaultDeliveryRule(tenantA, organizationB);
+        assertDefaultDeliveryRule(tenantB, otherTenantOrganization);
 
         String workerLogin = "v01-worker-" + run;
         JsonNode worker = data(write(
@@ -967,6 +971,58 @@ class TargetWebIdentityMysqlIntegrationTest {
                 Map.of("expectedVersion",
                         organization.path("version").asLong()),
                 200);
+    }
+
+    private void assertDefaultDeliveryRule(
+            String tenantCode,
+            String organizationCode) {
+        assertEquals(
+                "1|ALL_MANUAL|-1000|100000|SYSTEM|32",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    config.version_no, '|',
+                                    config.review_mode, '|',
+                                    config.open_balance_floor_cent, '|',
+                                    config.max_review_abs_weight_g, '|',
+                                    config.publication_source, '|',
+                                    OCTET_LENGTH(config.content_sha256)
+                                )
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN
+                                    rec_organization_delivery_config_head head
+                                  ON head.tenant_id = tenant.id
+                                 AND head.organization_id = organization.id
+                                JOIN rec_organization_delivery_config config
+                                  ON config.id = head.current_config_id
+                                 AND config.tenant_id = head.tenant_id
+                                 AND config.organization_id =
+                                     head.organization_id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                """,
+                        String.class,
+                        tenantCode,
+                        organizationCode));
+        assertEquals(
+                1,
+                jdbc.queryForObject("""
+                                SELECT COUNT(*)
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN rec_organization_order_counter counter
+                                  ON counter.tenant_id = tenant.id
+                                 AND counter.organization_id =
+                                     organization.id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                  AND counter.last_visibility_sequence_no = 0
+                                """,
+                        Integer.class,
+                        tenantCode,
+                        organizationCode));
     }
 
     private MvcResult login(

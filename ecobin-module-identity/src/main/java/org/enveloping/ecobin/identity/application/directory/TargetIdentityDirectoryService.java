@@ -5,6 +5,9 @@ import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
 import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
+import org.enveloping.ecobin.identity.api.command.OrganizationBootstrapCommand;
+import org.enveloping.ecobin.identity.api.port.OrganizationBootstrapParticipant;
+import org.enveloping.ecobin.identity.application.persistence.OrganizationBootstrapPersistenceRefFactory;
 import org.enveloping.ecobin.identity.application.web.OrganizationAccess;
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
 import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
@@ -84,18 +87,30 @@ public class TargetIdentityDirectoryService {
     private final TargetIdentitySessionRepository sessionRepository;
     private final AuditPort auditPort;
     private final ObjectMapper objectMapper;
+    private final OrganizationBootstrapPersistenceRefFactory
+            organizationBootstrapRefFactory;
+    private final List<OrganizationBootstrapParticipant>
+            organizationBootstrapParticipants;
 
     public TargetIdentityDirectoryService(
             JdbcTemplate jdbc,
             PasswordEncoder passwordEncoder,
             TargetIdentitySessionRepository sessionRepository,
             AuditPort auditPort,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            OrganizationBootstrapPersistenceRefFactory
+                    organizationBootstrapRefFactory,
+            List<OrganizationBootstrapParticipant>
+                    organizationBootstrapParticipants) {
         this.jdbc = jdbc;
         this.passwordEncoder = passwordEncoder;
         this.sessionRepository = sessionRepository;
         this.auditPort = auditPort;
         this.objectMapper = objectMapper;
+        this.organizationBootstrapRefFactory =
+                organizationBootstrapRefFactory;
+        this.organizationBootstrapParticipants =
+                List.copyOf(organizationBootstrapParticipants);
     }
 
     @Transactional(readOnly = true)
@@ -538,6 +553,15 @@ public class TargetIdentityDirectoryService {
                     }
                     OrganizationRow organization = organizationByCode(
                             tenant.id(), organizationCode, false);
+                    for (OrganizationBootstrapParticipant participant
+                            : organizationBootstrapParticipants) {
+                        participant.initializeOrganization(
+                                new OrganizationBootstrapCommand(
+                                        organization.createdAt(),
+                                        organizationBootstrapRefFactory.issue(
+                                                tenant.id(),
+                                                organization.id())));
+                    }
                     OrganizationView view = organizationView(organization);
                     return result(
                             view,

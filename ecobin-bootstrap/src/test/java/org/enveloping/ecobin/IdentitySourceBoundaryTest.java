@@ -76,7 +76,7 @@ class IdentitySourceBoundaryTest {
     }
 
     @Test
-    void rawForeignKeysHaveOnlyTheRegistrationParticipantsAsConsumers()
+    void rawForeignKeysHaveOnlyTransactionParticipantsAsConsumers()
             throws IOException {
         Path root = repositoryRoot();
         List<Path> callSites = new ArrayList<>();
@@ -98,7 +98,11 @@ class IdentitySourceBoundaryTest {
                                         + "JdbcOrganizationUserRegistrationParticipant.java"),
                         Path.of(
                                 "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
-                                        + "application/miniapp/TargetMiniappLoginTransactionService.java")),
+                                        + "application/miniapp/TargetMiniappLoginTransactionService.java"),
+                        Path.of(
+                                "ecobin-module-recycling/src/main/java/org/enveloping/ecobin/"
+                                        + "recycling/infrastructure/registration/"
+                                        + "JdbcOrganizationBootstrapParticipant.java")),
                 callSites.stream().sorted().toList());
     }
 

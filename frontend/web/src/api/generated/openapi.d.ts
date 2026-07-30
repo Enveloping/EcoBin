@@ -1547,6 +1547,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/delivery-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the current display-only delivery options for one deployment
+         * @description The returned blockers include PHONE_BINDING_REQUIRED until the ordinary user binds a WeChat phone number. This snapshot is advisory; starting a session repeats every eligibility check under write locks.
+         */
+        get: operations["getMiniappDeliveryOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/ports/{portNo}/delivery-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize one phone-bound ordinary user to start one delivery session
+         * @description Requires a bound WeChat phone number. A 202 response proves only that the session, occupancy, command and reliable task were atomically accepted; it does not prove device receipt, door movement or physical opening.
+         */
+        post: operations["startMiniappDeliverySession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/delivery-sessions/{sessionUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll one delivery session owned by the current ordinary user */
+        get: operations["getMiniappDeliverySession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp-staff/auth/sessions/current": {
         parameters: {
             query?: never;
@@ -2457,7 +2514,7 @@ export interface components {
             fullnessRecheckDelayMs: number;
             doorAutoCloseTimeoutMs: number;
             /** @enum {string|null} */
-            fullnessSensorKind?: "ULTRASONIC" | "INFRARED_DISTANCE" | null;
+            fullnessSensorKind?: "ULTRASONIC" | "DIGITAL_INFRARED" | null;
             fullnessDistanceThresholdMm?: number | null;
             fullnessSampleCount?: number | null;
             fullnessMinimumValidSampleCount?: number | null;
@@ -2856,7 +2913,7 @@ export interface components {
             currentMiniappBinding: components["schemas"]["OrganizationUserCurrentMiniappBinding"] | null;
         };
         OrganizationUserRegistrationSource: {
-            deploymentCode: string;
+            deploymentCode: components["schemas"]["DeploymentCode"];
             lifecycleStatus: string;
         };
         OrganizationUser: {
@@ -3141,9 +3198,9 @@ export interface components {
             data: components["schemas"]["WebSession"];
             requestId: string;
         };
+        /** @description Optional immutable first-registration attribution extracted from the deploymentCode query parameter of a device QR link such as https://jinshoubao.com/q/device/{appId}/?deploymentCode={deploymentCode}. The QR domain, path, and AppID path prefix are routing-only deployment settings configured in WeChat and are not fields of this HTTP API. The mini-program sends its own runtime AppID in MiniappLoginRequest.appId and sends only deploymentCode here; the server derives the tenant and organization from that trusted AppID and revalidates the deployment scope. */
         RegistrationSource: {
-            /** @example HZ-PILOT-BOX-01 */
-            deploymentCode: string;
+            deploymentCode: components["schemas"]["DeploymentCode"];
         };
         MiniappLoginRequest: {
             /** @example wx0000000000000000 */
@@ -3384,6 +3441,82 @@ export interface components {
             data: components["schemas"]["DeliveryReviewResult"];
             requestId: string;
         };
+        /** @description Stable public identity of one whole delivery session */
+        DeliverySessionUid: components["schemas"]["UuidV4"];
+        /** @enum {string} */
+        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "DEPLOYMENT_NOT_ENABLED" | "BUSINESS_SWITCH_DISABLED" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "SAFETY_LOCKED" | "DEVICE_BUSY" | "PORT_DISABLED" | "PORT_SENSOR_UNHEALTHY" | "DELIVERY_RESULT_PENDING" | "CURRENT_BAG_MISSING" | "WEIGHT_BASELINE_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "FULLNESS_CHECK_PENDING" | "PORT_FULL" | "PORT_CLEAN_OPERATION_ACTIVE";
+        /**
+         * @description Non-negative display percentage preserved as an exact decimal string; values may exceed 100.00.
+         * @example 87.50
+         */
+        FullnessPercent: string;
+        DeliveryPortOption: {
+            portNo: number;
+            displayName: string | null;
+            unitPriceYuanPerKg: components["schemas"]["UnitPriceCnyPerKg"] | null;
+            fullnessPercent: components["schemas"]["FullnessPercent"] | null;
+            deliveryAllowed: boolean;
+            blockers: components["schemas"]["DeliveryOptionBlocker"][];
+        };
+        DeliveryOptionsView: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            displayName: string | null;
+            address: string | null;
+            deviceBusy: boolean;
+            asOf: components["schemas"]["UtcTimestamp"];
+            ports: components["schemas"]["DeliveryPortOption"][];
+        };
+        /** @enum {string} */
+        DeliverySessionStatus: "ACTIVE" | "COMPLETED" | "ENDED";
+        /** @enum {string} */
+        DeliverySessionPhase: "START_QUEUED" | "IN_PROGRESS" | "FINAL_RESULT_PENDING" | "RECOVERY_REQUIRED" | "BUSINESS_CONFIRMED" | "PRE_START_FAILED";
+        /** @enum {string} */
+        DeliverySessionNextAction: "WAIT" | "WAIT_ON_DEVICE" | "VIEW_ORDER" | "SESSION_ENDED";
+        DeliverySessionAccepted: {
+            operationId: components["schemas"]["UuidV4"];
+            resourceId: components["schemas"]["DeliverySessionUid"];
+            sessionUid: components["schemas"]["DeliverySessionUid"];
+            /** @constant */
+            status: "ACTIVE";
+            /** @constant */
+            phase: "START_QUEUED";
+            startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
+            statusUrl: components["schemas"]["StatusUrl"];
+            /** @constant */
+            recommendedPollAfterMs: 1000;
+            nextActions: "WAIT"[];
+        };
+        DeliverySessionView: {
+            sessionUid: components["schemas"]["DeliverySessionUid"];
+            status: components["schemas"]["DeliverySessionStatus"];
+            phase: components["schemas"]["DeliverySessionPhase"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            startedAt: components["schemas"]["UtcTimestamp"] | null;
+            endedAt: components["schemas"]["UtcTimestamp"] | null;
+            endReason: string | null;
+            deliveryOrderNo: string | null;
+            recommendedPollAfterMs: number | null;
+            nextActions: components["schemas"]["DeliverySessionNextAction"][];
+        };
+        DeliveryOptionsViewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryOptionsView"];
+            requestId: string;
+        };
+        DeliverySessionAcceptedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliverySessionAccepted"];
+            requestId: string;
+        };
+        DeliverySessionViewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliverySessionView"];
+            requestId: string;
+        };
         WechatPayEncryptedNotification: {
             id: string;
             /** Format: date-time */
@@ -3479,6 +3612,40 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["MiniappPhoneBindingEnvelope"];
+            };
+        };
+        /** @description Current display-only delivery options and stable blocker codes */
+        MiniappDeliveryOptions: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryOptionsViewEnvelope"];
+            };
+        };
+        /** @description The delivery start intent is durable, but no device receipt or physical opening is implied */
+        MiniappDeliverySessionAccepted: {
+            headers: {
+                Location: components["headers"]["Location"];
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliverySessionAcceptedEnvelope"];
+            };
+        };
+        /** @description Current presentation of a delivery session owned by the authenticated ordinary user */
+        MiniappDeliverySession: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliverySessionViewEnvelope"];
             };
         };
         /** @description The intent is durably accepted but the business result is not terminal */
@@ -3809,6 +3976,7 @@ export interface components {
         HardwareSn: components["schemas"]["HardwareSn"];
         DeploymentCode: components["schemas"]["DeploymentCode"];
         PortNo: number;
+        DeliverySessionUid: components["schemas"]["DeliverySessionUid"];
         ConfigurationVersionNo: number;
         ConfigurationApplicationUid: components["schemas"]["UuidV4"];
     };
@@ -5832,6 +6000,64 @@ export interface operations {
             409: components["responses"]["ConflictProblem"];
             422: components["responses"]["BusinessRuleProblem"];
             503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    getMiniappDeliveryOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliveryOptions"];
+            401: components["responses"]["UnauthorizedProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    startMiniappDeliverySession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: components["responses"]["MiniappDeliverySessionAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    getMiniappDeliverySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionUid: components["parameters"]["DeliverySessionUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliverySession"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["InternalProblem"];
         };
     };
     getCurrentMiniappStaffSession: {

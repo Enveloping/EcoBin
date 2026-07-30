@@ -228,6 +228,27 @@ class TargetDeviceMysqlIntegrationTest {
                 deployment.path("lifecycleStatus").asText());
         assertEquals(2, deployment.path("portCount").asInt());
         assertEquals(
+                1,
+                deployment.path("latestConfigurationVersion").asLong());
+        assertEquals(
+                "PENDING",
+                deployment.path("configurationApplicationStatus").asText());
+        assertFalse(deployment.path("businessEnabled").asBoolean());
+        String applicationUid = jdbc.queryForObject("""
+                        SELECT application.application_uid
+                        FROM dev_config_application application
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = application.deployment_id
+                        JOIN dev_config_version version
+                          ON version.id =
+                             application.config_version_id
+                        WHERE deployment.public_code = ?
+                          AND version.version_no = 1
+                        """,
+                String.class,
+                deploymentCode);
+        assertNotNull(applicationUid);
+        assertEquals(
                 2,
                 data(read(
                         platform,
@@ -257,19 +278,6 @@ class TargetDeviceMysqlIntegrationTest {
                 "NOT_OBSERVABLE",
                 portRuntime.path("cleanDoorStateBasis").asText());
 
-        JsonNode accepted = data(write(
-                platform,
-                post(deploymentBase + "/" + deploymentCode
-                        + "/configuration-releases"),
-                UUID.randomUUID(),
-                configurationBody(),
-                202));
-        String applicationUid =
-                accepted.path("applicationUid").asText();
-        assertEquals("PENDING", accepted.path("status").asText());
-        assertEquals("PENDING", accepted.path("dispatchState").asText());
-        assertEquals(1, accepted.path("versionNo").asLong());
-
         assertEquals(1, jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_config_version version
@@ -278,6 +286,32 @@ class TargetDeviceMysqlIntegrationTest {
                         WHERE application.application_uid = ?
                           AND version.version_no = 1
                         """, Integer.class, applicationUid));
+        assertEquals(
+                "SYSTEM|DIGITAL_INFRARED|5|3",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    version.publication_source, '|',
+                                    snapshot.fullness_sensor_kind, '|',
+                                    snapshot.fullness_sample_count, '|',
+                                    snapshot.fullness_min_valid_sample_count
+                                )
+                                FROM dev_config_version version
+                                JOIN dev_config_application application
+                                  ON application.config_version_id =
+                                     version.id
+                                JOIN dev_port_config_snapshot snapshot
+                                  ON snapshot.config_version_id = version.id
+                                 AND snapshot.port_id = (
+                                     SELECT port.id
+                                     FROM dev_port port
+                                     WHERE port.deployment_id =
+                                         version.deployment_id
+                                       AND port.port_no = 1
+                                 )
+                                WHERE application.application_uid = ?
+                                """,
+                        String.class,
+                        applicationUid));
         assertEquals(2, jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_port_config_snapshot snapshot
@@ -1423,64 +1457,6 @@ class TargetDeviceMysqlIntegrationTest {
                         "expectedVersion",
                         organization.path("version").asLong()),
                 200);
-    }
-
-    private Map<String, Object> configurationBody() {
-        Map<String, Object> device = new LinkedHashMap<>();
-        device.put("displayName", "测试回收设备");
-        device.put("address", "A区北门");
-        device.put("longitude", "113.9345000");
-        device.put("latitude", "22.5401000");
-        device.put("edgeHeartbeatIntervalMs", 30_000);
-        device.put("edgeHeartbeatMissThreshold", 3);
-        device.put("mcuHeartbeatIntervalMs", 5_000);
-        device.put("mcuHeartbeatMissThreshold", 3);
-        device.put("doorCloseRetryLimit", 3);
-        device.put("continueDeliveryWaitMs", 30_000);
-        device.put("negativeWeightThresholdGram", 500);
-        device.put("deliveryAutoCloseMs", 120_000);
-        device.put("weightMeasurementTimeoutMs", 6_000);
-        device.put("deliveryDoorTravelWaitMs", 30_000);
-        device.put("cleanSolenoidPulseMs", 1_000);
-        device.put("smokeMonitoringEnabled", true);
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("expectedLatestVersion", 0);
-        body.put("reason", "initial complete configuration");
-        body.put("locationCorrectionConfirmed", false);
-        body.put("device", device);
-        body.put("ports", List.of(port(1, "0.4501"), port(2, "0.4502")));
-        return body;
-    }
-
-    private static Map<String, Object> port(
-            int portNo, String unitPrice) {
-        Map<String, Object> port = new LinkedHashMap<>();
-        port.put("portNo", portNo);
-        port.put("displayName", "投口" + portNo);
-        port.put("enabled", true);
-        port.put("unitPriceYuanPerKg", unitPrice);
-        port.put("fullnessMode", "INFRARED_OR_WEIGHT");
-        port.put("fullnessWeightKg", "50.000");
-        port.put("deliverySettleDelayMs", 3_000);
-        port.put("fullnessInitialDelayMs", 5_000);
-        port.put("fullnessRecheckDelayMs", 10_000);
-        port.put("doorAutoCloseTimeoutMs", 60_000);
-        port.put("fullnessSensorKind", "ULTRASONIC");
-        port.put("fullnessDistanceThresholdMm", 600);
-        port.put("fullnessSampleCount", 5);
-        port.put("fullnessMinimumValidSampleCount", 3);
-        port.put("fullnessEchoTimeoutUs", 30_000);
-        port.put("weightStableWindowMs", 1_500);
-        port.put("weightMaximumFluctuationGram", 20);
-        port.put("weightRequiredSampleCount", 10);
-        port.put("weightMeasurementTimeoutMs", 6_000);
-        port.put("weightMinimumGram", -5_000);
-        port.put("weightMaximumGram", 100_000);
-        port.put("calibrationVersion", 4);
-        port.put("infraredSampleTimeoutMs", 3_000);
-        port.put("deliveryDoorOperationTimeoutMs", 60_000);
-        return port;
     }
 
     private MvcResult login(
