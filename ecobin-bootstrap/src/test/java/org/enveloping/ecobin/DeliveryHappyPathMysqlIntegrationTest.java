@@ -945,6 +945,11 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 pendingDetail.path("review").path("status").asText());
         assertEquals(0, pendingDetail.path("revisions").size());
         assertEquals(4, pendingDetail.path("photos").size());
+        assertPendingWalletViews(
+                platform,
+                ready,
+                owner,
+                deliveryOrderNo);
 
         Map<String, Object> initialReview = Map.of(
                 "expectedRevisionNo", 0,
@@ -1051,6 +1056,13 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 1L,
                 List.of(
                         "1|DELIVERY_INITIAL_REVIEW|56|0|56"));
+        assertReviewedWalletViews(
+                platform,
+                ready,
+                owner,
+                deliveryOrderNo,
+                1,
+                "0.56");
 
         assertEquals(1, jdbc.queryForObject("""
                         SELECT COUNT(*)
@@ -1127,6 +1139,13 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 List.of(
                         "1|DELIVERY_INITIAL_REVIEW|56|0|56",
                         "2|DELIVERY_CORRECTION|34|56|90"));
+        assertReviewedWalletViews(
+                platform,
+                ready,
+                owner,
+                deliveryOrderNo,
+                2,
+                "0.90");
 
         JsonNode approvedDetail = data(read(
                 platform,
@@ -1202,6 +1221,192 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 "/api/v1/miniapp/me/delivery-orders/"
                         + deliveryOrderNo,
                 404);
+    }
+
+    private void assertPendingWalletViews(
+            BrowserClient platform,
+            ReadyDeployment ready,
+            MiniappUser owner,
+            String deliveryOrderNo) throws Exception {
+        MvcResult miniappResult = miniappReadResult(
+                owner,
+                "/api/v1/miniapp/me/wallet",
+                200);
+        assertEquals(
+                "no-store",
+                miniappResult.getResponse()
+                        .getHeader("Cache-Control"));
+        JsonNode miniappWallet = data(miniappResult);
+        assertEquals(0, miniappWallet.path("walletVersion").asLong());
+        assertEquals(
+                "0.56",
+                miniappWallet.path("pendingRewardYuan").asText());
+        assertEquals(
+                "0.00",
+                miniappWallet.path("availableBalanceYuan").asText());
+        assertEquals(
+                "0.00",
+                miniappWallet.path("withdrawalProcessingYuan").asText());
+        assertFalse(miniappWallet.path("asOf").asText().isBlank());
+
+        String platformWallet = platformWalletBase(ready, owner);
+        MvcResult platformResult = read(
+                platform,
+                platformWallet,
+                200);
+        assertEquals(
+                "no-store",
+                platformResult.getResponse()
+                        .getHeader("Cache-Control"));
+        assertEquals(
+                miniappWallet.path("pendingRewardYuan").asText(),
+                data(platformResult).path("pendingRewardYuan").asText());
+
+        JsonNode miniappEntries = data(miniappReadResult(
+                owner,
+                "/api/v1/miniapp/me/wallet/entries",
+                200));
+        assertEquals(0, miniappEntries.path("items").size());
+        assertTrue(miniappEntries.path("nextCursor").isNull());
+
+        JsonNode platformEntries = data(read(
+                platform,
+                platformWallet + "/entries",
+                200));
+        assertEquals(0, platformEntries.path("items").size());
+
+        JsonNode organizationEntries = data(read(
+                platform,
+                platformOrganizationWalletEntries(ready)
+                        + "?sourceNo=" + deliveryOrderNo,
+                200));
+        assertEquals(0, organizationEntries.path("items").size());
+    }
+
+    private void assertReviewedWalletViews(
+            BrowserClient platform,
+            ReadyDeployment ready,
+            MiniappUser owner,
+            String deliveryOrderNo,
+            int expectedVersion,
+            String expectedBalance) throws Exception {
+        JsonNode wallet = data(miniappReadResult(
+                owner,
+                "/api/v1/miniapp/me/wallet",
+                200));
+        assertEquals(
+                expectedVersion,
+                wallet.path("walletVersion").asInt());
+        assertEquals(
+                "0.00",
+                wallet.path("pendingRewardYuan").asText());
+        assertEquals(
+                expectedBalance,
+                wallet.path("availableBalanceYuan").asText());
+        assertEquals(
+                "0.00",
+                wallet.path("withdrawalProcessingYuan").asText());
+
+        JsonNode personalFirst = data(miniappReadResult(
+                owner,
+                "/api/v1/miniapp/me/wallet/entries?limit=1",
+                200));
+        assertEquals(1, personalFirst.path("items").size());
+        JsonNode newest = personalFirst.path("items").get(0);
+        assertEquals(
+                expectedVersion,
+                newest.path("entrySequenceNo").asInt());
+        assertEquals(
+                expectedVersion == 1
+                        ? "DELIVERY_INITIAL_REVIEW"
+                        : "DELIVERY_CORRECTION",
+                newest.path("entryType").asText());
+        assertEquals(
+                "DELIVERY_ORDER",
+                newest.path("sourceType").asText());
+        assertEquals(
+                deliveryOrderNo,
+                newest.path("sourceNo").asText());
+        assertFalse(newest.has("organizationUserUid"));
+
+        if (expectedVersion == 1) {
+            assertTrue(personalFirst.path("nextCursor").isNull());
+        } else {
+            String cursor = personalFirst.path("nextCursor").asText();
+            assertFalse(cursor.isBlank());
+            JsonNode personalSecond = data(miniappReadResult(
+                    owner,
+                    "/api/v1/miniapp/me/wallet/entries"
+                            + "?limit=1&cursor=" + cursor,
+                    200));
+            assertEquals(1, personalSecond.path("items").size());
+            assertEquals(
+                    1,
+                    personalSecond.path("items").get(0)
+                            .path("entrySequenceNo").asInt());
+            assertTrue(personalSecond.path("nextCursor").isNull());
+        }
+
+        String platformWallet = platformWalletBase(ready, owner);
+        JsonNode platformPersonal = data(read(
+                platform,
+                platformWallet + "/entries?limit=20",
+                200));
+        assertEquals(
+                expectedVersion,
+                platformPersonal.path("items").size());
+
+        JsonNode organization = data(read(
+                platform,
+                platformOrganizationWalletEntries(ready)
+                        + "?organizationUserUid="
+                        + owner.organizationUserUid()
+                        + "&sourceNo=" + deliveryOrderNo
+                        + "&limit=20",
+                200));
+        assertEquals(
+                expectedVersion,
+                organization.path("items").size());
+        assertEquals(
+                owner.organizationUserUid().toString(),
+                organization.path("items").get(0)
+                        .path("organizationUserUid").asText());
+        assertEquals(
+                deliveryOrderNo,
+                organization.path("items").get(0)
+                        .path("sourceNo").asText());
+
+        JsonNode initialOnly = data(read(
+                platform,
+                platformOrganizationWalletEntries(ready)
+                        + "?entryType=DELIVERY_INITIAL_REVIEW",
+                200));
+        assertEquals(1, initialOnly.path("items").size());
+        assertEquals(
+                "DELIVERY_INITIAL_REVIEW",
+                initialOnly.path("items").get(0)
+                        .path("entryType").asText());
+    }
+
+    private static String platformWalletBase(
+            ReadyDeployment ready,
+            MiniappUser owner) {
+        return "/api/v1/web/platform/tenants/"
+                + ready.tenantCode()
+                + "/organizations/"
+                + ready.organizationCode()
+                + "/organization-users/"
+                + owner.organizationUserUid()
+                + "/wallet";
+    }
+
+    private static String platformOrganizationWalletEntries(
+            ReadyDeployment ready) {
+        return "/api/v1/web/platform/tenants/"
+                + ready.tenantCode()
+                + "/organizations/"
+                + ready.organizationCode()
+                + "/wallet-entries";
     }
 
     private void assertWalletState(
@@ -2463,6 +2668,13 @@ class DeliveryHappyPathMysqlIntegrationTest {
             MiniappUser user,
             String path,
             int expectedStatus) throws Exception {
+        return data(miniappReadResult(user, path, expectedStatus));
+    }
+
+    private MvcResult miniappReadResult(
+            MiniappUser user,
+            String path,
+            int expectedStatus) throws Exception {
         MvcResult result = mockMvc.perform(
                         get(path).header(
                                 "Authorization",
@@ -2472,7 +2684,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 expectedStatus,
                 result.getResponse().getStatus(),
                 result.getResponse().getContentAsString());
-        return data(result);
+        return result;
     }
 
     private List<MvcResult> concurrentWrites(

@@ -430,6 +430,7 @@ class ApplyDeliveryRevisionDeltaServiceTest {
             long thresholdCent) {
         return new ApplyDeliveryRevisionDeltaCommand(
                 new OrganizationUserUid(UUID.randomUUID()),
+                "DO-TEST-0001",
                 UUID.randomUUID(),
                 new TestRevisionRef(
                         new DeliveryRevisionWalletEntryRef

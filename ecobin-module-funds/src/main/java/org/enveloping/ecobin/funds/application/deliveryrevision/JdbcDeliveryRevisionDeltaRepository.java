@@ -70,6 +70,7 @@ class JdbcDeliveryRevisionDeltaRepository
                 entry_uid,
                 tenant_id, organization_id,
                 wallet_id, organization_user_id,
+                organization_user_uid,
                 entry_sequence_no, visibility_sequence_no,
                 event_type,
                 available_delta_cent,
@@ -82,11 +83,13 @@ class JdbcDeliveryRevisionDeltaRepository
                 withdrawal_order_id,
                 adjustment_id,
                 fund_phase,
+                source_type,
+                source_no,
                 occurred_at,
                 created_at
             ) VALUES (
                 ?,
-                ?, ?,
+                ?, ?, ?,
                 ?, ?,
                 ?, ?,
                 ?,
@@ -100,6 +103,8 @@ class JdbcDeliveryRevisionDeltaRepository
                 NULL,
                 NULL,
                 NULL,
+                ?,
+                ?,
                 ?,
                 ?
             )
@@ -260,6 +265,9 @@ class JdbcDeliveryRevisionDeltaRepository
             statement.setLong(
                     index++,
                     insert.organizationUserId());
+            statement.setString(
+                    index++,
+                    insert.organizationUserUid().toString());
             statement.setLong(
                     index++,
                     insert.entrySequenceNo());
@@ -285,6 +293,8 @@ class JdbcDeliveryRevisionDeltaRepository
             statement.setLong(
                     index++,
                     insert.deliveryRevisionId());
+            statement.setString(index++, insert.sourceType());
+            statement.setString(index++, insert.sourceNo());
             statement.setObject(index++, insert.occurredAt());
             statement.setObject(index, insert.createdAt());
             return statement;

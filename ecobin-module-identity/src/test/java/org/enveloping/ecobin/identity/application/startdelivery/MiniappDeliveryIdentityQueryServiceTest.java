@@ -5,6 +5,7 @@ import org.enveloping.ecobin.framework.context.TrustedPrincipalKind;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.persistence.DeliveryQueryOrganizationUserRef;
 import org.enveloping.ecobin.identity.api.persistence.DeliveryWalletQueryOwnerRef;
+import org.enveloping.ecobin.identity.api.persistence.WalletQueryScopeRef;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappActor;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappActorContext;
 import org.enveloping.ecobin.identity.application.persistence.DeliveryIdentityQueryRefFactory;
@@ -166,6 +167,15 @@ class MiniappDeliveryIdentityQueryServiceTest {
                 long organizationUserKey,
                 UUID organizationUserUid) {
             return walletQueryOwnerRef;
+        }
+
+        @Override
+        public WalletQueryScopeRef issueWalletScope(
+                long tenantKey,
+                long organizationKey,
+                Long organizationUserKey,
+                UUID organizationUserUid) {
+            return mock(WalletQueryScopeRef.class);
         }
     }
 }

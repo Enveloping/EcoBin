@@ -40,6 +40,11 @@ interface DeliveryScopeAuthorizationRepository {
             long organizationId,
             long staffAccountId);
 
+    Optional<OrganizationUser> findOrganizationUser(
+            long tenantId,
+            long organizationId,
+            UUID organizationUserUid);
+
     record PlatformActor(
             long id,
             String displayName,
@@ -67,5 +72,8 @@ interface DeliveryScopeAuthorizationRepository {
     }
 
     record Membership(boolean manager, boolean enabled) {
+    }
+
+    record OrganizationUser(long id, UUID uid) {
     }
 }

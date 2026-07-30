@@ -71,6 +71,7 @@ interface DeliveryRevisionDeltaRepository {
             long organizationId,
             long walletId,
             long organizationUserId,
+            UUID organizationUserUid,
             long entrySequenceNo,
             long visibilitySequenceNo,
             String eventType,
@@ -79,6 +80,8 @@ interface DeliveryRevisionDeltaRepository {
             long availableAfterCent,
             long frozenBeforeCent,
             long deliveryRevisionId,
+            String sourceType,
+            String sourceNo,
             LocalDateTime occurredAt,
             LocalDateTime createdAt) {
     }

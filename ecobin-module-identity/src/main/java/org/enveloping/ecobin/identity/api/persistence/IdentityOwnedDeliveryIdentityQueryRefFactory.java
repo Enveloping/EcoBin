@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 与查询引用同包的 identity 私有发行实现。
+ * 与投递、钱包查询引用同包的 identity 私有发行实现。
  */
 @Component
 final class IdentityOwnedDeliveryIdentityQueryRefFactory
@@ -49,24 +49,40 @@ final class IdentityOwnedDeliveryIdentityQueryRefFactory
         return register(reference, reference::markTransactionCompleted);
     }
 
+    @Override
+    public WalletQueryScopeRef issueWalletScope(
+            long tenantKey,
+            long organizationKey,
+            Long organizationUserKey,
+            UUID organizationUserUid) {
+        Map<Object, Object> resources = issuingResources();
+        WalletQueryScopeRef reference = new WalletQueryScopeRef(
+                tenantKey,
+                organizationKey,
+                organizationUserKey,
+                organizationUserUid,
+                resources);
+        return register(reference, reference::markTransactionCompleted);
+    }
+
     private static Map<Object, Object> issuingResources() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()
                 || !TransactionSynchronizationManager
                 .isCurrentTransactionReadOnly()) {
             throw new IllegalStateException(
-                    "delivery query reference requires "
+                    "identity read query reference requires "
                             + "an active read-only transaction");
         }
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             throw new IllegalStateException(
-                    "delivery query reference requires "
+                    "identity read query reference requires "
                             + "transaction synchronization");
         }
         Map<Object, Object> resources =
                 TransactionSynchronizationManager.getResourceMap();
         if (resources.isEmpty()) {
             throw new IllegalStateException(
-                    "delivery query reference requires "
+                    "identity read query reference requires "
                             + "a bound transaction resource");
         }
         return resources;

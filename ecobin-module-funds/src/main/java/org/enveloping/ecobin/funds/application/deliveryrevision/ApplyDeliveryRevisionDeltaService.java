@@ -120,6 +120,7 @@ public class ApplyDeliveryRevisionDeltaService
                         keys.organizationKey(),
                         wallet.id(),
                         keys.organizationUserKey(),
+                        command.organizationUserUid().value(),
                         nextEntrySequence,
                         nextVisibilitySequence,
                         eventType(command.revisionKind()),
@@ -128,6 +129,8 @@ public class ApplyDeliveryRevisionDeltaService
                         afterBalance,
                         wallet.frozenWithdrawalCent(),
                         keys.deliveryRevisionKey(),
+                        "DELIVERY_ORDER",
+                        command.deliveryOrderNo(),
                         occurredAt,
                         occurredAt));
 

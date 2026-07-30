@@ -16,6 +16,7 @@ import java.util.UUID;
  */
 public record ApplyDeliveryRevisionDeltaCommand(
         OrganizationUserUid organizationUserUid,
+        String deliveryOrderNo,
         UUID revisionUid,
         DeliveryRevisionWalletEntryRef revisionRef,
         DeliveryRevisionKind revisionKind,
@@ -27,6 +28,13 @@ public record ApplyDeliveryRevisionDeltaCommand(
         Objects.requireNonNull(
                 organizationUserUid,
                 "organizationUserUid");
+        if (deliveryOrderNo == null
+                || deliveryOrderNo.isBlank()
+                || deliveryOrderNo.length() > 64) {
+            throw new IllegalArgumentException(
+                    "deliveryOrderNo must contain 1 to 64 characters");
+        }
+        deliveryOrderNo = deliveryOrderNo.trim();
         Objects.requireNonNull(revisionUid, "revisionUid");
         Objects.requireNonNull(revisionRef, "revisionRef");
         Objects.requireNonNull(revisionKind, "revisionKind");

@@ -16,7 +16,8 @@ class JdbcDeliveryScopeAuthorizationRepository
             AND p.permission_code IN (
                 'delivery.read',
                 'review.execute',
-                'delivery.correct'
+                'delivery.correct',
+                'wallet.read'
             )
             """;
 
@@ -135,6 +136,30 @@ class JdbcDeliveryScopeAuthorizationRepository
                 organizationId,
                 staffAccountId,
                 "ORGANIZATION");
+    }
+
+    @Override
+    public Optional<OrganizationUser> findOrganizationUser(
+            long tenantId,
+            long organizationId,
+            UUID organizationUserUid) {
+        return jdbc.query("""
+                        SELECT id, organization_user_uid
+                        FROM iam_organization_user
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND organization_user_uid = ?
+                        """,
+                (rs, ignored) -> new OrganizationUser(
+                        rs.getLong("id"),
+                        UUID.fromString(
+                                rs.getString(
+                                        "organization_user_uid"))),
+                tenantId,
+                organizationId,
+                organizationUserUid.toString())
+                .stream()
+                .findFirst();
     }
 
     private Optional<Scope> findScope(

@@ -33,6 +33,7 @@ class ApplyDeliveryRevisionDeltaCommandTest {
                 IllegalArgumentException.class,
                 () -> new ApplyDeliveryRevisionDeltaCommand(
                         new OrganizationUserUid(UUID.randomUUID()),
+                        "DO-TEST-0001",
                         UUID.fromString(
                                 "00000000-0000-0000-0000-000000000001"),
                         reference(),
@@ -47,6 +48,7 @@ class ApplyDeliveryRevisionDeltaCommandTest {
             long threshold) {
         return new ApplyDeliveryRevisionDeltaCommand(
                 new OrganizationUserUid(UUID.randomUUID()),
+                "DO-TEST-0001",
                 UUID.randomUUID(),
                 reference(),
                 DeliveryRevisionKind.CORRECTION,

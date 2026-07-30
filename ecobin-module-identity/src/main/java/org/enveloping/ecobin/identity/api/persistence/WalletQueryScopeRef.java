@@ -5,45 +5,46 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * 仅供 funds 在 GET 投递或钱包查询的只读事务中定位当前用户钱包。
+ * Transaction-bound organization scope for funds-owned wallet reads.
  *
- * <p>它不能用于资金写入、授权或其他钱包用例；内部键没有 getter，并且只能在
- * 发行它的同一线程、同一只读事务中展开一次。</p>
+ * <p>An optional organization user is resolved by identity before the
+ * reference is issued. Internal keys are never exposed through getters,
+ * transport objects, logs, or cursors.</p>
  */
-public final class DeliveryWalletQueryOwnerRef {
+public final class WalletQueryScopeRef {
 
     private final long tenantKey;
     private final long organizationKey;
-    private final long organizationUserKey;
+    private final Long organizationUserKey;
     private final UUID organizationUserUid;
     private final TransactionBoundReferenceGuard guard;
 
-    DeliveryWalletQueryOwnerRef(
+    WalletQueryScopeRef(
             long tenantKey,
             long organizationKey,
-            long organizationUserKey,
+            Long organizationUserKey,
             UUID organizationUserUid,
             Map<Object, Object> transactionResources) {
         this.tenantKey = positive(tenantKey, "tenantKey");
-        this.organizationKey = positive(organizationKey, "organizationKey");
-        this.organizationUserKey =
-                positive(organizationUserKey, "organizationUserKey");
-        this.organizationUserUid =
-                Objects.requireNonNull(
-                        organizationUserUid,
-                        "organizationUserUid");
+        this.organizationKey = positive(
+                organizationKey,
+                "organizationKey");
+        if ((organizationUserKey == null)
+                != (organizationUserUid == null)) {
+            throw new IllegalArgumentException(
+                    "organization user key and uid must both be present "
+                            + "or absent");
+        }
+        this.organizationUserKey = organizationUserKey == null
+                ? null
+                : positive(organizationUserKey, "organizationUserKey");
+        this.organizationUserUid = organizationUserUid;
         this.guard = new TransactionBoundReferenceGuard(
                 transactionResources,
                 true);
     }
 
-    public <T> T withWalletQualificationOwnerOnce(
-            WalletQualificationOwnerFunction<T> function) {
-        return withWalletOwnerOnce(function);
-    }
-
-    public <T> T withWalletOwnerOnce(
-            WalletQualificationOwnerFunction<T> function) {
+    public <T> T withWalletScopeOnce(WalletScopeFunction<T> function) {
         Objects.requireNonNull(function, "function");
         guard.claimOnce();
         return function.apply(
@@ -59,7 +60,7 @@ public final class DeliveryWalletQueryOwnerRef {
 
     @Override
     public String toString() {
-        return "DeliveryWalletQueryOwnerRef[REDACTED]";
+        return "WalletQueryScopeRef[REDACTED]";
     }
 
     private static long positive(long value, String name) {
@@ -70,12 +71,12 @@ public final class DeliveryWalletQueryOwnerRef {
     }
 
     @FunctionalInterface
-    public interface WalletQualificationOwnerFunction<T> {
+    public interface WalletScopeFunction<T> {
 
         T apply(
                 long tenantKey,
                 long organizationKey,
-                long organizationUserKey,
+                Long organizationUserKey,
                 UUID organizationUserUid);
     }
 }

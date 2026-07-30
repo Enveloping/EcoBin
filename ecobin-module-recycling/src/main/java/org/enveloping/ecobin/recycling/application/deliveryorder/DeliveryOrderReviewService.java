@@ -299,6 +299,7 @@ public class DeliveryOrderReviewService {
             funds.applyDeliveryRevisionDelta(
                     new ApplyDeliveryRevisionDeltaCommand(
                     ownerUid,
+                    deliveryOrderNo,
                     revisionUid,
                     TransactionBoundDeliveryRevisionWalletEntryRef.issue(
                             scope.tenantId(),
