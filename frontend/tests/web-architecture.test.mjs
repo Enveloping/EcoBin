@@ -169,6 +169,15 @@ test('delivery Web slice stays on generated contracts and additive commands', ()
   assert.match(apiSource, /intent\.execute/);
   assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
   assert.match(pageSource, /page\.nextCursor/);
+  assert.match(pageSource, /detailRequestSequence/);
+  assert.match(
+    pageSource,
+    /selectedDetailOrderNo\.current !== deliveryOrderNo/,
+  );
+  assert.match(
+    pageSource,
+    /selectedDetailOrderNo\.current !== detail\.deliveryOrderNo/,
+  );
   assert.match(modalSource, /expectedRevisionNo/);
   assert.doesNotMatch(
     modalSource,

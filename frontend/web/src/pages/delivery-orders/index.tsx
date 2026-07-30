@@ -137,6 +137,8 @@ export default function DeliveryOrdersPage() {
   const cursorByPage = useRef<Map<number, string | undefined>>(
     new Map([[1, undefined]]),
   );
+  const detailRequestSequence = useRef(0);
+  const selectedDetailOrderNo = useRef<string | null>(null);
   const executeCommand = useCommandExecutor();
   const canReadAll = useAuthStore((state) =>
     state.hasCapability('delivery.read'));
@@ -170,15 +172,30 @@ export default function DeliveryOrdersPage() {
   }, []);
 
   useEffect(() => {
+    detailRequestSequence.current += 1;
+    selectedDetailOrderNo.current = null;
     resetCursorNavigation();
     setTableError(undefined);
     setDrawerOpen(false);
     setDetail(null);
+    setDetailLoading(false);
+    setMutationKind(null);
+    return () => {
+      detailRequestSequence.current += 1;
+      selectedDetailOrderNo.current = null;
+    };
   }, [organizationCode, resetCursorNavigation, scope.context]);
 
   const loadDetail = useCallback(
     async (deliveryOrderNo: string) => {
-      if (!scope.context || !organizationCode) return null;
+      if (
+        !scope.context
+        || !organizationCode
+        || selectedDetailOrderNo.current !== deliveryOrderNo
+      ) {
+        return null;
+      }
+      const requestSequence = ++detailRequestSequence.current;
       setDetailLoading(true);
       try {
         const loaded = await getDeliveryOrder(
@@ -186,29 +203,65 @@ export default function DeliveryOrdersPage() {
           organizationCode,
           deliveryOrderNo,
         );
+        if (
+          detailRequestSequence.current !== requestSequence
+          || selectedDetailOrderNo.current !== deliveryOrderNo
+        ) {
+          return null;
+        }
+        if (loaded.deliveryOrderNo !== deliveryOrderNo) {
+          throw new Error('投递订单详情响应与当前请求不一致');
+        }
         setDetail(loaded);
         return loaded;
       } finally {
-        setDetailLoading(false);
+        if (
+          detailRequestSequence.current === requestSequence
+          && selectedDetailOrderNo.current === deliveryOrderNo
+        ) {
+          setDetailLoading(false);
+        }
       }
     },
     [organizationCode, scope.context],
   );
 
   const openDetail = async (order: DeliveryOrderItem) => {
+    selectedDetailOrderNo.current = order.deliveryOrderNo;
     setDrawerOpen(true);
     setDetail(null);
     try {
       await loadDetail(order.deliveryOrderNo);
     } catch {
-      setDrawerOpen(false);
+      if (selectedDetailOrderNo.current === order.deliveryOrderNo) {
+        detailRequestSequence.current += 1;
+        selectedDetailOrderNo.current = null;
+        setDrawerOpen(false);
+        setDetail(null);
+        setDetailLoading(false);
+      }
     }
+  };
+
+  const closeDetail = () => {
+    detailRequestSequence.current += 1;
+    selectedDetailOrderNo.current = null;
+    setDrawerOpen(false);
+    setDetail(null);
+    setDetailLoading(false);
+    setMutationKind(null);
   };
 
   const submitReview = async (
     request: DeliveryReviewRequest,
   ): Promise<boolean> => {
-    if (!detail || !scope.context || !organizationCode || !mutationKind) {
+    if (
+      !detail
+      || selectedDetailOrderNo.current !== detail.deliveryOrderNo
+      || !scope.context
+      || !organizationCode
+      || !mutationKind
+    ) {
       return false;
     }
     const orderNo = detail.deliveryOrderNo;
@@ -245,14 +298,18 @@ export default function DeliveryOrdersPage() {
         + `钱包差额 ¥ ${formatMoneyCny(result.walletDeltaYuan)}`,
       );
       setMutationKind(null);
-      await loadDetail(orderNo);
+      if (selectedDetailOrderNo.current === orderNo) {
+        await loadDetail(orderNo);
+      }
       actionRef.current?.reload();
       return true;
     } catch (error) {
       if (error instanceof ApiProblem && error.status === 409) {
         setMutationKind(null);
         try {
-          await loadDetail(orderNo);
+          if (selectedDetailOrderNo.current === orderNo) {
+            await loadDetail(orderNo);
+          }
           actionRef.current?.reload();
         } finally {
           message.warning('订单版本已经变化，已载入最新认定记录；请重新核对');
@@ -673,10 +730,7 @@ export default function DeliveryOrdersPage() {
         order={detail}
         canReview={canReview}
         canCorrect={canCorrect}
-        onClose={() => {
-          setDrawerOpen(false);
-          setMutationKind(null);
-        }}
+        onClose={closeDetail}
         onReview={() => setMutationKind('review')}
         onCorrect={() => setMutationKind('correction')}
       />
