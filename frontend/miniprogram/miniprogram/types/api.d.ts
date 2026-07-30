@@ -53,10 +53,95 @@ export interface LoginResponse extends MiniappSessionView {
   isNewRegistration: boolean
 }
 
+export type DeliveryOptionBlocker =
+  | 'PHONE_BINDING_REQUIRED'
+  | 'WALLET_DELIVERY_LIMIT_REACHED'
+  | 'DEPLOYMENT_NOT_ENABLED'
+  | 'BUSINESS_SWITCH_DISABLED'
+  | 'CONFIGURATION_NOT_APPLIED'
+  | 'EDGE_OFFLINE'
+  | 'SAFETY_LOCKED'
+  | 'DEVICE_BUSY'
+  | 'PORT_DISABLED'
+  | 'PORT_SENSOR_UNHEALTHY'
+  | 'DELIVERY_RESULT_PENDING'
+  | 'CURRENT_BAG_MISSING'
+  | 'WEIGHT_BASELINE_MISSING'
+  | 'BASELINE_REMEASUREMENT_ACTIVE'
+  | 'FULLNESS_CHECK_PENDING'
+  | 'PORT_FULL'
+  | 'PORT_CLEAN_OPERATION_ACTIVE'
+
+export interface DeliveryPortOption {
+  portNo: number
+  displayName: string | null
+  unitPriceYuanPerKg: string | null
+  fullnessPercent: string | null
+  deliveryAllowed: boolean
+  blockers: DeliveryOptionBlocker[]
+}
+
+export interface DeliveryOptionsView {
+  deploymentCode: string
+  displayName: string | null
+  address: string | null
+  deviceBusy: boolean
+  asOf: string
+  ports: DeliveryPortOption[]
+}
+
+export type DeliverySessionStatus = 'ACTIVE' | 'COMPLETED' | 'ENDED'
+
+export type DeliverySessionPhase =
+  | 'START_QUEUED'
+  | 'IN_PROGRESS'
+  | 'FINAL_RESULT_PENDING'
+  | 'RECOVERY_REQUIRED'
+  | 'BUSINESS_CONFIRMED'
+  | 'PRE_START_FAILED'
+
+export type DeliverySessionNextAction =
+  | 'WAIT'
+  | 'WAIT_ON_DEVICE'
+  | 'VIEW_ORDER'
+  | 'SESSION_ENDED'
+
+export interface DeliverySessionAccepted {
+  operationId: string
+  resourceId: string
+  sessionUid: string
+  status: 'ACTIVE'
+  phase: 'START_QUEUED'
+  startAuthorizationExpiresAt: string
+  statusUrl: string
+  recommendedPollAfterMs: 1000
+  nextActions: ['WAIT']
+}
+
+export interface DeliverySessionView {
+  sessionUid: string
+  status: DeliverySessionStatus
+  phase: DeliverySessionPhase
+  deploymentCode: string
+  portNo: number
+  startedAt: string | null
+  endedAt: string | null
+  endReason: string | null
+  deliveryOrderNo: string | null
+  recommendedPollAfterMs: number | null
+  nextActions: [DeliverySessionNextAction]
+}
+
 /** 钱包视图：org.enveloping.ecobin.business.dto.WalletVO */
 export interface WalletVO {
   balance: string
   pendingBalance: string
+  /** 目标钱包投影：待审核正返现，不属于正式钱包资金。 */
+  pendingRewardYuan?: string
+  /** 目标钱包投影：当前可提现余额。 */
+  availableBalanceYuan?: string
+  /** 目标钱包投影：提现流程处理中金额。 */
+  withdrawalProcessingYuan?: string
 }
 
 /** 个人信息视图：org.enveloping.ecobin.system.dto.UserProfileVO */

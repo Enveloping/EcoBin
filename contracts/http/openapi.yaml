@@ -37,6 +37,10 @@
       "description": "Single-audience Bearer sessions created from one-time wx.login codes."
     },
     {
+      "name": "Miniapp delivery",
+      "description": "Phone-bound ordinary-user delivery discovery, start authorization and owned-session polling."
+    },
+    {
       "name": "Device management",
       "description": "Platform asset inventory plus tenant-scoped deployment, runtime and immutable configuration management."
     },
@@ -2114,6 +2118,66 @@
         }
       }
     },
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/delivery-options": {
+      "get": {
+        "operationId": "getMiniappDeliveryOptions",
+        "tags": ["Miniapp delivery"],
+        "summary": "Read the current display-only delivery options for one deployment",
+        "description": "The returned blockers include PHONE_BINDING_REQUIRED until the ordinary user binds a WeChat phone number. This snapshot is advisory; starting a session repeats every eligibility check under write locks.",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/DeploymentCode"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappDeliveryOptions"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/InternalProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/ports/{portNo}/delivery-sessions": {
+      "post": {
+        "operationId": "startMiniappDeliverySession",
+        "tags": ["Miniapp delivery"],
+        "summary": "Authorize one phone-bound ordinary user to start one delivery session",
+        "description": "Requires a bound WeChat phone number. A 202 response proves only that the session, occupancy, command and reliable task were atomically accepted; it does not prove device receipt, door movement or physical opening.",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/DeploymentCode"},
+          {"$ref": "#/components/parameters/PortNo"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/MiniappDeliverySessionAccepted"
+          },
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
+          "500": {"$ref": "#/components/responses/InternalProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/delivery-sessions/{sessionUid}": {
+      "get": {
+        "operationId": "getMiniappDeliverySession",
+        "tags": ["Miniapp delivery"],
+        "summary": "Poll one delivery session owned by the current ordinary user",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/DeliverySessionUid"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappDeliverySession"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "500": {"$ref": "#/components/responses/InternalProblem"}
+        }
+      }
+    },
     "/api/v1/miniapp-staff/auth/sessions/current": {
       "get": {
         "operationId": "getCurrentMiniappStaffSession",
@@ -3569,6 +3633,14 @@
           "maximum": 6
         }
       },
+      "DeliverySessionUid": {
+        "name": "sessionUid",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/DeliverySessionUid"
+        }
+      },
       "ConfigurationVersionNo": {
         "name": "versionNo",
         "in": "path",
@@ -3751,6 +3823,63 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/MiniappPhoneBindingEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappDeliveryOptions": {
+        "description": "Current display-only delivery options and stable blocker codes",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeliveryOptionsViewEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappDeliverySessionAccepted": {
+        "description": "The delivery start intent is durable, but no device receipt or physical opening is implied",
+        "headers": {
+          "Location": {
+            "$ref": "#/components/headers/Location"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeliverySessionAcceptedEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappDeliverySession": {
+        "description": "Current presentation of a delivery session owned by the authenticated ordinary user",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeliverySessionViewEnvelope"
             }
           }
         }
@@ -5654,9 +5783,7 @@
         "required": ["deploymentCode", "lifecycleStatus"],
         "properties": {
           "deploymentCode": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
+            "$ref": "#/components/schemas/DeploymentCode"
           },
           "lifecycleStatus": {
             "type": "string",
@@ -6714,16 +6841,14 @@
       },
       "RegistrationSource": {
         "type": "object",
+        "description": "Optional immutable first-registration attribution extracted from the deploymentCode query parameter of a device QR link such as https://jinshoubao.com/q/device/{appId}/?deploymentCode={deploymentCode}. The QR domain, path, and AppID path prefix are routing-only deployment settings configured in WeChat and are not fields of this HTTP API. The mini-program sends its own runtime AppID in MiniappLoginRequest.appId and sends only deploymentCode here; the server derives the tenant and organization from that trusted AppID and revalidates the deployment scope.",
         "additionalProperties": false,
         "required": [
           "deploymentCode"
         ],
         "properties": {
           "deploymentCode": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64,
-            "example": "HZ-PILOT-BOX-01"
+            "$ref": "#/components/schemas/DeploymentCode"
           }
         }
       },
@@ -7610,6 +7735,352 @@
           },
           "data": {
             "$ref": "#/components/schemas/DeliveryReviewResult"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliverySessionUid": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UuidV4"
+          }
+        ],
+        "description": "Stable public identity of one whole delivery session"
+      },
+      "DeliveryOptionBlocker": {
+        "type": "string",
+        "enum": [
+          "PHONE_BINDING_REQUIRED",
+          "WALLET_DELIVERY_LIMIT_REACHED",
+          "DEPLOYMENT_NOT_ENABLED",
+          "BUSINESS_SWITCH_DISABLED",
+          "CONFIGURATION_NOT_APPLIED",
+          "EDGE_OFFLINE",
+          "SAFETY_LOCKED",
+          "DEVICE_BUSY",
+          "PORT_DISABLED",
+          "PORT_SENSOR_UNHEALTHY",
+          "DELIVERY_RESULT_PENDING",
+          "CURRENT_BAG_MISSING",
+          "WEIGHT_BASELINE_MISSING",
+          "BASELINE_REMEASUREMENT_ACTIVE",
+          "FULLNESS_CHECK_PENDING",
+          "PORT_FULL",
+          "PORT_CLEAN_OPERATION_ACTIVE"
+        ]
+      },
+      "FullnessPercent": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,6})\\.[0-9]{2}$",
+        "description": "Non-negative display percentage preserved as an exact decimal string; values may exceed 100.00.",
+        "example": "87.50"
+      },
+      "DeliveryPortOption": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "portNo",
+          "displayName",
+          "unitPriceYuanPerKg",
+          "fullnessPercent",
+          "deliveryAllowed",
+          "blockers"
+        ],
+        "properties": {
+          "portNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "displayName": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "unitPriceYuanPerKg": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UnitPriceCnyPerKg"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fullnessPercent": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FullnessPercent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deliveryAllowed": {
+            "type": "boolean"
+          },
+          "blockers": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOptionBlocker"
+            }
+          }
+        }
+      },
+      "DeliveryOptionsView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deploymentCode",
+          "displayName",
+          "address",
+          "deviceBusy",
+          "asOf",
+          "ports"
+        ],
+        "properties": {
+          "deploymentCode": {
+            "$ref": "#/components/schemas/DeploymentCode"
+          },
+          "displayName": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "address": {
+            "type": ["string", "null"],
+            "maxLength": 500
+          },
+          "deviceBusy": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "ports": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "$ref": "#/components/schemas/DeliveryPortOption"
+            }
+          }
+        }
+      },
+      "DeliverySessionStatus": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "COMPLETED",
+          "ENDED"
+        ]
+      },
+      "DeliverySessionPhase": {
+        "type": "string",
+        "enum": [
+          "START_QUEUED",
+          "IN_PROGRESS",
+          "FINAL_RESULT_PENDING",
+          "RECOVERY_REQUIRED",
+          "BUSINESS_CONFIRMED",
+          "PRE_START_FAILED"
+        ]
+      },
+      "DeliverySessionNextAction": {
+        "type": "string",
+        "enum": [
+          "WAIT",
+          "WAIT_ON_DEVICE",
+          "VIEW_ORDER",
+          "SESSION_ENDED"
+        ]
+      },
+      "DeliverySessionAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "resourceId",
+          "sessionUid",
+          "status",
+          "phase",
+          "startAuthorizationExpiresAt",
+          "statusUrl",
+          "recommendedPollAfterMs",
+          "nextActions"
+        ],
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UuidV4"
+          },
+          "resourceId": {
+            "$ref": "#/components/schemas/DeliverySessionUid"
+          },
+          "sessionUid": {
+            "$ref": "#/components/schemas/DeliverySessionUid"
+          },
+          "status": {
+            "type": "string",
+            "const": "ACTIVE"
+          },
+          "phase": {
+            "type": "string",
+            "const": "START_QUEUED"
+          },
+          "startAuthorizationExpiresAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "statusUrl": {
+            "$ref": "#/components/schemas/StatusUrl"
+          },
+          "recommendedPollAfterMs": {
+            "type": "integer",
+            "const": 1000
+          },
+          "nextActions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "string",
+              "const": "WAIT"
+            }
+          }
+        }
+      },
+      "DeliverySessionView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionUid",
+          "status",
+          "phase",
+          "deploymentCode",
+          "portNo",
+          "startedAt",
+          "endedAt",
+          "endReason",
+          "deliveryOrderNo",
+          "recommendedPollAfterMs",
+          "nextActions"
+        ],
+        "properties": {
+          "sessionUid": {
+            "$ref": "#/components/schemas/DeliverySessionUid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeliverySessionStatus"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/DeliverySessionPhase"
+          },
+          "deploymentCode": {
+            "$ref": "#/components/schemas/DeploymentCode"
+          },
+          "portNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "startedAt": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UtcTimestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endedAt": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UtcTimestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endReason": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "deliveryOrderNo": {
+            "type": ["string", "null"],
+            "minLength": 8,
+            "maxLength": 64
+          },
+          "recommendedPollAfterMs": {
+            "type": ["integer", "null"],
+            "minimum": 250,
+            "maximum": 60000
+          },
+          "nextActions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/DeliverySessionNextAction"
+            }
+          }
+        }
+      },
+      "DeliveryOptionsViewEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeliveryOptionsView"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliverySessionAcceptedEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeliverySessionAccepted"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliverySessionViewEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeliverySessionView"
           },
           "requestId": {
             "type": "string",

@@ -1,17 +1,67 @@
-import { http } from '../utils/request'
-import type { PageResult, DeliveryOrder } from '../types/api'
+import { http, requestAccepted } from '../utils/request'
+import type {
+  DeliveryOptionsView,
+  DeliveryOrder,
+  DeliverySessionAccepted,
+  DeliverySessionView,
+  PageResult,
+} from '../types/api'
 
-/**
- * 开投口（激活「当前活跃用户」会话 + 下发开门指令）。
- * 投递改为「上传后建单」：开门不建单，订单在设备投放称重上报后才生成，故无返回体。
- */
-export function openDoor(doorId: number, toast = true) {
-  return http.post<void>('/api/app/delivery/open', { doorId }, { toast })
+export function getDeliveryOptions(deploymentCode: string) {
+  return http.get<DeliveryOptionsView>(
+    `/api/v1/miniapp/device-deployments/${
+      encodeURIComponent(deploymentCode)
+    }/delivery-options`,
+    undefined,
+    {
+      noStore: true,
+      toast: false,
+      registrationSource: { deploymentCode },
+    },
+  )
+}
+
+export function startDeliverySession(
+  deploymentCode: string,
+  portNo: number,
+  idempotencyKey: string,
+) {
+  return requestAccepted<DeliverySessionAccepted>({
+    url: `/api/v1/miniapp/device-deployments/${
+      encodeURIComponent(deploymentCode)
+    }/ports/${portNo}/delivery-sessions`,
+    method: 'POST',
+    idempotencyKey,
+    noStore: true,
+    toast: false,
+    registrationSource: { deploymentCode },
+  })
+}
+
+export function getDeliverySession(
+  sessionUid: string,
+  deploymentCode: string,
+) {
+  return http.get<DeliverySessionView>(
+    `/api/v1/miniapp/delivery-sessions/${
+      encodeURIComponent(sessionUid)
+    }`,
+    undefined,
+    {
+      noStore: true,
+      toast: false,
+      registrationSource: { deploymentCode },
+    },
+  )
 }
 
 /** 我的投递记录分页 */
-export function myDeliveries(page = 1, pageSize = 20) {
-  return http.get<PageResult<DeliveryOrder>>('/api/app/delivery/my', { page, pageSize })
+export function myDeliveries(page = 1, pageSize = 20, toast = true) {
+  return http.get<PageResult<DeliveryOrder>>(
+    '/api/app/delivery/my',
+    { page, pageSize },
+    { toast },
+  )
 }
 
 /** 我的单条投递详情 */

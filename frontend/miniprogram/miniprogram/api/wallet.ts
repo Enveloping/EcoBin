@@ -2,8 +2,8 @@ import { http } from '../utils/request'
 import type { WalletVO, WithdrawOrder, PageResult } from '../types/api'
 
 /** 我的钱包余额 */
-export function myWallet() {
-  return http.get<WalletVO>('/api/app/wallet')
+export function myWallet(toast = true) {
+  return http.get<WalletVO>('/api/app/wallet', undefined, { toast })
 }
 
 /** 发起提现 */

@@ -1,37 +1,48 @@
-import { startDoorEntry } from '../../utils/door-entry'
 import { bindCurrentPhone } from '../../api/auth'
+import { myDeliveries } from '../../api/delivery'
+import { myWallet } from '../../api/wallet'
+import { FEATURES } from '../../config/index'
 import { getSession, markPhoneBound } from '../../utils/auth'
 import { createIdempotencyKey } from '../../utils/command-intent'
 import {
+  dismissUnstartedPendingDeviceEntry,
+  peekPendingDeviceEntry,
+  routePendingDeviceEntry,
+} from '../../utils/device-entry-intent'
+import {
+  cancelAfterPhoneBindingPrompt,
+  continueAfterPhoneBindingPrompt,
+  consumePendingPhoneBindingPrompt,
+  consumePhoneBindingAutoPrompt,
+} from '../../utils/phone-binding-prompt'
+import {
+  isWechatPhoneGrantCancelled,
   reportPhoneBindingError,
   reportWechatPhoneGrantError,
   type WechatPhoneGrantDetail,
 } from '../../utils/phone-grant'
-
-interface FeatureItem {
-  text: string
-  icon: string
-  url?: string
-  scan?: boolean
-}
+import {
+  toDeliveryListItem,
+  toWalletDisplay,
+  type DeliveryListItem,
+} from '../../utils/user-view'
 
 Page({
-  phoneGrantDismissed: false,
   phoneBindingIntentKey: '',
 
   data: {
-    city: '湖州',
     phoneBound: false,
     showPhoneGrant: false,
     phoneGrantSubmitting: false,
+    userDataAvailable: FEATURES.targetUserDataApi,
     organizationName: '',
-    features: [
-      { text: '附近设备', icon: 'location', url: '/pages/nearby/nearby' },
-      { text: '优选商城', icon: 'cart', url: '/pages/mall/mall' },
-      { text: '上门回收', icon: 'vehicle', url: '/pages/pickup/pickup' },
-      { text: '联系客服', icon: 'service', url: '/pages/customer-service/customer-service' },
-    ] as FeatureItem[],
-    categories: ['废纸', '金属', '塑料', '旧衣', '家电'],
+    walletBalanceText: '—',
+    walletLoading: FEATURES.targetUserDataApi,
+    walletError: false,
+    recentDelivery: null as DeliveryListItem | null,
+    recentLoading: FEATURES.targetUserDataApi,
+    recentError: false,
+    ongoingDelivery: false,
   },
 
   onShow() {
@@ -39,34 +50,131 @@ Page({
     if (tabBar) (tabBar as any).init()
     const session = getSession()
     if (session) {
-      const showPhoneGrant =
+      const pendingDeviceEntry = peekPendingDeviceEntry()
+      const ongoingDelivery = !!pendingDeviceEntry
+        && (!!pendingDeviceEntry.accepted || !!pendingDeviceEntry.idempotencyKey)
+      if (
         session.audience === 'miniapp'
+        && session.entryMode === 'USER'
+        && session.phoneBound
+        && pendingDeviceEntry
+        && !pendingDeviceEntry.accepted
+        && !pendingDeviceEntry.idempotencyKey
+        && routePendingDeviceEntry(session)
+      ) {
+        return
+      }
+      const pendingPhoneGrant = consumePendingPhoneBindingPrompt()
+      const autoPhoneGrant = consumePhoneBindingAutoPrompt(session)
+      const canRequestPhone =
+        session.audience === 'miniapp'
+        && session.entryMode === 'USER'
         && !session.phoneBound
-        && !this.phoneGrantDismissed
+      const showPhoneGrant = canRequestPhone
+        && (
+          this.data.showPhoneGrant
+          || pendingPhoneGrant
+          || autoPhoneGrant
+          || !!pendingDeviceEntry
+        )
       this.setData({
         phoneBound: session.phoneBound,
         showPhoneGrant,
         organizationName: session.organization.displayName,
+        ongoingDelivery,
       })
       this.setPhoneGrantTabBarHidden(showPhoneGrant)
+      if (FEATURES.targetUserDataApi) this.loadOverview()
+      return
+    }
+
+    consumePendingPhoneBindingPrompt()
+    this.setData({
+      phoneBound: false,
+      showPhoneGrant: false,
+      ongoingDelivery: false,
+    })
+    this.setPhoneGrantTabBarHidden(false)
+  },
+
+  loadOverview() {
+    void this.loadWalletSummary()
+    void this.loadRecentDelivery()
+  },
+
+  async loadWalletSummary() {
+    this.setData({ walletLoading: true, walletError: false })
+    try {
+      const wallet = toWalletDisplay(await myWallet(false))
+      this.setData({
+        walletBalanceText: wallet.availableBalance === '—'
+          ? '—'
+          : `¥${wallet.availableBalance}`,
+      })
+    } catch (error) {
+      this.setData({ walletBalanceText: '—', walletError: true })
+    } finally {
+      this.setData({ walletLoading: false })
     }
   },
 
-  onScan() {
-    startDoorEntry()
+  async loadRecentDelivery() {
+    this.setData({ recentLoading: true, recentError: false })
+    try {
+      const result = await myDeliveries(1, 1, false)
+      const latest = result.records[0]
+      this.setData({
+        recentDelivery: latest ? toDeliveryListItem(latest) : null,
+      })
+    } catch (error) {
+      this.setData({ recentDelivery: null, recentError: true })
+    } finally {
+      this.setData({ recentLoading: false })
+    }
   },
 
-  onBindPhone() {
-    this.phoneGrantDismissed = false
+  onRetryRecent() {
+    if (!FEATURES.targetUserDataApi) return
+    if (this.data.recentError) void this.loadRecentDelivery()
+  },
+
+  onOpenProfile() {
+    wx.switchTab({ url: '/pages/profile/profile' })
+  },
+
+  onWalletTap() {
+    if (!FEATURES.targetUserDataApi) {
+      this.onOpenProfile()
+      return
+    }
+    if (this.data.walletError) {
+      void this.loadWalletSummary()
+      return
+    }
+    this.onOpenProfile()
+  },
+
+  onOpenOrders() {
+    wx.navigateTo({ url: '/pages/orders/orders' })
+  },
+
+  onResumeDelivery() {
+    routePendingDeviceEntry(getSession())
+  },
+
+  requestPhoneBinding() {
     this.setData({ showPhoneGrant: true })
     this.setPhoneGrantTabBarHidden(true)
   },
 
   onPhoneGrantClose() {
     if (this.data.phoneGrantSubmitting) return
-    this.phoneGrantDismissed = true
-    this.setData({ showPhoneGrant: false })
-    this.setPhoneGrantTabBarHidden(false)
+    this.setData({ showPhoneGrant: false }, () => {
+      this.setPhoneGrantTabBarHidden(false)
+      if (!cancelAfterPhoneBindingPrompt()) {
+        dismissUnstartedPendingDeviceEntry()
+      }
+    })
   },
 
   onPhoneSheetPanelTap() {
@@ -90,43 +198,32 @@ Page({
     if (this.data.phoneGrantSubmitting) return
     const code = event.detail.code
     if (!code) {
+      if (isWechatPhoneGrantCancelled(event.detail)) {
+        this.onPhoneGrantClose()
+        return
+      }
       reportWechatPhoneGrantError(event.detail)
       return
     }
+
     await this.ensurePhoneBindingIntent()
     this.setData({ phoneGrantSubmitting: true })
     try {
       await bindCurrentPhone(code, this.phoneBindingIntentKey)
       markPhoneBound()
-      this.setData({ phoneBound: true, showPhoneGrant: false })
-      this.setPhoneGrantTabBarHidden(false)
-      wx.showToast({ title: '手机号已验证', icon: 'success' })
+      this.phoneBindingIntentKey = ''
+      this.setData({ phoneBound: true, showPhoneGrant: false }, () => {
+        this.setPhoneGrantTabBarHidden(false)
+        if (!continueAfterPhoneBindingPrompt()) {
+          if (!routePendingDeviceEntry(getSession())) {
+            wx.showToast({ title: '手机号已验证', icon: 'success' })
+          }
+        }
+      })
     } catch (error) {
       reportPhoneBindingError(error)
     } finally {
       this.setData({ phoneGrantSubmitting: false })
     }
-  },
-
-  onFeatureTap(e: WechatMiniprogram.TouchEvent) {
-    const item = this.data.features[Number(e.currentTarget.dataset.index)]
-    if (!item) return
-    if (item.scan) startDoorEntry()
-    else if (item.url) wx.navigateTo({ url: item.url })
-  },
-
-  onCity() {
-    wx.showActionSheet({
-      itemList: ['湖州', '杭州', '嘉兴'],
-      success: (res) => this.setData({ city: ['湖州', '杭州', '嘉兴'][res.tapIndex] }),
-    })
-  },
-
-  onNearby() {
-    wx.navigateTo({ url: '/pages/nearby/nearby' })
-  },
-
-  onWithdraw() {
-    wx.navigateTo({ url: '/pages/placeholder/placeholder?title=账户提现' })
   },
 })

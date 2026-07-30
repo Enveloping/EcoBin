@@ -1,40 +1,124 @@
 <view class="profile-page">
-  <view class="profile-top">
-    <view class="avatar"><t-icon name="user" size="68rpx" color="#8d968f" /></view>
-    <view class="name">{{nickname}}</view>
+  <view class="profile-hero">
+    <image
+      class="profile-hero-bg"
+      src="/assets/profile/profile-hero-bg.png"
+      mode="widthFix"
+      draggable="{{false}}"
+    />
+    <view class="page-title">我的</view>
+    <view class="profile-identity">
+      <view class="avatar">
+        <view class="avatar-ring">
+          <t-icon name="user" size="76rpx" color="#10a625" />
+        </view>
+      </view>
+      <view class="identity-copy">
+        <text class="name">{{nickname}}</text>
+        <text class="identity-role">普通用户</text>
+      </view>
+    </view>
   </view>
 
-  <view class="asset-card eco-card">
-    <view class="asset-row">
-      <view><text class="asset-label">账户资产</text><text class="asset-value">26.80</text><text class="asset-unit">元</text></view>
-      <view class="asset-button" bindtap="onWithdraw">去提现</view>
+  <view class="wallet-card profile-card">
+    <view class="wallet-main">
+      <view class="wallet-copy">
+        <text class="wallet-label">账户余额</text>
+        <text class="wallet-value">{{!userDataAvailable ? '—' : (walletLoading ? '读取中' : availableBalanceText)}}</text>
+      </view>
+      <view
+        class="withdraw-button"
+        bindtap="onWithdraw"
+        hover-class="withdraw-button--pressed"
+      >去提现</view>
     </view>
-    <view class="assurances">
-      <view><t-icon name="secured" size="28rpx" color="#9aa29b" />资金安全</view>
-      <view><t-icon name="shield" size="28rpx" color="#9aa29b" />平台保障</view>
-      <view><t-icon name="refresh" size="28rpx" color="#9aa29b" />不满意退款</view>
+    <view
+      class="wallet-meta"
+      bindtap="onWalletRetry"
+      hover-class="wallet-meta--pressed"
+    >
+      <view class="wallet-meta-item">
+        <text>待审核返现</text>
+        <view class="wallet-meta-tail">
+          <text class="wallet-meta-value">{{!userDataAvailable ? '服务接入中' : (walletLoading ? '读取中' : (walletError ? '点击重试' : pendingRewardText))}}</text>
+          <t-icon name="chevron-right" size="32rpx" color="#9da49e" />
+        </view>
+      </view>
     </view>
   </view>
 
-  <view class="service-grid eco-card">
-    <view class="service-item" wx:for="{{serviceItems}}" wx:key="text" data-title="{{item.text}}" bindtap="onServiceTap">
-      <view class="service-icon tone-{{index}}"><t-icon name="{{item.icon}}" size="48rpx" color="#fff" /></view>
+  <view class="shortcut-card profile-card">
+    <view
+      class="shortcut-item"
+      wx:for="{{shortcuts}}"
+      wx:key="text"
+      data-url="{{item.url}}"
+      bindtap="onMenuTap"
+      hover-class="profile-action--pressed"
+    >
+      <view class="shortcut-icon">
+        <t-icon name="{{item.icon}}" size="64rpx" color="#10a625" />
+      </view>
       <text>{{item.text}}</text>
     </view>
   </view>
 
-  <view class="menu-box eco-card">
-    <view class="menu-grid">
-      <view wx:for="{{shortcuts}}" wx:key="text" data-url="{{item.url}}" bindtap="onMenuTap">
-        <t-icon name="{{item.icon}}" size="43rpx" color="#10b927" /><text>{{item.text}}</text>
+  <view class="menu-card profile-card">
+    <view
+      class="menu-row"
+      wx:for="{{helpers}}"
+      wx:key="text"
+      data-url="{{item.url}}"
+      bindtap="onMenuTap"
+      hover-class="profile-action--pressed"
+    >
+      <view class="menu-leading">
+        <view class="menu-icon">
+          <t-icon name="{{item.icon}}" size="50rpx" color="#10a625" />
+        </view>
+        <text>{{item.text}}</text>
       </view>
-    </view>
-    <view class="menu-grid helper-grid">
-      <view wx:for="{{helpers}}" wx:key="text" data-url="{{item.url}}" bindtap="onMenuTap">
-        <t-icon name="{{item.icon}}" size="43rpx" color="#10b927" /><text>{{item.text}}</text>
-      </view>
+      <t-icon name="chevron-right" size="34rpx" color="#a4aba4" />
     </view>
   </view>
 
-  <view class="logout eco-card" bindtap="onLogout">退出登录</view>
+  <view wx:if="{{entryPreviewEnabled}}" class="entry-preview-card profile-card">
+    <view class="entry-preview-copy">
+      <text class="entry-preview-title">测试界面预览</text>
+      <text class="entry-preview-description">{{entryPreviewNotice}}</text>
+    </view>
+    <button class="entry-preview-button" bindtap="onEntryPreview">切换端</button>
+  </view>
+
+  <view class="logout" bindtap="onLogout" hover-class="logout--pressed">退出登录</view>
+
+  <view
+    wx:if="{{showPhoneGrant}}"
+    class="phone-sheet-mask"
+    bindtap="onPhoneGrantClose"
+    catchtouchmove="onPhoneSheetPanelTap"
+  >
+    <view class="phone-sheet" catchtap="onPhoneSheetPanelTap">
+      <view class="sheet-handle"></view>
+      <view class="sheet-head">
+        <view class="sheet-icon">
+          <t-icon name="mobile-vibrate" size="52rpx" color="#0b6b3a" />
+        </view>
+        <view class="sheet-title">验证手机号</view>
+        <view class="sheet-close" bindtap="onPhoneGrantClose">×</view>
+      </view>
+      <view class="sheet-copy">
+        手机号将由微信官方授权面板提供，用于当前机构身份核验。投递、提现等功能需要先完成验证；暂不授权仍可浏览页面，但本次操作不会继续。
+      </view>
+      <button
+        class="phone-grant-button"
+        open-type="getPhoneNumber"
+        loading="{{phoneGrantSubmitting}}"
+        disabled="{{phoneGrantSubmitting}}"
+        bindgetphonenumber="onGetPhoneNumber"
+      >{{phoneGrantSubmitting ? '正在验证…' : '继续获取手机号'}}</button>
+      <view class="sheet-skip" bindtap="onPhoneGrantClose">暂不授权，返回浏览</view>
+      <view class="sheet-footnote">确认后将继续调用微信官方手机号能力</view>
+    </view>
+  </view>
 </view>

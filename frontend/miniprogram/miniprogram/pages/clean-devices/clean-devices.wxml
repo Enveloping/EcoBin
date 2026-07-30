@@ -1,0 +1,10 @@
+<view class="list-page">
+  <view class="empty-card">
+    <view class="empty-icon">
+      <t-icon name="root-list" size="56rpx" color="#159b32" />
+    </view>
+    <view class="empty-title">{{title}}</view>
+    <view class="empty-description">{{description}}</view>
+    <view class="filter-code">筛选：{{filter}}</view>
+  </view>
+</view>

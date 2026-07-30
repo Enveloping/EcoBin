@@ -11,6 +11,7 @@
     </block>
     <block wx:else>
       <view class="hint error">{{error}}</view>
+      <view wx:if="{{diagnostic}}" class="diagnostic">{{diagnostic}}</view>
       <t-button theme="primary" block bindtap="onRetry">重新登录</t-button>
     </block>
   </view>

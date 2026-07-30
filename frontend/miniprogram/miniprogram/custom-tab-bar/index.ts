@@ -1,4 +1,8 @@
 import { startDoorEntry } from '../utils/door-entry'
+import { startCleaningEntry } from '../utils/cleaning-entry'
+import { getEntryMode } from '../utils/auth'
+import { getDisplayedEntryMode } from '../utils/test-entry-preview'
+import type { EntryMode } from '../types/api'
 
 interface VisualTab {
   text: string
@@ -22,6 +26,24 @@ interface TabBarMethods {
 }
 
 type TabBarInstance = WechatMiniprogram.Component.Instance<TabBarData, {}, TabBarMethods>
+
+function tabsFor(mode: EntryMode | undefined): VisualTab[] {
+  switch (mode) {
+    case 'CLEANING':
+      return [
+        { text: '首页', icon: 'home', pagePath: '/pages/clean/clean' },
+        { text: '扫一扫', icon: 'scan', action: 'scan' },
+        { text: '我的', icon: 'user', pagePath: '/pages/clean-profile/clean-profile' },
+      ]
+    case 'USER':
+    default:
+      return [
+        { text: '首页', icon: 'home', pagePath: '/pages/home/home' },
+        { text: '扫一扫', icon: 'scan', action: 'scan' },
+        { text: '我的', icon: 'user', pagePath: '/pages/profile/profile' },
+      ]
+  }
+}
 
 Component<TabBarData, {}, TabBarMethods>({
   data: {
@@ -48,7 +70,14 @@ Component<TabBarData, {}, TabBarMethods>({
       const pages = getCurrentPages()
       const current = pages[pages.length - 1]
       const route = current ? `/${current.route}` : ''
-      this.setData({ selected: route === '/pages/profile/profile' ? 2 : 0 })
+      const displayedMode = getDisplayedEntryMode(getEntryMode())
+      const isProfile =
+        route === '/pages/profile/profile'
+        || route === '/pages/clean-profile/clean-profile'
+      this.setData({
+        selected: isProfile ? 2 : 0,
+        tabs: tabsFor(displayedMode),
+      })
     },
 
     onTap(this: TabBarInstance, e: WechatMiniprogram.TouchEvent) {
@@ -56,7 +85,20 @@ Component<TabBarData, {}, TabBarMethods>({
       const item = this.data.tabs[index]
       if (!item) return
       if (item.action === 'scan') {
-        startDoorEntry()
+        const actualMode = getEntryMode()
+        const displayedMode = getDisplayedEntryMode(actualMode)
+        if (actualMode !== displayedMode) {
+          wx.showToast({
+            title: '当前仅切换界面，账号权限未改变',
+            icon: 'none',
+          })
+          return
+        }
+        if (displayedMode === 'CLEANING') {
+          startCleaningEntry()
+        } else if (displayedMode === 'USER') {
+          startDoorEntry()
+        }
         return
       }
       if (item.pagePath) wx.switchTab({ url: item.pagePath })

@@ -31,6 +31,8 @@ export interface RequestOptions {
   noStore?: boolean
   /** 401 后是否允许受控重登录，默认 true。 */
   retryAfterLogin?: boolean
+  /** 设备入口请求在会话失效重建用户时必须继续携带首次注册来源。 */
+  registrationSource?: { deploymentCode: string }
   /** 内部标记：最多重登录并重试一次。 */
   _retried?: boolean
 }
@@ -185,7 +187,7 @@ async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
     ) {
       const previousSession = getSession()
       try {
-        const renewed = await refreshSession()
+        const renewed = await refreshSession(options.registrationSource)
         if (sessionEntryChanged(previousSession, renewed)) {
           routeToEntry(renewed)
           throw new MiniappApiProblem(401, {
@@ -213,7 +215,13 @@ async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
         throw problem
       }
     }
-    if (problem.status === 401) gotoLogin()
+    if (
+      problem.status === 401
+      && options.auth !== false
+      && options.retryAfterLogin !== false
+    ) {
+      gotoLogin()
+    }
     throw problem
   }
 }
@@ -246,7 +254,10 @@ export async function requestAccepted<T extends { statusUrl: string }>(
     throw new Error(`Expected HTTP 202, received ${result.statusCode}`)
   }
   const location = result.headers.Location ?? result.headers.location
-  if (typeof location === 'string' && location !== result.data.statusUrl) {
+  if (typeof location !== 'string') {
+    throw new Error('HTTP 202 response is missing Location')
+  }
+  if (location !== result.data.statusUrl) {
     throw new Error('HTTP Location differs from accepted operation statusUrl')
   }
   return result.data

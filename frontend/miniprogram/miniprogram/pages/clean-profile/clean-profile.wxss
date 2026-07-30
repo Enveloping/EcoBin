@@ -1,0 +1,123 @@
+.profile-page {
+  min-height: 100vh;
+  padding:
+    calc(env(safe-area-inset-top) + 30rpx)
+    28rpx
+    calc(184rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: #f5f7f4;
+}
+
+.page-title {
+  color: #17231a;
+  font-size: 44rpx;
+  font-weight: 760;
+}
+
+.identity-card,
+.preview-card {
+  margin-top: 30rpx;
+  background: #fff;
+  border: 1rpx solid #e5ebe5;
+  border-radius: 28rpx;
+  box-shadow: 0 10rpx 28rpx rgba(40, 67, 43, .06);
+}
+
+.identity-card {
+  display: flex;
+  padding: 34rpx;
+  align-items: center;
+}
+
+.avatar {
+  display: flex;
+  width: 112rpx;
+  height: 112rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  background: #edf8ef;
+  border-radius: 50%;
+}
+
+.identity-copy {
+  min-width: 0;
+  margin-left: 26rpx;
+}
+
+.identity-name {
+  color: #1b261d;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.identity-organization {
+  margin-top: 8rpx;
+  overflow: hidden;
+  color: #6f7a72;
+  font-size: 24rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity-role {
+  display: inline-block;
+  margin-top: 14rpx;
+  padding: 7rpx 14rpx;
+  color: #11812a;
+  font-size: 20rpx;
+  background: #edf8ef;
+  border-radius: 999rpx;
+}
+
+.preview-card {
+  display: flex;
+  padding: 28rpx;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.preview-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.preview-title {
+  color: #273129;
+  font-size: 27rpx;
+  font-weight: 650;
+}
+
+.preview-description {
+  margin-top: 8rpx;
+  color: #89918a;
+  font-size: 21rpx;
+  line-height: 1.5;
+}
+
+.preview-button {
+  width: auto;
+  margin: 0;
+  padding: 0 25rpx;
+  color: #11812a;
+  font-size: 23rpx;
+  font-weight: 650;
+  line-height: 68rpx;
+  background: #edf8ef;
+  border-radius: 18rpx;
+}
+
+.preview-button::after { border: 0; }
+
+.logout {
+  margin-top: 38rpx;
+  padding: 28rpx;
+  color: #747d76;
+  font-size: 25rpx;
+  text-align: center;
+  background: #fff;
+  border: 1rpx solid #e5ebe5;
+  border-radius: 24rpx;
+}
+
+.logout--pressed { opacity: .72; }
