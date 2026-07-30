@@ -3,17 +3,12 @@ import { Alert, Descriptions, Tag, Typography } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 import { pageHeader } from '@/utils/pageStyle';
 
-export type PendingBusinessKind = 'delivery' | 'cleaning' | 'withdrawal';
+export type PendingBusinessKind = 'cleaning' | 'withdrawal';
 
 const COPY: Record<
   PendingBusinessKind,
   { title: string; resource: string; contract: string }
 > = {
-  delivery: {
-    title: '投递订单',
-    resource: '投递订单、审核与纠正',
-    contract: '投递 Web 查询 paths 与订单响应 schema',
-  },
   cleaning: {
     title: '清运订单',
     resource: '清运操作、清运记录与异常',
