@@ -837,6 +837,187 @@ class TargetWebIdentityMysqlIntegrationTest {
                         .path("organizationCode").asText());
     }
 
+    @Test
+    void organizationMiniappConfigurationControlsAppIdAndLiveLoginSessions()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("miniapp-t");
+        String organizationCode = code("miniapp-o");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Miniapp organization");
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode;
+        String appId = "wx" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 16);
+        String initialSecret = "fake-initial-app-secret-" + run;
+        UUID initialConfigurationUid = UUID.randomUUID();
+        Map<String, Object> initialConfiguration = Map.of(
+                "appId", appId,
+                "displayName", "Miniapp A",
+                "appSecret", initialSecret);
+        MvcResult createdResult = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                initialConfigurationUid,
+                initialConfiguration,
+                200);
+        JsonNode created = data(createdResult);
+        assertEquals(appId, created.path("appId").asText());
+        assertTrue(created.path("appSecretConfigured").asBoolean());
+        assertFalse(created.path("activated").asBoolean());
+        assertFalse(created.path("loginEnabled").asBoolean());
+        assertEquals(0, created.path("version").asLong());
+        assertFalse(createdResult.getResponse()
+                .getContentAsString().contains(initialSecret));
+        assertEquals(
+                0,
+                data(write(
+                        platform,
+                        put(base + "/miniapp-configuration"),
+                        initialConfigurationUid,
+                        initialConfiguration,
+                        200)).path("version").asLong());
+        MvcResult secretIdempotencyConflict = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                initialConfigurationUid,
+                Map.of(
+                        "appId", appId,
+                        "displayName", "Miniapp A",
+                        "appSecret", initialSecret + "-different"),
+                409);
+        assertEquals(
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                json(secretIdempotencyConflict).path("code").asText());
+
+        MvcResult readResult = read(
+                platform,
+                base + "/miniapp-configuration",
+                200);
+        assertEquals(
+                "no-store",
+                readResult.getResponse().getHeader("Cache-Control"));
+        assertEquals(
+                initialSecret,
+                data(readResult).path("appSecret").asText());
+
+        MvcResult prematureEnable = write(
+                platform,
+                post(base + "/miniapp-login/enablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 0),
+                422);
+        assertEquals(
+                "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                json(prematureEnable).path("code").asText());
+
+        JsonNode activated = data(write(
+                platform,
+                post(base + "/miniapp-configuration/activations"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 0),
+                200));
+        assertTrue(activated.path("activated").asBoolean());
+        assertEquals(1, activated.path("version").asLong());
+
+        MvcResult immutableAppId = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                UUID.randomUUID(),
+                Map.of(
+                        "appId", "wx" + UUID.randomUUID().toString()
+                                .replace("-", "").substring(0, 16),
+                        "displayName", "Changed",
+                        "expectedVersion", 1),
+                409);
+        assertEquals(
+                "IDENTITY.MINIAPP_ALREADY_ACTIVATED",
+                json(immutableAppId).path("code").asText());
+
+        String rotatedSecret = "fake-rotated-app-secret-" + run;
+        JsonNode rotated = data(write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                UUID.randomUUID(),
+                Map.of(
+                        "appId", appId,
+                        "displayName", "Miniapp A rotated",
+                        "appSecret", rotatedSecret,
+                        "expectedVersion", 1),
+                200));
+        assertEquals(2, rotated.path("version").asLong());
+        assertEquals(
+                rotatedSecret,
+                data(read(
+                        platform,
+                        base + "/miniapp-configuration",
+                        200)).path("appSecret").asText());
+        BrowserClient tenantPrincipal = new BrowserClient();
+        login(
+                tenantPrincipal,
+                "/api/v1/web/auth/sessions",
+                "principal-" + tenantCode,
+                PRINCIPAL_PASSWORD,
+                201);
+        assertEquals(
+                rotatedSecret,
+                data(read(
+                        tenantPrincipal,
+                        "/api/v1/web/organizations/"
+                                + organizationCode
+                                + "/miniapp-configuration",
+                        200)).path("appSecret").asText());
+
+        JsonNode enabled = data(write(
+                platform,
+                post(base + "/miniapp-login/enablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 2),
+                200));
+        assertTrue(enabled.path("loginEnabled").asBoolean());
+        assertEquals(3, enabled.path("version").asLong());
+
+        MvcResult miniappLogin = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/sessions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "appId", appId,
+                                                "wxLoginCode",
+                                                "fake:miniapp-" + run))))
+                .andReturn();
+        assertEquals(
+                201,
+                miniappLogin.getResponse().getStatus(),
+                miniappLogin.getResponse().getContentAsString());
+        String bearer = data(miniappLogin)
+                .path("accessToken").asText();
+        assertFalse(bearer.isBlank());
+
+        JsonNode disabled = data(write(
+                platform,
+                post(base + "/miniapp-login/disablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 3),
+                200));
+        assertFalse(disabled.path("loginEnabled").asBoolean());
+        assertEquals(4, disabled.path("version").asLong());
+
+        MvcResult revokedSession = mockMvc.perform(
+                        get("/api/v1/miniapp/auth/sessions/current")
+                                .header("Authorization",
+                                        "Bearer " + bearer))
+                .andReturn();
+        assertEquals(
+                401,
+                revokedSession.getResponse().getStatus(),
+                revokedSession.getResponse().getContentAsString());
+    }
+
     private BrowserClient platformClient() throws Exception {
         BrowserClient platform = new BrowserClient();
         login(

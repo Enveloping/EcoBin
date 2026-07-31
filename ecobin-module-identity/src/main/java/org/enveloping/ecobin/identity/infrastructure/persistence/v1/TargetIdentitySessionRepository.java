@@ -259,6 +259,38 @@ public class TargetIdentitySessionRepository {
                 reason, tenantId, organizationId, organizationUserId);
     }
 
+    public void revokeOrganizationMiniappSessions(
+            long tenantId,
+            long organizationId,
+            long organizationMiniappId,
+            String reason) {
+        jdbc.update("""
+                        UPDATE iam_organization_user_session
+                        SET revoked_at = UTC_TIMESTAMP(3),
+                            revocation_reason = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND organization_miniapp_id = ?
+                          AND revoked_at IS NULL
+                        """,
+                reason,
+                tenantId,
+                organizationId,
+                organizationMiniappId);
+        jdbc.update("""
+                        UPDATE iam_staff_login_session
+                        SET revoked_at = UTC_TIMESTAMP(3),
+                            revocation_reason = ?
+                        WHERE tenant_id = ?
+                          AND organization_miniapp_id = ?
+                          AND client_kind = 'MINIAPP_MANAGEMENT'
+                          AND revoked_at IS NULL
+                        """,
+                reason,
+                tenantId,
+                organizationMiniappId);
+    }
+
     public void revokeMiniappBindingSessions(
             long bindingId,
             String reason) {

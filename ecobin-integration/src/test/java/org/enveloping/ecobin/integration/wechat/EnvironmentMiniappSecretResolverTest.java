@@ -1,8 +1,11 @@
 package org.enveloping.ecobin.integration.wechat;
 
 import org.enveloping.ecobin.identity.api.error.WechatExchangeException;
+import org.enveloping.ecobin.identity.api.error.MiniappSecretVaultException;
+import org.enveloping.ecobin.identity.api.port.MiniappSecretVaultPort;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
+
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,13 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class EnvironmentMiniappSecretResolverTest {
 
     @Test
-    void resolvesCredentialFromSpringConfigWhenOsEnvironmentIsAbsent() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty(
-                        "ECOBIN_WECHAT_MINIAPP_SECRET",
-                        "local-development-secret");
+    void resolvesCredentialThroughTheSharedSecretVault() {
         EnvironmentMiniappSecretResolver resolver =
-                new EnvironmentMiniappSecretResolver(environment);
+                new EnvironmentMiniappSecretResolver(
+                        vault("local-development-secret"));
 
         assertEquals(
                 "local-development-secret",
@@ -25,13 +25,35 @@ class EnvironmentMiniappSecretResolverTest {
     }
 
     @Test
-    void rejectsReferencesOutsideTheExplicitEnvironmentNamespace() {
+    void mapsVaultFailuresToWechatDependencyFailures() {
         EnvironmentMiniappSecretResolver resolver =
                 new EnvironmentMiniappSecretResolver(
-                        new MockEnvironment());
+                        vault(null));
 
         assertThrows(
                 WechatExchangeException.class,
                 () -> resolver.resolve("wechatSecret"));
+    }
+
+    private static MiniappSecretVaultPort vault(String value) {
+        return new MiniappSecretVaultPort() {
+            @Override
+            public String store(
+                    UUID operationUid,
+                    String secretSha256,
+                    String appSecret) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String read(String secretReference) {
+                if (value == null) {
+                    throw new MiniappSecretVaultException(
+                            MiniappSecretVaultException.Reason.UNAVAILABLE,
+                            "unavailable");
+                }
+                return value;
+            }
+        };
     }
 }
