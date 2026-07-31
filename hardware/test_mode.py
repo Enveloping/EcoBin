@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-test_mode.py — 测试模式模拟 MCU 硬件实现。
+test_mode.py — 仅供自动化测试和调试工具显式注入的硬件替身。
 
-当 config.TEST_MODE = True 时，本模块提供 MCU 相关硬件的模拟版本：
+本模块提供 MCU 相关硬件的模拟版本：
   - MockSerialBridge  — 模拟串口通信（开门时自动生成随机重量）
   - MockCamera         — 模拟摄像头（生成最小占位 JPEG 文件）
 
-所有模拟组件与真实组件接口完全兼容，可直接替换使用。
-无需实际串口设备或摄像头硬件即可运行。
+所有模拟组件与真实组件接口完全兼容，可由测试代码直接注入。
+正式 ``main.py`` 不读取全局模拟开关，也不会导入本模块；端到端运行通过 PTY 和
+``simulated://`` 摄像头源接入真实串口、照片管理边界。
 
 注意：COS 上传和 MQTT 网关不做模拟，始终使用真实实现。
 """
@@ -20,30 +21,13 @@ import time
 import uuid
 from collections import deque
 from typing import Optional, Callable
+from simulated_camera import capture_simulated_camera
 try:
     from hardware_layer import BinState
 except ImportError:
     BinState = None
 
 logger = logging.getLogger("test_mode")
-
-# ═══════════════════════════════════════════════════════════════
-#  最小有效 JPEG（1×1 像素灰度图，约 160 字节）
-#  用于模拟摄像头拍照，所有图片查看器均可正常打开
-# ═══════════════════════════════════════════════════════════════
-_MINIMAL_JPEG = (
-    b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
-    b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c"
-    b"\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c"
-    b"\x1c $.\' \"$#\x1c\x1c(7),01444\x1f\'9=82<.342"
-    b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00"
-    b"\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00"
-    b"\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b"
-    b"\xff\xda\x00\x08\x01\x01\x00\x00?\x00{1\xc0q@\xe2\x01\x00\x00\x00\x00"
-    b"\x00\x00\x00"
-    b"\xff\xd9"
-)
-
 
 # ================================================================
 #  MockSerialBridge — 模拟串口通信
@@ -157,9 +141,10 @@ class MockCamera:
     def capture(device_id: int, save_path: str) -> bool:
         """生成占位 JPEG 文件到 save_path。"""
         logger.info("[TEST] 模拟摄像头%d 拍照 → %s", device_id, save_path)
-        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-        with open(save_path, "wb") as f:
-            f.write(_MINIMAL_JPEG)
+        capture_simulated_camera(
+            save_path,
+            f"simulated://legacy-{device_id}",
+        )
         return True
 
     @classmethod

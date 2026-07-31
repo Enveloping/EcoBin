@@ -106,3 +106,19 @@ EF 表示协议规定的全部发送前置条件已经满足。这些不是香�
 `contracts/uart/generated/c/`；只有明确恢复 MCU 原生 `uart-v1` 路线时才通过
 `generate_contracts.py --include-hardware-mcu` 写入 MCU 工程。当前固定帧适配和日常
 契约检查不依赖该目录。
+
+## Linux PTY 全链路模拟
+
+无需真实 MCU 时，可在 Linux 上运行
+[`../../tools/fixed_frame_pty_simulator.py`](../../tools/fixed_frame_pty_simulator.py)
+创建伪终端，让真实 `main.py` 和 `FixedFrameMcuAdapter` 继续走串口边界。模拟器接收
+`BB+AA` / `EE` 并自动返回可配置的 DD / EF，可用于验证
+OneNet → 香橙派 → 虚拟 MCU → OneNet 事件上报链路。启动方法、环境配置、预期日志和
+自动化测试见
+[`../../tools/FIXED-FRAME-PTY-SIMULATOR.md`](../../tools/FIXED-FRAME-PTY-SIMULATOR.md)。
+
+2026-07-31 已移除 `main.py` 的全局测试模式分支；MCU 通过 PTY 串口路径接入，双摄
+通过两个显式 `simulated://` 源生成占位 JPEG，不再切换应用组装逻辑。Python 3.11
+硬件套件及现场结果以当前 `CLAUDE.md` 为准；另在 WSL 中完成真实 PTY DD/EF 原始
+字节往返 smoke。香橙派无实物联合验证见
+[`hardware-free-smoke-2026-07-31.md`](hardware-free-smoke-2026-07-31.md)。

@@ -20,6 +20,10 @@ from onenet_wire import (
     validate_command_envelope,
     validate_cos_grant,
 )
+from simulated_camera import (
+    capture_simulated_camera,
+    is_simulated_camera_source,
+)
 
 logger = logging.getLogger("photo-manager")
 
@@ -88,7 +92,6 @@ class PhotoManager:
         grant_expiry_skew_seconds=30,
         retention_hours=72,
         start_upload_worker=True,
-        simulate_camera=False,
         trusted_cos_environment=None,
     ):
         self._store = store
@@ -115,7 +118,6 @@ class PhotoManager:
         self._upload_poll_seconds = upload_poll_seconds
         self._grant_expiry_skew_seconds = grant_expiry_skew_seconds
         self._retention = timedelta(hours=retention_hours)
-        self._simulate_camera = simulate_camera
         self._trusted_cos_environment = trusted_cos_environment
         self._capture_lock = threading.Lock()
         self._grant_lock = threading.Lock()
@@ -468,6 +470,8 @@ class PhotoManager:
     @staticmethod
     def _camera_identity(camera_source):
         if isinstance(camera_source, str):
+            if is_simulated_camera_source(camera_source):
+                return camera_source
             return os.path.realpath(camera_source)
         return camera_source
 
@@ -479,11 +483,13 @@ class PhotoManager:
         raise ValueError(f"unknown photo slot: {slot}")
 
     def _capture_camera_to_path(self, path, camera_source):
-        if self._simulate_camera:
-            dummy = bytearray(1024)
-            dummy[0:3] = b"\xff\xd8\xff"
-            with open(path, "wb") as output:
-                output.write(dummy)
+        if is_simulated_camera_source(camera_source):
+            capture_simulated_camera(path, camera_source)
+            logger.info(
+                "simulated camera captured: source=%s path=%s",
+                camera_source,
+                path,
+            )
             return
         try:
             import cv2

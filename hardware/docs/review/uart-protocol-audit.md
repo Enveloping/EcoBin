@@ -256,7 +256,7 @@ line = self.serial_port.readline()   # 阻塞直到 \n 或超时
 
 ---
 
-### 12. 测试模式重量注入时机不真实
+### 12. 旧 MockSerialBridge 重量注入时机不真实
 
 **位置**: `test_mode.py:81-86`
 

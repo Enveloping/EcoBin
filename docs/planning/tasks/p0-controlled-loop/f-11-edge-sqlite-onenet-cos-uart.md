@@ -148,7 +148,7 @@ implementation_authorized: true
   尚未达到 `in-review`。
 - 2026-07-25：完成 OneNet 命令可靠受理和 `APPLY_CONFIGURATION` 配置纵切，补齐
   SQLite v2 恢复点、UART 分段停等、MCU 事件先持久化后 ACK、结果强绑定与超时恢复。
-  本地和香橙派测试全部通过，远端服务以 `ECOBIN_TEST_MODE=true` 恢复为 `READY`；
+  本地和香橙派测试全部通过，远端服务曾通过旧的进程内硬件替身恢复为 `READY`；
   真实 MCU `HELLO` 无响应，因此真机配置激活和其余命令族仍待继续。
 - 2026-07-27：项目负责人确认现有单片机不再原生实现 UART 1.0，F-10 转为 `done`；
   F-11 改为在香橙派侧显式选择固定帧适配器。适配 worktree 已完成协议解析、投递/清运
