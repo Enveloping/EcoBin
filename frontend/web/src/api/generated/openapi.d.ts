@@ -384,6 +384,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the current organization AppID and AppSecret configuration
+         * @description Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.
+         */
+        get: operations["getPlatformOrganizationMiniappConfiguration"];
+        /**
+         * Create or update the organization mini-program configuration
+         * @description The secret is versioned in an external vault before the IAM transaction and is never stored in the business database or returned by this mutation.
+         */
+        put: operations["putPlatformOrganizationMiniappConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-configuration/activations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Irreversibly activate the current organization AppID
+         * @description Activation validates local completeness only. It does not claim that WeChat accepted the credentials.
+         */
+        post: operations["activatePlatformOrganizationMiniappConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-login/enablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable wx.login for an activated organization AppID */
+        post: operations["enablePlatformOrganizationMiniappLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-login/disablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable wx.login and revoke this AppID's live mini-program sessions */
+        post: operations["disablePlatformOrganizationMiniappLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/organizations": {
         parameters: {
             query?: never;
@@ -481,6 +580,95 @@ export interface paths {
         put?: never;
         /** Deactivate one organization and remove live access */
         post: operations["deactivateCurrentTenantOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the current visible organization's AppID and AppSecret configuration
+         * @description Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.
+         */
+        get: operations["getCurrentTenantOrganizationMiniappConfiguration"];
+        /** Create or update a visible organization's mini-program configuration */
+        put: operations["putCurrentTenantOrganizationMiniappConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration/activations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Irreversibly activate the current visible organization AppID */
+        post: operations["activateCurrentTenantOrganizationMiniappConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-login/enablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable wx.login for an activated visible organization AppID */
+        post: operations["enableCurrentTenantOrganizationMiniappLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-login/disablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable wx.login and revoke this visible AppID's live mini-program sessions */
+        post: operations["disableCurrentTenantOrganizationMiniappLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3115,6 +3303,12 @@ export interface components {
         OrganizationUserLookup: {
             organizationUserUid: components["schemas"]["PublicUid"];
             nickname: string;
+            /** @description Full E.164 phone number. Returned only by authorized Web management APIs. */
+            phoneNumber: string;
+            /**
+             * @deprecated
+             * @description Deprecated v1 compatibility alias of phoneNumber. Despite the legacy name, Web management responses return the full E.164 number.
+             */
             maskedPhoneNumber: string;
             registeredAt: components["schemas"]["UtcTimestamp"];
             /** @enum {string} */
@@ -3129,6 +3323,12 @@ export interface components {
             organizationUserUid: components["schemas"]["PublicUid"];
             nickname: string;
             avatarUrl: string | null;
+            /** @description Full E.164 phone number for authorized Web management users; null until the user binds a phone. */
+            phoneNumber: string | null;
+            /**
+             * @deprecated
+             * @description Deprecated v1 compatibility alias of phoneNumber. Despite the legacy name, Web management responses return the full E.164 number.
+             */
             maskedPhoneNumber: string | null;
             phoneBound: boolean;
             registeredAt: components["schemas"]["UtcTimestamp"];
@@ -3147,6 +3347,12 @@ export interface components {
             /** Format: int64 */
             version: number;
             nickname: string | null;
+            /** @description Full E.164 phone number when the caller has user.read; otherwise null. */
+            phoneNumber: string | null;
+            /**
+             * @deprecated
+             * @description Deprecated v1 compatibility alias of phoneNumber. It is full when user.read is granted and null otherwise.
+             */
             maskedPhoneNumber: string | null;
         };
         StaffMiniappBindingLookup: {
@@ -3216,6 +3422,54 @@ export interface components {
         ProvisionOrganizationStaffRequest: components["schemas"]["CreateStaffAccountCore"] & {
             manager: boolean;
             permissionCodes: components["schemas"]["PermissionCodes"];
+        };
+        PutMiniappConfigurationRequest: {
+            appId: string;
+            displayName: string;
+            /** @description Required for initial configuration and optional for later secret rotation. Blank values are invalid. */
+            appSecret?: string;
+            /** @description Omit or send null only when the organization has no mini-program configuration yet. */
+            expectedVersion?: components["schemas"]["ExpectedVersion"] | null;
+        };
+        MiniappConfiguration: {
+            appId: string;
+            displayName: string;
+            /** @description Full secret returned only by the authorized no-store GET endpoint. */
+            readonly appSecret: string;
+            /** @constant */
+            appSecretConfigured: true;
+            maskedAppSecret: string;
+            activated: boolean;
+            loginEnabled: boolean;
+            version: components["schemas"]["ExpectedVersion"];
+            configuredAt: components["schemas"]["UtcTimestamp"];
+            activatedAt: components["schemas"]["UtcTimestamp"] | null;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappConfigurationMutation: {
+            appId: string;
+            displayName: string;
+            /** @constant */
+            appSecretConfigured: true;
+            maskedAppSecret: string;
+            activated: boolean;
+            loginEnabled: boolean;
+            version: components["schemas"]["ExpectedVersion"];
+            configuredAt: components["schemas"]["UtcTimestamp"];
+            activatedAt: components["schemas"]["UtcTimestamp"] | null;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappConfigurationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappConfiguration"];
+            requestId: string;
+        };
+        MiniappConfigurationMutationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappConfigurationMutation"];
+            requestId: string;
         };
         VersionCommand: {
             expectedVersion: components["schemas"]["ExpectedVersion"];
@@ -3874,6 +4128,28 @@ export interface components {
         };
     };
     responses: {
+        /** @description Current organization mini-program configuration including the authorized full AppSecret */
+        MiniappConfigurationOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappConfigurationEnvelope"];
+            };
+        };
+        /** @description Mini-program configuration state returned without the full AppSecret */
+        MiniappConfigurationMutationOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappConfigurationMutationEnvelope"];
+            };
+        };
         /** @description V-01 identity directory projection returned from current database facts */
         DirectoryOk: {
             headers: {
@@ -4941,6 +5217,136 @@ export interface operations {
             409: components["responses"]["ConflictProblem"];
         };
     };
+    getPlatformOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappConfigurationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    putPlatformOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutMiniappConfigurationRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    activatePlatformOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    enablePlatformOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    disablePlatformOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
     listCurrentTenantOrganizations: {
         parameters: {
             query?: {
@@ -5070,6 +5476,131 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getCurrentTenantOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappConfigurationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    putCurrentTenantOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutMiniappConfigurationRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    activateCurrentTenantOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    enableCurrentTenantOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    disableCurrentTenantOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
         };
     };
     listPlatformStaffAccounts: {

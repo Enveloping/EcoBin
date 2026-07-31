@@ -288,7 +288,8 @@ public final class DirectoryModels {
     public record OrganizationUserLookupView(
             UUID organizationUserUid,
             String nickname,
-            String maskedPhoneNumber,
+            String phoneNumber,
+            @Deprecated String maskedPhoneNumber,
             Instant registeredAt,
             String status,
             OrganizationUserCurrentMiniappBinding currentMiniappBinding) {
@@ -303,7 +304,8 @@ public final class DirectoryModels {
             UUID organizationUserUid,
             String nickname,
             String avatarUrl,
-            String maskedPhoneNumber,
+            String phoneNumber,
+            @Deprecated String maskedPhoneNumber,
             boolean phoneBound,
             Instant registeredAt,
             OrganizationUserRegistrationSource registrationSource,
@@ -318,7 +320,8 @@ public final class DirectoryModels {
             UUID organizationUserUid,
             long version,
             String nickname,
-            String maskedPhoneNumber) {
+            String phoneNumber,
+            @Deprecated String maskedPhoneNumber) {
     }
 
     public record StaffMiniappBindingLookupView(
