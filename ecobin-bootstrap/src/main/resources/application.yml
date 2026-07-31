@@ -54,6 +54,12 @@ cos:
 
 # 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
 ecobin:
+  identity:
+    # 机构小程序 AppSecret 的本地版本库；数据库只保存版本引用。
+    # 生产可以用同一端口替换为托管秘密设施。
+    miniapp-secret-store:
+      directory: ${miniappSecretStoreDirectory:./.ecobin/miniapp-secrets}
+
   observability:
     # 所有环境记录请求到达、响应状态和耗时；生产默认不记录请求体。
     http-request-logging:

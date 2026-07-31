@@ -23,7 +23,7 @@
 | `fund_user_wallet_entry` | 全局唯一明细 UUID、钱包内从 1 开始严格递增的 `entry_sequence_no`、机构内严格递增的 `visibility_sequence_no`、事件类型、可用/冻结的有符号增量及两项变动前后值、投递认定版本/提现单/人工调整三选一的强类型来源、发生时间；只追加。唯一 `(wallet_id, entry_sequence_no)` 和 `(organization_id, visibility_sequence_no)`；投递认定版本唯一，提现按 `(withdrawal_order_id, fund_phase)` 唯一。 |
 | `fund_wallet_adjustment` | 全局唯一调整 UUID、钱包、有符号调整差额、调整前后可用余额、分型操作人、可空原因和发生时间；插入后只读，只能改变可用余额，不能改变提现冻结。唯一钱包明细只从 `fund_user_wallet_entry.adjustment_id` 引用并反查，调整表不反向持有明细外键，避免 MySQL 无延迟外键时形成插入死结。 |
 
-- 金额统一使用 `BIGINT` 分。配置必须满足 `10 <= manual_min_cent <= manual_max_cent <= hard_limit_cent <= 20000`、`0 <= manual_review_free_threshold_cent <= manual_max_cent`；阈值为 0 表示全部人工审核。新机构默认依次为 10、20000、20000、0 分，配置只影响之后创建的提现，提现单继续固化完整快照。
+- 金额统一使用 `BIGINT` 分。配置必须满足 `10 <= manual_min_cent <= manual_max_cent <= hard_limit_cent <= 20000`、`0 <= manual_review_free_threshold_cent <= manual_max_cent`；阈值为 0 表示全部人工审核。新机构默认依次为 10、1000、1000、0 分，也就是手动最低 0.10 元、手动最高和单次硬限制均为 10.00 元；200.00 元只是允许后续人工发布配置时使用的产品级绝对上限，不是机构默认值。配置只影响之后创建的提现，提现单继续固化完整快照。
 - 钱包行不是资金事实本身。每次真实变动必须按“钱包 → 机构钱包明细计数器”取得锁，把钱包 `last_entry_sequence_no` 和机构 `last_visibility_sequence_no` 分别加一，以两个新值追加唯一明细并更新余额投影；持有机构计数器直到事务提交，使其序号成为机构级提交可见水位。数据库 `CHECK` 保证 `before + delta = after` 和冻结前后均不小于 0。差额为 0 且不形成资金明细时不得消耗任一序号。禁止 Controller、Mapper 或管理员直接覆盖余额列、末序号或机构计数器。
 - 钱包明细的提现阶段固定为 `FREEZE/FINAL`：创建提现时可用 `-X`、冻结 `+X`；失败释放时可用 `+X`、冻结 `-X`；成功时可用不变、冻结 `-X`。同一提现在钱包中只能有一次冻结和一次最终处理，最终处理只能是释放或成功消耗之一。
 - 对外钱包流水的稳定事件类型固定区分 `DELIVERY_INITIAL_REVIEW`、`DELIVERY_CORRECTION`、`WITHDRAWAL_FREEZE`、`WITHDRAWAL_SUCCEEDED`、`WITHDRAWAL_RELEASED` 和 `MANUAL_ADJUSTMENT`；提现仍同时使用 `fund_phase=FREEZE/FINAL` 保证每单阶段唯一。数据库可以使用受约束字符串或代码表保存这些值，但不得把不同业务效果压成前端无法解释的单一“余额变化”。

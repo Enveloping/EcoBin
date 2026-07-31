@@ -97,6 +97,49 @@ class HttpContractTests(unittest.TestCase):
         ):
             validate_openapi_document(changed)
 
+    def test_organization_miniapp_management_surface_is_exact(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        suffixes = {
+            "/miniapp-configuration": {"get", "put"},
+            "/miniapp-configuration/activations": {"post"},
+            "/miniapp-login/enablements": {"post"},
+            "/miniapp-login/disablements": {"post"},
+        }
+        prefixes = (
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+            ),
+            "/api/v1/web/organizations/{organizationCode}",
+        )
+        for prefix in prefixes:
+            for suffix, methods in suffixes.items():
+                path = prefix + suffix
+                self.assertIn(path, paths)
+                self.assertEqual(
+                    methods,
+                    {
+                        method
+                        for method in paths[path]
+                        if method in {"get", "put", "post", "delete", "patch"}
+                    },
+                )
+
+        schemas = document["components"]["schemas"]
+        request_secret = schemas["PutMiniappConfigurationRequest"][
+            "properties"
+        ]["appSecret"]
+        response_secret = schemas["MiniappConfiguration"][
+            "properties"
+        ]["appSecret"]
+        mutation_properties = schemas[
+            "MiniappConfigurationMutation"
+        ]["properties"]
+        self.assertTrue(request_secret["writeOnly"])
+        self.assertTrue(response_secret["readOnly"])
+        self.assertNotIn("appSecret", mutation_properties)
+
     def test_web_path_cannot_silently_switch_to_bearer(self) -> None:
         document = load_openapi()
         changed = copy.deepcopy(document)

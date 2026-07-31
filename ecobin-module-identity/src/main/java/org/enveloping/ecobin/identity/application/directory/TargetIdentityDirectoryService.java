@@ -42,6 +42,7 @@ import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.UpdateOrg
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.UpdateStaffProfileRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.UpdateTenantProfileRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.VersionCommand;
+import org.enveloping.ecobin.identity.web.v1.directory.MiniappConfigurationModels.PutMiniappConfigurationRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -716,6 +717,316 @@ public class TargetIdentityDirectoryService {
                             "organization",
                             code,
                             before,
+                            after,
+                            request.reason());
+                });
+    }
+
+    @Transactional(readOnly = true)
+    public void requireMiniappManagementAccess(
+            String tenantCode,
+            String organizationCode) {
+        TargetWebActor actor = TargetWebActorContext.required();
+        TenantRow tenant = tenantForRequest(actor, tenantCode, false);
+        OrganizationRow organization = organizationByCode(
+                tenant.id(), normalizeCode(organizationCode), false);
+        requireOrganizationCapability(actor, organization, "miniapp.manage");
+    }
+
+    @Transactional(readOnly = true)
+    public MiniappConfigurationMetadata getMiniappConfiguration(
+            String tenantCode,
+            String organizationCode) {
+        TargetWebActor actor = TargetWebActorContext.required();
+        TenantRow tenant = tenantForRequest(actor, tenantCode, false);
+        OrganizationRow organization = organizationByCode(
+                tenant.id(), normalizeCode(organizationCode), false);
+        requireOrganizationCapability(actor, organization, "miniapp.manage");
+        return miniappByOrganization(
+                tenant.id(), organization.id(), false, true);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public MiniappConfigurationMetadata putMiniappConfiguration(
+            UUID operationUid,
+            String tenantCode,
+            String organizationCode,
+            PutMiniappConfigurationRequest request,
+            String newSecretReference) {
+        TargetWebActor actor = TargetWebActorContext.required();
+        String tenant = normalizeCode(tenantCode);
+        String organization = normalizeCode(organizationCode);
+        String appId = request.appId().trim();
+        return command(
+                operationUid,
+                "identity.miniapp.configuration.put",
+                "tenant:" + tenant + "|organization:" + organization,
+                request,
+                () -> replayMiniappConfiguration(tenant, organization),
+                () -> {
+                    TenantRow tenantRow =
+                            tenantForRequest(actor, tenant, true);
+                    OrganizationRow organizationRow = organizationByCode(
+                            tenantRow.id(), organization, true);
+                    requireOrganizationCapability(
+                            actor, organizationRow, "miniapp.manage");
+                    MiniappConfigurationMetadata current =
+                            miniappByOrganization(
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    true,
+                                    false);
+                    if (current == null) {
+                        if (request.expectedVersion() != null) {
+                            throw versionConflict(0);
+                        }
+                        if (newSecretReference == null) {
+                            throw unprocessable(
+                                    "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                                    "首次配置必须提供 AppSecret");
+                        }
+                        try {
+                            jdbc.update("""
+                                            INSERT INTO iam_organization_miniapp (
+                                                tenant_id, organization_id,
+                                                appid, display_name,
+                                                login_enabled, secret_ref,
+                                                activated_at, lock_version,
+                                                configured_at, created_at,
+                                                updated_at
+                                            ) VALUES (
+                                                ?, ?, ?, ?, 0, ?, NULL, 0,
+                                                UTC_TIMESTAMP(3),
+                                                UTC_TIMESTAMP(3),
+                                                UTC_TIMESTAMP(3)
+                                            )
+                                            """,
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    appId,
+                                    request.displayName().trim(),
+                                    newSecretReference);
+                        } catch (DataIntegrityViolationException exception) {
+                            throw conflict(
+                                    "IDENTITY.MINIAPP_APPID_ALREADY_USED",
+                                    "该 AppID 已关联其他机构");
+                        }
+                    } else {
+                        if (request.expectedVersion() == null) {
+                            throw versionConflict(current.version());
+                        }
+                        requireVersion(
+                                current.version(),
+                                request.expectedVersion());
+                        if (current.activated()
+                                && !current.appId().equals(appId)) {
+                            throw conflict(
+                                    "IDENTITY.MINIAPP_ALREADY_ACTIVATED",
+                                    "小程序激活后不能更换 AppID");
+                        }
+                        String secretReference = newSecretReference == null
+                                ? current.secretReference()
+                                : newSecretReference;
+                        try {
+                            jdbc.update("""
+                                            UPDATE iam_organization_miniapp
+                                            SET appid = ?,
+                                                display_name = ?,
+                                                secret_ref = ?,
+                                                lock_version = lock_version + 1,
+                                                configured_at =
+                                                    UTC_TIMESTAMP(3),
+                                                updated_at = UTC_TIMESTAMP(3)
+                                            WHERE tenant_id = ?
+                                              AND organization_id = ?
+                                              AND id = ?
+                                            """,
+                                    appId,
+                                    request.displayName().trim(),
+                                    secretReference,
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    current.id());
+                        } catch (DataIntegrityViolationException exception) {
+                            throw conflict(
+                                    "IDENTITY.MINIAPP_APPID_ALREADY_USED",
+                                    "该 AppID 已关联其他机构");
+                        }
+                    }
+                    MiniappConfigurationMetadata after =
+                            miniappByOrganization(
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    false,
+                                    true);
+                    return result(
+                            after,
+                            AuditScopeKind.ORGANIZATION,
+                            tenantRow.id(),
+                            organizationRow.id(),
+                            "organization-miniapp",
+                            organizationRow.code(),
+                            current,
+                            after,
+                            null);
+                });
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public MiniappConfigurationMetadata activateMiniappConfiguration(
+            UUID operationUid,
+            String tenantCode,
+            String organizationCode,
+            VersionCommand request) {
+        TargetWebActor actor = TargetWebActorContext.required();
+        String tenant = normalizeCode(tenantCode);
+        String organization = normalizeCode(organizationCode);
+        return command(
+                operationUid,
+                "identity.miniapp.configuration.activate",
+                "tenant:" + tenant + "|organization:" + organization,
+                request,
+                () -> replayMiniappConfiguration(tenant, organization),
+                () -> {
+                    TenantRow tenantRow =
+                            tenantForRequest(actor, tenant, true);
+                    OrganizationRow organizationRow = organizationByCode(
+                            tenantRow.id(), organization, true);
+                    requireOrganizationCapability(
+                            actor, organizationRow, "miniapp.manage");
+                    MiniappConfigurationMetadata current =
+                            miniappByOrganization(
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    true,
+                                    true);
+                    requireVersion(
+                            current.version(), request.expectedVersion());
+                    if (current.activated()) {
+                        throw conflict(
+                                "IDENTITY.MINIAPP_ALREADY_ACTIVATED",
+                                "小程序配置已经激活");
+                    }
+                    jdbc.update("""
+                                    UPDATE iam_organization_miniapp
+                                    SET activated_at = UTC_TIMESTAMP(3),
+                                        lock_version = lock_version + 1,
+                                        updated_at = UTC_TIMESTAMP(3)
+                                    WHERE tenant_id = ?
+                                      AND organization_id = ?
+                                      AND id = ?
+                                    """,
+                            tenantRow.id(),
+                            organizationRow.id(),
+                            current.id());
+                    MiniappConfigurationMetadata after =
+                            miniappByOrganization(
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    false,
+                                    true);
+                    return result(
+                            after,
+                            AuditScopeKind.ORGANIZATION,
+                            tenantRow.id(),
+                            organizationRow.id(),
+                            "organization-miniapp",
+                            organizationRow.code(),
+                            current,
+                            after,
+                            request.reason());
+                });
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public MiniappConfigurationMetadata changeMiniappLogin(
+            UUID operationUid,
+            String tenantCode,
+            String organizationCode,
+            VersionCommand request,
+            boolean enabled) {
+        TargetWebActor actor = TargetWebActorContext.required();
+        String tenant = normalizeCode(tenantCode);
+        String organization = normalizeCode(organizationCode);
+        String action = enabled
+                ? "identity.miniapp.login.enable"
+                : "identity.miniapp.login.disable";
+        return command(
+                operationUid,
+                action,
+                "tenant:" + tenant + "|organization:" + organization,
+                request,
+                () -> replayMiniappConfiguration(tenant, organization),
+                () -> {
+                    TenantRow tenantRow =
+                            tenantForRequest(actor, tenant, true);
+                    OrganizationRow organizationRow = organizationByCode(
+                            tenantRow.id(), organization, true);
+                    requireOrganizationCapability(
+                            actor, organizationRow, "miniapp.manage");
+                    MiniappConfigurationMetadata current =
+                            miniappByOrganization(
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    true,
+                                    true);
+                    requireVersion(
+                            current.version(), request.expectedVersion());
+                    if (current.loginEnabled() == enabled) {
+                        throw conflict(
+                                "IDENTITY.MINIAPP_LOGIN_STATE_CONFLICT",
+                                enabled
+                                        ? "小程序登录已经启用"
+                                        : "小程序登录已经停用");
+                    }
+                    if (enabled) {
+                        if (!"ENABLED".equals(tenantRow.status())
+                                || !"ENABLED".equals(
+                                organizationRow.status())) {
+                            throw unprocessable(
+                                    "IDENTITY.ORGANIZATION_DISABLED",
+                                    "租户和机构启用后才能开启小程序登录");
+                        }
+                        if (!current.activated()) {
+                            throw unprocessable(
+                                    "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                                    "小程序配置激活后才能开启登录");
+                        }
+                    }
+                    jdbc.update("""
+                                    UPDATE iam_organization_miniapp
+                                    SET login_enabled = ?,
+                                        lock_version = lock_version + 1,
+                                        updated_at = UTC_TIMESTAMP(3)
+                                    WHERE tenant_id = ?
+                                      AND organization_id = ?
+                                      AND id = ?
+                                    """,
+                            enabled,
+                            tenantRow.id(),
+                            organizationRow.id(),
+                            current.id());
+                    if (!enabled) {
+                        sessionRepository.revokeOrganizationMiniappSessions(
+                                tenantRow.id(),
+                                organizationRow.id(),
+                                current.id(),
+                                "MINIAPP_LOGIN_DISABLED");
+                    }
+                    MiniappConfigurationMetadata after =
+                            miniappByOrganization(
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    false,
+                                    true);
+                    return result(
+                            after,
+                            AuditScopeKind.ORGANIZATION,
+                            tenantRow.id(),
+                            organizationRow.id(),
+                            "organization-miniapp",
+                            organizationRow.code(),
+                            current,
                             after,
                             request.reason());
                 });
@@ -2081,6 +2392,54 @@ public class TargetIdentityDirectoryService {
                 tenant.id(), normalizeCode(organizationCode), false));
     }
 
+    private MiniappConfigurationMetadata replayMiniappConfiguration(
+            String tenantCode,
+            String organizationCode) {
+        TenantRow tenant = tenantByCode(normalizeCode(tenantCode), false);
+        OrganizationRow organization = organizationByCode(
+                tenant.id(), normalizeCode(organizationCode), false);
+        return miniappByOrganization(
+                tenant.id(), organization.id(), false, true);
+    }
+
+    private MiniappConfigurationMetadata miniappByOrganization(
+            long tenantId,
+            long organizationId,
+            boolean lock,
+            boolean required) {
+        List<MiniappConfigurationMetadata> rows = jdbc.query("""
+                        SELECT id, tenant_id, organization_id, appid,
+                               display_name, login_enabled, secret_ref,
+                               activated_at, lock_version, configured_at,
+                               updated_at
+                        FROM iam_organization_miniapp
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                        %s
+                        """.formatted(lock ? "FOR UPDATE" : ""),
+                (rs, ignored) -> new MiniappConfigurationMetadata(
+                        rs.getLong("id"),
+                        rs.getLong("tenant_id"),
+                        rs.getLong("organization_id"),
+                        rs.getString("appid"),
+                        rs.getString("display_name"),
+                        rs.getBoolean("login_enabled"),
+                        rs.getString("secret_ref"),
+                        nullableInstant(rs, "activated_at"),
+                        rs.getLong("lock_version"),
+                        instant(rs, "configured_at"),
+                        instant(rs, "updated_at")),
+                tenantId,
+                organizationId);
+        if (rows.isEmpty()) {
+            if (required) {
+                throw notFound();
+            }
+            return null;
+        }
+        return rows.getFirst();
+    }
+
     private StaffAccountView replayStaff(
             String tenantCode,
             UUID staffUid) {
@@ -2497,6 +2856,12 @@ public class TargetIdentityDirectoryService {
             throws SQLException {
         return rs.getObject(column, LocalDateTime.class)
                 .toInstant(ZoneOffset.UTC);
+    }
+
+    private static Instant nullableInstant(ResultSet rs, String column)
+            throws SQLException {
+        LocalDateTime value = rs.getObject(column, LocalDateTime.class);
+        return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
 
     private static String normalizeCode(String value) {

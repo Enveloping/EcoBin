@@ -595,6 +595,125 @@
         }
       }
     },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-configuration": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "getPlatformOrganizationMiniappConfiguration",
+        "tags": ["Identity directory"],
+        "summary": "Read the current organization AppID and AppSecret configuration",
+        "description": "Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      },
+      "put": {
+        "operationId": "putPlatformOrganizationMiniappConfiguration",
+        "tags": ["Identity directory"],
+        "summary": "Create or update the organization mini-program configuration",
+        "description": "The secret is versioned in an external vault before the IAM transaction and is never stored in the business database or returned by this mutation.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PutMiniappConfigurationRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-configuration/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activatePlatformOrganizationMiniappConfiguration",
+        "tags": ["Identity directory"],
+        "summary": "Irreversibly activate the current organization AppID",
+        "description": "Activation validates local completeness only. It does not claim that WeChat accepted the credentials.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-login/enablements": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "enablePlatformOrganizationMiniappLogin",
+        "tags": ["Identity directory"],
+        "summary": "Enable wx.login for an activated organization AppID",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-login/disablements": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "disablePlatformOrganizationMiniappLogin",
+        "tags": ["Identity directory"],
+        "summary": "Disable wx.login and revoke this AppID's live mini-program sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
     "/api/v1/web/organizations": {
       "get": {
         "operationId": "listCurrentTenantOrganizations",
@@ -710,6 +829,119 @@
           "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
           "404": {"$ref": "#/components/responses/NotFoundProblem"},
           "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"}
+      ],
+      "get": {
+        "operationId": "getCurrentTenantOrganizationMiniappConfiguration",
+        "tags": ["Identity directory"],
+        "summary": "Read the current visible organization's AppID and AppSecret configuration",
+        "description": "Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      },
+      "put": {
+        "operationId": "putCurrentTenantOrganizationMiniappConfiguration",
+        "tags": ["Identity directory"],
+        "summary": "Create or update a visible organization's mini-program configuration",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PutMiniappConfigurationRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activateCurrentTenantOrganizationMiniappConfiguration",
+        "tags": ["Identity directory"],
+        "summary": "Irreversibly activate the current visible organization AppID",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/miniapp-login/enablements": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "enableCurrentTenantOrganizationMiniappLogin",
+        "tags": ["Identity directory"],
+        "summary": "Enable wx.login for an activated visible organization AppID",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/miniapp-login/disablements": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "disableCurrentTenantOrganizationMiniappLogin",
+        "tags": ["Identity directory"],
+        "summary": "Disable wx.login and revoke this visible AppID's live mini-program sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
         }
       }
     },
@@ -3998,6 +4230,30 @@
       }
     },
     "responses": {
+      "MiniappConfigurationOk": {
+        "description": "Current organization mini-program configuration including the authorized full AppSecret",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/MiniappConfigurationEnvelope"}
+          }
+        }
+      },
+      "MiniappConfigurationMutationOk": {
+        "description": "Mini-program configuration state returned without the full AppSecret",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/MiniappConfigurationMutationEnvelope"}
+          }
+        }
+      },
       "DirectoryOk": {
         "description": "V-01 identity directory projection returned from current database facts",
         "headers": {
@@ -6677,6 +6933,169 @@
             }
           }
         ]
+      },
+      "PutMiniappConfigurationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "displayName"
+        ],
+        "properties": {
+          "appId": {
+            "type": "string",
+            "minLength": 18,
+            "maxLength": 18,
+            "pattern": "^wx[0-9A-Za-z]{16}$"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "appSecret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "writeOnly": true,
+            "description": "Required for initial configuration and optional for later secret rotation. Blank values are invalid."
+          },
+          "expectedVersion": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ExpectedVersion"},
+              {"type": "null"}
+            ],
+            "description": "Omit or send null only when the organization has no mini-program configuration yet."
+          }
+        }
+      },
+      "MiniappConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "displayName",
+          "appSecret",
+          "appSecretConfigured",
+          "maskedAppSecret",
+          "activated",
+          "loginEnabled",
+          "version",
+          "configuredAt",
+          "activatedAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "appId": {
+            "type": "string",
+            "minLength": 18,
+            "maxLength": 18,
+            "pattern": "^wx[0-9A-Za-z]{16}$"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "appSecret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "readOnly": true,
+            "description": "Full secret returned only by the authorized no-store GET endpoint."
+          },
+          "appSecretConfigured": {"type": "boolean", "const": true},
+          "maskedAppSecret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24
+          },
+          "activated": {"type": "boolean"},
+          "loginEnabled": {"type": "boolean"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "configuredAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "activatedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "MiniappConfigurationMutation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "displayName",
+          "appSecretConfigured",
+          "maskedAppSecret",
+          "activated",
+          "loginEnabled",
+          "version",
+          "configuredAt",
+          "activatedAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "appId": {
+            "type": "string",
+            "minLength": 18,
+            "maxLength": 18,
+            "pattern": "^wx[0-9A-Za-z]{16}$"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "appSecretConfigured": {"type": "boolean", "const": true},
+          "maskedAppSecret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24
+          },
+          "activated": {"type": "boolean"},
+          "loginEnabled": {"type": "boolean"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "configuredAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "activatedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "MiniappConfigurationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/MiniappConfiguration"},
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "MiniappConfigurationMutationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/MiniappConfigurationMutation"},
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
       },
       "VersionCommand": {
         "type": "object",

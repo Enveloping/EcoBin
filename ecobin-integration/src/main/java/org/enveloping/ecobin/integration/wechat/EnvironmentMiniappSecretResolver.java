@@ -1,11 +1,10 @@
 package org.enveloping.ecobin.integration.wechat;
 
+import org.enveloping.ecobin.identity.api.error.MiniappSecretVaultException;
 import org.enveloping.ecobin.identity.api.error.WechatExchangeException;
+import org.enveloping.ecobin.identity.api.port.MiniappSecretVaultPort;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
-
-import java.util.regex.Pattern;
 
 @Component
 @ConditionalOnProperty(
@@ -15,34 +14,19 @@ import java.util.regex.Pattern;
 final class EnvironmentMiniappSecretResolver
         implements MiniappSecretResolver {
 
-    private static final Pattern ENV_NAME =
-            Pattern.compile("^ECOBIN_[A-Z0-9_]{1,120}$");
+    private final MiniappSecretVaultPort secretVault;
 
-    private final Environment environment;
-
-    EnvironmentMiniappSecretResolver(Environment environment) {
-        this.environment = environment;
+    EnvironmentMiniappSecretResolver(MiniappSecretVaultPort secretVault) {
+        this.secretVault = secretVault;
     }
 
     @Override
     public String resolve(String secretReference) {
-        if (secretReference == null
-                || !secretReference.startsWith("env:")) {
-            throw unavailable(
-                    "小程序密钥引用不是受支持的外部环境引用");
+        try {
+            return secretVault.read(secretReference);
+        } catch (MiniappSecretVaultException exception) {
+            throw unavailable(exception.getMessage());
         }
-        String variable = secretReference.substring("env:".length());
-        if (!ENV_NAME.matcher(variable).matches()) {
-            throw unavailable("小程序密钥环境引用格式无效");
-        }
-        String value = System.getenv(variable);
-        if (value == null || value.isBlank()) {
-            value = environment.getProperty(variable);
-        }
-        if (value == null || value.isBlank()) {
-            throw unavailable("小程序密钥暂不可用");
-        }
-        return value;
     }
 
     private static WechatExchangeException unavailable(String message) {
