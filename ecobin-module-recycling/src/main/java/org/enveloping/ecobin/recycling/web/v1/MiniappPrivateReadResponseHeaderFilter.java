@@ -29,6 +29,8 @@ final class MiniappPrivateReadResponseHeaderFilter
 
     private static final String WALLET_PATH =
             "/api/v1/miniapp/me/wallet";
+    private static final String WALLET_ENTRIES_PATH =
+            "/api/v1/miniapp/me/wallet/entries";
     private static final String DELIVERY_ORDERS_PATH =
             "/api/v1/miniapp/me/delivery-orders";
     private static final Pattern DELIVERY_ORDER_DETAIL_PATH =
@@ -52,6 +54,7 @@ final class MiniappPrivateReadResponseHeaderFilter
         }
         String path = applicationPath(request);
         return !WALLET_PATH.equals(path)
+                && !WALLET_ENTRIES_PATH.equals(path)
                 && !DELIVERY_ORDERS_PATH.equals(path)
                 && !DELIVERY_ORDER_DETAIL_PATH.matcher(path).matches();
     }
