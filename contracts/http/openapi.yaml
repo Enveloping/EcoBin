@@ -6474,6 +6474,7 @@
         "required": [
           "organizationUserUid",
           "nickname",
+          "phoneNumber",
           "maskedPhoneNumber",
           "registeredAt",
           "status",
@@ -6482,7 +6483,19 @@
         "properties": {
           "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
           "nickname": {"type": "string", "minLength": 1, "maxLength": 100},
-          "maskedPhoneNumber": {"type": "string", "minLength": 3, "maxLength": 24},
+          "phoneNumber": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{1,14}$",
+            "maxLength": 16,
+            "description": "Full E.164 phone number. Returned only by authorized Web management APIs."
+          },
+          "maskedPhoneNumber": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{1,14}$",
+            "maxLength": 16,
+            "deprecated": true,
+            "description": "Deprecated v1 compatibility alias of phoneNumber. Despite the legacy name, Web management responses return the full E.164 number."
+          },
           "registeredAt": {"$ref": "#/components/schemas/UtcTimestamp"},
           "status": {"type": "string", "enum": ["ACTIVE", "FROZEN"]},
           "currentMiniappBinding": {
@@ -6515,6 +6528,7 @@
           "organizationUserUid",
           "nickname",
           "avatarUrl",
+          "phoneNumber",
           "maskedPhoneNumber",
           "phoneBound",
           "registeredAt",
@@ -6539,11 +6553,28 @@
               {"type": "null"}
             ]
           },
+          "phoneNumber": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^\\+[1-9][0-9]{1,14}$",
+                "maxLength": 16
+              },
+              {"type": "null"}
+            ],
+            "description": "Full E.164 phone number for authorized Web management users; null until the user binds a phone."
+          },
           "maskedPhoneNumber": {
             "oneOf": [
-              {"type": "string", "minLength": 3, "maxLength": 24},
+              {
+                "type": "string",
+                "pattern": "^\\+[1-9][0-9]{1,14}$",
+                "maxLength": 16
+              },
               {"type": "null"}
-            ]
+            ],
+            "deprecated": true,
+            "description": "Deprecated v1 compatibility alias of phoneNumber. Despite the legacy name, Web management responses return the full E.164 number."
           },
           "phoneBound": {"type": "boolean"},
           "registeredAt": {
@@ -6580,6 +6611,7 @@
           "organizationUserUid",
           "version",
           "nickname",
+          "phoneNumber",
           "maskedPhoneNumber"
         ],
         "properties": {
@@ -6592,11 +6624,28 @@
               {"type": "null"}
             ]
           },
+          "phoneNumber": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^\\+[1-9][0-9]{1,14}$",
+                "maxLength": 16
+              },
+              {"type": "null"}
+            ],
+            "description": "Full E.164 phone number when the caller has user.read; otherwise null."
+          },
           "maskedPhoneNumber": {
             "oneOf": [
-              {"type": "string", "minLength": 3, "maxLength": 24},
+              {
+                "type": "string",
+                "pattern": "^\\+[1-9][0-9]{1,14}$",
+                "maxLength": 16
+              },
               {"type": "null"}
-            ]
+            ],
+            "deprecated": true,
+            "description": "Deprecated v1 compatibility alias of phoneNumber. It is full when user.read is granted and null otherwise."
           }
         }
       },

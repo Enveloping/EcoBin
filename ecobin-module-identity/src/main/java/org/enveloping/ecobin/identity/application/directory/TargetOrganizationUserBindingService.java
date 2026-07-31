@@ -338,7 +338,8 @@ public class TargetOrganizationUserBindingService {
                         user.uid(),
                         binding.version(),
                         mayReadUser ? displayName(user.nickname()) : null,
-                        mayReadUser ? mask(user.phoneE164()) : null));
+                        mayReadUser ? user.phoneE164() : null,
+                        mayReadUser ? user.phoneE164() : null));
     }
 
     @Transactional(readOnly = true)
@@ -1358,7 +1359,8 @@ public class TargetOrganizationUserBindingService {
         return new OrganizationUserLookupView(
                 user.uid(),
                 displayName(user.nickname()),
-                mask(user.phoneE164()),
+                user.phoneE164(),
+                user.phoneE164(),
                 user.registeredAt(),
                 user.status(),
                 current);
@@ -1406,8 +1408,8 @@ public class TargetOrganizationUserBindingService {
                 user.uid(),
                 displayName(user.nickname()),
                 safeAvatarUrl(user.avatarUrl()),
-                user.phoneE164() == null
-                        ? null : mask(user.phoneE164()),
+                user.phoneE164(),
+                user.phoneE164(),
                 user.phoneE164() != null
                         && user.phoneBoundAt() != null,
                 user.registeredAt(),
@@ -1525,15 +1527,6 @@ public class TargetOrganizationUserBindingService {
             throw invalidRequest();
         }
         return normalized;
-    }
-
-    private static String mask(String phone) {
-        if (phone == null || phone.length() <= 7) {
-            return "***";
-        }
-        return phone.substring(0, phone.length() - 8)
-                + "****"
-                + phone.substring(phone.length() - 4);
     }
 
     private static String displayName(String nickname) {
