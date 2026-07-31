@@ -71,13 +71,13 @@
    └──────────┬───────────────────┘
               │  调用
               ▼
-   ┌──────────────────┐     ┌──────────────────┐
-   │  door_flow.py    │     │  test_mode.py    │
-   │  execute_delivery│     │  MockSerialBridge│
-   │  _cycle()        │     │  MockCamera      │
-   │  execute_door_   │     │  (测试模式替换)    │
-   │  cycle() (旧清运) │     │                  │
-   └──────────────────┘     └──────────────────┘
+   ┌──────────────────┐     ┌────────────────────────┐
+   │  door_flow.py    │     │ 显式硬件模拟边界         │
+   │  execute_delivery│     │ Linux PTY 虚拟 MCU      │
+   │  _cycle()        │     │ simulated:// 双摄源      │
+   │  execute_door_   │     │ 与真机使用相同适配入口    │
+   │  cycle() (旧清运) │     │                        │
+   └──────────────────┘     └────────────────────────┘
 ```
 
 ---
@@ -88,7 +88,7 @@
 
 **职责**：从环境变量/`.env` 文件加载所有配置项。
 
-**对外接口**：导出所有配置常量（`PRODUCT_ID`, `DEVICE_NAME`, `DEVICE_KEY`, `MQTT_HOST`, `SERIAL_PORT`, `TEST_MODE` 等），以及 `validate()` 校验函数。
+**对外接口**：导出所有配置常量（`PRODUCT_ID`, `DEVICE_NAME`, `DEVICE_KEY`, `MQTT_HOST`, `SERIAL_PORT` 等），以及 `validate()` 校验函数。
 
 **数据流向**：`.env` 文件 → `dotenv.load_dotenv()` → `os.getenv()` → 模块级常量。其他模块 `from config import ...` 直接使用。
 
@@ -222,7 +222,7 @@ $sys/{product_id}/{device_name}/thing/service/{id}/invoke → 服务调用（下
 `execute_door_cycle()` 仅为当前旧清运代码保留，仍使用 D1 文本协议和旧重量轮询；它尚未
 适配新版 MCU 固件，后续应随清运 v3 一并替换。
 
-**依赖注入设计**：两个流程的串口、摄像头和上传器均由 Handler 注入，使测试模式可以直接替换为 Mock。
+**依赖注入设计**：两个流程的串口、摄像头和上传器均由 Handler 注入，使单元测试可以显式替换为测试替身。
 
 ---
 
@@ -270,36 +270,16 @@ $sys/{product_id}/{device_name}/thing/service/{id}/invoke → 服务调用（下
 
 ---
 
-### 3.8 `test_mode.py` — 测试模式模拟
+### 3.8 显式硬件模拟边界
 
-**职责**：当 `TEST_MODE=true` 时，提供 MCU 硬件的模拟实现。
+正式 `main.py` 没有全局模拟开关，也不会按运行模式替换串口或摄像头实现：
 
-| 类 | 模拟对象 | 关键行为 |
-|---|---|---|
-| `MockSerialBridge` | `SerialBridge` | 同时模拟新投递二进制接口和旧清运 `send_cmd()`；开盖时生成门状态及最终重量 |
-| `MockCamera` | `DualCamera` | `capture()` 生成最小有效 JPEG（1×1 像素，约 160 字节）；`capture_both()` 生成两张 |
+- MCU 模拟器通过 Linux PTY 暴露串口路径，由 `ECOBIN_SERIAL_PORT` 选择；
+- 摄像头模拟器通过两个不同的 `simulated://` 显式源接入；
+- MQTT、SQLite、COS、命令处理和事件投影始终运行真实代码路径；
+- 自动化单元测试仍可直接注入 `MockUartLink`、模拟拍照函数等局部测试替身。
 
-**不做模拟的部分**：`CosUploader` 和 `MqttGateway` 始终走真实实现。测试模式仅消除对物理硬件的依赖（串口、摄像头），云侧交互完整保留。
-
-**注入机制**（在 `main.py` 的 `SmartBinGateway.__init__` 中）：
-```python
-if TEST_MODE:
-    SerialCls = MockSerialBridge
-    CameraCls = MockCamera
-else:
-    SerialCls = SerialBridge
-    CameraCls = DualCamera
-
-self.serial = SerialCls()          # ← 根据 TEST_MODE 选择实现
-self.delivery_handler = DeliveryHandler(
-    serial=self.serial,
-    camera=CameraCls,              # ← 类本身作为参数，不是实例
-    uploader=CosUploader,          # ← 始终真实
-    ...
-)
-```
-
-**模拟重量注入的时序**：新投递 `send_door_control(open=True)` 同步生成开盖状态和一条新重量事件；旧清运仍按原 `send_cmd("open")` 行为模拟。
+这样端到端测试与真机只更换设备路径，不更换应用组装逻辑。
 
 ---
 
@@ -426,15 +406,13 @@ T10 事件上报           tm.notify_delivery_         → MQTT publish
 T11 回复平台           gw._publish(reply_topic)    {"code": 200, ...}
 ```
 
-### 场景 C：测试模式下的投递
+### 场景 C：外部虚拟设备下的投递
 
-与场景 B 的差异仅在 T4 和 T5：
+与场景 B 的差异仅在设备路径：
 
 ```
-T4' Mock 开门         MockSerialBridge.send_door_control(open=True)
-                      → 生成开盖状态及随机最终重量事件
-T5' Mock 拍照         MockCamera.capture_both()
-                      → 160 字节占位 JPEG
+T4' PTY MCU           FixedFrameMcuAdapter → PTY → DD/EF
+T5' 显式模拟摄像头    PhotoManager → simulated://... → JPEG
 ```
 
 其余步骤（COS 上传、MQTT 上报）完全一致。
@@ -447,7 +425,7 @@ T5' Mock 拍照         MockCamera.capture_both()
 
 `door_flow` 流程的硬件依赖通过参数传入，不固定具体实现。Handler 也在构造时接收依赖。这带来两个好处：
 
-1. **可测试性**：测试模式下可以替换 SerialBridge 和 DualCamera 为 Mock
+1. **可测试性**：单元测试可显式注入替身，端到端测试可接入 PTY 和模拟摄像头源
 2. **松耦合**：door_flow 不知道也不关心串口协议细节
 
 ### 5.2 类级别共享状态（BinState）
@@ -468,13 +446,12 @@ T5' Mock 拍照         MockCamera.capture_both()
 
 传感器数据通过回调"向上冒泡"到 main.py，main.py 决定是否需要上报。MQTT 下行消息也通过回调分发，但用的是"注册 handler"模式（`service_handlers` 字典）而非回调函数。
 
-### 5.4 测试模式最小化原则
+### 5.4 不设置全局模拟分支
 
-仅模拟 MCU 硬件（串口 + 摄像头），不模拟网络层（MQTT + COS）。理由：
-
-- MQTT 和 COS 有真实的云侧端点可以连接，不需要模拟
-- 串口和摄像头依赖物理硬件（香橙派 GPIO / USB），开发机上无法测试
-- 这个边界划分使得测试模式贴近真实运行环境，同时消除硬件依赖
+应用只识别串口协议、串口路径和摄像头源，不识别“生产/测试”运行模式。MCU 通过
+操作系统 PTY 接入，摄像头通过显式 `simulated://` 源生成占位 JPEG；两者都由各自
+配置选择，避免全局组装分支。MQTT 和 COS 是否连接测试环境由各自的显式端点和凭证
+决定。
 
 ### 5.5 信号处理与优雅退出
 
@@ -502,7 +479,7 @@ hardware/
 ├── delivery_handler.py    投递开门处理器
 ├── clean_handler.py       清运开门处理器 + reboot handler
 ├── hardware_layer.py      硬件抽象层（串口/摄像头/COS/BinState）
-├── test_mode.py           测试模式模拟（MockSerialBridge / MockCamera）
+├── test_mode.py           仅供单元测试/调试工具显式注入的替身
 ├── .env.example           环境变量模板
 ├── .env                   实际凭证（gitignore）
 ├── pyproject.toml         Python 项目配置 (uv)

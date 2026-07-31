@@ -26,8 +26,6 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_DOOR_STATE_TIMEOUT— 等待 MCU 开关盖状态秒数（默认: 5）
     ECOBIN_DELIVERY_WEIGHT_TIMEOUT— 等待投递重量秒数（默认: 120）
     ECOBIN_DEVICE_CONFIG_PATH— 设备持久化配置路径
-    ECOBIN_TEST_MODE      — 测试模式开关（true/1/yes 开启，默认: false）
-                            开启后所有 MCU/硬件数据均为模拟，无需实际硬件连接
     ECOBIN_DATA_DIR       — 持久数据目录（默认: data/）
     ECOBIN_EDGE_STORE_PATH— SQLite 数据库路径（默认: data/edge.db）
     ECOBIN_EDGE_BOOT_ID   — 边缘启动 ID 持久文件（默认: data/edge-boot-id）
@@ -37,10 +35,10 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_COS_BASE_URL   — 当前环境 COS HTTPS 根 URL（公开配置）
     ECOBIN_COS_REQUEST_TIMEOUT_SECONDS
                           — COS SDK 网络超时秒数（默认: 15）
-    ECOBIN_CAMERA_OUTSIDE — 外部摄像头 V4L2 稳定设备路径
-                            （当前设备: DECXIN）
-    ECOBIN_CAMERA_INSIDE  — 内部摄像头 V4L2 稳定设备路径
-                            （当前设备: icspring）
+    ECOBIN_CAMERA_OUTSIDE — 外部摄像头 V4L2 稳定路径或 simulated:// 源
+                            （当前真机: DECXIN）
+    ECOBIN_CAMERA_INSIDE  — 内部摄像头 V4L2 稳定路径或 simulated:// 源
+                            （当前真机: icspring）
     ECOBIN_CAMERA_WARMUP_FRAMES
                           — 摄像头打开后读取的预热帧数（默认: 5）
     ECOBIN_PHOTO_UPLOAD_POLL_SECONDS
@@ -53,6 +51,7 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
 
 import os
 import logging
+from simulated_camera import is_simulated_camera_source
 
 try:
     from dotenv import load_dotenv
@@ -162,9 +161,6 @@ CAMERA_WARMUP_FRAMES = int(os.getenv(
     "5",
 ))
 
-# ── 测试模式 ──
-TEST_MODE = os.getenv("ECOBIN_TEST_MODE", "false").lower() in ("true", "1", "yes")
-
 # ── 边缘持久存储 ──
 _data_dir = os.getenv("ECOBIN_DATA_DIR", "data")
 _project_root = os.path.dirname(__file__)
@@ -216,12 +212,14 @@ def validate():
         raise ValueError("camera device sources must not be empty")
     if CAMERA_OUTSIDE_SOURCE == CAMERA_INSIDE_SOURCE:
         raise ValueError("outside and inside cameras must be different")
-    if not TEST_MODE and not all(
+    if not all(
         source.startswith("/dev/v4l/by-id/")
+        or is_simulated_camera_source(source)
         for source in camera_sources
     ):
         raise ValueError(
-            "production camera sources must use stable /dev/v4l/by-id paths"
+            "camera sources must use stable /dev/v4l/by-id paths "
+            "or explicit simulated:// names"
         )
     if CAMERA_WARMUP_FRAMES <= 0:
         raise ValueError("camera warmup frames must be positive")

@@ -443,10 +443,11 @@ def test_completion_urls_remain_empty_until_upload_succeeds(
     photos = PhotoManager(
         store,
         photo_dir=str(tmp_path / "photos"),
+        outside_camera_source="simulated://outside",
+        inside_camera_source="simulated://inside",
         deployment_code=DEPLOYMENT_CODE,
         uploader=uploader,
         start_upload_worker=False,
-        simulate_camera=True,
         trusted_cos_environment={
             "bucket": "ecobin-contract-1250000000",
             "region": "ap-guangzhou",

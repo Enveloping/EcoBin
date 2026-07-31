@@ -19,7 +19,7 @@ import time
 
 from config import (
     PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT,
-    TEST_MODE, SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
+    SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
     UART_HIL_REQUIRED_CAPABILITIES, EDGE_STORE_PATH,
     EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
     MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE,
@@ -58,9 +58,6 @@ class EcoBinEdge:
         self._uart_recovering = threading.Event()
 
         config_validate()
-        if TEST_MODE:
-            logger.info("TEST MODE enabled")
-
         # -- EdgeStore (SQLite) --
         self.store = EdgeStore(EDGE_STORE_PATH)
         self.store.initialize()
@@ -121,7 +118,6 @@ class EcoBinEdge:
                 PHOTO_GRANT_EXPIRY_SKEW_SECONDS
             ),
             retention_hours=PHOTO_RETENTION_HOURS,
-            simulate_camera=TEST_MODE,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
         )
 
@@ -177,7 +173,7 @@ class EcoBinEdge:
         result = boot_sequence(
             store=self.store, uart_link=self.uart,
             mqtt_client=self.mqtt, work_manager=self.work,
-            photo_manager=self.photo, test_mode=TEST_MODE,
+            photo_manager=self.photo,
         )
         if result["status"] == "SAFETY_LOCKED":
             logger.critical("BOOT FAILED: %s", result.get("reason"))
@@ -415,10 +411,7 @@ def _make_uart_link(
     port_count,
     hil_required_capabilities,
 ):
-    """Create the explicitly configured MCU link, using mock in TEST_MODE."""
-    if TEST_MODE:
-        from test_mode import MockUartLink
-        return MockUartLink(port=port, edge_boot_id=boot_id)
+    """Create the explicitly configured MCU link."""
     if MCU_PROTOCOL_MODE == "fixed-frame":
         from fixed_frame_mcu_adapter import FixedFrameMcuAdapter
         if port_count != 1:
