@@ -157,8 +157,12 @@
   项目负责人确认无需再等待现有 MCU 工具链或原生 UART 1.0 HIL，任务已转为 `done`；
 - F-11 已完成 SQLite v4、OneNet 命令可靠受理、固定帧 `AA/BB/EE` 与 `DD/EF` 适配、
   照片/COS 链路和强杀恢复测试；真实香橙派双摄、STS 上传和匿名 URL 下载已通过。
-  MQTT 重连改为复用单一 Paho 网络循环。Python 3.11 硬件套件当前为
-  `178 passed, 5 subtests passed`，契约套件为 `43 passed, 752 subtests passed`。
+  MQTT 重连改为复用单一 Paho 网络循环。固定帧 MCU 可通过 Linux PTY 接入真实
+  `main.py`，双摄可通过两个 `simulated://` 源生成占位 JPEG；运行入口已移除全局
+  测试模式，只按显式串口和摄像头源组装。
+  Python 3.11 硬件套件当前为
+  `203 passed, 1 skipped, 5 subtests passed`，契约套件为
+  `43 passed, 752 subtests passed`。
   香橙派当时的默认路由/DNS 波动按负责人决定暂不继续处理，不阻塞当前验收。F-11
   已按负责人接受的当前范围转为 `done`；后续验证发现范围内问题时重开，固定帧真机
   验收属于已就绪但尚未授权的 H-03；

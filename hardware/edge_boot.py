@@ -74,7 +74,7 @@ def _recover_edge_fault(
     )
 
 
-def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager, test_mode=False):
+def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
     """Execute the full boot sequence. Returns status dict."""
     if not store.integrity_check():
         logger.critical("BOOT: SQLite integrity FAILED")

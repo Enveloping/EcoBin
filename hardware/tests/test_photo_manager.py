@@ -172,9 +172,10 @@ def test_clean_capture_phases_use_first_open_then_final_close_slots(
     photos = PhotoManager(
         store,
         str(tmp_path / "photos"),
+        outside_camera_source="simulated://outside",
+        inside_camera_source="simulated://inside",
         deployment_code="Dp_demo_01",
         start_upload_worker=False,
-        simulate_camera=True,
     )
 
     photos.capture_clean_open_photos("operation-1")

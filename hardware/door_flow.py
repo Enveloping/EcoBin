@@ -120,7 +120,7 @@ def execute_door_cycle(
 
     :param door_index:       舱门编号（1-6）
     :param cos_token:        平台下发的 COS 临时凭证 dict
-    :param serial:           SerialBridge 实例（可为 None，测试模式跳过串口）
+    :param serial:           SerialBridge 实例（单元测试可显式传入替身）
     :param camera:           DualCamera 类
     :param uploader:         CosUploader 类
     :param bin_state:        BinState 类
