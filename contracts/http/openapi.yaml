@@ -38,7 +38,11 @@
     },
     {
       "name": "Miniapp delivery",
-      "description": "Phone-bound ordinary-user delivery discovery, start authorization and owned-session polling."
+      "description": "Ordinary-user delivery discovery, phone-bound start authorization, owned-session polling and owned order history."
+    },
+    {
+      "name": "Miniapp wallet",
+      "description": "Ordinary-user read-only wallet summary."
     },
     {
       "name": "Device management",
@@ -2182,6 +2186,49 @@
         }
       }
     },
+    "/api/v1/miniapp/me/delivery-orders": {
+      "get": {
+        "operationId": "listCurrentMiniappUserDeliveryOrders",
+        "tags": ["Miniapp delivery"],
+        "summary": "List delivery orders owned by the current ordinary user",
+        "description": "Returns a stable keyset cursor page within the current tenant, organization and organization-user scope. The opaque cursor is bound to that scope, reviewStatus and limit; clients must restart from the first page after changing a bound value.",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/DeliveryOrderLimit"},
+          {"$ref": "#/components/parameters/DeliveryReviewStatusFilter"}
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MiniappDeliveryOrderPageOk"
+          },
+          "400": {"$ref": "#/components/responses/MiniappPrivateReadInvalidRequest"},
+          "401": {"$ref": "#/components/responses/MiniappPrivateReadUnauthorizedProblem"},
+          "500": {"$ref": "#/components/responses/MiniappPrivateReadInternalProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/me/delivery-orders/{deliveryOrderNo}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/DeliveryOrderNo"}
+      ],
+      "get": {
+        "operationId": "getCurrentMiniappUserDeliveryOrder",
+        "tags": ["Miniapp delivery"],
+        "summary": "Read one delivery order owned by the current ordinary user",
+        "description": "Returns only ordinary-user-safe evidence and the current review projection. An order outside the current tenant, organization or organization-user scope is indistinguishable from a missing order.",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MiniappDeliveryOrderDetailOk"
+          },
+          "400": {"$ref": "#/components/responses/MiniappPrivateReadInvalidRequest"},
+          "401": {"$ref": "#/components/responses/MiniappPrivateReadUnauthorizedProblem"},
+          "404": {"$ref": "#/components/responses/MiniappPrivateReadNotFoundProblem"},
+          "500": {"$ref": "#/components/responses/MiniappPrivateReadInternalProblem"}
+        }
+      }
+    },
     "/api/v1/miniapp-staff/auth/sessions/current": {
       "get": {
         "operationId": "getCurrentMiniappStaffSession",
@@ -4133,6 +4180,114 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/DeliverySessionViewEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappDeliveryOrderPageOk": {
+        "description": "A stable cursor page of delivery order summaries owned by the current ordinary user",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MiniappDeliveryOrderPageEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappDeliveryOrderDetailOk": {
+        "description": "Ordinary-user-safe delivery evidence and its current review projection",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MiniappDeliveryOrderDetailEnvelope"
+            }
+          }
+        }
+      },
+      "MiniappPrivateReadInvalidRequest": {
+        "description": "A private miniapp read request was malformed or violated its input contract",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetail"
+            }
+          }
+        }
+      },
+      "MiniappPrivateReadUnauthorizedProblem": {
+        "description": "The private miniapp read is missing a valid ordinary-user session",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetail"
+            }
+          }
+        }
+      },
+      "MiniappPrivateReadNotFoundProblem": {
+        "description": "The private resource is absent or outside the current ordinary user's scope",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetail"
+            }
+          }
+        }
+      },
+      "MiniappPrivateReadInternalProblem": {
+        "description": "The private miniapp read failed unexpectedly",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetail"
             }
           }
         }
@@ -7479,6 +7634,89 @@
         "type": "string",
         "enum": ["APPLIED", "NO_CHANGE"]
       },
+      "MiniappDeliveryOrderItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveryOrderNo",
+          "deploymentCode",
+          "portNo",
+          "deviceOccurredAt",
+          "receivedAt",
+          "rawWeightKg",
+          "rawAmountYuan",
+          "rawWeightReliability",
+          "rawAmountReliability",
+          "reviewStatus",
+          "currentRevisionNo",
+          "finalWeightKg",
+          "finalAmountYuan",
+          "anomalyCodes",
+          "photoCompleteness"
+        ],
+        "properties": {
+          "deliveryOrderNo": {
+            "$ref": "#/components/schemas/DeliveryOrderNo"
+          },
+          "deploymentCode": {
+            "$ref": "#/components/schemas/DeploymentCode"
+          },
+          "portNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "deviceOccurredAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "receivedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "rawWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "rawAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "rawWeightReliability": {
+            "$ref": "#/components/schemas/DeliveryWeightReliability"
+          },
+          "rawAmountReliability": {
+            "$ref": "#/components/schemas/DeliveryAmountReliability"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/DeliveryReviewStatus"
+          },
+          "currentRevisionNo": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "finalWeightKg": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "finalAmountYuan": {
+            "type": ["string", "null"],
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$"
+          },
+          "anomalyCodes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "photoCompleteness": {
+            "$ref": "#/components/schemas/DeliveryPhotoCompleteness"
+          }
+        }
+      },
       "WebDeliveryOrderItem": {
         "type": "object",
         "additionalProperties": false,
@@ -7563,6 +7801,27 @@
           },
           "photoCompleteness": {
             "$ref": "#/components/schemas/DeliveryPhotoCompleteness"
+          }
+        }
+      },
+      "MiniappDeliveryOrderCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MiniappDeliveryOrderItem"
+            }
+          },
+          "asOf": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "nextCursor": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 512
           }
         }
       },
@@ -7712,6 +7971,34 @@
           "firstApprovedAt": {
             "type": ["string", "null"],
             "format": "date-time"
+          }
+        }
+      },
+      "MiniappDeliveryAnomaly": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "code",
+          "detectedAt",
+          "message"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/DeliveryAnomalyCategory"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "detectedAt": {
+            "$ref": "#/components/schemas/UtcTimestamp"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         }
       },
@@ -7865,6 +8152,46 @@
           }
         }
       },
+      "MiniappDeliveryOrderDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliveryOrderNo",
+          "source",
+          "raw",
+          "review",
+          "anomalies",
+          "photos"
+        ],
+        "properties": {
+          "deliveryOrderNo": {
+            "$ref": "#/components/schemas/DeliveryOrderNo"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DeliverySource"
+          },
+          "raw": {
+            "$ref": "#/components/schemas/DeliveryRawFacts"
+          },
+          "review": {
+            "$ref": "#/components/schemas/DeliveryReviewProjection"
+          },
+          "anomalies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MiniappDeliveryAnomaly"
+            }
+          },
+          "photos": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/DeliveryPhoto"
+            }
+          }
+        }
+      },
       "WebDeliveryOrderDetail": {
         "type": "object",
         "additionalProperties": false,
@@ -7988,6 +8315,44 @@
           },
           "reviewedAt": {
             "$ref": "#/components/schemas/UtcTimestamp"
+          }
+        }
+      },
+      "MiniappDeliveryOrderPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MiniappDeliveryOrderCursorPage"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "MiniappDeliveryOrderDetailEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "OK"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MiniappDeliveryOrderDetail"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         }
       },

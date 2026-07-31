@@ -12,6 +12,7 @@
     "pages/profile/profile",
     "pages/nearby/nearby",
     "pages/orders/orders",
+    "pages/order-detail/order-detail",
     "pages/appointments/appointments",
     "pages/pickup/pickup",
     "pages/fault-report/fault-report",

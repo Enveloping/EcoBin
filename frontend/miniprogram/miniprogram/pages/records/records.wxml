@@ -1,24 +1,24 @@
 <view class="page">
   <block wx:if="{{list.length > 0}}">
-    <view class="item" wx:for="{{list}}" wx:key="id">
+    <view class="item" wx:for="{{list}}" wx:key="deliveryOrderNo">
       <view class="row1">
-        <text class="sn">{{item.orderSn || ('单号 #' + item.id)}}</text>
+        <text class="sn">{{item.deliveryOrderNo}}</text>
         <t-tag
           size="small"
           variant="light"
-          theme="{{item.auditStatus === 1 ? 'success' : (item.auditStatus === 2 ? 'danger' : 'warning')}}"
+          theme="{{item.filterStatus === 'APPROVED' ? 'success' : 'warning'}}"
         >
-          {{item.auditStatusText}}
+          {{item.statusText}}
         </t-tag>
       </view>
       <view class="row2">
         <text class="weight">{{item.weightText}}</text>
         <text class="amount">{{item.amountText}}</text>
       </view>
-      <view class="time">{{item.createTime}}</view>
+      <view class="time">{{item.timeText}}</view>
     </view>
 
-    <view class="foot">{{ finished ? '没有更多了' : (loading ? '加载中...' : '上拉加载更多') }}</view>
+    <view class="foot">{{finished ? '没有更多了' : (loading ? '加载中...' : '上拉加载更多')}}</view>
   </block>
 
   <t-empty wx:elif="{{!loading}}" icon="folder" description="还没有投递记录" />

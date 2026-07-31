@@ -1604,6 +1604,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/me/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List delivery orders owned by the current ordinary user
+         * @description Returns a stable keyset cursor page within the current tenant, organization and organization-user scope. The opaque cursor is bound to that scope, reviewStatus and limit; clients must restart from the first page after changing a bound value.
+         */
+        get: operations["listCurrentMiniappUserDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one delivery order owned by the current ordinary user
+         * @description Returns only ordinary-user-safe evidence and the current review projection. An order outside the current tenant, organization or organization-user scope is indistinguishable from a missing order.
+         */
+        get: operations["getCurrentMiniappUserDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp-staff/auth/sessions/current": {
         parameters: {
             query?: never;
@@ -3459,6 +3501,25 @@ export interface components {
         DeliveryReviewerKind: "PLATFORM_ADMIN" | "TENANT_PRINCIPAL" | "STAFF_ACCOUNT";
         /** @enum {string} */
         DeliveryWalletEffect: "APPLIED" | "NO_CHANGE";
+        MiniappDeliveryOrderItem: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+            rawWeightKg: string | null;
+            rawAmountYuan: string | null;
+            rawWeightReliability: components["schemas"]["DeliveryWeightReliability"];
+            rawAmountReliability: components["schemas"]["DeliveryAmountReliability"];
+            reviewStatus: components["schemas"]["DeliveryReviewStatus"];
+            /** Format: int64 */
+            currentRevisionNo: number;
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            anomalyCodes: string[];
+            photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
+        };
         WebDeliveryOrderItem: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
             organizationUserUid: components["schemas"]["PublicUid"];
@@ -3478,6 +3539,11 @@ export interface components {
             finalAmountYuan: string | null;
             anomalyCodes: string[];
             photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
+        };
+        MiniappDeliveryOrderCursorPage: {
+            items: components["schemas"]["MiniappDeliveryOrderItem"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            nextCursor: string | null;
         };
         DeliveryOrderCursorPage: {
             items: components["schemas"]["WebDeliveryOrderItem"][];
@@ -3520,6 +3586,12 @@ export interface components {
             /** Format: date-time */
             firstApprovedAt: string | null;
         };
+        MiniappDeliveryAnomaly: {
+            category: components["schemas"]["DeliveryAnomalyCategory"];
+            code: string;
+            detectedAt: components["schemas"]["UtcTimestamp"];
+            message: string;
+        };
         WebDeliveryAnomaly: {
             category: components["schemas"]["DeliveryAnomalyCategory"];
             code: string;
@@ -3558,6 +3630,14 @@ export interface components {
             operator: components["schemas"]["DeliveryRevisionOperator"];
             reviewedAt: components["schemas"]["UtcTimestamp"];
         };
+        MiniappDeliveryOrderDetail: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            source: components["schemas"]["DeliverySource"];
+            raw: components["schemas"]["DeliveryRawFacts"];
+            review: components["schemas"]["DeliveryReviewProjection"];
+            anomalies: components["schemas"]["MiniappDeliveryAnomaly"][];
+            photos: components["schemas"]["DeliveryPhoto"][];
+        };
         WebDeliveryOrderDetail: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
             source: components["schemas"]["DeliverySource"];
@@ -3589,6 +3669,18 @@ export interface components {
             walletDeltaYuan: components["schemas"]["MoneyCny"];
             walletEffect: components["schemas"]["DeliveryWalletEffect"];
             reviewedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappDeliveryOrderPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappDeliveryOrderCursorPage"];
+            requestId: string;
+        };
+        MiniappDeliveryOrderDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappDeliveryOrderDetail"];
+            requestId: string;
         };
         DeliveryOrderPageEnvelope: {
             /** @constant */
@@ -3892,6 +3984,72 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeliverySessionViewEnvelope"];
+            };
+        };
+        /** @description A stable cursor page of delivery order summaries owned by the current ordinary user */
+        MiniappDeliveryOrderPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappDeliveryOrderPageEnvelope"];
+            };
+        };
+        /** @description Ordinary-user-safe delivery evidence and its current review projection */
+        MiniappDeliveryOrderDetailOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappDeliveryOrderDetailEnvelope"];
+            };
+        };
+        /** @description A private miniapp read request was malformed or violated its input contract */
+        MiniappPrivateReadInvalidRequest: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description The private miniapp read is missing a valid ordinary-user session */
+        MiniappPrivateReadUnauthorizedProblem: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description The private resource is absent or outside the current ordinary user's scope */
+        MiniappPrivateReadNotFoundProblem: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description The private miniapp read failed unexpectedly */
+        MiniappPrivateReadInternalProblem: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
         /** @description The intent is durably accepted but the business result is not terminal */
@@ -6368,6 +6526,43 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             404: components["responses"]["NotFoundProblem"];
             500: components["responses"]["InternalProblem"];
+        };
+    };
+    listCurrentMiniappUserDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["DeliveryOrderLimit"];
+                reviewStatus?: components["parameters"]["DeliveryReviewStatusFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliveryOrderPageOk"];
+            400: components["responses"]["MiniappPrivateReadInvalidRequest"];
+            401: components["responses"]["MiniappPrivateReadUnauthorizedProblem"];
+            500: components["responses"]["MiniappPrivateReadInternalProblem"];
+        };
+    };
+    getCurrentMiniappUserDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliveryOrderDetailOk"];
+            400: components["responses"]["MiniappPrivateReadInvalidRequest"];
+            401: components["responses"]["MiniappPrivateReadUnauthorizedProblem"];
+            404: components["responses"]["MiniappPrivateReadNotFoundProblem"];
+            500: components["responses"]["MiniappPrivateReadInternalProblem"];
         };
     };
     getCurrentMiniappStaffSession: {

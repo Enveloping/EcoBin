@@ -189,6 +189,89 @@ class HttpContractTests(unittest.TestCase):
             "#/components/schemas/MiniappSessionViewEnvelope",
         )
 
+    def test_miniapp_delivery_orders_use_owned_safe_no_store_models(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        responses = document["components"]["responses"]
+        schemas = document["components"]["schemas"]
+
+        list_operation = paths[
+            "/api/v1/miniapp/me/delivery-orders"
+        ]["get"]
+        detail_operation = paths[
+            "/api/v1/miniapp/me/delivery-orders/{deliveryOrderNo}"
+        ]["get"]
+        for operation in (list_operation, detail_operation):
+            self.assertEqual(
+                operation["security"],
+                [{"miniappBearer": []}],
+            )
+
+        self.assertEqual(
+            list_operation["responses"]["200"]["$ref"],
+            "#/components/responses/MiniappDeliveryOrderPageOk",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["200"]["$ref"],
+            "#/components/responses/MiniappDeliveryOrderDetailOk",
+        )
+        self.assertEqual(
+            list_operation["responses"]["400"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInvalidRequest",
+        )
+        self.assertEqual(
+            list_operation["responses"]["401"]["$ref"],
+            "#/components/responses/MiniappPrivateReadUnauthorizedProblem",
+        )
+        self.assertEqual(
+            list_operation["responses"]["500"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInternalProblem",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["400"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInvalidRequest",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["401"]["$ref"],
+            "#/components/responses/MiniappPrivateReadUnauthorizedProblem",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["404"]["$ref"],
+            "#/components/responses/MiniappPrivateReadNotFoundProblem",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["500"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInternalProblem",
+        )
+        for response_name in (
+            "MiniappDeliveryOrderPageOk",
+            "MiniappDeliveryOrderDetailOk",
+            "MiniappPrivateReadInvalidRequest",
+            "MiniappPrivateReadUnauthorizedProblem",
+            "MiniappPrivateReadNotFoundProblem",
+            "MiniappPrivateReadInternalProblem",
+        ):
+            self.assertEqual(
+                responses[response_name]["headers"]["Cache-Control"]["$ref"],
+                "#/components/headers/NoStore",
+            )
+            self.assertEqual(
+                responses[response_name]["headers"]["X-Request-Id"]["$ref"],
+                "#/components/headers/RequestId",
+            )
+
+        item_properties = schemas["MiniappDeliveryOrderItem"]["properties"]
+        detail_properties = schemas[
+            "MiniappDeliveryOrderDetail"
+        ]["properties"]
+        anomaly_properties = schemas[
+            "MiniappDeliveryAnomaly"
+        ]["properties"]
+        self.assertNotIn("organizationUserUid", item_properties)
+        self.assertNotIn("ownership", detail_properties)
+        self.assertNotIn("revisions", detail_properties)
+        self.assertNotIn("diagnosticDetails", anomaly_properties)
+
     def test_legacy_bearer_cutover_requires_client_cleanup_and_server_revoke(
         self,
     ) -> None:

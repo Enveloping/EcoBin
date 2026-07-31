@@ -16,8 +16,8 @@
         <t-icon name="root-list" size="36rpx" color="#10a625" />
       </view>
       <view class="summary-copy">
-        <text>订单总数</text>
-        <text class="summary-value">{{total}} 笔</text>
+        <text>当前已加载</text>
+        <text class="summary-value">{{orders.length}} 笔</text>
       </view>
     </view>
     <view class="summary-divider"></view>
@@ -26,8 +26,8 @@
         <t-icon name="filter" size="36rpx" color="#10a625" />
       </view>
       <view class="summary-copy">
-        <text>当前已显示</text>
-        <text class="summary-value">{{visibleOrders.length}} 笔</text>
+        <text>当前筛选</text>
+        <text class="summary-value">{{currentFilterText}}</text>
       </view>
     </view>
   </view>
@@ -58,12 +58,12 @@
   </view>
 
   <block wx:else>
-    <block wx:if="{{visibleOrders.length > 0}}">
+    <block wx:if="{{orders.length > 0}}">
       <view
         class="order-card"
-        wx:for="{{visibleOrders}}"
-        wx:key="id"
-        data-id="{{item.id}}"
+        wx:for="{{orders}}"
+        wx:key="deliveryOrderNo"
+        data-delivery-order-no="{{item.deliveryOrderNo}}"
         bindtap="onOrderTap"
         hover-class="order-card--pressed"
       >
@@ -86,7 +86,7 @@
         <view class="order-meta">
           <view class="order-number">
             <t-icon name="root-list" size="27rpx" color="#10a625" />
-            <text>{{item.orderSn}}</text>
+            <text>{{item.deliveryOrderNo}}</text>
           </view>
           <text>{{item.timeText}}</text>
         </view>
@@ -109,11 +109,11 @@
 
     <view wx:if="{{loading}}" class="list-foot">正在加载…</view>
     <view
-      wx:elif="{{!finished && visibleOrders.length > 0}}"
+      wx:elif="{{!finished && orders.length > 0}}"
       class="list-foot list-foot--action"
       bindtap="onContinueLoading"
       hover-class="list-foot--pressed"
     >继续加载更多历史订单</view>
-    <view wx:elif="{{finished && visibleOrders.length > 0}}" class="list-foot">没有更多了</view>
+    <view wx:elif="{{finished && orders.length > 0}}" class="list-foot">没有更多了</view>
   </block>
 </view>

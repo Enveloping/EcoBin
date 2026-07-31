@@ -1,10 +1,12 @@
 import { http, requestAccepted } from '../utils/request'
 import type {
+  CursorPage,
   DeliveryOptionsView,
-  DeliveryOrder,
+  DeliveryReviewStatus,
+  MiniappDeliveryOrderDetail,
+  MiniappDeliveryOrderItem,
   DeliverySessionAccepted,
   DeliverySessionView,
-  PageResult,
 } from '../types/api'
 
 export function getDeliveryOptions(deploymentCode: string) {
@@ -55,16 +57,38 @@ export function getDeliverySession(
   )
 }
 
-/** 我的投递记录分页 */
-export function myDeliveries(page = 1, pageSize = 20, toast = true) {
-  return http.get<PageResult<DeliveryOrder>>(
-    '/api/app/delivery/my',
-    { page, pageSize },
-    { toast },
+export interface MyDeliveriesQuery {
+  cursor?: string
+  limit?: number
+  reviewStatus?: DeliveryReviewStatus
+}
+
+/** 当前用户的投递订单，游标与筛选条件必须成组使用。 */
+export function myDeliveries(
+  query: MyDeliveriesQuery = {},
+  toast = true,
+) {
+  const data: Record<string, unknown> = {}
+  if (query.cursor) data.cursor = query.cursor
+  if (query.limit !== undefined) data.limit = query.limit
+  if (query.reviewStatus) data.reviewStatus = query.reviewStatus
+  return http.get<CursorPage<MiniappDeliveryOrderItem>>(
+    '/api/v1/miniapp/me/delivery-orders',
+    data,
+    { toast, noStore: true },
   )
 }
 
 /** 我的单条投递详情 */
-export function deliveryDetail(id: number) {
-  return http.get<DeliveryOrder>(`/api/app/delivery/my/${id}`)
+export function deliveryDetail(
+  deliveryOrderNo: string,
+  toast = true,
+) {
+  return http.get<MiniappDeliveryOrderDetail>(
+    `/api/v1/miniapp/me/delivery-orders/${
+      encodeURIComponent(deliveryOrderNo)
+    }`,
+    undefined,
+    { toast, noStore: true },
+  )
 }

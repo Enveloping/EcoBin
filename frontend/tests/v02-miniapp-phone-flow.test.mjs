@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { loginRegistrationSource } from '../miniprogram/miniprogram/utils/login-registration-source.ts';
 import { isWechatPhoneGrantCancelled } from '../miniprogram/miniprogram/utils/wechat-phone-grant.ts';
 
 function source(relativePath) {
@@ -11,16 +12,24 @@ test('device registration source survives a login retry', () => {
   const loginSource = source(
     '../miniprogram/miniprogram/pages/login/login.ts',
   );
+  const firstAttempt = loginRegistrationSource('Dp_source_01');
+  const retryAttempt = loginRegistrationSource(
+    firstAttempt?.deploymentCode,
+  );
 
+  assert.deepEqual(firstAttempt, { deploymentCode: 'Dp_source_01' });
+  assert.deepEqual(retryAttempt, firstAttempt);
+  assert.notEqual(retryAttempt, firstAttempt);
+  assert.equal(loginRegistrationSource('not-a-deployment-code'), undefined);
   assert.match(
     loginSource,
     /peekPendingDeviceEntry\(\)\?\.deploymentCode/,
   );
   assert.match(
     loginSource,
-    /deploymentCode:\s*this\.registrationDeploymentCode/,
+    /loginRegistrationSource\(this\.registrationDeploymentCode\)/,
   );
-  assert.match(loginSource, /onRetry\(\)\s*\{\s*this\.doLogin\(\)/);
+  assert.match(loginSource, /onRetry\(\)\s*\{\s*void this\.doLogin\(\)/);
 });
 
 test('only an explicit WeChat phone authorization cancellation is treated as skip', () => {
@@ -169,6 +178,50 @@ test('ordinary-link QR entry trusts WeChat routing and extracts only the deploym
   assert.match(doorEntrySource, /captureScannedDeviceEntry/);
   assert.match(deliveryApiSource, /\/api\/v1\/miniapp\/device-deployments/);
   assert.match(deliveryApiSource, /requestAccepted/);
+});
+
+test('miniapp orders and wallet use the target read contracts', () => {
+  const deliveryApiSource = source(
+    '../miniprogram/miniprogram/api/delivery.ts',
+  );
+  const walletApiSource = source(
+    '../miniprogram/miniprogram/api/wallet.ts',
+  );
+  const ordersSource = source(
+    '../miniprogram/miniprogram/pages/orders/orders.ts',
+  );
+  const detailSource = source(
+    '../miniprogram/miniprogram/pages/order-detail/order-detail.ts',
+  );
+  const deliveryEntrySource = source(
+    '../miniprogram/miniprogram/pages/delivery-entry/delivery-entry.ts',
+  );
+  const configSource = source(
+    '../miniprogram/miniprogram/config/index.ts',
+  );
+
+  assert.match(
+    deliveryApiSource,
+    /\/api\/v1\/miniapp\/me\/delivery-orders/,
+  );
+  assert.match(deliveryApiSource, /CursorPage<MiniappDeliveryOrderItem>/);
+  assert.match(deliveryApiSource, /encodeURIComponent\(deliveryOrderNo\)/);
+  assert.doesNotMatch(deliveryApiSource, /\/api\/app\/delivery\/my/);
+  assert.match(ordersSource, /nextCursor/);
+  assert.match(ordersSource, /reviewStatus:\s*reviewStatus\(this\.data\.active\)/);
+  assert.match(ordersSource, /COMMON\.INVALID_CURSOR/);
+  assert.match(detailSource, /deliveryDetail\(this\.deliveryOrderNo,\s*false\)/);
+  assert.match(
+    deliveryEntrySource,
+    /\/pages\/order-detail\/order-detail\?deliveryOrderNo=/,
+  );
+
+  assert.match(walletApiSource, /\/api\/v1\/miniapp\/me\/wallet/);
+  assert.doesNotMatch(walletApiSource, /\/api\/app\/wallet/);
+  assert.match(configSource, /targetDeliveryOrderApi:\s*true/);
+  assert.match(configSource, /targetWalletApi:\s*true/);
+  assert.match(configSource, /targetWithdrawalApi:\s*false/);
+  assert.doesNotMatch(configSource, /targetUserDataApi/);
 });
 
 test('cached sessions are validated and ordinary users can really log out', () => {

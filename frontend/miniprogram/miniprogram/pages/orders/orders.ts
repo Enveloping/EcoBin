@@ -1,46 +1,52 @@
 import { myDeliveries } from '../../api/delivery'
 import { FEATURES } from '../../config/index'
+import { MiniappApiProblem } from '../../utils/request'
 import {
-  filterDeliveries,
   toDeliveryListItem,
   type DeliveryFilter,
   type DeliveryListItem,
 } from '../../utils/user-view'
+import type { DeliveryReviewStatus } from '../../types/api'
 
 interface FilterTab {
   key: DeliveryFilter
   text: string
 }
 
+const PAGE_SIZE = 20
+
+function reviewStatus(filter: DeliveryFilter): DeliveryReviewStatus | undefined {
+  return filter === 'ALL' ? undefined : filter
+}
+
 Page({
   requestGeneration: 0,
+  cursorRecoveryUsed: false,
 
   data: {
     tabs: [
       { key: 'ALL', text: '全部' },
       { key: 'PENDING', text: '待审核' },
-      { key: 'APPROVED', text: '审核通过' },
+      { key: 'APPROVED', text: '已审核' },
     ] as FilterTab[],
     active: 'ALL' as DeliveryFilter,
-    serviceUnavailable: !FEATURES.targetUserDataApi,
-    allOrders: [] as DeliveryListItem[],
-    visibleOrders: [] as DeliveryListItem[],
-    page: 0,
-    pageSize: 20,
-    total: 0,
+    currentFilterText: '全部订单',
+    serviceUnavailable: !FEATURES.targetDeliveryOrderApi,
+    orders: [] as DeliveryListItem[],
+    nextCursor: null as string | null,
     loading: false,
-    initialLoading: FEATURES.targetUserDataApi,
-    finished: !FEATURES.targetUserDataApi,
+    initialLoading: FEATURES.targetDeliveryOrderApi,
+    finished: !FEATURES.targetDeliveryOrderApi,
     errorMessage: '',
   },
 
   onLoad() {
-    if (!FEATURES.targetUserDataApi) return
+    if (!FEATURES.targetDeliveryOrderApi) return
     void this.reload()
   },
 
   onPullDownRefresh() {
-    if (!FEATURES.targetUserDataApi) {
+    if (!FEATURES.targetDeliveryOrderApi) {
       wx.stopPullDownRefresh()
       return
     }
@@ -48,75 +54,85 @@ Page({
   },
 
   onReachBottom() {
-    if (!FEATURES.targetUserDataApi) return
+    if (!FEATURES.targetDeliveryOrderApi) return
     void this.loadMore()
   },
 
-  onTab(e: WechatMiniprogram.TouchEvent) {
-    const active = String(e.currentTarget.dataset.tab) as DeliveryFilter
-    if (!this.data.tabs.some((tab) => tab.key === active)) return
-    const visibleOrders = filterDeliveries(this.data.allOrders, active)
-    this.setData({ active, visibleOrders })
-    if (
-      visibleOrders.length === 0
-      && !this.data.finished
-      && !this.data.loading
-    ) {
-      void this.loadMore()
-    }
+  onTab(event: WechatMiniprogram.TouchEvent) {
+    const active = String(event.currentTarget.dataset.tab) as DeliveryFilter
+    const tab = this.data.tabs.find((item) => item.key === active)
+    if (!tab || active === this.data.active) return
+    this.setData({
+      active,
+      currentFilterText: active === 'ALL' ? '全部订单' : tab.text,
+    }, () => {
+      void this.reload()
+    })
   },
 
-  async reload(done?: () => void) {
-    if (!FEATURES.targetUserDataApi) {
+  async reload(
+    done?: () => void,
+    preserveCursorRecovery = false,
+  ) {
+    if (!FEATURES.targetDeliveryOrderApi) {
       done?.()
       return
     }
+    if (!preserveCursorRecovery) this.cursorRecoveryUsed = false
     const generation = ++this.requestGeneration
     this.setData({
-      allOrders: [],
-      visibleOrders: [],
-      page: 0,
-      total: 0,
+      orders: [],
+      nextCursor: null,
       finished: false,
       loading: false,
       initialLoading: true,
       errorMessage: '',
     })
     try {
-      await this.fetchPage(1, generation)
+      await this.fetchNext(undefined, generation)
     } finally {
       done?.()
     }
   },
 
   async loadMore() {
-    if (!FEATURES.targetUserDataApi) return
+    if (!FEATURES.targetDeliveryOrderApi) return
     if (this.data.loading || this.data.finished) return
-    await this.fetchPage(this.data.page + 1)
+    await this.fetchNext(this.data.nextCursor ?? undefined)
   },
 
-  async fetchPage(page: number, generation?: number) {
+  async fetchNext(cursor?: string, generation?: number) {
     const activeGeneration = generation ?? this.requestGeneration
-    if (activeGeneration !== this.requestGeneration) return
-    if (this.data.loading) return
+    if (activeGeneration !== this.requestGeneration || this.data.loading) {
+      return
+    }
     this.setData({ loading: true, errorMessage: '' })
+    let recoverInvalidCursor = false
     try {
-      const result = await myDeliveries(page, this.data.pageSize, false)
+      const result = await myDeliveries({
+        cursor,
+        limit: PAGE_SIZE,
+        reviewStatus: reviewStatus(this.data.active),
+      }, false)
       if (activeGeneration !== this.requestGeneration) return
-      const rows = result.records.map(toDeliveryListItem)
-      const allOrders = page === 1
-        ? rows
-        : this.data.allOrders.concat(rows)
+      const rows = result.items.map(toDeliveryListItem)
+      const orders = cursor ? this.data.orders.concat(rows) : rows
       this.setData({
-        allOrders,
-        visibleOrders: filterDeliveries(allOrders, this.data.active),
-        page,
-        total: result.total,
-        finished: allOrders.length >= result.total,
+        orders,
+        nextCursor: result.nextCursor,
+        finished: !result.nextCursor,
       })
     } catch (error) {
       if (activeGeneration !== this.requestGeneration) return
-      if (this.data.allOrders.length === 0) {
+      if (
+        cursor
+        && !this.cursorRecoveryUsed
+        && error instanceof MiniappApiProblem
+        && error.code === 'COMMON.INVALID_CURSOR'
+      ) {
+        this.cursorRecoveryUsed = true
+        recoverInvalidCursor = true
+      } else if (this.data.orders.length === 0) {
         this.setData({ errorMessage: '投递订单暂时无法加载' })
       } else {
         wx.showToast({ title: '更多订单加载失败', icon: 'none' })
@@ -125,6 +141,11 @@ Page({
       if (activeGeneration === this.requestGeneration) {
         this.setData({ loading: false, initialLoading: false })
       }
+    }
+
+    if (recoverInvalidCursor && activeGeneration === this.requestGeneration) {
+      wx.showToast({ title: '订单列表已更新', icon: 'none' })
+      await this.reload(undefined, true)
     }
   },
 
@@ -136,21 +157,15 @@ Page({
     void this.loadMore()
   },
 
-  onOrderTap(e: WechatMiniprogram.TouchEvent) {
-    const id = Number(e.currentTarget.dataset.id)
-    const order = this.data.allOrders.find((item) => item.id === id)
-    if (!order) return
-    wx.showModal({
-      title: order.categoryText,
-      content: [
-        `订单：${order.orderSn}`,
-        `重量：${order.weightText}`,
-        `金额：${order.amountText}`,
-        `状态：${order.statusText}`,
-        `时间：${order.timeText}`,
-      ].join('\n'),
-      showCancel: false,
-      confirmText: '知道了',
+  onOrderTap(event: WechatMiniprogram.TouchEvent) {
+    const deliveryOrderNo = String(
+      event.currentTarget.dataset.deliveryOrderNo || '',
+    )
+    if (!deliveryOrderNo) return
+    wx.navigateTo({
+      url: `/pages/order-detail/order-detail?deliveryOrderNo=${
+        encodeURIComponent(deliveryOrderNo)
+      }`,
     })
   },
 })

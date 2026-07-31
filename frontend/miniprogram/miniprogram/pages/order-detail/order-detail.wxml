@@ -1,0 +1,106 @@
+<view class="detail-page">
+  <block wx:if="{{loading}}">
+    <view class="state-card">
+      <view class="spinner"></view>
+      <text class="state-title">正在读取投递订单</text>
+    </view>
+  </block>
+
+  <view wx:elif="{{errorMessage}}" class="state-card">
+    <view class="state-icon">
+      <t-icon name="info-circle" size="58rpx" color="#c98227" />
+    </view>
+    <text class="state-title">{{errorMessage}}</text>
+    <text class="state-copy">请检查网络后重新加载</text>
+    <view class="state-action" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <view class="hero-card">
+      <view class="hero-head">
+        <view class="hero-icon">
+          <t-icon name="delete" size="54rpx" color="#10a625" />
+        </view>
+        <view class="hero-copy">
+          <text class="hero-title">{{portText}}</text>
+          <text class="hero-order">{{orderNo}}</text>
+        </view>
+        <text class="status status-{{statusTone}}">{{statusText}}</text>
+      </view>
+      <view class="hero-time">
+        <t-icon name="time" size="28rpx" color="#7c857d" />
+        <text>{{occurredAtText}}</text>
+      </view>
+    </view>
+
+    <view class="result-grid">
+      <view class="result-card">
+        <text class="result-label">投递重量</text>
+        <text class="result-value">{{weightText}}</text>
+        <text class="result-caption">{{weightCaption}}</text>
+      </view>
+      <view class="result-card">
+        <text class="result-label">返现金额</text>
+        <text class="result-value result-value--green">{{amountText}}</text>
+        <text class="result-caption">{{amountCaption}}</text>
+      </view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">订单信息</view>
+      <view class="info-row">
+        <text>设备部署码</text>
+        <text class="info-value">{{deploymentCode}}</text>
+      </view>
+      <view class="info-row">
+        <text>设备接收时间</text>
+        <text class="info-value">{{receivedAtText}}</text>
+      </view>
+      <view class="info-row">
+        <text>设备单价</text>
+        <text class="info-value">{{unitPriceText}}</text>
+      </view>
+      <view class="info-row">
+        <text>审核版本</text>
+        <text class="info-value">{{revisionText}}</text>
+      </view>
+      <view wx:if="{{approvedAtText !== '—'}}" class="info-row">
+        <text>首次审核时间</text>
+        <text class="info-value">{{approvedAtText}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{anomalies.length}}" class="info-card">
+      <view class="section-title">订单提示</view>
+      <view class="anomaly" wx:for="{{anomalies}}" wx:key="code">
+        <view class="anomaly-icon">!</view>
+        <view class="anomaly-copy">
+          <text class="anomaly-message">{{item.message || item.code}}</text>
+          <text class="anomaly-meta">{{item.code}} · {{item.timeText}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">设备照片</view>
+      <view wx:if="{{photos.length}}" class="photo-grid">
+        <view class="photo-item" wx:for="{{photos}}" wx:key="position">
+          <image
+            wx:if="{{item.status === 'AVAILABLE' && item.url}}"
+            class="photo"
+            src="{{item.url}}"
+            mode="aspectFill"
+            data-url="{{item.url}}"
+            bindtap="onPreviewPhoto"
+          />
+          <view wx:else class="photo photo--empty">
+            <t-icon name="image" size="42rpx" color="#aeb6af" />
+            <text>{{item.statusText}}</text>
+          </view>
+          <text class="photo-label">{{item.positionText}}</text>
+        </view>
+      </view>
+      <view wx:else class="photo-empty">暂无照片信息</view>
+    </view>
+  </block>
+</view>

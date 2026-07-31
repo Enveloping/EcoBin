@@ -9,16 +9,17 @@
 //export const BASE_URL = 'http://115.159.67.35:8080'
 export const BASE_URL = 'http://localhost:8080'
 
-/**
- * 首页钱包与订单列表仍使用旧数据形状，暂不启用。
- * 新设备投递入口直接使用已经落地的 /api/v1 投递接口，不受此开关影响。
- */
 export const FEATURES: Readonly<{
-  targetUserDataApi: boolean
+  targetDeliveryOrderApi: boolean
+  targetWalletApi: boolean
+  targetWithdrawalApi: boolean
   targetCleaningDataApi: boolean
   entryPreview: boolean
 }> = {
-  targetUserDataApi: false,
+  targetDeliveryOrderApi: true,
+  targetWalletApi: true,
+  // 目标提现申请、明细与记录合同尚未落地。
+  targetWithdrawalApi: false,
   targetCleaningDataApi: false,
   entryPreview: true,
 }

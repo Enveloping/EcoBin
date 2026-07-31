@@ -1,9 +1,13 @@
-import type { DeliveryOrder, WalletVO } from '../types/api'
+import type {
+  MiniappDeliveryOrderItem,
+  MiniappWalletView,
+} from '../types/api'
 import {
   compareMoneyCny,
   formatMoneyCny,
   isMoneyCny,
 } from './decimal'
+import { formatLocalShortDateTime } from './local-time'
 
 export type DeliveryFilter = 'ALL' | 'PENDING' | 'APPROVED'
 export type DeliveryTone = 'approved' | 'pending' | 'attention'
@@ -20,8 +24,7 @@ export interface WalletDisplay {
 }
 
 export interface DeliveryListItem {
-  id: number
-  orderSn: string
+  deliveryOrderNo: string
   categoryText: string
   categoryIcon: string
   weightText: string
@@ -30,30 +33,7 @@ export interface DeliveryListItem {
   statusText: string
   statusTone: DeliveryTone
   timeText: string
-  filterStatus: 'PENDING' | 'APPROVED' | 'OTHER'
-}
-
-const WASTE_TYPE_1: Record<number, string> = {
-  1: '厨余垃圾',
-  2: '可回收物',
-  3: '有害垃圾',
-  4: '其他垃圾',
-}
-
-const WASTE_TYPE_2: Record<number, string> = {
-  1: '纸类',
-  2: '塑料',
-  3: '织物',
-  4: '金属',
-  5: '其他',
-}
-
-const WASTE_ICON: Record<number, string> = {
-  1: 'file-copy',
-  2: 'delete',
-  3: 'layers',
-  4: 'filter',
-  5: 'delete',
+  filterStatus: 'PENDING' | 'APPROVED'
 }
 
 function formatOptionalMoney(value?: string): string {
@@ -61,7 +41,7 @@ function formatOptionalMoney(value?: string): string {
   return formatMoneyCny(value)
 }
 
-function formatWeight(value?: string): string {
+function formatWeight(value?: string | null): string {
   if (!value) return '重量待认定'
   const match = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?$/.exec(value)
   if (!match) return '重量待认定'
@@ -73,28 +53,15 @@ function formatWeight(value?: string): string {
   return `${match[1]}${match[2]}${decimal}kg`
 }
 
-function formatTime(value: string): string {
-  const normalized = value.replace('T', ' ').replace(/Z$/, '')
-  const match = /^(\d{4})-(\d{2})-(\d{2})[ ](\d{2}):(\d{2})/.exec(normalized)
-  if (!match) return value
-  return `${match[2]}-${match[3]} ${match[4]}:${match[5]}`
-}
-
 function formatAmount(
-  auditStatus: number | null,
-  rawValue?: string | null,
-  finalValue?: string | null,
+  order: MiniappDeliveryOrderItem,
 ): Pick<DeliveryListItem, 'amountText' | 'amountTone'> {
-  if (auditStatus === 2) {
-    return { amountText: '未入账', amountTone: 'neutral' }
-  }
-  if (auditStatus !== 0 && auditStatus !== 1) {
-    return { amountText: '金额待认定', amountTone: 'neutral' }
-  }
-
-  // 审核通过后只有 finalAmountYuan 才能代表真实入账金额。
-  // 旧接口仅返回 weight/price 时不在前端使用浮点数推算金额。
-  const value = auditStatus === 1 ? finalValue : rawValue
+  const approved = order.reviewStatus === 'APPROVED'
+  const value = approved
+    ? order.finalAmountYuan
+    : order.rawAmountReliability === 'RELIABLE'
+      ? order.rawAmountYuan
+      : null
   if (!value) {
     return { amountText: '金额待认定', amountTone: 'neutral' }
   }
@@ -106,7 +73,7 @@ function formatAmount(
   const absolute = negative ? formatted.slice(1) : formatted
   const zero = absolute === '0.00'
 
-  if (auditStatus !== 1) {
+  if (!approved) {
     if (negative) {
       return { amountText: `原始 -¥${absolute}`, amountTone: 'debit' }
     }
@@ -125,11 +92,10 @@ function formatAmount(
   return { amountText: `+¥${absolute}`, amountTone: 'credit' }
 }
 
-export function toWalletDisplay(wallet: WalletVO): WalletDisplay {
-  const availableRaw = wallet.availableBalanceYuan ?? wallet.balance
+export function toWalletDisplay(wallet: MiniappWalletView): WalletDisplay {
+  const availableRaw = wallet.availableBalanceYuan
   const pendingRewardRaw = wallet.pendingRewardYuan
-  const processingRaw =
-    wallet.withdrawalProcessingYuan ?? wallet.pendingBalance
+  const processingRaw = wallet.withdrawalProcessingYuan
   const hasAvailableBalance =
     isMoneyCny(availableRaw)
     && compareMoneyCny(availableRaw, '0.00') > 0
@@ -151,58 +117,26 @@ export function toWalletDisplay(wallet: WalletVO): WalletDisplay {
   }
 }
 
-export function toDeliveryListItem(order: DeliveryOrder): DeliveryListItem {
-  const auditStatus = order.auditStatus ?? null
-  const deliveryInProgress = order.deliveryStatus === 0
-  const categoryText =
-    (order.wasteType2 != null ? WASTE_TYPE_2[order.wasteType2] : undefined)
-    ?? (order.wasteType1 != null ? WASTE_TYPE_1[order.wasteType1] : undefined)
-    ?? '可回收物'
-  const categoryIcon =
-    (order.wasteType2 != null ? WASTE_ICON[order.wasteType2] : undefined)
-    ?? 'delete'
-  const status = deliveryInProgress
-    ? { statusText: '投递处理中', statusTone: 'pending' as const }
-    : auditStatus === 1
-      ? { statusText: '审核通过', statusTone: 'approved' as const }
-      : auditStatus === 0
-        ? { statusText: '待审核', statusTone: 'pending' as const }
-        : auditStatus === 2
-          ? { statusText: '历史订单未入账', statusTone: 'attention' as const }
-          : { statusText: '状态待同步', statusTone: 'attention' as const }
-  const filterStatus = deliveryInProgress
-    ? 'OTHER' as const
-    : auditStatus === 0
-      ? 'PENDING' as const
-      : auditStatus === 1
-        ? 'APPROVED' as const
-        : 'OTHER' as const
+export function toDeliveryListItem(
+  order: MiniappDeliveryOrderItem,
+): DeliveryListItem {
+  const approved = order.reviewStatus === 'APPROVED'
+  const weight = approved
+    ? order.finalWeightKg
+    : order.rawWeightReliability === 'RELIABLE'
+      ? order.rawWeightKg
+      : null
   return {
-    id: order.id,
-    orderSn: order.orderSn || `订单 #${order.id}`,
-    categoryText,
-    categoryIcon,
-    weightText: formatWeight(order.weight),
-    ...formatAmount(
-      deliveryInProgress ? null : auditStatus,
-      order.rawAmountYuan,
-      order.finalAmountYuan,
+    deliveryOrderNo: order.deliveryOrderNo,
+    categoryText: `${order.portNo} 号投口`,
+    categoryIcon: 'delete',
+    weightText: formatWeight(weight),
+    ...formatAmount(order),
+    statusText: approved ? '已审核' : '待审核',
+    statusTone: approved ? 'approved' : 'pending',
+    timeText: formatLocalShortDateTime(
+      order.deviceOccurredAt ?? order.receivedAt,
     ),
-    ...status,
-    timeText: formatTime(order.createTime),
-    filterStatus,
+    filterStatus: order.reviewStatus,
   }
-}
-
-export function filterDeliveries(
-  list: DeliveryListItem[],
-  filter: DeliveryFilter,
-): DeliveryListItem[] {
-  if (filter === 'PENDING') {
-    return list.filter((item) => item.filterStatus === 'PENDING')
-  }
-  if (filter === 'APPROVED') {
-    return list.filter((item) => item.filterStatus === 'APPROVED')
-  }
-  return list
 }

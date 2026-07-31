@@ -34,13 +34,14 @@ Page({
     phoneBound: false,
     showPhoneGrant: false,
     phoneGrantSubmitting: false,
-    userDataAvailable: FEATURES.targetUserDataApi,
+    walletDataAvailable: FEATURES.targetWalletApi,
+    deliveryOrderDataAvailable: FEATURES.targetDeliveryOrderApi,
     organizationName: '',
     walletBalanceText: '—',
-    walletLoading: FEATURES.targetUserDataApi,
+    walletLoading: FEATURES.targetWalletApi,
     walletError: false,
     recentDelivery: null as DeliveryListItem | null,
-    recentLoading: FEATURES.targetUserDataApi,
+    recentLoading: FEATURES.targetDeliveryOrderApi,
     recentError: false,
     ongoingDelivery: false,
   },
@@ -84,7 +85,7 @@ Page({
         ongoingDelivery,
       })
       this.setPhoneGrantTabBarHidden(showPhoneGrant)
-      if (FEATURES.targetUserDataApi) this.loadOverview()
+      this.loadOverview()
       return
     }
 
@@ -98,8 +99,8 @@ Page({
   },
 
   loadOverview() {
-    void this.loadWalletSummary()
-    void this.loadRecentDelivery()
+    if (FEATURES.targetWalletApi) void this.loadWalletSummary()
+    if (FEATURES.targetDeliveryOrderApi) void this.loadRecentDelivery()
   },
 
   async loadWalletSummary() {
@@ -121,8 +122,8 @@ Page({
   async loadRecentDelivery() {
     this.setData({ recentLoading: true, recentError: false })
     try {
-      const result = await myDeliveries(1, 1, false)
-      const latest = result.records[0]
+      const result = await myDeliveries({ limit: 1 }, false)
+      const latest = result.items[0]
       this.setData({
         recentDelivery: latest ? toDeliveryListItem(latest) : null,
       })
@@ -134,7 +135,7 @@ Page({
   },
 
   onRetryRecent() {
-    if (!FEATURES.targetUserDataApi) return
+    if (!FEATURES.targetDeliveryOrderApi) return
     if (this.data.recentError) void this.loadRecentDelivery()
   },
 
@@ -143,7 +144,7 @@ Page({
   },
 
   onWalletTap() {
-    if (!FEATURES.targetUserDataApi) {
+    if (!FEATURES.targetWalletApi) {
       this.onOpenProfile()
       return
     }
@@ -156,6 +157,19 @@ Page({
 
   onOpenOrders() {
     wx.navigateTo({ url: '/pages/orders/orders' })
+  },
+
+  onOpenRecentOrder() {
+    const deliveryOrderNo = this.data.recentDelivery?.deliveryOrderNo
+    if (!deliveryOrderNo) {
+      this.onOpenOrders()
+      return
+    }
+    wx.navigateTo({
+      url: `/pages/order-detail/order-detail?deliveryOrderNo=${
+        encodeURIComponent(deliveryOrderNo)
+      }`,
+    })
   },
 
   onResumeDelivery() {

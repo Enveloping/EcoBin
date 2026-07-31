@@ -3,6 +3,7 @@ import {
   getDeliverySession,
   startDeliverySession,
 } from '../../api/delivery'
+import { FEATURES } from '../../config/index'
 import {
   ensureLoggedIn,
   getSession,
@@ -526,7 +527,18 @@ Page({
   },
 
   onOpenOrders() {
-    wx.navigateTo({ url: '/pages/orders/orders' })
+    if (!FEATURES.targetDeliveryOrderApi) {
+      wx.showToast({ title: '投递订单服务正在接入', icon: 'none' })
+      return
+    }
+    const orderNo = String(this.data.orderNo || '')
+    wx.navigateTo({
+      url: orderNo
+        ? `/pages/order-detail/order-detail?deliveryOrderNo=${
+          encodeURIComponent(orderNo)
+        }`
+        : '/pages/orders/orders',
+    })
   },
 
   onBackHome() {

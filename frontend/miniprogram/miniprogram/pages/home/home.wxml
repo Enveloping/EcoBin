@@ -39,7 +39,7 @@
     <view class="card-copy">
       <text class="card-label">我的钱包</text>
       <text class="wallet-value {{walletError ? 'wallet-value--error' : ''}}">
-        {{!userDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取，点击重试' : walletBalanceText))}}
+        {{!walletDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取，点击重试' : walletBalanceText))}}
       </text>
     </view>
     <t-icon name="chevron-right" size="32rpx" color="#a3aaa3" />
@@ -67,7 +67,7 @@
     <view
       wx:elif="{{recentDelivery}}"
       class="recent-order"
-      bindtap="onOpenOrders"
+      bindtap="onOpenRecentOrder"
       hover-class="recent-order--pressed"
     >
       <view class="recent-order-icon">
@@ -86,7 +86,7 @@
     </view>
     <view wx:else class="recent-empty" bindtap="onRetryRecent">
       <t-icon name="root-list" size="52rpx" color="#b4bbb4" />
-      <text>{{!userDataAvailable ? '投递记录服务接入中' : (recentError ? '暂时无法获取，点击重试' : '还没有投递订单')}}</text>
+      <text>{{!deliveryOrderDataAvailable ? '投递记录服务接入中' : (recentError ? '暂时无法获取，点击重试' : '还没有投递订单')}}</text>
     </view>
   </view>
 

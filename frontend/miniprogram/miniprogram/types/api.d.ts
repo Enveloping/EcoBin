@@ -34,6 +34,13 @@ export interface PageResult<T> {
   pageSize: number
 }
 
+/** 目标接口的游标分页；nextCursor 为空表示已经到达末页。 */
+export interface CursorPage<T> {
+  items: T[]
+  asOf: string
+  nextCursor: string | null
+}
+
 /** 当前会话安全投影不再次返回 Bearer Token。 */
 export interface MiniappSessionView {
   audience: MiniappAudience
@@ -132,16 +139,14 @@ export interface DeliverySessionView {
   nextActions: [DeliverySessionNextAction]
 }
 
-/** 钱包视图：org.enveloping.ecobin.business.dto.WalletVO */
-export interface WalletVO {
-  balance: string
-  pendingBalance: string
-  /** 目标钱包投影：待审核正返现，不属于正式钱包资金。 */
-  pendingRewardYuan?: string
-  /** 目标钱包投影：当前可提现余额。 */
-  availableBalanceYuan?: string
-  /** 目标钱包投影：提现流程处理中金额。 */
-  withdrawalProcessingYuan?: string
+/** 当前小程序用户的钱包只读摘要。 */
+export interface MiniappWalletView {
+  walletVersion: number
+  /** 待审核的可靠正返现，不属于正式钱包资金。 */
+  pendingRewardYuan: string
+  availableBalanceYuan: string
+  withdrawalProcessingYuan: string
+  asOf: string
 }
 
 /** 个人信息视图：org.enveloping.ecobin.system.dto.UserProfileVO */
@@ -155,30 +160,99 @@ export interface UserProfileVO {
   status: number
 }
 
-/** 投递订单：org.enveloping.ecobin.business.entity.DeliveryOrder */
-export interface DeliveryOrder {
-  id: number
-  tenantId: number
-  createTime: string
-  orderSn?: string
-  /** 幂等键：上传后建单时落 OneNet 消息 id / MQ messageId */
-  deliveryToken?: string
-  deviceId?: number
-  doorId?: number
-  userId: number
-  wasteType1?: number
-  wasteType2?: number
-  weight?: string
-  price?: string
-  rawAmountYuan?: string | null
-  finalAmountYuan?: string | null
-  score?: number
-  loginType?: number
-  status?: number
-  /** 投递阶段：0-进行中 1-已完成 */
-  deliveryStatus?: number
-  /** 审核状态：0-待审核 1-审核通过 2-审核拒绝（通过后才返现入账） */
-  auditStatus?: number
+export type DeliveryReviewStatus = 'PENDING' | 'APPROVED'
+
+export type DeliveryRawWeightReliability =
+  | 'RELIABLE'
+  | 'INVALID'
+  | 'MISSING'
+  | 'INCONSISTENT'
+
+export type DeliveryRawAmountReliability =
+  | 'RELIABLE'
+  | 'WEIGHT_UNRELIABLE'
+
+export interface MiniappDeliveryOrderItem {
+  deliveryOrderNo: string
+  deploymentCode: string
+  portNo: number
+  deviceOccurredAt: string | null
+  receivedAt: string
+  rawWeightKg: string | null
+  rawAmountYuan: string | null
+  rawWeightReliability: DeliveryRawWeightReliability
+  rawAmountReliability: DeliveryRawAmountReliability
+  reviewStatus: DeliveryReviewStatus
+  currentRevisionNo: number
+  finalWeightKg: string | null
+  finalAmountYuan: string | null
+  anomalyCodes: string[]
+  photoCompleteness: string
+}
+
+export interface MiniappDeliverySource {
+  eventUid: string
+  sessionUid: string
+  deploymentCode: string
+  portNo: number
+  deviceOccurredAt: string | null
+  receivedAt: string
+}
+
+export interface MiniappDeliveryRawFacts {
+  firstPreOpenWeightGram: number | null
+  finalPostCloseWeightGram: number | null
+  netWeightGram: number | null
+  weightKg: string | null
+  unitPriceYuanPerKg: string | null
+  amountYuan: string | null
+  weightReliability: DeliveryRawWeightReliability
+  amountReliability: DeliveryRawAmountReliability
+  negativeWeightAnomaly: boolean
+}
+
+export interface MiniappDeliveryReviewProjection {
+  status: DeliveryReviewStatus
+  currentRevisionNo: number
+  maxReviewAbsoluteWeightKg: string
+  finalWeightKg: string | null
+  finalAmountYuan: string | null
+  firstApprovedAt: string | null
+}
+
+export interface MiniappDeliveryAnomaly {
+  category: string
+  code: string
+  detectedAt: string
+  message: string
+}
+
+export type DeliveryPhotoPosition =
+  | 'BEFORE_INNER'
+  | 'BEFORE_OUTER'
+  | 'AFTER_INNER'
+  | 'AFTER_OUTER'
+
+export type DeliveryPhotoStatus =
+  | 'UPLOAD_PENDING'
+  | 'AVAILABLE'
+  | 'PERMANENTLY_MISSING'
+
+export interface MiniappDeliveryPhoto {
+  position: DeliveryPhotoPosition
+  status: DeliveryPhotoStatus
+  url: string | null
+  capturedAt: string | null
+  missingReason: string | null
+}
+
+export interface MiniappDeliveryOrderDetail {
+  deliveryOrderNo: string
+  source: MiniappDeliverySource
+  raw: MiniappDeliveryRawFacts
+  review: MiniappDeliveryReviewProjection
+  anomalies: MiniappDeliveryAnomaly[]
+  photos: MiniappDeliveryPhoto[]
 }
 
 /** 清运订单：org.enveloping.ecobin.business.entity.CleanOrder */
@@ -212,20 +286,6 @@ export interface CleanOrder {
 export interface CleanOpenRequest {
   doorId: number
   bagNo: string
-}
-
-/** 提现订单：org.enveloping.ecobin.business.entity.WithdrawOrder */
-export interface WithdrawOrder {
-  id: number
-  tenantId: number
-  createTime: string
-  userId: number
-  amount: string
-  /** 状态：0-待审核 1-已通过 2-已驳回 */
-  status?: number
-  auditTime?: string
-  auditRemark?: string
-  transferNo?: string
 }
 
 /** 设备：org.enveloping.ecobin.device.entity.Device */

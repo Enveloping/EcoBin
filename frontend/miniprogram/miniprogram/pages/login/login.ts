@@ -6,6 +6,7 @@ import {
   routePendingDeviceEntry,
 } from '../../utils/device-entry-intent'
 import { MiniappApiProblem } from '../../utils/request'
+import { loginRegistrationSource } from '../../utils/login-registration-source'
 import { registrationDeploymentCode } from '../../utils/registration-source'
 
 Page({
@@ -54,13 +55,10 @@ Page({
 
   async doLogin() {
     const attempt = ++this.loginAttempt
-    const deploymentCode = this.registrationDeploymentCode
     this.setData({ loading: true, error: '', diagnostic: '' })
     try {
       const session = await ensureLoggedIn(
-        deploymentCode
-          ? { deploymentCode }
-          : undefined,
+        loginRegistrationSource(this.registrationDeploymentCode),
       )
       if (attempt !== this.loginAttempt) return
       if (!routePendingDeviceEntry(session)) routeToEntry(session)

@@ -24,7 +24,7 @@
     <view class="wallet-main">
       <view class="wallet-copy">
         <text class="wallet-label">账户余额</text>
-        <text class="wallet-value">{{!userDataAvailable ? '—' : (walletLoading ? '读取中' : availableBalanceText)}}</text>
+        <text class="wallet-value">{{!walletDataAvailable ? '—' : (walletLoading ? '读取中' : availableBalanceText)}}</text>
       </view>
       <view
         class="withdraw-button"
@@ -40,7 +40,7 @@
       <view class="wallet-meta-item">
         <text>待审核返现</text>
         <view class="wallet-meta-tail">
-          <text class="wallet-meta-value">{{!userDataAvailable ? '服务接入中' : (walletLoading ? '读取中' : (walletError ? '点击重试' : pendingRewardText))}}</text>
+          <text class="wallet-meta-value">{{!walletDataAvailable ? '服务接入中' : (walletLoading ? '读取中' : (walletError ? '点击重试' : pendingRewardText))}}</text>
           <t-icon name="chevron-right" size="32rpx" color="#9da49e" />
         </view>
       </view>

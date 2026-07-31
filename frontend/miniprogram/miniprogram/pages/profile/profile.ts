@@ -40,11 +40,11 @@ Page({
     phoneBound: false,
     showPhoneGrant: false,
     phoneGrantSubmitting: false,
-    userDataAvailable: FEATURES.targetUserDataApi,
+    walletDataAvailable: FEATURES.targetWalletApi,
     availableBalanceText: '—',
     pendingRewardText: '—',
     withdrawalProcessingText: '—',
-    walletLoading: FEATURES.targetUserDataApi,
+    walletLoading: FEATURES.targetWalletApi,
     walletError: false,
     hasAvailableBalance: false,
     hasWithdrawalProcessing: false,
@@ -76,7 +76,7 @@ Page({
         entryPreviewEnabled: isEntryPreviewEnabled(),
       }, () => {
         this.setPhoneGrantTabBarHidden(this.data.showPhoneGrant)
-        if (FEATURES.targetUserDataApi) void this.loadWallet()
+        if (FEATURES.targetWalletApi) void this.loadWallet()
       })
       return
     }
@@ -90,7 +90,7 @@ Page({
   },
 
   async loadWallet() {
-    if (!FEATURES.targetUserDataApi) {
+    if (!FEATURES.targetWalletApi) {
       this.setData({ walletLoading: false, walletError: false })
       return
     }
@@ -129,7 +129,7 @@ Page({
   },
 
   onWalletRetry() {
-    if (!FEATURES.targetUserDataApi) return
+    if (!FEATURES.targetWalletApi) return
     void this.loadWallet()
   },
 
@@ -143,6 +143,10 @@ Page({
   },
 
   onWithdraw() {
+    if (!FEATURES.targetWithdrawalApi) {
+      wx.showToast({ title: '提现服务正在接入', icon: 'none' })
+      return
+    }
     if (
       requestPhoneBindingBeforeAction(
         getSession(),
@@ -155,8 +159,8 @@ Page({
   },
 
   continueWithdraw() {
-    if (!FEATURES.targetUserDataApi) {
-      wx.showToast({ title: '钱包服务正在接入', icon: 'none' })
+    if (!FEATURES.targetWithdrawalApi) {
+      wx.showToast({ title: '提现服务正在接入', icon: 'none' })
       return
     }
     if (this.data.walletLoading) return
@@ -235,7 +239,7 @@ Page({
       this.setData({
         phoneBound: true,
         showPhoneGrant: false,
-        canWithdraw: FEATURES.targetUserDataApi
+        canWithdraw: FEATURES.targetWithdrawalApi
           && !this.data.walletLoading
           && !this.data.walletError
           && this.data.hasAvailableBalance

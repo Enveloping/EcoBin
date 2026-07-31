@@ -1,6 +1,5 @@
 import { parseOrdinaryDeviceLink } from './ordinary-device-link'
-
-const DEPLOYMENT_CODE_PATTERN = /^Dp_[A-Za-z0-9_-]{6,61}$/
+import { normalizeDeploymentCode } from './login-registration-source'
 
 function decodeOption(value: string): string | undefined {
   try {
@@ -8,15 +7,6 @@ function decodeOption(value: string): string | undefined {
   } catch {
     return undefined
   }
-}
-
-function normalizeDeploymentCode(
-  value: string | undefined,
-): string | undefined {
-  const normalized = value?.trim()
-  return normalized && DEPLOYMENT_CODE_PATTERN.test(normalized)
-    ? normalized
-    : undefined
 }
 
 /**
