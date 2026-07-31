@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { loginRegistrationSource } from '../miniprogram/miniprogram/utils/login-registration-source.ts';
 import { isWechatPhoneGrantCancelled } from '../miniprogram/miniprogram/utils/wechat-phone-grant.ts';
@@ -7,6 +7,25 @@ import { isWechatPhoneGrantCancelled } from '../miniprogram/miniprogram/utils/we
 function source(relativePath) {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 }
+
+test('every registered miniapp page has its source files on disk', () => {
+  const appJson = JSON.parse(source(
+    '../miniprogram/miniprogram/app.json',
+  ));
+
+  for (const pagePath of appJson.pages) {
+    for (const extension of ['.json', '.ts', '.wxml', '.wxss']) {
+      assert.equal(
+        existsSync(new URL(
+          `../miniprogram/miniprogram/${pagePath}${extension}`,
+          import.meta.url,
+        )),
+        true,
+        `${pagePath}${extension} must exist`,
+      );
+    }
+  }
+});
 
 test('device registration source survives a login retry', () => {
   const loginSource = source(
@@ -199,6 +218,15 @@ test('miniapp orders and wallet use the target read contracts', () => {
   const configSource = source(
     '../miniprogram/miniprogram/config/index.ts',
   );
+  const profileSource = source(
+    '../miniprogram/miniprogram/pages/profile/profile.ts',
+  );
+  const walletPageSource = source(
+    '../miniprogram/miniprogram/pages/wallet/wallet.ts',
+  );
+  const appJsonSource = source(
+    '../miniprogram/miniprogram/app.json',
+  );
 
   assert.match(
     deliveryApiSource,
@@ -217,7 +245,20 @@ test('miniapp orders and wallet use the target read contracts', () => {
   );
 
   assert.match(walletApiSource, /\/api\/v1\/miniapp\/me\/wallet/);
+  assert.match(
+    walletApiSource,
+    /\/api\/v1\/miniapp\/me\/wallet\/entries/,
+  );
   assert.doesNotMatch(walletApiSource, /\/api\/app\/wallet/);
+  assert.match(profileSource, /\/pages\/wallet\/wallet/);
+  assert.doesNotMatch(
+    profileSource,
+    /placeholder\/placeholder\?title=钱包明细/,
+  );
+  assert.match(appJsonSource, /pages\/wallet\/wallet/);
+  assert.match(walletPageSource, /myWalletEntries/);
+  assert.match(walletPageSource, /nextCursor/);
+  assert.match(walletPageSource, /COMMON\.INVALID_CURSOR/);
   assert.match(configSource, /targetDeliveryOrderApi:\s*true/);
   assert.match(configSource, /targetWalletApi:\s*true/);
   assert.match(configSource, /targetWithdrawalApi:\s*false/);

@@ -149,6 +149,33 @@ export interface MiniappWalletView {
   asOf: string
 }
 
+export type WalletEntryType =
+  | 'DELIVERY_INITIAL_REVIEW'
+  | 'DELIVERY_CORRECTION'
+  | 'WITHDRAWAL_FREEZE'
+  | 'WITHDRAWAL_SUCCEEDED'
+  | 'WITHDRAWAL_RELEASED'
+  | 'MANUAL_ADJUSTMENT'
+
+export type WalletEntrySourceType =
+  | 'DELIVERY_ORDER'
+  | 'WITHDRAWAL_ORDER'
+  | 'MANUAL_ADJUSTMENT'
+
+/** 当前用户的一条不可变钱包流水。 */
+export interface PersonalWalletEntry {
+  entryUid: string
+  entrySequenceNo: number
+  entryType: WalletEntryType
+  availableDeltaYuan: string
+  processingDeltaYuan: string
+  availableBalanceAfterYuan: string
+  withdrawalProcessingAfterYuan: string
+  sourceType: WalletEntrySourceType
+  sourceNo: string
+  occurredAt: string
+}
+
 /** 个人信息视图：org.enveloping.ecobin.system.dto.UserProfileVO */
 export interface UserProfileVO {
   id: number

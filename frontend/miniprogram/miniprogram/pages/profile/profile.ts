@@ -54,7 +54,7 @@ Page({
     entryPreviewNotice: ENTRY_PREVIEW_NOTICE,
     shortcuts: [
       { text: '投递订单', icon: 'root-list', url: '/pages/orders/orders' },
-      { text: '钱包明细', icon: 'wallet', url: '/pages/placeholder/placeholder?title=钱包明细' },
+      { text: '钱包明细', icon: 'wallet', url: '/pages/wallet/wallet' },
       { text: '提现记录', icon: 'time', url: '/pages/placeholder/placeholder?title=提现记录' },
     ] as MenuItem[],
     helpers: [
