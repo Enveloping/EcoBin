@@ -8,7 +8,7 @@
 - 根 Maven reactor 已收口为 common、framework、identity、device、funds、recycling、
   operations、integration、bootstrap 九个目标模块；旧 `system` 和 `business` 均不再
   作为 Maven 模块存在。
-- 旧钱包和提现行为迁入 funds；投递、审核、清运和袋行为迁入 recycling；统计聚合迁入
+- 旧钱包和提现行为迁入 funds；投递及其审核、清运记录和袋行为迁入 recycling；统计聚合迁入
   operations；设备查询和统计由 device 公开窄端口提供。
 - OneNet 入站分发只依赖 recycling 的不可变公开命令和事件端口，不再导入业务内部
   Service、Entity 或 Mapper。

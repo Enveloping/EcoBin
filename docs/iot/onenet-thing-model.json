@@ -96,7 +96,7 @@
       "desc": "",
       "input": [
         { "identifier": "doorIndex", "name": "投口号", "dataType": { "type": "int32", "specs": { "min": "1", "max": "6", "unit": "", "step": "1" } } },
-        { "identifier": "cleanOrderId", "name": "清运订单ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
+        { "identifier": "cleanOrderId", "name": "清运记录ID（历史字段名）", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
         { "identifier": "cosToken", "name": "上传临时密钥", "dataType": {
           "type": "struct",
           "specs": [
@@ -149,7 +149,7 @@
       "eventType": "info",
       "desc": "",
       "outputData": [
-        { "identifier": "cleanOrderId", "name": "清运订单ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
+        { "identifier": "cleanOrderId", "name": "清运记录ID（历史字段名）", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
         { "identifier": "weight", "name": "清运毛重", "dataType": { "type": "float", "specs": { "min": "0", "max": "1000", "unit": "kg", "step": "0.001" } } }
       ]
     },
@@ -160,7 +160,7 @@
       "eventType": "info",
       "desc": "",
       "outputData": [
-        { "identifier": "cleanOrderId", "name": "清运订单ID", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
+        { "identifier": "cleanOrderId", "name": "清运记录ID（历史字段名）", "dataType": { "type": "int64", "specs": { "min": "0", "max": "9999999999999", "unit": "", "step": "1" } } },
         { "identifier": "weight", "name": "去皮重量", "dataType": { "type": "float", "specs": { "min": "0", "max": "100", "unit": "kg", "step": "0.001" } } }
       ]
     },

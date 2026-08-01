@@ -33,7 +33,7 @@
 | 能力码 | 允许作用域 | 含义 |
 |---|---|---|
 | `delivery.read` | `TENANT`、`ORGANIZATION` | 查询作用域内投递订单、原始证据、异常、照片状态和认定历史 |
-| `review.execute` | `TENANT`、`ORGANIZATION` | 查询统一审核队列及完成投递、清运和提现的初次审核；本章先落地投递查询/审核端点 |
+| `review.execute` | `TENANT`、`ORGANIZATION` | 查询相应审核队列及完成投递初审和提现审核；清运记录不审核，本章先落地投递查询/审核端点 |
 | `delivery.correct` | `TENANT`、`ORGANIZATION` | 对已经通过的投递订单执行不限期纠错 |
 | `wallet.read` | `TENANT`、`ORGANIZATION` | 查询机构用户钱包三项视图及真实资金明细 |
 

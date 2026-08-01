@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
+import org.enveloping.ecobin.device.api.port.ReliableEdgeConfirmationPort;
 import org.enveloping.ecobin.framework.reliability.DeviceDeploymentTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistrationPort;
@@ -24,7 +25,8 @@ import java.util.UUID;
  * business projection and does not create a physical device-command row.
  */
 @Service
-public class ReliableEdgeConfirmationService {
+public class ReliableEdgeConfirmationService
+        implements ReliableEdgeConfirmationPort {
 
     static final String TASK_TYPE = "CONFIRM_EDGE_EVENT";
     static final String TARGET_TYPE = "BUSINESS_CONFIRMATION";
@@ -69,6 +71,7 @@ public class ReliableEdgeConfirmationService {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
+    @Override
     public UUID registerApplied(
             long tenantId,
             long organizationId,

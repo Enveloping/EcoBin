@@ -92,7 +92,7 @@ P0 不增加成对的 `*-api`/`*-impl` Maven 工程，也不使用 JPMS。物理
 | 租户、机构、工作人员、机构用户和授权 | identity | framework 的可信上下文、审计技术端口 |
 | 独立设备管理、设备状态/物理观察归并及设备安全恢复 | device | identity 作用域能力、可靠任务技术端口 |
 | 开始投递的唯一复合授权：跨域资格与 session/occupancy/frozen snapshot/command 原子成立 | recycling | identity、funds、device 的公开参与端口及技术端口 |
-| 最终投递结果建一单、审核纠错、清运、袋、基准和满溢 | recycling | identity、device、funds 的公开端口及技术端口 |
+| 最终投递结果建一单及其审核纠错、清运记录及直接修改留痕、袋、基准和满溢 | recycling | identity、device、funds 的公开端口及技术端口 |
 | 钱包、充值、提现、微信转账业务状态和平台出款闸门 | funds | identity 能力、可靠任务与审计技术端口 |
 | 技术处置、对账、告警和一致只读概览 | operations | 各业务模块公开查询/受控恢复端口 |
 

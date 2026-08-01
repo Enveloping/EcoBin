@@ -5,6 +5,7 @@ import org.enveloping.ecobin.device.api.port.CompleteFullnessSampleDevicePartici
 import org.enveloping.ecobin.device.api.port.ScheduleFullnessSampleDevicePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
 import org.enveloping.ecobin.device.api.result.FullnessSampleBusinessResult;
+import org.enveloping.ecobin.device.api.result.FullnessSampleMeasurement;
 import org.enveloping.ecobin.device.api.result.FullnessSamplePersistenceFacts;
 import org.enveloping.ecobin.device.api.result.FullnessSamplePhysicalFact;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
@@ -235,41 +236,117 @@ public class ApplyFullnessSampleCompleteService
     private static SampleCalculation calculate(
             FullnessSamplePersistenceFacts facts,
             DetectionRow detection) {
-        long totalWeight = facts.physicalFact()
-                .totalWeightMeasurement()
-                .reportedWeightGrams();
-        BigDecimal percent = BigDecimal.valueOf(totalWeight)
+        FullnessSamplePhysicalFact physical = facts.physicalFact();
+        return decide(
+                detection.decisionMode(),
+                detection.baselineWeightGrams(),
+                detection.configuredFullWeightGrams(),
+                physical.fullnessSensorValue(),
+                physical.totalWeightMeasurement());
+    }
+
+    static SampleCalculation decide(
+            String decisionMode,
+            Long baselineWeightGrams,
+            long configuredFullWeightGrams,
+            String fullnessSensorValue,
+            FullnessSampleMeasurement measurement) {
+        boolean infraredRequired = List.of(
+                "INFRARED_ONLY",
+                "INFRARED_OR_WEIGHT").contains(
+                decisionMode);
+        boolean weightRequired = List.of(
+                "WEIGHT_ONLY",
+                "INFRARED_OR_WEIGHT").contains(
+                decisionMode);
+
+        boolean infraredReliable = infraredRequired
+                && List.of("CLEAR", "BLOCKED").contains(
+                fullnessSensorValue);
+        String infraredStatus = infraredRequired
+                ? (infraredReliable ? "RELIABLE" : "FAILED")
+                : "NOT_REQUIRED";
+        Boolean infraredFull = infraredReliable
+                ? "BLOCKED".equals(fullnessSensorValue)
+                : null;
+
+        boolean weightReliable = weightRequired
+                && baselineWeightGrams != null
+                && "STABLE".equals(measurement.status())
+                && measurement.weightValueAvailable()
+                && measurement.reportedWeightGrams() != null
+                && "STABLE_WINDOW_MEAN".equals(
+                measurement.weightValueKind())
+                && "OK".equals(measurement.sensorHealth())
+                && measurement.faultCode() == null;
+        String weightStatus = weightRequired
+                ? (weightReliable ? "RELIABLE" : "FAILED")
+                : "NOT_REQUIRED";
+        Long totalWeight = weightReliable
+                ? measurement.reportedWeightGrams() : null;
+        Long baselineWeight = weightReliable
+                ? baselineWeightGrams : null;
+        Long thresholdWeight = weightReliable
+                ? configuredFullWeightGrams : null;
+        Long rawNet = weightReliable
+                ? Math.subtractExact(totalWeight, baselineWeight)
+                : null;
+        BigDecimal percent = weightReliable
+                ? BigDecimal.valueOf(Math.max(rawNet, 0L))
                 .multiply(BigDecimal.valueOf(100))
                 .divide(
-                        BigDecimal.valueOf(
-                                detection.configuredFullWeightGrams()),
+                        BigDecimal.valueOf(thresholdWeight),
                         2,
-                        RoundingMode.HALF_UP);
-        if (percent.signum() < 0) {
-            percent = BigDecimal.ZERO.setScale(2);
+                        RoundingMode.HALF_UP)
+                : null;
+        Boolean weightFull = weightReliable
+                ? percent.compareTo(BigDecimal.valueOf(100)) >= 0
+                : null;
+
+        boolean anyFull = Boolean.TRUE.equals(infraredFull)
+                || Boolean.TRUE.equals(weightFull);
+        boolean allRequiredReliable =
+                (!infraredRequired || infraredReliable)
+                        && (!weightRequired || weightReliable);
+        String conclusion = anyFull
+                ? "FULL"
+                : (allRequiredReliable ? "NOT_FULL" : "SOURCE_FAILED");
+        String fullReason = null;
+        if (anyFull) {
+            if (Boolean.TRUE.equals(infraredFull)
+                    && Boolean.TRUE.equals(weightFull)) {
+                fullReason = "BOTH";
+            } else if (Boolean.TRUE.equals(infraredFull)) {
+                fullReason = "INFRARED";
+            } else {
+                fullReason = "WEIGHT";
+            }
         }
-        boolean full =
-                percent.compareTo(
-                        BigDecimal.valueOf(100)) >= 0;
-        Long rawNet = detection.baselineWeightGrams() == null
-                ? null
-                : Math.subtractExact(
-                        totalWeight,
-                        detection.baselineWeightGrams());
+        String failureCode = "SOURCE_FAILED".equals(conclusion)
+                ? (weightRequired
+                && baselineWeightGrams == null
+                ? "WEIGHT_BASELINE_UNAVAILABLE"
+                : "FULLNESS_SOURCE_UNAVAILABLE")
+                : null;
         return new SampleCalculation(
+                infraredStatus,
+                infraredFull,
+                weightStatus,
                 totalWeight,
+                baselineWeight,
+                thresholdWeight,
                 rawNet,
                 percent,
-                full ? "FULL" : "NOT_FULL",
-                full ? "WEIGHT" : null);
+                weightFull,
+                conclusion,
+                fullReason,
+                failureCode);
     }
 
     private long insertSample(
             FullnessSamplePersistenceFacts facts,
             DetectionRow detection,
             SampleCalculation calculation) {
-        boolean infraredFull = "BLOCKED".equals(
-                facts.physicalFact().fullnessSensorValue());
         requireSingle(jdbc.update("""
                         INSERT INTO rec_fullness_sample (
                             tenant_id, organization_id,
@@ -300,7 +377,7 @@ public class ApplyFullnessSampleCompleteService
                             ?, ?,
                             ?, ?,
                             ?,
-                            'RELIABLE',
+                            ?,
                             ?,
                             ?,
                             ?,
@@ -309,7 +386,7 @@ public class ApplyFullnessSampleCompleteService
                             ?,
                             ?,
                             'FIXED_FRAME_TOTAL_WEIGHT',
-                            'RELIABLE',
+                            ?,
                             ?,
                             ?,
                             ?,
@@ -328,19 +405,21 @@ public class ApplyFullnessSampleCompleteService
                 facts.detectionId(),
                 facts.physicalFact().sampleRole(),
                 facts.physicalResultId(),
+                calculation.infraredStatus(),
                 facts.physicalFact().fullnessSensorValue(),
-                infraredFull,
+                calculation.infraredFull(),
                 facts.physicalFact().fullnessSensorKind(),
                 facts.physicalFact().fullnessSampleBasis(),
                 facts.physicalFact().representativeDistanceMm(),
                 facts.physicalFact().requestedSampleCount(),
                 facts.physicalFact().validSampleCount(),
+                calculation.weightStatus(),
                 calculation.totalWeightGrams(),
-                detection.baselineWeightGrams(),
-                detection.configuredFullWeightGrams(),
+                calculation.baselineWeightGrams(),
+                calculation.thresholdWeightGrams(),
                 calculation.rawNetWeightGrams(),
                 calculation.displayedPercent(),
-                "FULL".equals(calculation.conclusion()),
+                calculation.weightFull(),
                 calculation.conclusion(),
                 calculation.fullReason(),
                 LocalDateTime.ofInstant(
@@ -511,6 +590,19 @@ public class ApplyFullnessSampleCompleteService
         String disposition = currentGeneration
                 ? "APPLIED"
                 : "STALE_IGNORED";
+        if ("SOURCE_FAILED".equals(calculation.conclusion())) {
+            failDetection(
+                    facts,
+                    detection,
+                    sampleId,
+                    calculation,
+                    initial,
+                    disposition);
+            if (currentGeneration) {
+                updateFailedCapacity(facts, calculation);
+            }
+            return;
+        }
         requireSingle(jdbc.update("""
                         UPDATE rec_fullness_detection
                         SET status = 'COMPLETED',
@@ -577,6 +669,92 @@ public class ApplyFullnessSampleCompleteService
                     "NOT_FULL",
                     null);
         }
+    }
+
+    private void failDetection(
+            FullnessSamplePersistenceFacts facts,
+            DetectionRow detection,
+            long sampleId,
+            SampleCalculation calculation,
+            boolean initial,
+            String disposition) {
+        requireSingle(jdbc.update("""
+                        UPDATE rec_fullness_detection
+                        SET status = 'FAILED',
+                            final_result = 'SOURCE_FAILED',
+                            failure_code = ?,
+                            disposition = ?,
+                            initial_sample_id =
+                                CASE
+                                    WHEN ? THEN ?
+                                    ELSE initial_sample_id
+                                END,
+                            initial_sample_conclusion =
+                                CASE
+                                    WHEN ? THEN 'SOURCE_FAILED'
+                                    ELSE initial_sample_conclusion
+                                END,
+                            terminal_sample_id = ?,
+                            terminal_sample_conclusion = 'SOURCE_FAILED',
+                            next_sample_at = NULL,
+                            completed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND status = ?
+                        """,
+                calculation.failureCode(),
+                disposition,
+                initial,
+                sampleId,
+                initial,
+                sampleId,
+                facts.backendReceivedAt(),
+                facts.backendReceivedAt(),
+                facts.detectionId(),
+                facts.tenantId(),
+                facts.organizationId(),
+                detection.status()),
+                "fail fullness detection");
+    }
+
+    private void updateFailedCapacity(
+            FullnessSamplePersistenceFacts facts,
+            SampleCalculation calculation) {
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_capacity_state
+                        SET latest_stable_total_weight_g = ?,
+                            raw_net_weight_g = ?,
+                            displayed_fullness_percent = ?,
+                            detection_gate = 'FAILED',
+                            current_detection_id = NULL,
+                            confirmed_fullness_state = 'UNKNOWN',
+                            last_detection_id = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                          AND port_id = ?
+                          AND current_detection_id = ?
+                          AND detection_gate IN (
+                              'PENDING',
+                              'IN_PROGRESS'
+                          )
+                        """,
+                calculation.totalWeightGrams(),
+                calculation.rawNetWeightGrams(),
+                calculation.displayedPercent(),
+                facts.detectionId(),
+                facts.backendReceivedAt(),
+                facts.tenantId(),
+                facts.organizationId(),
+                facts.deploymentId(),
+                facts.portId(),
+                facts.detectionId()),
+                "apply failed fullness capacity");
     }
 
     private FullnessEvent applyFullEvent(
@@ -878,12 +1056,19 @@ public class ApplyFullnessSampleCompleteService
             Long currentFullnessEventId) {
     }
 
-    private record SampleCalculation(
-            long totalWeightGrams,
+    record SampleCalculation(
+            String infraredStatus,
+            Boolean infraredFull,
+            String weightStatus,
+            Long totalWeightGrams,
+            Long baselineWeightGrams,
+            Long thresholdWeightGrams,
             Long rawNetWeightGrams,
             BigDecimal displayedPercent,
+            Boolean weightFull,
             String conclusion,
-            String fullReason) {
+            String fullReason,
+            String failureCode) {
     }
 
     private record FullnessEvent(

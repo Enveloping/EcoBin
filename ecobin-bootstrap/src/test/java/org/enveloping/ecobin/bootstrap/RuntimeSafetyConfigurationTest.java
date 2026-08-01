@@ -35,7 +35,9 @@ class RuntimeSafetyConfigurationTest {
             "V16__organization_delivery_defaults.sql",
             "V17__delivery_fullness_normal_flow.sql",
             "V18__wallet_read_models.sql",
-            "V19__delivery_configuration_management.sql"
+            "V19__delivery_configuration_management.sql",
+            "V20__clean_records_without_review.sql",
+            "V21__clean_normal_flow_facts.sql"
     };
 
     @Test

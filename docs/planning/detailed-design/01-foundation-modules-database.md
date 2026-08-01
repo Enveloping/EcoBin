@@ -24,7 +24,7 @@ P0 主链实施必须先形成两个可分别验证的基础里程碑：
 | DD-001 | 模块拆分阶段只改变物理边界，不增加目标业务行为；每一步必须保持旧测试和当前可观察行为。 |
 | DD-002 | 独立迁移作业只扫描 `db/p0-migration`；新运行制品不包含 Flyway 运行库或任何迁移脚本，旧 `db/migration` 只随旧恢复制品保留。 |
 | DD-003 | 运行应用使用 `ecobin_app` 且物理上不具备 Flyway migrate/baseline 能力；V1～V10 只由一次性迁移作业使用 `ecobin_schema_owner` 执行。 |
-| DD-004（已确认） | 保留内部 `BIGINT` 复合外键；I-051 增加同进程、同线程、同事务的逐关系强类型 FK 构造引用，I-053 增加 identity 声明、funds 实现的首次机构用户原子创建参与扩展。2026-07-24 因投递业务改为 session 一单删除云端 cycle 表，当前目标为 83 表；这不是 DD-004 的键策略变化。 |
+| DD-004（已确认） | 保留内部 `BIGINT` 复合外键；I-051 增加同进程、同线程、同事务的逐关系强类型 FK 构造引用，I-053 增加 identity 声明、funds 实现的首次机构用户原子创建参与扩展。2026-07-24 因投递业务改为 session 一单删除云端 cycle 表；已执行 V1～V10 为 83 张历史表，V20 以清运修改留痕表替换废止审核表后目标仍为 83 表。这不是 DD-004 的键策略变化。 |
 | DD-005 | `PREPARED → QUIESCING → QUIESCED → ACTIVATED` 按“应用 + 数据库 + 所有真实入口”成对切换；越过真实入口闩锁后禁止直接重启旧栈。 |
 
 ## 2. 当前实现证据与退出条件
@@ -118,7 +118,7 @@ bootstrap  → 全部模块
 | `ecobin-module-identity` | 租户、机构、小程序、人员、用户、认证、会话、能力与授权。 |
 | `ecobin-module-device` | 资产、部署、投口、配置、运行状态、占位、投递 session、设备命令与物理证据。 |
 | `ecobin-module-funds` | 用户钱包、机构账户、充值、提现、微信支付/转账业务状态和不可变资金明细。 |
-| `ecobin-module-recycling` | 投递订单、审核纠错、清运、袋、重量基准、满溢和 P0 回收查询。 |
+| `ecobin-module-recycling` | 投递订单及其审核纠错、清运记录及修改留痕、袋、重量基准、满溢和 P0 回收查询。 |
 | `ecobin-module-operations` | inbox、可靠任务、尝试、审计、隔离、告警、对账和受控恢复。 |
 | `ecobin-integration` | OneNet/Pulsar、COS、微信登录/支付/转账及入站通知的协议适配。 |
 | `ecobin-bootstrap` | 应用组装、环境配置、epoch guard、全局迁移位置声明、seed runner 和跨模块集成测试。 |
@@ -241,7 +241,7 @@ seed/
 ### M5：拆分 device 与 recycling
 
 - 资产、部署、投口、投递会话、设备命令归 device；本地继续轮次不进入中心数据库；
-- 投递订单、审核、清运、袋、满溢和 P0 查询归 recycling；
+- 投递订单及其审核、清运记录及直接修改留痕、袋、满溢和 P0 查询归 recycling；
 - 删除对 device Entity/Mapper 的直接导入，以公开端口连接。
 
 ### M6：建立 operations 并收紧底层
@@ -302,7 +302,7 @@ ecobin-bootstrap/src/main/resources/db/p0-migration/
 | V9 | `V9__immutability_guards.sql` | 只建立 AppID 激活和机构用户注册归因两类不可变触发器。 |
 | V10 | `V10__permission_reference_data.sql` | 只插入权限目录和环境无关静态参考。 |
 
-合计 83 张目标表。实现者必须从数据库基线逐表生成“表→迁移→所有者→主键/公开键→复合外键→唯一/CHECK→索引→DML 身份”矩阵；本章表数不是替代逐表基线的简表。
+已执行 V1～V10 合计 83 张历史表；V20 删除废止的 `rec_clean_revision` 并新增 `rec_clean_record_change` 后，目标仍为 83 张表。实现者必须从数据库基线逐表生成“表→迁移→所有者→主键/公开键→复合外键→唯一/CHECK→索引→DML 身份”矩阵；本章表数不是替代逐表基线的简表。
 
 迁移脚本禁止：
 

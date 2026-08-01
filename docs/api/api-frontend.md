@@ -141,7 +141,7 @@ Authorization: Bearer <token>
 | `/api/system/withdraw/**` | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | 提现审核 |
 | `/api/device/**` | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | 设备/投口管理 |
 | `/api/business/delivery/**` | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | 投递订单（后台视图） |
-| `/api/business/clean/**` | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | 清运订单后台/审核 |
+| `/api/business/clean/**` | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | 清运记录后台查看和直接修改；保存即生效，不提供审核 |
 | `/api/statistics/**` | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | 业务统计 |
 | `/api/app/clean/**` | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | 小程序清运作业 |
 | `/api/app/**` | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | 小程序通用（设备/投递/钱包/个人） |
@@ -213,17 +213,17 @@ Authorization: Bearer <token>
 ```
 ① 清运员/设备管理员 小程序选取设备/投口，扫新空垃圾袋二维码得 bagNo
 ② 小程序  POST /api/app/clean/open { doorId, bagNo }
-          → 开门即建单：后端用登录态 userId + 新袋 bagNo 建清运单(newBagQr=bagNo)
-          → 下发开清运门指令（携带 doorIndex + cleanOrderId），返回订单(含 id)
+          → 开门即创建记录：后端用登录态 userId + 新袋 bagNo 创建清运记录(newBagQr=bagNo)
+          → 下发开清运门指令（携带 doorIndex + 历史字段 cleanOrderId），返回清运记录(含 id)
 ③ 设备    POST /api/iot/clean/gross { sn, cleanOrderId, weight }
           → 按 cleanOrderId 回填毛重：net = 毛重 − 该投口当前(旧袋)去皮；cleanOrderId 即幂等键
 ④ 清运员换上新空袋，设备称去皮
    设备    POST /api/iot/clean/tare  { sn, cleanOrderId, weight }
-          → 按订单的 newBagQr + 本次去皮重 upsert 该投口当前垃圾袋（设备不传 bagNo）
+          → 按清运记录的 newBagQr + 本次去皮重 upsert 该投口当前垃圾袋（设备不传 bagNo）
 ⑤ 清运员  GET /api/app/clean/my     → 查看自己的清运记录（含毛重/去皮/净重）
 ```
 
-> 普通用户(1) **不能清运**。**开门即建单**：`/api/app/clean/open` 用登录态 userId 建单并返回订单，设备只收 `cleanOrderId`（业务标识符）+ `doorIndex`（物理控制）；毛重/去皮由设备经 `/api/iot/clean/**`（明文 SN 信任）只回传 `{sn, cleanOrderId, weight}` 上报——**设备不碰 userId/bagNo/reportSn**。前端不手填重量，**审核流程已取消**。
+> 普通用户(1) **不能清运**。**开门即创建记录**：`/api/app/clean/open` 用登录态 userId 创建并返回清运记录，设备只收历史字段 `cleanOrderId`（业务标识符）+ `doorIndex`（物理控制）；毛重/去皮由设备经 `/api/iot/clean/**`（明文 SN 信任）只回传 `{sn, cleanOrderId, weight}` 上报——**设备不碰 userId/bagNo/reportSn**。前端不手填重量，**审核流程已取消**。
 
 ### 4.5 钱包与提现流程（小程序申请 + 租户审核）
 
@@ -525,26 +525,27 @@ Authorization: Bearer <token>
 | `photoCloseInside` | string | 关门后箱内照片 URL（V11） |
 | `createTime` | datetime | 投递时间（投递流水无 updateTime） |
 
-### 7.6 清运订单后台（超管 9 + 租户 7）
+### 7.6 清运记录后台（超管 9 + 租户 7）
 
 基路径 `/api/business/clean`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/business/clean?page=1&pageSize=20` | 清运单分页 |
-| GET | `/api/business/clean/{id}` | 清运单详情 |
-| POST | `/api/business/clean` | 手工建单 |
-| PUT | `/api/business/clean/{id}` | 修改清运单 |
-| DELETE | `/api/business/clean/{id}` | 删除清运单 |
+| GET | `/api/business/clean?page=1&pageSize=20` | 清运记录分页 |
+| GET | `/api/business/clean/{id}` | 清运记录详情 |
+| POST | `/api/business/clean` | 手工创建清运记录 |
+| PUT | `/api/business/clean/{id}` | 修改清运记录 |
+| DELETE | `/api/business/clean/{id}` | 删除清运记录 |
 
 > 审核端点 `PUT /api/business/clean/{id}/audit` 已随清运改造（V9）移除。
+> `PUT /api/business/clean/{id}` 是直接修改，不会产生待审核、通过或驳回状态；保存成功后当前记录立即生效。目标接口的版本并发控制与修改留痕见 I-028。
 
 **`CleanOrder` 对象字段**
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | long | 主键 |
-| `orderSn` | string | 订单编号 |
+| `orderSn` | string | 清运记录编号（历史字段名） |
 | `deviceId` / `doorId` / `userId` | long | 设备/投口/清运员 |
 | `bagQr` | string | 本次清走的垃圾袋编号 |
 | `wasteType1` / `wasteType2` | int | 分类 |
@@ -552,7 +553,7 @@ Authorization: Bearer <token>
 | `tareWeight` | decimal | 去皮重量（kg） |
 | `netWeight` | decimal | 实际清运量（kg）= 毛重 − 去皮 |
 | `weight` | decimal | =netWeight（兼容旧字段） |
-| `auditStatus` | int | **已废弃**（审核取消，默认 1） |
+| `auditStatus` | int | **历史兼容占位**；客户端必须忽略，不表示清运状态，目标前向迁移删除 |
 | `status` | int | 0-创建 / 1-完成 / 2-取消 |
 | `photoOpenOutside` | string | 开门前箱外照片 URL（V11） |
 | `photoOpenInside` | string | 开门前箱内照片 URL（V11） |
@@ -670,7 +671,7 @@ Authorization: Bearer <token>
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/app/clean/open` | 开清运门：扫新空袋后**即建清运单**并下发开门指令，返回订单 |
+| POST | `/api/app/clean/open` | 开清运门：扫新空袋后**即创建清运记录**并下发开门指令，返回清运记录 |
 | GET | `/api/app/clean/my?page=1&pageSize=20` | 我的清运记录分页 |
 | GET | `/api/app/clean/my/{id}` | 我的单条清运详情 |
 
@@ -685,7 +686,7 @@ Authorization: Bearer <token>
 { "doorId": 12, "bagNo": "00001" }
 ```
 
-返回 `Result<CleanOrder>`（**已建单**，含 `id`/`newBagQr`/`userId`；`cleanOrderId` 随开门指令下发给设备）。毛重/去皮由设备经 §9 按 `cleanOrderId` 回填。`my` 列表返回 `CleanOrder`（见 §7.6，含 `grossWeight/tareWeight/netWeight`）。
+返回历史类型 `Result<CleanOrder>`（**清运记录已创建**，含 `id`/`newBagQr`/`userId`；历史字段 `cleanOrderId` 随开门指令下发给设备）。毛重/去皮由设备经 §9 按 `cleanOrderId` 回填。`my` 列表返回 `CleanOrder`（见 §7.6，含 `grossWeight/tareWeight/netWeight`）。
 
 > 普通用户(1) 调用 `/api/app/clean/**` 会返回 403。前端不再手填重量；下发走 OneNet，凭证未到位前为占位（见 `docs/planning/open-items.md`）。
 
@@ -741,11 +742,11 @@ Authorization: Bearer <token>
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
-| `sn` | string | 是 | 设备序列号（明文 SN 信任，校验订单归属） |
-| `cleanOrderId` | long | 是 | 清运订单 ID（开门时下发，设备原样回传；**充当幂等键**） |
+| `sn` | string | 是 | 设备序列号（明文 SN 信任，校验清运记录归属） |
+| `cleanOrderId` | long | 是 | 清运记录 ID（历史字段名，开门时下发，设备原样回传；**充当幂等键**） |
 | `weight` | decimal | 是 | 本次清运毛重（kg，满袋重量） |
 
-按 `cleanOrderId` 回填订单：`netWeight = 毛重 − 该投口当前(旧袋)去皮`（首次去皮按 0）。已回填毛重则幂等返回。设备**不传** `doorIndex/userId/reportSn`（后端按订单反查）。
+按 `cleanOrderId` 回填清运记录：`netWeight = 毛重 − 该投口当前(旧袋)去皮`（首次去皮按 0）。已回填毛重则幂等返回。设备**不传** `doorIndex/userId/reportSn`（后端按清运记录反查）。
 
 ### 9.3 换袋去皮上报（V9）
 
@@ -753,20 +754,20 @@ Authorization: Bearer <token>
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|:---:|------|
-| `sn` | string | 是 | 设备序列号（明文 SN 信任，校验订单归属） |
-| `cleanOrderId` | long | 是 | 清运订单 ID（开门时下发，设备原样回传） |
+| `sn` | string | 是 | 设备序列号（明文 SN 信任，校验清运记录归属） |
+| `cleanOrderId` | long | 是 | 清运记录 ID（历史字段名，开门时下发，设备原样回传） |
 | `weight` | decimal | 是 | 新空袋去皮重量（kg） |
 
-按 `cleanOrderId` 取订单的 `newBagQr`（open 时小程序已扫）+ 本次去皮重，upsert 该投口当前垃圾袋。设备**不传** `doorIndex/userId/bagNo`。
+按 `cleanOrderId` 取清运记录的 `newBagQr`（open 时小程序已扫）+ 本次去皮重，upsert 该投口当前垃圾袋。设备**不传** `doorIndex/userId/bagNo`。
 
 按 `(device, doorIndex)` upsert `biz_clean_bag`，更新当前袋编号与去皮（换袋天然幂等）。
 
 ### 9.4 COS 照片直传（设备直传 + 设备自定 key + 回传 URL）
 
-**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。**投递、清运一致**：开门命令只下发凭证（OneNet `cosToken`，不含 key），照片对象 key 由**设备自定位置**，设备直传 COS 后把 **4 个 URL 随上行业务事件回传**，后端原样存订单（不再算 key、不复原）：
+**无独立 HTTP 端点**（原 `POST /api/iot/photo/sts` 与 `/notify` 已移除）。**投递、清运一致**：开门命令只下发凭证（OneNet `cosToken`，不含 key），照片对象 key 由**设备自定位置**，设备直传 COS 后把 **4 个 URL 随上行业务事件回传**，后端原样存入对应业务记录（不再算 key、不复原）：
 
 - **投递（上传后建单）**：4 个 URL 随 `deliveryComplete` 回传，`completeDelivery` 建单时写入订单。
-- **清运（开门即建单）**：开门时订单照片字段留空，4 个 URL 随 `cleanGross` 回传，`reportGross` 回填订单。
+- **清运（开门即创建清运记录）**：开门时清运记录照片字段留空，4 个 URL 随 `cleanGross` 回传，`reportGross` 回填清运记录。
 
 key 由设备自定（后端不约束格式），建议带业务段与唯一串避免覆盖：投递 `{sn}/delivery/{唯一串}/<slot>.jpg`、清运 `{sn}/clean/{唯一串}/<slot>.jpg`，
 slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。详见 `docs/iot/onenet-thing-model.md` §1.1/§3.4/§4。
@@ -837,14 +838,14 @@ slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。详见 `d
 | 0 | 进行中（历史遗留；投递改上传后建单后不再产生此态） |
 | 1 | 已完成（设备上传即建单即完成） |
 
-### 清运审核状态 `auditStatus`（已废弃，V9）
-> 清运改为设备自动称重上报后审核流程取消，字段保留仅兼容历史，新记录默认 1。
+### 清运历史兼容字段 `auditStatus`（已废弃，V9）
+> 清运员完成确认后直接形成已完成清运记录；之后直接修改记录也不经过该字段。该字段没有业务含义，不得用于筛选、待办、权限或状态展示；目标前向迁移删除。
 
 | 值 | 含义 |
 |---|------|
-| 0 | 待审核（历史） |
-| 1 | 审核通过（新记录默认） |
-| 2 | 审核拒绝（历史） |
+| 0 | 历史遗留值，客户端忽略 |
+| 1 | 历史遗留值，客户端忽略 |
+| 2 | 历史遗留值，客户端忽略 |
 
 ### 提现单状态 `status`
 | 值 | 含义 |

@@ -22,7 +22,7 @@
 
 当前设备链仍存在以下目标阻断：
 
-- 香橙派作业、清运单号和重量状态主要在内存；
+- 香橙派作业、清运记录标识和重量状态主要在内存；
 - MQTT 使用 `clean_session=True`、QoS 0；
 - OneNet 服务回调同步执行物理流程；
 - 上行仍是 `deliveryComplete/cleanGross/cleanTare`，以平台消息 ID 辅助幂等；
@@ -378,7 +378,7 @@ ecobin/{deploymentCode}/{workType}/{workUid}/{slot}/{photoUid}.jpg
 - 临时 COS 凭证只在内存，绝不进入 SQLite、摘要或日志；
 - 上传保存 SHA-256、大小、拍摄时间、最终 URL；
 - 授权失效时沿原作业建立 `PHOTO_UPLOAD_GRANT_REQUESTED`；
-- 完成事件允许槽位为 `UPLOAD_PENDING`，订单/清运/返现不等待照片；
+- 完成事件允许槽位为 `UPLOAD_PENDING`，投递订单、已完成清运记录和投递返现都不等待照片；
 - 连续失败 72 小时后，先可靠建立 `PERMANENTLY_MISSING` 事件，再删除二进制；
 - 上传成功仍不能删除文件，必须等待后端确认该槽位已关联；
 - 后端只接受精确 bucket/region/部署/作业/槽位前缀内的 HTTPS URL。

@@ -22,7 +22,7 @@
 - common、framework、integration 和 bootstrap 不拥有业务表；integration 只把外部协议转换为 inbox 或业务端口输入，Flyway 集中放在 bootstrap 不改变表的业务所有权。
 - 第一版 V1 只创建 M0 闭环和其正确性约束实际需要的表；M1/M2 能力以后通过前向迁移增加，不创建没有用例、只有“以后可能用到”的空表。
 - `ops_` 记录可能是平台级、租户级、机构级或暂未识别作用域，因此作为 D-002 的技术控制面例外：从 MyBatis 自动租户拦截中排除，只能通过 operations 端口访问。`scope_kind=TENANT` 时必须只有 `tenant_id`，`scope_kind=ORGANIZATION` 时必须同时具有 `tenant_id + organization_id` 并满足复合外键，`PLATFORM/UNRESOLVED` 时两者都为空；任何情况都不得伪造默认租户。
-- 2026-07-24 收口后的首版目标共 **83 张表**：identity 14 张、device 16 张、recycling 24 张、funds 20 张、operations 9 张。原投递周期候选表已删除；会话内继续开关门只属于香橙派本地流程，不以另一张云端表保存。
+- 2026-07-24 收口并已执行的首版共 **83 张历史表**：identity 14 张、device 16 张、recycling 24 张、funds 20 张、operations 9 张。2026-08-01 取消清运审核并允许清运记录直接修改后，V20 删除 `rec_clean_revision`、新增 `rec_clean_record_change`，目标业务清单仍为 **83 张表**（recycling 24 张）；V20 实施前实际 schema 同样是 83 张，但两套清运结构语义不同。原投递周期候选表已删除；会话内继续开关门只属于香橙派本地流程，不以另一张云端表保存。
 
 ### D-007 identity 表族
 
@@ -91,9 +91,9 @@
 | 子域 | 正式表名及事实 |
 |---|---|
 | 机构投递规则 | `rec_organization_delivery_config`（机构级不可变配置版本，M0 至少保存全部人工审核模式、负余额停投阈值和人工认定重量绝对值上限）、`rec_organization_delivery_config_head`（当前版本的唯一可锁指针） |
-| 机构清运规则 | `rec_organization_clean_config`（机构级不可变配置版本，M0 保存清运总时限和全部人工审核模式）、`rec_organization_clean_config_head`（当前版本的唯一可锁指针） |
+| 机构清运规则 | `rec_organization_clean_config`（机构级不可变配置版本，M0 保存清运总时限，不包含审核模式）、`rec_organization_clean_config_head`（当前版本的唯一可锁指针） |
 | 投递 | `rec_organization_order_counter`（机构内订单提交可见序号的唯一分配根）、`rec_delivery_order`（不可变订单来源快照及当前认定投影）、`rec_delivery_anomaly`（用户/系统异常，只追加）、`rec_delivery_revision`（首次审核和每次纠错版本）、`rec_delivery_photo`（四个标准位置的照片关联或缺失事实） |
-| 清运 | `rec_organization_clean_record_counter`（机构内清运记录提交可见序号的唯一分配根）、`rec_clean_operation`（开门前建立、可恢复的状态机）、`rec_clean_record`（完成后才产生的一对一换袋事实）、`rec_clean_anomaly`（只追加系统异常）、`rec_clean_revision`（首次清运审核形成的不可变认定版本）、`rec_clean_photo`（清运四个标准位置） |
+| 清运 | `rec_organization_clean_record_counter`（机构内清运记录提交可见序号的唯一分配根）、`rec_clean_operation`（开门前建立、可恢复的状态机）、`rec_clean_record`（完成后才产生，保存原始快照与当前有效业务值）、`rec_clean_record_change`（每次直接修改的只追加前后值、原因和操作者）、`rec_clean_anomaly`（只追加系统异常）、`rec_clean_photo`（清运四个标准位置）；不建立清运审核决定或待审状态表 |
 | 袋与重量基准 | `rec_bag`（机构内可复用袋码身份，无生命周期状态）、`rec_bag_current_occupancy`（投口绑定或清运预留二选一）、`rec_bag_occupancy_event`（只追加关系历史）、`rec_port_weight_baseline`（每次有效皮重版本）、`rec_port_baseline_measurement`（当前空袋真实重测过程）、`rec_port_capacity_state`（当前基准、最近重量和容量投影） |
 | 满溢 | `rec_fullness_detection`（一次完整检测流程和配置快照）、`rec_fullness_sample`（初检/复检不可变采样或失败）、`rec_fullness_event`（一次从确认满溢到恢复的持续事件） |
 
@@ -102,7 +102,7 @@
 - `rec_organization_clean_config` 使用相同的 head 发布模式，避免清运准备通过 `MAX(version_no)` 与并发发布形成两个“当前版本”。M0 初始化时必须为试点机构共同建立首个配置和 head；以后配置接口发布新版本时原子切换 head。
 - 清运操作与清运记录不能合并；开门后未完成仍是待恢复操作，不是成功清运事实。
 - 袋码在 EcoBin 全平台唯一，`rec_bag` 同时固化其 `tenant_id + organization_id` 归属；P0 只允许在所属机构使用。实体袋可以反复使用，但不能同时被两个投口绑定或被另一个清运操作预留。若以后允许跨机构流转，再把袋提升为平台资产，不在 P0 预建该能力。
-- `rec_clean_revision` 只为已经确认的首次清运审核保存认定历史；P0 不据此开放审核完成后的不限期清运纠错。不限期重新纠错目前只适用于投递订单。
+- 清运员属于可信工作人员，其完成确认直接形成清运记录。清运不建立审核状态或审核决定；`clean.edit` 通过记录版本条件直接修改当前有效业务值，并在同一事务追加 `rec_clean_record_change`。设备原始结果与系统异常保持只追加；重量统计读取记录的当前有效重量，清空后即从已知重量统计排除。
 - 清运完成先把容量状态置为“待清运后检测”；后续真实满溢检测结果独立收敛状态。它不因换袋本身伪造“不满”。
 - I-026～I-030 的稳定查询要求每笔已提交清运记录取得机构内唯一可见序号；空袋基准恢复要求独立保存重测身份、冻结袋/配置代际和真实设备结果。二者分别由清运记录计数器和基准重测表承担，不能用列表当前最大值或设备命令行临时推导。
 - 投递照片与清运照片使用强类型表，不使用无法建立可靠外键的通用 `biz_type + biz_id` 照片表；迟到照片补入原业务位置，缺失不进入用户异常，也不阻断订单、返现或清运完成。
@@ -144,7 +144,7 @@ I-040 的运营概览不是新的业务表族：operations 通过 identity、dev
 | 命令 ACK/NACK、门动作或命令级物理失败 | `dev_device_command_event`，必要时更新 device 运行健康投影 | `ops_message_quarantine`、订单异常 |
 | 已认证作业完成结果、首次/最终称重、最终 `negativeWeightAnomaly` 标志或设备故障码 | `dev_physical_result` | 直接认定用户违规或资金结果 |
 | 投递最终负重量异常标志、已接受 session 中的重量/价格/归属等业务异常 | `rec_delivery_anomaly`；保留对应 `dev_physical_result` 作为来源证据 | `ops_task_attempt` 或任何单独“负重量事件” |
-| 清运完成事实中的皮重、净重或安装数据异常 | `rec_clean_anomaly`；不回滚已经发生的物理换袋 | 设备命令事件、通用告警替代业务审核 |
+| 清运完成事实中的皮重、净重或安装数据异常 | `rec_clean_anomaly`；不回滚已经发生的物理换袋，也不生成审核任务 | 设备命令事件、人工审核或通用告警替代清运异常事实 |
 | 业务数据库事务失败 | 不产生半条业务异常；事务回滚，`PROCESS_INBOX` 任务保留重试并记录 `ops_task_attempt` | `rec_*_anomaly` |
 | 微信调用技术结果与已验证渠道状态 | 技术执行写 `ops_task_attempt`；业务状态写对应 `fund_wechat_*_observation` 并引用来源 | 两边各保存一份可独立驱动结算的终态 |
 | 对账发现跨表/跨渠道矛盾 | `ops_reconciliation_issue`，不确定时停止自动资金修改 | 伪造微信终态或直接覆盖账本 |

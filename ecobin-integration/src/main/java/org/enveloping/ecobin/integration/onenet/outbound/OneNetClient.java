@@ -76,6 +76,12 @@ public class OneNetClient
                 envelope = attachInitialDeliveryCosGrant(
                         envelope,
                         submission);
+            } else if ("START_CLEAN_OPERATION".equals(
+                    submission.commandType())) {
+                projectStartCleanOperation(envelope);
+                envelope = attachInitialCleanCosGrant(
+                        envelope,
+                        submission);
             } else if ("PROVIDE_PHOTO_UPLOAD_GRANT".equals(
                     submission.commandType())) {
                 envelope = attachPhotoUploadGrant(
@@ -92,6 +98,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "startDeliverySession";
                 params = projectStartDeliverySession(envelope);
+            } else if ("START_CLEAN_OPERATION".equals(
+                    submission.commandType())) {
+                identifier = "startCleanOperation";
+                params = projectStartCleanOperation(envelope);
             } else if ("SAMPLE_FULLNESS".equals(
                     submission.commandType())) {
                 identifier = "sampleFullness";
@@ -180,6 +190,52 @@ public class OneNetClient
                 Instant.ofEpochSecond(
                         credential.expiredTime())
                         .toString());
+        envelope.set("cosGrant", grant);
+        return envelope;
+    }
+
+    private JsonNode attachInitialCleanCosGrant(
+            JsonNode frozenEnvelope,
+            DeviceCommandSubmission submission) {
+        ObjectNode envelope =
+                (ObjectNode) frozenEnvelope.deepCopy();
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deploymentCode = requiredMatchingText(
+                envelope,
+                "deploymentCode",
+                "^Dp_[A-Za-z0-9_-]{6,61}$",
+                64);
+        String operationUid = requiredUuid(
+                payload, "operationUid");
+        int portNo = Math.toIntExact(
+                requiredInteger(payload, "portNo", 1, 6)
+                        .longValue());
+        String keyPrefix = "ecobin/"
+                + deploymentCode
+                + "/clean-operation/"
+                + operationUid
+                + "/";
+        CosUploadCredential credential =
+                cosUploadCredentialPort.issue(
+                        submission.hardwareSn(),
+                        portNo,
+                        keyPrefix);
+        ObjectNode grant = objectMapper.createObjectNode();
+        grant.put("grantUid", UUID.randomUUID().toString());
+        grant.put("tmpSecretId", credential.tmpSecretId());
+        grant.put("tmpSecretKey", credential.tmpSecretKey());
+        ArrayNode tokenParts = grant.putArray(
+                "sessionTokenParts");
+        splitSessionToken(credential.sessionToken())
+                .forEach(tokenParts::add);
+        grant.put("bucket", credential.bucket());
+        grant.put("region", credential.region());
+        grant.put("baseUrl", credential.baseUrl());
+        grant.put("keyPrefix", keyPrefix);
+        grant.put(
+                "expiresAt",
+                Instant.ofEpochSecond(
+                        credential.expiredTime()).toString());
         envelope.set("cosGrant", grant);
         return envelope;
     }
@@ -545,6 +601,163 @@ public class OneNetClient
         params.put("scalarFields1", scalarFields1);
         params.put("scalarFields2", scalarFields2);
         params.put("target", projectedTarget);
+        params.put("config", projectedConfig);
+        params.put(
+                "cosGrantSessionTokenParts",
+                sessionTokenParts);
+        return params;
+    }
+
+    private Map<String, Object> projectStartCleanOperation(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        JsonNode config = requiredObject(payload, "config");
+        String operationUid = requiredUuid(
+                payload, "operationUid");
+        String targetUid = requiredUuid(target, "uid");
+        if (!"CLEAN_OPERATION".equals(
+                requiredText(target, "type"))
+                || !operationUid.equals(targetUid)) {
+            throw new IllegalArgumentException(
+                    "clean target must identify the payload operation");
+        }
+
+        Map<String, Object> scalarFields1 =
+                new LinkedHashMap<>();
+        scalarFields1.put(
+                "schemaVersion",
+                requiredInteger(envelope, "schemaVersion", 1, 1));
+        scalarFields1.put(
+                "commandUid",
+                requiredUuid(envelope, "commandUid"));
+        scalarFields1.put("commandType", 1);
+        scalarFields1.put(
+                "deploymentCode",
+                requiredMatchingText(
+                        envelope,
+                        "deploymentCode",
+                        "^Dp_[A-Za-z0-9_-]{6,61}$",
+                        64));
+        String issuedAtText = requiredInstant(
+                envelope, "issuedAt");
+        String expiresAtText = requiredInstant(
+                envelope, "expiresAt");
+        if (!Instant.parse(expiresAtText).isAfter(
+                Instant.parse(issuedAtText))) {
+            throw new IllegalArgumentException(
+                    "clean command expiry must follow issue time");
+        }
+        scalarFields1.put("issuedAt", issuedAtText);
+        scalarFields1.put("expiresAt", expiresAtText);
+        scalarFields1.put(
+                "payloadSchemaVersion",
+                requiredInteger(
+                        envelope,
+                        "payloadSchemaVersion",
+                        1,
+                        1));
+        scalarFields1.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        scalarFields1.put("operationUid", operationUid);
+        scalarFields1.put(
+                "portNo",
+                requiredInteger(payload, "portNo", 1, 6));
+        JsonNode oldBagUid = payload.get("oldBagUid");
+        boolean oldBagPresent = oldBagUid != null
+                && !oldBagUid.isNull();
+        scalarFields1.put("oldBagUidPresent", oldBagPresent);
+        scalarFields1.put(
+                "oldBagUid",
+                oldBagPresent
+                        ? requiredUuid(payload, "oldBagUid")
+                        : "");
+        JsonNode oldBaseline = payload.get(
+                "oldBaselineWeightGrams");
+        boolean oldBaselinePresent = oldBaseline != null
+                && !oldBaseline.isNull();
+        scalarFields1.put(
+                "oldBaselineWeightGramsPresent",
+                oldBaselinePresent);
+        scalarFields1.put(
+                "oldBaselineWeightGrams",
+                oldBaselinePresent
+                        ? requiredInteger(
+                                payload,
+                                "oldBaselineWeightGrams",
+                                Integer.MIN_VALUE,
+                                Integer.MAX_VALUE)
+                        : Integer.MIN_VALUE);
+        scalarFields1.put(
+                "newBagUid",
+                requiredUuid(payload, "newBagUid"));
+        scalarFields1.put(
+                "operationWindowMs",
+                requiredInteger(
+                        payload,
+                        "operationWindowMs",
+                        1,
+                        4_294_967_295L));
+        scalarFields1.put(
+                "recoveryGeneration",
+                requiredInteger(
+                        payload,
+                        "recoveryGeneration",
+                        0,
+                        0).intValue() + 1);
+
+        Map<String, Object> scalarFields2 =
+                new LinkedHashMap<>();
+        List<String> sessionTokenParts = new ArrayList<>();
+        projectCosGrant(
+                envelope,
+                scalarFields1,
+                scalarFields2,
+                sessionTokenParts);
+        // The generated clean-service schema places these two longer
+        // credential fields in scalarFields2 (delivery uses scalarFields1).
+        scalarFields2.put(
+                "cosGrantTmpSecretKey",
+                scalarFields1.remove("cosGrantTmpSecretKey"));
+        scalarFields2.put(
+                "cosGrantBucket",
+                scalarFields1.remove("cosGrantBucket"));
+
+        Map<String, Object> projectedConfig =
+                new LinkedHashMap<>();
+        projectedConfig.put(
+                "version",
+                requiredInteger(
+                        config,
+                        "version",
+                        1,
+                        9_007_199_254_740_991L));
+        projectedConfig.put(
+                "contentSha256",
+                requiredMatchingText(
+                        config,
+                        "contentSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        projectedConfig.put(
+                "mcuPayloadSha256",
+                requiredMatchingText(
+                        config,
+                        "mcuPayloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields1", scalarFields1);
+        params.put("scalarFields2", scalarFields2);
+        params.put("target", Map.of(
+                "type", 1,
+                "uid", targetUid));
         params.put("config", projectedConfig);
         params.put(
                 "cosGrantSessionTokenParts",

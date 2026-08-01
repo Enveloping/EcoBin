@@ -417,10 +417,10 @@
           ]
         },
         {
-          "name": "清运订单后台",
+          "name": "清运记录后台",
           "item": [
             {
-              "name": "清运单列表（分页）",
+              "name": "清运记录列表（分页）",
               "request": {
                 "method": "GET",
                 "header": [],
@@ -432,7 +432,7 @@
               }
             },
             {
-              "name": "清运单详情",
+              "name": "清运记录详情",
               "request": {
                 "method": "GET",
                 "header": [],
@@ -440,16 +440,17 @@
               }
             },
             {
-              "name": "修改清运单",
+              "name": "修改清运记录",
               "request": {
                 "method": "PUT",
                 "header": [ { "key": "Content-Type", "value": "application/json" } ],
                 "body": { "mode": "raw", "raw": "{\n  \"weight\": 4.0,\n  \"status\": 1\n}" },
+                "description": "直接修改清运记录并立即生效，不产生待审核、通过或驳回状态。",
                 "url": { "raw": "{{baseUrl}}/api/business/clean/1", "host": [ "{{baseUrl}}" ], "path": [ "api", "business", "clean", "1" ] }
               }
             },
             {
-              "name": "删除清运单",
+              "name": "删除清运记录",
               "request": {
                 "method": "DELETE",
                 "header": [],
@@ -656,7 +657,7 @@
             "header": [ { "key": "Content-Type", "value": "application/json" } ],
             "body": { "mode": "raw", "raw": "{\n  \"sn\": \"SN20260607001\",\n  \"doorIndex\": 1,\n  \"userId\": 1,\n  \"weight\": 12.0,\n  \"reportSn\": \"可选，幂等键\"\n}" },
             "url": { "raw": "{{baseUrl}}/api/iot/clean/gross", "host": [ "{{baseUrl}}" ], "path": [ "api", "iot", "clean", "gross" ] },
-            "description": "设备端调用。建清运单：净重 = 毛重 − 该投口当前去皮（首次去皮按 0）。reportSn 作幂等键。"
+            "description": "设备端调用。创建清运记录：净重 = 毛重 − 该投口当前去皮（首次去皮按 0）。reportSn 作幂等键。"
           }
         },
         {

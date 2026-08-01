@@ -259,6 +259,50 @@ class OneNetClientReliableSubmissionTest {
     }
 
     @Test
+    void projectsFrozenCleanOperationToGeneratedWireContract()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "start-clean-operation.command.json"));
+        UUID commandUid = UUID.fromString(
+                "81000000-0000-4000-8000-000000000001");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "START_CLEAN_OPERATION"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        JsonNode wireExample = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "start-clean-operation"
+                                + ".service-wire.json")));
+        ObjectNode expected = (ObjectNode) wireExample
+                .path("callServiceApiBodyTemplate")
+                .deepCopy();
+        expected.put("product_id", PRODUCT_ID);
+        expected.put("device_name", HARDWARE_SN);
+        expectInitialCleanCosGrant(actual, expected);
+        assertEquals(expected, actual);
+    }
+
+    @Test
     void projectsFrozenFullnessSampleToGeneratedWireContract()
             throws Exception {
         String envelope = Files.readString(contractPath(
@@ -449,6 +493,37 @@ class OneNetClientReliableSubmissionTest {
                 2,
                 "ecobin/Dp_demo_01/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/");
+    }
+
+    private void expectInitialCleanCosGrant(
+            JsonNode actual,
+            ObjectNode expected) {
+        JsonNode actualParams = actual.path("params");
+        ObjectNode expectedScalar1 =
+                (ObjectNode) expected.path("params")
+                        .path("scalarFields1");
+        expectedScalar1.put("cosGrantPresent", true);
+        expectedScalar1.put(
+                "cosGrantGrantUid",
+                actualParams.path("scalarFields1")
+                        .path("cosGrantGrantUid")
+                        .asText());
+        expectedScalar1.put("cosGrantTmpSecretId", "TMP_SECRET_ID");
+        ObjectNode expectedScalar2 =
+                (ObjectNode) expected.path("params")
+                        .path("scalarFields2");
+        expectedScalar2.put("cosGrantTmpSecretKey", "TMP_SECRET_KEY");
+        expectedScalar2.put(
+                "cosGrantExpiresAt",
+                "2026-07-24T01:30:00Z");
+        ((ObjectNode) expected.path("params")).putArray(
+                        "cosGrantSessionTokenParts")
+                .add("SESSION_TOKEN");
+        verify(cosUploadCredentialPort).issue(
+                HARDWARE_SN,
+                2,
+                "ecobin/Dp_demo_01/clean-operation/"
+                        + "40000000-0000-4000-8000-000000000001/");
     }
 
     private DeviceCommandSubmission submission(

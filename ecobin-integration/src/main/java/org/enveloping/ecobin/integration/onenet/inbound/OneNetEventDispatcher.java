@@ -69,6 +69,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "DELIVERY_COMPLETE",
                     "RELIABLE_FACT",
                     "DELIVERY_SESSION")),
+            Map.entry("cleanComplete",
+            new EventContract(
+                    "CLEAN_COMPLETE",
+                    "RELIABLE_FACT",
+                    "CLEAN_OPERATION")),
             Map.entry("fullnessSampleComplete",
             new EventContract(
                     "FULLNESS_SAMPLE_COMPLETE",
@@ -495,6 +500,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "BUSINESS_CONFIRMATION_RECEIPT".equals(
                 messageKind)
                 || "DELIVERY_COMPLETE".equals(messageKind)
+                || "CLEAN_COMPLETE".equals(messageKind)
                 || "FULLNESS_SAMPLE_COMPLETE".equals(
                 messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
@@ -518,6 +524,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     commandObservedPayload(wire);
             case "DELIVERY_COMPLETE" ->
                     deliveryCompletePayload(
+                            wire,
+                            trustedCosBaseUrl);
+            case "CLEAN_COMPLETE" ->
+                    cleanCompletePayload(
                             wire,
                             trustedCosBaseUrl);
             case "FULLNESS_SAMPLE_COMPLETE" ->
@@ -833,6 +843,125 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 "mcuPayloadSha256",
                 pattern(wire, "mcuPayloadSha256", SHA256));
         return config;
+    }
+
+    private static Map<String, Object> cleanCompletePayload(
+            JsonNode wire,
+            String trustedCosBaseUrl) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        String operationUid = pattern(
+                wire, "operationUid", UUID_V4);
+        String deploymentCode = pattern(
+                wire, "deploymentCode", DEPLOYMENT_CODE);
+        payload.put("operationUid", operationUid);
+        payload.put(
+                "portNo",
+                requiredIntegerInRange(wire, "portNo", 1, 6));
+        payload.put(
+                "oldBagUid",
+                nullablePresenceText(
+                        wire,
+                        "oldBagUidPresent",
+                        "oldBagUid",
+                        UUID_V4,
+                        36));
+        payload.put(
+                "newBagUid",
+                pattern(wire, "newBagUid", UUID_V4));
+        Map<String, Object> pre = measurement(
+                object(wire, "preUnlockMeasurement"));
+        if (!"STABLE".equals(pre.get("status"))
+                || !Boolean.TRUE.equals(
+                pre.get("weightValueAvailable"))
+                || !"STABLE_WINDOW_MEAN".equals(
+                pre.get("weightValueKind"))) {
+            throw permanent(
+                    "clean pre-unlock measurement must be stable");
+        }
+        payload.put("preUnlockMeasurement", pre);
+        Map<String, Object> finalMeasurement = measurement(
+                object(
+                        wire,
+                        "cleanerConfirmedFinalMeasurement"));
+        payload.put(
+                "cleanerConfirmedFinalMeasurement",
+                finalMeasurement);
+        payload.put(
+                "removedNetWeightGrams",
+                nullablePresenceSignedInteger(
+                        wire,
+                        "removedNetWeightGramsPresent",
+                        "removedNetWeightGrams"));
+        Long newBaseline = nullablePresenceSignedInteger(
+                wire,
+                "newBaselineWeightGramsPresent",
+                "newBaselineWeightGrams");
+        boolean stableFinal = "STABLE".equals(
+                finalMeasurement.get("status"));
+        if (stableFinal
+                != (newBaseline != null)
+                || (stableFinal
+                && !newBaseline.equals(
+                finalMeasurement.get("reportedWeightGrams")))) {
+            throw permanent(
+                    "clean final measurement and new baseline differ");
+        }
+        payload.put("newBaselineWeightGrams", newBaseline);
+        if (!bool(wire, "cleanerCompletionConfirmed")) {
+            throw permanent(
+                    "clean completion lacks cleaner confirmation");
+        }
+        payload.put("cleanerCompletionConfirmed", true);
+        payload.put(
+                "cleanActionSequence",
+                requiredIntegerInRange(
+                        wire,
+                        "cleanActionSequence",
+                        1,
+                        65_535));
+        JsonNode lockWire = object(
+                wire,
+                "cleanLockAndManualDoorConfirmati");
+        String solenoidHealth = enumText(
+                integer(lockWire, "solenoidHealth"),
+                Map.of(
+                        1L, "OK",
+                        2L, "DRIVER_FAULT",
+                        3L, "DISCONNECTED",
+                        4L, "UNKNOWN"),
+                "solenoidHealth");
+        if (integer(lockWire, "lockPowerState") != 1
+                || integer(
+                lockWire, "physicalDoorStateBasis") != 1
+                || !bool(
+                lockWire,
+                "cleanerPhysicalCloseConfirmed")
+                || !("OK".equals(solenoidHealth)
+                || "UNKNOWN".equals(solenoidHealth))) {
+            throw permanent(
+                    "clean lock and manual close confirmation is unsafe");
+        }
+        Map<String, Object> lock = new LinkedHashMap<>();
+        lock.put("lockPowerState", "DEENERGIZED");
+        lock.put("solenoidHealth", solenoidHealth);
+        lock.put(
+                "physicalDoorStateBasis",
+                "CLEANER_CONFIRMATION");
+        lock.put("cleanerPhysicalCloseConfirmed", true);
+        payload.put(
+                "cleanLockAndManualDoorConfirmation",
+                lock);
+        payload.put(
+                "frozenConfig",
+                configSnapshot(object(wire, "frozenConfig")));
+        payload.put(
+                "photos",
+                cleanPhotos(
+                        wire,
+                        deploymentCode,
+                        operationUid,
+                        trustedCosBaseUrl));
+        return payload;
     }
 
     private static Map<String, Object> fullnessSampleCompletePayload(
@@ -1205,6 +1334,133 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "delivery photo slots differ from the required set");
         }
         return normalized;
+    }
+
+    private static List<Map<String, Object>> cleanPhotos(
+            JsonNode wire,
+            String deploymentCode,
+            String operationUid,
+            String trustedCosBaseUrl) {
+        JsonNode photos = wire.get("photos");
+        if (photos == null
+                || !photos.isArray()
+                || photos.size() != 4) {
+            throw permanent(
+                    "clean photos must contain exactly four slots");
+        }
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        Set<String> seenSlots = new HashSet<>();
+        for (JsonNode photo : photos) {
+            if (!photo.isObject()) {
+                throw permanent(
+                        "clean photo slot must be an object");
+            }
+            Map<String, Object> value = cleanPhoto(
+                    photo,
+                    deploymentCode,
+                    operationUid,
+                    trustedCosBaseUrl);
+            String slot = (String) value.get("slot");
+            if (!seenSlots.add(slot)) {
+                throw permanent(
+                        "clean photo slots must be unique");
+            }
+            normalized.add(value);
+        }
+        if (!seenSlots.equals(CLEAN_PHOTO_SLOTS)) {
+            throw permanent(
+                    "clean photo slots differ from the required set");
+        }
+        return normalized;
+    }
+
+    private static Map<String, Object> cleanPhoto(
+            JsonNode wire,
+            String deploymentCode,
+            String operationUid,
+            String trustedCosBaseUrl) {
+        Map<String, Object> photo = new LinkedHashMap<>();
+        String slot = text(wire, "slot", 32);
+        if (!CLEAN_PHOTO_SLOTS.contains(slot)) {
+            throw permanent("clean photo slot is unsupported");
+        }
+        photo.put("slot", slot);
+        String status = enumText(
+                integer(wire, "status"),
+                Map.of(
+                        1L, "AVAILABLE",
+                        2L, "UPLOAD_PENDING",
+                        3L, "PERMANENTLY_MISSING"),
+                "photo.status");
+        photo.put("status", status);
+        String photoUid = nullablePresenceText(
+                wire,
+                "photoUidPresent",
+                "photoUid",
+                UUID_V4,
+                36);
+        photo.put("photoUid", photoUid);
+        String url = nullablePresenceText(
+                wire,
+                "urlPresent",
+                "url",
+                "^https://[^?#]+$",
+                512);
+        photo.put("url", url);
+        String sha256 = nullablePresenceText(
+                wire,
+                "sha256Present",
+                "sha256",
+                SHA256,
+                64);
+        photo.put("sha256", sha256);
+        Long sizeBytes = nullablePresenceIntegerInRange(
+                wire,
+                "sizeBytesPresent",
+                "sizeBytes",
+                1,
+                20_971_520);
+        photo.put("sizeBytes", sizeBytes);
+        String capturedAt = nullablePresenceInstant(
+                wire,
+                "capturedAtPresent",
+                "capturedAt");
+        photo.put("capturedAt", capturedAt);
+        String missingReason = nullablePresenceText(
+                wire,
+                "missingReasonPresent",
+                "missingReason",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        photo.put("missingReason", missingReason);
+        validatePhotoShape(
+                status,
+                photoUid,
+                url,
+                sha256,
+                sizeBytes,
+                capturedAt,
+                missingReason);
+        if (url != null) {
+            String baseUrl = trustedCosBaseUrl == null
+                    ? ""
+                    : trustedCosBaseUrl.replaceFirst("/+$", "");
+            String expectedUrl = baseUrl
+                    + "/ecobin/"
+                    + deploymentCode
+                    + "/clean-operation/"
+                    + operationUid
+                    + "/"
+                    + slot
+                    + "/"
+                    + photoUid
+                    + ".jpg";
+            if (baseUrl.isEmpty() || !expectedUrl.equals(url)) {
+                throw permanent(
+                        "available clean photo URL is outside the trusted COS work path");
+            }
+        }
+        return photo;
     }
 
     private static Map<String, Object> deliveryPhoto(
@@ -1939,6 +2195,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && !payload.get("sessionUid").equals(targetUid)) {
             throw permanent(
                     "delivery session target differs from payload");
+        }
+        if ("CLEAN_COMPLETE".equals(contract.messageKind())
+                && !payload.get("operationUid").equals(targetUid)) {
+            throw permanent(
+                    "clean operation target differs from payload");
         }
         if ("FULLNESS_SAMPLE_COMPLETE".equals(
                 contract.messageKind())

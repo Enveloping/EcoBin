@@ -2,9 +2,9 @@
 
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
-> 状态：**I-026～I-030 已确认；2026-07-27 已按固定帧与清运门无门磁边界修订**
+> 状态：**I-026～I-030 已确认；2026-07-27 已按固定帧与清运门无门磁边界修订；2026-08-01 已取消清运审核并确认记录可直接修改**
 >
-> 说明：本文件定义清运员扫码换袋、清运操作恢复、完成记录与审核、袋码追溯、满溢查询/人工重检，以及与本批主链直接相关的最小设备恢复 HTTP 契约。OneNet、COS、边缘 SQLite 和 UART 已由 [`I-041～I-045`](09-onenet-cos-edge-confirmation-i041-i045.md) 与 [`I-046～I-050`](10-uart-protocol-i046-i050.md) 承接；这些后续协议不得改写本章冻结的操作身份、不可逆边界和业务确认语义。
+> 说明：本文件定义清运员扫码换袋、清运操作恢复、清运记录及直接修改、袋码追溯、满溢查询/人工重检，以及与本批主链直接相关的最小设备恢复 HTTP 契约。OneNet、COS、边缘 SQLite 和 UART 已由 [`I-041～I-045`](09-onenet-cos-edge-confirmation-i041-i045.md) 与 [`I-046～I-050`](10-uart-protocol-i046-i050.md) 承接；这些后续协议不得改写本章冻结的操作身份、不可逆边界和业务确认语义。
 
 ## 本章统一边界
 
@@ -16,11 +16,11 @@
    不得宣称这是物理门位检测。
 4. 清运不可逆边界是首次解锁命令已经可能成功执行，即电磁阀首次通电或命令结果不再能证明“绝未通电”。边界前可以安全结束并释放新袋预留；边界后禁止普通取消，只能完成原操作或进入等待原清运员恢复。
 5. 回收袋没有生命周期状态。袋码只是不可变身份；“当前绑定投口”和“被清运操作预留”是互斥位置关系，不是袋的可用/已清空/已结束状态。
-6. 清运完成、清运审核、照片补齐、有效新皮重成立、清运后满溢检测完成和满溢事件恢复是不同事实。完成记录及物理换袋不等待审核、照片或满溢结论。
+6. 清运员是可信工作人员，其完成确认直接形成已完成清运记录。清运不存在待审核、通过或驳回；有 `clean.edit` 权限的后台人员可以直接修改记录当前有效业务数据，保存即生效并追加变更留痕。照片补齐、有效新皮重成立、清运后满溢检测完成和满溢事件恢复仍是独立事实，记录及物理换袋不等待照片或满溢结论，也不被普通记录编辑覆盖。
 7. 满溢度和传感器值是带检测时间的最近一次后端已保存快照，不是持续实时值。人工按钮只能发起真实检测、真实称重或受约束的安全恢复，不能直接写“未满”“设备正常”或任意皮重。
 8. 本章所有客户端可寻址资源使用稳定公开身份：清运操作 `operationUid`、清运记录 `cleanRecordNo`、满溢检测 `detectionUid`、满溢事件 `fullnessEventUid`、基准重测 `measurementUid`、设备故障 `faultUid` 和 URL-safe `bagQr`。不得暴露内部 `BIGINT` 主键。
-9. 所有写操作继续遵守 I-004：使用 UUIDv4 `Idempotency-Key`，同一键同一摘要重放原结果，同键异摘要返回冲突；受理前拒绝不永久占用成功槽。修改已有投影还必须携带本章规定的预期版本。
-10. 当前 `/api/app/clean/open`、`/api/iot/clean/gross`、`/api/iot/clean/tare` 以及“开门即建清运单、毛重/皮重分段回填”的旧契约与本章目标互斥。迁移时必须成组替换，不能保留任一旧写入口继续修改新表。
+9. 所有写操作继续遵守 I-004：使用 UUIDv4 `Idempotency-Key`，同一键同一摘要重放原结果，同键异摘要返回冲突；受理前拒绝不永久占用成功槽。修改已有操作、清运记录或设备投影还必须携带本章规定的预期版本。
+10. 当前 `/api/app/clean/open`、`/api/iot/clean/gross`、`/api/iot/clean/tare` 以及“开门即创建清运记录、毛重/皮重分段回填”的旧契约与本章目标互斥。迁移时必须成组替换，不能保留任一旧写入口继续修改新表。
 
 ### 路径基准
 
@@ -41,15 +41,16 @@
 
 ### 权限目录
 
-本章新增三个允许 `TENANT` 和 `ORGANIZATION` 作用域的稳定能力码：
+本章使用四个允许 `TENANT` 和 `ORGANIZATION` 作用域的稳定能力码，其中 `clean.edit` 由 V20 前向迁移新增：
 
 | 能力码 | 能力边界 |
 |---|---|
 | `clean.read` | 查询授权范围内清运操作、清运记录、清运异常、照片和袋位置/清运关系历史 |
+| `clean.edit` | 直接修改授权范围内清运记录允许修改的当前有效业务数据并追加变更留痕；不包含审核、袋关系、基准、容量或设备安全修改 |
 | `device.detection.execute` | 对授权范围内投口发起真实满溢重新检测；不包含改写结果或恢复安全锁 |
 | `device.recovery.execute` | 执行本章列明的基准重测、投递结果待处理恢复和严重安全锁恢复；不包含任意维护、校准或远程开门 |
 
-- 清运记录首次审核继续复用 I-024 已定义的 `review.execute`；`clean.read` 不自动授予审核，`review.execute` 也只补足当前待审核直接目标，不开放全部清运历史。
+- 清运记录使用 `clean.read` 查询、`clean.edit` 直接修改，不复用 `review.execute`，也不提供任何清运审核能力码或待审核直接目标。
 - 容量、检测和满溢事件普通读取复用 `device.read`。只有写能力但没有 `device.read` 时，只能读取完成本次命令所需的直接目标安全状态和版本，不能借写能力遍历全部设备。
 - 租户主体账号、租户总部和机构负责人按已冻结的天然权限取得其作用域内能力；其他工作人员由授权集合取得。平台管理员使用平台镜像端点并记录目标租户、机构和原因。
 - `aud=miniapp-staff` 的 P0 渠道白名单只增加当前机构设备容量、满溢和告警的精简只读视图；本章所有重新检测与恢复写操作仍只开放 Web。
@@ -59,7 +60,7 @@
 | 资源 | 查询返回 | 修改请求 | 成功语义 |
 |---|---|---|---|
 | 清运操作 | `version` | 开门前结束、恢复携带 `expectedVersion` | 成功受理命令或领域状态实际推进时版本递增 |
-| 清运记录 | `currentRevisionNo` | 首次审核固定提交 `expectedRevisionNo=0` | 成功建立唯一修订号 1，P0 不再追加清运纠错版本 |
+| 清运记录 | `version` | 直接修改携带 `expectedVersion` | 修改和变更留痕同事务提交，版本递增且立即生效；不审核、不通过、不驳回 |
 | 容量投影 | `capacityVersion` | 人工重检、基准重测和投递结果恢复携带 `expectedCapacityVersion` | 投影或当前 gate 实际改变时递增 |
 | 设备运行投影 | `runtimeVersion` | 基准重测、投递结果恢复和安全恢复携带 `expectedRuntimeVersion` | 只由真实运行事实或受约束恢复事务递增 |
 | 满溢检测/基准重测 | 各自 `version` | 客户端不覆盖终态 | 可信设备事实按单调状态机推进，终态不回退 |
@@ -368,11 +369,11 @@ P0 不提供其他人员接管、管理员强行改挂清运员、释放预留�
 422 DEVICE.CLEAN_RECOVERY_UNAVAILABLE
 ```
 
-## I-028 清运完成、记录查询与首次审核
+## I-028 清运完成、记录查询与直接修改
 
 **已确认：可信 `CLEAN_COMPLETE` 一次性形成清运记录和真实换袋结果；完成必须有清运员
 确认、独立的人工关门确认、锁断电，以及最终稳定重量或明确终态称重故障，不能伪造门位
-检测。M0 全部人工审核，审核只认定统计净重量，不回滚物理换袋。**
+检测。清运员属于可信工作人员，记录不审核、不通过、不驳回，也不产生钱包、积分、返现或奖励；后台可以按权限直接修改当前有效业务数据并保留独立修改留痕。**
 
 ### 1. 可信完成结果边界
 
@@ -445,10 +446,10 @@ GET {organizationBase}/clean-records
 GET {organizationBase}/clean-records/{cleanRecordNo}
 ```
 
-- 小程序固定当前清运员和机构，只返回本人记录。Web 支持 `reviewStatus`、`resultKind`、`cleanerUserUid`、`deploymentCode`、`portNo`、`removedBagQr`、`installedBagQr`、`anomalyCode`、`photoCompleteness`、`occurredFrom/occurredTo`、`cursor` 和 `limit`。
+- 小程序固定当前清运员和机构，只返回本人记录。Web 支持 `resultKind`、`cleanerUserUid`、`deploymentCode`、`portNo`、`removedBagQr`、`installedBagQr`、`anomalyCode`、`photoCompleteness`、`occurredFrom/occurredTo`、`cursor` 和 `limit`。
 - 排序按 `deviceCompletedAt + cleanRecordNo` 倒序。首屏冻结机构清运记录提交可见水位；后续页不读取更高水位的新记录，迟到完成的新记录只在刷新后出现。
-- `reviewStatus` 和 `photoCompleteness` 是每页按当前值计算的可变筛选。并发审核/补图可以让尚未访问的既有记录进入或退出后续页，但稳定排序键不能让已经返回的记录重复；客户端要完整当前队列必须刷新首屏。
-- Web 列表允许 `clean.read` 或 `review.execute`。仅有 `review.execute` 时固定为当前可审核 `PENDING` 队列；详情也只开放待审核直接目标。记录越权或不存在统一返回 `404 RESOURCE.NOT_FOUND`。
+- `photoCompleteness` 是每页按当前值计算的可变筛选。并发补图可以让尚未访问的既有记录进入或退出后续页，但稳定排序键不能让已经返回的记录重复；客户端要完整查看当前照片状态时必须刷新首屏。并发修改可以改变记录当前有效重量和备注，但不能改变稳定排序键；客户端需要最新值时刷新记录。
+- Web 列表和详情要求 `clean.read`；不存在以 `review.execute` 浏览清运记录的路径。记录越权或不存在统一返回 `404 RESOURCE.NOT_FOUND`。
 
 列表项至少包含：
 
@@ -462,14 +463,15 @@ GET {organizationBase}/clean-records/{cleanRecordNo}
   "removedBagQr": "BAG_A8x...",
   "installedBagQr": "BAG_B9y...",
   "deviceCompletedAt": "2026-07-23T09:12:30.123Z",
-  "removedNetWeightKg": "49.00",
+  "originalRecalculatedRemovedNetWeightKg": "49.00",
+  "effectiveRemovedNetWeightKg": "49.00",
+  "effectiveWeightSource": "DEVICE_RECALCULATED",
   "weightReliability": "RELIABLE",
   "resultKind": "NORMAL",
-  "reviewStatus": "PENDING",
-  "currentRevisionNo": 0,
-  "finalNetWeightKg": null,
   "anomalyCodes": [],
-  "photoCompleteness": "INCOMPLETE"
+  "photoCompleteness": "INCOMPLETE",
+  "recordRemark": null,
+  "version": 1
 }
 ```
 
@@ -479,58 +481,62 @@ GET {organizationBase}/clean-records/{cleanRecordNo}
 - `BOUND/MISSING` 旧袋状态、取走袋和换入袋快照；
 - 首次解锁前重量、旧皮重、设备报告净重、后端复算净重、清运员最终确认时总重量和候选新皮重，以及每项可靠性；
 - 新基准是否建立及对应安全摘要、清运后满溢检测 UID/当前状态；
-- 系统异常、四个照片槽和唯一审核修订。
+- 系统异常、四个照片槽、当前有效净重量是否进入经营重量统计的明确结果、记录版本和当前备注；不存在审核决定。
+- Web 详情额外返回最近修改摘要，并可通过下述变更端点查询完整的只追加修改历史；小程序只返回当前有效值，不返回后台操作者信息。
 
 小程序不返回后台操作者身份、诊断 JSON 或审计详情；Web 诊断信息也不得包含原始协议报文、密钥或其他主体信息。
 
-### 3. 清运首次审核
+### 3. 直接修改、变更留痕与无审核边界
 
 普通 Web 与平台镜像：
 
 ```http
-POST {organizationBase}/clean-records/{cleanRecordNo}/reviews
+PATCH {organizationBase}/clean-records/{cleanRecordNo}
 Idempotency-Key: <UUIDv4>
+Content-Type: application/json
 ```
-
-按原数据通过：
 
 ```json
 {
-  "expectedRevisionNo": 0,
-  "decision": "ORIGINAL_APPROVED",
-  "finalNetWeightKg": null,
-  "reason": null
+  "expectedVersion": 1,
+  "effectiveRemovedNetWeight": {
+    "action": "SET",
+    "valueKg": "48.50"
+  },
+  "recordRemark": {
+    "action": "SET",
+    "value": "现场台秤复核后修正"
+  },
+  "reason": "设备上报重量与现场交接单不一致"
 }
 ```
 
-修改后通过：
+- 请求必须至少包含 `effectiveRemovedNetWeight` 或 `recordRemark` 一项。各字段未出现表示保持不变；`action=SET/CLEAR` 显式区分设置、清空和未提交。重量 `SET` 时必须是 `0.00..1000.00` kg、最多两位小数并精确换算为克；备注最长 500 字。`reason` 必填、去除首尾空白后长度 `1..500`。
+- 端点要求目标作用域内 `clean.edit`。只有 `clean.edit` 没有 `clean.read` 时，可以读取本次直接目标的必要当前值和版本，但不能遍历清运列表；平台镜像同样必须提交原因并记录目标租户/机构。
+- 服务端锁定清运记录并校验 `expectedVersion`，在同一事务追加一条修改前后值、原因、操作者、时间、幂等键和请求摘要，再更新当前有效字段及版本。提交后立即影响详情、列表和所有清运重量统计，不生成待审核、通过或驳回状态。
+- 同一幂等键与同一摘要重放原响应；同键异摘要返回 `409 IDEMPOTENCY.KEY_REUSED`。版本不匹配返回 `409 CLEAN.RECORD_VERSION_CONFLICT`，且不得产生修改留痕。
+- `effectiveRemovedNetWeight.action=SET` 后，`effectiveWeightSource=MANUAL_SET` 并按新值计入统计；`CLEAR` 后来源为 `MANUAL_CLEARED`、当前有效重量为 `null` 并从已知重量统计排除。原始设备重量、后端复算重量、可靠性、异常码和物理结果引用始终保留在详情中。
+- 此通用编辑端点不修改清运员、操作/部署/投口、取走袋/换入袋身份、设备完成时间、照片证据、袋当前位置/历史、重量基准、容量 gate、投口阻断或设备安全状态。涉及这些关系或现场事实时必须使用对应原子业务操作，不能借修改备注或重量暗中推进。
 
-```json
-{
-  "expectedRevisionNo": 0,
-  "decision": "MODIFIED_APPROVED",
-  "finalNetWeightKg": "48.50",
-  "reason": "旧皮重异常，按现场记录认定"
-}
-```
-
-- M0 清运配置固定 `ALL_MANUAL`，所有新记录初始 `PENDING/currentRevisionNo=0`；系统异常无论未来配置如何都必须人工审核。
-- `ORIGINAL_APPROVED` 要求后端复算净重可靠，`finalNetWeightKg` 必须为 `null`。原始关系缺失、无效或矛盾时只能选择修改后通过。
-- `MODIFIED_APPROVED` 只接受带符号、两位小数千克字符串，必须可无损转换为整数克并落入目标有符号整数存储范围；请求不得修改旧袋、新袋、原始重量、新皮重、照片、操作归属、完成时间或满溢状态。
-- 成功创建唯一修订号 1，把记录置为 `APPROVED` 并返回 `201`。该认定只影响经营统计，不写用户钱包，也不回滚袋交换、重量基准、容量或设备事实。
-- 没有“驳回并恢复旧袋”结果。P0 不提供已审核清运记录的再次纠错；重复审核返回冲突，同一幂等键重放原结果。
-- 审核员可以审核自己执行的清运记录，原因选填，但操作人、时间、决定和前后值始终保存。
-
-主要错误包括：
+成功返回 `200`，至少包含 `cleanRecordNo/version/effectiveRemovedNetWeightKg/effectiveWeightSource/recordRemark/updatedAt` 和本次 `changeUid`。主要失败固定为：
 
 ```text
 403 AUTH.CAPABILITY_REQUIRED
 404 RESOURCE.NOT_FOUND
-409 CLEAN.REVISION_VERSION_CONFLICT
-409 CLEAN.RECORD_ALREADY_APPROVED
-422 CLEAN.ORIGINAL_DATA_UNRELIABLE
+409 CLEAN.RECORD_VERSION_CONFLICT
+409 IDEMPOTENCY.KEY_REUSED
 400 COMMON.VALIDATION_FAILED
 ```
+
+修改历史：
+
+```http
+GET {organizationBase}/clean-records/{cleanRecordNo}/changes?cursor={opaque}&limit={1..100}
+```
+
+该端点要求 `clean.read`，按 `toVersion` 倒序返回每次前后值、原因、操作者安全摘要和修改时间；它是修改留痕，不是审核意见或认定版本。清运记录不定义 `POST .../reviews`，`review.execute` 不能调用本端点。
+
+清运异常记录同样直接完成且不生成待审队列。安全故障、无有效新基准或清运后检测未可靠完成时，系统可以继续阻断相应设备或投口；解除阻断必须依靠真实基准重测、满溢重检或受约束安全恢复，而不是修改记录或“审核通过”。清运只记录可信工作人员已经完成的作业过程，不创建钱包明细、积分、返现、审核奖励或其他收益。
 
 ## I-029 回收袋身份、当前位置与历史追溯
 

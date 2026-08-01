@@ -6,6 +6,8 @@
 >
 > 结论：V5 准确创建 **24 张 recycling 表**；V1～V5 合计 54 张表。
 > 本迁移不包含 seed、旧数据迁移、Java 状态机或 V6～V10 内容。
+>
+> **2026-08-01 兼容说明**：本文件验证的是已经执行且不可修改的 V5 历史 DDL，不再作为清运业务规则来源。V5 中清运配置的 `review_mode`、清运记录审核投影和 `rec_clean_revision` 均已废止，应用不得使用；V19 已用于投递配置管理，清运结构由 V20 前向迁移以直接修改字段和 `rec_clean_record_change` 替换。替换前后分别以本矩阵和新的 V20 验证矩阵证明实际结构，不能改写本文件来假装 V5 从未创建过这些对象。
 
 ## 1. 约定
 
@@ -27,13 +29,13 @@
 | `rec_delivery_anomaly` / A | `id` | 同订单及其来源结果 | 订单+异常码；用户异常只允许 `NEGATIVE_WEIGHT_ANOMALY`；机构异常时间 |
 | `rec_delivery_revision` / A | `id`；修订 UUIDv4 | 同订单复合自链；平台管理员/工作人员分型 | 订单+版本、上一版最多一个后继；初审/纠错链、金额差；订单当前指针回指链尾结果 |
 | `rec_delivery_photo` / O | `id`；可空照片 UUIDv4 | 同订单 | 订单+四个标准槽、照片 UUID；pending/available/missing 字段组、HTTPS 无查询凭证；机构待补照片 |
-| `rec_organization_clean_config` / A | `id`；机构版本 | 机构、发布工作人员 | 机构+版本；M0 `ALL_MANUAL` 和固定 1800 秒；机构版本倒序 |
+| `rec_organization_clean_config` / A | `id`；机构版本 | 机构、发布工作人员 | 机构+版本；V5 历史兼容 `ALL_MANUAL` 和固定 1800 秒；审核字段已废止，由 V20 删除；机构版本倒序 |
 | `rec_organization_clean_config_head` / P | 机构 PK | 当前配置必须属于同机构且版本相同 | 每机构一行；版本/锁版本、切换时间 |
 | `rec_organization_clean_record_counter` / P | 机构 PK | 机构根 | 非负提交可见序号和锁版本 |
 | `rec_clean_operation` / P | `id`；操作 UUIDv4 | 同部署投口、清运员、配置、新旧袋、可空旧基准/待处理 session；完成记录强回指 | 活动投口生成槽；旧袋缺失、旧基准、开锁前称重、不可逆解锁/断电/人工确认和终态形状；状态期限、清运员历史 |
-| `rec_clean_record` / P | `id`；清运单号 | 同操作及目标为该操作的物理结果、清运员、配置和新旧袋 | 记录号、机构可见序号、操作、结果唯一；原始重量/可靠性和审核投影；待审核、袋和完成时间 |
+| `rec_clean_record` / P | `id`；清运记录号 | 同操作及目标为该操作的物理结果、清运员、配置和新旧袋 | 记录号、机构可见序号、操作、结果唯一；原始重量/可靠性；V5 审核投影与待审核索引已废止且由 V20 删除 |
 | `rec_clean_anomaly` / A | `id` | 同清运记录 | 记录+异常码；机构异常时间 |
-| `rec_clean_revision` / A | `id`；修订 UUIDv4 | 同清运记录；分型审核人 | M0 每记录唯一初审版本 1；结果形状；记录当前指针回指认定重量 |
+| `rec_clean_revision` / A | `id`；修订 UUIDv4 | V5 历史清运审核结构 | 已废止，应用不得读写，由 V20 连同记录回指一起删除 |
 | `rec_clean_photo` / O | `id`；可空照片 UUIDv4 | 同清运操作 | 操作+首次开门/最终关门四槽；状态、URL/摘要/大小/缺失字段组；机构待补照片 |
 | `rec_bag` / A | `id`；全局袋码 | 固定机构归属 | 全局大小写敏感 URL-safe 袋码、机构候选键；**无生命周期状态列** |
 | `rec_bag_current_occupancy` / S | 袋 PK | 投口绑定或与操作新袋相同的清运预留二选一 | 投口、清运操作各唯一；目标 XOR |
@@ -60,7 +62,7 @@
 | `rec_organization_clean_config_head` / P | `current_config_id, current_version_no, lock_version, switched_at, updated_at` |
 | `rec_organization_clean_record_counter` / P | `last_visibility_sequence_no, lock_version, updated_at` |
 | `rec_clean_operation` / P | `pre_unlock_weight_status, pre_unlock_weight_g, pre_unlock_weight_fault_code, status, edge_saved_at, first_possible_unlock_at, solenoid_powered_off_at, cleaner_confirmed_closed_at, pre_unlock_end_requested_at, recovery_requested_at, reopen_count, recovery_count, completion_record_id, ended_at, end_reason, lock_version, updated_at` |
-| `rec_clean_record` / P | `recalculated_removed_net_weight_status, recalculated_removed_net_weight_g, review_status, review_revision_no, review_revision_id, final_recognized_net_weight_kg, updated_at` |
+| `rec_clean_record` / P | V5 曾允许更新 `recalculated_removed_net_weight_status, recalculated_removed_net_weight_g, review_status, review_revision_no, review_revision_id, final_recognized_net_weight_kg, updated_at`；2026-08-01 后应用不得再执行清运审核更新。审核相关列由 V20 删除并新增当前有效重量/来源、备注、修改版本和更新时间；目标写类保持 P，但原始设备/复算快照仍不可覆盖 |
 | `rec_clean_photo` / O | `photo_uid, status, object_url, sha256, size_bytes, captured_at, linked_at, missing_reason, updated_at` |
 | `rec_port_baseline_measurement` / P | `status, physical_result_id, stable_total_weight_g, fault_code, result_baseline_id, started_at, completed_at, lock_version, updated_at` |
 | `rec_port_capacity_state` / P | `baseline_state, current_baseline_id, current_baseline_weight_g, latest_stable_total_weight_g, raw_net_weight_g, displayed_fullness_percent, detection_gate, current_detection_id, current_rule_fingerprint, confirmed_fullness_state, last_detection_id, current_fullness_event_id, lock_version, updated_at` |
@@ -99,7 +101,7 @@ V5 已建立 recycling 侧指向 device 结果的强复合外键；上述 V8 项
 - 两套空库结构完全一致，24 张 recycling 表清单一致；
 - 全 schema 189 个外键全部由显式索引左前缀覆盖；
 - 24 张 recycling 表全部直接引用机构根；
-- 跨机构 config head、非法审核模式/阈值/袋码/槽位、残缺照片、负有效基准、
+- 跨机构 config head、非法投递审核模式/历史清运审核兼容值/阈值/袋码/槽位、残缺照片、负有效基准、
   缺关门证据的完成操作、混合检测来源和无基准伪造百分比均被拒绝；
 - 大小写不同的袋码可分别保存，完全相同袋码仍全局冲突；
 - session 整场净重为负但最终锁存标志为 `false` 时，订单原样保存 `false`，不补判；
