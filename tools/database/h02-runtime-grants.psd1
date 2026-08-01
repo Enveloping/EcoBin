@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 3
+    CatalogVersion = 4
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -7,6 +7,7 @@
 
     SlotTables = @(
         "dev_asset_active_deployment"
+        "dev_asset_active_tenant_allocation"
         "dev_device_occupancy"
         "rec_bag_current_occupancy"
         "fund_active_withdrawal"
@@ -121,6 +122,15 @@
             "enabled_at"
             "ended_at"
             "end_method"
+            "end_reason"
+            "lock_version"
+            "updated_at"
+        )
+        dev_asset_tenant_allocation = @(
+            "status"
+            "ended_by_platform_admin_id"
+            "ended_at"
+            "end_mode"
             "end_reason"
             "lock_version"
             "updated_at"
@@ -321,10 +331,10 @@
         rec_clean_record = @(
             "recalculated_removed_net_weight_status"
             "recalculated_removed_net_weight_g"
-            "review_status"
-            "review_revision_no"
-            "review_revision_id"
-            "final_recognized_net_weight_kg"
+            "effective_removed_net_weight_g"
+            "effective_weight_source"
+            "record_remark"
+            "lock_version"
             "updated_at"
         )
         rec_clean_photo = @(

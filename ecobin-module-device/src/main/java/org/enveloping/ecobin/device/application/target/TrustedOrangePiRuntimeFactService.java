@@ -862,6 +862,7 @@ public class TrustedOrangePiRuntimeFactService {
         String weightHealth = legacyWeightHealth(
                 requiredText(port, "weightSensorHealth"));
         String fullnessHealth = legacySensorHealth(
+                requiredText(port, "fullnessSensorKind"),
                 requiredText(port, "fullnessSensorValue"),
                 requiredText(port, "fullnessSampleBasis"));
         String fullnessValue = "OK".equals(fullnessHealth)
@@ -1686,7 +1687,6 @@ public class TrustedOrangePiRuntimeFactService {
                             impact_level
                         FROM dev_fault_recovery_observation
                         WHERE fault_uid = ?
-                        FOR UPDATE
                         """,
                 (rs, ignored) -> new RecoveryObservation(
                         rs.getLong("source_edge_event_id"),
@@ -1916,9 +1916,15 @@ public class TrustedOrangePiRuntimeFactService {
     }
 
     private static String legacySensorHealth(
-            String fullnessValue, String sampleBasis) {
+            String sensorKind,
+            String fullnessValue,
+            String sampleBasis) {
         if ("NOT_SAMPLED".equals(sampleBasis)) {
-            return "UNKNOWN";
+            return "DIGITAL_INFRARED".equals(sensorKind)
+                    && Set.of("CLEAR", "BLOCKED")
+                    .contains(fullnessValue)
+                    ? "OK"
+                    : "UNKNOWN";
         }
         return Set.of("CLEAR", "BLOCKED").contains(fullnessValue)
                 ? "OK"

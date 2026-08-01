@@ -37,7 +37,9 @@ class RuntimeSafetyConfigurationTest {
             "V18__wallet_read_models.sql",
             "V19__delivery_configuration_management.sql",
             "V20__clean_records_without_review.sql",
-            "V21__clean_normal_flow_facts.sql"
+            "V21__clean_normal_flow_facts.sql",
+            "V22__device_tenant_allocation.sql",
+            "V23__device_acceptance_reclaim_credentials.sql"
     };
 
     @Test

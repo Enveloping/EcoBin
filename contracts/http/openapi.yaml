@@ -2634,6 +2634,26 @@
           "403": {"$ref": "#/components/responses/ForbiddenProblem"},
           "404": {"$ref": "#/components/responses/NotFoundProblem"}
         }
+      },
+      "post": {
+        "operationId": "createOrganizationDeviceDeploymentFromTenantPool",
+        "tags": ["Device management"],
+        "summary": "Assign one asset from the current tenant pool to this organization; business remains disabled",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateAllocatedDeviceDeploymentRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DeviceDeploymentCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
       }
     },
     "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}": {
@@ -2706,66 +2726,6 @@
           "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
           "403": {"$ref": "#/components/responses/ForbiddenProblem"},
           "404": {"$ref": "#/components/responses/NotFoundProblem"}
-        }
-      }
-    },
-    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/activations": {
-      "parameters": [
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/DeploymentCode"}
-      ],
-      "post": {
-        "operationId": "activateOrganizationDeviceDeployment",
-        "tags": ["Device management"],
-        "summary": "Activate only after precise configuration and trusted runtime acceptance",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/ActivateDeviceDeploymentRequest"}
-            }
-          }
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
-        }
-      }
-    },
-    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/deactivations": {
-      "parameters": [
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/DeploymentCode"}
-      ],
-      "post": {
-        "operationId": "deactivateOrganizationDeviceDeployment",
-        "tags": ["Device management"],
-        "summary": "Disable future work without rewriting already accepted work",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/DeviceDeploymentVersionCommand"}
-            }
-          }
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
         }
       }
     },
@@ -3010,30 +2970,6 @@
           "403": {"$ref": "#/components/responses/ForbiddenProblem"},
           "404": {"$ref": "#/components/responses/NotFoundProblem"}
         }
-      },
-      "post": {
-        "operationId": "createPlatformDeviceDeployment",
-        "tags": ["Device management"],
-        "summary": "Atomically deploy one in-stock asset into an explicit organization",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/CreateDeviceDeploymentRequest"}
-            }
-          }
-        },
-        "responses": {
-          "201": {"$ref": "#/components/responses/DeviceDeploymentCreated"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
-        }
       }
     },
     "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}": {
@@ -3110,129 +3046,6 @@
           "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
           "403": {"$ref": "#/components/responses/ForbiddenProblem"},
           "404": {"$ref": "#/components/responses/NotFoundProblem"}
-        }
-      }
-    },
-    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/activations": {
-      "parameters": [
-        {"$ref": "#/components/parameters/TenantCode"},
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/DeploymentCode"}
-      ],
-      "post": {
-        "operationId": "activatePlatformDeviceDeployment",
-        "tags": ["Device management"],
-        "summary": "Activate an explicitly targeted deployment after trusted acceptance",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/ActivateDeviceDeploymentRequest"}
-            }
-          }
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
-        }
-      }
-    },
-    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/deactivations": {
-      "parameters": [
-        {"$ref": "#/components/parameters/TenantCode"},
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/DeploymentCode"}
-      ],
-      "post": {
-        "operationId": "deactivatePlatformDeviceDeployment",
-        "tags": ["Device management"],
-        "summary": "Disable an explicitly targeted deployment",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/DeviceDeploymentVersionCommand"}
-            }
-          }
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
-        }
-      }
-    },
-    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/business-switch/enablements": {
-      "parameters": [
-        {"$ref": "#/components/parameters/TenantCode"},
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/DeploymentCode"}
-      ],
-      "post": {
-        "operationId": "enablePlatformDeviceBusiness",
-        "tags": ["Device management"],
-        "summary": "Enable business intent in an explicitly targeted deployment",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/DeviceDeploymentVersionCommand"}
-            }
-          }
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
-        }
-      }
-    },
-    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/business-switch/disablements": {
-      "parameters": [
-        {"$ref": "#/components/parameters/TenantCode"},
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/DeploymentCode"}
-      ],
-      "post": {
-        "operationId": "disablePlatformDeviceBusiness",
-        "tags": ["Device management"],
-        "summary": "Disable business intent in an explicitly targeted deployment",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/DeviceDeploymentVersionCommand"}
-            }
-          }
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"}
         }
       }
     },
@@ -4066,6 +3879,677 @@
           "500": {
             "description": "Reliable receipt failed; the sender must retry"
           }
+        }
+      }
+    },
+    "/api/v1/web/device-asset-allocations": {
+      "get": {
+        "operationId": "listTenantDeviceAssetAllocations",
+        "tags": ["Device management"],
+        "summary": "List only the current tenant's device pool and allocation history",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/DeviceTenantAllocationStatus"}
+          },
+          {
+            "name": "hardwareSn",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/HardwareSn"}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/device-asset-allocations/{allocationUid}": {
+      "parameters": [{"name": "allocationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "get": {
+        "operationId": "getTenantDeviceAssetAllocation",
+        "tags": ["Device management"],
+        "summary": "Read one allocation only when it belongs to the current tenant",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/device-asset-allocations": {
+      "get": {
+        "operationId": "listPlatformDeviceAssetAllocations",
+        "tags": ["Device management"],
+        "summary": "List platform-visible tenant allocation history",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {
+            "name": "tenantCode",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/TenantCode"}
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/DeviceTenantAllocationStatus"}
+          },
+          {
+            "name": "hardwareSn",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/HardwareSn"}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/device-asset-allocations/{allocationUid}": {
+      "parameters": [{"name": "allocationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "get": {
+        "operationId": "getPlatformDeviceAssetAllocation",
+        "tags": ["Device management"],
+        "summary": "Read one tenant allocation from the platform view",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/device-asset-allocations": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}],
+      "post": {
+        "operationId": "allocatePlatformDeviceAssetToTenant",
+        "tags": ["Device management"],
+        "summary": "Move one in-stock platform asset into a tenant pool without choosing an organization",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateDeviceTenantAllocationRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DeviceTenantAllocationCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/device-asset-allocations/{allocationUid}/reclaims": {
+      "parameters": [{"name": "allocationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "post": {
+        "operationId": "reclaimPlatformDeviceAssetAllocation",
+        "tags": ["Device management"],
+        "summary": "End the tenant allocation; normal reclaim returns stock and exceptional reclaim enters maintenance isolation",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReclaimDeviceTenantAllocationRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/returns-to-tenant-pool": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}, {"$ref": "#/components/parameters/DeploymentCode"}],
+      "post": {
+        "operationId": "returnOrganizationDeviceDeploymentToTenantPool",
+        "tags": ["Device management"],
+        "summary": "End the organization deployment and return the asset to the same tenant pool",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReturnDeviceDeploymentToTenantPoolRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/device-assets/{hardwareSn}/onenet-credential-rotation-confirmations": {
+      "parameters": [{"$ref": "#/components/parameters/HardwareSn"}],
+      "post": {
+        "operationId": "confirmPlatformOneNetCredentialRotation",
+        "tags": ["Device management"],
+        "summary": "Confirm out-of-band OneNet device-key rotation without storing the credential value",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfirmOneNetCredentialRotationRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/OneNetCredentialRotationConfirmationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/device-assets/{hardwareSn}/maintenance-clearances": {
+      "parameters": [{"$ref": "#/components/parameters/HardwareSn"}],
+      "post": {
+        "operationId": "clearPlatformDeviceMaintenanceIsolation",
+        "tags": ["Device management"],
+        "summary": "Return an exceptionally reclaimed asset to stock after possession and inspection are confirmed",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClearDeviceMaintenanceRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTenantAllocationOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/acceptance-readiness": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeploymentCode"}
+      ],
+      "get": {
+        "operationId": "getPlatformDeviceAcceptanceReadiness",
+        "tags": ["Device management"],
+        "summary": "Explain every trusted fact and blocker before static hardware acceptance",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceAcceptanceReadinessOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/acceptances": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeploymentCode"}
+      ],
+      "get": {
+        "operationId": "listPlatformDeviceDeploymentAcceptances",
+        "tags": ["Device management"],
+        "summary": "List immutable static hardware acceptance evidence",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceDeploymentAcceptanceListOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "post": {
+        "operationId": "acceptPlatformDeviceDeployment",
+        "tags": ["Device management"],
+        "summary": "Confirm static hardware acceptance; no delivery or cleaning business record is created",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AcceptDeviceDeploymentRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceDeploymentAcceptanceOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/technical-suspensions": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/DeploymentCode"}
+      ],
+      "post": {
+        "operationId": "suspendPlatformDeviceDeploymentTechnically",
+        "tags": ["Device management"],
+        "summary": "Technically suspend the deployment and force business off; restoration requires platform acceptance and tenant reopening",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceDeploymentVersionCommand"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceDeploymentOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/clean-options": {
+      "parameters": [{"$ref": "#/components/parameters/DeploymentCode"}],
+      "get": {
+        "operationId": "getMiniappCleanOptions",
+        "tags": ["Cleaning"],
+        "summary": "List permitted cleaning choices and exact blockers",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanOptionsOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/clean-operations/{operationUid}": {
+      "parameters": [{"name": "operationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "get": {
+        "operationId": "getMiniappCleanOperation",
+        "tags": ["Cleaning"],
+        "summary": "Poll one cleaner-owned cleaning operation",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanOperationOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/me/clean-records": {
+      "get": {
+        "operationId": "listMyMiniappCleanRecords",
+        "tags": ["Cleaning"],
+        "summary": "List cleaning records owned by the current cleaner",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanRecordPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/me/clean-records/{cleanRecordNo}": {
+      "parameters": [
+        {
+          "name": "cleanRecordNo",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      ],
+      "get": {
+        "operationId": "getMyMiniappCleanRecord",
+        "tags": ["Cleaning"],
+        "summary": "Read one cleaner-owned cleaning record",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappCleanRecordDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/ports/{portNo}/clean-operations": {
+      "parameters": [{"$ref": "#/components/parameters/DeploymentCode"}, {"$ref": "#/components/parameters/PortNo"}],
+      "post": {
+        "operationId": "startMiniappCleanOperation",
+        "tags": ["Cleaning"],
+        "summary": "Authorize one bag replacement without treating command acceptance as completion",
+        "security": [{"miniappBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StartCleanOperationRequest"}}}
+        },
+        "responses": {
+          "202": {"$ref": "#/components/responses/CleanOperationAcceptedResponse"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/clean-records": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "listOrganizationCleanRecords",
+        "tags": ["Cleaning"],
+        "summary": "Query cleaning records with a filter-bound cursor",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100}
+          },
+          {"name": "resultKind", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 32}},
+          {
+            "name": "cleanerUserUid",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/PublicUid"}
+          },
+          {
+            "name": "deploymentCode",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/DeploymentCode"}
+          },
+          {
+            "name": "portNo",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 6}
+          },
+          {"name": "removedBagQr", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 64}},
+          {"name": "installedBagQr", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 64}},
+          {"name": "anomalyCode", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 64}},
+          {"name": "photoCompleteness", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 32}},
+          {
+            "name": "occurredFrom",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          },
+          {
+            "name": "occurredTo",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanRecordPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/clean-records/{cleanRecordNo}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {
+          "name": "cleanRecordNo",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      ],
+      "get": {
+        "operationId": "getOrganizationCleanRecord",
+        "tags": ["Cleaning"],
+        "summary": "Read one operational cleaning record",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WebCleanRecordDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "patch": {
+        "operationId": "editOrganizationCleanRecord",
+        "tags": ["Cleaning"],
+        "summary": "Correct effective removed weight or remark while preserving device facts",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EditCleanRecordRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/EditCleanRecordResultOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/clean-records/{cleanRecordNo}/changes": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {
+          "name": "cleanRecordNo",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      ],
+      "get": {
+        "operationId": "listOrganizationCleanRecordChanges",
+        "tags": ["Cleaning"],
+        "summary": "List immutable cleaning corrections",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanRecordChangePageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-records": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "listPlatformCleanRecords",
+        "tags": ["Cleaning"],
+        "summary": "Query cleaning records with a filter-bound cursor",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100}
+          },
+          {"name": "resultKind", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 32}},
+          {
+            "name": "cleanerUserUid",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/PublicUid"}
+          },
+          {
+            "name": "deploymentCode",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/DeploymentCode"}
+          },
+          {
+            "name": "portNo",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 6}
+          },
+          {"name": "removedBagQr", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 64}},
+          {"name": "installedBagQr", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 64}},
+          {"name": "anomalyCode", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 64}},
+          {"name": "photoCompleteness", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 32}},
+          {
+            "name": "occurredFrom",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          },
+          {
+            "name": "occurredTo",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/UtcTimestamp"}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanRecordPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-records/{cleanRecordNo}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {
+          "name": "cleanRecordNo",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      ],
+      "get": {
+        "operationId": "getPlatformCleanRecord",
+        "tags": ["Cleaning"],
+        "summary": "Read one operational cleaning record",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WebCleanRecordDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "patch": {
+        "operationId": "editPlatformCleanRecord",
+        "tags": ["Cleaning"],
+        "summary": "Correct effective removed weight or remark while preserving device facts",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EditCleanRecordRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/EditCleanRecordResultOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-records/{cleanRecordNo}/changes": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {
+          "name": "cleanRecordNo",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "minLength": 1, "maxLength": 64}
+        }
+      ],
+      "get": {
+        "operationId": "listPlatformCleanRecordChanges",
+        "tags": ["Cleaning"],
+        "summary": "List immutable cleaning corrections",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanRecordChangePageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
         }
       }
     }
@@ -5207,6 +5691,130 @@
             "schema": {"$ref": "#/components/schemas/ProblemDetail"}
           }
         }
+      },
+      "DeviceTenantAllocationPageOk": {
+        "description": "A page of tenant allocation history",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceTenantAllocationPageEnvelope"}}}
+      },
+      "DeviceTenantAllocationOk": {
+        "description": "One tenant allocation projection",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceTenantAllocationEnvelope"}}}
+      },
+      "DeviceTenantAllocationCreated": {
+        "description": "The inventory asset was allocated to the tenant pool",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"},
+          "Location": {"$ref": "#/components/headers/Location"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceTenantAllocationEnvelope"}}}
+      },
+      "OneNetCredentialRotationConfirmationOk": {
+        "description": "A credential value was rotated outside EcoBin and the platform recorded only the confirmation",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {"schema": {"$ref": "#/components/schemas/OneNetCredentialRotationConfirmationEnvelope"}}
+        }
+      },
+      "DeviceAcceptanceReadinessOk": {
+        "description": "Trusted configuration and hardware evidence used by platform acceptance",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceAcceptanceReadinessEnvelope"}}}
+      },
+      "DeviceDeploymentAcceptanceOk": {
+        "description": "Immutable platform hardware acceptance evidence",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceDeploymentAcceptanceEnvelope"}}}
+      },
+      "DeviceDeploymentAcceptanceListOk": {
+        "description": "Immutable platform hardware acceptance history",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceDeploymentAcceptanceListEnvelope"}}}
+      },
+      "CleanOptionsOk": {
+        "description": "Current cleaning choices and blockers",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanOptionsEnvelope"}}}
+      },
+      "CleanOperationOk": {
+        "description": "Current cleaning operation state",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanOperationEnvelope"}}}
+      },
+      "CleanOperationAcceptedResponse": {
+        "description": "Cleaning start was durably accepted",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"},
+          "Location": {"$ref": "#/components/headers/Location"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanOperationAcceptedEnvelope"}}}
+      },
+      "CleanRecordPageOk": {
+        "description": "Stable cursor page of cleaning records",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanRecordPageEnvelope"}}}
+      },
+      "MiniappCleanRecordDetailOk": {
+        "description": "Cleaner-safe cleaning record detail",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MiniappCleanRecordDetailEnvelope"}}}
+      },
+      "WebCleanRecordDetailOk": {
+        "description": "Operational cleaning record detail",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebCleanRecordDetailEnvelope"}}}
+      },
+      "EditCleanRecordResultOk": {
+        "description": "Editable cleaning projection was updated with immutable change history",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EditCleanRecordResultEnvelope"}}}
+      },
+      "CleanRecordChangePageOk": {
+        "description": "Stable cursor page of cleaning record changes",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanRecordChangePageEnvelope"}}}
       }
     },
     "schemas": {
@@ -5237,10 +5845,7 @@
         "type": "string",
         "pattern": "^[0-9a-f]{64}$"
       },
-      "DeviceAssetLifecycleStatus": {
-        "type": "string",
-        "enum": ["IN_STOCK", "IN_USE", "RETIRED"]
-      },
+      "DeviceAssetLifecycleStatus": {"type": "string", "enum": ["IN_STOCK", "ALLOCATED", "IN_USE", "MAINTENANCE", "RETIRED"]},
       "DeviceDeploymentLifecycleStatus": {
         "type": "string",
         "enum": [
@@ -5286,42 +5891,12 @@
           }
         }
       },
-      "CreateDeviceDeploymentRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["hardwareSn", "expectedAssetVersion"],
-        "properties": {
-          "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
-          "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"}
-        }
-      },
       "DeviceDeploymentVersionCommand": {
         "type": "object",
         "additionalProperties": false,
         "required": ["expectedVersion"],
         "properties": {
           "expectedVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
-          "reason": {
-            "type": ["string", "null"],
-            "maxLength": 500
-          }
-        }
-      },
-      "ActivateDeviceDeploymentRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "expectedVersion",
-          "expectedConfigurationVersion",
-          "acceptanceConfirmed"
-        ],
-        "properties": {
-          "expectedVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
-          "expectedConfigurationVersion": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "acceptanceConfirmed": {"type": "boolean"},
           "reason": {
             "type": ["string", "null"],
             "maxLength": 500
@@ -9976,6 +10551,863 @@
               }
             }
           }
+        }
+      },
+      "DeviceTenantAllocationStatus": {"type": "string", "maxLength": 16, "enum": ["ACTIVE", "ENDED"]},
+      "CreateDeviceTenantAllocationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hardwareSn", "expectedAssetVersion"],
+        "properties": {
+          "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
+          "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "reason": {"type": ["string", "null"], "maxLength": 500}
+        }
+      },
+      "CreateAllocatedDeviceDeploymentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["allocationUid", "expectedAllocationVersion"],
+        "properties": {
+          "allocationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "expectedAllocationVersion": {"$ref": "#/components/schemas/ExpectedVersion"}
+        }
+      },
+      "ReturnDeviceDeploymentToTenantPoolRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedDeploymentVersion", "expectedAllocationVersion", "reason"],
+        "properties": {
+          "expectedDeploymentVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "expectedAllocationVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "ReclaimDeviceTenantAllocationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedAllocationVersion", "expectedAssetVersion", "mode", "physicalPossessionConfirmed", "reason"],
+        "properties": {
+          "expectedAllocationVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "mode": {"type": "string", "maxLength": 16, "enum": ["NORMAL", "EXCEPTIONAL"]},
+          "physicalPossessionConfirmed": {"type": "boolean"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "ConfirmOneNetCredentialRotationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedAssetVersion", "reason"],
+        "properties": {
+          "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "ClearDeviceMaintenanceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedAssetVersion", "physicalPossessionConfirmed", "inspectionConfirmed", "reason"],
+        "properties": {
+          "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "physicalPossessionConfirmed": {"type": "boolean"},
+          "inspectionConfirmed": {"type": "boolean"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "AcceptDeviceDeploymentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedDeploymentVersion",
+          "expectedConfigurationVersion",
+          "deliveryDoorObservedNormal",
+          "camerasObservedNormal",
+          "cleanDoorInstallationObservedNormal"
+        ],
+        "properties": {
+          "expectedDeploymentVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "expectedConfigurationVersion": {"type": "integer", "minimum": 1},
+          "deliveryDoorObservedNormal": {"type": "boolean"},
+          "camerasObservedNormal": {"type": "boolean"},
+          "cleanDoorInstallationObservedNormal": {"type": "boolean"},
+          "reason": {"type": ["string", "null"], "maxLength": 500}
+        }
+      },
+      "DeviceTenantAllocation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "allocationUid",
+          "tenantCode",
+          "hardwareSn",
+          "modelCode",
+          "expectedPortCount",
+          "allocationStatus",
+          "assetLifecycleStatus",
+          "allocationSource",
+          "currentDeploymentCode",
+          "currentOrganizationCode",
+          "credentialRotationRequired",
+          "allocationVersion",
+          "assetVersion",
+          "allocatedAt",
+          "endedAt",
+          "endMode",
+          "endReason"
+        ],
+        "properties": {
+          "allocationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "tenantCode": {"$ref": "#/components/schemas/TenantCode"},
+          "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
+          "modelCode": {"type": "string", "minLength": 1, "maxLength": 100},
+          "expectedPortCount": {"type": "integer", "minimum": 1, "maximum": 6},
+          "allocationStatus": {"$ref": "#/components/schemas/DeviceTenantAllocationStatus"},
+          "assetLifecycleStatus": {"$ref": "#/components/schemas/DeviceAssetLifecycleStatus"},
+          "allocationSource": {"type": "string", "maxLength": 32, "enum": ["PLATFORM_ASSIGNMENT", "LEGACY_DIRECT_DEPLOYMENT"]},
+          "currentDeploymentCode": {"oneOf": [{"$ref": "#/components/schemas/DeploymentCode"}, {"type": "null"}]},
+          "currentOrganizationCode": {"oneOf": [{"$ref": "#/components/schemas/OrganizationCode"}, {"type": "null"}]},
+          "credentialRotationRequired": {"type": "boolean"},
+          "allocationVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "assetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "allocatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "endedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "endMode": {"type": ["string", "null"], "maxLength": 16},
+          "endReason": {"type": ["string", "null"], "maxLength": 500}
+        }
+      },
+      "DeviceTenantAllocationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "page", "pageSize", "total"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/DeviceTenantAllocation"}},
+          "page": {"type": "integer", "minimum": 1},
+          "pageSize": {"type": "integer", "minimum": 1, "maximum": 200},
+          "total": {"type": "integer", "minimum": 0}
+        }
+      },
+      "OneNetCredentialRotationConfirmation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["confirmationUid", "hardwareSn", "confirmedAt", "reason"],
+        "properties": {
+          "confirmationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
+          "confirmedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "DeviceConfigurationAcceptanceEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["latestVersion", "appliedVersion", "applicationStatus", "preciselyApplied"],
+        "properties": {
+          "latestVersion": {"type": ["integer", "null"], "minimum": 1},
+          "appliedVersion": {"type": ["integer", "null"], "minimum": 1},
+          "applicationStatus": {"type": ["string", "null"], "maxLength": 32},
+          "preciselyApplied": {"type": "boolean"}
+        }
+      },
+      "DeviceRuntimeAcceptanceEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "edgeConnectionStatus",
+          "mcuLinkStatus",
+          "uartState",
+          "aggregateWeightHealth",
+          "cameraHealth",
+          "localStorageHealth",
+          "clockSyncHealth",
+          "edgeSoftwareVersion",
+          "mcuFirmwareVersion",
+          "pendingReliableEventCount",
+          "receivedAt"
+        ],
+        "properties": {
+          "edgeConnectionStatus": {"type": ["string", "null"], "maxLength": 32},
+          "mcuLinkStatus": {"type": ["string", "null"], "maxLength": 32},
+          "uartState": {"type": ["string", "null"], "maxLength": 32},
+          "aggregateWeightHealth": {"type": ["string", "null"], "maxLength": 32},
+          "cameraHealth": {"type": ["string", "null"], "maxLength": 32},
+          "localStorageHealth": {"type": ["string", "null"], "maxLength": 32},
+          "clockSyncHealth": {"type": ["string", "null"], "maxLength": 32},
+          "edgeSoftwareVersion": {"type": ["string", "null"], "maxLength": 100},
+          "mcuFirmwareVersion": {"type": ["string", "null"], "maxLength": 100},
+          "pendingReliableEventCount": {"type": ["integer", "null"], "minimum": 0},
+          "receivedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
+        }
+      },
+      "DevicePortAcceptanceEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "portNo",
+          "cleanLockPowerState",
+          "cleanSolenoidHealth",
+          "weightSensorHealth",
+          "infraredValue",
+          "infraredSensorHealth",
+          "fullnessSensorKind",
+          "smokeState",
+          "smokeSensorHealth",
+          "safetyStatus",
+          "runtimeFaultBitmap",
+          "runtimeEdgeEventId",
+          "observedAt"
+        ],
+        "properties": {
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "cleanLockPowerState": {"type": ["string", "null"], "maxLength": 32},
+          "cleanSolenoidHealth": {"type": ["string", "null"], "maxLength": 32},
+          "weightSensorHealth": {"type": ["string", "null"], "maxLength": 32},
+          "infraredValue": {"type": ["string", "null"], "maxLength": 32},
+          "infraredSensorHealth": {"type": ["string", "null"], "maxLength": 32},
+          "fullnessSensorKind": {"type": ["string", "null"], "maxLength": 32},
+          "smokeState": {"type": ["string", "null"], "maxLength": 32},
+          "smokeSensorHealth": {"type": ["string", "null"], "maxLength": 32},
+          "safetyStatus": {"type": ["string", "null"], "maxLength": 32},
+          "runtimeFaultBitmap": {"type": ["integer", "null"], "minimum": 0},
+          "runtimeEdgeEventId": {"type": ["integer", "null"], "minimum": 1},
+          "observedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
+        }
+      },
+      "DeviceAcceptanceReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deploymentCode", "readinessMode", "ready", "blockers", "configuration", "runtime", "ports"],
+        "properties": {
+          "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
+          "readinessMode": {
+            "type": "string",
+            "maxLength": 40,
+            "enum": ["PLATFORM_ACCEPTANCE_REQUIRED", "AUTOMATIC_TRANSFER_READINESS", "LEGACY_DIRECT_DEPLOYMENT"]
+          },
+          "ready": {"type": "boolean"},
+          "blockers": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+          "configuration": {"$ref": "#/components/schemas/DeviceConfigurationAcceptanceEvidence"},
+          "runtime": {"$ref": "#/components/schemas/DeviceRuntimeAcceptanceEvidence"},
+          "ports": {"type": "array", "items": {"$ref": "#/components/schemas/DevicePortAcceptanceEvidence"}}
+        }
+      },
+      "DeviceDeploymentAcceptance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "acceptanceUid",
+          "deploymentCode",
+          "configurationVersion",
+          "runtimeReceivedAt",
+          "deliveryDoorObservedNormal",
+          "camerasObservedNormal",
+          "cleanDoorInstallationObservedNormal",
+          "acceptedBy",
+          "reason",
+          "acceptedAt"
+        ],
+        "properties": {
+          "acceptanceUid": {"$ref": "#/components/schemas/UuidV4"},
+          "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
+          "configurationVersion": {"type": "integer", "minimum": 1},
+          "runtimeReceivedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "deliveryDoorObservedNormal": {"type": "boolean"},
+          "camerasObservedNormal": {"type": "boolean"},
+          "cleanDoorInstallationObservedNormal": {"type": "boolean"},
+          "acceptedBy": {"type": "string", "minLength": 1, "maxLength": 100},
+          "reason": {"type": ["string", "null"], "maxLength": 500},
+          "acceptedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "DeviceTenantAllocationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceTenantAllocation"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeviceTenantAllocationPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceTenantAllocationPage"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "OneNetCredentialRotationConfirmationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/OneNetCredentialRotationConfirmation"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeviceAcceptanceReadinessEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceAcceptanceReadiness"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeviceDeploymentAcceptanceEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceDeploymentAcceptance"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "DeviceDeploymentAcceptanceListEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"type": "array", "items": {"$ref": "#/components/schemas/DeviceDeploymentAcceptance"}},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "StartCleanOperationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["installedBagQr"],
+        "properties": {"installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64}}
+      },
+      "CleanOperationAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "resourceId",
+          "operationUid",
+          "status",
+          "version",
+          "portNo",
+          "installedBagQr",
+          "startAuthorizationExpiresAt",
+          "statusUrl",
+          "recommendedPollAfterMs",
+          "nextActions"
+        ],
+        "properties": {
+          "operationId": {"$ref": "#/components/schemas/UuidV4"},
+          "resourceId": {"$ref": "#/components/schemas/UuidV4"},
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "statusUrl": {"$ref": "#/components/schemas/StatusUrl"},
+          "recommendedPollAfterMs": {"type": "integer", "minimum": 1},
+          "nextActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+        }
+      },
+      "RecoverableCleanOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationUid", "portNo", "status", "statusUrl"],
+        "properties": {
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "statusUrl": {"$ref": "#/components/schemas/StatusUrl"}
+        }
+      },
+      "CleanPortOption": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["portNo", "displayName", "currentBagQr", "fullnessStatus", "fullnessPercent", "cleaningAllowed", "blockers"],
+        "properties": {
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "currentBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "fullnessStatus": {"type": "string", "minLength": 1, "maxLength": 32},
+          "fullnessPercent": {"type": ["string", "null"], "maxLength": 16},
+          "cleaningAllowed": {"type": "boolean"},
+          "blockers": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+        }
+      },
+      "CleanOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deploymentCode", "displayName", "address", "deviceBusy", "recoverableOperations", "asOf", "ports"],
+        "properties": {
+          "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "address": {"type": ["string", "null"], "maxLength": 500},
+          "deviceBusy": {"type": "boolean"},
+          "recoverableOperations": {"type": "array", "items": {"$ref": "#/components/schemas/RecoverableCleanOperation"}},
+          "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "ports": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPortOption"}}
+        }
+      },
+      "CleanOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationUid",
+          "status",
+          "version",
+          "deploymentCode",
+          "portNo",
+          "removedBagQr",
+          "installedBagQr",
+          "firstUnlockMayHaveExecuted",
+          "cleanLockDeenergizedConfirmed",
+          "cleanerPhysicalCloseConfirmed",
+          "startAuthorizationExpiresAt",
+          "executionDeadlineAt",
+          "completedAt",
+          "cleanRecordNo",
+          "recommendedPollAfterMs",
+          "nextActions"
+        ],
+        "properties": {
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "firstUnlockMayHaveExecuted": {"type": "boolean"},
+          "cleanLockDeenergizedConfirmed": {"type": "boolean"},
+          "cleanerPhysicalCloseConfirmed": {"type": "boolean"},
+          "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "executionDeadlineAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "cleanRecordNo": {"type": ["string", "null"], "maxLength": 64},
+          "recommendedPollAfterMs": {"type": ["integer", "null"], "minimum": 1},
+          "nextActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+        }
+      },
+      "CleanRecordItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cleanRecordNo",
+          "operationUid",
+          "cleanerUserUid",
+          "deploymentCode",
+          "portNo",
+          "removedBagQr",
+          "installedBagQr",
+          "deviceCompletedAt",
+          "originalRecalculatedRemovedNetWeightKg",
+          "effectiveRemovedNetWeightKg",
+          "effectiveWeightSource",
+          "weightReliability",
+          "resultKind",
+          "anomalyCodes",
+          "photoCompleteness",
+          "recordRemark",
+          "version"
+        ],
+        "properties": {
+          "cleanRecordNo": {"type": "string", "minLength": 1, "maxLength": 64},
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "cleanerUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "deviceCompletedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "originalRecalculatedRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "effectiveRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "effectiveWeightSource": {"type": "string", "minLength": 1, "maxLength": 32},
+          "weightReliability": {"type": "string", "minLength": 1, "maxLength": 32},
+          "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
+          "anomalyCodes": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+          "photoCompleteness": {"type": "string", "minLength": 1, "maxLength": 32},
+          "recordRemark": {"type": ["string", "null"], "maxLength": 500},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"}
+        }
+      },
+      "CleanRecordCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/CleanRecordItem"}},
+          "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "nextCursor": {"type": ["string", "null"], "maxLength": 4096}
+        }
+      },
+      "CleanRecordSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationUid",
+          "eventUid",
+          "commandUid",
+          "deploymentCode",
+          "portNo",
+          "cleanerUserUid",
+          "cleanConfigVersionNo",
+          "deviceCompletedAt",
+          "backendReceivedAt",
+          "completedAt"
+        ],
+        "properties": {
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "eventUid": {"$ref": "#/components/schemas/UuidV4"},
+          "commandUid": {"$ref": "#/components/schemas/UuidV4"},
+          "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "cleanerUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "cleanConfigVersionNo": {"type": "integer", "minimum": 1},
+          "deviceCompletedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "backendReceivedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "completedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "CleanBagFacts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["removedBagBindingState", "removedBagQr", "installedBagQr"],
+        "properties": {
+          "removedBagBindingState": {"type": "string", "minLength": 1, "maxLength": 32},
+          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64}
+        }
+      },
+      "CleanWeightFacts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "preUnlockStatus": {"type": ["string", "null"], "maxLength": 32},
+          "preUnlockWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "oldBaselineState": {"type": ["string", "null"], "maxLength": 32},
+          "oldBaselineWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "deviceRemovedNetWeightStatus": {"type": ["string", "null"], "maxLength": 32},
+          "deviceRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "recalculatedRemovedNetWeightStatus": {"type": ["string", "null"], "maxLength": 32},
+          "recalculatedRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "finalTotalWeightStatus": {"type": ["string", "null"], "maxLength": 32},
+          "finalTotalWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "candidateNewBaselineWeightKg": {"type": ["string", "null"], "maxLength": 32}
+        }
+      },
+      "CleanBaselineSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["established", "versionNo", "installedBagQr", "baselineWeightKg", "establishedAt"],
+        "properties": {
+          "established": {"type": "boolean"},
+          "versionNo": {"type": ["integer", "null"], "minimum": 1},
+          "installedBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "baselineWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "establishedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
+        }
+      },
+      "CleanDetectionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["detectionUid", "status", "finalResult", "failureCode", "completedAt"],
+        "properties": {
+          "detectionUid": {"oneOf": [{"$ref": "#/components/schemas/UuidV4"}, {"type": "null"}]},
+          "status": {"type": ["string", "null"], "maxLength": 32},
+          "finalResult": {"type": ["string", "null"], "maxLength": 32},
+          "failureCode": {"type": ["string", "null"], "maxLength": 64},
+          "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
+        }
+      },
+      "MiniappCleanAnomaly": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "detectedAt"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1, "maxLength": 64},
+          "detectedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "WebCleanAnomaly": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "detectedAt", "diagnosticDetails"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1, "maxLength": 64},
+          "detectedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "diagnosticDetails": {"type": "object", "additionalProperties": true}
+        }
+      },
+      "CleanPhoto": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position", "status", "url", "capturedAt", "missingReason"],
+        "properties": {
+          "position": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "url": {"type": ["string", "null"], "maxLength": 2048},
+          "capturedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "missingReason": {"type": ["string", "null"], "maxLength": 100}
+        }
+      },
+      "CleanEffectiveValue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["removedNetWeightKg", "source", "includedInKnownWeightStatistics", "recordRemark", "version"],
+        "properties": {
+          "removedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "source": {"type": "string", "minLength": 1, "maxLength": 32},
+          "includedInKnownWeightStatistics": {"type": "boolean"},
+          "recordRemark": {"type": ["string", "null"], "maxLength": 500},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"}
+        }
+      },
+      "CleanChangeActor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actorKind", "actorUid", "displayName"],
+        "properties": {
+          "actorKind": {"type": "string", "minLength": 1, "maxLength": 32},
+          "actorUid": {"$ref": "#/components/schemas/PublicUid"},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100}
+        }
+      },
+      "CleanRecordChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changeUid",
+          "fromVersion",
+          "toVersion",
+          "beforeEffectiveRemovedNetWeightKg",
+          "beforeEffectiveWeightSource",
+          "beforeRecordRemark",
+          "afterEffectiveRemovedNetWeightKg",
+          "afterEffectiveWeightSource",
+          "afterRecordRemark",
+          "reason",
+          "actor",
+          "changedAt"
+        ],
+        "properties": {
+          "changeUid": {"$ref": "#/components/schemas/UuidV4"},
+          "fromVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "toVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "beforeEffectiveRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "beforeEffectiveWeightSource": {"type": ["string", "null"], "maxLength": 32},
+          "beforeRecordRemark": {"type": ["string", "null"], "maxLength": 500},
+          "afterEffectiveRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "afterEffectiveWeightSource": {"type": ["string", "null"], "maxLength": 32},
+          "afterRecordRemark": {"type": ["string", "null"], "maxLength": 500},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+          "actor": {"$ref": "#/components/schemas/CleanChangeActor"},
+          "changedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "CleanRecordChangeCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/CleanRecordChange"}},
+          "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "nextCursor": {"type": ["string", "null"], "maxLength": 4096}
+        }
+      },
+      "MiniappCleanRecordDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cleanRecordNo",
+          "source",
+          "bags",
+          "weights",
+          "newBaseline",
+          "postCleanDetection",
+          "resultKind",
+          "photos",
+          "effective",
+          "anomalies"
+        ],
+        "properties": {
+          "cleanRecordNo": {"type": "string", "minLength": 1, "maxLength": 64},
+          "source": {"$ref": "#/components/schemas/CleanRecordSource"},
+          "bags": {"$ref": "#/components/schemas/CleanBagFacts"},
+          "weights": {"$ref": "#/components/schemas/CleanWeightFacts"},
+          "newBaseline": {"$ref": "#/components/schemas/CleanBaselineSummary"},
+          "postCleanDetection": {"$ref": "#/components/schemas/CleanDetectionSummary"},
+          "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
+          "photos": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPhoto"}},
+          "effective": {"$ref": "#/components/schemas/CleanEffectiveValue"},
+          "anomalies": {"type": "array", "items": {"$ref": "#/components/schemas/MiniappCleanAnomaly"}}
+        }
+      },
+      "WebCleanRecordDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cleanRecordNo",
+          "source",
+          "bags",
+          "weights",
+          "newBaseline",
+          "postCleanDetection",
+          "resultKind",
+          "photos",
+          "effective",
+          "anomalies",
+          "latestChange"
+        ],
+        "properties": {
+          "cleanRecordNo": {"type": "string", "minLength": 1, "maxLength": 64},
+          "source": {"$ref": "#/components/schemas/CleanRecordSource"},
+          "bags": {"$ref": "#/components/schemas/CleanBagFacts"},
+          "weights": {"$ref": "#/components/schemas/CleanWeightFacts"},
+          "newBaseline": {"$ref": "#/components/schemas/CleanBaselineSummary"},
+          "postCleanDetection": {"$ref": "#/components/schemas/CleanDetectionSummary"},
+          "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
+          "photos": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPhoto"}},
+          "effective": {"$ref": "#/components/schemas/CleanEffectiveValue"},
+          "anomalies": {"type": "array", "items": {"$ref": "#/components/schemas/WebCleanAnomaly"}},
+          "latestChange": {"oneOf": [{"$ref": "#/components/schemas/CleanRecordChange"}, {"type": "null"}]}
+        }
+      },
+      "EffectiveCleanWeightEdit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "properties": {
+          "action": {"type": "string", "minLength": 1, "maxLength": 16},
+          "valueKg": {"type": ["string", "null"], "maxLength": 16}
+        }
+      },
+      "CleanRemarkEdit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "properties": {
+          "action": {"type": "string", "minLength": 1, "maxLength": 16},
+          "value": {"type": ["string", "null"], "maxLength": 500}
+        }
+      },
+      "EditCleanRecordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion", "reason"],
+        "properties": {
+          "expectedVersion": {"type": "integer", "minimum": 1},
+          "effectiveRemovedNetWeight": {"oneOf": [{"$ref": "#/components/schemas/EffectiveCleanWeightEdit"}, {"type": "null"}]},
+          "recordRemark": {"oneOf": [{"$ref": "#/components/schemas/CleanRemarkEdit"}, {"type": "null"}]},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "EditCleanRecordResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cleanRecordNo",
+          "version",
+          "effectiveRemovedNetWeightKg",
+          "effectiveWeightSource",
+          "recordRemark",
+          "updatedAt",
+          "changeUid"
+        ],
+        "properties": {
+          "cleanRecordNo": {"type": "string", "minLength": 1, "maxLength": 64},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "effectiveRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "effectiveWeightSource": {"type": "string", "minLength": 1, "maxLength": 32},
+          "recordRemark": {"type": ["string", "null"], "maxLength": 500},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "changeUid": {"$ref": "#/components/schemas/UuidV4"}
+        }
+      },
+      "CleanOptionsEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanOptions"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "CleanOperationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanOperation"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "CleanOperationAcceptedEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanOperationAccepted"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "CleanRecordPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanRecordCursorPage"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "MiniappCleanRecordDetailEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/MiniappCleanRecordDetail"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "WebCleanRecordDetailEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/WebCleanRecordDetail"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "EditCleanRecordResultEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/EditCleanRecordResult"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "CleanRecordChangePageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanRecordChangeCursorPage"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       }
     }
