@@ -1,32 +1,171 @@
-interface DemoOrder {
-  id: number
-  type: string
-  category: string
-  date: string
-  title: string
-  orderNo: string
-  status: string
-  amount: string
-  expense?: boolean
+import { myDeliveries } from '../../api/delivery'
+import { FEATURES } from '../../config/index'
+import { MiniappApiProblem } from '../../utils/request'
+import {
+  toDeliveryListItem,
+  type DeliveryFilter,
+  type DeliveryListItem,
+} from '../../utils/user-view'
+import type { DeliveryReviewStatus } from '../../types/api'
+
+interface FilterTab {
+  key: DeliveryFilter
+  text: string
 }
 
-const ORDERS: DemoOrder[] = [
-  { id: 1, type: '智能回收', category: '回收', date: '2024-06-30', title: '纸张 0.5kg', orderNo: 'RC20240630001', status: '已结算', amount: '+¥1.20' },
-  { id: 2, type: '上门回收', category: '回收', date: '2024-06-29', title: '纸箱 3kg、金属 1kg', orderNo: 'RC20240629003', status: '已完成', amount: '+¥8.50' },
-  { id: 3, type: '智能回收', category: '回收', date: '2024-06-28', title: '塑料瓶 0.3kg', orderNo: 'RC20240628002', status: '已结算', amount: '+¥0.60' },
-  { id: 4, type: '家政服务', category: '家政', date: '2024-06-20', title: '上门保洁 2h', orderNo: 'HK20240620001', status: '已完成', amount: '-¥88.00', expense: true },
-  { id: 5, type: '账户提现', category: '提现', date: '2024-06-18', title: '提现至微信零钱', orderNo: 'WD20240618001', status: '审核中', amount: '-¥20.00', expense: true },
-]
+const PAGE_SIZE = 20
+
+function reviewStatus(filter: DeliveryFilter): DeliveryReviewStatus | undefined {
+  return filter === 'ALL' ? undefined : filter
+}
 
 Page({
+  requestGeneration: 0,
+  cursorRecoveryUsed: false,
+
   data: {
-    tabs: ['全部', '回收', '家政', '提现'],
-    active: '全部',
-    visibleOrders: ORDERS,
+    tabs: [
+      { key: 'ALL', text: '全部' },
+      { key: 'PENDING', text: '待审核' },
+      { key: 'APPROVED', text: '已审核' },
+    ] as FilterTab[],
+    active: 'ALL' as DeliveryFilter,
+    currentFilterText: '全部订单',
+    serviceUnavailable: !FEATURES.targetDeliveryOrderApi,
+    orders: [] as DeliveryListItem[],
+    nextCursor: null as string | null,
+    loading: false,
+    initialLoading: FEATURES.targetDeliveryOrderApi,
+    finished: !FEATURES.targetDeliveryOrderApi,
+    errorMessage: '',
   },
 
-  onTab(e: WechatMiniprogram.TouchEvent) {
-    const active = String(e.currentTarget.dataset.tab)
-    this.setData({ active, visibleOrders: active === '全部' ? ORDERS : ORDERS.filter((item) => item.category === active) })
+  onLoad() {
+    if (!FEATURES.targetDeliveryOrderApi) return
+    void this.reload()
+  },
+
+  onPullDownRefresh() {
+    if (!FEATURES.targetDeliveryOrderApi) {
+      wx.stopPullDownRefresh()
+      return
+    }
+    void this.reload(() => wx.stopPullDownRefresh())
+  },
+
+  onReachBottom() {
+    if (!FEATURES.targetDeliveryOrderApi) return
+    void this.loadMore()
+  },
+
+  onTab(event: WechatMiniprogram.TouchEvent) {
+    const active = String(event.currentTarget.dataset.tab) as DeliveryFilter
+    const tab = this.data.tabs.find((item) => item.key === active)
+    if (!tab || active === this.data.active) return
+    this.setData({
+      active,
+      currentFilterText: active === 'ALL' ? '全部订单' : tab.text,
+    }, () => {
+      void this.reload()
+    })
+  },
+
+  async reload(
+    done?: () => void,
+    preserveCursorRecovery = false,
+  ) {
+    if (!FEATURES.targetDeliveryOrderApi) {
+      done?.()
+      return
+    }
+    if (!preserveCursorRecovery) this.cursorRecoveryUsed = false
+    const generation = ++this.requestGeneration
+    this.setData({
+      orders: [],
+      nextCursor: null,
+      finished: false,
+      loading: false,
+      initialLoading: true,
+      errorMessage: '',
+    })
+    try {
+      await this.fetchNext(undefined, generation)
+    } finally {
+      done?.()
+    }
+  },
+
+  async loadMore() {
+    if (!FEATURES.targetDeliveryOrderApi) return
+    if (this.data.loading || this.data.finished) return
+    await this.fetchNext(this.data.nextCursor ?? undefined)
+  },
+
+  async fetchNext(cursor?: string, generation?: number) {
+    const activeGeneration = generation ?? this.requestGeneration
+    if (activeGeneration !== this.requestGeneration || this.data.loading) {
+      return
+    }
+    this.setData({ loading: true, errorMessage: '' })
+    let recoverInvalidCursor = false
+    try {
+      const result = await myDeliveries({
+        cursor,
+        limit: PAGE_SIZE,
+        reviewStatus: reviewStatus(this.data.active),
+      }, false)
+      if (activeGeneration !== this.requestGeneration) return
+      const rows = result.items.map(toDeliveryListItem)
+      const orders = cursor ? this.data.orders.concat(rows) : rows
+      this.setData({
+        orders,
+        nextCursor: result.nextCursor,
+        finished: !result.nextCursor,
+      })
+    } catch (error) {
+      if (activeGeneration !== this.requestGeneration) return
+      if (
+        cursor
+        && !this.cursorRecoveryUsed
+        && error instanceof MiniappApiProblem
+        && error.code === 'COMMON.INVALID_CURSOR'
+      ) {
+        this.cursorRecoveryUsed = true
+        recoverInvalidCursor = true
+      } else if (this.data.orders.length === 0) {
+        this.setData({ errorMessage: '投递订单暂时无法加载' })
+      } else {
+        wx.showToast({ title: '更多订单加载失败', icon: 'none' })
+      }
+    } finally {
+      if (activeGeneration === this.requestGeneration) {
+        this.setData({ loading: false, initialLoading: false })
+      }
+    }
+
+    if (recoverInvalidCursor && activeGeneration === this.requestGeneration) {
+      wx.showToast({ title: '订单列表已更新', icon: 'none' })
+      await this.reload(undefined, true)
+    }
+  },
+
+  onRetry() {
+    void this.reload()
+  },
+
+  onContinueLoading() {
+    void this.loadMore()
+  },
+
+  onOrderTap(event: WechatMiniprogram.TouchEvent) {
+    const deliveryOrderNo = String(
+      event.currentTarget.dataset.deliveryOrderNo || '',
+    )
+    if (!deliveryOrderNo) return
+    wx.navigateTo({
+      url: `/pages/order-detail/order-detail?deliveryOrderNo=${
+        encodeURIComponent(deliveryOrderNo)
+      }`,
+    })
   },
 })

@@ -1,4 +1,5 @@
 {
-  "navigationBarTitleText": "清运作业",
+  "navigationBarTitleText": "清运工作台",
+  "navigationStyle": "custom",
   "usingComponents": {}
 }

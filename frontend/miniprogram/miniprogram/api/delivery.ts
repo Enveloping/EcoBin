@@ -1,20 +1,94 @@
-import { http } from '../utils/request'
-import type { PageResult, DeliveryOrder } from '../types/api'
+import { http, requestAccepted } from '../utils/request'
+import type {
+  CursorPage,
+  DeliveryOptionsView,
+  DeliveryReviewStatus,
+  MiniappDeliveryOrderDetail,
+  MiniappDeliveryOrderItem,
+  DeliverySessionAccepted,
+  DeliverySessionView,
+} from '../types/api'
 
-/**
- * 开投口（激活「当前活跃用户」会话 + 下发开门指令）。
- * 投递改为「上传后建单」：开门不建单，订单在设备投放称重上报后才生成，故无返回体。
- */
-export function openDoor(doorId: number, toast = true) {
-  return http.post<void>('/api/app/delivery/open', { doorId }, { toast })
+export function getDeliveryOptions(deploymentCode: string) {
+  return http.get<DeliveryOptionsView>(
+    `/api/v1/miniapp/device-deployments/${
+      encodeURIComponent(deploymentCode)
+    }/delivery-options`,
+    undefined,
+    {
+      noStore: true,
+      toast: false,
+      registrationSource: { deploymentCode },
+    },
+  )
 }
 
-/** 我的投递记录分页 */
-export function myDeliveries(page = 1, pageSize = 20) {
-  return http.get<PageResult<DeliveryOrder>>('/api/app/delivery/my', { page, pageSize })
+export function startDeliverySession(
+  deploymentCode: string,
+  portNo: number,
+  idempotencyKey: string,
+) {
+  return requestAccepted<DeliverySessionAccepted>({
+    url: `/api/v1/miniapp/device-deployments/${
+      encodeURIComponent(deploymentCode)
+    }/ports/${portNo}/delivery-sessions`,
+    method: 'POST',
+    idempotencyKey,
+    noStore: true,
+    toast: false,
+    registrationSource: { deploymentCode },
+  })
+}
+
+export function getDeliverySession(
+  sessionUid: string,
+  deploymentCode: string,
+) {
+  return http.get<DeliverySessionView>(
+    `/api/v1/miniapp/delivery-sessions/${
+      encodeURIComponent(sessionUid)
+    }`,
+    undefined,
+    {
+      noStore: true,
+      toast: false,
+      registrationSource: { deploymentCode },
+    },
+  )
+}
+
+export interface MyDeliveriesQuery {
+  cursor?: string
+  limit?: number
+  reviewStatus?: DeliveryReviewStatus
+}
+
+/** 当前用户的投递订单，游标与筛选条件必须成组使用。 */
+export function myDeliveries(
+  query: MyDeliveriesQuery = {},
+  toast = true,
+) {
+  const data: Record<string, unknown> = {}
+  if (query.cursor) data.cursor = query.cursor
+  if (query.limit !== undefined) data.limit = query.limit
+  if (query.reviewStatus) data.reviewStatus = query.reviewStatus
+  return http.get<CursorPage<MiniappDeliveryOrderItem>>(
+    '/api/v1/miniapp/me/delivery-orders',
+    data,
+    { toast, noStore: true },
+  )
 }
 
 /** 我的单条投递详情 */
-export function deliveryDetail(id: number) {
-  return http.get<DeliveryOrder>(`/api/app/delivery/my/${id}`)
+export function deliveryDetail(
+  deliveryOrderNo: string,
+  toast = true,
+) {
+  return http.get<MiniappDeliveryOrderDetail>(
+    `/api/v1/miniapp/me/delivery-orders/${
+      encodeURIComponent(deliveryOrderNo)
+    }`,
+    undefined,
+    { toast, noStore: true },
+  )
 }

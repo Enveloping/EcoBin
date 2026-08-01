@@ -306,7 +306,17 @@ class TargetMiniappV02MysqlIntegrationTest {
                 organizationCode,
                 "13812345678");
         assertEquals(organizationUserUid, lookup.organizationUserUid());
-        assertEquals("+86138****5678", lookup.maskedPhoneNumber());
+        assertEquals("+8613812345678", lookup.phoneNumber());
+        assertEquals("+8613812345678", lookup.maskedPhoneNumber());
+        OrganizationUserView directoryUser =
+                bindingService.organizationUser(
+                        tenantCode,
+                        organizationCode,
+                        organizationUserUid);
+        assertEquals("+8613812345678", directoryUser.phoneNumber());
+        assertEquals(
+                "+8613812345678",
+                directoryUser.maskedPhoneNumber());
         StaffMiniappBindingView binding = bindingService.setBinding(
                 UUID.randomUUID(),
                 tenantCode,
@@ -317,6 +327,17 @@ class TargetMiniappV02MysqlIntegrationTest {
                         null,
                         null,
                         "manual V02 verification"));
+        var currentBinding = bindingService.currentStaffBinding(
+                tenantCode,
+                organizationCode,
+                staffUid);
+        assertEquals(
+                "+8613812345678",
+                currentBinding.currentMiniappBinding().phoneNumber());
+        assertEquals(
+                "+8613812345678",
+                currentBinding.currentMiniappBinding()
+                        .maskedPhoneNumber());
         clearContexts();
 
         bearerGet(

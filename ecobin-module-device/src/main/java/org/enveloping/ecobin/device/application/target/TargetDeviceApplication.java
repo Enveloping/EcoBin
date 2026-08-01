@@ -103,6 +103,8 @@ public class TargetDeviceApplication {
     private final JdbcTemplate jdbc;
     private final DeviceScopeAuthorizationPort authorizationPort;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final InitialDeviceConfigurationFactory
+            initialConfigurationFactory;
     private final AuditPort auditPort;
     private final ReliableDeviceTaskRegistrationPort taskRegistrationPort;
     private final ReliableDeviceTaskStatusPort taskStatusPort;
@@ -116,6 +118,7 @@ public class TargetDeviceApplication {
             JdbcTemplate jdbc,
             DeviceScopeAuthorizationPort authorizationPort,
             DeviceConfigurationCanonicalizer canonicalizer,
+            InitialDeviceConfigurationFactory initialConfigurationFactory,
             AuditPort auditPort,
             ReliableDeviceTaskRegistrationPort taskRegistrationPort,
             ReliableDeviceTaskStatusPort taskStatusPort,
@@ -127,6 +130,7 @@ public class TargetDeviceApplication {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.canonicalizer = canonicalizer;
+        this.initialConfigurationFactory = initialConfigurationFactory;
         this.auditPort = auditPort;
         this.taskRegistrationPort = taskRegistrationPort;
         this.taskStatusPort = taskStatusPort;
@@ -391,7 +395,8 @@ public class TargetDeviceApplication {
                 target,
                 normalized,
                 DeploymentView.class,
-                () -> createDeployment(scope, normalized));
+                () -> createDeployment(
+                        operationUid, scope, normalized));
     }
 
     @Transactional(readOnly = true)
@@ -453,6 +458,7 @@ public class TargetDeviceApplication {
     }
 
     private CommandResult<DeploymentView> createDeployment(
+            UUID operationUid,
             AuthorizedScope scope,
             CreateDeploymentRequest request) {
         AssetRow asset = lockAsset(request.hardwareSn());
@@ -646,6 +652,21 @@ public class TargetDeviceApplication {
                 asset.id(),
                 asset.version());
         requireSingleRow(updated, "advance deployed asset");
+        ConfigurationReleaseRequest initialConfiguration =
+                initialConfigurationFactory.create(
+                        asset.hardwareSn(),
+                        asset.modelCode(),
+                        asset.expectedPortCount());
+        releaseConfiguration(
+                operationUid,
+                scope,
+                deploymentCode,
+                applicationCollectionUrl(
+                        true,
+                        scope.tenantCode(),
+                        scope.organizationCode(),
+                        deploymentCode),
+                initialConfiguration);
         DeploymentView response = findDeployment(
                 scope, deploymentCode, false).view();
         return new CommandResult<>(
@@ -1149,67 +1170,20 @@ public class TargetDeviceApplication {
         if (!scope.organizationEnabled()) {
             blockers.add("ORGANIZATION_DISABLED");
         }
-        if (deployment.latestConfigurationVersion() == null
-                || !"APPLIED".equals(
-                        deployment.configurationApplicationStatus())
-                || !Objects.equals(
-                        deployment.latestConfigurationVersion(),
-                        deployment.appliedConfigurationVersion())
-                || !Objects.equals(
-                        deployment.latestConfigurationVersion(),
-                        runtime.appliedConfigurationVersion())) {
+        if (!configurationReady(scope, deployment, runtime)) {
             blockers.add("CONFIGURATION_NOT_APPLIED");
         }
-        Integer trustedFacts = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_edge_event
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND event_type = 'DEVICE_RUNTIME_SNAPSHOT'
-                        """,
-                Integer.class,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-        if (trustedFacts == null || trustedFacts == 0) {
+        if (!trustedOrangePiRuntimeFresh(
+                scope, deployment.id())) {
             blockers.add("TRUSTED_DEVICE_IDENTITY_UNPROVEN");
         }
         if (!"ONLINE".equals(runtime.edgeConnectionStatus())) {
             blockers.add("EDGE_OFFLINE");
         }
-        if (!"ONLINE".equals(runtime.mcuLinkStatus())) {
-            blockers.add("MCU_OFFLINE");
-        }
-        if (!protocolCompatible(runtime)) {
-            blockers.add("PROTOCOL_INCOMPATIBLE");
-        }
-        if (!criticalHealthReady(runtime)) {
-            blockers.add("PORT_SENSOR_UNHEALTHY");
-        }
-        Integer unsafePorts = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_port_runtime_state
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND (
-                              delivery_door_state <> 'CLOSED'
-                              OR delivery_door_contact_state <> 'CLOSED'
-                              OR delivery_door_actuator_health <> 'OK'
-                              OR clean_lock_power_state <> 'DEENERGIZED'
-                              OR clean_solenoid_health <> 'OK'
-                              OR weight_sensor_health <> 'OK'
-                              OR infrared_sensor_health <> 'OK'
-                              OR smoke_sensor_health <> 'OK'
-                          )
-                        """,
-                Integer.class,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-        if (unsafePorts != null && unsafePorts > 0) {
-            blockers.add("DOOR_NOT_CLOSED");
+        if ("SAFETY_BLOCKED".equals(runtime.safetyStatus())
+                || "OPERATION_BLOCKED".equals(
+                runtime.safetyStatus())) {
+            blockers.add("SAFETY_LOCKED");
         }
         Integer seriousFaults = jdbc.queryForObject("""
                         SELECT COUNT(*)
@@ -1250,12 +1224,8 @@ public class TargetDeviceApplication {
                         deployment.latestConfigurationVersion(),
                         deployment.appliedConfigurationVersion(),
                         deployment.configurationApplicationStatus(),
-                        deployment.latestConfigurationVersion() != null
-                                && Objects.equals(
-                                deployment.latestConfigurationVersion(),
-                                deployment.appliedConfigurationVersion())
-                                && "APPLIED".equals(
-                                deployment.configurationApplicationStatus()));
+                        configurationReady(
+                                scope, deployment, runtime));
         RuntimeHealthSummary health = new RuntimeHealthSummary(
                 runtime.edgeConnectionStatus(),
                 runtime.mcuLinkStatus(),
@@ -1305,27 +1275,17 @@ public class TargetDeviceApplication {
         if (requireBusinessSwitch && !deployment.businessEnabled()) {
             blockers.add("BUSINESS_SWITCH_DISABLED");
         }
-        if (deployment.latestConfigurationVersion() == null
-                || !"APPLIED".equals(
-                        deployment.configurationApplicationStatus())
-                || !Objects.equals(
-                        deployment.latestConfigurationVersion(),
-                        deployment.appliedConfigurationVersion())
-                || !Objects.equals(
-                        deployment.latestConfigurationVersion(),
-                        runtime.appliedConfigurationVersion())) {
+        if (!configurationReady(scope, deployment, runtime)) {
             blockers.add("CONFIGURATION_NOT_APPLIED");
         }
-        if (!"ONLINE".equals(runtime.edgeConnectionStatus())) {
+        if (!trustedOrangePiRuntimeFresh(scope, deployment.id())
+                || !"ONLINE".equals(
+                runtime.edgeConnectionStatus())) {
             blockers.add("EDGE_OFFLINE");
         }
-        if (!"ONLINE".equals(runtime.mcuLinkStatus())) {
-            blockers.add("MCU_OFFLINE");
-        }
-        if (!protocolCompatible(runtime)) {
-            blockers.add("PROTOCOL_INCOMPATIBLE");
-        }
-        if (!"SAFE".equals(runtime.safetyStatus())) {
+        if ("SAFETY_BLOCKED".equals(runtime.safetyStatus())
+                || "OPERATION_BLOCKED".equals(
+                runtime.safetyStatus())) {
             blockers.add("SAFETY_LOCKED");
         }
         if (occupied(deployment.assetId())) {
@@ -1334,18 +1294,79 @@ public class TargetDeviceApplication {
         return List.copyOf(blockers);
     }
 
-    private static boolean protocolCompatible(RuntimeRow runtime) {
-        return "READY".equals(runtime.uartState())
-                && Integer.valueOf(1).equals(runtime.uartProtocolMajor())
-                && runtime.edgeSoftwareVersion() != null
-                && runtime.mcuFirmwareVersion() != null;
+    private boolean configurationReady(
+            AuthorizedScope scope,
+            DeploymentRow deployment,
+            RuntimeRow runtime) {
+        if (deployment.latestConfigurationVersion() == null
+                || !"APPLIED".equals(
+                deployment.configurationApplicationStatus())
+                || !Objects.equals(
+                deployment.latestConfigurationVersion(),
+                deployment.appliedConfigurationVersion())
+                || !Objects.equals(
+                deployment.latestConfigurationVersion(),
+                runtime.orangePiReportedConfigurationVersion())) {
+            return false;
+        }
+        Integer exact = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_config_version version
+                        WHERE version.tenant_id = ?
+                          AND version.organization_id = ?
+                          AND version.deployment_id = ?
+                          AND version.id = ?
+                          AND version.version_no = ?
+                          AND version.content_sha256 = ?
+                          AND version.mcu_payload_sha256 = ?
+                        """,
+                Integer.class,
+                scope.tenantId(),
+                scope.organizationId(),
+                deployment.id(),
+                deployment.latestConfigurationId(),
+                runtime.orangePiReportedConfigurationVersion(),
+                runtime.orangePiReportedContentSha256(),
+                runtime.orangePiReportedMcuPayloadSha256());
+        return exact != null && exact == 1;
     }
 
-    private static boolean criticalHealthReady(RuntimeRow runtime) {
-        return "OK".equals(runtime.aggregateWeightHealth())
-                && "OK".equals(runtime.cameraHealth())
-                && "OK".equals(runtime.localStorageHealth())
-                && "OK".equals(runtime.clockSyncHealth());
+    private boolean trustedOrangePiRuntimeFresh(
+            AuthorizedScope scope, long deploymentId) {
+        Integer fresh = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_deployment_runtime_state runtime
+                        JOIN dev_config_version config
+                          ON config.tenant_id = runtime.tenant_id
+                         AND config.organization_id =
+                             runtime.organization_id
+                         AND config.deployment_id =
+                             runtime.deployment_id
+                         AND config.version_no =
+                             runtime.orange_pi_reported_config_version_no
+                        WHERE runtime.tenant_id = ?
+                          AND runtime.organization_id = ?
+                          AND runtime.deployment_id = ?
+                          AND runtime.trusted_runtime_edge_event_id
+                              IS NOT NULL
+                          AND runtime.trusted_runtime_received_at
+                              IS NOT NULL
+                          AND TIMESTAMPDIFF(
+                              MICROSECOND,
+                              runtime.trusted_runtime_received_at,
+                              UTC_TIMESTAMP(3)
+                          ) BETWEEN 0 AND LEAST(
+                              config.edge_heartbeat_interval_ms
+                                  * config.edge_heartbeat_miss_threshold
+                                  * 1000,
+                              86400000000
+                          )
+                        """,
+                Integer.class,
+                scope.tenantId(),
+                scope.organizationId(),
+                deploymentId);
+        return fresh != null && fresh == 1;
     }
 
     private static boolean sensorHealthy(PortRuntimeRow port) {
@@ -1871,7 +1892,8 @@ public class TargetDeviceApplication {
                 operationUid,
                 null,
                 12,
-                true));
+                true,
+                null));
         String statusUrl = applicationBaseUrl + "/" + applicationUid;
         ConfigurationAcceptedView response =
                 new ConfigurationAcceptedView(
@@ -2202,6 +2224,7 @@ public class TargetDeviceApplication {
                 scope.platformAdminId(),
                 scope.staffAccountId(),
                 null,
+                null,
                 scope.actorDisplayName(),
                 actionCode,
                 targetType,
@@ -2449,6 +2472,9 @@ public class TargetDeviceApplication {
                                uart_protocol_major, uart_protocol_minor,
                                capability_bitmap_hex,
                                applied_config_version_no,
+                               orange_pi_reported_config_version_no,
+                               orange_pi_reported_config_content_sha256,
+                               orange_pi_reported_config_mcu_payload_sha256,
                                last_heartbeat_at, last_device_event_at,
                                lock_version
                         FROM dev_deployment_runtime_state
@@ -2471,6 +2497,13 @@ public class TargetDeviceApplication {
                         nullableInteger(rs, "uart_protocol_minor"),
                         rs.getString("capability_bitmap_hex"),
                         nullableLong(rs, "applied_config_version_no"),
+                        nullableLong(
+                                rs,
+                                "orange_pi_reported_config_version_no"),
+                        rs.getBytes(
+                                "orange_pi_reported_config_content_sha256"),
+                        rs.getBytes(
+                                "orange_pi_reported_config_mcu_payload_sha256"),
                         nullableInstant(rs, "last_heartbeat_at"),
                         nullableInstant(rs, "last_device_event_at"),
                         rs.getLong("lock_version")),
@@ -2682,7 +2715,22 @@ public class TargetDeviceApplication {
             long deploymentId,
             UUID applicationUid,
             boolean forUpdate) {
-        String lock = forUpdate ? " FOR UPDATE" : "";
+        if (forUpdate) {
+            jdbc.query("""
+                            SELECT id
+                            FROM dev_config_application
+                            WHERE tenant_id = ?
+                              AND organization_id = ?
+                              AND deployment_id = ?
+                              AND application_uid = ?
+                            FOR UPDATE
+                            """,
+                    (rs, ignored) -> rs.getLong("id"),
+                    scope.tenantId(),
+                    scope.organizationId(),
+                    deploymentId,
+                    applicationUid.toString());
+        }
         return jdbc.query("""
                         SELECT app.id, app.application_uid,
                                app.status, app.reported_version_no,
@@ -2717,7 +2765,7 @@ public class TargetDeviceApplication {
                           AND app.organization_id = ?
                           AND app.deployment_id = ?
                           AND app.application_uid = ?
-                        """ + lock,
+                        """,
                 (rs, ignored) -> new ApplicationRow(
                         rs.getLong("id"),
                         UUID.fromString(
@@ -3174,6 +3222,9 @@ public class TargetDeviceApplication {
             Integer uartProtocolMinor,
             String capabilityBitmapHex,
             Long appliedConfigurationVersion,
+            Long orangePiReportedConfigurationVersion,
+            byte[] orangePiReportedContentSha256,
+            byte[] orangePiReportedMcuPayloadSha256,
             Instant lastHeartbeatAt,
             Instant lastDeviceEventAt,
             long version) {

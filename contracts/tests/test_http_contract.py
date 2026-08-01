@@ -24,6 +24,122 @@ class HttpContractTests(unittest.TestCase):
         checks = validate_http_contract()
         self.assertGreaterEqual(len(checks), 5)
 
+    def test_wallet_read_surface_is_in_authoritative_contract(self) -> None:
+        document = load_openapi()
+        expected_paths = {
+            "/api/v1/miniapp/me/wallet",
+            "/api/v1/miniapp/me/wallet/entries",
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet"
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet/entries"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+                "/organization-users/{organizationUserUid}/wallet/entries"
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/wallet-entries"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/wallet-entries"
+            ),
+        }
+        missing_paths = expected_paths - set(document["paths"])
+        self.assertEqual(
+            set(),
+            missing_paths,
+            f"wallet paths missing from OpenAPI: {sorted(missing_paths)}",
+        )
+
+        expected_schemas = {
+            "WalletEntryCursor",
+            "WalletSummary",
+            "WalletSummaryEnvelope",
+            "WalletEntryType",
+            "WalletEntrySourceType",
+            "PersonalWalletEntry",
+            "OrganizationWalletEntry",
+            "PersonalWalletEntryCursorPage",
+            "OrganizationWalletEntryCursorPage",
+            "PersonalWalletEntryPageEnvelope",
+            "OrganizationWalletEntryPageEnvelope",
+        }
+        missing_schemas = (
+            expected_schemas - set(document["components"]["schemas"])
+        )
+        self.assertEqual(
+            set(),
+            missing_schemas,
+            f"wallet schemas missing from OpenAPI: {sorted(missing_schemas)}",
+        )
+
+    def test_wallet_filter_and_cursor_contract_cannot_drift(self) -> None:
+        document = load_openapi()
+        changed = copy.deepcopy(document)
+        changed["components"]["parameters"]["WalletEntryLimit"]["schema"][
+            "maximum"
+        ] = 101
+        with self.assertRaisesRegex(
+            ContractError,
+            "wallet entry limit differs",
+        ):
+            validate_openapi_document(changed)
+
+    def test_organization_miniapp_management_surface_is_exact(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        suffixes = {
+            "/miniapp-configuration": {"get", "put"},
+            "/miniapp-configuration/activations": {"post"},
+            "/miniapp-login/enablements": {"post"},
+            "/miniapp-login/disablements": {"post"},
+        }
+        prefixes = (
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+            ),
+            "/api/v1/web/organizations/{organizationCode}",
+        )
+        for prefix in prefixes:
+            for suffix, methods in suffixes.items():
+                path = prefix + suffix
+                self.assertIn(path, paths)
+                self.assertEqual(
+                    methods,
+                    {
+                        method
+                        for method in paths[path]
+                        if method in {"get", "put", "post", "delete", "patch"}
+                    },
+                )
+
+        schemas = document["components"]["schemas"]
+        request_secret = schemas["PutMiniappConfigurationRequest"][
+            "properties"
+        ]["appSecret"]
+        response_secret = schemas["MiniappConfiguration"][
+            "properties"
+        ]["appSecret"]
+        mutation_properties = schemas[
+            "MiniappConfigurationMutation"
+        ]["properties"]
+        self.assertTrue(request_secret["writeOnly"])
+        self.assertTrue(response_secret["readOnly"])
+        self.assertNotIn("appSecret", mutation_properties)
+
     def test_web_path_cannot_silently_switch_to_bearer(self) -> None:
         document = load_openapi()
         changed = copy.deepcopy(document)
@@ -115,6 +231,89 @@ class HttpContractTests(unittest.TestCase):
             current_ref,
             "#/components/schemas/MiniappSessionViewEnvelope",
         )
+
+    def test_miniapp_delivery_orders_use_owned_safe_no_store_models(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        responses = document["components"]["responses"]
+        schemas = document["components"]["schemas"]
+
+        list_operation = paths[
+            "/api/v1/miniapp/me/delivery-orders"
+        ]["get"]
+        detail_operation = paths[
+            "/api/v1/miniapp/me/delivery-orders/{deliveryOrderNo}"
+        ]["get"]
+        for operation in (list_operation, detail_operation):
+            self.assertEqual(
+                operation["security"],
+                [{"miniappBearer": []}],
+            )
+
+        self.assertEqual(
+            list_operation["responses"]["200"]["$ref"],
+            "#/components/responses/MiniappDeliveryOrderPageOk",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["200"]["$ref"],
+            "#/components/responses/MiniappDeliveryOrderDetailOk",
+        )
+        self.assertEqual(
+            list_operation["responses"]["400"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInvalidRequest",
+        )
+        self.assertEqual(
+            list_operation["responses"]["401"]["$ref"],
+            "#/components/responses/MiniappPrivateReadUnauthorizedProblem",
+        )
+        self.assertEqual(
+            list_operation["responses"]["500"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInternalProblem",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["400"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInvalidRequest",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["401"]["$ref"],
+            "#/components/responses/MiniappPrivateReadUnauthorizedProblem",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["404"]["$ref"],
+            "#/components/responses/MiniappPrivateReadNotFoundProblem",
+        )
+        self.assertEqual(
+            detail_operation["responses"]["500"]["$ref"],
+            "#/components/responses/MiniappPrivateReadInternalProblem",
+        )
+        for response_name in (
+            "MiniappDeliveryOrderPageOk",
+            "MiniappDeliveryOrderDetailOk",
+            "MiniappPrivateReadInvalidRequest",
+            "MiniappPrivateReadUnauthorizedProblem",
+            "MiniappPrivateReadNotFoundProblem",
+            "MiniappPrivateReadInternalProblem",
+        ):
+            self.assertEqual(
+                responses[response_name]["headers"]["Cache-Control"]["$ref"],
+                "#/components/headers/NoStore",
+            )
+            self.assertEqual(
+                responses[response_name]["headers"]["X-Request-Id"]["$ref"],
+                "#/components/headers/RequestId",
+            )
+
+        item_properties = schemas["MiniappDeliveryOrderItem"]["properties"]
+        detail_properties = schemas[
+            "MiniappDeliveryOrderDetail"
+        ]["properties"]
+        anomaly_properties = schemas[
+            "MiniappDeliveryAnomaly"
+        ]["properties"]
+        self.assertNotIn("organizationUserUid", item_properties)
+        self.assertNotIn("ownership", detail_properties)
+        self.assertNotIn("revisions", detail_properties)
+        self.assertNotIn("diagnosticDetails", anomaly_properties)
 
     def test_legacy_bearer_cutover_requires_client_cleanup_and_server_revoke(
         self,

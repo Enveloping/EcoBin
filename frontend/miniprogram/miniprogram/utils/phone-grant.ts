@@ -1,10 +1,10 @@
 import { MiniappApiProblem } from './request'
+import type { WechatPhoneGrantDetail } from './wechat-phone-grant'
 
-export interface WechatPhoneGrantDetail {
-  code?: string
-  errMsg?: string
-  errno?: number
-}
+export {
+  isWechatPhoneGrantCancelled,
+  type WechatPhoneGrantDetail,
+} from './wechat-phone-grant'
 
 function showPhoneGrantError(content: string): void {
   wx.showModal({

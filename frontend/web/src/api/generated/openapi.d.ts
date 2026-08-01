@@ -384,6 +384,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the current organization AppID and AppSecret configuration
+         * @description Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.
+         */
+        get: operations["getPlatformOrganizationMiniappConfiguration"];
+        /**
+         * Create or update the organization mini-program configuration
+         * @description The secret is versioned in an external vault before the IAM transaction and is never stored in the business database or returned by this mutation.
+         */
+        put: operations["putPlatformOrganizationMiniappConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-configuration/activations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Irreversibly activate the current organization AppID
+         * @description Activation validates local completeness only. It does not claim that WeChat accepted the credentials.
+         */
+        post: operations["activatePlatformOrganizationMiniappConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-login/enablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable wx.login for an activated organization AppID */
+        post: operations["enablePlatformOrganizationMiniappLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/miniapp-login/disablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable wx.login and revoke this AppID's live mini-program sessions */
+        post: operations["disablePlatformOrganizationMiniappLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/organizations": {
         parameters: {
             query?: never;
@@ -481,6 +580,95 @@ export interface paths {
         put?: never;
         /** Deactivate one organization and remove live access */
         post: operations["deactivateCurrentTenantOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the current visible organization's AppID and AppSecret configuration
+         * @description Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.
+         */
+        get: operations["getCurrentTenantOrganizationMiniappConfiguration"];
+        /** Create or update a visible organization's mini-program configuration */
+        put: operations["putCurrentTenantOrganizationMiniappConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration/activations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Irreversibly activate the current visible organization AppID */
+        post: operations["activateCurrentTenantOrganizationMiniappConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-login/enablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable wx.login for an activated visible organization AppID */
+        post: operations["enableCurrentTenantOrganizationMiniappLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/miniapp-login/disablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable wx.login and revoke this visible AppID's live mini-program sessions */
+        post: operations["disableCurrentTenantOrganizationMiniappLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1547,6 +1735,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/delivery-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the current display-only delivery options for one deployment
+         * @description The returned blockers include PHONE_BINDING_REQUIRED until the ordinary user binds a WeChat phone number. This snapshot is advisory; starting a session repeats every eligibility check under write locks.
+         */
+        get: operations["getMiniappDeliveryOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/device-deployments/{deploymentCode}/ports/{portNo}/delivery-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize one phone-bound ordinary user to start one delivery session
+         * @description Requires a bound WeChat phone number. A 202 response proves only that the session, occupancy, command and reliable task were atomically accepted; it does not prove device receipt, door movement or physical opening.
+         */
+        post: operations["startMiniappDeliverySession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/delivery-sessions/{sessionUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll one delivery session owned by the current ordinary user */
+        get: operations["getMiniappDeliverySession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List delivery orders owned by the current ordinary user
+         * @description Returns a stable keyset cursor page within the current tenant, organization and organization-user scope. The opaque cursor is bound to that scope, reviewStatus and limit; clients must restart from the first page after changing a bound value.
+         */
+        get: operations["listCurrentMiniappUserDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one delivery order owned by the current ordinary user
+         * @description Returns only ordinary-user-safe evidence and the current review projection. An order outside the current tenant, organization or organization-user scope is indistinguishable from a missing order.
+         */
+        get: operations["getCurrentMiniappUserDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp-staff/auth/sessions/current": {
         parameters: {
             query?: never;
@@ -2183,6 +2470,502 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read the current immutable delivery and review rule */
+        get: operations["getOrganizationDeliveryConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable delivery rule versions in descending order */
+        get: operations["listOrganizationDeliveryConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable delivery rule version */
+        get: operations["getOrganizationDeliveryConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the next immutable delivery and review rule
+         * @description M0 accepts only ALL_MANUAL. Existing sessions and orders retain their frozen rule snapshots.
+         */
+        post: operations["releaseOrganizationDeliveryConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read the current delivery rule for an explicit platform target */
+        get: operations["getPlatformDeliveryConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable delivery rule versions for an explicit platform target */
+        get: operations["listPlatformDeliveryConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable delivery rule version for an explicit platform target */
+        get: operations["getPlatformDeliveryConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the next immutable delivery rule for an explicit platform target
+         * @description M0 accepts only ALL_MANUAL. Existing sessions and orders retain their frozen rule snapshots.
+         */
+        post: operations["releasePlatformDeliveryConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List delivery orders visible to the current tenant or staff session
+         * @description delivery.read can query the full visible history. A caller with review.execute but without delivery.read receives only PENDING orders.
+         */
+        get: operations["listWebDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        /** Read delivery evidence and its additive review history */
+        get: operations["getWebDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a PENDING delivery from immutable device facts or an explicit final weight */
+        post: operations["reviewWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a correction to an APPROVED delivery without rewriting device facts */
+        post: operations["correctWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List delivery orders in an explicit platform tenant and organization scope */
+        get: operations["listPlatformWebDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        /** Read delivery evidence in an explicit platform target scope */
+        get: operations["getPlatformWebDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a PENDING delivery in an explicit platform target scope */
+        post: operations["reviewPlatformWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a correction in an explicit platform target scope */
+        post: operations["correctPlatformWebDeliveryOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current ordinary user's wallet summary
+         * @description Returns pending delivery reward, withdrawable balance and withdrawal-processing amount from one repeatable-read snapshot.
+         */
+        get: operations["getMiniappWalletSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/wallet/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the current ordinary user's wallet entries
+         * @description The opaque cursor is bound to the current user and the first page snapshot. Clients must reuse it unchanged and must not construct or decode it.
+         */
+        get: operations["listMiniappWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** Get one visible organization user's wallet summary */
+        get: operations["getWebOrganizationUserWalletSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** Get one organization user's wallet summary in an explicit platform scope */
+        get: operations["getPlatformOrganizationUserWalletSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** List one visible organization user's wallet entries */
+        get: operations["listWebOrganizationUserWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        /** List one organization user's wallet entries in an explicit platform scope */
+        get: operations["listPlatformOrganizationUserWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/wallet-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List wallet entries across one visible organization
+         * @description The first request fixes a high-watermark and snapshot time. Every subsequent request must preserve all filters and reuse nextCursor unchanged.
+         */
+        get: operations["listWebOrganizationWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wallet-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List wallet entries in an explicit platform organization scope
+         * @description The first request fixes a high-watermark and snapshot time. Every subsequent request must preserve all filters and reuse nextCursor unchanged.
+         */
+        get: operations["listPlatformOrganizationWalletEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/wechat-pay/notifications/native-payments": {
         parameters: {
             query?: never;
@@ -2292,7 +3075,7 @@ export interface components {
             fullnessRecheckDelayMs: number;
             doorAutoCloseTimeoutMs: number;
             /** @enum {string|null} */
-            fullnessSensorKind?: "ULTRASONIC" | "INFRARED_DISTANCE" | null;
+            fullnessSensorKind?: "ULTRASONIC" | "DIGITAL_INFRARED" | null;
             fullnessDistanceThresholdMm?: number | null;
             fullnessSampleCount?: number | null;
             fullnessMinimumValidSampleCount?: number | null;
@@ -2684,6 +3467,12 @@ export interface components {
         OrganizationUserLookup: {
             organizationUserUid: components["schemas"]["PublicUid"];
             nickname: string;
+            /** @description Full E.164 phone number. Returned only by authorized Web management APIs. */
+            phoneNumber: string;
+            /**
+             * @deprecated
+             * @description Deprecated v1 compatibility alias of phoneNumber. Despite the legacy name, Web management responses return the full E.164 number.
+             */
             maskedPhoneNumber: string;
             registeredAt: components["schemas"]["UtcTimestamp"];
             /** @enum {string} */
@@ -2691,13 +3480,19 @@ export interface components {
             currentMiniappBinding: components["schemas"]["OrganizationUserCurrentMiniappBinding"] | null;
         };
         OrganizationUserRegistrationSource: {
-            deploymentCode: string;
+            deploymentCode: components["schemas"]["DeploymentCode"];
             lifecycleStatus: string;
         };
         OrganizationUser: {
             organizationUserUid: components["schemas"]["PublicUid"];
             nickname: string;
             avatarUrl: string | null;
+            /** @description Full E.164 phone number for authorized Web management users; null until the user binds a phone. */
+            phoneNumber: string | null;
+            /**
+             * @deprecated
+             * @description Deprecated v1 compatibility alias of phoneNumber. Despite the legacy name, Web management responses return the full E.164 number.
+             */
             maskedPhoneNumber: string | null;
             phoneBound: boolean;
             registeredAt: components["schemas"]["UtcTimestamp"];
@@ -2716,6 +3511,12 @@ export interface components {
             /** Format: int64 */
             version: number;
             nickname: string | null;
+            /** @description Full E.164 phone number when the caller has user.read; otherwise null. */
+            phoneNumber: string | null;
+            /**
+             * @deprecated
+             * @description Deprecated v1 compatibility alias of phoneNumber. It is full when user.read is granted and null otherwise.
+             */
             maskedPhoneNumber: string | null;
         };
         StaffMiniappBindingLookup: {
@@ -2785,6 +3586,54 @@ export interface components {
         ProvisionOrganizationStaffRequest: components["schemas"]["CreateStaffAccountCore"] & {
             manager: boolean;
             permissionCodes: components["schemas"]["PermissionCodes"];
+        };
+        PutMiniappConfigurationRequest: {
+            appId: string;
+            displayName: string;
+            /** @description Required for initial configuration and optional for later secret rotation. Blank values are invalid. */
+            appSecret?: string;
+            /** @description Omit or send null only when the organization has no mini-program configuration yet. */
+            expectedVersion?: components["schemas"]["ExpectedVersion"] | null;
+        };
+        MiniappConfiguration: {
+            appId: string;
+            displayName: string;
+            /** @description Full secret returned only by the authorized no-store GET endpoint. */
+            readonly appSecret: string;
+            /** @constant */
+            appSecretConfigured: true;
+            maskedAppSecret: string;
+            activated: boolean;
+            loginEnabled: boolean;
+            version: components["schemas"]["ExpectedVersion"];
+            configuredAt: components["schemas"]["UtcTimestamp"];
+            activatedAt: components["schemas"]["UtcTimestamp"] | null;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappConfigurationMutation: {
+            appId: string;
+            displayName: string;
+            /** @constant */
+            appSecretConfigured: true;
+            maskedAppSecret: string;
+            activated: boolean;
+            loginEnabled: boolean;
+            version: components["schemas"]["ExpectedVersion"];
+            configuredAt: components["schemas"]["UtcTimestamp"];
+            activatedAt: components["schemas"]["UtcTimestamp"] | null;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappConfigurationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappConfiguration"];
+            requestId: string;
+        };
+        MiniappConfigurationMutationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappConfigurationMutation"];
+            requestId: string;
         };
         VersionCommand: {
             expectedVersion: components["schemas"]["ExpectedVersion"];
@@ -2976,9 +3825,9 @@ export interface components {
             data: components["schemas"]["WebSession"];
             requestId: string;
         };
+        /** @description Optional immutable first-registration attribution extracted from the deploymentCode query parameter of a device QR link such as https://jinshoubao.com/q/device/{appId}/?deploymentCode={deploymentCode}. The QR domain, path, and AppID path prefix are routing-only deployment settings configured in WeChat and are not fields of this HTTP API. The mini-program sends its own runtime AppID in MiniappLoginRequest.appId and sends only deploymentCode here; the server derives the tenant and organization from that trusted AppID and revalidates the deployment scope. */
         RegistrationSource: {
-            /** @example HZ-PILOT-BOX-01 */
-            deploymentCode: string;
+            deploymentCode: components["schemas"]["DeploymentCode"];
         };
         MiniappLoginRequest: {
             /** @example wx0000000000000000 */
@@ -3044,6 +3893,435 @@ export interface components {
             data: components["schemas"]["MiniappPhoneBinding"];
             requestId: string;
         };
+        /** @description Stable public delivery order number */
+        DeliveryOrderNo: components["schemas"]["BusinessNumber"];
+        /** @enum {string} */
+        DeliveryReviewStatus: "PENDING" | "APPROVED";
+        /** @enum {string} */
+        DeliveryReviewDecision: "ORIGINAL_APPROVED" | "MODIFIED_APPROVED";
+        /** @enum {string} */
+        DeliveryRevisionType: "INITIAL_REVIEW" | "CORRECTION";
+        /** @enum {string} */
+        DeliveryWeightReliability: "RELIABLE" | "INVALID" | "MISSING" | "INCONSISTENT";
+        /** @enum {string} */
+        DeliveryAmountReliability: "RELIABLE" | "WEIGHT_UNRELIABLE";
+        /** @enum {string} */
+        DeliveryPhotoCompleteness: "COMPLETE" | "INCOMPLETE";
+        /** @enum {string} */
+        DeliveryPhotoPosition: "BEFORE_INNER" | "BEFORE_OUTER" | "AFTER_INNER" | "AFTER_OUTER";
+        /** @enum {string} */
+        DeliveryPhotoStatus: "UPLOAD_PENDING" | "AVAILABLE" | "PERMANENTLY_MISSING";
+        /** @enum {string|null} */
+        DeliveryPhotoMissingReason: "DEVICE_DID_NOT_PRODUCE_PHOTO" | "PHOTO_CAPTURE_FAILED" | "UPLOAD_FAILED_PERMANENTLY" | "PHOTO_UNAVAILABLE" | null;
+        /** @enum {string} */
+        DeliveryAnomalyCategory: "USER" | "SYSTEM";
+        /** @enum {string} */
+        DeliveryReviewerKind: "PLATFORM_ADMIN" | "TENANT_PRINCIPAL" | "STAFF_ACCOUNT";
+        /** @enum {string} */
+        DeliveryWalletEffect: "APPLIED" | "NO_CHANGE";
+        MiniappDeliveryOrderItem: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+            rawWeightKg: string | null;
+            rawAmountYuan: string | null;
+            rawWeightReliability: components["schemas"]["DeliveryWeightReliability"];
+            rawAmountReliability: components["schemas"]["DeliveryAmountReliability"];
+            reviewStatus: components["schemas"]["DeliveryReviewStatus"];
+            /** Format: int64 */
+            currentRevisionNo: number;
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            anomalyCodes: string[];
+            photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
+        };
+        WebDeliveryOrderItem: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            organizationUserUid: components["schemas"]["PublicUid"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+            rawWeightKg: string | null;
+            rawAmountYuan: string | null;
+            rawWeightReliability: components["schemas"]["DeliveryWeightReliability"];
+            rawAmountReliability: components["schemas"]["DeliveryAmountReliability"];
+            reviewStatus: components["schemas"]["DeliveryReviewStatus"];
+            /** Format: int64 */
+            currentRevisionNo: number;
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            anomalyCodes: string[];
+            photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
+        };
+        /**
+         * @description M0 keeps every delivery pending until a human review is committed.
+         * @enum {string}
+         */
+        DeliveryReviewMode: "ALL_MANUAL";
+        DeliveryConfigurationReleaseRequest: {
+            expectedLatestVersion: number;
+            reviewMode: components["schemas"]["DeliveryReviewMode"];
+            /**
+             * @description A strictly negative wallet balance. A user below this value cannot start another delivery.
+             * @example -10.00
+             */
+            openBalanceFloorYuan: string;
+            /**
+             * @description Absolute final-weight limit for a human review, from 0.001kg through 1000.000kg.
+             * @example 100.000
+             */
+            maxReviewAbsoluteWeightKg: string;
+            reason?: string | null;
+        };
+        DeliveryConfigurationVersion: {
+            versionNo: number;
+            contentSha256: components["schemas"]["Sha256Hex"];
+            reviewMode: components["schemas"]["DeliveryReviewMode"];
+            openBalanceFloorYuan: string;
+            maxReviewAbsoluteWeightKg: string;
+            /** @enum {string} */
+            publicationSource: "SYSTEM" | "STAFF";
+            publishedByStaffAccountUid: components["schemas"]["PublicUid"] | null;
+            publishedBy: string;
+            publishedAt: components["schemas"]["UtcTimestamp"];
+            current: boolean;
+        };
+        DeliveryConfigurationVersionPage: {
+            items: components["schemas"]["DeliveryConfigurationVersion"][];
+            nextBeforeVersionNo: number | null;
+        };
+        MiniappDeliveryOrderCursorPage: {
+            items: components["schemas"]["MiniappDeliveryOrderItem"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            nextCursor: string | null;
+        };
+        DeliveryOrderCursorPage: {
+            items: components["schemas"]["WebDeliveryOrderItem"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            nextCursor: string | null;
+        };
+        DeliverySource: {
+            eventUid: components["schemas"]["UuidV4"];
+            sessionUid: components["schemas"]["UuidV4"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            /** Format: date-time */
+            deviceOccurredAt: string | null;
+            receivedAt: components["schemas"]["UtcTimestamp"];
+        };
+        DeliveryOwnership: {
+            organizationUserUid: components["schemas"]["PublicUid"];
+        };
+        DeliveryRawFacts: {
+            /** Format: int64 */
+            firstPreOpenWeightGram: number | null;
+            /** Format: int64 */
+            finalPostCloseWeightGram: number | null;
+            /** Format: int64 */
+            netWeightGram: number | null;
+            weightKg: string | null;
+            unitPriceYuanPerKg: string | null;
+            amountYuan: string | null;
+            weightReliability: components["schemas"]["DeliveryWeightReliability"];
+            amountReliability: components["schemas"]["DeliveryAmountReliability"];
+            negativeWeightAnomaly: boolean;
+        };
+        DeliveryReviewProjection: {
+            status: components["schemas"]["DeliveryReviewStatus"];
+            /** Format: int64 */
+            currentRevisionNo: number;
+            maxReviewAbsoluteWeightKg: components["schemas"]["BusinessWeightKg"];
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
+            /** Format: date-time */
+            firstApprovedAt: string | null;
+        };
+        MiniappDeliveryAnomaly: {
+            category: components["schemas"]["DeliveryAnomalyCategory"];
+            code: string;
+            detectedAt: components["schemas"]["UtcTimestamp"];
+            message: string;
+        };
+        WebDeliveryAnomaly: {
+            category: components["schemas"]["DeliveryAnomalyCategory"];
+            code: string;
+            detectedAt: components["schemas"]["UtcTimestamp"];
+            message: string;
+            diagnosticDetails: {
+                [key: string]: unknown;
+            } | null;
+        };
+        DeliveryPhoto: {
+            position: components["schemas"]["DeliveryPhotoPosition"];
+            status: components["schemas"]["DeliveryPhotoStatus"];
+            /** Format: uri */
+            url: string | null;
+            /** Format: date-time */
+            capturedAt: string | null;
+            missingReason: components["schemas"]["DeliveryPhotoMissingReason"];
+        };
+        DeliveryRevisionOperator: {
+            actorKind: components["schemas"]["DeliveryReviewerKind"];
+            actorUid: components["schemas"]["PublicUid"];
+            displayName: string;
+        };
+        DeliveryRevision: {
+            revisionUid: components["schemas"]["UuidV4"];
+            /** Format: int64 */
+            revisionNo: number;
+            revisionType: components["schemas"]["DeliveryRevisionType"];
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            beforeFinalWeightKg: string | null;
+            beforeFinalAmountYuan: string | null;
+            afterFinalWeightKg: components["schemas"]["BusinessWeightKg"];
+            afterFinalAmountYuan: components["schemas"]["MoneyCny"];
+            amountDeltaYuan: components["schemas"]["MoneyCny"];
+            reason: string | null;
+            operator: components["schemas"]["DeliveryRevisionOperator"];
+            reviewedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappDeliveryOrderDetail: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            source: components["schemas"]["DeliverySource"];
+            raw: components["schemas"]["DeliveryRawFacts"];
+            review: components["schemas"]["DeliveryReviewProjection"];
+            anomalies: components["schemas"]["MiniappDeliveryAnomaly"][];
+            photos: components["schemas"]["DeliveryPhoto"][];
+        };
+        WebDeliveryOrderDetail: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            source: components["schemas"]["DeliverySource"];
+            ownership: components["schemas"]["DeliveryOwnership"];
+            raw: components["schemas"]["DeliveryRawFacts"];
+            review: components["schemas"]["DeliveryReviewProjection"];
+            anomalies: components["schemas"]["WebDeliveryAnomaly"][];
+            photos: components["schemas"]["DeliveryPhoto"][];
+            revisions: components["schemas"]["DeliveryRevision"][];
+        };
+        ReviewDeliveryOrderRequest: {
+            /** Format: int64 */
+            expectedRevisionNo: number;
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            /** @description Must be null for ORIGINAL_APPROVED and present for MODIFIED_APPROVED. */
+            finalWeightKg?: string | null;
+            reason?: string | null;
+        };
+        DeliveryReviewResult: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            revisionUid: components["schemas"]["UuidV4"];
+            /** Format: int64 */
+            revisionNo: number;
+            /** @constant */
+            reviewStatus: "APPROVED";
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            finalWeightKg: components["schemas"]["BusinessWeightKg"];
+            finalAmountYuan: components["schemas"]["MoneyCny"];
+            walletDeltaYuan: components["schemas"]["MoneyCny"];
+            walletEffect: components["schemas"]["DeliveryWalletEffect"];
+            reviewedAt: components["schemas"]["UtcTimestamp"];
+        };
+        MiniappDeliveryOrderPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappDeliveryOrderCursorPage"];
+            requestId: string;
+        };
+        MiniappDeliveryOrderDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MiniappDeliveryOrderDetail"];
+            requestId: string;
+        };
+        DeliveryConfigurationVersionEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryConfigurationVersion"];
+            requestId: string;
+        };
+        DeliveryConfigurationVersionPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryConfigurationVersionPage"];
+            requestId: string;
+        };
+        DeliveryOrderPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryOrderCursorPage"];
+            requestId: string;
+        };
+        DeliveryOrderDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WebDeliveryOrderDetail"];
+            requestId: string;
+        };
+        DeliveryReviewResultEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryReviewResult"];
+            requestId: string;
+        };
+        /** @description Stable public identity of one whole delivery session */
+        DeliverySessionUid: components["schemas"]["UuidV4"];
+        /** @enum {string} */
+        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "DEPLOYMENT_NOT_ENABLED" | "BUSINESS_SWITCH_DISABLED" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "SAFETY_LOCKED" | "DEVICE_BUSY" | "PORT_DISABLED" | "PORT_SENSOR_UNHEALTHY" | "DELIVERY_RESULT_PENDING" | "CURRENT_BAG_MISSING" | "WEIGHT_BASELINE_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "FULLNESS_CHECK_PENDING" | "PORT_FULL" | "PORT_CLEAN_OPERATION_ACTIVE";
+        /**
+         * @description Non-negative display percentage preserved as an exact decimal string; values may exceed 100.00.
+         * @example 87.50
+         */
+        FullnessPercent: string;
+        DeliveryPortOption: {
+            portNo: number;
+            displayName: string | null;
+            unitPriceYuanPerKg: components["schemas"]["UnitPriceCnyPerKg"] | null;
+            fullnessPercent: components["schemas"]["FullnessPercent"] | null;
+            deliveryAllowed: boolean;
+            blockers: components["schemas"]["DeliveryOptionBlocker"][];
+        };
+        DeliveryOptionsView: {
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            displayName: string | null;
+            address: string | null;
+            deviceBusy: boolean;
+            asOf: components["schemas"]["UtcTimestamp"];
+            ports: components["schemas"]["DeliveryPortOption"][];
+        };
+        /** @enum {string} */
+        DeliverySessionStatus: "ACTIVE" | "COMPLETED" | "ENDED";
+        /** @enum {string} */
+        DeliverySessionPhase: "START_QUEUED" | "IN_PROGRESS" | "FINAL_RESULT_PENDING" | "RECOVERY_REQUIRED" | "BUSINESS_CONFIRMED" | "PRE_START_FAILED";
+        /** @enum {string} */
+        DeliverySessionNextAction: "WAIT" | "WAIT_ON_DEVICE" | "VIEW_ORDER" | "SESSION_ENDED";
+        DeliverySessionAccepted: {
+            operationId: components["schemas"]["UuidV4"];
+            resourceId: components["schemas"]["DeliverySessionUid"];
+            sessionUid: components["schemas"]["DeliverySessionUid"];
+            /** @constant */
+            status: "ACTIVE";
+            /** @constant */
+            phase: "START_QUEUED";
+            startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
+            statusUrl: components["schemas"]["StatusUrl"];
+            /** @constant */
+            recommendedPollAfterMs: 1000;
+            nextActions: "WAIT"[];
+        };
+        DeliverySessionView: {
+            sessionUid: components["schemas"]["DeliverySessionUid"];
+            status: components["schemas"]["DeliverySessionStatus"];
+            phase: components["schemas"]["DeliverySessionPhase"];
+            deploymentCode: components["schemas"]["DeploymentCode"];
+            portNo: number;
+            startedAt: components["schemas"]["UtcTimestamp"] | null;
+            endedAt: components["schemas"]["UtcTimestamp"] | null;
+            endReason: string | null;
+            deliveryOrderNo: string | null;
+            recommendedPollAfterMs: number | null;
+            nextActions: components["schemas"]["DeliverySessionNextAction"][];
+        };
+        DeliveryOptionsViewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryOptionsView"];
+            requestId: string;
+        };
+        DeliverySessionAcceptedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliverySessionAccepted"];
+            requestId: string;
+        };
+        DeliverySessionViewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliverySessionView"];
+            requestId: string;
+        };
+        /** @description Opaque server-signed wallet cursor with a 24-hour lifetime. It is bound to the authenticated scope, snapshot and original filters. */
+        WalletEntryCursor: string;
+        /**
+         * @description Immutable reason that changed the user wallet ledger.
+         * @enum {string}
+         */
+        WalletEntryType: "DELIVERY_INITIAL_REVIEW" | "DELIVERY_CORRECTION" | "WITHDRAWAL_FREEZE" | "WITHDRAWAL_SUCCEEDED" | "WITHDRAWAL_RELEASED" | "MANUAL_ADJUSTMENT";
+        /**
+         * @description Owning business fact whose stable number is copied into the wallet entry.
+         * @enum {string}
+         */
+        WalletEntrySourceType: "DELIVERY_ORDER" | "WITHDRAWAL_ORDER" | "MANUAL_ADJUSTMENT";
+        /** @description Monotonic sequence within one user wallet; bounded to the exact JavaScript integer range. */
+        WalletEntrySequenceNo: number;
+        /** @description Immutable public delivery, withdrawal or adjustment source number. */
+        WalletEntrySourceNo: string;
+        WalletSummary: {
+            /** @description Current wallet lock version observed with the balance snapshot. */
+            walletVersion: number;
+            pendingRewardYuan: components["schemas"]["PositiveMoneyCny"];
+            availableBalanceYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingYuan: components["schemas"]["PositiveMoneyCny"];
+            asOf: components["schemas"]["UtcTimestamp"];
+        };
+        PersonalWalletEntry: {
+            entryUid: components["schemas"]["PublicUid"];
+            entrySequenceNo: components["schemas"]["WalletEntrySequenceNo"];
+            entryType: components["schemas"]["WalletEntryType"];
+            availableDeltaYuan: components["schemas"]["MoneyCny"];
+            processingDeltaYuan: components["schemas"]["MoneyCny"];
+            availableBalanceAfterYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingAfterYuan: components["schemas"]["PositiveMoneyCny"];
+            sourceType: components["schemas"]["WalletEntrySourceType"];
+            sourceNo: components["schemas"]["WalletEntrySourceNo"];
+            occurredAt: components["schemas"]["UtcTimestamp"];
+        };
+        OrganizationWalletEntry: {
+            entryUid: components["schemas"]["PublicUid"];
+            organizationUserUid: components["schemas"]["PublicUid"];
+            entrySequenceNo: components["schemas"]["WalletEntrySequenceNo"];
+            entryType: components["schemas"]["WalletEntryType"];
+            availableDeltaYuan: components["schemas"]["MoneyCny"];
+            processingDeltaYuan: components["schemas"]["MoneyCny"];
+            availableBalanceAfterYuan: components["schemas"]["MoneyCny"];
+            withdrawalProcessingAfterYuan: components["schemas"]["PositiveMoneyCny"];
+            sourceType: components["schemas"]["WalletEntrySourceType"];
+            sourceNo: components["schemas"]["WalletEntrySourceNo"];
+            occurredAt: components["schemas"]["UtcTimestamp"];
+        };
+        PersonalWalletEntryCursorPage: {
+            items: components["schemas"]["PersonalWalletEntry"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            /** @description Opaque cursor for the next page, or null when the snapshot is exhausted. */
+            nextCursor: components["schemas"]["WalletEntryCursor"] | null;
+        };
+        OrganizationWalletEntryCursorPage: {
+            items: components["schemas"]["OrganizationWalletEntry"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            /** @description Opaque filter-bound cursor for the next page, or null when the high-watermark snapshot is exhausted. */
+            nextCursor: components["schemas"]["WalletEntryCursor"] | null;
+        };
+        WalletSummaryEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WalletSummary"];
+            requestId: string;
+        };
+        PersonalWalletEntryPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["PersonalWalletEntryCursorPage"];
+            requestId: string;
+        };
+        OrganizationWalletEntryPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["OrganizationWalletEntryCursorPage"];
+            requestId: string;
+        };
         WechatPayEncryptedNotification: {
             id: string;
             /** Format: date-time */
@@ -3063,6 +4341,28 @@ export interface components {
         };
     };
     responses: {
+        /** @description Current organization mini-program configuration including the authorized full AppSecret */
+        MiniappConfigurationOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappConfigurationEnvelope"];
+            };
+        };
+        /** @description Mini-program configuration state returned without the full AppSecret */
+        MiniappConfigurationMutationOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappConfigurationMutationEnvelope"];
+            };
+        };
         /** @description V-01 identity directory projection returned from current database facts */
         DirectoryOk: {
             headers: {
@@ -3139,6 +4439,106 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["MiniappPhoneBindingEnvelope"];
+            };
+        };
+        /** @description Current display-only delivery options and stable blocker codes */
+        MiniappDeliveryOptions: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryOptionsViewEnvelope"];
+            };
+        };
+        /** @description The delivery start intent is durable, but no device receipt or physical opening is implied */
+        MiniappDeliverySessionAccepted: {
+            headers: {
+                Location: components["headers"]["Location"];
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliverySessionAcceptedEnvelope"];
+            };
+        };
+        /** @description Current presentation of a delivery session owned by the authenticated ordinary user */
+        MiniappDeliverySession: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliverySessionViewEnvelope"];
+            };
+        };
+        /** @description A stable cursor page of delivery order summaries owned by the current ordinary user */
+        MiniappDeliveryOrderPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappDeliveryOrderPageEnvelope"];
+            };
+        };
+        /** @description Ordinary-user-safe delivery evidence and its current review projection */
+        MiniappDeliveryOrderDetailOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MiniappDeliveryOrderDetailEnvelope"];
+            };
+        };
+        /** @description A private miniapp read request was malformed or violated its input contract */
+        MiniappPrivateReadInvalidRequest: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description The private miniapp read is missing a valid ordinary-user session */
+        MiniappPrivateReadUnauthorizedProblem: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description The private resource is absent or outside the current ordinary user's scope */
+        MiniappPrivateReadNotFoundProblem: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description The private miniapp read failed unexpectedly */
+        MiniappPrivateReadInternalProblem: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
         /** @description The intent is durably accepted but the business result is not terminal */
@@ -3409,6 +4809,123 @@ export interface components {
                 "application/json": components["schemas"]["DeviceConfigurationApplicationEnvelope"];
             };
         };
+        /** @description One immutable organization delivery and review rule */
+        DeliveryConfigurationVersionOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationVersionEnvelope"];
+            };
+        };
+        /** @description A descending keyset page of immutable organization delivery rules */
+        DeliveryConfigurationVersionPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationVersionPageEnvelope"];
+            };
+        };
+        /** @description The next immutable rule and current-version switch committed atomically */
+        DeliveryConfigurationVersionCreated: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationVersionEnvelope"];
+            };
+        };
+        /** @description A stable cursor page of delivery order summaries */
+        DeliveryOrderPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryOrderPageEnvelope"];
+            };
+        };
+        /** @description Immutable device evidence with its current review projection and additive revision history */
+        DeliveryOrderDetailOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryOrderDetailEnvelope"];
+            };
+        };
+        /** @description A review revision and its exact wallet delta were committed atomically */
+        DeliveryReviewCreated: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryReviewResultEnvelope"];
+            };
+        };
+        /** @description Pending reward and wallet balances observed from one repeatable-read snapshot */
+        WalletSummaryOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["WalletSummaryEnvelope"];
+            };
+        };
+        /** @description A stable cursor page from one organization's user wallet */
+        PersonalWalletEntriesOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["PersonalWalletEntryPageEnvelope"];
+            };
+        };
+        /** @description A stable high-watermark cursor page across one visible organization */
+        OrganizationWalletEntriesOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["OrganizationWalletEntryPageEnvelope"];
+            };
+        };
+        /** @description COMMON.VALIDATION_FAILED for an unsupported filter, invalid limit or invalid time range; COMMON.INVALID_CURSOR for a malformed, expired or filter-mismatched cursor */
+        WalletQueryInvalidRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description WALLET.NOT_INITIALIZED when the organization-user wallet invariant is missing, or COMMON.INTERNAL_ERROR for an unexpected failure */
+        WalletInternalProblem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
     };
     parameters: {
         /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
@@ -3418,14 +4935,38 @@ export interface components {
         StaffAccountUid: components["schemas"]["PublicUid"];
         BindingUid: components["schemas"]["PublicUid"];
         OrganizationUserUid: components["schemas"]["PublicUid"];
+        DeliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
         DirectoryStatusFilter: components["schemas"]["DirectoryStatus"];
         DirectoryQuery: string;
         Page: number;
         PageSize: number;
         Cursor: components["schemas"]["Cursor"];
+        /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+        WalletCursor: components["schemas"]["WalletEntryCursor"];
+        DeliveryOrderLimit: number;
+        DeliveryReviewStatusFilter: components["schemas"]["DeliveryReviewStatus"];
+        DeliveryOccurredFrom: components["schemas"]["UtcTimestamp"];
+        DeliveryOccurredTo: components["schemas"]["UtcTimestamp"];
+        DeliveryOrganizationUserFilter: components["schemas"]["PublicUid"];
+        DeliveryDeploymentFilter: components["schemas"]["DeploymentCode"];
+        DeliveryPortFilter: number;
+        DeliveryAnomalyFilter: string;
+        DeliveryPhotoCompletenessFilter: components["schemas"]["DeliveryPhotoCompleteness"];
+        /** @description Number of immutable wallet entries to return. */
+        WalletEntryLimit: number;
+        /** @description Restrict an organization ledger query to one public organization-user identity. */
+        WalletOrganizationUserFilter: components["schemas"]["PublicUid"];
+        WalletEntryTypeFilter: components["schemas"]["WalletEntryType"];
+        /** @description Inclusive lower UTC occurrence-time bound. */
+        WalletOccurredFrom: components["schemas"]["UtcTimestamp"];
+        /** @description Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom. */
+        WalletOccurredTo: components["schemas"]["UtcTimestamp"];
+        /** @description Exact immutable source business number. */
+        WalletSourceNoFilter: string;
         HardwareSn: components["schemas"]["HardwareSn"];
         DeploymentCode: components["schemas"]["DeploymentCode"];
         PortNo: number;
+        DeliverySessionUid: components["schemas"]["DeliverySessionUid"];
         ConfigurationVersionNo: number;
         ConfigurationApplicationUid: components["schemas"]["UuidV4"];
     };
@@ -3922,6 +5463,136 @@ export interface operations {
             409: components["responses"]["ConflictProblem"];
         };
     };
+    getPlatformOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappConfigurationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    putPlatformOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutMiniappConfigurationRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    activatePlatformOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    enablePlatformOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    disablePlatformOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
     listCurrentTenantOrganizations: {
         parameters: {
             query?: {
@@ -4051,6 +5722,131 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getCurrentTenantOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappConfigurationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    putCurrentTenantOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutMiniappConfigurationRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    activateCurrentTenantOrganizationMiniappConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    enableCurrentTenantOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    disableCurrentTenantOrganizationMiniappLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappConfigurationMutationOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
         };
     };
     listPlatformStaffAccounts: {
@@ -5451,6 +7247,101 @@ export interface operations {
             503: components["responses"]["DependencyUnavailable"];
         };
     };
+    getMiniappDeliveryOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: components["parameters"]["DeploymentCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliveryOptions"];
+            401: components["responses"]["UnauthorizedProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    startMiniappDeliverySession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                deploymentCode: components["parameters"]["DeploymentCode"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: components["responses"]["MiniappDeliverySessionAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    getMiniappDeliverySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionUid: components["parameters"]["DeliverySessionUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliverySession"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    listCurrentMiniappUserDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["DeliveryOrderLimit"];
+                reviewStatus?: components["parameters"]["DeliveryReviewStatusFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliveryOrderPageOk"];
+            400: components["responses"]["MiniappPrivateReadInvalidRequest"];
+            401: components["responses"]["MiniappPrivateReadUnauthorizedProblem"];
+            500: components["responses"]["MiniappPrivateReadInternalProblem"];
+        };
+    };
+    getCurrentMiniappUserDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappDeliveryOrderDetailOk"];
+            400: components["responses"]["MiniappPrivateReadInvalidRequest"];
+            401: components["responses"]["MiniappPrivateReadUnauthorizedProblem"];
+            404: components["responses"]["MiniappPrivateReadNotFoundProblem"];
+            500: components["responses"]["MiniappPrivateReadInternalProblem"];
+        };
+    };
     getCurrentMiniappStaffSession: {
         parameters: {
             query?: never;
@@ -6231,6 +8122,581 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getOrganizationDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listOrganizationDeliveryConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationDeliveryConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    releaseOrganizationDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationReleaseRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryConfigurationVersionCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformDeliveryConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDeliveryConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    releasePlatformDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationReleaseRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryConfigurationVersionCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    listWebDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["DeliveryOrderLimit"];
+                reviewStatus?: components["parameters"]["DeliveryReviewStatusFilter"];
+                occurredFrom?: components["parameters"]["DeliveryOccurredFrom"];
+                occurredTo?: components["parameters"]["DeliveryOccurredTo"];
+                organizationUserUid?: components["parameters"]["DeliveryOrganizationUserFilter"];
+                deploymentCode?: components["parameters"]["DeliveryDeploymentFilter"];
+                portNo?: components["parameters"]["DeliveryPortFilter"];
+                anomalyCode?: components["parameters"]["DeliveryAnomalyFilter"];
+                photoCompleteness?: components["parameters"]["DeliveryPhotoCompletenessFilter"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderDetailOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    reviewWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    correctWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    listPlatformWebDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["DeliveryOrderLimit"];
+                reviewStatus?: components["parameters"]["DeliveryReviewStatusFilter"];
+                occurredFrom?: components["parameters"]["DeliveryOccurredFrom"];
+                occurredTo?: components["parameters"]["DeliveryOccurredTo"];
+                organizationUserUid?: components["parameters"]["DeliveryOrganizationUserFilter"];
+                deploymentCode?: components["parameters"]["DeliveryDeploymentFilter"];
+                portNo?: components["parameters"]["DeliveryPortFilter"];
+                anomalyCode?: components["parameters"]["DeliveryAnomalyFilter"];
+                photoCompleteness?: components["parameters"]["DeliveryPhotoCompletenessFilter"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryOrderDetailOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    reviewPlatformWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    correctPlatformWebDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDeliveryOrderRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryReviewCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getMiniappWalletSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WalletSummaryOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listMiniappWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PersonalWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    getWebOrganizationUserWalletSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WalletSummaryOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    getPlatformOrganizationUserWalletSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WalletSummaryOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listWebOrganizationUserWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PersonalWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listPlatformOrganizationUserWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PersonalWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listWebOrganizationWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Restrict an organization ledger query to one public organization-user identity. */
+                organizationUserUid?: components["parameters"]["WalletOrganizationUserFilter"];
+                entryType?: components["parameters"]["WalletEntryTypeFilter"];
+                /** @description Inclusive lower UTC occurrence-time bound. */
+                occurredFrom?: components["parameters"]["WalletOccurredFrom"];
+                /** @description Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom. */
+                occurredTo?: components["parameters"]["WalletOccurredTo"];
+                /** @description Exact immutable source business number. */
+                sourceNo?: components["parameters"]["WalletSourceNoFilter"];
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OrganizationWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
+        };
+    };
+    listPlatformOrganizationWalletEntries: {
+        parameters: {
+            query?: {
+                /** @description Restrict an organization ledger query to one public organization-user identity. */
+                organizationUserUid?: components["parameters"]["WalletOrganizationUserFilter"];
+                entryType?: components["parameters"]["WalletEntryTypeFilter"];
+                /** @description Inclusive lower UTC occurrence-time bound. */
+                occurredFrom?: components["parameters"]["WalletOccurredFrom"];
+                /** @description Exclusive upper UTC occurrence-time bound; when both bounds are present this value must be later than occurredFrom. */
+                occurredTo?: components["parameters"]["WalletOccurredTo"];
+                /** @description Exact immutable source business number. */
+                sourceNo?: components["parameters"]["WalletSourceNoFilter"];
+                /** @description Opaque server-signed wallet cursor. It expires after 24 hours, is bound to the authenticated scope and original filters, and must be reused unchanged. */
+                cursor?: components["parameters"]["WalletCursor"];
+                /** @description Number of immutable wallet entries to return. */
+                limit?: components["parameters"]["WalletEntryLimit"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OrganizationWalletEntriesOk"];
+            400: components["responses"]["WalletQueryInvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            500: components["responses"]["WalletInternalProblem"];
         };
     };
     receiveWechatNativePaymentNotification: {

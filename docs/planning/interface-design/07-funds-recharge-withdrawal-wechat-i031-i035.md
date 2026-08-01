@@ -278,15 +278,15 @@ POST {organizationBase}/withdrawal-configuration-releases
 ```json
 {
   "expectedCurrentVersion": 3,
-  "hardLimitYuan": "200.00",
+  "hardLimitYuan": "10.00",
   "manualMinimumYuan": "0.10",
-  "manualMaximumYuan": "200.00"
+  "manualMaximumYuan": "10.00"
 }
 ```
 
 - 约束为 `0.10 <= manualMinimum <= manualMaximum <= hardLimit <= 200.00`。
 - P0 的 `manualReviewFreeThresholdYuan` 固定返回 `"0.00"`，发布请求不接收该字段；自动提现开关、范围和阈值也不进入 DTO。以后开放必须新版本演进接口与数据库，不能让客户端提前提交隐藏字段。
-- 新机构默认 `hardLimit=200.00/manualMinimum=0.10/manualMaximum=200.00/reviewFreeThreshold=0.00`。配置只影响发布后创建的提现，旧提现保留原快照。
+- 新机构默认 `hardLimit=10.00/manualMinimum=0.10/manualMaximum=10.00/reviewFreeThreshold=0.00`。`200.00` 元只表示发布新配置时后端允许的绝对上限，不是机构默认值。配置只影响发布后创建的提现，旧提现保留原快照。
 
 ### 2. 用户接口
 

@@ -1,26 +1,13 @@
 import { myDeliveries } from '../../api/delivery'
-import type { DeliveryOrder } from '../../types/api'
-import { formatBusinessWeight, formatMoneyCny } from '../../utils/decimal'
-
-const AUDIT_STATUS: Record<number, string> = {
-  0: '待审核',
-  1: '已通过',
-  2: '已驳回',
-}
-
-interface Row extends DeliveryOrder {
-  statusText: string
-  auditStatusText: string
-  weightText: string
-  amountText: string
-}
+import {
+  toDeliveryListItem,
+  type DeliveryListItem,
+} from '../../utils/user-view'
 
 Page({
   data: {
-    list: [] as Row[],
-    page: 1,
-    pageSize: 20,
-    total: 0,
+    list: [] as DeliveryListItem[],
+    nextCursor: null as string | null,
     loading: false,
     finished: false,
   },
@@ -31,62 +18,48 @@ Page({
   },
 
   onLoad() {
-    this.reload()
+    void this.reload()
   },
 
   onPullDownRefresh() {
-    this.reload(() => wx.stopPullDownRefresh())
+    void this.reload(() => wx.stopPullDownRefresh())
   },
 
   onReachBottom() {
-    this.loadMore()
+    void this.loadMore()
   },
 
-  reload(done?: () => void) {
-    this.setData({ page: 1, list: [], finished: false }, () => {
-      this.fetch().then(done).catch(done)
+  async reload(done?: () => void) {
+    this.setData({
+      list: [],
+      nextCursor: null,
+      finished: false,
     })
+    try {
+      await this.fetch()
+    } finally {
+      done?.()
+    }
   },
 
-  loadMore() {
+  async loadMore() {
     if (this.data.loading || this.data.finished) return
-    this.setData({ page: this.data.page + 1 }, () => this.fetch())
+    await this.fetch(this.data.nextCursor ?? undefined)
   },
 
-  async fetch() {
+  async fetch(cursor?: string) {
     if (this.data.loading) return
     this.setData({ loading: true })
     try {
-      const res = await myDeliveries(this.data.page, this.data.pageSize)
-      const rows = res.records.map((o) => this.toRow(o))
-      const list = this.data.page === 1 ? rows : this.data.list.concat(rows)
+      const result = await myDeliveries({ cursor, limit: 20 })
+      const rows = result.items.map(toDeliveryListItem)
       this.setData({
-        list,
-        total: res.total,
-        finished: list.length >= res.total,
+        list: cursor ? this.data.list.concat(rows) : rows,
+        nextCursor: result.nextCursor,
+        finished: !result.nextCursor,
       })
     } finally {
       this.setData({ loading: false })
-    }
-  },
-
-  toRow(o: DeliveryOrder): Row {
-    const audit = o.auditStatus ?? 0
-    // 金额仅在审核通过后显示「已到账」，待审核/驳回时弱化提示，避免误以为已入账
-    let amountText = ''
-    const settledAmount = o.finalAmountYuan ?? o.rawAmountYuan
-    if (settledAmount != null) {
-      const money = formatMoneyCny(settledAmount)
-      if (audit === 1) amountText = `+¥${money}`
-      else if (audit === 2) amountText = '未返现'
-      else amountText = `待审核 ¥${money}`
-    }
-    return {
-      ...o,
-      statusText: o.deliveryStatus === 1 ? '已完成' : '进行中',
-      auditStatusText: AUDIT_STATUS[audit] || '待审核',
-      weightText: o.weight != null ? formatBusinessWeight(o.weight) : '—',
-      amountText,
     }
   },
 })

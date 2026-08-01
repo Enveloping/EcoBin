@@ -7,6 +7,7 @@ public record SuccessfulAudit(
         AuditActorKind actorKind,
         Long platformAdminId,
         Long staffAccountId,
+        Long organizationUserId,
         AuditScopeKind scopeKind,
         Long tenantId,
         Long organizationId,

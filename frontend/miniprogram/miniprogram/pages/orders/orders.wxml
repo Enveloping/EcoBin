@@ -1,10 +1,119 @@
-<view class="orders-page eco-page">
-  <view class="tabs">
-    <view wx:for="{{tabs}}" wx:key="*this" class="{{active === item ? 'active' : ''}}" data-tab="{{item}}" bindtap="onTab">{{item}}</view>
+<view class="orders-page">
+  <view wx:if="{{!serviceUnavailable}}" class="tabs">
+    <view
+      wx:for="{{tabs}}"
+      wx:key="key"
+      class="tab {{active === item.key ? 'tab--active' : ''}}"
+      data-tab="{{item.key}}"
+      bindtap="onTab"
+      hover-class="tab--pressed"
+    >{{item.text}}</view>
   </view>
-  <view class="order-card eco-card" wx:for="{{visibleOrders}}" wx:key="id">
-    <view class="order-head"><view><text class="type">{{item.type}}</text><text class="date">{{item.date}}</text></view><text class="status">{{item.status}}</text></view>
-    <view class="order-body"><view><text class="title">{{item.title}}</text><text class="number">订单号：{{item.orderNo}}</text></view><text class="amount {{item.expense ? 'expense' : ''}}">{{item.amount}}</text></view>
+
+  <view wx:if="{{!serviceUnavailable}}" class="summary-card">
+    <view class="summary-item">
+      <view class="summary-icon">
+        <t-icon name="root-list" size="36rpx" color="#10a625" />
+      </view>
+      <view class="summary-copy">
+        <text>当前已加载</text>
+        <text class="summary-value">{{orders.length}} 笔</text>
+      </view>
+    </view>
+    <view class="summary-divider"></view>
+    <view class="summary-item">
+      <view class="summary-icon">
+        <t-icon name="filter" size="36rpx" color="#10a625" />
+      </view>
+      <view class="summary-copy">
+        <text>当前筛选</text>
+        <text class="summary-value">{{currentFilterText}}</text>
+      </view>
+    </view>
   </view>
-  <view class="empty" wx:if="{{visibleOrders.length === 0}}"><t-icon name="root-list" size="80rpx" color="#c5cbc5" /><text>暂无相关订单</text></view>
+
+  <view wx:if="{{serviceUnavailable}}" class="state-card">
+    <view class="state-icon">
+      <t-icon name="root-list" size="58rpx" color="#8bbf91" />
+    </view>
+    <text class="state-title">投递订单服务接入中</text>
+    <text class="state-copy">完成接入后，投递记录会显示在这里</text>
+  </view>
+
+  <block wx:elif="{{initialLoading}}">
+    <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+      <view class="skeleton-icon"></view>
+      <view class="skeleton-copy"><view></view><view></view></view>
+      <view class="skeleton-side"><view></view><view></view></view>
+    </view>
+  </block>
+
+  <view wx:elif="{{errorMessage}}" class="state-card">
+    <view class="state-icon state-icon--warning">
+      <t-icon name="info-circle" size="58rpx" color="#c98227" />
+    </view>
+    <text class="state-title">{{errorMessage}}</text>
+    <text class="state-copy">请检查网络后重新加载</text>
+    <view class="state-action" bindtap="onRetry" hover-class="state-action--pressed">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <block wx:if="{{orders.length > 0}}">
+      <view
+        class="order-card"
+        wx:for="{{orders}}"
+        wx:key="deliveryOrderNo"
+        data-delivery-order-no="{{item.deliveryOrderNo}}"
+        bindtap="onOrderTap"
+        hover-class="order-card--pressed"
+      >
+        <view class="order-main">
+          <view class="order-icon">
+            <t-icon name="{{item.categoryIcon}}" size="48rpx" color="#10a625" />
+          </view>
+          <view class="order-copy">
+            <text class="order-category">{{item.categoryText}}</text>
+            <text class="order-weight">{{item.weightText}}</text>
+          </view>
+          <view class="order-result">
+            <text class="order-amount amount-{{item.amountTone}}">{{item.amountText}}</text>
+            <view class="order-status-row">
+              <text class="order-status status-{{item.statusTone}}">{{item.statusText}}</text>
+              <t-icon name="chevron-right" size="29rpx" color="#a4aba4" />
+            </view>
+          </view>
+        </view>
+        <view class="order-meta">
+          <view class="order-number">
+            <t-icon name="root-list" size="27rpx" color="#10a625" />
+            <text>{{item.deliveryOrderNo}}</text>
+          </view>
+          <text>{{item.timeText}}</text>
+        </view>
+      </view>
+    </block>
+
+    <view wx:else class="state-card">
+      <view class="state-icon">
+        <t-icon name="root-list" size="58rpx" color="#8bbf91" />
+      </view>
+      <text class="state-title">{{finished ? '暂无相关订单' : '尚未加载到相关订单'}}</text>
+      <text class="state-copy">{{finished ? '完成投递后，订单会显示在这里' : '还存在更多历史订单，可以继续查找'}}</text>
+      <view
+        wx:if="{{!finished}}"
+        class="state-action state-action--secondary"
+        bindtap="onContinueLoading"
+        hover-class="state-action--pressed"
+      >继续查找</view>
+    </view>
+
+    <view wx:if="{{loading}}" class="list-foot">正在加载…</view>
+    <view
+      wx:elif="{{!finished && orders.length > 0}}"
+      class="list-foot list-foot--action"
+      bindtap="onContinueLoading"
+      hover-class="list-foot--pressed"
+    >继续加载更多历史订单</view>
+    <view wx:elif="{{finished && orders.length > 0}}" class="list-foot">没有更多了</view>
+  </block>
 </view>

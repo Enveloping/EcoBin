@@ -1,80 +1,93 @@
 <view class="home-page">
-  <view class="topbar">
-    <view class="city-pill" bindtap="onCity">
-      <t-icon name="location" size="28rpx" color="#1e5528" />
-      <text>{{city}}</text>
-      <t-icon name="chevron-down" size="24rpx" color="#5f765f" />
-    </view>
+  <view class="brandbar">
+    <text class="brand-name">EcoBin</text>
   </view>
 
-  <view class="hero eco-card">
+  <view class="hero">
+    <image
+      class="hero-illustration"
+      src="/assets/home/hero-recycling.png"
+      mode="aspectFill"
+      draggable="{{false}}"
+    />
     <view class="hero-copy">
-      <view class="hero-kicker">ECOBIN · 绿色生活</view>
       <view class="hero-title">垃圾分类</view>
-      <view class="hero-sub">配合垃圾分类，争做文明市民</view>
-      <view class="hero-chip">低碳每一天</view>
-    </view>
-    <view class="hero-art">
-      <view class="sun"></view>
-      <view class="tree tree-a"></view>
-      <view class="tree tree-b"></view>
-      <view class="bin bin-a"><text>♻</text></view>
-      <view class="bin bin-b"><text>♻</text></view>
-      <view class="bin bin-c"><text>♻</text></view>
+      <view class="hero-sub">扫码投递，绿色生活</view>
     </view>
   </view>
 
   <view
-    wx:if="{{!phoneBound}}"
-    class="phone-notice eco-card"
-    bindtap="onBindPhone"
+    wx:if="{{ongoingDelivery}}"
+    class="ongoing-card home-card"
+    bindtap="onResumeDelivery"
+    hover-class="home-card--pressed"
   >
-    <view class="phone-notice-icon">
-      <t-icon name="mobile-vibrate" size="38rpx" color="#0b6b3a" />
+    <view class="ongoing-icon">
+      <t-icon name="time" size="38rpx" color="#10a625" />
     </view>
-    <view class="phone-notice-copy">
-      <text class="phone-notice-title">可选：验证手机号</text>
-      <text class="phone-notice-detail">用于身份核验及后续服务，不影响当前浏览</text>
+    <view class="ongoing-copy">
+      <text class="ongoing-title">投递请求处理中</text>
+      <text class="ongoing-sub">点击返回查看设备进度</text>
     </view>
-    <text class="phone-notice-action">去验证</text>
+    <t-icon name="chevron-right" size="30rpx" color="#a3aaa3" />
   </view>
 
-  <view class="feature-card eco-card">
-    <view class="feature" wx:for="{{features}}" wx:key="text" data-index="{{index}}" bindtap="onFeatureTap">
-      <view class="feature-icon"><t-icon name="{{item.icon}}" size="50rpx" color="#10b927" /></view>
-      <text>{{item.text}}</text>
+  <view class="wallet-card home-card" bindtap="onWalletTap" hover-class="home-card--pressed">
+    <view class="card-icon">
+      <t-icon name="wallet" size="52rpx" color="#10b927" />
     </view>
+    <view class="card-copy">
+      <text class="card-label">我的钱包</text>
+      <text class="wallet-value {{walletError ? 'wallet-value--error' : ''}}">
+        {{!walletDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取，点击重试' : walletBalanceText))}}
+      </text>
+    </view>
+    <t-icon name="chevron-right" size="32rpx" color="#a3aaa3" />
   </view>
 
-  <view class="stats">
-    <view class="stat eco-card">
-      <text class="stat-label">累计投递重量</text>
-      <view><text class="stat-num">12.8</text><text class="stat-unit">kg</text></view>
-      <view class="progress"><view></view></view>
-      <text class="stat-note">本月累计 3.6kg</text>
+  <view class="recent-card home-card">
+    <view class="recent-head" bindtap="onOpenOrders">
+      <view class="recent-title">
+        <view class="card-icon card-icon--small">
+          <t-icon name="time" size="40rpx" color="#10b927" />
+        </view>
+        <text>最近投递</text>
+      </view>
+      <view class="recent-more">
+        <text>查看全部</text>
+        <t-icon name="chevron-right" size="28rpx" color="#a3aaa3" />
+      </view>
     </view>
-    <view class="stat eco-card">
-      <text class="stat-label">账户资产</text>
-      <view><text class="stat-num">26.80</text><text class="stat-unit">元</text></view>
-      <view class="withdraw" bindtap="onWithdraw">去提现</view>
-    </view>
-  </view>
 
-  <view class="eco-section-title">附近智能回收设备</view>
-  <view class="nearby eco-card">
-    <view class="nearby-head">
-      <view><text class="device-name">红旗路回收站</text><text class="distance">距你 128m</text></view>
-      <view class="nearby-action" bindtap="onNearby">查看全部</view>
+    <view class="recent-loading" wx:if="{{recentLoading}}">
+      <view class="loading-icon"></view>
+      <view class="loading-copy"><view></view><view></view></view>
+      <view class="loading-value"></view>
     </view>
-    <view class="map-card" bindtap="onNearby">
-      <view class="road road-one"></view><view class="road road-two"></view>
-      <view class="map-marker"><view></view></view>
-      <view class="map-bubble">到这里回收</view>
+    <view
+      wx:elif="{{recentDelivery}}"
+      class="recent-order"
+      bindtap="onOpenRecentOrder"
+      hover-class="recent-order--pressed"
+    >
+      <view class="recent-order-icon">
+        <t-icon name="{{recentDelivery.categoryIcon}}" size="38rpx" color="#10b927" />
+      </view>
+      <view class="recent-order-copy">
+        <view class="recent-order-line">
+          <text class="recent-order-name">{{recentDelivery.categoryText}}</text>
+          <text class="recent-order-weight">{{recentDelivery.weightText}}</text>
+        </view>
+        <view class="recent-order-meta">
+          <text>{{recentDelivery.timeText}}</text>
+          <text class="status-{{recentDelivery.statusTone}}">{{recentDelivery.statusText}}</text>
+        </view>
+      </view>
     </view>
-    <view class="category-row">
-      <text wx:for="{{categories}}" wx:key="*this">{{item}}</text>
+    <view wx:else class="recent-empty" bindtap="onRetryRecent">
+      <t-icon name="root-list" size="52rpx" color="#b4bbb4" />
+      <text>{{!deliveryOrderDataAvailable ? '投递记录服务接入中' : (recentError ? '暂时无法获取，点击重试' : '还没有投递订单')}}</text>
     </view>
-    <view class="scan-button" bindtap="onScan"><t-icon name="scan" size="34rpx" color="#fff" />扫码开门</view>
   </view>
 
   <view
@@ -93,7 +106,7 @@
         <view class="sheet-close" bindtap="onPhoneGrantClose">×</view>
       </view>
       <view class="sheet-copy">
-        手机号将由微信官方授权面板提供，用于当前机构身份核验和后续服务。你可以暂不授权，不影响当前浏览。
+        手机号将由微信官方授权面板提供，用于当前机构身份核验。投递、提现等功能需要先完成验证；暂不授权仍可浏览页面，但本次操作不会继续。
       </view>
       <button
         class="phone-grant-button"
@@ -102,7 +115,7 @@
         disabled="{{phoneGrantSubmitting}}"
         bindgetphonenumber="onGetPhoneNumber"
       >{{phoneGrantSubmitting ? '正在验证…' : '继续获取手机号'}}</button>
-      <view class="sheet-skip" bindtap="onPhoneGrantClose">暂不授权</view>
+      <view class="sheet-skip" bindtap="onPhoneGrantClose">暂不授权，返回浏览</view>
       <view class="sheet-footnote">确认后将继续调用微信官方手机号能力</view>
     </view>
   </view>

@@ -37,6 +37,7 @@ public class CosProperties {
         return secretId != null && !secretId.isBlank()
                 && secretKey != null && !secretKey.isBlank()
                 && region != null && !region.isBlank()
-                && bucketName != null && !bucketName.isBlank();
+                && bucketName != null && !bucketName.isBlank()
+                && baseUrl != null && !baseUrl.isBlank();
     }
 }

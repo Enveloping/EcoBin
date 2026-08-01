@@ -1,0 +1,86 @@
+<view class="delivery-page">
+  <view class="device-card">
+    <view class="device-icon">
+      <t-icon name="scan" size="48rpx" color="#10a625" />
+    </view>
+    <view class="device-copy">
+      <text class="device-name">{{deviceName}}</text>
+      <text wx:if="{{address}}" class="device-address">{{address}}</text>
+    </view>
+  </view>
+
+  <view class="status-card status-{{state}}">
+    <view wx:if="{{state === 'loading' || state === 'starting'}}" class="spinner"></view>
+    <t-icon
+      wx:elif="{{state === 'completed'}}"
+      name="check-circle"
+      size="64rpx"
+      color="#10a625"
+    />
+    <t-icon
+      wx:elif="{{state === 'active'}}"
+      name="time"
+      size="64rpx"
+      color="#10a625"
+    />
+    <t-icon
+      wx:else
+      name="{{state === 'invalid' || state === 'error' || state === 'ended' ? 'error-circle' : 'info-circle'}}"
+      size="64rpx"
+      color="{{state === 'blocked' || state === 'error' || state === 'ended' ? '#e35d4f' : '#10a625'}}"
+    />
+    <text class="status-message">{{message}}</text>
+    <text wx:if="{{sessionUid}}" class="session-code">会话 {{sessionUid}}</text>
+    <text wx:if="{{orderNo}}" class="session-code">订单 {{orderNo}}</text>
+  </view>
+
+  <view
+    wx:if="{{ports.length && (state === 'selecting' || state === 'blocked')}}"
+    class="port-section"
+  >
+    <view class="section-title">
+      {{state === 'selecting' ? '选择投口' : '设备投口'}}
+    </view>
+    <view
+      wx:for="{{ports}}"
+      wx:key="portNo"
+      class="port-card {{item.deliveryAllowed ? 'port-card--available' : 'port-card--disabled'}}"
+      data-entry-id="{{entryId}}"
+      data-port-no="{{item.portNo}}"
+      bindtap="onPortTap"
+      hover-class="{{item.deliveryAllowed ? 'port-card--pressed' : 'none'}}"
+    >
+      <view class="port-head">
+        <text class="port-name">{{item.nameText}}</text>
+        <text class="port-state">
+          {{item.deliveryAllowed ? '可投递' : '暂不可用'}}
+        </text>
+      </view>
+      <view class="port-meta">
+        <text>{{item.priceText}}</text>
+        <text>{{item.fullnessText}}</text>
+      </view>
+      <text wx:if="{{item.blockerText}}" class="port-blocker">
+        {{item.blockerText}}
+      </text>
+    </view>
+  </view>
+
+  <view class="page-actions">
+    <button
+      wx:if="{{state === 'error' || state === 'blocked'}}"
+      class="primary-action"
+      bindtap="onRetry"
+    >重新检查</button>
+    <button
+      wx:if="{{state === 'completed'}}"
+      class="primary-action"
+      bindtap="onOpenOrders"
+    >查看投递订单</button>
+    <button
+      wx:if="{{state !== 'starting'}}"
+      class="secondary-action"
+      bindtap="onBackHome"
+    >返回首页</button>
+  </view>
+</view>

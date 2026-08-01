@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.framework.reliability;
 
 import java.util.Arrays;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -16,7 +17,8 @@ public record ReliableDeviceTaskRegistration(
         UUID correlationUid,
         UUID causationUid,
         int maxAutoAttempts,
-        boolean supersedePriorPendingTasks) {
+        boolean supersedePriorPendingTasks,
+        LocalDateTime initialRunAt) {
 
     public ReliableDeviceTaskRegistration {
         requireCode(taskType, "taskType");

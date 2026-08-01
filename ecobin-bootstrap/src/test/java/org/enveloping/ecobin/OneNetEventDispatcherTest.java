@@ -2,6 +2,7 @@ package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
+import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetPermanentMessageException;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
@@ -17,6 +18,9 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -51,6 +55,10 @@ class OneNetEventDispatcherTest {
         objectMapper = JsonMapper.builder().build();
         OneNetProperties properties = new OneNetProperties();
         properties.setProductId(PRODUCT_ID);
+        CosProperties cosProperties = new CosProperties();
+        cosProperties.setBaseUrl(
+                "https://ecobin-contract-1250000000"
+                        + ".cos.ap-guangzhou.myqcloud.com");
         TrustedInboxScopeResolver resolver =
                 writer -> writer.organization(11, 22);
         when(sourceScopePort.resolverFor(
@@ -68,6 +76,7 @@ class OneNetEventDispatcherTest {
                 inboxPort,
                 sourceScopePort,
                 properties,
+                cosProperties,
                 objectMapper);
     }
 
@@ -120,6 +129,66 @@ class OneNetEventDispatcherTest {
                 });
         assertThat(tenant).hasValue(11);
         assertThat(organization).hasValue(22);
+    }
+
+    @Test
+    void everyTrustedOrangePiRuntimeFactIsNormalizedIntoReliableInbox()
+            throws Exception {
+        Map<String, String> contracts = Map.of(
+                "device-runtime-snapshot.event-wire.json",
+                "DEVICE_RUNTIME_SNAPSHOT",
+                "device-fault-observed.event-wire.json",
+                "DEVICE_FAULT_OBSERVED",
+                "device-fault-recovered.event-wire.json",
+                "DEVICE_FAULT_RECOVERED",
+                "safety-sensor-state-changed.event-wire.json",
+                "SAFETY_SENSOR_STATE_CHANGED",
+                "business-confirmation-receipt.event-wire.json",
+                "BUSINESS_CONFIRMATION_RECEIPT");
+
+        for (Map.Entry<String, String> contract : contracts.entrySet()) {
+            JsonNode example = objectMapper.readTree(Files.readString(
+                    contractPath("contracts/examples/onenet-wire/"
+                            + contract.getKey())));
+            String decrypted = """
+                    {
+                      "msgType": "thingEvent",
+                      "subData": {
+                        "productId": "%s",
+                        "deviceName": "%s",
+                        "params": %s
+                      }
+                    }
+                    """.formatted(
+                    PRODUCT_ID,
+                    HARDWARE_SN,
+                    example.path("oneJsonPayload")
+                            .path("params").toString());
+
+            dispatcher.handle(
+                    decrypted,
+                    "mq-" + contract.getKey(),
+                    RAW_TRANSPORT);
+        }
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort,
+                org.mockito.Mockito.times(contracts.size()))
+                .receive(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(TrustedInboxMessage::messageKind)
+                .containsExactlyInAnyOrderElementsOf(contracts.values());
+        for (TrustedInboxMessage message : captor.getAllValues()) {
+            JsonNode normalized =
+                    objectMapper.readTree(message.normalizedPayload());
+            assertThat(normalized.path("event")
+                    .path("eventType").asText())
+                    .isEqualTo(message.messageKind());
+            assertThat(normalized.path("eventCanonicalSha256")
+                    .asText())
+                    .matches("[0-9a-f]{64}");
+        }
     }
 
     @Test
@@ -223,5 +292,16 @@ class OneNetEventDispatcherTest {
                   "version": 8
                 }
                 """;
+    }
+
+    private static Path contractPath(String relative) {
+        Path workingDirectory = Path.of("")
+                .toAbsolutePath()
+                .normalize();
+        Path repository = Files.isDirectory(
+                workingDirectory.resolve("contracts"))
+                ? workingDirectory
+                : workingDirectory.getParent();
+        return repository.resolve(relative).normalize();
     }
 }

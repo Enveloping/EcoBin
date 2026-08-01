@@ -28,7 +28,11 @@ export function wxLogin(
       wxLoginCode,
       registrationSource: registrationSource ?? null,
     },
-    { auth: false },
+    {
+      auth: false,
+      toast: false,
+      retryAfterLogin: false,
+    },
   )
 }
 
@@ -43,14 +47,21 @@ export function deleteCurrentSession(audience: MiniappAudience) {
 }
 
 /** 当前会话安全投影；契约保证不会再次返回 accessToken。 */
-export function getCurrentSession(audience: MiniappAudience) {
+export function getCurrentSession(
+  audience: MiniappAudience,
+  retryAfterLogin = true,
+) {
   const prefix = audience === 'miniapp-staff'
     ? '/api/v1/miniapp-staff'
     : '/api/v1/miniapp'
   return http.get<MiniappSessionView>(
     `${prefix}/auth/sessions/current`,
     undefined,
-    { noStore: true },
+    {
+      noStore: true,
+      retryAfterLogin,
+      toast: retryAfterLogin,
+    },
   )
 }
 

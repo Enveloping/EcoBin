@@ -1,106 +1,91 @@
-<view class="page">
-  <view wx:if="{{!phoneBound}}" class="card clean-phone-notice">
-    <view class="clean-phone-copy">
-      <text class="clean-phone-title">可选：验证手机号</text>
-      <text class="clean-phone-detail">不影响当前操作，点击后由微信提供官方授权面板</text>
-    </view>
-    <button class="clean-phone-action" bindtap="onBindPhone">去验证</button>
+<view class="clean-page" style="padding-top: {{statusBarHeight}}px;">
+  <view class="clean-header">
+    <view class="clean-title">清运工作台</view>
   </view>
 
-  <view class="card">
-    <view class="card-title">开清运门</view>
-
-    <picker mode="selector" range="{{deviceNames}}" value="{{deviceIndex}}" bindchange="onSelectDevice">
-      <view class="field">
-        <text class="field-label">设备</text>
-        <text class="field-value {{deviceIndex < 0 ? 'placeholder' : ''}}">
-          {{ deviceIndex >= 0 ? deviceNames[deviceIndex] : '请选择设备' }}
-        </text>
-      </view>
-    </picker>
-
-    <picker
-      mode="selector"
-      range="{{doorLabels}}"
-      value="{{doorIndex}}"
-      bindchange="onSelectDoor"
-      disabled="{{deviceIndex < 0}}"
+  <view class="function-grid">
+    <view
+      class="function-item"
+      data-filter="ALL"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
     >
-      <view class="field">
-        <text class="field-label">投口</text>
-        <text class="field-value {{doorIndex < 0 ? 'placeholder' : ''}}">
-          {{ doorIndex >= 0 ? doorLabels[doorIndex] : (deviceIndex < 0 ? '请先选择设备' : '请选择投口') }}
-        </text>
+      <view class="function-tile tone-primary">
+        <t-icon name="root-list" size="76rpx" color="#ffffff" />
       </view>
-    </picker>
-
-    <view class="field">
-      <text class="field-label">垃圾袋</text>
-      <text class="field-value {{bagNo ? '' : 'placeholder'}}">
-        {{ bagNo || '请扫描新垃圾袋' }}
-      </text>
+      <view class="function-label">全部设备</view>
     </view>
 
-    <view class="bag-actions">
-      <t-button theme="default" size="small" variant="outline" bindtap="onScanBag" class="bag-btn">
-        扫垃圾袋
-      </t-button>
-      <t-button theme="default" size="small" variant="outline" bindtap="onManualBag" class="bag-btn">
-        手动输入
-      </t-button>
-    </view>
-
-    <t-button theme="primary" block loading="{{opening}}" bindtap="onOpen" class="submit-btn">
-      开清运门
-    </t-button>
-
-    <view class="tip">开门后请清运并换上新垃圾袋，毛重与去皮由设备自动称重上报，无需手填。</view>
-  </view>
-
-  <view class="card">
-    <view class="card-title">我的清运</view>
-    <block wx:if="{{cleans.length > 0}}">
-      <view class="clean-item" wx:for="{{cleans}}" wx:key="id">
-        <view class="clean-left">
-          <view class="clean-weight">{{item.netText}} kg</view>
-          <view class="clean-time">{{item.createTime}}</view>
-        </view>
-        <view class="clean-detail">
-          <text class="clean-sub">毛重 {{item.grossWeight}} / 去皮 {{item.tareWeight}}</text>
-          <text class="clean-bag" wx:if="{{item.bagQr}}">袋 {{item.bagQr}}</text>
-        </view>
+    <view
+      class="function-item"
+      data-filter="ONLINE"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-online">
+        <t-icon name="check-circle" size="76rpx" color="#ffffff" />
       </view>
-    </block>
-    <t-empty wx:else icon="folder" description="暂无清运记录" />
-  </view>
-</view>
+      <view class="function-label">在线设备</view>
+    </view>
 
-<view
-  wx:if="{{showPhoneGrant}}"
-  class="phone-sheet-mask"
-  bindtap="onPhoneGrantClose"
-  catchtouchmove="onPhoneSheetPanelTap"
->
-  <view class="phone-sheet" catchtap="onPhoneSheetPanelTap">
-    <view class="sheet-handle"></view>
-    <view class="sheet-head">
-      <view class="sheet-icon">
-        <t-icon name="mobile-vibrate" size="52rpx" color="#0b6b3a" />
+    <view
+      class="function-item"
+      data-filter="NO_DELIVERY_24H"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-idle">
+        <t-icon name="time" size="76rpx" color="#ffffff" />
       </view>
-      <view class="sheet-title">验证手机号</view>
-      <view class="sheet-close" bindtap="onPhoneGrantClose">×</view>
+      <view class="function-label">一天未投递设备</view>
     </view>
-    <view class="sheet-copy">
-      手机号将由微信官方授权面板提供，用于当前机构身份核验和后续服务。你可以暂不授权，不影响当前操作。
+
+    <view
+      class="function-item"
+      data-filter="NO_CLEAN_24H"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-clean">
+        <t-icon name="time" size="76rpx" color="#ffffff" />
+      </view>
+      <view class="function-label">一天未清运设备</view>
     </view>
-    <button
-      class="phone-grant-button"
-      open-type="getPhoneNumber"
-      loading="{{phoneGrantSubmitting}}"
-      disabled="{{phoneGrantSubmitting}}"
-      bindgetphonenumber="onGetPhoneNumber"
-    >{{phoneGrantSubmitting ? '正在验证…' : '继续获取手机号'}}</button>
-    <view class="sheet-skip" bindtap="onPhoneGrantClose">暂不授权</view>
-    <view class="sheet-footnote">确认后将继续调用微信官方手机号能力</view>
+
+    <view
+      class="function-item"
+      data-filter="FULL"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-full">
+        <t-icon name="error-circle" size="76rpx" color="#ffffff" />
+      </view>
+      <view class="function-label">满溢设备</view>
+    </view>
+
+    <view
+      class="function-item"
+      data-filter="FULL_TIMEOUT_2H"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-overdue">
+        <t-icon name="error-circle" size="76rpx" color="#ffffff" />
+      </view>
+      <view class="function-label">满溢超时2h</view>
+    </view>
+
+    <view
+      class="function-item"
+      data-filter="RECORDS"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-records">
+        <t-icon name="root-list" size="76rpx" color="#ffffff" />
+      </view>
+      <view class="function-label">清运记录</view>
+    </view>
   </view>
 </view>

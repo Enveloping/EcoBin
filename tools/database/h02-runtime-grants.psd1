@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 1
+    CatalogVersion = 3
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -161,6 +161,16 @@
             "local_storage_state"
             "clock_state"
             "pending_reliable_event_count"
+            "trusted_runtime_edge_event_id"
+            "trusted_runtime_edge_event_type"
+            "trusted_runtime_sequence"
+            "trusted_runtime_received_at"
+            "orange_pi_reported_config_version_no"
+            "orange_pi_reported_config_content_sha256"
+            "orange_pi_reported_config_mcu_payload_sha256"
+            "safety_projection_edge_event_id"
+            "safety_projection_edge_event_type"
+            "safety_projection_sequence"
             "last_heartbeat_at"
             "last_device_event_at"
             "lock_version"
@@ -174,11 +184,35 @@
             "clean_solenoid_health"
             "clean_door_inferred_state"
             "clean_door_state_basis"
+            "cleaner_physical_close_confirmed"
+            "last_delivery_door_command"
+            "last_delivery_door_output_status"
+            "delivery_door_physical_state_basis"
             "weight_sensor_health"
+            "weight_measurement_uid"
+            "weight_measurement_status"
+            "weight_value_available"
+            "reported_weight_grams"
+            "weight_value_kind"
+            "weight_measurement_elapsed_ms"
+            "weight_sample_count"
+            "calibration_version"
             "infrared_value"
             "infrared_sensor_health"
+            "fullness_sensor_kind"
+            "fullness_sensor_value"
+            "fullness_sample_basis"
+            "representative_distance_mm"
+            "fullness_valid_sample_count"
             "smoke_state"
             "smoke_sensor_health"
+            "runtime_fault_bitmap"
+            "trusted_runtime_edge_event_id"
+            "trusted_runtime_edge_event_type"
+            "trusted_runtime_sequence"
+            "safety_projection_edge_event_id"
+            "safety_projection_edge_event_type"
+            "safety_projection_sequence"
             "safety_status"
             "pending_delivery_result_session_id"
             "last_observed_at"
@@ -186,6 +220,7 @@
             "updated_at"
         )
         dev_device_fault_event = @(
+            "impact_level"
             "status"
             "last_detected_at"
             "discovery_count"
@@ -197,6 +232,9 @@
             "recovered_at"
             "recovered_by_staff_account_id"
             "recovery_reason"
+            "device_recovery_observed_edge_event_id"
+            "device_recovery_observed_edge_event_type"
+            "device_recovery_observed_at"
             "lock_version"
         )
         dev_delivery_session = @(
@@ -298,6 +336,16 @@
             "captured_at"
             "linked_at"
             "missing_reason"
+            "updated_at"
+        )
+        rec_photo_terminal_fact = @(
+            "delivery_photo_id"
+            "clean_photo_id"
+            "linked_at"
+            "updated_at"
+        )
+        dev_photo_upload_grant_request = @(
+            "request_status"
             "updated_at"
         )
         rec_port_baseline_measurement = @(

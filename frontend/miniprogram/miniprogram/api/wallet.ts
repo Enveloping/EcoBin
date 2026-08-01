@@ -1,17 +1,35 @@
 import { http } from '../utils/request'
-import type { WalletVO, WithdrawOrder, PageResult } from '../types/api'
+import type {
+  CursorPage,
+  MiniappWalletView,
+  PersonalWalletEntry,
+} from '../types/api'
 
 /** 我的钱包余额 */
-export function myWallet() {
-  return http.get<WalletVO>('/api/app/wallet')
+export function myWallet(toast = true) {
+  return http.get<MiniappWalletView>(
+    '/api/v1/miniapp/me/wallet',
+    undefined,
+    { toast, noStore: true },
+  )
 }
 
-/** 发起提现 */
-export function applyWithdraw(amount: string) {
-  return http.post<WithdrawOrder>('/api/app/wallet/withdraw', { amount })
+export interface MyWalletEntriesQuery {
+  cursor?: string
+  limit?: number
 }
 
-/** 我的提现记录分页 */
-export function myWithdraws(page = 1, pageSize = 20) {
-  return http.get<PageResult<WithdrawOrder>>('/api/app/wallet/withdraw', { page, pageSize })
+/** 当前用户的不可变钱包流水；游标由后端签名，客户端不得解析或重建。 */
+export function myWalletEntries(
+  query: MyWalletEntriesQuery = {},
+  toast = true,
+) {
+  const data: Record<string, unknown> = {}
+  if (query.cursor) data.cursor = query.cursor
+  if (query.limit !== undefined) data.limit = query.limit
+  return http.get<CursorPage<PersonalWalletEntry>>(
+    '/api/v1/miniapp/me/wallet/entries',
+    data,
+    { toast, noStore: true },
+  )
 }

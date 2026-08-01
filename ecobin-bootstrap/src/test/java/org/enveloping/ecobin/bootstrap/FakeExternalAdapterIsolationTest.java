@@ -65,7 +65,11 @@ class FakeExternalAdapterIsolationTest {
 
     @Test
     void fakeCredentialsAndWechatSessionCannotReachRealChannels() {
-        var credential = cosUploadCredentialPort.issue("FAKE-SN", 1);
+        var credential = cosUploadCredentialPort.issue(
+                "FAKE-SN",
+                1,
+                "ecobin/Dp_fake_01/delivery-session/"
+                        + "30000000-0000-4000-8000-000000000001/");
         assertEquals("https://cos.invalid", credential.baseUrl());
 
         var session = wechatSessionPort.exchange("", "", "fake:test-user");

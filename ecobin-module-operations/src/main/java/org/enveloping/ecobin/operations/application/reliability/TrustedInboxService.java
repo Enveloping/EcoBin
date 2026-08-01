@@ -5,6 +5,7 @@ import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceipt;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceiptState;
+import org.enveloping.ecobin.operations.api.inbox.TrustedInboxRejection;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.InboxAggregate;
@@ -216,6 +217,37 @@ public class TrustedInboxService implements TrustedInboxPort {
         return lane == TrustedInboxExecutionLane.DEVICE
                 ? properties.getIotDevice()
                 : properties.getFundsWechat();
+    }
+
+    @Override
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED)
+    public UUID quarantine(TrustedInboxRejection rejection) {
+        byte[] rawDigest = canonicalJson.sha256(
+                rejection.rawTransportBody());
+        byte[] externalIdentity = rejection.externalMessageId() == null
+                ? new byte[0]
+                : rejection.externalMessageId().getBytes(
+                StandardCharsets.UTF_8);
+        byte[] dedupeKey = canonicalJson.sha256LengthPrefixed(
+                rejection.sourceNamespace().getBytes(
+                        StandardCharsets.US_ASCII),
+                rejection.sourcePrincipalKey().getBytes(
+                        StandardCharsets.UTF_8),
+                externalIdentity,
+                rawDigest,
+                rejection.reasonCode().getBytes(
+                        StandardCharsets.US_ASCII));
+        return repository.upsertRejectedMessage(
+                dedupeKey,
+                rejection.sourceNamespace(),
+                rejection.sourcePrincipalKey(),
+                rejection.externalMessageId(),
+                rejection.reasonCode(),
+                rawDigest,
+                rejection.redactedDiagnostic(),
+                repository.databaseNow());
     }
 
     private static InboxScope resolveScope(TrustedInboxMessage message) {

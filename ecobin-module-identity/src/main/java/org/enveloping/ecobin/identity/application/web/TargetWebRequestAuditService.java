@@ -51,12 +51,15 @@ public class TargetWebRequestAuditService {
             String operationUidHeader,
             TargetWebActor actor,
             Descriptor descriptor) {
-        boolean privilegedRead = status < 400
-                && "GET".equals(method)
-                && actor != null
+        boolean platformDirectoryRead = actor != null
                 && actor.platform()
                 && (PLATFORM_TENANTS.equals(path)
                 || path.startsWith(PLATFORM_TENANTS + "/"));
+        boolean miniappSecretRead = actor != null
+                && path.endsWith("/miniapp-configuration");
+        boolean privilegedRead = status < 400
+                && "GET".equals(method)
+                && (platformDirectoryRead || miniappSecretRead);
         if (!privilegedRead && status < 400) {
             return;
         }
@@ -97,6 +100,7 @@ public class TargetWebRequestAuditService {
                         ? actor.principalId() : null,
                 actor != null && !actor.platform()
                         ? actor.principalId() : null,
+                null,
                 null,
                 actor == null ? null : actor.displayName(),
                 actionCode,
@@ -274,6 +278,10 @@ public class TargetWebRequestAuditService {
         }
         if (STAFF_LOGIN.equals(path)) {
             return "identity.auth.staff.login";
+        }
+        if (privilegedRead
+                && path.endsWith("/miniapp-configuration")) {
+            return "identity.miniapp.configuration.read";
         }
         return privilegedRead
                 ? "identity.platform.privileged-read"

@@ -53,6 +53,106 @@ async function json(route: Route, data: unknown, status = 200) {
   });
 }
 
+const deliveryOrderNo = 'DO-20260730-000001';
+const deliveryUserUid = '40000000-0000-4000-8000-000000000041';
+
+function deliveryItem(
+  status: 'PENDING' | 'APPROVED',
+  revisionNo: number,
+) {
+  return {
+    deliveryOrderNo,
+    organizationUserUid: deliveryUserUid,
+    deploymentCode: 'dp-hz-01',
+    portNo: 2,
+    deviceOccurredAt: '2026-07-30T02:10:00.123Z',
+    receivedAt: '2026-07-30T02:10:02.123Z',
+    rawWeightKg: '1.25',
+    rawAmountYuan: '1.00',
+    rawWeightReliability: 'RELIABLE',
+    rawAmountReliability: 'RELIABLE',
+    reviewStatus: status,
+    currentRevisionNo: revisionNo,
+    finalWeightKg: status === 'APPROVED' ? '1.25' : null,
+    finalAmountYuan: status === 'APPROVED' ? '1.00' : null,
+    anomalyCodes: [],
+    photoCompleteness: 'INCOMPLETE',
+  };
+}
+
+function deliveryDetail(
+  status: 'PENDING' | 'APPROVED',
+  revisionNo: number,
+) {
+  return {
+    deliveryOrderNo,
+    source: {
+      eventUid: '40000000-0000-4000-8000-000000000042',
+      sessionUid: '40000000-0000-4000-8000-000000000043',
+      deploymentCode: 'dp-hz-01',
+      portNo: 2,
+      deviceOccurredAt: '2026-07-30T02:10:00.123Z',
+      receivedAt: '2026-07-30T02:10:02.123Z',
+    },
+    ownership: {
+      organizationUserUid: deliveryUserUid,
+    },
+    raw: {
+      firstPreOpenWeightGram: 12000,
+      finalPostCloseWeightGram: 13250,
+      netWeightGram: 1250,
+      weightKg: '1.25',
+      unitPriceYuanPerKg: '0.8000',
+      amountYuan: '1.00',
+      weightReliability: 'RELIABLE',
+      amountReliability: 'RELIABLE',
+      negativeWeightAnomaly: false,
+    },
+    review: {
+      status,
+      currentRevisionNo: revisionNo,
+      maxReviewAbsoluteWeightKg: '100.00',
+      finalWeightKg: status === 'APPROVED' ? '1.25' : null,
+      finalAmountYuan: status === 'APPROVED' ? '1.00' : null,
+      firstApprovedAt:
+        status === 'APPROVED' ? '2026-07-30T03:00:00.123Z' : null,
+    },
+    anomalies: [],
+    photos: [
+      'BEFORE_INNER',
+      'BEFORE_OUTER',
+      'AFTER_INNER',
+      'AFTER_OUTER',
+    ].map((position) => ({
+      position,
+      status: 'UPLOAD_PENDING',
+      url: null,
+      capturedAt: null,
+      missingReason: null,
+    })),
+    revisions: status === 'APPROVED'
+      ? [{
+          revisionUid: '40000000-0000-4000-8000-000000000044',
+          revisionNo,
+          revisionType: revisionNo === 1 ? 'INITIAL_REVIEW' : 'CORRECTION',
+          decision: 'ORIGINAL_APPROVED',
+          beforeFinalWeightKg: revisionNo === 1 ? null : '1.10',
+          beforeFinalAmountYuan: revisionNo === 1 ? null : '0.88',
+          afterFinalWeightKg: '1.25',
+          afterFinalAmountYuan: '1.00',
+          amountDeltaYuan: revisionNo === 1 ? '1.00' : '0.12',
+          reason: null,
+          operator: {
+            actorKind: 'STAFF_ACCOUNT',
+            actorUid: '40000000-0000-4000-8000-000000000045',
+            displayName: '审核员甲',
+          },
+          reviewedAt: '2026-07-30T03:00:00.123Z',
+        }]
+      : [],
+  };
+}
+
 async function mockAnonymous(page: Page) {
   const legacyRequests: string[] = [];
   page.on('request', (request) => {
@@ -1387,4 +1487,498 @@ test('device management consumes the organization deep link and target API', asy
   await expect(page.getByText('dp-hz-01', { exact: true })).toBeVisible();
   await expect(page.getByText('EC-BOX-0001', { exact: true })).toBeVisible();
   await expect(page.getByText('在线', { exact: true })).toBeVisible();
+});
+
+test('late delivery detail responses cannot replace or review the selected order', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'organization.read',
+      'delivery.read',
+      'review.execute',
+    ],
+  };
+  const orderA = 'DO-20260730-RACE-A';
+  const orderB = 'DO-20260730-RACE-B';
+  let orderARequested = false;
+  let orderAFulfilled = false;
+  let releaseOrderA: (() => void) | undefined;
+  const orderAGate = new Promise<void>((resolve) => {
+    releaseOrderA = resolve;
+  });
+  let reviewedPath: string | undefined;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, {
+        token: 'delivery-race-csrf-e2e',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-delivery/delivery-orders'
+    ) {
+      await json(route, {
+        items: [
+          { ...deliveryItem('PENDING', 0), deliveryOrderNo: orderA },
+          { ...deliveryItem('PENDING', 0), deliveryOrderNo: orderB },
+        ],
+        asOf: '2026-07-30T03:10:00.123Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${orderA}`
+    ) {
+      orderARequested = true;
+      await orderAGate;
+      await json(route, {
+        ...deliveryDetail('PENDING', 0),
+        deliveryOrderNo: orderA,
+      });
+      orderAFulfilled = true;
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${orderB}`
+    ) {
+      await json(route, {
+        ...deliveryDetail('PENDING', 0),
+        deliveryOrderNo: orderB,
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname.endsWith('/reviews')
+    ) {
+      reviewedPath = url.pathname;
+      await json(route, {
+        deliveryOrderNo: orderB,
+        revisionUid: '40000000-0000-4000-8000-000000000049',
+        revisionNo: 1,
+        reviewStatus: 'APPROVED',
+        decision: 'ORIGINAL_APPROVED',
+        finalWeightKg: '1.25',
+        finalAmountYuan: '1.00',
+        walletDeltaYuan: '1.00',
+        walletEffect: 'APPLIED',
+        reviewedAt: '2026-07-30T03:00:00.123Z',
+      }, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/deliveries?organization=org-delivery');
+  await page.getByText(orderA, { exact: true }).click();
+  await expect.poll(() => orderARequested).toBe(true);
+  await page.locator('.ant-drawer-close').click();
+
+  await page.getByText(orderB, { exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: /投递订单详情/ });
+  await expect(drawer.getByText(orderB, { exact: true })).toBeVisible();
+
+  releaseOrderA?.();
+  await expect.poll(() => orderAFulfilled).toBe(true);
+  await expect(drawer.getByText(orderB, { exact: true })).toBeVisible();
+  await expect(drawer.getByText(orderA, { exact: true })).toHaveCount(0);
+
+  await drawer.getByRole('button', { name: '审核', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: '确认审核' })
+    .click();
+  await expect.poll(() => reviewedPath).toBe(
+    `/api/v1/web/organizations/org-delivery/delivery-orders/${orderB}/reviews`,
+  );
+});
+
+test('delivery list applies deep-link filters and reviews from the evidence drawer', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'organization.read',
+      'delivery.read',
+      'review.execute',
+      'delivery.correct',
+    ],
+  };
+  let reviewed = false;
+  let listQuery: URLSearchParams | undefined;
+  let reviewRequest:
+    | { headers: Record<string, string>; body: unknown }
+    | undefined;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, {
+        token: 'delivery-csrf-e2e',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-delivery/delivery-orders'
+    ) {
+      listQuery = new URLSearchParams(url.searchParams);
+      await json(route, {
+        items: [deliveryItem(reviewed ? 'APPROVED' : 'PENDING', reviewed ? 1 : 0)],
+        asOf: '2026-07-30T03:10:00.123Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}`
+    ) {
+      await json(
+        route,
+        deliveryDetail(reviewed ? 'APPROVED' : 'PENDING', reviewed ? 1 : 0),
+      );
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}/reviews`
+    ) {
+      reviewRequest = {
+        headers: request.headers(),
+        body: request.postDataJSON(),
+      };
+      reviewed = true;
+      await json(route, {
+        deliveryOrderNo,
+        revisionUid: '40000000-0000-4000-8000-000000000044',
+        revisionNo: 1,
+        reviewStatus: 'APPROVED',
+        decision: 'ORIGINAL_APPROVED',
+        finalWeightKg: '1.25',
+        finalAmountYuan: '1.00',
+        walletDeltaYuan: '1.00',
+        walletEffect: 'APPLIED',
+        reviewedAt: '2026-07-30T03:00:00.123Z',
+      }, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto(
+    `/deliveries?organization=org-delivery&organizationUserUid=${deliveryUserUid}`,
+  );
+  await expect(page.getByText(deliveryOrderNo, { exact: true })).toBeVisible();
+  await expect.poll(() => listQuery?.get('organizationUserUid')).toBe(
+    deliveryUserUid,
+  );
+  await page.getByText(deliveryOrderNo, { exact: true }).click();
+  await expect(page.getByText('设备原始事实', { exact: true })).toBeVisible();
+  await expect(page.getByText('照片证据', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '审核', exact: true }).click();
+  const reviewDialog = page.getByRole('dialog');
+  await expect(reviewDialog.getByText('审核会形成第一条认定版本')).toBeVisible();
+  await reviewDialog.getByRole('button', { name: '确认审核' }).click();
+
+  await expect.poll(() => reviewRequest?.body).toEqual({
+    expectedRevisionNo: 0,
+    decision: 'ORIGINAL_APPROVED',
+    finalWeightKg: null,
+    reason: null,
+  });
+  expect(reviewRequest?.headers['idempotency-key']).toMatch(
+    /^[0-9a-f-]{36}$/i,
+  );
+  expect(reviewRequest?.headers['x-csrf-token']).toBe('delivery-csrf-e2e');
+  await expect(
+    page.getByText(/审核已提交：最终金额 ¥ 1.00/),
+  ).toBeVisible();
+  await expect(
+    page.getByText('已通过', { exact: true }).first(),
+  ).toBeVisible();
+});
+
+test('approved delivery can append a correction with the observed revision', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'organization.read',
+      'delivery.read',
+      'delivery.correct',
+    ],
+  };
+  let corrected = false;
+  let correctionBody: unknown;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, {
+        token: 'correction-csrf-e2e',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-delivery/delivery-orders'
+    ) {
+      await json(route, {
+        items: [{
+          ...deliveryItem('APPROVED', corrected ? 2 : 1),
+          finalWeightKg: corrected ? '1.50' : '1.25',
+          finalAmountYuan: corrected ? '1.20' : '1.00',
+        }],
+        asOf: '2026-07-30T03:10:00.123Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}`
+    ) {
+      const base = deliveryDetail('APPROVED', corrected ? 2 : 1);
+      await json(route, corrected
+        ? {
+            ...base,
+            review: {
+              ...base.review,
+              currentRevisionNo: 2,
+              finalWeightKg: '1.50',
+              finalAmountYuan: '1.20',
+            },
+          }
+        : base);
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}/corrections`
+    ) {
+      correctionBody = request.postDataJSON();
+      corrected = true;
+      await json(route, {
+        deliveryOrderNo,
+        revisionUid: '40000000-0000-4000-8000-000000000046',
+        revisionNo: 2,
+        reviewStatus: 'APPROVED',
+        decision: 'MODIFIED_APPROVED',
+        finalWeightKg: '1.50',
+        finalAmountYuan: '1.20',
+        walletDeltaYuan: '0.20',
+        walletEffect: 'APPLIED',
+        reviewedAt: '2026-07-30T03:20:00.123Z',
+      }, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/deliveries?organization=org-delivery');
+  await page.getByText(deliveryOrderNo, { exact: true }).click();
+  await page.getByRole('button', { name: '纠正', exact: true }).click();
+  const correctionDialog = page.getByRole('dialog');
+  await correctionDialog
+    .getByLabel('最终认定重量（千克）')
+    .fill('1.50');
+  await correctionDialog
+    .getByLabel('说明')
+    .fill('现场复核后重新认定');
+  await correctionDialog.getByRole('button', { name: '确认纠正' }).click();
+
+  await expect.poll(() => correctionBody).toEqual({
+    expectedRevisionNo: 1,
+    decision: 'MODIFIED_APPROVED',
+    finalWeightKg: '1.50',
+    reason: '现场复核后重新认定',
+  });
+  await expect(
+    page.getByText(/纠正已提交：最终金额 ¥ 1.20/),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('dialog', { name: /投递订单详情/ })
+      .getByText('1.50 千克', { exact: true }),
+  ).toBeVisible();
+});
+
+test('delivery pagination forwards only the opaque server cursor', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: ['organization.read', 'delivery.read'],
+  };
+  const observedCursors: Array<string | null> = [];
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-delivery/delivery-orders'
+    ) {
+      const cursor = url.searchParams.get('cursor');
+      observedCursors.push(cursor);
+      await json(route, cursor
+        ? {
+            items: [{
+              ...deliveryItem('APPROVED', 1),
+              deliveryOrderNo: 'DO-20260730-000002',
+            }],
+            asOf: '2026-07-30T03:10:00.123Z',
+            nextCursor: null,
+          }
+        : {
+            items: [deliveryItem('PENDING', 0)],
+            asOf: '2026-07-30T03:10:00.123Z',
+            nextCursor: 'opaque-page-two',
+          });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/deliveries?organization=org-delivery');
+  await expect(page.getByText(deliveryOrderNo, { exact: true })).toBeVisible();
+  await page.locator('.ant-pagination-next button').click();
+  await expect(
+    page.getByText('DO-20260730-000002', { exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => observedCursors).toEqual([
+    null,
+    'opaque-page-two',
+  ]);
 });

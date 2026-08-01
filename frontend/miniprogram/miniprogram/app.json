@@ -1,12 +1,19 @@
 {
   "pages": [
     "pages/login/login",
+    "pages/delivery-entry/delivery-entry",
     "pages/home/home",
     "pages/clean/clean",
+    "pages/clean-profile/clean-profile",
+    "pages/clean-operation/clean-operation",
+    "pages/clean-devices/clean-devices",
+    "pages/clean-records/clean-records",
     "pages/management/management",
     "pages/profile/profile",
+    "pages/wallet/wallet",
     "pages/nearby/nearby",
     "pages/orders/orders",
+    "pages/order-detail/order-detail",
     "pages/appointments/appointments",
     "pages/pickup/pickup",
     "pages/fault-report/fault-report",
@@ -29,7 +36,9 @@
     "backgroundColor": "#ffffff",
     "list": [
       { "pagePath": "pages/home/home", "text": "首页" },
-      { "pagePath": "pages/profile/profile", "text": "我的" }
+      { "pagePath": "pages/profile/profile", "text": "我的" },
+      { "pagePath": "pages/clean/clean", "text": "清运首页" },
+      { "pagePath": "pages/clean-profile/clean-profile", "text": "清运我的" }
     ]
   },
   "usingComponents": {

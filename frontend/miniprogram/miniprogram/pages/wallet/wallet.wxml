@@ -1,40 +1,99 @@
-<view class="page">
+<view class="wallet-page">
   <view class="balance-card">
-    <view class="label">可用余额（元）</view>
-    <view class="balance">{{balance}}</view>
-    <view class="pending">待审核冻结：¥{{pendingBalance}}</view>
-  </view>
-
-  <view class="card">
-    <view class="card-title">申请提现</view>
-    <t-input
-      type="digit"
-      placeholder="请输入提现金额"
-      value="{{amount}}"
-      bind:change="onAmountInput"
-    />
-    <t-button theme="primary" block loading="{{submitting}}" bindtap="onWithdraw" class="withdraw-btn">
-      提现
-    </t-button>
-  </view>
-
-  <view class="card">
-    <view class="card-title">提现记录</view>
-    <block wx:if="{{list.length > 0}}">
-      <view class="wd-item" wx:for="{{list}}" wx:key="id">
-        <view class="wd-left">
-          <view class="wd-amount">¥{{item.amount}}</view>
-          <view class="wd-time">{{item.createTime}}</view>
+    <view class="balance-head">
+      <view>
+        <view class="balance-label">可用余额</view>
+        <view class="balance-value">
+          {{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + availableBalance))}}
         </view>
-        <t-tag
-          size="small"
-          variant="light"
-          theme="{{item.status === 1 ? 'success' : (item.status === 2 ? 'danger' : 'warning')}}"
-        >
-          {{item.statusText}}
-        </t-tag>
       </view>
-    </block>
-    <t-empty wx:else icon="wallet" description="暂无提现记录" />
+      <view class="balance-icon">
+        <t-icon name="wallet" size="54rpx" color="#10a625" />
+      </view>
+    </view>
+    <view class="balance-meta">
+      <view class="balance-meta-item">
+        <text>待审核返现</text>
+        <text>{{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + pendingReward))}}</text>
+      </view>
+      <view class="balance-divider"></view>
+      <view class="balance-meta-item">
+        <text>提现处理中</text>
+        <text>{{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + withdrawalProcessing))}}</text>
+      </view>
+    </view>
   </view>
+
+  <view class="section-head">
+    <text class="section-title">资金明细</text>
+    <text class="section-note">以入账时间倒序排列</text>
+  </view>
+
+  <block wx:if="{{initialLoading}}">
+    <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+      <view class="skeleton-icon"></view>
+      <view class="skeleton-copy">
+        <view></view>
+        <view></view>
+      </view>
+      <view class="skeleton-amount"></view>
+    </view>
+  </block>
+
+  <view wx:if="{{!initialLoading && entriesError && entries.length === 0}}" class="state-card">
+    <view class="state-icon state-icon--warning">
+      <t-icon name="error-circle" size="54rpx" color="#d98a0b" />
+    </view>
+    <view class="state-title">{{entriesError}}</view>
+    <view class="state-copy">请检查网络后重新加载</view>
+    <view class="state-action" bindtap="onRetry" hover-class="state-action--pressed">重新加载</view>
+  </view>
+
+  <view wx:if="{{!initialLoading && !entriesError && entries.length === 0}}" class="state-card">
+    <view class="state-icon">
+      <t-icon name="wallet" size="54rpx" color="#10a625" />
+    </view>
+    <view class="state-title">暂无钱包明细</view>
+    <view class="state-copy">投递返现审核入账后会显示在这里</view>
+  </view>
+
+  <view
+    class="entry-card"
+    wx:for="{{entries}}"
+    wx:key="entryUid"
+  >
+    <view class="entry-main">
+      <view class="entry-icon">
+        <t-icon name="wallet" size="44rpx" color="#10a625" />
+      </view>
+      <view class="entry-copy">
+        <text class="entry-title">{{item.title}}</text>
+        <text class="entry-time">{{item.timeText}}</text>
+      </view>
+      <view class="entry-deltas">
+        <text
+          wx:if="{{item.showAvailableDelta}}"
+          class="entry-amount {{item.availableTone}}"
+        >{{item.availableDeltaText}}</text>
+        <text
+          wx:if="{{item.showProcessingDelta}}"
+          class="entry-processing {{item.processingTone}}"
+        >处理中 {{item.processingDeltaText}}</text>
+      </view>
+    </view>
+    <view class="entry-source">{{item.sourceText}}</view>
+    <view class="entry-after">
+      <text>可用余额 {{item.availableBalanceAfterText}}</text>
+      <text>处理中 {{item.processingAfterText}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{entries.length > 0 && entriesLoading}}" class="list-foot">正在加载更多…</view>
+  <view wx:if="{{entries.length > 0 && finished}}" class="list-foot">已显示全部明细</view>
+  <view
+    wx:if="{{entries.length > 0 && entriesError && !entriesLoading}}"
+    class="list-foot list-foot--action"
+    bindtap="onContinueLoading"
+    hover-class="list-foot--pressed"
+  >加载失败，点击重试</view>
 </view>

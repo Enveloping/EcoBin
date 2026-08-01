@@ -10,6 +10,10 @@ import type {
   LoginResponse,
   MiniappAudience,
 } from '../types/api'
+import { clearPendingDeviceEntry } from './device-entry-intent'
+import { resetPhoneBindingAutoPrompt } from './phone-binding-prompt'
+
+let sessionClearedLocally = false
 
 function getLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -28,9 +32,14 @@ function getAppId(): string {
 }
 
 function persistSession(session: LoginResponse): void {
-  wx.setStorageSync(STORAGE_KEYS.session, session)
+  try {
+    wx.setStorageSync(STORAGE_KEYS.session, session)
+  } catch {
+    // 当前进程仍使用 globalData；下次冷启动会重新登录。
+  }
   const app = getApp<IAppOption>()
   if (app) app.globalData.session = session
+  sessionClearedLocally = false
 }
 
 export function markPhoneBound(): void {
@@ -40,15 +49,34 @@ export function markPhoneBound(): void {
 }
 
 export function clearSession(): void {
-  wx.removeStorageSync(STORAGE_KEYS.session)
+  sessionClearedLocally = true
+  try {
+    wx.removeStorageSync(STORAGE_KEYS.session)
+  } catch {
+    try {
+      wx.setStorageSync(STORAGE_KEYS.session, null)
+    } catch {
+      // globalData 仍会在下方清空。
+    }
+  }
+  resetPhoneBindingAutoPrompt()
   const app = getApp<IAppOption>()
-  if (app) app.globalData.session = undefined
+  if (app) {
+    app.globalData.session = undefined
+    app.globalData.testViewMode = undefined
+  }
 }
 
 export function getSession(): LoginResponse | undefined {
   const app = getApp<IAppOption>()
   if (app?.globalData.session) return app.globalData.session
-  const stored = wx.getStorageSync(STORAGE_KEYS.session) as unknown
+  if (sessionClearedLocally) return undefined
+  let stored: unknown
+  try {
+    stored = wx.getStorageSync(STORAGE_KEYS.session) as unknown
+  } catch {
+    return undefined
+  }
   if (!stored || typeof stored !== 'object') return undefined
   const session = stored as LoginResponse
   if (
@@ -85,23 +113,57 @@ export function isSessionExpired(
   return !Number.isFinite(expiresAt) || Date.now() >= expiresAt - skewMs
 }
 
-export async function login(
-  registrationSource?: RegistrationSource,
-): Promise<LoginResponse> {
-  const code = await getLoginCode()
-  const session = await wxLogin(code, getAppId(), registrationSource)
-  persistSession(session)
-  return session
+interface ActiveLogin {
+  sequence: number
+  promise: Promise<LoginResponse>
 }
 
+let loginSequence = 0
+let activeLogin: ActiveLogin | null = null
 let refreshing: Promise<LoginResponse> | null = null
 
+function cancelActiveLogin(): void {
+  loginSequence += 1
+  activeLogin = null
+  refreshing = null
+}
+
+export function login(
+  registrationSource?: RegistrationSource,
+): Promise<LoginResponse> {
+  // 注册归因不可变，因此登录请求必须单飞：第一个已经发出的登录意图
+  // 决定首次来源，后续热启动/扫码只等待它，不能并发争抢后端创建顺序。
+  if (activeLogin?.sequence === loginSequence) {
+    return activeLogin.promise
+  }
+
+  const sequence = ++loginSequence
+  const promise = (async () => {
+    const code = await getLoginCode()
+    const session = await wxLogin(code, getAppId(), registrationSource)
+    if (sequence === loginSequence) {
+      persistSession(session)
+      resetPhoneBindingAutoPrompt()
+    }
+    return session
+  })()
+  activeLogin = { sequence, promise }
+  void promise.finally(() => {
+    if (activeLogin?.sequence === sequence) activeLogin = null
+  }).catch(() => undefined)
+  return promise
+}
+
 /** P0 没有 Refresh Token；“刷新”始终重新执行一次 wx.login。 */
-export function refreshSession(): Promise<LoginResponse> {
+export function refreshSession(
+  registrationSource?: RegistrationSource,
+): Promise<LoginResponse> {
   if (!refreshing) {
-    refreshing = login().finally(() => {
-      refreshing = null
+    let tracked: Promise<LoginResponse>
+    tracked = login(registrationSource).finally(() => {
+      if (refreshing === tracked) refreshing = null
     })
+    refreshing = tracked
   }
   return refreshing
 }
@@ -116,6 +178,25 @@ export async function ensureLoggedIn(
     // source-less refresh path before the QR source reaches the backend.
     // Existing server users remain the same user, so later QR scans still
     // cannot backfill or overwrite their original attribution.
+    const sourcedSession = getSession()
+    if (sourcedSession && !isSessionExpired(sourcedSession)) {
+      try {
+        const current = await getCurrentSession(
+          sourcedSession.audience,
+          false,
+        )
+        const validated: LoginResponse = {
+          ...sourcedSession,
+          ...current,
+          organization: { ...current.organization },
+          capabilities: [...current.capabilities],
+        }
+        persistSession(validated)
+        return validated
+      } catch {
+        // 服务端会话已失效时，必须带设备来源重新登录，不能无源刷新。
+      }
+    }
     clearSession()
     return login(registrationSource)
   }
@@ -163,6 +244,8 @@ export async function logout(): Promise<void> {
   try {
     if (session) await deleteCurrentSession(session.audience)
   } finally {
+    cancelActiveLogin()
+    clearPendingDeviceEntry()
     clearSession()
     wx.reLaunch({ url: '/pages/login/login' })
   }

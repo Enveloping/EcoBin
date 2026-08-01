@@ -40,7 +40,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.database.epoch.test-bypass=false",
         "ecobin.external.mode=fake",
         "ecobin.external.fake.block-inbound=true",
-        "onenet.subscription.enabled=false"
+        "onenet.subscription.enabled=false",
+        "jwt.secret=IDENTITY_TEST_SECRET_MUST_BE_AT_LEAST_32_BYTES_LONG"
 })
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(
@@ -227,6 +228,9 @@ class TargetWebIdentityMysqlIntegrationTest {
                 tenantB,
                 otherTenantOrganization,
                 "Other tenant organization");
+        assertDefaultDeliveryRule(tenantA, organizationA);
+        assertDefaultDeliveryRule(tenantA, organizationB);
+        assertDefaultDeliveryRule(tenantB, otherTenantOrganization);
 
         String workerLogin = "v01-worker-" + run;
         JsonNode worker = data(write(
@@ -575,6 +579,161 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void platformCanReadVersionAndPublishOrganizationDeliveryRules()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("rule-tenant");
+        String organizationCode = code("rule-org");
+        createTenant(platform, tenantCode, null);
+        createOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Delivery rule organization");
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode;
+
+        JsonNode initial = data(read(
+                platform,
+                base + "/delivery-configuration",
+                200));
+        assertEquals(1, initial.path("versionNo").asLong());
+        assertEquals(
+                "ALL_MANUAL",
+                initial.path("reviewMode").asText());
+        assertEquals(
+                "-10.00",
+                initial.path("openBalanceFloorYuan").asText());
+        assertEquals(
+                "100.000",
+                initial.path("maxReviewAbsoluteWeightKg").asText());
+        assertTrue(initial.path("current").asBoolean());
+
+        JsonNode firstPage = data(read(
+                platform,
+                base + "/delivery-configuration-versions?limit=20",
+                200));
+        assertEquals(1, firstPage.path("items").size());
+        assertTrue(firstPage.path("nextBeforeVersionNo").isNull());
+
+        UUID operationUid = UUID.randomUUID();
+        Map<String, Object> release = Map.of(
+                "expectedLatestVersion", 1,
+                "reviewMode", "ALL_MANUAL",
+                "openBalanceFloorYuan", "-20.00",
+                "maxReviewAbsoluteWeightKg", "150.000",
+                "reason", "integration delivery rule");
+        JsonNode published = data(write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                operationUid,
+                release,
+                201));
+        assertEquals(2, published.path("versionNo").asLong());
+        assertEquals(
+                "-20.00",
+                published.path("openBalanceFloorYuan").asText());
+        assertEquals(
+                "150.000",
+                published.path("maxReviewAbsoluteWeightKg").asText());
+
+        JsonNode replayed = data(write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                operationUid,
+                release,
+                201));
+        assertEquals(
+                published.path("contentSha256").asText(),
+                replayed.path("contentSha256").asText());
+        assertEquals(
+                published.path("publishedAt").asText(),
+                replayed.path("publishedAt").asText());
+
+        MvcResult stale = write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedLatestVersion", 1,
+                        "reviewMode", "ALL_MANUAL",
+                        "openBalanceFloorYuan", "-30.00",
+                        "maxReviewAbsoluteWeightKg", "200.000"),
+                409);
+        assertEquals(
+                "DELIVERY.CONFIGURATION_VERSION_CONFLICT",
+                json(stale).path("code").asText());
+        assertEquals(
+                2,
+                json(stale).path("details")
+                        .path("currentVersion").asLong());
+
+        MvcResult automaticReview = write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedLatestVersion", 2,
+                        "reviewMode", "AUTO_AFTER_24H",
+                        "openBalanceFloorYuan", "-30.00",
+                        "maxReviewAbsoluteWeightKg", "200.000"),
+                422);
+        assertEquals(
+                "DELIVERY.REVIEW_MODE_NOT_AVAILABLE",
+                json(automaticReview).path("code").asText());
+
+        JsonNode versionOne = data(read(
+                platform,
+                base + "/delivery-configuration-versions/1",
+                200));
+        assertFalse(versionOne.path("current").asBoolean());
+        JsonNode current = data(read(
+                platform,
+                base + "/delivery-configuration",
+                200));
+        assertEquals(2, current.path("versionNo").asLong());
+
+        assertEquals(
+                "2|-2000|150000|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    head.current_version_no, '|',
+                                    config.open_balance_floor_cent, '|',
+                                    config.max_review_abs_weight_g, '|',
+                                    head.lock_version
+                                )
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN
+                                    rec_organization_delivery_config_head head
+                                  ON head.tenant_id = tenant.id
+                                 AND head.organization_id = organization.id
+                                JOIN rec_organization_delivery_config config
+                                  ON config.id = head.current_config_id
+                                 AND config.tenant_id = head.tenant_id
+                                 AND config.organization_id =
+                                     head.organization_id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                """,
+                        String.class,
+                        tenantCode,
+                        organizationCode));
+        assertEquals(
+                1,
+                jdbc.queryForObject("""
+                                SELECT COUNT(*)
+                                FROM ops_audit_log
+                                WHERE action_code =
+                                    'delivery.configuration.release'
+                                  AND operation_uid = ?
+                                """,
+                        Integer.class,
+                        operationUid.toString()));
+    }
+
+    @Test
     void idempotencyFingerprintIncludesTheTargetResource()
             throws Exception {
         BrowserClient platform = platformClient();
@@ -833,6 +992,187 @@ class TargetWebIdentityMysqlIntegrationTest {
                         .path("organizationCode").asText());
     }
 
+    @Test
+    void organizationMiniappConfigurationControlsAppIdAndLiveLoginSessions()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("miniapp-t");
+        String organizationCode = code("miniapp-o");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Miniapp organization");
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode;
+        String appId = "wx" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 16);
+        String initialSecret = "fake-initial-app-secret-" + run;
+        UUID initialConfigurationUid = UUID.randomUUID();
+        Map<String, Object> initialConfiguration = Map.of(
+                "appId", appId,
+                "displayName", "Miniapp A",
+                "appSecret", initialSecret);
+        MvcResult createdResult = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                initialConfigurationUid,
+                initialConfiguration,
+                200);
+        JsonNode created = data(createdResult);
+        assertEquals(appId, created.path("appId").asText());
+        assertTrue(created.path("appSecretConfigured").asBoolean());
+        assertFalse(created.path("activated").asBoolean());
+        assertFalse(created.path("loginEnabled").asBoolean());
+        assertEquals(0, created.path("version").asLong());
+        assertFalse(createdResult.getResponse()
+                .getContentAsString().contains(initialSecret));
+        assertEquals(
+                0,
+                data(write(
+                        platform,
+                        put(base + "/miniapp-configuration"),
+                        initialConfigurationUid,
+                        initialConfiguration,
+                        200)).path("version").asLong());
+        MvcResult secretIdempotencyConflict = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                initialConfigurationUid,
+                Map.of(
+                        "appId", appId,
+                        "displayName", "Miniapp A",
+                        "appSecret", initialSecret + "-different"),
+                409);
+        assertEquals(
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                json(secretIdempotencyConflict).path("code").asText());
+
+        MvcResult readResult = read(
+                platform,
+                base + "/miniapp-configuration",
+                200);
+        assertEquals(
+                "no-store",
+                readResult.getResponse().getHeader("Cache-Control"));
+        assertEquals(
+                initialSecret,
+                data(readResult).path("appSecret").asText());
+
+        MvcResult prematureEnable = write(
+                platform,
+                post(base + "/miniapp-login/enablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 0),
+                422);
+        assertEquals(
+                "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                json(prematureEnable).path("code").asText());
+
+        JsonNode activated = data(write(
+                platform,
+                post(base + "/miniapp-configuration/activations"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 0),
+                200));
+        assertTrue(activated.path("activated").asBoolean());
+        assertEquals(1, activated.path("version").asLong());
+
+        MvcResult immutableAppId = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                UUID.randomUUID(),
+                Map.of(
+                        "appId", "wx" + UUID.randomUUID().toString()
+                                .replace("-", "").substring(0, 16),
+                        "displayName", "Changed",
+                        "expectedVersion", 1),
+                409);
+        assertEquals(
+                "IDENTITY.MINIAPP_ALREADY_ACTIVATED",
+                json(immutableAppId).path("code").asText());
+
+        String rotatedSecret = "fake-rotated-app-secret-" + run;
+        JsonNode rotated = data(write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                UUID.randomUUID(),
+                Map.of(
+                        "appId", appId,
+                        "displayName", "Miniapp A rotated",
+                        "appSecret", rotatedSecret,
+                        "expectedVersion", 1),
+                200));
+        assertEquals(2, rotated.path("version").asLong());
+        assertEquals(
+                rotatedSecret,
+                data(read(
+                        platform,
+                        base + "/miniapp-configuration",
+                        200)).path("appSecret").asText());
+        BrowserClient tenantPrincipal = new BrowserClient();
+        login(
+                tenantPrincipal,
+                "/api/v1/web/auth/sessions",
+                "principal-" + tenantCode,
+                PRINCIPAL_PASSWORD,
+                201);
+        assertEquals(
+                rotatedSecret,
+                data(read(
+                        tenantPrincipal,
+                        "/api/v1/web/organizations/"
+                                + organizationCode
+                                + "/miniapp-configuration",
+                        200)).path("appSecret").asText());
+
+        JsonNode enabled = data(write(
+                platform,
+                post(base + "/miniapp-login/enablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 2),
+                200));
+        assertTrue(enabled.path("loginEnabled").asBoolean());
+        assertEquals(3, enabled.path("version").asLong());
+
+        MvcResult miniappLogin = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/sessions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "appId", appId,
+                                                "wxLoginCode",
+                                                "fake:miniapp-" + run))))
+                .andReturn();
+        assertEquals(
+                201,
+                miniappLogin.getResponse().getStatus(),
+                miniappLogin.getResponse().getContentAsString());
+        String bearer = data(miniappLogin)
+                .path("accessToken").asText();
+        assertFalse(bearer.isBlank());
+
+        JsonNode disabled = data(write(
+                platform,
+                post(base + "/miniapp-login/disablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 3),
+                200));
+        assertFalse(disabled.path("loginEnabled").asBoolean());
+        assertEquals(4, disabled.path("version").asLong());
+
+        MvcResult revokedSession = mockMvc.perform(
+                        get("/api/v1/miniapp/auth/sessions/current")
+                                .header("Authorization",
+                                        "Bearer " + bearer))
+                .andReturn();
+        assertEquals(
+                401,
+                revokedSession.getResponse().getStatus(),
+                revokedSession.getResponse().getContentAsString());
+    }
+
     private BrowserClient platformClient() throws Exception {
         BrowserClient platform = new BrowserClient();
         login(
@@ -967,6 +1307,58 @@ class TargetWebIdentityMysqlIntegrationTest {
                 Map.of("expectedVersion",
                         organization.path("version").asLong()),
                 200);
+    }
+
+    private void assertDefaultDeliveryRule(
+            String tenantCode,
+            String organizationCode) {
+        assertEquals(
+                "1|ALL_MANUAL|-1000|100000|SYSTEM|32",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    config.version_no, '|',
+                                    config.review_mode, '|',
+                                    config.open_balance_floor_cent, '|',
+                                    config.max_review_abs_weight_g, '|',
+                                    config.publication_source, '|',
+                                    OCTET_LENGTH(config.content_sha256)
+                                )
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN
+                                    rec_organization_delivery_config_head head
+                                  ON head.tenant_id = tenant.id
+                                 AND head.organization_id = organization.id
+                                JOIN rec_organization_delivery_config config
+                                  ON config.id = head.current_config_id
+                                 AND config.tenant_id = head.tenant_id
+                                 AND config.organization_id =
+                                     head.organization_id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                """,
+                        String.class,
+                        tenantCode,
+                        organizationCode));
+        assertEquals(
+                1,
+                jdbc.queryForObject("""
+                                SELECT COUNT(*)
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN rec_organization_order_counter counter
+                                  ON counter.tenant_id = tenant.id
+                                 AND counter.organization_id =
+                                     organization.id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                  AND counter.last_visibility_sequence_no = 0
+                                """,
+                        Integer.class,
+                        tenantCode,
+                        organizationCode));
     }
 
     private MvcResult login(

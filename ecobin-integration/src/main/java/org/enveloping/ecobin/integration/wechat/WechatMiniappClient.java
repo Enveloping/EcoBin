@@ -14,6 +14,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.HttpStatusCodeException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.JsonNode;
 
@@ -121,18 +122,56 @@ public class WechatMiniappClient
             String appid,
             String secretReference,
             String phoneCode) {
-        String secret = secretResolver.resolve(secretReference);
+        long exchangeStarted = System.nanoTime();
+        log.info(
+                "WECHAT_MINIAPP_DIAGNOSTIC stage=PHONE_BINDING "
+                        + "outcome=STARTED appId={}",
+                appid);
+        long secretStarted = System.nanoTime();
+        final String secret;
+        try {
+            secret = secretResolver.resolve(secretReference);
+        } catch (WechatExchangeException exception) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=SECRET_RESOLUTION "
+                            + "outcome=FAILED appId={} reason={} "
+                            + "durationMs={} exception={}",
+                    appid,
+                    exception.reason(),
+                    elapsedMillis(secretStarted),
+                    exceptionType(exception));
+            throw exception;
+        }
+        log.info(
+                "WECHAT_MINIAPP_DIAGNOSTIC stage=SECRET_RESOLUTION "
+                        + "outcome=SUCCESS appId={} durationMs={}",
+                appid,
+                elapsedMillis(secretStarted));
+
         AccessToken token = accessToken(appid, secretReference, secret, false);
-        JsonNode response = requestPhoneNumber(token.value(), phoneCode);
+        JsonNode response = requestPhoneNumber(
+                appid,
+                token.value(),
+                phoneCode,
+                "INITIAL");
         int errorCode = response.path("errcode").asInt(0);
         if (errorCode == 40001 || errorCode == 42001) {
+            log.info(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=PHONE_BINDING "
+                            + "outcome=TOKEN_REFRESH_REQUIRED appId={} "
+                            + "errcode={}",
+                    appid,
+                    errorCode);
             accessTokens.remove(tokenKey(appid, secretReference));
             token = accessToken(appid, secretReference, secret, true);
-            response = requestPhoneNumber(token.value(), phoneCode);
+            response = requestPhoneNumber(
+                    appid,
+                    token.value(),
+                    phoneCode,
+                    "AFTER_TOKEN_REFRESH");
             errorCode = response.path("errcode").asInt(0);
         }
         if (errorCode != 0) {
-            log.warn("微信手机号动态码拒绝, errcode={}", errorCode);
             if (errorCode == 40029) {
                 throw new WechatExchangeException(
                         WechatExchangeException.Reason.INVALID_CODE,
@@ -146,8 +185,23 @@ public class WechatMiniappClient
             pureNumber = phoneInfo.path("phoneNumber").asText(null);
         }
         if (pureNumber == null || pureNumber.isBlank()) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC "
+                            + "stage=PHONE_INFO_VALIDATION "
+                            + "outcome=PHONE_NUMBER_MISSING appId={} "
+                            + "phoneInfoPresent={} totalDurationMs={}",
+                    appid,
+                    !phoneInfo.isMissingNode() && !phoneInfo.isNull(),
+                    elapsedMillis(exchangeStarted));
             throw unavailable("微信手机号服务未返回号码", null);
         }
+        log.info(
+                "WECHAT_MINIAPP_DIAGNOSTIC stage=PHONE_BINDING "
+                        + "outcome=SUCCESS appId={} countryCodePresent={} "
+                        + "totalDurationMs={}",
+                appid,
+                !phoneInfo.path("countryCode").asText("").isBlank(),
+                elapsedMillis(exchangeStarted));
         return new WechatPhoneNumber(
                 pureNumber,
                 phoneInfo.path("countryCode").asText(null));
@@ -161,31 +215,100 @@ public class WechatMiniappClient
         String key = tokenKey(appid, secretReference);
         AccessToken cached = accessTokens.get(key);
         if (!forceRefresh && cached != null && cached.usable()) {
+            log.info(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=ACCESS_TOKEN_CACHE "
+                            + "outcome=HIT appId={} usableForSeconds={}",
+                    appid,
+                    Math.max(
+                            0,
+                            cached.usableUntil().getEpochSecond()
+                                    - Instant.now().getEpochSecond()));
             return cached;
         }
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        String cacheReason = forceRefresh
+                ? "FORCE_REFRESH"
+                : cached == null ? "ABSENT" : "EXPIRED";
+        log.info(
+                "WECHAT_MINIAPP_DIAGNOSTIC stage=ACCESS_TOKEN_CACHE "
+                        + "outcome=MISS appId={} reason={}",
+                appid,
+                cacheReason);
+        long started = System.nanoTime();
         String body;
         try {
             body = restTemplate.postForObject(
                     STABLE_TOKEN_URL,
-                    new HttpEntity<>(Map.of(
+                    fixedLengthJson(Map.of(
                             "grant_type", "client_credential",
                             "appid", appid,
                             "secret", secret,
-                            "force_refresh", forceRefresh), headers),
+                            "force_refresh", forceRefresh)),
                     String.class);
+        } catch (HttpStatusCodeException exception) {
+            HttpRejection rejection = httpRejection(
+                    exception,
+                    secret);
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=ACCESS_TOKEN_HTTP "
+                            + "outcome=HTTP_REJECTED appId={} "
+                            + "forceRefresh={} httpStatus={} errcode={} "
+                            + "errmsg={} responseBody={} responseLength={} "
+                            + "durationMs={}",
+                    appid,
+                    forceRefresh,
+                    exception.getStatusCode().value(),
+                    rejection.errorCode(),
+                    rejection.errorMessage(),
+                    rejection.bodyState(),
+                    rejection.responseLength(),
+                    elapsedMillis(started));
+            throw unavailable("微信访问令牌服务暂不可用", exception);
         } catch (RestClientException exception) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=ACCESS_TOKEN_HTTP "
+                            + "outcome=TRANSPORT_FAILURE appId={} "
+                            + "forceRefresh={} durationMs={} exception={} "
+                            + "rootCause={}",
+                    appid,
+                    forceRefresh,
+                    elapsedMillis(started),
+                    exceptionType(exception),
+                    rootCauseType(exception));
             throw unavailable("微信访问令牌服务暂不可用", exception);
         }
-        JsonNode response = parse(body, "微信访问令牌服务响应无法解析");
+        JsonNode response = parse(
+                body,
+                "微信访问令牌服务响应无法解析",
+                "ACCESS_TOKEN_RESPONSE",
+                appid,
+                started);
         int errorCode = response.path("errcode").asInt(0);
         String value = response.path("access_token").asText(null);
         long expiresIn = response.path("expires_in").asLong(0);
         if (errorCode != 0 || value == null || expiresIn <= 0) {
-            log.warn("微信访问令牌获取失败, errcode={}", errorCode);
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC "
+                            + "stage=ACCESS_TOKEN_RESPONSE "
+                            + "outcome=REJECTED appId={} forceRefresh={} "
+                            + "errcode={} errmsg={} accessTokenPresent={} "
+                            + "expiresIn={} durationMs={}",
+                    appid,
+                    forceRefresh,
+                    errorCode,
+                    safeWechatMessage(response, secret),
+                    value != null && !value.isBlank(),
+                    expiresIn,
+                    elapsedMillis(started));
             throw unavailable("微信访问令牌服务暂不可用", null);
         }
+        log.info(
+                "WECHAT_MINIAPP_DIAGNOSTIC stage=ACCESS_TOKEN_RESPONSE "
+                        + "outcome=SUCCESS appId={} forceRefresh={} "
+                        + "expiresIn={} durationMs={}",
+                appid,
+                forceRefresh,
+                expiresIn,
+                elapsedMillis(started));
         AccessToken created = new AccessToken(
                 value,
                 Instant.now().plusSeconds(Math.max(30, expiresIn - 120)));
@@ -194,32 +317,212 @@ public class WechatMiniappClient
     }
 
     private JsonNode requestPhoneNumber(
+            String appid,
             String accessToken,
-            String phoneCode) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+            String phoneCode,
+            String attempt) {
+        long started = System.nanoTime();
         String body;
         try {
             body = restTemplate.postForObject(
                     PHONE_NUMBER_URL,
-                    new HttpEntity<>(Map.of("code", phoneCode), headers),
+                    fixedLengthJson(Map.of("code", phoneCode)),
                     String.class,
                     accessToken);
+        } catch (HttpStatusCodeException exception) {
+            HttpRejection rejection = httpRejection(
+                    exception,
+                    accessToken,
+                    phoneCode);
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=PHONE_NUMBER_HTTP "
+                            + "outcome=HTTP_REJECTED appId={} attempt={} "
+                            + "httpStatus={} errcode={} errmsg={} "
+                            + "responseBody={} responseLength={} "
+                            + "durationMs={}",
+                    appid,
+                    attempt,
+                    exception.getStatusCode().value(),
+                    rejection.errorCode(),
+                    rejection.errorMessage(),
+                    rejection.bodyState(),
+                    rejection.responseLength(),
+                    elapsedMillis(started));
+            throw unavailable("微信手机号服务暂不可用", exception);
         } catch (RestClientException exception) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=PHONE_NUMBER_HTTP "
+                            + "outcome=TRANSPORT_FAILURE appId={} attempt={} "
+                            + "durationMs={} exception={} rootCause={}",
+                    appid,
+                    attempt,
+                    elapsedMillis(started),
+                    exceptionType(exception),
+                    rootCauseType(exception));
             throw unavailable("微信手机号服务暂不可用", exception);
         }
-        return parse(body, "微信手机号服务响应无法解析");
+        JsonNode response = parse(
+                body,
+                "微信手机号服务响应无法解析",
+                "PHONE_NUMBER_RESPONSE",
+                appid,
+                started);
+        int errorCode = response.path("errcode").asInt(0);
+        boolean phoneInfoPresent = response.hasNonNull("phone_info");
+        if (errorCode == 0) {
+            log.info(
+                    "WECHAT_MINIAPP_DIAGNOSTIC "
+                            + "stage=PHONE_NUMBER_RESPONSE "
+                            + "outcome=SUCCESS appId={} attempt={} "
+                            + "phoneInfoPresent={} durationMs={}",
+                    appid,
+                    attempt,
+                    phoneInfoPresent,
+                    elapsedMillis(started));
+        } else {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC "
+                            + "stage=PHONE_NUMBER_RESPONSE "
+                            + "outcome=REJECTED appId={} attempt={} "
+                            + "errcode={} errmsg={} phoneInfoPresent={} "
+                            + "durationMs={}",
+                    appid,
+                    attempt,
+                    errorCode,
+                    safeWechatMessage(
+                            response,
+                            accessToken,
+                            phoneCode),
+                    phoneInfoPresent,
+                    elapsedMillis(started));
+        }
+        return response;
     }
 
-    private JsonNode parse(String body, String message) {
+    private HttpEntity<byte[]> fixedLengthJson(Map<String, ?> payload) {
+        final byte[] body;
+        try {
+            body = objectMapper.writeValueAsBytes(payload);
+        } catch (Exception exception) {
+            throw unavailable(
+                    "微信请求正文无法序列化",
+                    exception);
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setContentLength(body.length);
+        return new HttpEntity<>(body, headers);
+    }
+
+    private JsonNode parse(
+            String body,
+            String message,
+            String stage,
+            String appid,
+            long started) {
         if (body == null || body.isBlank()) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage={} "
+                            + "outcome=EMPTY_RESPONSE appId={} "
+                            + "durationMs={}",
+                    stage,
+                    appid,
+                    elapsedMillis(started));
             throw unavailable(message, null);
         }
         try {
             return objectMapper.readTree(body);
         } catch (Exception exception) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage={} "
+                            + "outcome=PARSE_FAILURE appId={} "
+                            + "responseLength={} durationMs={} exception={}",
+                    stage,
+                    appid,
+                    body.length(),
+                    elapsedMillis(started),
+                    exceptionType(exception));
             throw unavailable(message, exception);
         }
+    }
+
+    private static String safeWechatMessage(
+            JsonNode response,
+            String... sensitiveValues) {
+        String message = response.path("errmsg").asText("");
+        if (message.isBlank()) {
+            return "<none>";
+        }
+        for (String sensitiveValue : sensitiveValues) {
+            if (sensitiveValue != null && !sensitiveValue.isBlank()) {
+                message = message.replace(
+                        sensitiveValue,
+                        "<redacted>");
+            }
+        }
+        message = message
+                .replaceAll(
+                        "(?i)\\b(access[_ -]?token|token|"
+                                + "app[_ -]?secret|secret|"
+                                + "phone[_ -]?code|code)"
+                                + "\\s*([=:])\\s*[^\\s,;]+",
+                        "$1$2<redacted>")
+                .replaceAll("[\\r\\n\\t]", " ")
+                .replaceAll("\\p{Cntrl}", "?")
+                .replaceAll(" {2,}", " ")
+                .trim();
+        return message.length() <= 256
+                ? message
+                : message.substring(0, 256) + "...";
+    }
+
+    private HttpRejection httpRejection(
+            HttpStatusCodeException exception,
+            String... sensitiveValues) {
+        String body = exception.getResponseBodyAsString();
+        int responseLength = body == null ? 0 : body.length();
+        if (body == null || body.isBlank()) {
+            return new HttpRejection(
+                    "<none>",
+                    "<none>",
+                    "EMPTY",
+                    responseLength);
+        }
+        try {
+            JsonNode response = objectMapper.readTree(body);
+            String errorCode = response.path("errcode").asText("");
+            return new HttpRejection(
+                    errorCode.isBlank() ? "<none>" : errorCode,
+                    safeWechatMessage(response, sensitiveValues),
+                    "PARSED",
+                    responseLength);
+        } catch (Exception ignored) {
+            return new HttpRejection(
+                    "<unavailable>",
+                    "<unavailable>",
+                    "UNPARSEABLE",
+                    responseLength);
+        }
+    }
+
+    private static long elapsedMillis(long started) {
+        return Math.max(
+                0,
+                (System.nanoTime() - started) / 1_000_000);
+    }
+
+    private static String exceptionType(Throwable exception) {
+        return exception == null
+                ? "<none>"
+                : exception.getClass().getSimpleName();
+    }
+
+    private static String rootCauseType(Throwable exception) {
+        Throwable root = exception;
+        while (root != null && root.getCause() != null) {
+            root = root.getCause();
+        }
+        return exceptionType(root);
     }
 
     private static String tokenKey(
@@ -241,5 +544,12 @@ public class WechatMiniappClient
         private boolean usable() {
             return usableUntil.isAfter(Instant.now());
         }
+    }
+
+    private record HttpRejection(
+            String errorCode,
+            String errorMessage,
+            String bodyState,
+            int responseLength) {
     }
 }

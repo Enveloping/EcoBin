@@ -5,6 +5,7 @@
     class="tab-item {{index === 1 ? 'tab-scan' : 'tab-standard'}}"
     data-index="{{index}}"
     bindtap="onTap"
+    hover-class="tab-item--pressed"
   >
     <view class="scan-orb" wx:if="{{index === 1}}">
       <t-icon name="{{item.icon}}" size="44rpx" color="#ffffff" />
@@ -13,6 +14,7 @@
     <block wx:else>
       <t-icon name="{{item.icon}}" size="43rpx" color="{{index === selected ? '#10b927' : '#939a93'}}" />
       <text class="tab-label {{index === selected ? 'active' : ''}}">{{item.text}}</text>
+      <view class="tab-active-indicator" wx:if="{{index === selected}}"></view>
     </block>
   </view>
 </view>

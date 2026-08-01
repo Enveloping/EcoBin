@@ -1,0 +1,24 @@
+<view class="profile-page">
+  <view class="page-title">我的</view>
+
+  <view class="identity-card">
+    <view class="avatar">
+      <t-icon name="user" size="62rpx" color="#109d2b" />
+    </view>
+    <view class="identity-copy">
+      <view class="identity-name">{{displayName}}</view>
+      <view class="identity-organization">{{organizationName}}</view>
+      <view class="identity-role">{{previewOnly ? '清运端界面预览' : '清运人员'}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{entryPreviewEnabled}}" class="preview-card">
+    <view class="preview-copy">
+      <view class="preview-title">测试界面预览</view>
+      <view class="preview-description">{{previewNotice}}</view>
+    </view>
+    <button class="preview-button" bindtap="onEntryPreview">切换端</button>
+  </view>
+
+  <view class="logout" bindtap="onLogout" hover-class="logout--pressed">退出登录</view>
+</view>

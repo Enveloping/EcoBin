@@ -4,11 +4,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public final class TargetRequestIds {
 
     private static final String ATTRIBUTE =
             TargetRequestIds.class.getName() + ".requestId";
+    private static final Pattern SAFE_SUPPLIED_REQUEST_ID =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
 
     private TargetRequestIds() {
     }
@@ -20,7 +23,8 @@ public final class TargetRequestIds {
         }
         String supplied = request.getHeader("X-Request-ID");
         String value = StringUtils.hasText(supplied)
-                ? supplied.substring(0, Math.min(supplied.length(), 128))
+                && SAFE_SUPPLIED_REQUEST_ID.matcher(supplied).matches()
+                ? supplied
                 : UUID.randomUUID().toString();
         request.setAttribute(ATTRIBUTE, value);
         return value;
