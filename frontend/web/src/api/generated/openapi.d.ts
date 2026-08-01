@@ -2470,6 +2470,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read the current immutable delivery and review rule */
+        get: operations["getOrganizationDeliveryConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable delivery rule versions in descending order */
+        get: operations["listOrganizationDeliveryConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable delivery rule version */
+        get: operations["getOrganizationDeliveryConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/delivery-configuration-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the next immutable delivery and review rule
+         * @description M0 accepts only ALL_MANUAL. Existing sessions and orders retain their frozen rule snapshots.
+         */
+        post: operations["releaseOrganizationDeliveryConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read the current delivery rule for an explicit platform target */
+        get: operations["getPlatformDeliveryConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List immutable delivery rule versions for an explicit platform target */
+        get: operations["listPlatformDeliveryConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable delivery rule version for an explicit platform target */
+        get: operations["getPlatformDeliveryConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-configuration-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the next immutable delivery rule for an explicit platform target
+         * @description M0 accepts only ALL_MANUAL. Existing sessions and orders retain their frozen rule snapshots.
+         */
+        post: operations["releasePlatformDeliveryConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/organizations/{organizationCode}/delivery-orders": {
         parameters: {
             query?: never;
@@ -3794,6 +3958,43 @@ export interface components {
             anomalyCodes: string[];
             photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
         };
+        /**
+         * @description M0 keeps every delivery pending until a human review is committed.
+         * @enum {string}
+         */
+        DeliveryReviewMode: "ALL_MANUAL";
+        DeliveryConfigurationReleaseRequest: {
+            expectedLatestVersion: number;
+            reviewMode: components["schemas"]["DeliveryReviewMode"];
+            /**
+             * @description A strictly negative wallet balance. A user below this value cannot start another delivery.
+             * @example -10.00
+             */
+            openBalanceFloorYuan: string;
+            /**
+             * @description Absolute final-weight limit for a human review, from 0.001kg through 1000.000kg.
+             * @example 100.000
+             */
+            maxReviewAbsoluteWeightKg: string;
+            reason?: string | null;
+        };
+        DeliveryConfigurationVersion: {
+            versionNo: number;
+            contentSha256: components["schemas"]["Sha256Hex"];
+            reviewMode: components["schemas"]["DeliveryReviewMode"];
+            openBalanceFloorYuan: string;
+            maxReviewAbsoluteWeightKg: string;
+            /** @enum {string} */
+            publicationSource: "SYSTEM" | "STAFF";
+            publishedByStaffAccountUid: components["schemas"]["PublicUid"] | null;
+            publishedBy: string;
+            publishedAt: components["schemas"]["UtcTimestamp"];
+            current: boolean;
+        };
+        DeliveryConfigurationVersionPage: {
+            items: components["schemas"]["DeliveryConfigurationVersion"][];
+            nextBeforeVersionNo: number | null;
+        };
         MiniappDeliveryOrderCursorPage: {
             items: components["schemas"]["MiniappDeliveryOrderItem"][];
             asOf: components["schemas"]["UtcTimestamp"];
@@ -3934,6 +4135,18 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["MiniappDeliveryOrderDetail"];
+            requestId: string;
+        };
+        DeliveryConfigurationVersionEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryConfigurationVersion"];
+            requestId: string;
+        };
+        DeliveryConfigurationVersionPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryConfigurationVersionPage"];
             requestId: string;
         };
         DeliveryOrderPageEnvelope: {
@@ -4594,6 +4807,39 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceConfigurationApplicationEnvelope"];
+            };
+        };
+        /** @description One immutable organization delivery and review rule */
+        DeliveryConfigurationVersionOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationVersionEnvelope"];
+            };
+        };
+        /** @description A descending keyset page of immutable organization delivery rules */
+        DeliveryConfigurationVersionPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationVersionPageEnvelope"];
+            };
+        };
+        /** @description The next immutable rule and current-version switch committed atomically */
+        DeliveryConfigurationVersionCreated: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationVersionEnvelope"];
             };
         };
         /** @description A stable cursor page of delivery order summaries */
@@ -7876,6 +8122,178 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getOrganizationDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listOrganizationDeliveryConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationDeliveryConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    releaseOrganizationDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationReleaseRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryConfigurationVersionCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformDeliveryConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDeliveryConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeliveryConfigurationVersionOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    releasePlatformDeliveryConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryConfigurationReleaseRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DeliveryConfigurationVersionCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     listWebDeliveryOrders: {

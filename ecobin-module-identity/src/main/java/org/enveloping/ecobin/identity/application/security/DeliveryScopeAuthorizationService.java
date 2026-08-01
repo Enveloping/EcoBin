@@ -31,6 +31,8 @@ public class DeliveryScopeAuthorizationService
     static final String DELIVERY_READ = "delivery.read";
     static final String REVIEW_EXECUTE = "review.execute";
     static final String DELIVERY_CORRECT = "delivery.correct";
+    static final String DELIVERY_CONFIGURATION_MANAGE =
+            "delivery.configuration.manage";
 
     private final DeliveryScopeAuthorizationRepository repository;
     private final DeliveryScopePersistenceRefFactory referenceFactory;
@@ -81,6 +83,7 @@ public class DeliveryScopeAuthorizationService
                 true,
                 true,
                 true,
+                true,
                 current.id(),
                 null);
     }
@@ -123,6 +126,7 @@ public class DeliveryScopeAuthorizationService
                 access.deliveryRead(),
                 access.reviewExecute(),
                 access.deliveryCorrect(),
+                access.deliveryConfigurationManage(),
                 null,
                 current.id());
     }
@@ -158,7 +162,12 @@ public class DeliveryScopeAuthorizationService
                         || organizationCapabilities.contains(REVIEW_EXECUTE),
                 manager
                         || tenantCapabilities.contains(DELIVERY_CORRECT)
-                        || organizationCapabilities.contains(DELIVERY_CORRECT));
+                        || organizationCapabilities.contains(DELIVERY_CORRECT),
+                manager
+                        || tenantCapabilities.contains(
+                                DELIVERY_CONFIGURATION_MANAGE)
+                        || organizationCapabilities.contains(
+                                DELIVERY_CONFIGURATION_MANAGE));
     }
 
     private AuthorizedDeliveryScope authorized(
@@ -168,6 +177,7 @@ public class DeliveryScopeAuthorizationService
             boolean deliveryRead,
             boolean reviewExecute,
             boolean deliveryCorrect,
+            boolean deliveryConfigurationManage,
             Long platformAdminId,
             Long staffAccountId) {
         return new AuthorizedDeliveryScope(
@@ -180,6 +190,7 @@ public class DeliveryScopeAuthorizationService
                 deliveryRead,
                 reviewExecute,
                 deliveryCorrect,
+                deliveryConfigurationManage,
                 referenceFactory.issue(
                         scope.tenantId(),
                         scope.organizationId(),
@@ -198,7 +209,7 @@ public class DeliveryScopeAuthorizationService
         return new TargetApiException(
                 403,
                 "AUTH.CAPABILITY_REQUIRED",
-                "当前账号缺少投递查询、初审或纠错能力");
+                "当前账号缺少投递查询、初审、纠错或规则管理能力");
     }
 
     private static TargetApiException notFound() {
@@ -212,14 +223,18 @@ public class DeliveryScopeAuthorizationService
             boolean visible,
             boolean deliveryRead,
             boolean reviewExecute,
-            boolean deliveryCorrect) {
+            boolean deliveryCorrect,
+            boolean deliveryConfigurationManage) {
 
         private static Access all() {
-            return new Access(true, true, true, true);
+            return new Access(true, true, true, true, true);
         }
 
         private boolean anyCapability() {
-            return deliveryRead || reviewExecute || deliveryCorrect;
+            return deliveryRead
+                    || reviewExecute
+                    || deliveryCorrect
+                    || deliveryConfigurationManage;
         }
     }
 }

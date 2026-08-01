@@ -34,7 +34,8 @@ class RuntimeSafetyConfigurationTest {
             "V15__photo_terminal_facts.sql",
             "V16__organization_delivery_defaults.sql",
             "V17__delivery_fullness_normal_flow.sql",
-            "V18__wallet_read_models.sql"
+            "V18__wallet_read_models.sql",
+            "V19__delivery_configuration_management.sql"
     };
 
     @Test

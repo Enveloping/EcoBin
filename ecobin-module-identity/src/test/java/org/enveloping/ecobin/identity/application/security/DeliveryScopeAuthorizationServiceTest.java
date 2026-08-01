@@ -110,6 +110,7 @@ class DeliveryScopeAuthorizationServiceTest {
         assertTrue(result.deliveryRead());
         assertTrue(result.reviewExecute());
         assertTrue(result.deliveryCorrect());
+        assertTrue(result.deliveryConfigurationManage());
         assertEquals(PRINCIPAL_UID, result.principalUid());
         assertEquals(SESSION_UID, result.sessionUid());
         assertEquals("平台管理员", result.actorDisplayName());
@@ -198,6 +199,7 @@ class DeliveryScopeAuthorizationServiceTest {
         assertTrue(result.deliveryRead());
         assertTrue(result.reviewExecute());
         assertTrue(result.deliveryCorrect());
+        assertTrue(result.deliveryConfigurationManage());
         verify(repository).findStaffActor(
                 STAFF_ID,
                 PRINCIPAL_UID,
@@ -242,6 +244,7 @@ class DeliveryScopeAuthorizationServiceTest {
         assertFalse(result.deliveryRead());
         assertTrue(result.reviewExecute());
         assertFalse(result.deliveryCorrect());
+        assertFalse(result.deliveryConfigurationManage());
         verify(repository, never())
                 .findOrganizationDeliveryCapabilities(
                         anyLong(),
@@ -280,6 +283,42 @@ class DeliveryScopeAuthorizationServiceTest {
         assertFalse(result.deliveryRead());
         assertFalse(result.reviewExecute());
         assertTrue(result.deliveryCorrect());
+        assertFalse(result.deliveryConfigurationManage());
+    }
+
+    @Test
+    void ordinaryMemberCanReceiveOnlyOrganizationConfigurationManagement() {
+        readOnlyTransaction();
+        TargetWebActorContext.set(staffActor(WebAccountType.STAFF));
+        stubStaffActor("STAFF", false);
+        when(repository.findStaffScope(
+                TENANT_ID,
+                ORGANIZATION_CODE,
+                false))
+                .thenReturn(Optional.of(scope()));
+        when(repository.findTenantDeliveryCapabilities(
+                TENANT_ID,
+                STAFF_ID))
+                .thenReturn(Set.of());
+        when(repository.findMembership(
+                TENANT_ID,
+                ORGANIZATION_ID,
+                STAFF_ID))
+                .thenReturn(Optional.of(new Membership(false, true)));
+        when(repository.findOrganizationDeliveryCapabilities(
+                TENANT_ID,
+                ORGANIZATION_ID,
+                STAFF_ID))
+                .thenReturn(Set.of(
+                        DeliveryScopeAuthorizationService
+                                .DELIVERY_CONFIGURATION_MANAGE));
+
+        AuthorizedDeliveryScope result = service.authorize(staffQuery());
+
+        assertFalse(result.deliveryRead());
+        assertFalse(result.reviewExecute());
+        assertFalse(result.deliveryCorrect());
+        assertTrue(result.deliveryConfigurationManage());
     }
 
     @Test
@@ -312,6 +351,7 @@ class DeliveryScopeAuthorizationServiceTest {
         assertTrue(result.deliveryRead());
         assertTrue(result.reviewExecute());
         assertTrue(result.deliveryCorrect());
+        assertTrue(result.deliveryConfigurationManage());
     }
 
     @Test

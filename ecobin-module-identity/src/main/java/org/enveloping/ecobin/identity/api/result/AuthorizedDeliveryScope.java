@@ -22,6 +22,7 @@ public record AuthorizedDeliveryScope(
         boolean deliveryRead,
         boolean reviewExecute,
         boolean deliveryCorrect,
+        boolean deliveryConfigurationManage,
         DeliveryScopePersistenceRef persistenceRef) {
 
     public AuthorizedDeliveryScope {
@@ -31,7 +32,10 @@ public record AuthorizedDeliveryScope(
         Objects.requireNonNull(tenantCode, "tenantCode");
         Objects.requireNonNull(organizationCode, "organizationCode");
         Objects.requireNonNull(persistenceRef, "persistenceRef");
-        if (!deliveryRead && !reviewExecute && !deliveryCorrect) {
+        if (!deliveryRead
+                && !reviewExecute
+                && !deliveryCorrect
+                && !deliveryConfigurationManage) {
             throw new IllegalArgumentException(
                     "authorized delivery scope requires a capability");
         }

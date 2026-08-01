@@ -579,6 +579,161 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void platformCanReadVersionAndPublishOrganizationDeliveryRules()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("rule-tenant");
+        String organizationCode = code("rule-org");
+        createTenant(platform, tenantCode, null);
+        createOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Delivery rule organization");
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode;
+
+        JsonNode initial = data(read(
+                platform,
+                base + "/delivery-configuration",
+                200));
+        assertEquals(1, initial.path("versionNo").asLong());
+        assertEquals(
+                "ALL_MANUAL",
+                initial.path("reviewMode").asText());
+        assertEquals(
+                "-10.00",
+                initial.path("openBalanceFloorYuan").asText());
+        assertEquals(
+                "100.000",
+                initial.path("maxReviewAbsoluteWeightKg").asText());
+        assertTrue(initial.path("current").asBoolean());
+
+        JsonNode firstPage = data(read(
+                platform,
+                base + "/delivery-configuration-versions?limit=20",
+                200));
+        assertEquals(1, firstPage.path("items").size());
+        assertTrue(firstPage.path("nextBeforeVersionNo").isNull());
+
+        UUID operationUid = UUID.randomUUID();
+        Map<String, Object> release = Map.of(
+                "expectedLatestVersion", 1,
+                "reviewMode", "ALL_MANUAL",
+                "openBalanceFloorYuan", "-20.00",
+                "maxReviewAbsoluteWeightKg", "150.000",
+                "reason", "integration delivery rule");
+        JsonNode published = data(write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                operationUid,
+                release,
+                201));
+        assertEquals(2, published.path("versionNo").asLong());
+        assertEquals(
+                "-20.00",
+                published.path("openBalanceFloorYuan").asText());
+        assertEquals(
+                "150.000",
+                published.path("maxReviewAbsoluteWeightKg").asText());
+
+        JsonNode replayed = data(write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                operationUid,
+                release,
+                201));
+        assertEquals(
+                published.path("contentSha256").asText(),
+                replayed.path("contentSha256").asText());
+        assertEquals(
+                published.path("publishedAt").asText(),
+                replayed.path("publishedAt").asText());
+
+        MvcResult stale = write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedLatestVersion", 1,
+                        "reviewMode", "ALL_MANUAL",
+                        "openBalanceFloorYuan", "-30.00",
+                        "maxReviewAbsoluteWeightKg", "200.000"),
+                409);
+        assertEquals(
+                "DELIVERY.CONFIGURATION_VERSION_CONFLICT",
+                json(stale).path("code").asText());
+        assertEquals(
+                2,
+                json(stale).path("details")
+                        .path("currentVersion").asLong());
+
+        MvcResult automaticReview = write(
+                platform,
+                post(base + "/delivery-configuration-releases"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedLatestVersion", 2,
+                        "reviewMode", "AUTO_AFTER_24H",
+                        "openBalanceFloorYuan", "-30.00",
+                        "maxReviewAbsoluteWeightKg", "200.000"),
+                422);
+        assertEquals(
+                "DELIVERY.REVIEW_MODE_NOT_AVAILABLE",
+                json(automaticReview).path("code").asText());
+
+        JsonNode versionOne = data(read(
+                platform,
+                base + "/delivery-configuration-versions/1",
+                200));
+        assertFalse(versionOne.path("current").asBoolean());
+        JsonNode current = data(read(
+                platform,
+                base + "/delivery-configuration",
+                200));
+        assertEquals(2, current.path("versionNo").asLong());
+
+        assertEquals(
+                "2|-2000|150000|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    head.current_version_no, '|',
+                                    config.open_balance_floor_cent, '|',
+                                    config.max_review_abs_weight_g, '|',
+                                    head.lock_version
+                                )
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN
+                                    rec_organization_delivery_config_head head
+                                  ON head.tenant_id = tenant.id
+                                 AND head.organization_id = organization.id
+                                JOIN rec_organization_delivery_config config
+                                  ON config.id = head.current_config_id
+                                 AND config.tenant_id = head.tenant_id
+                                 AND config.organization_id =
+                                     head.organization_id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                """,
+                        String.class,
+                        tenantCode,
+                        organizationCode));
+        assertEquals(
+                1,
+                jdbc.queryForObject("""
+                                SELECT COUNT(*)
+                                FROM ops_audit_log
+                                WHERE action_code =
+                                    'delivery.configuration.release'
+                                  AND operation_uid = ?
+                                """,
+                        Integer.class,
+                        operationUid.toString()));
+    }
+
+    @Test
     void idempotencyFingerprintIncludesTheTargetResource()
             throws Exception {
         BrowserClient platform = platformClient();

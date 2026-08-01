@@ -628,6 +628,7 @@ class DeliveryOrderQueryServiceTest {
                 deliveryRead,
                 reviewExecute,
                 deliveryCorrect,
+                false,
                 scopeRef);
     }
 
