@@ -1,8 +1,27 @@
+# Keep repository text deterministic across Windows and Linux.
+* text=auto eol=lf
+
+# Platform launchers and deployment units.
 /mvnw text eol=lf
+*.bat text eol=crlf
 *.cmd text eol=crlf
 *.sh text eol=lf
 *.service text eol=lf
 *.timer text eol=lf
+
+# Known binary assets must never pass through line-ending conversion.
+*.gif binary
+*.ico binary
+*.jar binary
+*.jpeg binary
+*.jpg binary
+*.pdf binary
+*.png binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+
+# Generated/special files with intentional handling.
 hardware/docs/onenet(物模型格式判断).js -text
 contracts/onenet/generated/onenet-thing-model.candidate.json text eol=lf
 frontend/web/src/api/generated/openapi.d.ts text eol=lf
