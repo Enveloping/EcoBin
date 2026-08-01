@@ -854,10 +854,10 @@ WHERE table_schema = '$DatabaseName'
             -Database $DatabaseName `
             -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1;")
         if (
-            $existingDomainTableCount -ne 86 -or
-            $existingHistoryCount -ne 15
+            $existingDomainTableCount -ne 92 -or
+            $existingHistoryCount -ne 23
         ) {
-            throw "Migrated resume requires the complete V15 target database"
+            throw "Migrated resume requires the complete V23 target database"
         }
         $migrationCompleted = $true
         $skipMigration = $true
@@ -898,7 +898,7 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 15 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 23 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -916,8 +916,8 @@ ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 86) {
-        throw "Expected 86 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 92) {
+        throw "Expected 92 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -956,14 +956,14 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 15) {
-        throw "Expected fifteen successful Flyway migrations"
+    if ($historyCount -ne 23) {
+        throw "Expected twenty-three successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM iam_permission_definition;")
-    if ($permissionCount -ne 71) {
-        throw "Expected 71 permission definitions"
+    if ($permissionCount -ne 77) {
+        throw "Expected 77 permission definitions"
     }
 
     $businessCountQueries = @(

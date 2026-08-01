@@ -2,14 +2,16 @@ package org.enveloping.ecobin.device.web.v1;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.enveloping.ecobin.device.application.target.DeviceLifecycleApplication;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.ActivateDeploymentRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.AcceptanceReadinessView;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.AcceptanceRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.AcceptanceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeploymentRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeploymentRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeploymentVersionCommand;
@@ -40,27 +42,13 @@ import java.util.UUID;
 public class PlatformDeviceDeploymentController {
 
     private final TargetDeviceApplication application;
+    private final DeviceLifecycleApplication lifecycleApplication;
 
     public PlatformDeviceDeploymentController(
-            TargetDeviceApplication application) {
+            TargetDeviceApplication application,
+            DeviceLifecycleApplication lifecycleApplication) {
         this.application = application;
-    }
-
-    @PostMapping
-    public ResponseEntity<TargetApiEnvelope<DeploymentView>> create(
-            @RequestHeader("Idempotency-Key") UUID operationUid,
-            @PathVariable String tenantCode,
-            @PathVariable String organizationCode,
-            @Valid @RequestBody CreateDeploymentRequest body,
-            HttpServletRequest request) {
-        DeploymentView created = application.createDeployment(
-                operationUid, tenantCode, organizationCode, body);
-        return ResponseEntity.created(URI.create(
-                        deploymentBase(
-                                tenantCode, organizationCode)
-                                + "/" + created.deploymentCode()))
-                .cacheControl(CacheControl.noStore())
-                .body(ok(created, request));
+        this.lifecycleApplication = lifecycleApplication;
     }
 
     @GetMapping
@@ -143,72 +131,60 @@ public class PlatformDeviceDeploymentController {
                 portNo), request);
     }
 
-    @PostMapping("/{deploymentCode}/activations")
-    public TargetApiEnvelope<DeploymentView> activate(
+    @GetMapping("/{deploymentCode}/acceptance-readiness")
+    public ResponseEntity<TargetApiEnvelope<AcceptanceReadinessView>>
+            acceptanceReadiness(
+                    @PathVariable String tenantCode,
+                    @PathVariable String organizationCode,
+                    @PathVariable String deploymentCode,
+                    HttpServletRequest request) {
+        return noStore(lifecycleApplication.acceptanceReadiness(
+                tenantCode, organizationCode, deploymentCode), request);
+    }
+
+    @GetMapping("/{deploymentCode}/acceptances")
+    public ResponseEntity<TargetApiEnvelope<List<AcceptanceView>>> acceptances(
+            @PathVariable String tenantCode,
+            @PathVariable String organizationCode,
+            @PathVariable String deploymentCode,
+            HttpServletRequest request) {
+        return noStore(lifecycleApplication.acceptances(
+                tenantCode, organizationCode, deploymentCode), request);
+    }
+
+    @PostMapping("/{deploymentCode}/acceptances")
+    public TargetApiEnvelope<AcceptanceView> accept(
             @RequestHeader("Idempotency-Key") UUID operationUid,
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
             @PathVariable String deploymentCode,
-            @Valid @RequestBody ActivateDeploymentRequest body,
+            @Valid @RequestBody AcceptanceRequest body,
             HttpServletRequest request) {
-        return ok(application.activate(
+        return ok(lifecycleApplication.accept(
                 operationUid,
-                true,
                 tenantCode,
                 organizationCode,
                 deploymentCode,
                 body), request);
     }
 
-    @PostMapping("/{deploymentCode}/deactivations")
-    public TargetApiEnvelope<DeploymentView> deactivate(
+    @PostMapping("/{deploymentCode}/technical-suspensions")
+    public TargetApiEnvelope<DeploymentView> suspendTechnically(
             @RequestHeader("Idempotency-Key") UUID operationUid,
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
             @PathVariable String deploymentCode,
             @Valid @RequestBody DeploymentVersionCommand body,
             HttpServletRequest request) {
-        return ok(application.deactivate(
+        lifecycleApplication.suspendTechnically(
                 operationUid,
-                true,
                 tenantCode,
                 organizationCode,
                 deploymentCode,
-                body), request);
-    }
-
-    @PostMapping("/{deploymentCode}/business-switch/enablements")
-    public TargetApiEnvelope<DeploymentView> enableBusiness(
-            @RequestHeader("Idempotency-Key") UUID operationUid,
-            @PathVariable String tenantCode,
-            @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
-            @Valid @RequestBody DeploymentVersionCommand body,
-            HttpServletRequest request) {
-        return ok(application.enableBusiness(
-                operationUid,
-                true,
-                tenantCode,
-                organizationCode,
-                deploymentCode,
-                body), request);
-    }
-
-    @PostMapping("/{deploymentCode}/business-switch/disablements")
-    public TargetApiEnvelope<DeploymentView> disableBusiness(
-            @RequestHeader("Idempotency-Key") UUID operationUid,
-            @PathVariable String tenantCode,
-            @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
-            @Valid @RequestBody DeploymentVersionCommand body,
-            HttpServletRequest request) {
-        return ok(application.disableBusiness(
-                operationUid,
-                true,
-                tenantCode,
-                organizationCode,
-                deploymentCode,
-                body), request);
+                body.expectedVersion(),
+                body.reason());
+        return ok(application.deployment(
+                true, tenantCode, organizationCode, deploymentCode), request);
     }
 
     @GetMapping("/{deploymentCode}/configuration-versions")
@@ -331,11 +307,4 @@ public class PlatformDeviceDeploymentController {
                 data, TargetRequestIds.resolve(request));
     }
 
-    private static String deploymentBase(
-            String tenantCode,
-            String organizationCode) {
-        return "/api/v1/web/platform/tenants/" + tenantCode
-                + "/organizations/" + organizationCode
-                + "/device-deployments";
-    }
 }

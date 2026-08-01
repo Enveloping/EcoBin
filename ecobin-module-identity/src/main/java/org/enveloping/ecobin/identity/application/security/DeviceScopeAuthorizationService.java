@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Revalidates the authenticated actor, target scope and current capability in
@@ -26,7 +27,12 @@ public class DeviceScopeAuthorizationService
     private static final List<String> DEVICE_CAPABILITIES = List.of(
             "device.read",
             "device.manage",
-            "device.configuration.manage");
+            "device.configuration.manage",
+            "device.allocation.manage",
+            "device.business.manage");
+    private static final Set<String> TENANT_ONLY_CAPABILITIES = Set.of(
+            "device.allocation.manage",
+            "device.business.manage");
 
     private final JdbcTemplate jdbc;
     private final DeviceScopePersistenceRefFactory referenceFactory;
@@ -95,8 +101,26 @@ public class DeviceScopeAuthorizationService
         if (query.tenantCode() == null && query.organizationCode() == null) {
             return null;
         }
-        if (query.tenantCode() == null || query.organizationCode() == null) {
+        if (query.tenantCode() == null) {
             throw invalidScope();
+        }
+        if (query.organizationCode() == null) {
+            List<ScopeRow> rows = jdbc.query("""
+                            SELECT t.id AS tenant_id,
+                                   t.tenant_code,
+                                   t.status AS tenant_status,
+                                   NULL AS organization_id,
+                                   NULL AS organization_code,
+                                   'ENABLED' AS organization_status
+                            FROM iam_tenant t
+                            WHERE t.tenant_code = ?
+                            """,
+                    (rs, ignored) -> scopeRow(rs),
+                    query.tenantCode());
+            if (rows.isEmpty()) {
+                throw notFound();
+            }
+            return rows.getFirst();
         }
         List<ScopeRow> rows = jdbc.query("""
                         SELECT t.id AS tenant_id,
@@ -125,9 +149,6 @@ public class DeviceScopeAuthorizationService
             DeviceScopeAuthorizationQuery query) {
         if (actor.platform()) {
             throw forbidden();
-        }
-        if (query.organizationCode() == null) {
-            throw invalidScope();
         }
         List<StaffActorRow> actors = jdbc.query("""
                         SELECT s.id,
@@ -160,6 +181,33 @@ public class DeviceScopeAuthorizationService
             throw sessionInvalid();
         }
         StaffActorRow current = actors.getFirst();
+        if (query.organizationCode() == null) {
+            boolean allowed = "TENANT_PRINCIPAL".equals(
+                    current.accountKind())
+                    || hasGrant(
+                    current.tenantId(),
+                    current.id(),
+                    null,
+                    "TENANT",
+                    query.requiredCapability());
+            if (!allowed) {
+                throw forbidden();
+            }
+            return new AuthorizedDeviceScope(
+                    false,
+                    actor.principalUid(),
+                    actor.sessionUid(),
+                    current.displayName(),
+                    current.tenantCode(),
+                    null,
+                    current.tenantEnabled(),
+                    true,
+                    referenceFactory.issue(
+                            current.tenantId(),
+                            null,
+                            null,
+                            current.id()));
+        }
         List<ScopeRow> scopes = jdbc.query("""
                         SELECT t.id AS tenant_id,
                                t.tenant_code,
@@ -239,6 +287,7 @@ public class DeviceScopeAuthorizationService
                 ? null : memberships.getFirst();
         boolean member = membership != null && membership.enabled();
         boolean organizationAllowed = member
+                && !TENANT_ONLY_CAPABILITIES.contains(capability)
                 && (membership.manager()
                 || hasGrant(
                         actor.tenantId(),
@@ -294,7 +343,7 @@ public class DeviceScopeAuthorizationService
                 rs.getLong("tenant_id"),
                 rs.getString("tenant_code"),
                 "ENABLED".equals(rs.getString("tenant_status")),
-                rs.getLong("organization_id"),
+                (Long) rs.getObject("organization_id"),
                 rs.getString("organization_code"),
                 "ENABLED".equals(rs.getString("organization_status")));
     }
@@ -351,7 +400,7 @@ public class DeviceScopeAuthorizationService
             long tenantId,
             String tenantCode,
             boolean tenantEnabled,
-            long organizationId,
+            Long organizationId,
             String organizationCode,
             boolean organizationEnabled) {
     }

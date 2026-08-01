@@ -2,8 +2,11 @@ package org.enveloping.ecobin.device.web.v1;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.enveloping.ecobin.device.application.target.DeviceLifecycleApplication;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.ActivateDeploymentRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.CreateAllocatedDeploymentRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.ReturnDeploymentToTenantPoolRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.TenantAllocationView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequest;
@@ -39,10 +42,29 @@ import java.util.UUID;
 public class OrganizationDeviceDeploymentController {
 
     private final TargetDeviceApplication application;
+    private final DeviceLifecycleApplication lifecycleApplication;
 
     public OrganizationDeviceDeploymentController(
-            TargetDeviceApplication application) {
+            TargetDeviceApplication application,
+            DeviceLifecycleApplication lifecycleApplication) {
         this.application = application;
+        this.lifecycleApplication = lifecycleApplication;
+    }
+
+    @PostMapping
+    public ResponseEntity<TargetApiEnvelope<DeploymentView>> create(
+            @RequestHeader("Idempotency-Key") UUID operationUid,
+            @PathVariable String organizationCode,
+            @Valid @RequestBody CreateAllocatedDeploymentRequest body,
+            HttpServletRequest request) {
+        DeploymentView created = application.createAllocatedDeployment(
+                operationUid, organizationCode, body);
+        return ResponseEntity.created(URI.create(
+                        "/api/v1/web/organizations/" + organizationCode
+                                + "/device-deployments/"
+                                + created.deploymentCode()))
+                .cacheControl(CacheControl.noStore())
+                .body(ok(created, request));
     }
 
     @GetMapping
@@ -111,33 +133,15 @@ public class OrganizationDeviceDeploymentController {
                 portNo), request);
     }
 
-    @PostMapping("/{deploymentCode}/activations")
-    public TargetApiEnvelope<DeploymentView> activate(
+    @PostMapping("/{deploymentCode}/returns-to-tenant-pool")
+    public TargetApiEnvelope<TenantAllocationView> returnToTenantPool(
             @RequestHeader("Idempotency-Key") UUID operationUid,
             @PathVariable String organizationCode,
             @PathVariable String deploymentCode,
-            @Valid @RequestBody ActivateDeploymentRequest body,
+            @Valid @RequestBody ReturnDeploymentToTenantPoolRequest body,
             HttpServletRequest request) {
-        return ok(application.activate(
+        return ok(lifecycleApplication.returnToTenantPool(
                 operationUid,
-                false,
-                null,
-                organizationCode,
-                deploymentCode,
-                body), request);
-    }
-
-    @PostMapping("/{deploymentCode}/deactivations")
-    public TargetApiEnvelope<DeploymentView> deactivate(
-            @RequestHeader("Idempotency-Key") UUID operationUid,
-            @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
-            @Valid @RequestBody DeploymentVersionCommand body,
-            HttpServletRequest request) {
-        return ok(application.deactivate(
-                operationUid,
-                false,
-                null,
                 organizationCode,
                 deploymentCode,
                 body), request);

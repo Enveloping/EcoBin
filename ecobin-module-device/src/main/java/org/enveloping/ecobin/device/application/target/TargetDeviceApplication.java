@@ -11,7 +11,6 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationPortSnapsho
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeploymentRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CurrentDeploymentSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
@@ -26,6 +25,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.PortRuntimeView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PortView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeConfigurationSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeHealthSummary;
+import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.CreateAllocatedDeploymentRequest;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
@@ -111,6 +111,7 @@ public class TargetDeviceApplication {
     private final ReliableTaskWakePort taskWakePort;
     private final DeviceCommandTaskRefFactory taskRefFactory;
     private final DevicePortBusinessSnapshotPort portBusinessPort;
+    private final DeviceLifecycleApplication lifecycleApplication;
     private final ObjectMapper objectMapper;
     private final String oneNetProductId;
 
@@ -125,6 +126,7 @@ public class TargetDeviceApplication {
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
             DevicePortBusinessSnapshotPort portBusinessPort,
+            DeviceLifecycleApplication lifecycleApplication,
             ObjectMapper objectMapper,
             @Value("${onenet.product-id:}") String oneNetProductId) {
         this.jdbc = jdbc;
@@ -137,6 +139,7 @@ public class TargetDeviceApplication {
         this.taskWakePort = taskWakePort;
         this.taskRefFactory = taskRefFactory;
         this.portBusinessPort = portBusinessPort;
+        this.lifecycleApplication = lifecycleApplication;
         this.objectMapper = objectMapper;
         this.oneNetProductId = blankToNull(oneNetProductId);
     }
@@ -368,25 +371,28 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeploymentView createDeployment(
+    public DeploymentView createAllocatedDeployment(
             UUID operationUid,
-            String tenantCode,
             String organizationCode,
-            CreateDeploymentRequest request) {
+            CreateAllocatedDeploymentRequest request) {
         AuthorizedScope scope = authorize(
-                true,
-                tenantCode,
+                false,
+                null,
                 organizationCode,
-                "device.manage");
+                "device.allocation.manage");
         requireEnabledScope(scope);
-        if (request == null || request.expectedAssetVersion() == null) {
+        if (request == null
+                || request.allocationUid() == null
+                || request.expectedAllocationVersion() == null) {
             throw invalidRequest();
         }
-        String hardwareSn = normalizeHardwareSn(request.hardwareSn());
-        CreateDeploymentRequest normalized = new CreateDeploymentRequest(
-                hardwareSn, request.expectedAssetVersion());
+        CreateAllocatedDeploymentRequest normalized =
+                new CreateAllocatedDeploymentRequest(
+                        request.allocationUid(),
+                        request.expectedAllocationVersion());
         String target = scope.tenantCode() + "|"
-                + scope.organizationCode() + "|asset:" + hardwareSn;
+                + scope.organizationCode() + "|allocation:"
+                + normalized.allocationUid();
         return command(
                 operationUid,
                 scope,
@@ -395,7 +401,7 @@ public class TargetDeviceApplication {
                 target,
                 normalized,
                 DeploymentView.class,
-                () -> createDeployment(
+                () -> createAllocatedDeployment(
                         operationUid, scope, normalized));
     }
 
@@ -457,19 +463,67 @@ public class TargetDeviceApplication {
                 deployment.id());
     }
 
-    private CommandResult<DeploymentView> createDeployment(
+    private CommandResult<DeploymentView> createAllocatedDeployment(
             UUID operationUid,
             AuthorizedScope scope,
-            CreateDeploymentRequest request) {
-        AssetRow asset = lockAsset(request.hardwareSn());
-        if (!"IN_STOCK".equals(asset.lifecycleStatus())) {
+            CreateAllocatedDeploymentRequest request) {
+        AllocatedAsset allocation = jdbc.query("""
+                        SELECT allocation.id AS allocation_id,
+                               allocation.lock_version AS allocation_version,
+                               asset.id AS asset_id,
+                               asset.hardware_sn, asset.model_name,
+                               asset.expected_port_count,
+                               asset.lifecycle_status,
+                               asset.lock_version AS asset_version,
+                               predecessor.id AS predecessor_id,
+                               EXISTS (
+                                   SELECT 1
+                                   FROM dev_deployment_acceptance acceptance
+                                   WHERE acceptance.deployment_id = predecessor.id
+                               ) AS predecessor_accepted
+                        FROM dev_asset_tenant_allocation allocation
+                        JOIN dev_asset_active_tenant_allocation active
+                          ON active.allocation_id = allocation.id
+                         AND active.asset_id = allocation.asset_id
+                         AND active.tenant_id = allocation.tenant_id
+                        JOIN dev_device_asset asset
+                          ON asset.id = allocation.asset_id
+                        LEFT JOIN dev_device_deployment predecessor
+                          ON predecessor.id = (
+                              SELECT latest.id
+                              FROM dev_device_deployment latest
+                              WHERE latest.tenant_allocation_id = allocation.id
+                              ORDER BY latest.created_at DESC, latest.id DESC
+                              LIMIT 1
+                          )
+                        WHERE allocation.allocation_uid = ?
+                          AND allocation.tenant_id = ?
+                          AND allocation.status = 'ACTIVE'
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new AllocatedAsset(
+                        rs.getLong("allocation_id"),
+                        rs.getLong("allocation_version"),
+                        rs.getLong("asset_id"),
+                        rs.getString("hardware_sn"),
+                        rs.getString("model_name"),
+                        rs.getInt("expected_port_count"),
+                        rs.getString("lifecycle_status"),
+                        rs.getLong("asset_version"),
+                        nullableLong(rs, "predecessor_id"),
+                        rs.getBoolean("predecessor_accepted")),
+                request.allocationUid().toString(),
+                scope.tenantId()).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::notFound);
+        if (!"ALLOCATED".equals(allocation.lifecycleStatus())) {
             throw new TargetApiException(
                     409,
-                    "DEVICE.ASSET_NOT_IN_STOCK",
-                    "设备资产不处于库存状态");
+                    "DEVICE.ASSET_NOT_IN_TENANT_POOL",
+                    "设备不处于当前租户的待部署设备池");
         }
-        if (asset.version() != request.expectedAssetVersion()) {
-            throw versionConflict(asset.version());
+        if (allocation.allocationVersion()
+                != request.expectedAllocationVersion()) {
+            throw versionConflict(allocation.allocationVersion());
         }
         Integer activeCount = jdbc.queryForObject("""
                         SELECT COUNT(*)
@@ -477,7 +531,7 @@ public class TargetDeviceApplication {
                         WHERE asset_id = ?
                         """,
                 Integer.class,
-                asset.id());
+                allocation.assetId());
         if (activeCount != null && activeCount > 0) {
             throw new TargetApiException(
                     409,
@@ -490,18 +544,25 @@ public class TargetDeviceApplication {
                 + UUID.randomUUID().toString().replace("-", "");
         long deploymentId = insertAndReturnKey("""
                 INSERT INTO dev_device_deployment (
-                    tenant_id, organization_id, asset_id, public_code,
+                    tenant_id, organization_id, asset_id,
+                    tenant_allocation_id, predecessor_deployment_id,
+                    readiness_mode, public_code,
                     lifecycle_status, business_enabled, commissioned_at,
                     enabled_at, ended_at, end_method, end_reason,
                     lock_version, created_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, 'COMMISSIONING', 0, ?,
+                    ?, ?, ?, ?, ?, ?, ?, 'COMMISSIONING', 0, ?,
                     NULL, NULL, NULL, NULL, 0, ?, ?
                 )
                 """,
                 scope.tenantId(),
                 scope.organizationId(),
-                asset.id(),
+                allocation.assetId(),
+                allocation.allocationId(),
+                allocation.predecessorId(),
+                allocation.predecessorAccepted()
+                        ? "AUTOMATIC_TRANSFER_READINESS"
+                        : "PLATFORM_ACCEPTANCE_REQUIRED",
                 deploymentCode,
                 now,
                 now,
@@ -512,7 +573,7 @@ public class TargetDeviceApplication {
                             deployment_id, acquired_at
                         ) VALUES (?, ?, ?, ?, ?)
                         """,
-                asset.id(),
+                allocation.assetId(),
                 scope.tenantId(),
                 scope.organizationId(),
                 deploymentId,
@@ -557,7 +618,7 @@ public class TargetDeviceApplication {
                 now,
                 now);
         for (int portNo = 1;
-             portNo <= asset.expectedPortCount();
+             portNo <= allocation.expectedPortCount();
              portNo++) {
             long portId = insertAndReturnKey("""
                     INSERT INTO dev_port (
@@ -645,24 +706,35 @@ public class TargetDeviceApplication {
                             lock_version = lock_version + 1,
                             updated_at = ?
                         WHERE id = ?
-                          AND lifecycle_status = 'IN_STOCK'
+                          AND lifecycle_status = 'ALLOCATED'
                           AND lock_version = ?
                         """,
                 now,
-                asset.id(),
-                asset.version());
+                allocation.assetId(),
+                allocation.assetVersion());
         requireSingleRow(updated, "advance deployed asset");
+        int allocationUpdated = jdbc.update("""
+                        UPDATE dev_asset_tenant_allocation
+                        SET lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND status = 'ACTIVE'
+                          AND lock_version = ?
+                        """,
+                now,
+                allocation.allocationId(),
+                allocation.allocationVersion());
+        requireSingleRow(allocationUpdated, "advance tenant allocation");
         ConfigurationReleaseRequest initialConfiguration =
                 initialConfigurationFactory.create(
-                        asset.hardwareSn(),
-                        asset.modelCode(),
-                        asset.expectedPortCount());
+                        allocation.hardwareSn(),
+                        allocation.modelCode(),
+                        allocation.expectedPortCount());
         releaseConfiguration(
                 operationUid,
                 scope,
                 deploymentCode,
                 applicationCollectionUrl(
-                        true,
+                        false,
                         scope.tenantCode(),
                         scope.organizationCode(),
                         deploymentCode),
@@ -672,8 +744,10 @@ public class TargetDeviceApplication {
         return new CommandResult<>(
                 response,
                 Map.of(
-                        "assetLifecycleStatus", "IN_STOCK",
-                        "assetVersion", asset.version()),
+                        "assetLifecycleStatus", "ALLOCATED",
+                        "assetVersion", allocation.assetVersion(),
+                        "allocationVersion",
+                        allocation.allocationVersion()),
                 deploymentAuditSnapshot(response),
                 null);
     }
@@ -938,11 +1012,21 @@ public class TargetDeviceApplication {
             String deploymentCode,
             DeploymentVersionCommand request,
             DeploymentMutation mutation) {
+        boolean businessMutation = mutation == DeploymentMutation.ENABLE_BUSINESS
+                || mutation == DeploymentMutation.DISABLE_BUSINESS;
+        if (businessMutation && platformPath) {
+            throw new TargetApiException(
+                    403,
+                    "COMMON.FORBIDDEN",
+                    "平台管理员不能代替租户决定设备是否开始或停止经营");
+        }
         AuthorizedScope scope = authorize(
                 platformPath,
                 platformPath ? tenantCode : null,
                 organizationCode,
-                "device.manage");
+                businessMutation
+                        ? "device.business.manage"
+                        : "device.manage");
         if (request == null || request.expectedVersion() == null) {
             throw invalidRequest();
         }
@@ -977,6 +1061,12 @@ public class TargetDeviceApplication {
                 scope, deploymentCode, true);
         if (before.version() != expectedVersion) {
             throw versionConflict(before.version());
+        }
+        DeploymentRow auditBefore = before;
+        if (mutation == DeploymentMutation.ENABLE_BUSINESS
+                && !"ENABLED".equals(before.lifecycleStatus())) {
+            lifecycleApplication.promoteAutomaticReadiness(deploymentCode);
+            before = findDeployment(scope, deploymentCode, true);
         }
         LocalDateTime now = databaseNow();
         switch (mutation) {
@@ -1094,7 +1184,7 @@ public class TargetDeviceApplication {
                 scope, deploymentCode, false).view();
         return new CommandResult<>(
                 after,
-                deploymentAuditSnapshot(before.view()),
+                deploymentAuditSnapshot(auditBefore.view()),
                 deploymentAuditSnapshot(after),
                 reason);
     }
@@ -3189,6 +3279,19 @@ public class TargetDeviceApplication {
             int expectedPortCount,
             String lifecycleStatus,
             long version) {
+    }
+
+    private record AllocatedAsset(
+            long allocationId,
+            long allocationVersion,
+            long assetId,
+            String hardwareSn,
+            String modelCode,
+            int expectedPortCount,
+            String lifecycleStatus,
+            long assetVersion,
+            Long predecessorId,
+            boolean predecessorAccepted) {
     }
 
     private record DeploymentRow(

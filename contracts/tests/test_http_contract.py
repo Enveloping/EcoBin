@@ -97,6 +97,94 @@ class HttpContractTests(unittest.TestCase):
         ):
             validate_openapi_document(changed)
 
+    def test_device_ownership_and_operation_roles_are_explicit(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        organization_collection = (
+            "/api/v1/web/organizations/{organizationCode}"
+            "/device-deployments"
+        )
+        platform_collection = (
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}/device-deployments"
+        )
+        self.assertIn("post", paths[organization_collection])
+        self.assertNotIn("post", paths[platform_collection])
+
+        required = {
+            "/api/v1/web/device-asset-allocations",
+            "/api/v1/web/platform/device-asset-allocations",
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/device-asset-allocations"
+            ),
+            (
+                organization_collection
+                + "/{deploymentCode}/returns-to-tenant-pool"
+            ),
+            (
+                platform_collection
+                + "/{deploymentCode}/acceptance-readiness"
+            ),
+            platform_collection + "/{deploymentCode}/acceptances",
+            platform_collection + "/{deploymentCode}/technical-suspensions",
+        }
+        self.assertEqual(set(), required - set(paths))
+
+        stale = {
+            organization_collection + "/{deploymentCode}/activations",
+            organization_collection + "/{deploymentCode}/deactivations",
+            platform_collection + "/{deploymentCode}/activations",
+            platform_collection + "/{deploymentCode}/deactivations",
+            platform_collection
+            + "/{deploymentCode}/business-switch/enablements",
+            platform_collection
+            + "/{deploymentCode}/business-switch/disablements",
+        }
+        self.assertEqual(set(), stale & set(paths))
+
+    def test_cleaning_controller_surface_is_in_authoritative_contract(
+        self,
+    ) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        expected_methods = {
+            (
+                "/api/v1/miniapp/device-deployments/{deploymentCode}"
+                "/clean-options"
+            ): {"get"},
+            "/api/v1/miniapp/clean-operations/{operationUid}": {"get"},
+            "/api/v1/miniapp/me/clean-records": {"get"},
+            "/api/v1/miniapp/me/clean-records/{cleanRecordNo}": {"get"},
+            (
+                "/api/v1/miniapp/device-deployments/{deploymentCode}"
+                "/ports/{portNo}/clean-operations"
+            ): {"post"},
+        }
+        for prefix in (
+            "/api/v1/web/organizations/{organizationCode}",
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+            ),
+        ):
+            expected_methods[prefix + "/clean-records"] = {"get"}
+            expected_methods[
+                prefix + "/clean-records/{cleanRecordNo}"
+            ] = {"get", "patch"}
+            expected_methods[
+                prefix + "/clean-records/{cleanRecordNo}/changes"
+            ] = {"get"}
+
+        for path, expected in expected_methods.items():
+            self.assertIn(path, paths)
+            actual = {
+                method
+                for method in paths[path]
+                if method in {"get", "post", "put", "patch", "delete"}
+            }
+            self.assertEqual(expected, actual, path)
+
     def test_organization_miniapp_management_surface_is_exact(self) -> None:
         document = load_openapi()
         paths = document["paths"]

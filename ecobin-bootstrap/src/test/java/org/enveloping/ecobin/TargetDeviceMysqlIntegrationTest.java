@@ -169,6 +169,13 @@ class TargetDeviceMysqlIntegrationTest {
                 tenantCode,
                 organizationCode,
                 principalLogin);
+        BrowserClient principal = new BrowserClient();
+        login(
+                principal,
+                "/api/v1/web/auth/sessions",
+                principalLogin,
+                PRINCIPAL_PASSWORD,
+                201);
 
         String hardwareSn = "HW-DEVICE-" + run;
         UUID assetOperation = UUID.randomUUID();
@@ -209,16 +216,35 @@ class TargetDeviceMysqlIntegrationTest {
                         WHERE hardware_sn = ?
                         """, Integer.class, hardwareSn));
 
+        JsonNode allocation = data(write(
+                platform,
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/device-asset-allocations"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "expectedAssetVersion", 0,
+                        "reason", "device integration allocation"),
+                201));
+        assertEquals("ACTIVE",
+                allocation.path("allocationStatus").asText());
+        assertEquals(0,
+                allocation.path("allocationVersion").asLong());
+
+        String organizationDeploymentBase =
+                "/api/v1/web/organizations/" + organizationCode
+                        + "/device-deployments";
         String deploymentBase = "/api/v1/web/platform/tenants/"
                 + tenantCode + "/organizations/" + organizationCode
                 + "/device-deployments";
         JsonNode deployment = data(write(
-                platform,
-                post(deploymentBase),
+                principal,
+                post(organizationDeploymentBase),
                 UUID.randomUUID(),
                 Map.of(
-                        "hardwareSn", hardwareSn,
-                        "expectedAssetVersion", 0),
+                        "allocationUid",
+                        allocation.path("allocationUid").asText(),
+                        "expectedAllocationVersion", 0),
                 201));
         String deploymentCode =
                 deployment.path("deploymentCode").asText();
@@ -287,7 +313,7 @@ class TargetDeviceMysqlIntegrationTest {
                           AND version.version_no = 1
                         """, Integer.class, applicationUid));
         assertEquals(
-                "SYSTEM|DIGITAL_INFRARED|5|3",
+                "STAFF|DIGITAL_INFRARED|5|3",
                 jdbc.queryForObject("""
                                 SELECT CONCAT(
                                     version.publication_source, '|',
@@ -417,20 +443,22 @@ class TargetDeviceMysqlIntegrationTest {
         assertEquals("PENDING", application.path("dispatchState").asText());
         assertEquals("WAIT", application.path("nextActions").get(0).asText());
 
-        MvcResult activation = write(
+        MvcResult acceptance = write(
                 platform,
                 post(deploymentBase + "/" + deploymentCode
-                        + "/activations"),
+                        + "/acceptances"),
                 UUID.randomUUID(),
                 Map.of(
-                        "expectedVersion", 0,
+                        "expectedDeploymentVersion", 0,
                         "expectedConfigurationVersion", 1,
-                        "acceptanceConfirmed", true,
+                        "deliveryDoorObservedNormal", true,
+                        "camerasObservedNormal", true,
+                        "cleanDoorInstallationObservedNormal", true,
                         "reason", "isolated integration verification"),
                 422);
-        JsonNode problem = json(activation);
+        JsonNode problem = json(acceptance);
         assertEquals(
-                "DEVICE.DEPLOYMENT_NOT_ACTIVATABLE",
+                "DEVICE.DEPLOYMENT_NOT_ACCEPTABLE",
                 problem.path("code").asText());
         assertTrue(contains(
                 problem.path("details").path("blockers"),
@@ -605,7 +633,7 @@ class TargetDeviceMysqlIntegrationTest {
                         deploymentCode,
                         applicationUid,
                         3);
-        assertEquals("ONLINE|OFFLINE|FAULT", jdbc.queryForObject("""
+        assertEquals("ONLINE|ONLINE|READY", jdbc.queryForObject("""
                         SELECT CONCAT(
                             edge_connection_status, '|',
                             mcu_link_status, '|',
@@ -625,24 +653,32 @@ class TargetDeviceMysqlIntegrationTest {
                 "CONFIRM_EDGE_EVENT:"
                         + runtimeEvidence.eventUid().toUpperCase()));
 
-        JsonNode activated = data(write(
+        JsonNode accepted = data(write(
                 platform,
                 post(deploymentBase + "/" + deploymentCode
-                        + "/activations"),
+                        + "/acceptances"),
                 UUID.randomUUID(),
                 Map.of(
-                        "expectedVersion", 0,
+                        "expectedDeploymentVersion", 0,
                         "expectedConfigurationVersion", 1,
-                        "acceptanceConfirmed", true,
+                        "deliveryDoorObservedNormal", true,
+                        "camerasObservedNormal", true,
+                        "cleanDoorInstallationObservedNormal", true,
                         "reason",
                         "trusted Orange Pi runtime accepted"),
+                200));
+        assertEquals(1,
+                accepted.path("configurationVersion").asLong());
+        JsonNode activated = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode,
                 200));
         assertEquals(
                 "ENABLED",
                 activated.path("lifecycleStatus").asText());
         JsonNode businessEnabled = data(write(
-                platform,
-                post(deploymentBase + "/" + deploymentCode
+                principal,
+                post(organizationDeploymentBase + "/" + deploymentCode
                         + "/business-switch/enablements"),
                 UUID.randomUUID(),
                 Map.of(
@@ -658,11 +694,11 @@ class TargetDeviceMysqlIntegrationTest {
                 200));
         assertTrue(enabledRuntime.path("deliveryAllowed").asBoolean());
         assertEquals(
-                "OFFLINE",
+                "ONLINE",
                 enabledRuntime.path("health")
                         .path("mcuLinkStatus").asText());
         assertEquals(
-                "FAULT",
+                "READY",
                 enabledRuntime.path("health")
                         .path("uartState").asText());
 
@@ -809,11 +845,11 @@ class TargetDeviceMysqlIntegrationTest {
                 200));
         assertTrue(safeRuntime.path("deliveryAllowed").asBoolean());
         assertEquals(
-                "OFFLINE",
+                "ONLINE",
                 safeRuntime.path("health")
                         .path("mcuLinkStatus").asText());
         assertEquals(
-                "FAULT",
+                "READY",
                 safeRuntime.path("health")
                         .path("uartState").asText());
 
@@ -904,13 +940,6 @@ class TargetDeviceMysqlIntegrationTest {
                 stillSafeRuntime.path("health")
                         .path("safetyStatus").asText());
 
-        BrowserClient principal = new BrowserClient();
-        login(
-                principal,
-                "/api/v1/web/auth/sessions",
-                principalLogin,
-                PRINCIPAL_PASSWORD,
-                201);
         JsonNode organizationView = data(read(
                 principal,
                 "/api/v1/web/organizations/" + organizationCode
@@ -1111,11 +1140,15 @@ class TargetDeviceMysqlIntegrationTest {
         semanticConfig.put("contentSha256", contentSha256);
         semanticConfig.put(
                 "mcuPayloadSha256", mcuPayloadSha256);
-        semanticPayload.put("mcuBootId", null);
-        semanticPayload.put("mcuFirmwareVersion", null);
-        semanticPayload.put("uartProtocolMajor", null);
-        semanticPayload.put("uartProtocolMinor", null);
-        semanticPayload.put("uartState", "FAULT");
+        semanticPayload.put("pendingReliableEventCount", 0);
+        for (Object item : (List<?>) semanticPayload.get("ports")) {
+            Map<String, Object> port = (Map<String, Object>) item;
+            port.put("fullnessSensorKind", "DIGITAL_INFRARED");
+            port.put("fullnessSensorValue", "CLEAR");
+            port.put("fullnessSampleBasis", "NOT_SAMPLED");
+            port.put("representativeDistanceMm", null);
+            port.put("fullnessValidSampleCount", 1);
+        }
         String payloadSha256 = canonicalizer.hex(
                 canonicalizer.payloadSha256(semanticPayload));
 
@@ -1145,15 +1178,16 @@ class TargetDeviceMysqlIntegrationTest {
                 "occurredAt",
                 Instant.now().truncatedTo(
                         ChronoUnit.MILLIS).toString());
-        wire.put("mcuBootIdPresent", false);
-        wire.put("mcuFirmwareVersionPresent", false);
-        wire.put("uartProtocolMajorPresent", false);
-        wire.put("uartProtocolMinorPresent", false);
-        wire.remove("mcuBootId");
-        wire.remove("mcuFirmwareVersion");
-        wire.remove("uartProtocolMajor");
-        wire.remove("uartProtocolMinor");
-        wire.put("uartState", 5);
+        wire.put("pendingReliableEventCount", 0);
+        for (Object item : (List<?>) wire.get("ports")) {
+            Map<String, Object> port = (Map<String, Object>) item;
+            port.put("fullnessSensorKind", 2);
+            port.put("fullnessSensorValue", 1);
+            port.put("fullnessSampleBasis", 4);
+            port.put("representativeDistanceMmPresent", false);
+            port.remove("representativeDistanceMm");
+            port.put("fullnessValidSampleCount", 1);
+        }
         wire.put("payloadSha256", payloadSha256);
         mutableMap(wire.get("target")).put(
                 "uid", deploymentCode);
