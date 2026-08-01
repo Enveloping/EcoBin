@@ -5,6 +5,8 @@
 > 状态：**D-041～D-045 已确认**
 >
 > 说明：本文件是数据库设计草案的第九批分章正文，与其余章节共同组成一份设计；2026-07-24 已随投递 session 收口同步删除原投递周期候选表、调整 V4/V8 清单和目标表数，数据库版本、建库身份及成对切换原则不变。
+>
+> **2026-08-01 清运决策与兼容说明**：已执行的 V5/V8 永久冻结，其中 `rec_organization_clean_config.review_mode`、`rec_clean_record` 的审核投影、`rec_clean_revision` 及相关约束/索引只代表历史结构，不再代表业务规则，应用不得读写为清运审核流程。当前已存在 V18，实施时必须新增 V19 前向迁移：确认没有清运审核数据和代码依赖后删除审核列、外键、索引及 `rec_clean_revision`，为 `rec_clean_record` 增加当前有效业务值与修改版本，并新增只追加的 `rec_clean_record_change`；不得回改 V5/V8。清理完成前，为满足旧 CHECK 而写入的 `ALL_MANUAL` 只是无业务含义的兼容占位。
 
 ## 13. 第九批已确认：迁移纪元、目标建库、账号与切换
 
@@ -30,7 +32,7 @@
 | `V2__device_inventory_and_configuration.sql` | 建立物理资产、部署、投口、配置版本/快照、配置应用和基础运行投影。 |
 | `V3__organization_users_and_sessions.sql` | 建立机构用户、管理绑定、用户能力以及平台/Web/小程序登录会话。 |
 | `V4__device_operations_and_evidence.sql` | 建立设备整机占位、作为唯一作业/结果幂等根的投递会话、命令、公共边缘事件头、命令事件、物理结果和设备故障等作业证据骨架；不建立投递周期表。 |
-| `V5__recycling.sql` | 建立投递、审核修订、清运配置 head/记录计数器/操作与记录、袋追溯、重量基准及真实重测、满溢检测与照片事实。 |
+| `V5__recycling.sql` | 建立投递及其审核修订、清运配置 head/记录计数器/操作与记录、袋追溯、重量基准及真实重测、满溢检测与照片事实；其中已经落库的清运审核结构按上方兼容说明待 V19 替换。 |
 | `V6__funds.sql` | 建立提现配置及当前 head、用户钱包、机构账户、双侧明细、充值、提现、微信支付/转账观察和平台出款闸门。 |
 | `V7__operations.sql` | 建立可信 inbox、隔离记录、唯一可靠任务、执行尝试、操作审计、聚合告警与对账事实。 |
 | `V8__cross_module_foreign_keys.sql` | 在所有端点表存在后，补齐模块内循环指针和跨模块强类型外键。 |
@@ -39,7 +41,7 @@
 
 每个版本已经应用后永久不可修改；修正只能新增后续版本。上述文件名在实现时作为默认正式名称，若因构建约束必须调整 description，必须同时更新纪元校验、部署清单和测试，不能只改其中一处。
 
-V1～V10 完整安装后的目标清单为 **83 张表**：identity 14 张、device 16 张、recycling 24 张、funds 20 张、operations 9 张。该数量与 D-007～D-010 及 D-035 逐表登记一致；旧设计中的第 84 张投递周期候选表不得出现在 V4、V8 或任何后续补丁迁移中。
+V1～V10 完整安装后的历史清单为 **83 张表**：identity 14 张、device 16 张、recycling 24 张、funds 20 张、operations 9 张。V19 删除历史 `rec_clean_revision` 并新增 `rec_clean_record_change` 后，目标业务清单仍为 **83 张表**，其中 recycling 仍为 24 张；V19 实施前不得把当前数据库误报为已经完成语义替换。旧设计中的第 84 张投递周期候选表不得出现在 V4、V8 或任何后续补丁迁移中。
 
 MySQL DDL 会隐式提交，Flyway 迁移失败不能被理解为整个文件已原子回滚。因此：
 
@@ -55,7 +57,7 @@ MySQL DDL 会隐式提交，Flyway 迁移失败不能被理解为整个文件已
 2. 迁移脚本禁止使用 `IF NOT EXISTS`、`FOREIGN_KEY_CHECKS=0`、忽略错误、自动猜测旧表或 baseline 非空污染库。目标库中出现意外对象、重复名称或约束冲突必须让迁移失败。
 3. V8 至少闭合以下已确认关系；D-031 的逐表登记仍是完整清单，实施时须用外键矩阵证明没有遗漏：
    - 投递 session 到其唯一物理结果，投递订单到同一 session/物理结果及 current revision；
-   - 清运 operation 与 completion record、清运 record 与唯一 review revision；
+   - 清运 operation 与 completion record；V5/V8 已有的 clean record 与 review revision 关系属于待 V19 删除的历史兼容结构，不得被新业务使用；
    - 基准重测与其唯一物理结果/结果基准，以及清运操作可空的投递待处理 session 快照；
    - 满溢 detection、initial/terminal sample、capacity state、current event，以及出款闸门 current pause event；
    - 设备整机占位到 recycling 清运操作，设备命令/物理结果到投递、清运和满溢目标；
@@ -64,7 +66,7 @@ MySQL DDL 会隐式提交，Flyway 迁移失败不能被理解为整个文件已
 4. MySQL 不支持延迟外键。合法循环统一按“先插入允许空当前指针的父行 → 插入子事实 → 在同一业务事务回填父指针并推进状态”构造；完成态 CHECK 要求指针非空，任何中间提交都不能伪装成完成态。
 5. V9 不实现通用业务状态机，只创建 D-035 已确认的两类纵深防御：机构小程序的 `activated_at` 只允许从 `NULL` 补写一次，写入后不可变，AppID/作用域在激活后不可变；机构用户的 `registered_at`、`registered_via_deployment_id`、AppID/OpenID/作用域不可变。触发器使用预先存在的稳定 `ecobin_trigger_definer`，运行账号没有 `TRIGGER` 权限。
 6. V10 只维护 `iam_permission_definition` 和真正环境无关的静态参考数据。租户、机构、人员、密码、AppID、商户号、设备、投口、袋、余额、订单和任何密钥都不得写进普通 Flyway。
-7. I-014 已冻结的身份目录权限码由 V10 建立；`organization-manager.manage` 仅建立 `TENANT` 作用域定义，不能以普通 `permission.manage` 或机构级同名授权替代。I-018～I-020 新增的 `device.read`、`device.manage`、`device.configuration.manage`，I-024/I-025 新增的 `delivery.read`、`review.execute`、`delivery.correct`、`wallet.read`，I-026～I-030 新增的 `clean.read`、`device.detection.execute`、`device.recovery.execute`，I-031～I-035 新增的 `wallet.adjust`、`fund.read`、`recharge.create`、`withdrawal.configuration.manage`、`withdrawal.read`、`withdrawal.handle`，以及 I-036～I-040 新增的 `audit.read`、`alert.read`、`alert.acknowledge`、`reconciliation.read`、`reconciliation.handle`、`statistics.read`，均建立 `TENANT` 与 `ORGANIZATION` 两种作用域定义。`review.execute` 是投递、清运和提现共用的初审能力，不能按业务类型拆成同义权限码；读取、调整、充值、配置、运营查询和处置能力互不隐含。平台任务恢复、隔离确认、平台对账运行和出款闸门恢复是平台域固定用例，不伪装成租户权限码；工作人员小程序只把当前机构 `alert.read` 与 `statistics.read` 加入客户端白名单。V10 一旦在任何持久环境应用，后来新增权限只能用新的前向迁移，不能修改已应用文件。
+7. I-014 已冻结的身份目录权限码由 V10 建立；`organization-manager.manage` 仅建立 `TENANT` 作用域定义，不能以普通 `permission.manage` 或机构级同名授权替代。I-018～I-020 新增的 `device.read`、`device.manage`、`device.configuration.manage`，I-024/I-025 新增的 `delivery.read`、`review.execute`、`delivery.correct`、`wallet.read`，I-026～I-030 原有的 `clean.read`、`device.detection.execute`、`device.recovery.execute`，I-031～I-035 新增的 `wallet.adjust`、`fund.read`、`recharge.create`、`withdrawal.configuration.manage`、`withdrawal.read`、`withdrawal.handle`，以及 I-036～I-040 新增的 `audit.read`、`alert.read`、`alert.acknowledge`、`reconciliation.read`、`reconciliation.handle`、`statistics.read`，均建立 `TENANT` 与 `ORGANIZATION` 两种作用域定义。清运直接修改新增的 `clean.edit` 只能由 V19 或更晚前向迁移建立两种作用域定义，不能回改 V10。`review.execute` 只用于投递初审和提现审核，清运使用 `clean.read/clean.edit` 等清运/设备能力，不提供审核入口；读取、修改、调整、充值、配置、运营查询和处置能力互不隐含。平台任务恢复、隔离确认、平台对账运行和出款闸门恢复是平台域固定用例，不伪装成租户权限码；工作人员小程序只把当前机构 `alert.read` 与 `statistics.read` 加入客户端白名单。V10 一旦在任何持久环境应用，后来新增权限只能用新的前向迁移，不能修改已应用文件。
 
 ### D-044 数据库身份、一次性迁移与试点初始化
 
@@ -80,7 +82,7 @@ MySQL DDL 会隐式提交，Flyway 迁移失败不能被理解为整个文件已
 
 1. 数据库、账号、角色、密码和环境 GRANT 属于环境供应，不写入普通 schema Flyway。授权完成后保存脱敏的 `SHOW GRANTS` 结果，并通过正向用例和“应用账号执行 DDL、改不可变列、删事实表必须失败”的负向测试验收。
 2. 迁移器是一个显式、可重复部署但一次只运行一个实例的作业：注入 `ecobin_schema_owner`，从空库执行 V1～V10，完成校验后销毁该凭证上下文。后端容器只获得 `ecobin_app`，启动时执行 D-041 的只读纪元/版本守卫。
-3. 试点租户、两个机构、租户主体/工作人员、投递/清运/提现初始配置、设备、部署、投口、初始袋及其投口绑定和必要的初始重量基准，由受控 bootstrap/seed 命令调用正式应用用例创建，不由通用 Flyway 插入。投递初始配置使用已冻结的 `ALL_MANUAL`、机构负余额阈值和默认 100.00kg 人工认定绝对值上限；清运初始配置使用 `ALL_MANUAL + 1800秒`；提现初始配置使用 `hardLimit=10.00/manualMinimum=0.10/manualMaximum=10.00/reviewFreeThreshold=0.00`。三类配置都必须共同建立当前 head，订单/清运记录/钱包明细等机构计数器从 0 初始化或由首笔正式用例幂等建立，不能靠查询当前最大值。该命令在 V10 完成后使用 `ecobin_app` 数据源及同一份最小 DML 权限矩阵运行，不借用 schema owner 或实例管理员扩大写权限。初始重量基准必须来自袋安装后的可信实际称重并通过 D-019 的有效性校验，禁止用固定 0 或默认值伪造物理事实；尚未取得可靠基准时，对应投口保持阻断。密码从外部安全输入或一次性生成后强制妥善交付，不存在固定默认弱密码。
+3. 试点租户、两个机构、租户主体/工作人员、投递/清运/提现初始配置、设备、部署、投口、初始袋及其投口绑定和必要的初始重量基准，由受控 bootstrap/seed 命令调用正式应用用例创建，不由通用 Flyway 插入。投递初始配置使用已冻结的 `ALL_MANUAL`、机构负余额阈值和默认 100.00kg 人工认定绝对值上限；清运初始配置只使用 1800 秒总时限，不存在审核配置；V19 落地前若旧表强制要求 `review_mode`，seed 仅写入无业务含义的兼容值 `ALL_MANUAL`，不得据此生成审核任务或界面；提现初始配置使用 `hardLimit=10.00/manualMinimum=0.10/manualMaximum=10.00/reviewFreeThreshold=0.00`。三类配置都必须共同建立当前 head，订单/清运记录/钱包明细等机构计数器从 0 初始化或由首笔正式用例幂等建立，不能靠查询当前最大值。该命令在 V10 完成后使用 `ecobin_app` 数据源及同一份最小 DML 权限矩阵运行，不借用 schema owner 或实例管理员扩大写权限。初始重量基准必须来自袋安装后的可信实际称重并通过 D-019 的有效性校验，禁止用固定 0 或默认值伪造物理事实；尚未取得可靠基准时，对应投口保持阻断。密码从外部安全输入或一次性生成后强制妥善交付，不存在固定默认弱密码。
 4. seed 使用稳定输入键和幂等检查：目标对象不存在则创建；已存在且 seed 清单控制的声明字段完全相同则视为成功，数据库生成的 ID、创建时间和密码哈希不参与逐值相等比较；同一稳定键对应任何声明字段冲突时立即失败并要求人工处理，禁止覆盖。重跑不得重置已有账号密码；外部安全输入无法验证已有密码哈希时也必须失败并转人工处置。
 5. 不导入旧余额、订单、资金流水或进行中作业，也不为当前余额反造历史。机构用户由首次 `wx.login` 在目标机构重新注册；其来源设备和注册时间继续遵守 D-013。
 6. 所有目标环境显式使用 UTC、业务写事务默认 `READ COMMITTED`、严格 SQL mode，并关闭自动建库、baseline 和应用启动自动迁移；I-040 最小概览由应用在该专用只读事务上显式覆盖为 `REPEATABLE READ`。字符集、排序规则及其他 MySQL 参数在 DDL 实施清单中固定并由临时真实 MySQL 验证。

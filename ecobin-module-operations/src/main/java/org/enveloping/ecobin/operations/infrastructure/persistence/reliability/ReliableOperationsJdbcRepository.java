@@ -786,6 +786,7 @@ public class ReliableOperationsJdbcRepository {
                           t.task_type IN (
                               'ENSURE_DEVICE_CONFIGURATION',
                               'START_DELIVERY_SESSION',
+                              'START_CLEAN_OPERATION',
                               'SAMPLE_FULLNESS'
                           )
                           AND c.id IS NOT NULL
@@ -967,6 +968,7 @@ public class ReliableOperationsJdbcRepository {
                           t.task_type IN (
                               'ENSURE_DEVICE_CONFIGURATION',
                               'START_DELIVERY_SESSION',
+                              'START_CLEAN_OPERATION',
                               'SAMPLE_FULLNESS'
                           )
                           AND c.id IS NOT NULL

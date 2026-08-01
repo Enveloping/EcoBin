@@ -30,7 +30,7 @@
 | `biz_device` | biz | 回收设备 | V1 |
 | `biz_door` | biz | 设备投口（V8 加单价 price） | V1, V4, V5, V8 |
 | `biz_delivery_order` | biz | 投递订单（V7 两阶段字段；V11 照片；V14 人工审核） | V1, V7, V11, V14 |
-| `biz_clean_order` | biz | 清运订单（V9 去皮链；V11 照片；V12 开门即建单 new_bag_qr） | V1, V9, V11, V12 |
+| `biz_clean_order` | biz | 清运记录（历史表名；V9 去皮链；V11 照片；V12 开门即创建记录 new_bag_qr） | V1, V9, V11, V12 |
 | `biz_clean_bag` | biz | 垃圾袋追踪（每投口当前袋去皮，V9） | V9 |
 | `biz_device_status` | biz | 设备实时状态（V10 收敛为设备级：去 total_weight/spill/smoke，加 rssi/fw_version） | V1, V10 |
 | `biz_door_status` | biz | 投口实时状态（V10 新增：投口级重量/满溢/烟雾快照） | V10 |
@@ -203,15 +203,17 @@
 > **两阶段流程（V7）**：①C 端开投口建「进行中」记录（生成 `delivery_token`）；②设备 IoT 按 SN + token 上报回填重量并置「已完成」。后台/历史直接创建的订单 `delivery_status` 默认 1（已完成）。
 > **人工审核（V14）**：建单进入 `audit_status=0`（待审核），租户管理员在网页后台审核；通过（1）时按 `biz_door.price × weight` 返现入账 `sys_user.balance`，拒绝（2）不入账。仅「待审核」可流转，杜绝重复入账；存量历史订单迁移时置为已通过（1）。
 
-### 7. biz_clean_order — 清运订单
+### 7. biz_clean_order — 清运记录
 
-设备自动称重驱动的清运记录（V9 重做）。**开门即建单**（V12 起）：清运员小程序 `open` 时后端用登录态 `user_id` + 扫到的新空袋（记 `new_bag_qr`）建单，`cleanOrderId` 随开门命令下发给设备；后续设备只回传 `cleanOrderId` + 物理量。每次清运设备上报**毛重**，后端按「毛重 − 该投口当前(旧袋)去皮」得到实际清运量。
+设备自动称重驱动的清运记录（V9 重做）。**开门即创建记录**（V12 起）：清运员小程序 `open` 时后端用登录态 `user_id` + 扫到的新空袋（记 `new_bag_qr`）创建清运记录，历史字段 `cleanOrderId` 随开门命令下发给设备；后续设备只回传 `cleanOrderId` + 物理量。每次清运设备上报**毛重**，后端按「毛重 − 该投口当前(旧袋)去皮」得到实际清运量。
+
+后台修改清运记录是直接修改：保存后立即生效，不产生待审核、通过或驳回状态。当前历史表尚未具备目标模型的独立修改留痕；目标结构以 `rec_clean_record_change` 保存每次前后值、原因和操作者，并保留设备原始证据。
 
 | 字段 | 类型 | 可空 | 默认值 | 说明 |
 |------|------|:---:|--------|------|
 | `id` | BIGINT | | AUTO | 主键 |
 | `tenant_id` | BIGINT | | 1 | 租户ID |
-| `order_sn` | VARCHAR(50) | | | 订单编号（UNIQUE，open 建单时生成） |
+| `order_sn` | VARCHAR(50) | | | 清运记录编号（历史字段名，UNIQUE，open 创建记录时生成） |
 | `device_id` | BIGINT | ✓ | NULL | 设备ID（FK → biz_device） |
 | `door_id` | BIGINT | ✓ | NULL | 投口ID（FK → biz_door） |
 | `bag_qr` | VARCHAR(64) | ✓ | NULL | 本次清走的垃圾袋编号（旧袋，毛重上报时回填，V9） |
@@ -223,7 +225,7 @@
 | `gross_weight` | DECIMAL(10,3) | ✓ | NULL | 清运毛重（设备上报满袋重量，V9） |
 | `tare_weight` | DECIMAL(10,3) | ✓ | NULL | 去皮重量（清运时该投口当前去皮，V9） |
 | `net_weight` | DECIMAL(10,3) | ✓ | NULL | 实际清运量 = 毛重 − 去皮（V9） |
-| `audit_status` | TINYINT | | 0 | 审核状态：0-待审核 1-通过 2-拒绝；设备称重后仍需人工审核，新记录默认 0 |
+| `audit_status` | TINYINT | | 0 | 历史兼容列；当前 DDL 默认 0，但业务不得读取、筛选或更新，目标前向迁移删除 |
 | `status` | TINYINT | | 0 | 0-创建 1-完成 2-取消 |
 | `photo_open_outside` | VARCHAR(512) | ✓ | NULL | 开门前箱外照片 URL（V11） |
 | `photo_open_inside` | VARCHAR(512) | ✓ | NULL | 开门前箱内照片 URL（V11） |
@@ -254,7 +256,7 @@
 
 **去皮链式追踪**（图④⑤）：
 ```
-开清运门(扫新空袋) → 设备报毛重 → 建清运单 net = 毛重 − 该投口当前去皮
+开清运门(扫新空袋) → 设备报毛重 → 创建清运记录，net = 毛重 − 该投口当前去皮
                   → 清运员换新空袋 → 设备报去皮 → upsert biz_clean_bag(该投口)
 ```
 
@@ -418,17 +420,17 @@
 | 4 | 二维码 |
 | 5 | 微信小程序 |
 
-### 审核状态 (biz_clean_order.audit_status) — 已废弃（V9）
+### 历史兼容列 (biz_clean_order.audit_status) — 已废弃（V9）
 
-清运改为设备自动称重上报后，人工审核流程取消，该字段保留仅为兼容历史数据，新记录默认 `1`。
+清运员完成确认后直接形成清运记录；后台修改同样直接生效且不经过该字段。该字段仅是旧 schema 遗留，当前数据库值不表达业务状态，不得用于待办、筛选、权限或统计；目标前向迁移删除。
 
 | 值 | 说明 |
 |----|------|
-| 0 | 待审核（历史） |
-| 1 | 审核通过（新记录默认） |
-| 2 | 审核拒绝（历史） |
+| 0 | 历史遗留值，业务忽略 |
+| 1 | 历史遗留值，业务忽略 |
+| 2 | 历史遗留值，业务忽略 |
 
-### 订单状态 (biz_clean_order.status / biz_delivery_order.status)
+### 业务记录状态 (biz_clean_order.status / biz_delivery_order.status)
 
 | 表 | 0 | 1 | 2 | -1 |
 |----|---|---|---|---|
@@ -478,8 +480,8 @@ sys_tenant ──< sys_user
 
 - 一个租户下有多个用户、多台设备
 - 一台设备有 1-6 个投口，一条设备级实时状态，每投口一条投口级实时状态
-- 一个用户可产生多条投递订单和多条清运订单
-- 投递订单和清运订单关联设备和投口
+- 一个用户可产生多条投递订单和多条清运记录
+- 投递订单和清运记录均关联设备和投口
 - 每个设备投口维护一条 `biz_clean_bag` 当前袋去皮记录
 - 重量变更记录关联设备和投口
 
@@ -500,6 +502,6 @@ sys_tenant ──< sys_user
 | V9 | `V9__add_clean_bag_and_refactor.sql` | 新建 biz_clean_bag（每投口去皮）；biz_clean_order 加 bag_qr/gross_weight/tare_weight/net_weight，audit_status 业务废弃 |
 | V10 | `V10__refactor_device_door_status.sql` | biz_device_status 去 total_weight/spill_alarm/smoke_alarm、加 rssi/fw_version；新建 biz_door_status（投口级重量/满溢/烟雾快照） |
 | V11 | `V11__add_order_photos.sql` | biz_delivery_order / biz_clean_order 各加 4 个 photo URL 列（开门前/关门后 × 箱内/箱外） |
-| V12 | `V12__clean_order_new_bag.sql` | biz_clean_order 加 `new_bag_qr`（开门即建单：open 时扫到的新空袋，待去皮） |
+| V12 | `V12__clean_order_new_bag.sql` | biz_clean_order 加 `new_bag_qr`（开门即创建清运记录：open 时扫到的新空袋，待去皮） |
 | V13 | `V13__add_device_session.sql` | 新建 biz_device_session（设备当前活跃用户，支撑投递上传后建单的用户归属） |
 | V14 | `V14__add_delivery_audit.sql` | biz_delivery_order 加 `audit_status`/`audit_time`/`audit_remark`（投递人工审核，通过后才返现入账；存量订单置为已通过） |

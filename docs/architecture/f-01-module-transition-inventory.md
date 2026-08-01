@@ -67,7 +67,7 @@ SDK 类型。OneNet 入站消费者与出站客户端是不同 Bean。
 |---|---|---|
 | 管理员、租户、用户、认证、角色 | `ecobin-module-system` | F-02 搬入 identity 后删除 |
 | 钱包、提现 | `ecobin-module-business` + system 用户余额字段 | F-03 搬入 funds，并删除旧余额耦合 |
-| 投递、审核、清运、统计 | `ecobin-module-business` | F-03 按事实所有权搬入 recycling/operations |
+| 投递及其审核、清运、统计 | `ecobin-module-business` | F-03 按事实所有权搬入 recycling/operations |
 | 设备 Entity/Mapper 直连 | business → device 私有实现 | F-03 改为 device `.api` 端口 |
 | 用户 Entity/Mapper 直连 | business → system 私有实现 | F-02/F-03 改为 identity/funds 公开端口 |
 | 旧 OneNet 业务字段和状态机 | integration 中的 legacy dispatcher | F-11/纵向切片按 F-10 契约整体替换 |

@@ -7,6 +7,7 @@ import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFa
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
+import org.enveloping.ecobin.recycling.api.port.ApplyCleanCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyFullnessSampleCompleteUseCase;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,7 @@ public class ReliableDeviceInboxWorkerService
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final TrustedDeviceInboxEventPort deviceEventPort;
     private final ApplyDeliveryCompleteUseCase deliveryComplete;
+    private final ApplyCleanCompleteUseCase cleanComplete;
     private final ApplyFullnessSampleCompleteUseCase fullnessComplete;
 
     public ReliableDeviceInboxWorkerService(
@@ -25,11 +27,13 @@ public class ReliableDeviceInboxWorkerService
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             TrustedDeviceInboxEventPort deviceEventPort,
             ApplyDeliveryCompleteUseCase deliveryComplete,
+            ApplyCleanCompleteUseCase cleanComplete,
             ApplyFullnessSampleCompleteUseCase fullnessComplete) {
         this.runner = runner;
         this.inboxRefFactory = inboxRefFactory;
         this.deviceEventPort = deviceEventPort;
         this.deliveryComplete = deliveryComplete;
+        this.cleanComplete = cleanComplete;
         this.fullnessComplete = fullnessComplete;
     }
 
@@ -58,6 +62,8 @@ public class ReliableDeviceInboxWorkerService
                             switch (task.messageKind()) {
                                 case "DELIVERY_COMPLETE" ->
                                         deliveryComplete.apply(event);
+                                case "CLEAN_COMPLETE" ->
+                                        cleanComplete.apply(event);
                                 case "FULLNESS_SAMPLE_COMPLETE" ->
                                         fullnessComplete.apply(event);
                                 default ->

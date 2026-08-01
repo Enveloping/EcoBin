@@ -792,8 +792,10 @@ public class TrustedFullnessSampleCompletionService
         FullnessSampleMeasurement measurement =
                 fact.totalWeightMeasurement();
         boolean roleMatches =
-                ("DELIVERY_COMPLETE".equals(
-                        fact.triggerType())
+                (List.of(
+                        "DELIVERY_COMPLETE",
+                        "CLEAN_COMPLETE")
+                        .contains(fact.triggerType())
                         && List.of(
                         "INITIAL",
                         "CONFIRMATION")

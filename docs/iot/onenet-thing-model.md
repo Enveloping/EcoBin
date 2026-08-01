@@ -55,13 +55,13 @@
   ② 设备自定照片对象 key（位置由设备决定，建议带唯一串避免覆盖）→ 直传 COS
   ③ 设备 deliveryComplete 带回 doorIndex + **4 个照片 URL** → 后端建单、原样存 URL
 
-清运（开门即建单）：
-  ① 后端 openCleanDoor 只下发凭证（cosToken 不含 key）；订单照片字段开门时留空
+清运（开门即创建记录）：
+  ① 后端 openCleanDoor 只下发凭证（cosToken 不含 key）；清运记录照片字段开门时留空
   ② 设备自定照片对象 key（建议 `{sn}/clean/{唯一串}/<slot>.jpg` 避免覆盖）→ 直传 COS
-  ③ 设备 cleanGross 带回 cleanOrderId + 毛重 + **4 个照片 URL** → 后端回填订单、原样存 URL
+  ③ 设备 cleanGross 带回 cleanOrderId + 毛重 + **4 个照片 URL** → 后端回填清运记录、原样存 URL
 ```
 
-> 投递/清运照片位置均由设备自定、URL 随上行回传，与订单一一对应避免覆盖；后端不再按订单算 key。
+> 投递/清运照片位置均由设备自定、URL 随上行回传，与对应业务记录一一对应以避免覆盖；后端不再按业务记录计算 key。
 > **兜底**：后端不校验对象是否真上传成功；设备若没传上，前端加载出 404 显示占位图。
 
 ---
@@ -127,11 +127,11 @@
 | 方向 | 字段 | dataType | 对应后端 |
 |------|------|----------|---------|
 | input | `doorIndex` | int32 | 投口号（物理控制，开哪个投口） |
-| input | `cleanOrderId` | int64 | 清运订单ID（**开门即建单**，设备原样在 `cleanGross`/`cleanTare` 带回） |
+| input | `cleanOrderId` | int64 | 清运记录 ID（历史字段名；**开门即创建记录**，设备原样在 `cleanGross`/`cleanTare` 带回） |
 | input | `cosToken` | struct | COS 上传临时密钥（**仅凭证**，搭车下发，见 §3.4） |
 | output | `accepted` | bool | 设备是否受理 |
 
-对应 `DeviceCommandService.sendOpenCleanDoor(devSn, doorIndex, cleanOrderId)`。**开门即建单**：清运员小程序 `open` 时后端已握有登录 `userId` + 扫到的新空袋编号，此刻创建 `CleanOrder`（`newBagQr` 记新袋），把 `cleanOrderId` 随命令下发。设备**不再接收 `bagNo`/`userId`**。照片位置由**设备自定**（与投递一致）：开门只下发凭证、**不下发照片 key、不预存 URL**，照片 URL 待设备随 `cleanGross` 回传（见 §4.2）。
+对应 `DeviceCommandService.sendOpenCleanDoor(devSn, doorIndex, cleanOrderId)`。**开门即创建清运记录**：清运员小程序 `open` 时后端已握有登录 `userId` + 扫到的新空袋编号，此刻创建历史类型 `CleanOrder` 对应的清运记录（`newBagQr` 记新袋），把历史字段 `cleanOrderId` 随命令下发。设备**不再接收 `bagNo`/`userId`**。照片位置由**设备自定**（与投递一致）：开门只下发凭证、**不下发照片 key、不预存 URL**，照片 URL 待设备随 `cleanGross` 回传（见 §4.2）。
 
 ### 3.3 `reboot` — 远程重启（运维预留）
 
@@ -146,7 +146,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 >
 > **照片 key 不随命令下发**，两服务都只发凭证；**投递、清运一致**：照片上传位置由**设备自定**，URL 随上行业务事件回传，后端原样存（不复原）：
 > - **`openDeliveryDoor`（投递）**：设备自定对象 key 直传 COS，在 `deliveryComplete` 里随称重回传 4 个照片 URL。
-> - **`openCleanDoor`（清运）**：设备自定对象 key（建议 `{sn}/clean/{唯一串}/<slot>.jpg`）直传 COS，在 `cleanGross` 里随毛重回传 4 个照片 URL；后端开门时订单照片字段留空、收到 `cleanGross` 才回填。
+> - **`openCleanDoor`（清运）**：设备自定对象 key（建议 `{sn}/clean/{唯一串}/<slot>.jpg`）直传 COS，在 `cleanGross` 里随毛重回传 4 个照片 URL；后端开门时清运记录照片字段留空、收到 `cleanGross` 才回填。
 >
 > 槽位语义两端一致（slot ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`）。
 
@@ -212,7 +212,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 | `photoCloseOutside` | string | photoCloseOutside（可选，关门后·箱外照片 URL，**设备回传**） |
 | `photoCloseInside` | string | photoCloseInside（可选，关门后·箱内照片 URL，**设备回传**） |
 
-> 设备回传 `cleanOrderId` + 毛重 + 4 个照片 URL（位置设备自定，与投递一致）；`doorIndex`/`userId` 由后端按订单反查。后端按 `cleanOrderId` 定位订单：已回填毛重则幂等返回，否则 `net = 毛重 − 该投口当前(旧袋)去皮`，并原样存 4 个照片 URL（缺失留空、前端占位）。
+> 设备回传 `cleanOrderId` + 毛重 + 4 个照片 URL（位置设备自定，与投递一致）；`doorIndex`/`userId` 由后端按清运记录反查。后端按 `cleanOrderId` 定位清运记录：已回填毛重则幂等返回，否则 `net = 毛重 − 该投口当前(旧袋)去皮`，并原样存 4 个照片 URL（缺失留空、前端占位）。
 
 ### 4.3 `cleanTare`（info）— 去皮上报（清运·图⑤，换新空袋）
 
@@ -221,7 +221,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 | `cleanOrderId` | int64 | cleanOrderId（开门时下发，原样带回） |
 | `weight` | float (kg) | weight（新空袋去皮重） |
 
-> 设备**不传 bagNo**：新袋编号 open 时已由小程序扫到并记在订单 `newBagQr`。后端按 `cleanOrderId` 取订单的 `newBagQr` + 本次去皮重，upsert `biz_clean_bag (device_id, door_index)`。
+> 设备**不传 bagNo**：新袋编号 open 时已由小程序扫到并记在清运记录 `newBagQr`。后端按 `cleanOrderId` 取清运记录的 `newBagQr` + 本次去皮重，upsert `biz_clean_bag (device_id, door_index)`。
 
 ### 4.4 `spillAlarm`（alert）— 满溢告警
 
@@ -240,7 +240,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 > §4.4 / §4.5 对应「设备状态/告警上报」功能缺口，待后端补告警处理端点（`docs/planning/open-items.md` §2）。
 
 > **无独立 `photoReport` 事件**（投递、清运一致：照片位置设备自定、URL 随业务事件回传）：
-> - **清运**：4 个 URL **随 `cleanGross` 回传**（见 §4.2），后端回填订单、原样存。
+> - **清运**：4 个 URL **随 `cleanGross` 回传**（见 §4.2），后端回填清运记录、原样存。
 > - **投递**：4 个 URL **随 `deliveryComplete` 回传**（见 §4.1），后端建单、原样存。
 
 ---
@@ -262,7 +262,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 | 物模型功能点 | 类型 | 后端落点 | 状态 |
 |--------------|------|---------|------|
 | `openDeliveryDoor` | service | `DeliveryOrderService.openDoor`（**开启设备=建会话不建单**）→ `DeviceCommandService.sendOpenDoor(sn,doorIndex)` → `OneNetClient.openDeliveryDoor` | 真实下发已接通（凭证已配、API `/thingmodel/call-service` 已确认、入参仅 doorIndex+cosToken，分类由后端按投口配置兜底）；平台受理待设备在线最终确认 |
-| `openCleanDoor`(含 cleanOrderId) | service | `CleanOrderService.openCleanDoor`（**开门即建单**，不预存照片）→ `DeviceCommandService.sendOpenCleanDoor` → `OneNetClient.openCleanDoor` | 建单已实现；真实下发同上（同一 `call-service` 通道），待设备在线确认 |
+| `openCleanDoor`(含 cleanOrderId) | service | `CleanOrderService.openCleanDoor`（**开门即创建清运记录**，不预存照片）→ `DeviceCommandService.sendOpenCleanDoor` → `OneNetClient.openCleanDoor` | 清运记录创建已实现；真实下发同上（同一 `call-service` 通道），待设备在线确认 |
 | `cosToken`(仅凭证，投递/清运通用) | service 入参 | `OneNetClient.baseCosToken`（凭证，无 key、无 expire；按 512 拆 `sessionToken1/2`） | 已实现，待凭证联调 |
 | 照片 URL | — | **投递/清运一致**：设备自定位置、随上行事件回传 4 个 URL，后端原样存（投递 `completeDelivery`、清运 `reportGross`）；后端不再算 key | 已实现 |
 | 设备活跃会话 | — | `DeviceSessionService.activate/findActive/refresh`（`biz_device_session`，V13） | 已实现（开启设备建会话、上传后建单取归属） |
@@ -282,16 +282,16 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
    - **报文结构（已据官方「服务端订阅消息类型」文档确认）**：两层。第一层 `{ superMsg, pv, t, data, sign }`，`data` 为 **AES 加密 Base64**（算法 `AES/ECB/PKCS5`，key = 消费组 KEY 的 `substring(8,24)`）；解密后第二层 `{ "msgType": <类型>, "subData": { deviceName, productId, deviceId, imei, params/... } }`。
    - **身份**在 `subData.deviceName`（= `biz_device.sn`），印证 §0「身份不进 payload」。**业务事件**走 `msgType=thingEvent`，输出在 `subData.params` 按 identifier 承载；属性 `thingProperty`、上下线 `deviceOnline/Offline`、下发回执 `thingServiceReply`。
    - **事件输出结构（已用真实报文确认）**：`thingEvent` 单个事件**被 `value` 包裹**，形如 `params.cleanGross = {"time":<ms>,"value":{"weight":10,"cleanOrderId":45}}`；`OneNetEventDispatcher.unwrap` 正确解出。真实报文不含 `imei` 字段（无妨，按需取）。
-   - **联调实测（2026-06-10）**：控制台设备模拟器以 test-divice-1 发 cleanGross → consumer 收到并解密 → 分发器调 `reportGross` 成功（仅因测试单不存在而抛"订单不存在"，属预期）。整条上行（连接/解密/解析/分发）零问题。
+   - **联调实测（2026-06-10）**：控制台设备模拟器以 test-divice-1 发 cleanGross → consumer 收到并解密 → 分发器调 `reportGross` 成功（仅因测试记录不存在而抛出历史错误文案“订单不存在”，属预期）。整条上行（连接/解密/解析/分发）零问题。
    - HTTP 推送（`POST /api/iot/onenet/notify`）仍仅作有公网 IP 时的备选，未实现。
 2b. **图片链路（设备直传 COS，已落地；投递、清运一致）**：
-   - **清运（开门即建单）**：后端开门只下发凭证（`baseCosToken`，**不含 key**），订单 `photo_*` 留空；照片对象 key 由设备自定，4 个 URL 由设备**随 `cleanGross` 回传**，后端 `reportGross` 原样写订单 `photo_*`。
+   - **清运（开门即创建清运记录）**：后端开门只下发凭证（`baseCosToken`，**不含 key**），清运记录 `photo_*` 留空；照片对象 key 由设备自定，4 个 URL 由设备**随 `cleanGross` 回传**，后端 `reportGross` 原样写入清运记录 `photo_*`。
    - **投递（上传后建单 + 继续投递，见 §8）**：开门只下发凭证（`baseCosToken`）；照片对象 key 由设备自定；照片 4 个 URL 由设备**随 `deliveryComplete` 回传**，后端 `completeDelivery` 原样写订单 `photo_*`（不复原）。
    - **照片 key 约定**：投递、清运对象 key 均由设备自定（后端不约束格式、不再算 key，只存设备回传的 URL；建议清运用 `{sn}/clean/{唯一串}/<slot>.jpg`、投递用 `{sn}/delivery/{唯一串}/<slot>.jpg` 以区分业务）。slot 槽位语义 ∈ `open_outside`/`open_inside`/`close_outside`/`close_inside`。（无 `photoReport` 事件、`/api/iot/photo/**` 端点、`PhotoNotifyService`，均已移除。）
    - **固件约定（sessionToken 拼接）**：STS 令牌实测约 640 > OneNet 512 上限，已拆 `sessionToken1`+`sessionToken2`。后端下发时按序切分（前 512 + 余下）；**固件须按 `sessionToken1 + sessionToken2` 顺序拼接还原**完整令牌再用于 COS 直传。
    - **兜底**：后端不校验对象是否真上传成功；设备没传上时前端加载出 404 显示占位图。
-3. **清运 `userId` 来源**：已定为**小程序扫码登录态**——`openCleanDoor` 建单时由后端 `SecurityUtils` 取登录清运员写入订单，设备不再上报 `userId`（现仅支持小程序扫码登录）。
-4. **`cleanOrderId` 幂等**：清运毛重以 `cleanOrderId` 为幂等键（一单一次毛重，重复上报不覆盖），取代原设备生成的 `reportSn`。设备只需原样回传开门下发的 `cleanOrderId`。
+3. **清运 `userId` 来源**：已定为**小程序扫码登录态**——`openCleanDoor` 创建记录时由后端 `SecurityUtils` 取登录清运员写入清运记录，设备不再上报 `userId`（现仅支持小程序扫码登录）。
+4. **`cleanOrderId` 幂等**：清运毛重以历史字段 `cleanOrderId` 为幂等键（每条清运记录只接受一次毛重，重复上报不覆盖），取代原设备生成的 `reportSn`。设备只需原样回传开门下发的 `cleanOrderId`。
 5. ~~**下发 API 规格**~~ ✅ **已确认并接通（2026-06-13）**：AIoT 融合平台「设备服务调用」`POST https://iot-api.heclouds.com/thingmodel/call-service`，token `res=products/{productId}`+sha256，详见 §3.5。凭证已填本地 secrets YAML。剩：平台 `code=0` 受理后，命令到设备需设备在线，端到端待真实设备/模拟器确认。
 6. ~~**物模型 schema 校验**~~ ✅ 已导入 OneNet 控制台（`docs/iot/onenet-thing-model.json` 为单一来源）。
 
@@ -301,7 +301,7 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 为支持设备屏「继续投递」（用户投完一袋后在设备端直接再开门投下一袋，不必回小程序），投递从
 「后端开门即建单」改为「**设备上传称重后后端才建单**」，用户身份靠后端维护的「设备当前活跃用户」会话关联。
-清运不受影响（仍开门即建单）。
+清运不受影响（仍开门即创建记录）。
 
 **流程**：
 1. **开启设备**（小程序·登录态，`POST /api/app/delivery/open`）：后端取登录 `userId`，按 `device_id` upsert

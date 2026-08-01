@@ -534,7 +534,7 @@ organizationCode={optional, Web only}
     },
     "cleaning": {
       "createdRecordCount": 4,
-      "currentPendingReviewCount": 1
+      "anomalousRecordCount": 1
     },
     "operations": {
       "currentOnlineDeploymentCount": 8,
@@ -580,7 +580,7 @@ organizationCode={optional, Web only}
 | 已认定订单/重量/返现金额 | 期间订单在 `asOf` 时已经有当前最终认定且具备有效用户经营归属；重量和金额按当前最终认定带符号求和，无主技术订单不计入有效重量和经营金额 |
 | 当前待审投递 | `asOf` 时当前授权机构全部待首次审核订单数，不按期间裁剪 |
 | 清运记录数 | 清运物理发生时间落入期间的已创建记录数 |
-| 当前待审清运 | `asOf` 时全部待首次审核清运记录数，不按期间裁剪 |
+| 异常清运记录数 | 清运物理发生时间落入期间，且保存至少一个清运系统异常的已完成记录数；异常不生成审核待办，后来修改当前有效重量不删除原异常 |
 | 当前在线设备 | 当前有效部署的边缘在线投影为 `ONLINE` 的数量，不把最近历史心跳自行推导成在线 |
 | 当前满溢投口 | `asOf` 时存在活动满溢事件的投口数；疑似检测中与故障不计成“已满” |
 | 当前活动告警 | `asOf` 时当前授权机构全部 `OPEN` 告警数 |

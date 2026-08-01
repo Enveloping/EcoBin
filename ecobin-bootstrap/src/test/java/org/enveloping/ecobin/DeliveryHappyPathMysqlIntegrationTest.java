@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
@@ -141,6 +142,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
 
     @AfterEach
     void disableFixturePlatformAdministrator() {
+        deferCurrentDeliveryFixture();
         if (platformLogin == null) {
             return;
         }
@@ -516,6 +518,737 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 ready,
                 miniappUser,
                 5);
+    }
+
+    @Test
+    void trustedCleanerCompletionCreatesEditableRecordAndAtomicBagSwap()
+            throws Exception {
+        ReadyDeployment ready = prepareReadyDeployment();
+        seedDeliveryBusinessFacts(ready);
+        MiniappUser ordinary = registerPhoneBoundMiniappUser(ready);
+        MiniappUser cleaner = promoteToCleaner(ready, ordinary);
+
+        String newBagCode = "CLEAN-BAG-" + run;
+        UUID idempotencyKey = UUID.randomUUID();
+        MvcResult started = mockMvc.perform(
+                        post("/api/v1/miniapp/device-deployments/"
+                                + ready.deploymentCode()
+                                + "/ports/2/clean-operations")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + cleaner.accessToken())
+                                .header(
+                                        "Idempotency-Key",
+                                        idempotencyKey.toString())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "installedBagQr",
+                                                newBagCode))))
+                .andReturn();
+        assertEquals(
+                202,
+                started.getResponse().getStatus(),
+                started.getResponse().getContentAsString());
+        UUID operationUid = UUID.fromString(
+                data(started).path("operationUid").asText());
+
+        assertEquals(
+                "PREPARED|0|0|0|0",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    status, '|',
+                                    edge_saved_confirmed, '|',
+                                    first_unlock_may_have_executed, '|',
+                                    clean_lock_deenergized_confirmed, '|',
+                                    cleaner_physical_close_confirmed
+                                )
+                                FROM rec_clean_operation
+                                WHERE operation_uid = ?
+                                """,
+                        String.class,
+                        operationUid.toString()));
+        assertEquals(4, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_clean_photo photo
+                        JOIN rec_clean_operation operation
+                          ON operation.id = photo.clean_operation_id
+                        WHERE operation.operation_uid = ?
+                          AND photo.status = 'UPLOAD_PENDING'
+                          AND photo.missing_reason = 'UPLOAD_PENDING'
+                        """, Integer.class, operationUid.toString()));
+
+        ReliableWorkerBatchResult submission = commandWorker.runBatch(
+                "clean-start-" + operationUid);
+        assertEquals(1, submission.claimed());
+        assertEquals(1, submission.accepted());
+        assertEquals(0, submission.failed());
+        DeviceCommandSubmission downlink =
+                submissionProbe.lastSubmission();
+        assertNotNull(downlink);
+        assertEquals("START_CLEAN_OPERATION", downlink.commandType());
+        assertEquals(
+                operationUid.toString(),
+                objectMapper.readTree(downlink.semanticEnvelopeJson())
+                        .path("target").path("uid").asText());
+
+        DeliveryEvent cleanEvent = trustedCleanComplete(
+                ready,
+                operationUid,
+                downlink,
+                3);
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """, String.class, cleanEvent.eventUid()));
+
+        Map<String, Object> record = jdbc.queryForMap("""
+                SELECT record.id,
+                       record.clean_record_no,
+                       record.record_class,
+                       record.pre_unlock_weight_g,
+                       record.old_baseline_weight_g,
+                       record.device_removed_net_weight_status,
+                       record.device_removed_net_weight_g,
+                       record.recalculated_removed_net_weight_status,
+                       record.recalculated_removed_net_weight_g,
+                       record.final_total_weight_status,
+                       record.final_total_weight_g,
+                       record.effective_removed_net_weight_g,
+                       record.effective_weight_source,
+                       record.record_remark,
+                       record.lock_version
+                FROM rec_clean_record record
+                JOIN rec_clean_operation operation
+                  ON operation.id = record.clean_operation_id
+                WHERE operation.operation_uid = ?
+                """, operationUid.toString());
+        assertEquals("NORMAL", record.get("record_class").toString());
+        assertEquals(
+                20_000L,
+                ((Number) record.get("pre_unlock_weight_g")).longValue());
+        assertEquals(
+                10_000L,
+                ((Number) record.get("old_baseline_weight_g")).longValue());
+        assertEquals(
+                "RELIABLE|10000|RELIABLE|10000|RELIABLE|1200",
+                record.get("device_removed_net_weight_status") + "|"
+                        + record.get("device_removed_net_weight_g") + "|"
+                        + record.get(
+                        "recalculated_removed_net_weight_status") + "|"
+                        + record.get(
+                        "recalculated_removed_net_weight_g") + "|"
+                        + record.get("final_total_weight_status") + "|"
+                        + record.get("final_total_weight_g"));
+        assertEquals(
+                10_000L,
+                ((Number) record.get(
+                        "effective_removed_net_weight_g")).longValue());
+        assertEquals(
+                "DEVICE_RECALCULATED",
+                record.get("effective_weight_source").toString());
+        assertEquals(null, record.get("record_remark"));
+        assertEquals(
+                1L,
+                ((Number) record.get("lock_version")).longValue());
+
+        assertEquals(
+                "COMPLETED|1|1|1|1|1|CLEANER_CONFIRMED",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    operation.status, '|',
+                                    operation.edge_saved_confirmed, '|',
+                                    operation.first_unlock_may_have_executed,
+                                    '|',
+                                    operation.clean_lock_deenergized_confirmed,
+                                    '|',
+                                    operation.cleaner_physical_close_confirmed,
+                                    '|',
+                                    operation.completion_record_id IS NOT NULL,
+                                    '|', operation.end_reason
+                                )
+                                FROM rec_clean_operation operation
+                                WHERE operation.operation_uid = ?
+                                """,
+                        String.class,
+                        operationUid.toString()));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_occupancy occupancy
+                        JOIN rec_clean_operation operation
+                          ON operation.id = occupancy.clean_operation_id
+                        WHERE operation.operation_uid = ?
+                        """, Integer.class, operationUid.toString()));
+        assertEquals(
+                "PHYSICAL_SUCCEEDED|DONE",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    command.physical_state, '|', task.state)
+                                FROM dev_device_command command
+                                JOIN rec_clean_operation operation
+                                  ON operation.id =
+                                     command.clean_operation_id
+                                JOIN ops_reliable_task task
+                                  ON task.source_device_command_id =
+                                     command.id
+                                 AND task.task_type =
+                                     'START_CLEAN_OPERATION'
+                                WHERE operation.operation_uid = ?
+                                """,
+                        String.class,
+                        operationUid.toString()));
+
+        assertEquals(
+                newBagCode,
+                jdbc.queryForObject("""
+                                SELECT bag.bag_code
+                                FROM rec_bag_current_occupancy occupancy
+                                JOIN rec_bag bag
+                                  ON bag.id = occupancy.bag_id
+                                WHERE occupancy.tenant_id = ?
+                                  AND occupancy.organization_id = ?
+                                  AND occupancy.port_id = ?
+                                  AND occupancy.occupancy_type = 'PORT_BOUND'
+                                """,
+                        String.class,
+                        ready.tenantId(),
+                        ready.organizationId(),
+                        ready.portId()));
+        assertEquals(
+                "REMOVED_BY_CLEAN|INSTALLED_BY_CLEAN",
+                jdbc.queryForObject("""
+                                SELECT GROUP_CONCAT(
+                                    event_type ORDER BY id SEPARATOR '|')
+                                FROM rec_bag_occupancy_event
+                                WHERE clean_operation_id = (
+                                    SELECT id
+                                    FROM rec_clean_operation
+                                    WHERE operation_uid = ?
+                                )
+                                  AND event_type IN (
+                                      'REMOVED_BY_CLEAN',
+                                      'INSTALLED_BY_CLEAN'
+                                  )
+                                """,
+                        String.class,
+                        operationUid.toString()));
+
+        Map<String, Object> detection = jdbc.queryForMap("""
+                SELECT detection.id,
+                       detection.detection_uid,
+                       detection.trigger_type,
+                       detection.status,
+                       detection.baseline_state_snapshot,
+                       detection.baseline_weight_g_snapshot
+                FROM rec_fullness_detection detection
+                WHERE detection.clean_record_id = ?
+                """, record.get("id"));
+        assertEquals(
+                "CLEAN_COMPLETE|PENDING_INITIAL_SAMPLE|VALID|1200",
+                detection.get("trigger_type") + "|"
+                        + detection.get("status") + "|"
+                        + detection.get("baseline_state_snapshot") + "|"
+                        + detection.get("baseline_weight_g_snapshot"));
+        assertEquals(
+                "VALID|1200|0|0.00|PENDING|UNKNOWN",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    baseline_state, '|',
+                                    current_baseline_weight_g, '|',
+                                    raw_net_weight_g, '|',
+                                    displayed_fullness_percent, '|',
+                                    detection_gate, '|',
+                                    confirmed_fullness_state
+                                )
+                                FROM rec_port_capacity_state
+                                WHERE port_id = ?
+                                """,
+                        String.class,
+                        ready.portId()));
+
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM information_schema.tables
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'rec_clean_revision'
+                        """, Integer.class));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'rec_clean_record'
+                          AND column_name IN (
+                              'review_status',
+                              'review_revision_no',
+                              'review_revision_id',
+                              'final_recognized_net_weight_kg'
+                          )
+                        """, Integer.class));
+
+        assertCleanRecordQueryAndDirectEdit(
+                ready,
+                cleaner,
+                record.get("clean_record_no").toString(),
+                operationUid,
+                newBagCode);
+
+        dispatchTrustedWireEvent(
+                "cleanComplete",
+                cleanEvent.wire(),
+                ready.hardwareSn());
+        ReliableWorkerBatchResult duplicate = inboxWorker.runBatch(
+                "clean-duplicate-" + operationUid);
+        assertEquals(1, duplicate.claimed());
+        assertEquals(1, duplicate.accepted());
+        assertEquals(0, duplicate.failed());
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_clean_record record
+                        JOIN rec_clean_operation operation
+                          ON operation.id = record.clean_operation_id
+                        WHERE operation.operation_uid = ?
+                        """, Integer.class, operationUid.toString()));
+
+        completeAndAssertNotFullDetection(
+                ready,
+                detection.get("detection_uid").toString(),
+                4);
+    }
+
+    @Test
+    void cleaningFreezesPendingDeliveryAndRecoversOldFullnessOnlyAfterNotFull()
+            throws Exception {
+        ReadyDeployment ready = prepareReadyDeployment();
+        seedDeliveryBusinessFacts(ready);
+        MiniappUser ordinary = registerPhoneBoundMiniappUser(ready);
+
+        assertFullDetectionRequiresConfirmation(ready, ordinary, 3);
+        Map<String, Object> oldFullness = jdbc.queryForMap("""
+                SELECT event.id AS event_id,
+                       session_row.id AS session_id
+                FROM rec_port_capacity_state capacity
+                JOIN rec_fullness_event event
+                  ON event.id = capacity.current_fullness_event_id
+                 AND event.status = 'ACTIVE'
+                JOIN rec_fullness_detection detection
+                  ON detection.id = event.confirmed_detection_id
+                JOIN rec_delivery_order order_row
+                  ON order_row.id = detection.delivery_order_id
+                JOIN dev_delivery_session session_row
+                  ON session_row.id = order_row.delivery_session_id
+                WHERE capacity.port_id = ?
+                """, ready.portId());
+        long oldEventId = ((Number) oldFullness.get("event_id"))
+                .longValue();
+        long pendingSessionId = ((Number) oldFullness.get("session_id"))
+                .longValue();
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_port_runtime_state
+                        SET pending_delivery_result_session_id = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                          AND port_id = ?
+                        """,
+                pendingSessionId,
+                ready.tenantId(),
+                ready.organizationId(),
+                ready.deploymentId(),
+                ready.portId()));
+        deferConfirmationTasks(ready.deploymentId());
+
+        MiniappUser cleaner = promoteToCleaner(ready, ordinary);
+        CleanOperationStarted clean = startCleanOperation(
+                ready,
+                cleaner,
+                "CLEAN-RECOVERY-BAG-" + run);
+        assertEquals(
+                pendingSessionId,
+                jdbc.queryForObject("""
+                                SELECT pending_delivery_result_session_id
+                                FROM rec_clean_operation
+                                WHERE operation_uid = ?
+                                """,
+                        Long.class,
+                        clean.operationUid().toString()));
+
+        trustedCleanComplete(
+                ready,
+                clean.operationUid(),
+                clean.downlink(),
+                6);
+        Map<String, Object> pendingDetection = jdbc.queryForMap("""
+                SELECT detection.detection_uid,
+                       capacity.detection_gate,
+                       capacity.current_fullness_event_id,
+                       event.status AS event_status,
+                       runtime.pending_delivery_result_session_id
+                FROM rec_clean_operation operation
+                JOIN rec_clean_record record
+                  ON record.clean_operation_id = operation.id
+                JOIN rec_fullness_detection detection
+                  ON detection.clean_record_id = record.id
+                JOIN rec_port_capacity_state capacity
+                  ON capacity.port_id = operation.port_id
+                JOIN rec_fullness_event event
+                  ON event.id = ?
+                JOIN dev_port_runtime_state runtime
+                  ON runtime.tenant_id = operation.tenant_id
+                 AND runtime.organization_id = operation.organization_id
+                 AND runtime.deployment_id = operation.deployment_id
+                 AND runtime.port_id = operation.port_id
+                WHERE operation.operation_uid = ?
+                """, oldEventId, clean.operationUid().toString());
+        assertEquals("PENDING", pendingDetection.get("detection_gate"));
+        assertEquals(
+                oldEventId,
+                ((Number) pendingDetection.get(
+                        "current_fullness_event_id")).longValue());
+        assertEquals("ACTIVE", pendingDetection.get("event_status"));
+        assertEquals(
+                null,
+                pendingDetection.get(
+                        "pending_delivery_result_session_id"));
+
+        completeAndAssertNotFullDetection(
+                ready,
+                pendingDetection.get("detection_uid").toString(),
+                7);
+        assertEquals(
+                "RECOVERED|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    status, '|',
+                                    recovered_by_detection_id IS NOT NULL
+                                )
+                                FROM rec_fullness_event
+                                WHERE id = ?
+                                """,
+                        String.class,
+                        oldEventId));
+        deferConfirmationTasks(ready.deploymentId());
+    }
+
+    @Test
+    void weightOnlyCleanWithInvalidBaselineFailsGateWithoutSampling()
+            throws Exception {
+        ReadyDeployment ready = prepareReadyDeployment();
+        seedDeliveryBusinessFacts(ready);
+        useWeightOnlyFullness(ready);
+        MiniappUser ordinary = registerPhoneBoundMiniappUser(ready);
+        MiniappUser cleaner = promoteToCleaner(ready, ordinary);
+        CleanOperationStarted clean = startCleanOperation(
+                ready,
+                cleaner,
+                "CLEAN-INVALID-BASELINE-BAG-" + run);
+
+        trustedCleanComplete(
+                ready,
+                clean.operationUid(),
+                clean.downlink(),
+                3,
+                false);
+
+        Map<String, Object> detection = jdbc.queryForMap("""
+                SELECT detection.id,
+                       detection.status,
+                       detection.final_result,
+                       detection.failure_code,
+                       detection.disposition,
+                       detection.initial_sample_id,
+                       detection.terminal_sample_id
+                FROM rec_fullness_detection detection
+                JOIN rec_clean_record record
+                  ON record.id = detection.clean_record_id
+                JOIN rec_clean_operation operation
+                  ON operation.id = record.clean_operation_id
+                WHERE operation.operation_uid = ?
+                """, clean.operationUid().toString());
+        assertEquals("FAILED", detection.get("status"));
+        assertEquals("SOURCE_FAILED", detection.get("final_result"));
+        assertEquals(
+                "WEIGHT_BASELINE_UNAVAILABLE",
+                detection.get("failure_code"));
+        assertEquals("APPLIED", detection.get("disposition"));
+        assertEquals(null, detection.get("initial_sample_id"));
+        assertEquals(null, detection.get("terminal_sample_id"));
+        assertEquals(
+                "INVALID|FAILED|UNKNOWN|1|1",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    baseline_state, '|',
+                                    detection_gate, '|',
+                                    confirmed_fullness_state, '|',
+                                    current_detection_id IS NULL, '|',
+                                    last_detection_id = ?
+                                )
+                                FROM rec_port_capacity_state
+                                WHERE port_id = ?
+                                """,
+                        String.class,
+                        detection.get("id"),
+                        ready.portId()));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_command
+                        WHERE fullness_detection_id = ?
+                        """,
+                Integer.class,
+                detection.get("id")));
+    }
+
+    private void useWeightOnlyFullness(ReadyDeployment ready) {
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_port_config_snapshot snapshot
+                        JOIN dev_config_application application
+                          ON application.config_version_id =
+                             snapshot.config_version_id
+                         AND application.deployment_id =
+                             snapshot.deployment_id
+                        SET snapshot.fullness_mode = 'WEIGHT_ONLY'
+                        WHERE snapshot.tenant_id = ?
+                          AND snapshot.organization_id = ?
+                          AND snapshot.deployment_id = ?
+                          AND snapshot.port_id = ?
+                          AND application.status = 'APPLIED'
+                        """,
+                ready.tenantId(),
+                ready.organizationId(),
+                ready.deploymentId(),
+                ready.portId()));
+    }
+
+    private CleanOperationStarted startCleanOperation(
+            ReadyDeployment ready,
+            MiniappUser cleaner,
+            String newBagCode) throws Exception {
+        UUID idempotencyKey = UUID.randomUUID();
+        MvcResult started = mockMvc.perform(
+                        post("/api/v1/miniapp/device-deployments/"
+                                + ready.deploymentCode()
+                                + "/ports/2/clean-operations")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + cleaner.accessToken())
+                                .header(
+                                        "Idempotency-Key",
+                                        idempotencyKey.toString())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "installedBagQr",
+                                                newBagCode))))
+                .andReturn();
+        assertEquals(
+                202,
+                started.getResponse().getStatus(),
+                started.getResponse().getContentAsString());
+        UUID operationUid = UUID.fromString(
+                data(started).path("operationUid").asText());
+        ReliableWorkerBatchResult submission = commandWorker.runBatch(
+                "clean-start-" + operationUid);
+        assertEquals(1, submission.claimed());
+        assertEquals(1, submission.accepted());
+        assertEquals(0, submission.failed());
+        DeviceCommandSubmission downlink = submissionProbe.lastSubmission();
+        assertNotNull(downlink);
+        assertEquals("START_CLEAN_OPERATION", downlink.commandType());
+        return new CleanOperationStarted(operationUid, downlink);
+    }
+
+    private void assertCleanRecordQueryAndDirectEdit(
+            ReadyDeployment ready,
+            MiniappUser cleaner,
+            String cleanRecordNo,
+            UUID operationUid,
+            String installedBagCode) throws Exception {
+        JsonNode miniappPage = miniappRead(
+                cleaner,
+                "/api/v1/miniapp/me/clean-records?limit=20",
+                200);
+        assertEquals(1, miniappPage.path("items").size());
+        JsonNode miniappItem = miniappPage.path("items").get(0);
+        assertEquals(
+                cleanRecordNo,
+                miniappItem.path("cleanRecordNo").asText());
+        assertEquals(
+                operationUid.toString(),
+                miniappItem.path("operationUid").asText());
+        assertEquals(
+                cleaner.organizationUserUid().toString(),
+                miniappItem.path("cleanerUserUid").asText());
+        assertEquals("10.00", miniappItem.path(
+                "effectiveRemovedNetWeightKg").asText());
+        assertEquals("INCOMPLETE", miniappItem.path(
+                "photoCompleteness").asText());
+
+        JsonNode miniappDetail = miniappRead(
+                cleaner,
+                "/api/v1/miniapp/me/clean-records/" + cleanRecordNo,
+                200);
+        assertEquals(
+                installedBagCode,
+                miniappDetail.path("bags")
+                        .path("installedBagQr").asText());
+        assertEquals(
+                "1.20",
+                miniappDetail.path("newBaseline")
+                        .path("baselineWeightKg").asText());
+        assertTrue(miniappDetail.path("latestChange").isMissingNode());
+
+        BrowserClient platform = new BrowserClient();
+        login(
+                platform,
+                "/api/v1/web/platform/auth/sessions",
+                platformLogin,
+                PLATFORM_PASSWORD,
+                201);
+        String base = "/api/v1/web/platform/tenants/"
+                + ready.tenantCode()
+                + "/organizations/"
+                + ready.organizationCode()
+                + "/clean-records";
+        JsonNode webPage = data(read(
+                platform,
+                base + "?deploymentCode=" + ready.deploymentCode()
+                        + "&portNo=2&photoCompleteness=INCOMPLETE&limit=20",
+                200));
+        assertEquals(1, webPage.path("items").size());
+        assertEquals(
+                cleanRecordNo,
+                webPage.path("items").get(0)
+                        .path("cleanRecordNo").asText());
+
+        UUID setKey = UUID.randomUUID();
+        Map<String, Object> setBody = Map.of(
+                "expectedVersion", 1,
+                "effectiveRemovedNetWeight", Map.of(
+                        "action", "SET",
+                        "valueKg", "9.50"),
+                "recordRemark", Map.of(
+                        "action", "SET",
+                        "value", "现场台秤复核"),
+                "reason", "设备上报重量与现场交接单不一致");
+        JsonNode edited = data(write(
+                platform,
+                patch(base + "/" + cleanRecordNo),
+                setKey,
+                setBody,
+                200));
+        assertEquals(2, edited.path("version").asLong());
+        assertEquals(
+                "9.50",
+                edited.path("effectiveRemovedNetWeightKg").asText());
+        assertEquals(
+                "MANUAL_SET",
+                edited.path("effectiveWeightSource").asText());
+        String firstChangeUid = edited.path("changeUid").asText();
+
+        JsonNode replay = data(write(
+                platform,
+                patch(base + "/" + cleanRecordNo),
+                setKey,
+                setBody,
+                200));
+        assertEquals(firstChangeUid, replay.path("changeUid").asText());
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_clean_record_change change_row
+                        JOIN rec_clean_record record
+                          ON record.id = change_row.clean_record_id
+                        WHERE record.clean_record_no = ?
+                        """, Integer.class, cleanRecordNo));
+
+        write(
+                platform,
+                patch(base + "/" + cleanRecordNo),
+                setKey,
+                Map.of(
+                        "expectedVersion", 1,
+                        "recordRemark", Map.of(
+                                "action", "CLEAR"),
+                        "reason", "复用键冲突"),
+                409);
+        write(
+                platform,
+                patch(base + "/" + cleanRecordNo),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", 1,
+                        "recordRemark", Map.of(
+                                "action", "CLEAR"),
+                        "reason", "过期版本"),
+                409);
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_clean_record_change change_row
+                        JOIN rec_clean_record record
+                          ON record.id = change_row.clean_record_id
+                        WHERE record.clean_record_no = ?
+                        """, Integer.class, cleanRecordNo));
+
+        JsonNode cleared = data(write(
+                platform,
+                patch(base + "/" + cleanRecordNo),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", 2,
+                        "effectiveRemovedNetWeight", Map.of(
+                                "action", "CLEAR"),
+                        "recordRemark", Map.of(
+                                "action", "CLEAR"),
+                        "reason", "撤销人工值并清空备注"),
+                200));
+        assertEquals(3, cleared.path("version").asLong());
+        assertTrue(cleared.path(
+                "effectiveRemovedNetWeightKg").isNull());
+        assertEquals(
+                "MANUAL_CLEARED",
+                cleared.path("effectiveWeightSource").asText());
+
+        JsonNode detail = data(read(
+                platform,
+                base + "/" + cleanRecordNo,
+                200));
+        assertEquals(3, detail.path("effective")
+                .path("version").asLong());
+        assertFalse(detail.path("effective")
+                .path("includedInKnownWeightStatistics").asBoolean());
+        assertEquals(
+                "MANUAL_CLEARED",
+                detail.path("effective").path("source").asText());
+        assertEquals(3, detail.path("latestChange")
+                .path("toVersion").asLong());
+
+        JsonNode changes = data(read(
+                platform,
+                base + "/" + cleanRecordNo + "/changes?limit=1",
+                200));
+        assertEquals(1, changes.path("items").size());
+        assertEquals(3, changes.path("items").get(0)
+                .path("toVersion").asLong());
+        assertFalse(changes.path("nextCursor").isNull());
+        JsonNode older = data(read(
+                platform,
+                base + "/" + cleanRecordNo + "/changes?limit=1&cursor="
+                        + changes.path("nextCursor").asText(),
+                200));
+        assertEquals(2, older.path("items").get(0)
+                .path("toVersion").asLong());
+
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM fund_user_wallet_entry entry_row
+                        WHERE entry_row.created_at >= (
+                            SELECT completed_at
+                            FROM rec_clean_record
+                            WHERE clean_record_no = ?
+                        )
+                          AND entry_row.delivery_revision_id IS NULL
+                        """, Integer.class, cleanRecordNo));
     }
 
     private void completeAndAssertNotFullDetection(
@@ -1863,6 +2596,342 @@ class DeliveryHappyPathMysqlIntegrationTest {
         return new MiniappUser(accessToken, userUid, appId);
     }
 
+    private MiniappUser promoteToCleaner(
+            ReadyDeployment ready,
+            MiniappUser ordinary) throws Exception {
+        long organizationUserId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM iam_organization_user
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND organization_user_uid = ?
+                        """,
+                Long.class,
+                ready.tenantId(),
+                ready.organizationId(),
+                ordinary.organizationUserUid().toString());
+        jdbc.update("""
+                        INSERT INTO iam_organization_user_capability (
+                            tenant_id, organization_id,
+                            organization_user_id,
+                            capability_code, enabled,
+                            granted_at, revoked_at,
+                            lock_version, updated_at
+                        ) VALUES (
+                            ?, ?, ?, 'CLEAN_OPERATION', 1,
+                            UTC_TIMESTAMP(3), NULL, 0,
+                            UTC_TIMESTAMP(3)
+                        )
+                        """,
+                ready.tenantId(),
+                ready.organizationId(),
+                organizationUserId);
+
+        MvcResult login = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/sessions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "appId", ordinary.appId(),
+                                                "wxLoginCode",
+                                                "fake:delivery:" + run
+                                                        + ":owner",
+                                                "registrationSource",
+                                                Map.of(
+                                                        "deploymentCode",
+                                                        ready.deploymentCode())))))
+                .andReturn();
+        assertEquals(
+                201,
+                login.getResponse().getStatus(),
+                login.getResponse().getContentAsString());
+        JsonNode data = data(login);
+        assertEquals(
+                "CLEANING",
+                data.path("entryMode").asText());
+        return new MiniappUser(
+                data.path("accessToken").asText(),
+                ordinary.organizationUserUid(),
+                ordinary.appId());
+    }
+
+    private DeliveryEvent trustedCleanComplete(
+            ReadyDeployment ready,
+            UUID operationUid,
+            DeviceCommandSubmission downlink,
+            long edgeEventSequence) throws Exception {
+        return trustedCleanComplete(
+                ready,
+                operationUid,
+                downlink,
+                edgeEventSequence,
+                true);
+    }
+
+    private DeliveryEvent trustedCleanComplete(
+            ReadyDeployment ready,
+            UUID operationUid,
+            DeviceCommandSubmission downlink,
+            long edgeEventSequence,
+            boolean stableFinalMeasurement) throws Exception {
+        Map<String, Object> frozen = jdbc.queryForMap("""
+                SELECT command.command_uid,
+                       config.version_no,
+                       LOWER(HEX(config.content_sha256))
+                           AS content_sha256,
+                       LOWER(HEX(config.mcu_payload_sha256))
+                           AS mcu_payload_sha256,
+                       snapshot.calibration_version,
+                       old_bag.bag_uid AS old_bag_uid,
+                       new_bag.bag_uid AS new_bag_uid
+                FROM rec_clean_operation operation
+                JOIN dev_device_command command
+                  ON command.clean_operation_id = operation.id
+                 AND command.command_type =
+                     'START_CLEAN_OPERATION'
+                JOIN dev_config_version config
+                  ON config.id = operation.device_config_version_id
+                JOIN dev_port_config_snapshot snapshot
+                  ON snapshot.config_version_id = config.id
+                 AND snapshot.port_id = operation.port_id
+                LEFT JOIN rec_bag old_bag
+                  ON old_bag.id = operation.old_bag_id
+                JOIN rec_bag new_bag
+                  ON new_bag.id = operation.new_bag_id
+                WHERE operation.operation_uid = ?
+                """, operationUid.toString());
+        assertEquals(
+                downlink.commandUid().toString(),
+                frozen.get("command_uid").toString());
+        long configVersion = ((Number) frozen.get(
+                "version_no")).longValue();
+        long calibrationVersion = ((Number) frozen.get(
+                "calibration_version")).longValue();
+        String contentSha256 =
+                frozen.get("content_sha256").toString();
+        String mcuPayloadSha256 =
+                frozen.get("mcu_payload_sha256").toString();
+        String oldBagUid = frozen.get("old_bag_uid").toString();
+        String newBagUid = frozen.get("new_bag_uid").toString();
+
+        ObjectNode wire = (ObjectNode) objectMapper.readTree(
+                        Files.readString(contractPath(
+                                "contracts/examples/onenet-wire/"
+                                        + "clean-complete"
+                                        + ".event-wire.json")))
+                .path("oneJsonPayload")
+                .path("params")
+                .path("cleanComplete")
+                .path("value")
+                .deepCopy();
+        String eventUid = UUID.randomUUID().toString();
+        String occurredAt = Instant.now()
+                .minusSeconds(1)
+                .truncatedTo(ChronoUnit.MILLIS)
+                .toString();
+        wire.put("eventUid", eventUid);
+        wire.put("commandUid", downlink.commandUid().toString());
+        wire.put("operationUid", operationUid.toString());
+        wire.put("deploymentCode", ready.deploymentCode());
+        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("occurredAt", occurredAt);
+        wire.put("occurredAtPresent", true);
+        ((ObjectNode) wire.path("target"))
+                .put("uid", operationUid.toString());
+        wire.put("oldBagUidPresent", true);
+        wire.put("oldBagUid", oldBagUid);
+        wire.put("newBagUid", newBagUid);
+        wire.put("removedNetWeightGramsPresent", true);
+        wire.put("removedNetWeightGrams", 10_000);
+        wire.put(
+                "newBaselineWeightGramsPresent",
+                stableFinalMeasurement);
+        if (stableFinalMeasurement) {
+            wire.put("newBaselineWeightGrams", 1_200);
+        } else {
+            wire.remove("newBaselineWeightGrams");
+        }
+        ObjectNode wireConfig =
+                (ObjectNode) wire.path("frozenConfig");
+        wireConfig.put("version", configVersion);
+        wireConfig.put("contentSha256", contentSha256);
+        wireConfig.put("mcuPayloadSha256", mcuPayloadSha256);
+        setStableCleanMeasurement(
+                (ObjectNode) wire.path("preUnlockMeasurement"),
+                UUID.randomUUID().toString(),
+                20_000,
+                calibrationVersion,
+                31);
+        if (stableFinalMeasurement) {
+            setStableCleanMeasurement(
+                    (ObjectNode) wire.path(
+                            "cleanerConfirmedFinalMeasurement"),
+                    UUID.randomUUID().toString(),
+                    1_200,
+                    calibrationVersion,
+                    42);
+        } else {
+            setFailedCleanMeasurement(
+                    (ObjectNode) wire.path(
+                            "cleanerConfirmedFinalMeasurement"),
+                    UUID.randomUUID().toString(),
+                    calibrationVersion,
+                    42);
+        }
+
+        ObjectNode semanticPayload =
+                (ObjectNode) objectMapper.readTree(
+                                Files.readString(contractPath(
+                                        "contracts/examples/onenet/"
+                                                + "clean-complete"
+                                                + ".event.json")))
+                        .path("payload")
+                        .deepCopy();
+        semanticPayload.put("operationUid", operationUid.toString());
+        semanticPayload.put("oldBagUid", oldBagUid);
+        semanticPayload.put("newBagUid", newBagUid);
+        semanticPayload.put("removedNetWeightGrams", 10_000);
+        if (stableFinalMeasurement) {
+            semanticPayload.put("newBaselineWeightGrams", 1_200);
+        } else {
+            semanticPayload.putNull("newBaselineWeightGrams");
+        }
+        ObjectNode semanticConfig =
+                (ObjectNode) semanticPayload.path("frozenConfig");
+        semanticConfig.put("version", configVersion);
+        semanticConfig.put("contentSha256", contentSha256);
+        semanticConfig.put(
+                "mcuPayloadSha256", mcuPayloadSha256);
+        copyNormalizedMeasurement(
+                wire.path("preUnlockMeasurement"),
+                (ObjectNode) semanticPayload.path(
+                        "preUnlockMeasurement"));
+        copyNormalizedMeasurement(
+                wire.path("cleanerConfirmedFinalMeasurement"),
+                (ObjectNode) semanticPayload.path(
+                        "cleanerConfirmedFinalMeasurement"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semantic = objectMapper.convertValue(
+                semanticPayload,
+                Map.class);
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semantic));
+        wire.put("payloadSha256", payloadSha256);
+
+        dispatchTrustedWireEvent(
+                "cleanComplete",
+                wire,
+                ready.hardwareSn());
+        ReliableWorkerBatchResult result = inboxWorker.runBatch(
+                "clean-complete-" + eventUid);
+        assertEquals(1, result.claimed());
+        assertEquals(
+                0,
+                result.failed(),
+                () -> inboxFailureDiagnostic(eventUid));
+        assertEquals(1, result.accepted());
+        return new DeliveryEvent(
+                eventUid,
+                payloadSha256,
+                wire);
+    }
+
+    private static void setStableCleanMeasurement(
+            ObjectNode measurement,
+            String measurementUid,
+            long weightGrams,
+            long calibrationVersion,
+            long mcuEventSequence) {
+        measurement.put("measurementUid", measurementUid);
+        measurement.put("status", 1);
+        measurement.put("weightValueAvailable", true);
+        measurement.put("reportedWeightGrams", weightGrams);
+        measurement.put("reportedWeightGramsPresent", true);
+        measurement.put("weightValueKind", 2);
+        measurement.put("measurementElapsedMs", 1_200);
+        measurement.put("sampleCount", 12);
+        measurement.put("calibrationVersion", calibrationVersion);
+        measurement.put("sensorHealth", 1);
+        measurement.put("faultCodePresent", false);
+        measurement.put("mcuBootId", 101);
+        measurement.put("mcuEventSequence", mcuEventSequence);
+    }
+
+    private static void setFailedCleanMeasurement(
+            ObjectNode measurement,
+            String measurementUid,
+            long calibrationVersion,
+            long mcuEventSequence) {
+        measurement.put("measurementUid", measurementUid);
+        measurement.put("status", 3);
+        measurement.put("weightValueAvailable", false);
+        measurement.put("reportedWeightGramsPresent", false);
+        measurement.remove("reportedWeightGrams");
+        measurement.put("weightValueKind", 1);
+        measurement.put("measurementElapsedMs", 1_200);
+        measurement.put("sampleCount", 0);
+        measurement.put("calibrationVersion", calibrationVersion);
+        measurement.put("sensorHealth", 2);
+        measurement.put("faultCodePresent", true);
+        measurement.put("faultCode", 7);
+        measurement.put("mcuBootId", 101);
+        measurement.put("mcuEventSequence", mcuEventSequence);
+    }
+
+    private static void copyNormalizedMeasurement(
+            JsonNode wire,
+            ObjectNode semantic) {
+        semantic.put(
+                "measurementUid",
+                wire.path("measurementUid").asText());
+        boolean weightAvailable = wire.path(
+                "weightValueAvailable").asBoolean();
+        semantic.put(
+                "status",
+                switch (wire.path("status").asInt()) {
+                    case 1 -> "STABLE";
+                    case 3 -> "TIMEOUT";
+                    default -> throw new IllegalArgumentException(
+                            "unsupported test measurement status");
+                });
+        semantic.put("weightValueAvailable", weightAvailable);
+        if (weightAvailable) {
+            semantic.put(
+                    "reportedWeightGrams",
+                    wire.path("reportedWeightGrams").asLong());
+        } else {
+            semantic.putNull("reportedWeightGrams");
+        }
+        semantic.put(
+                "weightValueKind",
+                wire.path("weightValueKind").asInt() == 2
+                        ? "STABLE_WINDOW_MEAN"
+                        : "NONE");
+        semantic.put(
+                "measurementElapsedMs",
+                wire.path("measurementElapsedMs").asLong());
+        semantic.put(
+                "sampleCount",
+                wire.path("sampleCount").asInt());
+        semantic.put(
+                "calibrationVersion",
+                wire.path("calibrationVersion").asLong());
+        semantic.put(
+                "sensorHealth",
+                wire.path("sensorHealth").asInt() == 1
+                        ? "OK"
+                        : "TIMEOUT");
+        if (wire.path("faultCodePresent").asBoolean()) {
+            semantic.put("faultCode", "WEIGHT_TIMEOUT");
+        } else {
+            semantic.putNull("faultCode");
+        }
+        semantic.put("mcuBootId", wire.path("mcuBootId").asLong());
+        semantic.put(
+                "mcuEventSequence",
+                wire.path("mcuEventSequence").asLong());
+    }
+
     private DeliveryEvent trustedDeliveryComplete(
             ReadyDeployment ready,
             UUID sessionUid) throws Exception {
@@ -2054,6 +3123,8 @@ class DeliveryHappyPathMysqlIntegrationTest {
 
         Map<String, Object> detection = jdbc.queryForMap("""
                 SELECT detection.configured_full_weight_g,
+                       detection.baseline_weight_g_snapshot,
+                       detection.trigger_type,
                        snapshot.calibration_version
                 FROM rec_fullness_detection detection
                 JOIN dev_port_config_snapshot snapshot
@@ -2071,11 +3142,18 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 """, detectionUid);
         long configuredFullWeight = ((Number) detection.get(
                 "configured_full_weight_g")).longValue();
+        Number baselineValue = (Number) detection.get(
+                "baseline_weight_g_snapshot");
+        long baselineWeight = baselineValue == null
+                ? 0L : baselineValue.longValue();
         long calibrationVersion = ((Number) detection.get(
                 "calibration_version")).longValue();
+        String triggerType = detection.get("trigger_type").toString();
         long totalWeight = full
-                ? configuredFullWeight
-                : configuredFullWeight / 2;
+                ? Math.addExact(baselineWeight, configuredFullWeight)
+                : Math.addExact(
+                        baselineWeight,
+                        configuredFullWeight / 2);
 
         ObjectNode wire = (ObjectNode) objectMapper.readTree(
                         Files.readString(contractPath(
@@ -2109,7 +3187,9 @@ class DeliveryHappyPathMysqlIntegrationTest {
         wire.put("occurredAtPresent", true);
         wire.put("sampleRole",
                 "INITIAL".equals(sampleRole) ? 1 : 2);
-        wire.put("triggerType", 1);
+        wire.put(
+                "triggerType",
+                "CLEAN_COMPLETE".equals(triggerType) ? 2 : 1);
         wire.put(
                 "fullnessMode",
                 fullnessModeWireValue(
@@ -2180,7 +3260,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         semanticPayload.put("sampleRole", sampleRole);
         semanticPayload.put(
                 "triggerType",
-                "DELIVERY_COMPLETE");
+                triggerType);
         semanticPayload.put(
                 "fullnessMode",
                 commandPayload.path("fullnessMode").asText());
@@ -2572,6 +3652,36 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 """);
     }
 
+    private void deferCurrentDeliveryFixture() {
+        if (run == null) {
+            return;
+        }
+        String hardwareSn = "HW-DELIVERY-" + run;
+        jdbc.update("""
+                UPDATE ops_reliable_task task
+                LEFT JOIN dev_device_deployment deployment
+                  ON deployment.tenant_id = task.tenant_id
+                 AND deployment.organization_id =
+                     task.organization_id
+                 AND deployment.id =
+                     task.source_device_deployment_id
+                LEFT JOIN dev_device_asset asset
+                  ON asset.id = deployment.asset_id
+                LEFT JOIN ops_inbox_message inbox
+                  ON inbox.id = task.source_inbox_id
+                SET task.next_run_at =
+                        DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 1 DAY),
+                    task.updated_at = UTC_TIMESTAMP(3),
+                    task.lock_version = task.lock_version + 1
+                WHERE task.state = 'PENDING'
+                  AND task.lease_token IS NULL
+                  AND (
+                      asset.hardware_sn = ?
+                      OR inbox.source_principal_key = ?
+                  )
+                """, hardwareSn, hardwareSn);
+    }
+
     private void createEnabledScope(
             BrowserClient platform,
             String tenantCode,
@@ -2935,6 +4045,11 @@ class DeliveryHappyPathMysqlIntegrationTest {
             String eventUid,
             String commandUid,
             long totalWeightGrams) {
+    }
+
+    private record CleanOperationStarted(
+            UUID operationUid,
+            DeviceCommandSubmission downlink) {
     }
 
     private record PhotoStatusEvent(

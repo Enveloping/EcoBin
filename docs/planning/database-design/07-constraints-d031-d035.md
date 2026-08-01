@@ -38,7 +38,7 @@
 
 1. `dev_device_command` 为投递 session 开始、清运、满溢、空袋基准重测和配置五类目标保留互斥的强类型外键；`dev_physical_result` 为投递 session、清运、满溢和基准重测结果保留互斥强类型外键。会话内本地继续开关门不建立命令目标、命令事件或物理结果。`dev_edge_event` 以唯一来源 inbox 和部署内全局序号约束跨类型事件身份；命令事件、物理结果分别以唯一 `edge_event_id` 一对一引用公共头，不能各自再拥有独立事件 UUID/序号。父表提供包含“作用域 + 本行 ID + 对应目标 ID”的候选键。recycling 子表引用物理结果时同时携带自己的目标 ID，防止关联到同机构的另一场作业结果。
 2. `dev_delivery_session` 是投递结果的唯一父根：`dev_physical_result.delivery_session_id` 提供唯一键并以“作用域 + 部署 + 投口 + session”复合外键回指 session；`rec_delivery_order` 同时强引用同一 session 和目标为该 session 的物理结果，并分别唯一。这里没有周期子表、会话内序号或继续 pending 循环，因而不需要为本地轮次构造可空中间指针。session 的 `BUSINESS_CONFIRMED` 只能在唯一物理结果、唯一订单和最终满溢 gate 同事务成立后推进。
-3. `rec_delivery_order.current_revision_id`、`rec_clean_operation.completion_record_id`、`rec_clean_record.review_revision_id`、`rec_port_baseline_measurement.result_baseline_id`、`rec_fullness_detection.initial_sample_id/terminal_sample_id`、`rec_port_capacity_state` 的当前基准/检测/事件指针以及 `fund_payout_gate.current_pause_event_id` 均使用“父聚合 ID + 子 ID + 必要结果字段”的复合外键，不能只引用一个合法但属于其他聚合的子行。`DELIVERY_COMPLETE` 检测强引用唯一投递订单，订单再唯一引用 session；检测样本指针只在该终态需要设备采样时非空。创建时即可从权威无效新基准确定的 `CLEAN_COMPLETE + WEIGHT_BASELINE_UNAVAILABLE` 失败 gate 按 D-020 允许两个样本指针都为空，并由触发类型、基准状态、失败码和终态组合 CHECK 把例外收窄。清运 M0 只有一次初审，因此使用 `review_revision_id` 而不是暗示可多次纠错的 `current_revision_id`；审核后纠错仍只属于投递订单。
+3. `rec_delivery_order.current_revision_id`、`rec_clean_operation.completion_record_id`、`rec_port_baseline_measurement.result_baseline_id`、`rec_fullness_detection.initial_sample_id/terminal_sample_id`、`rec_port_capacity_state` 的当前基准/检测/事件指针以及 `fund_payout_gate.current_pause_event_id` 均使用“父聚合 ID + 子 ID + 必要结果字段”的复合外键，不能只引用一个合法但属于其他聚合的子行。`DELIVERY_COMPLETE` 检测强引用唯一投递订单，订单再唯一引用 session；检测样本指针只在该终态需要设备采样时非空。创建时即可从权威无效新基准确定的 `CLEAN_COMPLETE + WEIGHT_BASELINE_UNAVAILABLE` 失败 gate 按 D-020 允许两个样本指针都为空，并由触发类型、基准状态、失败码和终态组合 CHECK 把例外收窄。清运记录不建立审核修订指针；直接修改通过记录版本与只追加 `rec_clean_record_change` 约束。审核后纠错仍只属于投递订单。
 4. `rec_delivery_revision.previous_revision_id` 使用包含订单、上一版本号及上一版结果的复合自外键；这样本版 `before` 值确实来自同一订单的上一版 `after` 值。订单当前指针再复合引用链尾的版本号、最终重量和金额。
 5. `iam_organization_user.registered_via_deployment_id` 保持可空，但非空时复合引用注册时同机构部署；该值和 `registered_at` 一经插入永远不可回填或修改。
 
@@ -63,7 +63,7 @@ MySQL 唯一索引允许多个 `NULL`。因此手机号可空唯一中的多个�
 |---|---|
 | identity | 平台管理员、工作人员账号、机构用户和工作人员小程序绑定分别以公开 UUIDv4 唯一；平台登录名在独立平台命名空间唯一，工作人员登录名在所有租户间全平台唯一；租户码唯一；机构码在租户内唯一；AppID 全平台唯一且每机构一个；租户主体账号用 `principal_tenant_slot` 保证每租户最多一个且禁用后仍占槽；任职按机构+员工唯一；权限定义按代码+作用域唯一；有效授权用“非空规范作用域判别键 + active marker”唯一；用户按 AppID+OpenID、机构+非空手机号唯一；用户 capability 唯一；管理绑定分别保证同机构用户最多一个当前员工、同员工+AppID 最多一个当前用户；三类会话各自以 UUIDv4 `session_uid` 唯一。 |
 | device | 硬件 SN、部署公开码唯一；OneNet 产品来自系统配置且设备名由 SN 推导，不建立冗余身份唯一键；资产当前部署以槽位表唯一；投口按部署+编号唯一；配置按部署+版本唯一，投口快照按配置+投口唯一，应用过程按配置唯一；运行投影与部署/投口一对一；活动故障键唯一；整机占位按资产唯一；投递 session UUID 唯一；命令 UUID 唯一；公共边缘事件 UUID、来源 inbox 全局唯一且 `(deployment_id, edge_event_sequence)` 唯一；命令事件/物理结果分别与公共事件头一对一；每个 session、清运操作或满溢样本最多一个对应物理结果。 |
-| recycling | 投递/清运配置按机构+版本唯一；订单号、投递 session、物理结果一对一；异常按单据+异常码唯一；投递修订按订单+版本唯一且一版最多一个后继；照片按单据或操作+固定位置唯一；清运操作 UUID、清运记录号、操作和物理结果一对一；未结束清运按投口活动唯一；袋码全平台唯一，当前袋与投口/清运预留双向唯一；袋事件 UUID 及清运来源+事件类型唯一；基准按投口+版本和来源唯一；基准重测 UUID、物理结果和未结束投口各自唯一；检测 UUID、投递订单/清运来源唯一，未结束检测按投口唯一；样本按检测+角色且物理结果唯一；活动满溢事件按投口唯一。 |
+| recycling | 投递/清运配置按机构+版本唯一；订单号、投递 session、物理结果一对一；异常按单据+异常码唯一；投递修订按订单+版本唯一且一版最多一个后继；照片按单据或操作+固定位置唯一；清运操作 UUID、清运记录号、操作和物理结果一对一；清运修改按记录+目标版本唯一且幂等键同摘要复用；未结束清运按投口活动唯一；袋码全平台唯一，当前袋与投口/清运预留双向唯一；袋事件 UUID 及清运来源+事件类型唯一；基准按投口+版本和来源唯一；基准重测 UUID、物理结果和未结束投口各自唯一；检测 UUID、投递订单/清运来源唯一，未结束检测按投口唯一；样本按检测+角色且物理结果唯一；活动满溢事件按投口唯一。 |
 | funds | 提现配置按机构+版本唯一且当前 head 与机构一对一；钱包按机构用户一对一；机构出款账户按机构一对一；两类明细 UUID 唯一，投递修订/充值/调整最多入账一次，提现按 `FREEZE/FINAL` 各最多一次；充值号、提现号、支付/转账外部单号唯一；充值与支付、提现与审核、提现与转账一对一；活动提现以钱包为主键且提现单唯一；小程序与系统商户绑定唯一；闸门与商户一对一，暂停触发观察和恢复所指暂停事件分别唯一。 |
 | operations | inbox 按来源主体+外部消息 ID 唯一，隔离按规范去重键唯一；可靠任务 `task_uid/task_key` 唯一且一个 inbox/设备命令最多一个任务；尝试按任务+序号及 lease token 唯一；审计 `request_uid` 唯一，成功操作生成槽唯一且 `SUCCEEDED` 必须有 `operation_uid`；告警来源永久唯一、活动聚合键唯一；每日对账 run 按商户+业务日唯一；对账 issue 只对未解决 `active_dedupe_key` 唯一，解决后复发新建 issue；action UUID 和幂等 action key 唯一。 |
 
@@ -83,7 +83,7 @@ MySQL 唯一索引允许多个 `NULL`。因此手机号可空唯一中的多个�
 | 内部状态与时间 | 内部稳定枚举使用 ASCII 二进制/大小写敏感列上的 `VARCHAR + CHECK`，避免 `_ci` 排序规则让 `active` 冒充 `ACTIVE`；终态必须有终结时间，非终态不得伪造终态字段；撤销/恢复/审核/发布时间不得早于创建时间；一组租约、结果、确认或失败字段必须全空或成组非空。微信原始渠道状态和外部错误码保持可扩展字符串，不用封闭 CHECK 把未知新状态误判为失败。 |
 | 金额和重量 | 分、克使用 `BIGINT`；用户可用余额允许负数，所有冻结和机构余额非负；满溢原始净重允许负、展示百分比为空或 `>=0` 且允许超过 100%；单价 `>0`；负重量异常阈值必须为正整数克且默认 500；可靠重量必须有值，缺失不能用 0 冒充。最终布尔异常标志只复制边缘按本地轮次锁存的最终载荷值；后端不得按整场首末净重补判，也不保存本地触发轮次及其减少值。 |
 | 资金代数 | 每条明细都满足 `before + delta = after`，以足够宽的 `DECIMAL` 中间表达式避免溢出；充值满足毛额=手续费+净额，毛额 100～20000000 分，手续费按固定 6000 ppm 向上取整；提现金额及固化配置满足 `10 <= min <= amount <= max <= hard_limit <= 20000`。 |
-| M0 范围 | 投递、清运审核模式固定 `ALL_MANUAL`；手动提现免审阈值固定 0，保留字段但由以后前向迁移放宽；自动提现字段不进入 M0。 |
+| M0 范围 | 投递审核模式固定 `ALL_MANUAL`；清运不存在审核模式；手动提现免审阈值固定 0，保留字段但由以后前向迁移放宽；自动提现字段不进入 M0。 |
 | 历史链与槽位形状 | 投递初审为版本 1 且前值为空；纠错版本号为上一版+1并校验金额差额；公共边缘事件序号严格为正、交付类别与事件注册表一致、设备时间与时钟质量成组；投递照片只有首次开门前/整场最终关门后四槽且状态与 `photo_uid/URL/摘要/大小/缺失` 字段匹配；袋占位目标恰好一种；清运旧袋/旧基准状态与可空列匹配，`COMPLETED` 必须同时有电磁阀断电和人工确认，`PRE_UNLOCK_ENDED` 不得存在可能通电时间；活动/恢复事件与恢复字段匹配；可靠任务终态要求 `handled_wake_version=wake_version`。 |
 
 每个 CHECK 使用全 schema 唯一、以表名开头的名称。MySQL 只在表达式结果为 `FALSE` 时拒绝，结果为 `NULL/UNKNOWN` 会通过；因此必填枚举和代数操作数必须同时声明 `NOT NULL`，可空字段必须显式写成 `x IS NULL OR ...`，XOR/成组字段则逐项使用 `IS NULL/IS NOT NULL`，不能只写一个会被 `NULL` 绕过的 `IN` 或等式。资金等式先分别把每个操作数转换为足够宽的 `DECIMAL`，再执行加减，避免在转换前先发生 `BIGINT` 溢出。
@@ -112,7 +112,7 @@ MySQL 8.0.16 继续作为 CHECK 真正执行而非只解析的能力来源说明
 |---|---|
 | 身份与会话 | 四类公开 UUID、平台与工作人员各自命名空间的登录名、租户码、机构码、AppID、AppID+OpenID、机构+手机号的唯一索引；任职按员工和机构两条访问路径；授权/能力按主体+活动标记；三类会话按主体+撤销+过期及全局过期清理。地推统计使用已确认的 `(tenant_id, organization_id, registered_via_deployment_id, registered_at)`。 |
 | 设备与配置 | 机构设备列表按部署生命周期/后台启停；资产部署历史；配置和应用按部署+版本/状态；离线扫描按 edge 状态+最后心跳；端口阻断健康；活动故障按机构+状态+影响+最近时间；session 开始授权/结果恢复超时扫描；命令按部署+物理状态；事件/结果按部署+接收时间和各强类型目标。 |
-| 投递与清运 | 机构审核队列至少按 `(tenant_id, organization_id, review_status, device_occurred_at, delivery_order_no)`，用户订单至少按 `(organization_user_id, device_occurred_at, delivery_order_no)`，两者查询都附加机构 `visibility_sequence_no <= snapshot`；为部署/投口筛选补与同一排序兼容的候选索引。机构计数器唯一分配提交可见序号；异常按机构+异常码+时间；照片按机构+待补状态+时间；清运操作按机构+状态+期限和清运员历史；袋/投口事件时间线；基准按投口+版本；容量按机构+检测 gate/满溢状态。 |
+| 投递与清运 | 投递机构审核队列至少按 `(tenant_id, organization_id, review_status, device_occurred_at, delivery_order_no)`，用户投递订单至少按 `(organization_user_id, device_occurred_at, delivery_order_no)`，两者查询都附加机构 `visibility_sequence_no <= snapshot`；为部署/投口筛选补与同一排序兼容的候选索引。清运记录不建待审核索引，按机构+完成时间+稳定记录号读取，并按部署、投口、清运员或异常类别补可验证的候选索引。机构计数器唯一分配提交可见序号；异常按机构+异常码+时间；照片按机构+待补状态+时间；清运操作按机构+状态+期限和清运员历史；袋/投口事件时间线；基准按投口+版本；容量按机构+检测 gate/满溢状态。 |
 | 满溢 | 检测领取按状态+下次采样时间，投口检测历史；活动满溢按机构+状态+首次确认时间；样本按检测+角色唯一即可，不另建重复时间索引。 |
 | 资金 | 用户钱包明细唯一 `(wallet_id, entry_sequence_no)` 并按该序号读取；机构钱包流水附加 `visibility_sequence_no <= snapshot`，再按机构+发生时间+钱包/用户+钱包内序号读取，并为用户、类型和来源筛选保留可验证的候选索引；机构账户明细按账户+发生时间；充值按机构+状态+创建时间及全局状态+到期时间；提现按机构+状态+创建时间、用户/钱包时间线、长时间未结算，以及机构+成功终态+渠道终态时间的期间汇总；支付/转账按商户外部单号、当前渠道状态+更新时间；观察按所属渠道单+时间；闸门事件按商户+时间。 |
 | operations | inbox 按状态+首次接收时间和作用域+时间；隔离按状态+原因+时间；可靠任务先以 `(state, execution_lane, claimable_at, priority, id)` 作为候选领取索引；attempt 按任务+序号/时间；审计按作用域+时间、动作+结果、操作者；告警按作用域+状态+严重级+最近时间；对账 run 按商户+业务日，issue 按作用域+状态+严重级+时间，action 按 issue/run/task+时间。 |
@@ -137,10 +137,10 @@ I-040 概览最长只查询 31 个业务日，优先复用注册归因、投递/
 | 写策略 | 表及允许动作 |
 |---|---|
 | 目录只读 | `iam_permission_definition` 仅由迁移维护，运行账号只读。 |
-| 只追加事实 | 设备静态身份/配置 `dev_port`、`dev_config_version`、`dev_port_config_snapshot`；业务配置 `rec_organization_delivery_config`、`rec_organization_clean_config`、`fund_organization_withdraw_config`；设备事件/结果 `dev_edge_event`、`dev_device_command_event`、`dev_physical_result`；异常/修订 `rec_delivery_anomaly`、`rec_delivery_revision`、`rec_clean_anomaly`、`rec_clean_revision`；袋/基准/采样 `rec_bag`、`rec_bag_occupancy_event`、`rec_port_weight_baseline`、`rec_fullness_sample`；资金事实 `fund_user_wallet_entry`、`fund_wallet_adjustment`、`fund_organization_payout_entry`、`fund_withdrawal_review`、两张微信 observation、`fund_payout_gate_event`；operations 事实 `ops_audit_log`、`ops_reconciliation_action`。这些表运行账号没有 `UPDATE/DELETE`。基准重测是可单调收敛的操作聚合，不列入只追加表；其形成的有效基准仍只追加。 |
+| 只追加事实 | 设备静态身份/配置 `dev_port`、`dev_config_version`、`dev_port_config_snapshot`；业务配置 `rec_organization_delivery_config`、`rec_organization_clean_config`、`fund_organization_withdraw_config`；设备事件/结果 `dev_edge_event`、`dev_device_command_event`、`dev_physical_result`；清运修改/异常与投递异常/修订 `rec_clean_record_change`、`rec_clean_anomaly`、`rec_delivery_anomaly`、`rec_delivery_revision`；袋/基准/采样 `rec_bag`、`rec_bag_occupancy_event`、`rec_port_weight_baseline`、`rec_fullness_sample`；资金事实 `fund_user_wallet_entry`、`fund_wallet_adjustment`、`fund_organization_payout_entry`、`fund_withdrawal_review`、两张微信 observation、`fund_payout_gate_event`；operations 事实 `ops_audit_log`、`ops_reconciliation_action`。这些表运行账号没有 `UPDATE/DELETE`。基准重测是可单调收敛的操作聚合，不列入只追加表；其形成的有效基准仍只追加。 |
 | 当前槽位 | `dev_asset_active_deployment`、`dev_device_occupancy`、`rec_bag_current_occupancy`、`fund_active_withdrawal` 仅允许所属领域事务 `SELECT/INSERT/DELETE`；改变归属使用删除旧槽+插入新槽，不在原行改挂。 |
 | 一次补齐/单向收敛 | 三张 session 只更新撤销列；两张照片只从 pending 到 available/missing；`ops_task_attempt` 的调用边界、接管和结果各只从空补一次；`iam_staff_permission_grant`、`iam_staff_miniapp_binding` 只允许撤销；故障、满溢事件、告警和对账 issue 只更新重复发现/确认并最终恢复或解决，绝不 reopen。每种写法使用 `WHERE old_state/version/column IS NULL` 并检查影响行数。 |
-| 受保护当前投影 | 账号/租户/机构/小程序/任职/用户/能力、资产/部署/配置应用/runtime、delivery session/command、投递订单、清运配置 head/计数器/操作/记录、基准重测、容量/检测、提现配置 head、钱包/机构账户、充值/提现/商户绑定/支付/转账/闸门、inbox/task/reconciliation run 只授予其状态机实际需要更新的列；身份、作用域、金额/重量来源快照、稳定 ID、首次证据和创建时间不在 UPDATE 授权中。 |
+| 受保护当前投影 | 账号/租户/机构/小程序/任职/用户/能力、资产/部署/配置应用/runtime、delivery session/command、投递订单、清运配置 head/计数器/操作/记录当前有效字段、基准重测、容量/检测、提现配置 head、钱包/机构账户、充值/提现/商户绑定/支付/转账/闸门、inbox/task/reconciliation run 只授予其状态机实际需要更新的列；身份、作用域、金额/重量来源快照、稳定 ID、首次证据和创建时间不在 UPDATE 授权中。`rec_clean_record` 只授予当前有效重量/来源、备注、版本和更新时间列级更新，且必须与 `rec_clean_record_change` 同事务写入。
 
 AppID 激活时间、激活后的 AppID/作用域，以及机构用户的 `registered_at/registered_via_deployment_id/AppID/OpenID/作用域` 延续 D-013 已确认做法，增加极小且可测试的 `BEFORE UPDATE` 不可变触发器作为纵深防御。触发器使用长期保留、禁止交互登录且仅具执行所需最小表权限的稳定 `DEFINER`，不能依赖部署后会被删除的临时账号；该 definer 禁止作为交互式迁移身份，V9 只能由 `ecobin_schema_owner` 显式指定它创建触发器。实例初始化步骤必须预先创建 definer，并授予 schema owner 在锁定的 MySQL 8.4 版本指定其他 definer 所需的准确动态权限，再用 `SHOW GRANTS` 验证，不能误以为普通 schema DDL 权限已经足够。其余业务状态不建立一套难以维护的通用触发器状态机，而由命名 CHECK、列级权限、条件 SQL、锁版本和事务验收共同保护。
 
@@ -196,13 +196,13 @@ M0 不自动删除订单、资金明细、渠道观察、设备物理结果、in
 | `rec_delivery_anomaly` | 订单/来源结果复合 FK；UQ 订单+异常码；类别/码 CHECK；IX 机构异常时间 | A |
 | `rec_delivery_revision` | 订单复合 FK及复合自 FK；UQ revision UUID、订单+版本、上一版最多一个后继；链和金额差 CHECK；IX 订单版本 | A |
 | `rec_delivery_photo` | 订单复合 FK；UQ 订单+四位置、表内非空 photo UUID；状态/照片身份/HTTPS URL/摘要/大小/缺失 CHECK；IX 机构待补照片 | O |
-| `rec_organization_clean_config` | 机构 FK；UQ 机构+版本；M0 审核模式/时限 CHECK；IX 机构版本倒序 | A |
+| `rec_organization_clean_config` | 机构 FK；UQ 机构+版本；清运总时限 CHECK，不含审核模式；IX 机构版本倒序 | A |
 | `rec_organization_clean_config_head` | PK/FK 机构；当前配置同机构+版本复合 FK；版本非负 CHECK | P |
 | `rec_organization_clean_record_counter` | PK/FK 机构；末可见序号非负 CHECK | P |
 | `rec_clean_operation` | 部署/投口/清运员/配置/袋/基准及可空待处理投递 session 复合 FK；UQ operation UUID、活动投口生成键；完成记录强回指；旧袋/基准/授权期限/首次可能通电/电磁阀断电/人工确认及状态 CHECK；IX 状态期限、清运员历史 | P |
-| `rec_clean_record` | 操作/物理结果/新旧袋复合 FK；UQ 记录号、机构+可见序号、操作、物理结果；唯一 `review_revision_id` 回指一次初审版本；重量来源/审核状态 CHECK；IX 待审核、袋、完成时间和快照游标 | P |
+| `rec_clean_record` | 操作/物理结果/新旧袋复合 FK；UQ 记录号、机构+可见序号、操作、物理结果；原始重量/可靠性不可覆盖，当前有效重量来源、修改版本和备注 CHECK；IX 袋、完成时间、清运员和快照游标；无审核状态、审核指针或待审核索引 | P |
+| `rec_clean_record_change` | 清运记录和分型操作者复合 FK；UQ change UUID、记录+目标版本、作用域幂等键；前后值、版本连续、原因和请求摘要 CHECK；IX 记录变更时间、操作者历史 | A |
 | `rec_clean_anomaly` | 清运记录复合 FK；UQ 记录+异常码；系统异常 CHECK；IX 机构异常时间 | A |
-| `rec_clean_revision` | 清运记录复合 FK；UQ revision UUID、记录一对一；初审结果 CHECK | A |
 | `rec_clean_photo` | 清运操作复合 FK；UQ 操作+四位置、表内非空 photo UUID；状态/照片身份/HTTPS URL/摘要/大小/缺失 CHECK；IX 机构待补照片 | O |
 | `rec_bag` | 机构 FK；UQ 全平台大小写敏感袋码及机构候选键；URL-safe 长度/字符 CHECK；无状态列 | A |
 | `rec_bag_current_occupancy` | PK 袋；UQ 投口、清运操作；复合 FK 保证预留袋/投口等于操作快照；目标 XOR CHECK | S |

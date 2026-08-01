@@ -13,7 +13,9 @@ import java.util.OptionalLong;
 import java.util.Set;
 
 @Repository
-class JdbcDeliveryBusinessReadRepository
+class
+
+JdbcDeliveryBusinessReadRepository
         implements DeliveryBusinessReadRepository {
 
     static final String FIND_CURRENT_DELIVERY_CONFIGURATION_SQL = """

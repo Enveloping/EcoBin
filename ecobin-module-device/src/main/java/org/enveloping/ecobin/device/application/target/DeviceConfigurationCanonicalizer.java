@@ -5,6 +5,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationDeviceSnaps
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationPortRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationPortSnapshot;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequest;
+import org.enveloping.ecobin.device.api.port.DeviceCommandCanonicalizationPort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +30,8 @@ import java.util.TreeSet;
  * UART. It deliberately accepts no floating-point values.
  */
 @Component
-public class DeviceConfigurationCanonicalizer {
+public class DeviceConfigurationCanonicalizer
+        implements DeviceCommandCanonicalizationPort {
 
     static final int CONFIGURATION_SCHEMA_VERSION = 1;
     private static final long UINT32_MAX = 4_294_967_295L;

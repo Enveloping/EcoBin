@@ -57,7 +57,7 @@
 <h1>EcoBin 设备图片上传流程图 — 标注公网 IP 依赖点</h1>
 <p>投递 / 清运时回收箱抓拍 4 张图片（开门前 + 关门后 × 箱内 + 箱外），由设备<strong>直传腾讯云 COS</strong>，
 后端不承担图片带宽。<strong>投递、清运一致</strong>：开门命令只下发凭证（不含 key），照片对象 key 由<strong>设备自定位置</strong>，
-设备直传后把 <strong>4 个 URL 随上行业务事件回传</strong>（投递 <code>deliveryComplete</code>、清运 <code>cleanGross</code>），后端原样存订单、不再算 key。
+设备直传后把 <strong>4 个 URL 随上行业务事件回传</strong>（投递 <code>deliveryComplete</code>、清运 <code>cleanGross</code>），后端原样存入对应业务记录、不再算 key。
 建议 key 带业务段区分：投递 <code>{sn}/delivery/{唯一串}/&lt;slot&gt;.jpg</code>、清运 <code>{sn}/clean/{唯一串}/&lt;slot&gt;.jpg</code>。
 下图按「谁主动发起连接」标注每一步：
 <span class="tag tag-pub">★ 需公网 IP（入站）</span>
@@ -87,7 +87,7 @@ sequenceDiagram
     Note over D,B: ② 业务事件上行【经 OneNet】，随事件回传 4 个 URL
     D->>O: deliveryComplete{doorIndex,weight,4×URL} / cleanGross{cleanOrderId,weight,4×URL}（MQTT 上行）
     O-->>B: MQ 订阅（后端作消费者拨出去 · 出站 · 免公网）
-    Note over B: 后端原样存 4 个 URL（投递在此刻建单 / 清运回填订单）
+    Note over B: 后端原样存 4 个 URL（投递在此刻建单 / 清运回填记录）
 </pre>
 </div>
 
@@ -123,7 +123,7 @@ sequenceDiagram
 <ul>
   <li>① 申请 STS 是后端→COS 出站；开门 + cosToken 下发是后端→OneNet 出站（投递 / 清运一致，仅凭证、不含 key）。</li>
   <li>① 图片直传是设备↔COS 公网直连，不经后端（投递 / 清运均按设备自定 key）。</li>
-  <li>② 业务事件上行已采用 <strong>OneNet 北向 MQ 订阅</strong>（后端作消费者主动拨出去），<strong>同样免公网</strong>；4 个 URL 随事件回传，投递在此刻建单 / 清运回填订单。</li>
+  <li>② 业务事件上行已采用 <strong>OneNet 北向 MQ 订阅</strong>（后端作消费者主动拨出去），<strong>同样免公网</strong>；4 个 URL 随事件回传，投递在此刻建单 / 清运回填记录。</li>
 </ul>
 <p style="margin-bottom:0;"><strong>因此整条图片链路 + 事件上行均可在无公网 IP 的内网后端跑通</strong>（仍需出站到 OneNet / COS）。
 仅当改用 OneNet「HTTP 推送」备选通道时，才需要后端公网回调地址。</p>

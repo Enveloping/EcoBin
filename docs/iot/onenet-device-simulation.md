@@ -136,13 +136,13 @@ OneNet 控制台自带**设备模拟器**（产品开发 → 设备调试 / 在�
 [OneNet·MQ] 收到上行明文：{"msgType":"thingEvent","subData":{"deviceName":"<你的sn>",...,"params":{"cleanGross":{"value":{"cleanOrderId":123,"weight":12.5},...}}}}
 ```
 **看到这条 = 连接 / 解密 / 报文格式 / 分发入口 全部打通**——这就验证了上一阶段写的整条上行链路。
-- 紧接着分发器会调 `reportGross`；若数据库里没有 id=123 的清运单，会抛"订单不存在"，但异常被吞、只记日志（`[OneNet·分发] 处理事件 cleanGross 失败...`），**不影响"链路已通"的结论**。
+- 紧接着分发器会调 `reportGross`；若数据库里没有 id=123 的清运记录，会抛出历史错误文案“订单不存在”，但异常被吞、只记日志（`[OneNet·分发] 处理事件 cleanGross 失败...`），**不影响"链路已通"的结论**。
 - 顺便核对这条真实明文里 `cleanGross` 是不是 `{"value":{...},"time":...}` 结构（应当是）。
 
 ### 阶段2 · 业务真正落地
 1. 确保 `biz_device` 有一台 `sn = 你的 deviceName` 的设备（同租户）。
 2. 走小程序 / 接口 `POST /api/app/clean/open`（扫新空袋开清运门）拿到真实 **cleanOrderId**。
-3. 用该 id 发 `cleanGross` → 查清运单 `gross_weight / net_weight` 已回填（`net = 毛重 − 该投口当前去皮`）。
+3. 用该 id 发 `cleanGross` → 查清运记录 `gross_weight / net_weight` 已回填（`net = 毛重 − 该投口当前去皮`）。
 4. 再发 `cleanTare`（同 cleanOrderId）→ `biz_clean_bag` 该投口去皮更新为新袋。
 
 ---

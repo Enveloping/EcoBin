@@ -159,7 +159,7 @@ role = 1 → USER          普通用户（默认）
 | 设备列表（含设备名） | ✅ | ✅ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 设备状态（实时数据） | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 投递订单 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
-| 清运订单 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
+| 清运记录 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 提现订单 / 审核 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 用户钱包余额 | ✅ | ❌ | ✅(自己租户下) | ❌ | ❌ | ❌ |
 | 自己的投递记录 | — | — | — | — | — | ✅ |
@@ -366,7 +366,7 @@ POST /api/system/tenant
 
 > 设计要点：
 > 1. 无角色继承（不配置 `RoleHierarchy`），因此凡是超管(9) 需要的"全量视图"，都必须在规则里**显式列出 `SUPER_ADMIN`**。
-> 2. URL 级 `hasRole` 无法区分读/写。对"能写不能读"的资源（如清运订单），按 **HTTP 方法拆 URL**。
+> 2. URL 级 `hasRole` 无法区分读/写。对"能写不能读"的资源（如清运记录），按 **HTTP 方法拆 URL**。
 > 3. **以下为当前已实现的真实路径**（控制器仍用 `/api/device`、`/api/business`、`/api/statistics`）。
 >    将控制器统一对齐到 `/api/biz/...`、并新增设备分配/收回与独立投递端点，为后续可选优化项。
 
@@ -388,8 +388,8 @@ POST /api/system/tenant
 // 投递订单：超管 + 租户
 .requestMatchers("/api/business/delivery/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
-// 清运订单后台（查看 / 审核 / 增改删）：仅超管 + 租户
-// 清运员/设备管理员的清运提交走 C 端 /api/app/clean，不经此路径（防越权审核自己的单）
+// 清运记录后台查看和直接修改：仅超管 + 租户；修改保存即生效，不提供审核
+// 清运员/设备管理员的清运作业走 C 端 /api/app/clean
 .requestMatchers("/api/business/clean/**").hasAnyRole("SUPER_ADMIN", "TENANT")
 
 // 统计：业务数据视图，超管 + 租户
@@ -445,7 +445,7 @@ case 1 -> "ROLE_USER"
 超管+租户:
   /api/system/withdraw/**             → 提现单列表 + 审核
   /api/business/delivery/**           → 投递订单数据（管理端全租户视图）
-  /api/business/clean/**              → 清运订单后台（查看 / 审核 / 增改删，仅超管+租户）
+  /api/business/clean/**              → 清运记录后台查看和直接修改（无审核，仅超管+租户）
   /api/statistics/**                  → 业务统计
 
 超管+管理员+租户:
@@ -455,7 +455,7 @@ IoT 设备上报（放行，无用户登录态）:
   POST /api/iot/delivery/complete     → 设备 IoT 投递完成上报（SN 反查鉴权）
 
 终端域·清运作业（小程序，仅 CLEANER/DEVICE_ADMIN，先于下方通配匹配）:
-  POST /api/app/clean                 → 提交清运（userId 锁定登录态，建待审核单）
+  POST /api/app/clean                 → 提交清运过程（userId 锁定登录态；完成后形成已完成记录）
   GET  /api/app/clean/my              → 我的清运记录分页（按 user_id 过滤）
   GET  /api/app/clean/my/{id}         → 我的单条清运详情（归属校验）
 
@@ -502,7 +502,7 @@ IoT 设备上报（放行，无用户登录态）:
 | 投口单价 | 无 | `biz_door.price`（元/kg），投递完成时 `price × weight` 入账 |
 | 提现流程 | 无 | `biz_withdraw_order` + 申请/租户审核/记录查询（V8） |
 | C 端钱包 | 无 | `GET/POST /api/app/wallet` + `/api/app/wallet/withdraw` |
-| C 端清运作业 | 无（仅后台 `/api/business/clean`，且清运员可越权审核自己单） | `/api/app/clean`（提交+我的记录，CLEANER/DEVICE_ADMIN，userId 锁登录态）；后台清运写权限收紧至超管+租户 |
+| C 端清运作业 | 无（仅后台 `/api/business/clean`） | `/api/app/clean`（提交+我的记录，CLEANER/DEVICE_ADMIN，userId 锁登录态）；后台可查看并直接修改清运记录，保存即生效且无审核入口 |
 | 用户角色管理 | 仅通用 `PUT /api/system/user/{id}`（无校验，租户可将 role 改成 9 → 提权） | 专用 `PUT /api/system/user/{id}/role`（仅租户，限 1/2/3，改后旧 token 失效）；并在 `save/updateById` 固化 role∈{1,2,3} 不变量堵通用路径提权 |
 
 ### 新增关键组件

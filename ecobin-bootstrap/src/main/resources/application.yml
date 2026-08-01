@@ -87,6 +87,9 @@ ecobin:
     default-delivery-rule:
       open-balance-floor-cent: -1000
       maximum-review-absolute-weight-gram: 100000
+    # 清运员完成后直接形成可修改记录，不进入审核。
+    default-clean-rule:
+      operation-timeout-seconds: 1800
 
   # 仅供默认 FAKE 开发运行：空表时创建一个已知平台管理员。
   # REAL/production 必须显式关闭，否则启动失败，不会写入弱默认账号。

@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Safe delivery authorization result.
+ * Safe recycling-business authorization result.
  *
  * <p>Public identities and capability decisions are available to the caller.
  * Internal relationship keys remain inside the transaction-bound,
@@ -22,6 +22,8 @@ public record AuthorizedDeliveryScope(
         boolean deliveryRead,
         boolean reviewExecute,
         boolean deliveryCorrect,
+        boolean cleanRead,
+        boolean cleanEdit,
         DeliveryScopePersistenceRef persistenceRef) {
 
     public AuthorizedDeliveryScope {
@@ -31,9 +33,10 @@ public record AuthorizedDeliveryScope(
         Objects.requireNonNull(tenantCode, "tenantCode");
         Objects.requireNonNull(organizationCode, "organizationCode");
         Objects.requireNonNull(persistenceRef, "persistenceRef");
-        if (!deliveryRead && !reviewExecute && !deliveryCorrect) {
+        if (!deliveryRead && !reviewExecute && !deliveryCorrect
+                && !cleanRead && !cleanEdit) {
             throw new IllegalArgumentException(
-                    "authorized delivery scope requires a capability");
+                    "authorized business scope requires a capability");
         }
     }
 }

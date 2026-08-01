@@ -54,7 +54,7 @@ implementation_authorized: true
 - recycling Java 业务实现、Controller、页面和小程序。
 - funds、operations 及其跨模块约束。
 - seed、环境业务数据和旧数据迁移。
-- 在迁移中实现审核、清运或满溢业务状态机。
+- 在迁移中实现投递审核、清运或满溢业务状态机。
 
 ## 权威来源
 

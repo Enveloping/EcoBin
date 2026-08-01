@@ -26,7 +26,7 @@ implementation_authorized: true
 
 - 把当前钱包、提现及相关测试迁入 funds。
 - 把资产、部署、投口、设备作业、投递会话、命令和物理证据归入 device；本地继续轮次不进入云端模块。
-- 把投递订单、审核、清运、袋、基准、满溢和 P0 查询归入 recycling。
+- 把投递订单及其审核、清运记录及修改留痕、袋、基准、满溢和 P0 查询归入 recycling。
 - 把可靠执行、审计和运营基础归入 operations。
 - 以窄公开端口替代跨模块 Mapper、Entity、Repository 和内部 Service 引用。
 - 收紧 common/framework，删除旧 business，完成 bootstrap 显式装配。

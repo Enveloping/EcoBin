@@ -129,7 +129,7 @@
 - D-008 已确认的 M0 表清单不含安装码、正式验收记录或调拨记录表。本周试点设备使用受控 seed/后台建档完成首次绑定，不实现自助安装码和完整生命周期界面；但启用真机前仍必须完成 P0 的 OneNet、MCU、门控、称重、相机/COS、断网恢复和安全故障检查，以受控验收报告/测试证据及操作审计留痕。M1 再增加正式安装凭证、逐项验收领域记录和完整调拨/替换流程，不能把真机安全验收本身延期。
 - **接口设计落实补充（I-016/I-017）**：平台资产登记只写本地 `IN_STOCK` 事实，不调用 OneNet 或验证在线。M0 直接部署事务锁定库存资产并同时创建 `COMMISSIONING` 部署、当前部署槽、全部 `1..N` 投口、`UNKNOWN` 且初始安全锁存的运行投影，再把资产推进为 `IN_USE`；不顺带创建默认配置。
 - **接口设计落实补充（I-018）**：权限目录新增允许租户/机构双作用域的 `device.read`、`device.manage` 和 `device.configuration.manage`。部署激活与经营开关使用部署 `lock_version`；运行投影有独立版本并在事务内重新检查，`deliveryAllowed/cleaningAllowed` 仍不落库。
-- **接口设计权限补充（I-026～I-030）**：V10 为 `clean.read`、`device.detection.execute` 和 `device.recovery.execute` 分别建立 `TENANT/ORGANIZATION` 定义；清运初审继续复用 `review.execute`。工作人员小程序只将当前机构 `device.read` 的容量/满溢安全摘要加入渠道白名单，不放行三项写命令。
+- **接口设计权限补充（I-026～I-030）**：V10 为 `clean.read`、`device.detection.execute` 和 `device.recovery.execute` 分别建立 `TENANT/ORGANIZATION` 定义；V19 再以前向迁移新增 `clean.edit` 的两种作用域定义。清运记录直接修改而不审核，`review.execute` 仅用于投递和提现。工作人员小程序只将当前机构 `device.read` 的容量/满溢安全摘要加入渠道白名单，不放行清运记录修改或三项设备写命令。
 - **接口设计权限补充（I-036～I-040）**：V10 为 `audit.read`、`alert.read`、`alert.acknowledge`、`reconciliation.read`、`reconciliation.handle` 和 `statistics.read` 分别建立 `TENANT/ORGANIZATION` 定义。平台任务恢复、隔离确认和平台对账运行属于平台固定能力，不伪装成租户权限码；工作人员小程序渠道白名单只增加当前机构 `alert.read` 与 `statistics.read`，不放行确认告警、对账处置、审计或技术任务接口。
 - **接口设计落实补充（I-019/I-020/F-10）**：发布请求的设备级和投口级字段按上表完整版本化，负重量阈值位于设备级；正式配置进度以 `version + contentSha256 + mcuPayloadSha256` 三元组证明。配置发布以最高 `version_no` 承接 `expectedLatestVersion`；更高版本使旧应用派生为非当前期望，但不改写其真实应用状态。自动重试耗尽只使 `ops_reliable_task=BLOCKED`，不得伪造应用 `FAILED`。重同步复用原应用、设备命令和任务；可信迟到证明仍按真实版本归并并保留历史失败证据，但只有最高期望版本精确 `APPLIED` 才解除新作业阻断。
 
