@@ -17,6 +17,7 @@ class JdbcDeliveryScopeAuthorizationRepository
                 'delivery.read',
                 'review.execute',
                 'delivery.correct',
+                'delivery.configuration.manage',
                 'wallet.read'
             )
             """;

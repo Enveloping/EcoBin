@@ -8,6 +8,7 @@ import {
   LinkOutlined,
   ShoppingCartOutlined,
   SettingOutlined,
+  SlidersOutlined,
   TeamOutlined,
   TruckOutlined,
   UserOutlined,
@@ -27,6 +28,9 @@ const DeviceManagementPage = lazy(
 );
 const DeliveryOrdersPage = lazy(
   () => import('@/pages/delivery-orders'),
+);
+const DeliveryConfigurationPage = lazy(
+  () => import('@/pages/delivery-configuration'),
 );
 const BusinessContractPendingPage = lazy(
   () => import('@/pages/business/BusinessContractPending'),
@@ -121,6 +125,13 @@ export const appRoutes: AppRoute[] = [
     icon: <ShoppingCartOutlined />,
     element: <DeliveryOrdersPage />,
     anyOf: ['delivery.read', 'review.execute'],
+  },
+  {
+    path: '/delivery-configuration',
+    name: '投递与审核规则',
+    icon: <SlidersOutlined />,
+    element: <DeliveryConfigurationPage />,
+    allOf: ['delivery.configuration.manage'],
   },
   {
     path: '/clean-records',
@@ -245,12 +256,14 @@ export function menuRoutesFor(
   }
 
   const delivery = visibleRoute(session, '/deliveries');
-  if (delivery) {
-    menu.push({
-      path: '/menu/deliveries',
-      name: '投递订单',
-      icon: delivery.icon,
-      routes: [
+  const deliveryConfiguration = visibleRoute(
+    session,
+    '/delivery-configuration',
+  );
+  if (delivery || deliveryConfiguration) {
+    const deliveryRoutes: AppMenuRoute[] = [];
+    if (delivery) {
+      deliveryRoutes.push(
         leaf(delivery, delivery.path, delivery.name ?? '', false),
         {
           path: '/menu/deliveries/rejected',
@@ -264,7 +277,23 @@ export function menuRoutesFor(
           disabled: true,
           tooltip: '目标契约尚未提供仅看纠正订单的列表筛选',
         },
-      ],
+      );
+    }
+    if (deliveryConfiguration) {
+      deliveryRoutes.push(
+        leaf(
+          deliveryConfiguration,
+          deliveryConfiguration.path,
+          deliveryConfiguration.name ?? '',
+          false,
+        ),
+      );
+    }
+    menu.push({
+      path: '/menu/deliveries',
+      name: '投递管理',
+      icon: delivery?.icon ?? deliveryConfiguration?.icon,
+      routes: deliveryRoutes,
     });
   }
 
