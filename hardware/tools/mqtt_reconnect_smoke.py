@@ -49,7 +49,10 @@ def run_probe(deadline_seconds: float) -> float:
         device_name=_required_environment("ECOBIN_DEVICE_NAME"),
         device_key=_required_environment("ECOBIN_DEVICE_KEY"),
         edge_store=_ProbeStore(),
-        mqtt_host=os.environ.get("ECOBIN_MQTT_HOST", "mqtts.heclouds.com"),
+        mqtt_host=os.environ.get(
+            "ECOBIN_MQTT_HOST",
+            "studio-mqtt.heclouds.com",
+        ),
         mqtt_port=int(os.environ.get("ECOBIN_MQTT_PORT", "1883")),
     )
     mqtt_client._subscribe_topics = lambda: None

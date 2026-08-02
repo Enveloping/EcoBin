@@ -93,7 +93,7 @@ OneNet 控制台自带**设备模拟器**（产品开发 → 设备调试 / 在�
 ### C.1 新建连接
 | 字段 | 值 |
 |------|----|
-| Host | `mqtts.heclouds.com`（明文）或 `mqttstls.heclouds.com`（TLS） |
+| Host | `studio-mqtt.heclouds.com`（明文）或 `studio-mqtts.heclouds.com`（TLS） |
 | Port | `1883`（明文）/ `8883`（TLS，需下证书） |
 | Client ID | **设备名（deviceName = sn）** |
 | Username | **产品ID（pid）** |

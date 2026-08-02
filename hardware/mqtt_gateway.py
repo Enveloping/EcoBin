@@ -50,7 +50,7 @@ class MqttGateway:
         product_id: str,
         device_name: str,
         device_key: str,
-        mqtt_host: str = "mqtts.heclouds.com",
+        mqtt_host: str = "studio-mqtt.heclouds.com",
         mqtt_port: int = 1883,
     ):
         self.product_id = product_id
