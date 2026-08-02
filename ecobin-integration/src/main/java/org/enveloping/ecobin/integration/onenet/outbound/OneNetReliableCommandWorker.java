@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.integration.onenet.outbound;
 
+import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
 import org.slf4j.Logger;
@@ -27,13 +28,16 @@ public class OneNetReliableCommandWorker {
             LoggerFactory.getLogger(OneNetReliableCommandWorker.class);
 
     private final ReliableDeviceCommandWorkerPort runner;
+    private final OneNetDiagnosticLogger diagnosticLogger;
     private final AtomicBoolean polling = new AtomicBoolean();
     private final String workerId =
             "onenet-" + UUID.randomUUID();
 
     public OneNetReliableCommandWorker(
-            ReliableDeviceCommandWorkerPort runner) {
+            ReliableDeviceCommandWorkerPort runner,
+            OneNetDiagnosticLogger diagnosticLogger) {
         this.runner = runner;
+        this.diagnosticLogger = diagnosticLogger;
     }
 
     @Scheduled(
@@ -55,7 +59,8 @@ public class OneNetReliableCommandWorker {
         } catch (RuntimeException failure) {
             LOGGER.error(
                     "OneNet reliable worker batch failed type={}",
-                    failure.getClass().getSimpleName());
+                    failure.getClass().getSimpleName(),
+                    diagnosticLogger.sanitized(failure));
         } finally {
             polling.set(false);
         }

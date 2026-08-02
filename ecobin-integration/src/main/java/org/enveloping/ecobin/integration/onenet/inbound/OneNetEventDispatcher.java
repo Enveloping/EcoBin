@@ -11,6 +11,7 @@ import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceipt;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxRejection;
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -258,22 +259,25 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "authenticated OneNet product does not match runtime epoch");
         }
-        JsonNode params = object(subData, "params");
-        for (String identifier : params.propertyNames()) {
-            EventContract contract = CONTRACTS.get(identifier);
-            if (contract == null) {
-                log.warn(
-                        "[OneNet·分发] target Adapter rejected identifier={} device={}",
-                        safeToken(identifier),
-                        safeToken(hardwareSn));
-                continue;
+        try (MDC.MDCCloseable ignoredDevice = MDC.putCloseable(
+                "hardwareSn", safeToken(hardwareSn))) {
+            JsonNode params = object(subData, "params");
+            for (String identifier : params.propertyNames()) {
+                EventContract contract = CONTRACTS.get(identifier);
+                if (contract == null) {
+                    log.warn(
+                            "[OneNet·分发] target Adapter rejected identifier={} device={}",
+                            safeToken(identifier),
+                            safeToken(hardwareSn));
+                    continue;
+                }
+                accept(
+                        contract,
+                        productId,
+                        hardwareSn,
+                        unwrap(params.get(identifier)),
+                        rawTransportBody);
             }
-            accept(
-                    contract,
-                    productId,
-                    hardwareSn,
-                    unwrap(params.get(identifier)),
-                    rawTransportBody);
         }
     }
 
@@ -315,8 +319,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             Map<String, Object> normalized = new LinkedHashMap<>();
             normalized.put("trustedSource", source);
             normalized.put("presence", presence);
-            TrustedInboxReceipt receipt = trustedInboxPort.receive(
-                    new TrustedInboxMessage(
+            try (MDC.MDCCloseable ignoredDevice = MDC.putCloseable(
+                    "hardwareSn", safeToken(hardwareSn))) {
+                TrustedInboxReceipt receipt = trustedInboxPort.receive(
+                        new TrustedInboxMessage(
                             "onenet.device-lifecycle",
                             OneNetCanonicalJson.stablePrincipalKey(
                                     productId, hardwareSn),
@@ -331,16 +337,17 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             null,
                             null,
                             TrustedInboxExecutionLane.DEVICE,
-                            sourceScopePort.resolverForAsset(hardwareSn)));
-            if (!receipt.transportAcknowledgementAllowed()) {
-                throw new IllegalStateException(
-                        "reliable inbox did not permit lifecycle ACK");
+                                sourceScopePort.resolverForAsset(hardwareSn)));
+                if (!receipt.transportAcknowledgementAllowed()) {
+                    throw new IllegalStateException(
+                            "reliable inbox did not permit lifecycle ACK");
+                }
+                log.info(
+                        "[OneNet·分发] lifecycle durably received status={} device={} state={}",
+                        presence.get("status"),
+                        safeToken(hardwareSn),
+                        receipt.state());
             }
-            log.info(
-                    "[OneNet·分发] lifecycle durably received status={} device={} state={}",
-                    presence.get("status"),
-                    safeToken(hardwareSn),
-                    receipt.state());
         } catch (OneNetPermanentMessageException exception) {
             quarantinePresence(
                     productId,
@@ -443,8 +450,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     : UUID.fromString((String) event.get("commandUid"));
             String deploymentCode =
                     (String) event.get("deploymentCode");
-            TrustedInboxReceipt receipt = trustedInboxPort.receive(
-                    new TrustedInboxMessage(
+            try (MDC.MDCCloseable ignoredEvent = MDC.putCloseable(
+                         "eventUid", eventUid.toString());
+                 MDC.MDCCloseable ignoredDeployment = MDC.putCloseable(
+                         "deploymentCode", safeToken(deploymentCode))) {
+                TrustedInboxReceipt receipt = trustedInboxPort.receive(
+                        new TrustedInboxMessage(
                             "onenet.device-event",
                             OneNetCanonicalJson.stablePrincipalKey(
                                     productId, hardwareSn),
@@ -461,15 +472,16 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             TrustedInboxExecutionLane.DEVICE,
                             sourceScopePort.resolverFor(
                                     hardwareSn, deploymentCode)));
-            if (!receipt.transportAcknowledgementAllowed()) {
-                throw new IllegalStateException(
-                        "reliable inbox did not permit transport ACK");
+                if (!receipt.transportAcknowledgementAllowed()) {
+                    throw new IllegalStateException(
+                            "reliable inbox did not permit transport ACK");
+                }
+                log.info(
+                        "[OneNet·分发] trusted event durably received kind={} event={} state={}",
+                        contract.messageKind(),
+                        eventUid,
+                        receipt.state());
             }
-            log.info(
-                    "[OneNet·分发] trusted event durably received kind={} event={} state={}",
-                    contract.messageKind(),
-                    eventUid,
-                    receipt.state());
         } catch (OneNetPermanentMessageException exception) {
             quarantine(
                     productId,

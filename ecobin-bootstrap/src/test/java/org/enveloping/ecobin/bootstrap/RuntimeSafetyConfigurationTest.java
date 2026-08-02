@@ -66,6 +66,16 @@ class RuntimeSafetyConfigurationTest {
                 "${jwtSecret}",
                 property(sources, "jwt.secret"));
         assertEquals(
+                false,
+                property(
+                        sources,
+                        "ecobin.observability.diagnostic-logging.one-net.enabled"));
+        assertEquals(
+                false,
+                property(
+                        sources,
+                        "ecobin.observability.diagnostic-logging.sql.enabled"));
+        assertEquals(
                 "${defaultPlatformAdminEnabled:true}",
                 property(
                         sources,
@@ -156,6 +166,19 @@ class RuntimeSafetyConfigurationTest {
                 property(
                         realSources,
                         "ecobin.development.default-platform-admin.enabled"));
+        assertEquals(
+                true,
+                property(
+                        realSources,
+                        "ecobin.observability.diagnostic-logging.one-net.enabled"));
+        assertEquals(
+                true,
+                property(
+                        realSources,
+                        "ecobin.observability.diagnostic-logging.sql.enabled"));
+        assertEquals(
+                "${ecobinLogPath:./logs}",
+                property(realSources, "logging.file.path"));
     }
 
     @Test

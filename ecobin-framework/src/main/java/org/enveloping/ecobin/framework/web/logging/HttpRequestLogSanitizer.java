@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.framework.web.logging;
 
+import org.enveloping.ecobin.framework.observability.DiagnosticPayloadSanitizer;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.URLDecoder;
@@ -126,28 +127,7 @@ final class HttpRequestLogSanitizer {
     }
 
     private static boolean sensitive(String name) {
-        String normalized = name == null
-                ? ""
-                : name.replaceAll("[^A-Za-z0-9]", "")
-                .toLowerCase(Locale.ROOT);
-        return normalized.contains("password")
-                || normalized.contains("secret")
-                || normalized.contains("credential")
-                || normalized.contains("privatekey")
-                || normalized.contains("sessionkey")
-                || normalized.contains("authorization")
-                || normalized.contains("cookie")
-                || normalized.contains("signature")
-                || normalized.contains("ciphertext")
-                || normalized.contains("idcard")
-                || normalized.contains("bankcard")
-                || normalized.contains("accountnumber")
-                || normalized.contains("phone")
-                || normalized.endsWith("token")
-                || normalized.equals("token")
-                || normalized.equals("wxlogincode")
-                || normalized.equals("jscode")
-                || normalized.equals("logincode");
+        return DiagnosticPayloadSanitizer.isSensitiveField(name);
     }
 
     private static String decode(String encoded) {

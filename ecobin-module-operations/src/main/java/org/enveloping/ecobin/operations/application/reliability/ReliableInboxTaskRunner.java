@@ -5,6 +5,7 @@ import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionOutcome;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -77,7 +78,10 @@ public class ReliableInboxTaskRunner {
             ReliableTaskChannel channel,
             InboxTaskHandler handler) {
         long startedAt = System.nanoTime();
-        try {
+        try (MDC.MDCCloseable ignoredTask = MDC.putCloseable(
+                     "taskUid", claim.taskUid().toString());
+             MDC.MDCCloseable ignoredInbox = MDC.putCloseable(
+                     "inboxUid", claim.inboxUid().toString())) {
             businessTransaction.executeWithoutResult(status -> {
                 InboxTaskHandlerResult result = Objects.requireNonNull(
                         handler.handle(claim), "handler result");

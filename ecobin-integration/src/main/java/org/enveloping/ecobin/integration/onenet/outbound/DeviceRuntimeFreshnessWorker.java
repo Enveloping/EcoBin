@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.integration.onenet.outbound;
 
+import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.enveloping.ecobin.operations.api.reliability.DeviceTaskGateReconciliationPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,11 +26,14 @@ public class DeviceRuntimeFreshnessWorker {
             LoggerFactory.getLogger(DeviceRuntimeFreshnessWorker.class);
 
     private final DeviceTaskGateReconciliationPort gateService;
+    private final OneNetDiagnosticLogger diagnosticLogger;
     private final AtomicBoolean reconciling = new AtomicBoolean();
 
     public DeviceRuntimeFreshnessWorker(
-            DeviceTaskGateReconciliationPort gateService) {
+            DeviceTaskGateReconciliationPort gateService,
+            OneNetDiagnosticLogger diagnosticLogger) {
         this.gateService = gateService;
+        this.diagnosticLogger = diagnosticLogger;
     }
 
     @Scheduled(
@@ -49,7 +53,8 @@ public class DeviceRuntimeFreshnessWorker {
         } catch (RuntimeException failure) {
             LOGGER.error(
                     "device online/task gate reconciliation failed type={}",
-                    failure.getClass().getSimpleName());
+                    failure.getClass().getSimpleName(),
+                    diagnosticLogger.sanitized(failure));
         } finally {
             reconciling.set(false);
         }

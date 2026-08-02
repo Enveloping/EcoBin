@@ -6,6 +6,18 @@ ecobin:
   observability:
     http-request-logging:
       include-request-body: true
+    diagnostic-logging:
+      one-net:
+        enabled: true
+        include-payload: true
+        include-stack-trace: true
+        max-payload-length: 32768
+      sql:
+        enabled: true
+        include-parameter-types: true
+        include-stack-trace: true
+        max-sql-length: 4096
+        slow-query-threshold-ms: 200
   development:
     default-platform-admin:
       enabled: false
@@ -15,3 +27,12 @@ ecobin:
 onenet:
   subscription:
     enabled: true
+
+logging:
+  file:
+    path: ${ecobinLogPath:./logs}
+  pattern:
+    level: "%5p requestId=%X{requestId:-} mqMessageId=%X{mqMessageId:-} inboxUid=%X{inboxUid:-} taskUid=%X{taskUid:-} eventUid=%X{eventUid:-} hardwareSn=%X{hardwareSn:-} deploymentCode=%X{deploymentCode:-}"
+  level:
+    org.enveloping.ecobin.diagnostics.onenet: INFO
+    org.enveloping.ecobin.diagnostics.sql: INFO
