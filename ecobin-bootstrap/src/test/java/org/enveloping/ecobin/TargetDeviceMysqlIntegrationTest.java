@@ -41,12 +41,18 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -653,11 +659,17 @@ class TargetDeviceMysqlIntegrationTest {
                         + configurationEvidence.eventUid()
                         .toUpperCase()));
 
-        ReliableWorkerBatchResult confirmationBatch =
-                worker.runBatch("device-confirmation-integration-worker");
-        assertEquals(1, confirmationBatch.claimed());
-        assertEquals(1, confirmationBatch.accepted());
-        assertEquals(0, confirmationBatch.failed());
+        List<ReliableWorkerBatchResult> confirmationBatches =
+                runConcurrentDeviceBatches("device-confirmation");
+        assertEquals(1, confirmationBatches.stream()
+                .mapToInt(ReliableWorkerBatchResult::claimed)
+                .sum());
+        assertEquals(1, confirmationBatches.stream()
+                .mapToInt(ReliableWorkerBatchResult::accepted)
+                .sum());
+        assertEquals(0, confirmationBatches.stream()
+                .mapToInt(ReliableWorkerBatchResult::failed)
+                .sum());
         assertEquals(2, submissionProbe.submissionCount());
         assertEquals(
                 "CONFIRM_EDGE_EVENT",
@@ -1095,16 +1107,33 @@ class TargetDeviceMysqlIntegrationTest {
         assertEquals(deploymentCode,
                 organizationView.path("deploymentCode").asText());
 
-        jdbc.update("""
-                        UPDATE dev_config_version version
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = version.deployment_id
-                        SET version.edge_heartbeat_interval_ms = 4294967295,
-                            version.edge_heartbeat_miss_threshold = 2147483647
-                        WHERE deployment.public_code = ?
-                          AND version.version_no = 1
-                        """,
-                deploymentCode);
+        JsonNode versionOne = data(read(
+                principal,
+                organizationDeploymentBase + "/" + deploymentCode
+                        + "/configuration-versions/1",
+                200));
+        Map<String, Object> extremeDevice = new LinkedHashMap<>(
+                objectMapper.convertValue(
+                        versionOne.path("device"), Map.class));
+        extremeDevice.put("edgeHeartbeatIntervalMs", 4294967295L);
+        extremeDevice.put("edgeHeartbeatMissThreshold", 2147483647L);
+        List<Map<String, Object>> extremePorts = new ArrayList<>();
+        versionOne.path("ports").forEach(port -> extremePorts.add(
+                new LinkedHashMap<>(
+                        objectMapper.convertValue(port, Map.class))));
+        JsonNode extremeConfiguration = data(write(
+                principal,
+                post(organizationDeploymentBase + "/" + deploymentCode
+                        + "/configuration-releases"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedLatestVersion", 1,
+                        "reason", "exercise maximum heartbeat window",
+                        "locationCorrectionConfirmed", false,
+                        "device", extremeDevice,
+                        "ports", extremePorts),
+                202));
+        assertEquals(2, extremeConfiguration.path("versionNo").asLong());
         assertDoesNotThrow(taskGateReconciliation::reconcileAll);
         JsonNode extremeHeartbeatReadiness = data(read(
                 platform,
@@ -1498,6 +1527,34 @@ class TargetDeviceMysqlIntegrationTest {
                                 + evidence.eventUid().toUpperCase()));
     }
 
+    private List<ReliableWorkerBatchResult> runConcurrentDeviceBatches(
+            String workerPrefix) throws Exception {
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<ReliableWorkerBatchResult>> futures = List.of(
+                    executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return worker.runBatch(workerPrefix + "-1");
+                    }),
+                    executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return worker.runBatch(workerPrefix + "-2");
+                    }));
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            return List.of(
+                    futures.get(0).get(30, TimeUnit.SECONDS),
+                    futures.get(1).get(30, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
     private void acceptTrustedWireEvent(
             String identifier,
             Map<String, Object> wire,
@@ -1823,7 +1880,7 @@ class TargetDeviceMysqlIntegrationTest {
                 DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED;
 
         @Override
-        public DeviceCommandSubmissionResult submit(
+        public synchronized DeviceCommandSubmissionResult submit(
                 DeviceCommandSubmission submission) {
             submissionCount++;
             lastSubmission = submission;
@@ -1845,20 +1902,20 @@ class TargetDeviceMysqlIntegrationTest {
                             : "isolated test platform accepted; device proof pending");
         }
 
-        int submissionCount() {
+        synchronized int submissionCount() {
             return submissionCount;
         }
 
-        DeviceCommandSubmission lastSubmission() {
+        synchronized DeviceCommandSubmission lastSubmission() {
             return lastSubmission;
         }
 
-        void respondNextWith(
+        synchronized void respondNextWith(
                 DeviceCommandSubmissionResult.Outcome outcome) {
             nextOutcome = outcome;
         }
 
-        void reset() {
+        synchronized void reset() {
             submissionCount = 0;
             lastSubmission = null;
             nextOutcome =

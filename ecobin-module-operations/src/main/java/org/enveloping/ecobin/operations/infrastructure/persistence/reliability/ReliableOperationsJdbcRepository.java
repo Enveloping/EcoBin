@@ -782,7 +782,147 @@ public class ReliableOperationsJdbcRepository {
                         t.payload_sha256
                     ) AS semantic_payload_sha256,
                     a.hardware_sn
-                FROM ops_reliable_task t FORCE INDEX (ix_ops_task_claim)
+                FROM (
+                    SELECT
+                        candidate.id,
+                        candidate.task_uid,
+                        candidate.tenant_id,
+                        candidate.organization_id,
+                        candidate.lease_token,
+                        candidate.attempt_sequence,
+                        candidate.wake_version,
+                        candidate.task_type,
+                        candidate.source_device_deployment_id,
+                        candidate.source_device_command_id,
+                        candidate.redacted_execution_snapshot,
+                        candidate.payload_sha256,
+                        candidate.claimable_at,
+                        candidate.priority
+                    FROM ops_reliable_task candidate
+                        FORCE INDEX (ix_ops_task_claim)
+                    WHERE candidate.state = 'PENDING'
+                      AND candidate.task_category = 'BUSINESS_INTENT'
+                      AND candidate.execution_lane = 'DEVICE'
+                      AND candidate.dispatch_wait_reason IS NULL
+                      AND candidate.claimable_at <= UTC_TIMESTAMP(3)
+                      AND EXISTS (
+                          SELECT 1
+                          FROM dev_device_deployment eligible_deployment
+                          JOIN dev_device_asset eligible_asset
+                            ON eligible_asset.id =
+                                eligible_deployment.asset_id
+                          LEFT JOIN dev_device_command eligible_command
+                            ON eligible_command.tenant_id =
+                                candidate.tenant_id
+                           AND eligible_command.organization_id =
+                                candidate.organization_id
+                           AND eligible_command.deployment_id =
+                                candidate.source_device_deployment_id
+                           AND eligible_command.id =
+                                candidate.source_device_command_id
+                          LEFT JOIN dev_device_transport_state transport
+                            ON transport.asset_id = eligible_asset.id
+                          LEFT JOIN dev_deployment_runtime_state runtime
+                            ON runtime.deployment_id =
+                                eligible_deployment.id
+                          LEFT JOIN dev_config_version config
+                            ON config.id = (
+                                SELECT latest.id
+                                FROM dev_config_version latest
+                                WHERE latest.deployment_id =
+                                    eligible_deployment.id
+                                ORDER BY latest.version_no DESC
+                                LIMIT 1
+                            )
+                          WHERE eligible_deployment.tenant_id =
+                                candidate.tenant_id
+                            AND eligible_deployment.organization_id =
+                                candidate.organization_id
+                            AND eligible_deployment.id =
+                                candidate.source_device_deployment_id
+                            AND (
+                                (
+                                    candidate.task_type IN (
+                                        'ENSURE_DEVICE_CONFIGURATION',
+                                        'START_DELIVERY_SESSION',
+                                        'START_CLEAN_OPERATION',
+                                        'END_CLEAN_BEFORE_UNLOCK',
+                                        'RESUME_CLEAN_OPERATION',
+                                        'SAMPLE_FULLNESS',
+                                        'MEASURE_EMPTY_BAG_BASELINE'
+                                    )
+                                    AND eligible_command.id IS NOT NULL
+                                )
+                                OR
+                                (
+                                    candidate.task_type IN (
+                                        'CONFIRM_EDGE_EVENT',
+                                        'PROVIDE_PHOTO_UPLOAD_GRANT'
+                                    )
+                                    AND eligible_command.id IS NULL
+                                )
+                            )
+                            AND (
+                                (
+                                    candidate.task_type =
+                                        'ENSURE_DEVICE_CONFIGURATION'
+                                    AND COALESCE(
+                                        transport.onenet_connection_status,
+                                        'UNKNOWN'
+                                    ) <> 'OFFLINE'
+                                )
+                                OR
+                                (
+                                    candidate.task_type IN (
+                                        'CONFIRM_EDGE_EVENT',
+                                        'PROVIDE_PHOTO_UPLOAD_GRANT'
+                                    )
+                                    AND transport.onenet_connection_status =
+                                        'ONLINE'
+                                )
+                                OR
+                                (
+                                    candidate.task_type IN (
+                                        'START_DELIVERY_SESSION',
+                                        'START_CLEAN_OPERATION',
+                                        'END_CLEAN_BEFORE_UNLOCK',
+                                        'RESUME_CLEAN_OPERATION',
+                                        'SAMPLE_FULLNESS',
+                                        'MEASURE_EMPTY_BAG_BASELINE'
+                                    )
+                                    AND transport.onenet_connection_status =
+                                        'ONLINE'
+                                    AND runtime.edge_connection_status =
+                                        'ONLINE'
+                                    AND runtime.trusted_runtime_received_at
+                                        IS NOT NULL
+                                    AND config.id IS NOT NULL
+                                    AND TIMESTAMPDIFF(
+                                        MICROSECOND,
+                                        runtime.trusted_runtime_received_at,
+                                        UTC_TIMESTAMP(3)
+                                    ) BETWEEN 0 AND LEAST(
+                                        CAST(
+                                            config.edge_heartbeat_interval_ms
+                                            AS DECIMAL(30, 0)
+                                        ) * CAST(
+                                            config.edge_heartbeat_miss_threshold
+                                            AS DECIMAL(30, 0)
+                                        ) * CAST(1000 AS DECIMAL(30, 0)),
+                                        CAST(
+                                            86400000000 AS DECIMAL(30, 0)
+                                        )
+                                    )
+                                )
+                            )
+                      )
+                    ORDER BY
+                        candidate.claimable_at,
+                        candidate.priority,
+                        candidate.id
+                    LIMIT ?
+                    FOR UPDATE SKIP LOCKED
+                ) t
                 LEFT JOIN dev_device_command c
                   ON c.tenant_id = t.tenant_id
                  AND c.organization_id = t.organization_id
@@ -793,95 +933,7 @@ public class ReliableOperationsJdbcRepository {
                  AND d.organization_id = t.organization_id
                  AND d.id = t.source_device_deployment_id
                 JOIN dev_device_asset a ON a.id = d.asset_id
-                LEFT JOIN dev_device_transport_state transport
-                  ON transport.asset_id = a.id
-                LEFT JOIN dev_deployment_runtime_state runtime
-                  ON runtime.deployment_id = d.id
-                LEFT JOIN dev_config_version config
-                  ON config.id = (
-                      SELECT latest.id
-                      FROM dev_config_version latest
-                      WHERE latest.deployment_id = d.id
-                      ORDER BY latest.version_no DESC
-                      LIMIT 1
-                  )
-                WHERE t.state = 'PENDING'
-                  AND t.task_category = 'BUSINESS_INTENT'
-                  AND (
-                      (
-                          t.task_type IN (
-                              'ENSURE_DEVICE_CONFIGURATION',
-                              'START_DELIVERY_SESSION',
-                              'START_CLEAN_OPERATION',
-                              'END_CLEAN_BEFORE_UNLOCK',
-                              'RESUME_CLEAN_OPERATION',
-                              'SAMPLE_FULLNESS',
-                              'MEASURE_EMPTY_BAG_BASELINE'
-                          )
-                          AND c.id IS NOT NULL
-                      )
-                      OR
-                      (
-                          t.task_type IN (
-                              'CONFIRM_EDGE_EVENT',
-                              'PROVIDE_PHOTO_UPLOAD_GRANT'
-                          )
-                          AND c.id IS NULL
-                      )
-                  )
-                  AND t.execution_lane = 'DEVICE'
-                  AND t.dispatch_wait_reason IS NULL
-                  AND t.claimable_at <= UTC_TIMESTAMP(3)
-                  AND (
-                      (
-                          t.task_type = 'ENSURE_DEVICE_CONFIGURATION'
-                          AND COALESCE(
-                              transport.onenet_connection_status,
-                              'UNKNOWN'
-                          ) <> 'OFFLINE'
-                      )
-                      OR
-                      (
-                          t.task_type IN (
-                              'CONFIRM_EDGE_EVENT',
-                              'PROVIDE_PHOTO_UPLOAD_GRANT'
-                          )
-                          AND transport.onenet_connection_status =
-                              'ONLINE'
-                      )
-                      OR
-                      (
-                          t.task_type IN (
-                              'START_DELIVERY_SESSION',
-                              'START_CLEAN_OPERATION',
-                              'END_CLEAN_BEFORE_UNLOCK',
-                              'RESUME_CLEAN_OPERATION',
-                              'SAMPLE_FULLNESS',
-                              'MEASURE_EMPTY_BAG_BASELINE'
-                          )
-                          AND transport.onenet_connection_status =
-                              'ONLINE'
-                          AND runtime.edge_connection_status = 'ONLINE'
-                          AND runtime.trusted_runtime_received_at
-                              IS NOT NULL
-                          AND config.id IS NOT NULL
-                          AND TIMESTAMPDIFF(
-                              MICROSECOND,
-                              runtime.trusted_runtime_received_at,
-                              UTC_TIMESTAMP(3)
-                          ) BETWEEN 0 AND LEAST(
-                              CAST(config.edge_heartbeat_interval_ms
-                                  AS DECIMAL(30, 0))
-                                  * CAST(config.edge_heartbeat_miss_threshold
-                                      AS DECIMAL(30, 0))
-                                  * CAST(1000 AS DECIMAL(30, 0)),
-                              CAST(86400000000 AS DECIMAL(30, 0))
-                          )
-                      )
-                  )
                 ORDER BY t.claimable_at, t.priority, t.id
-                LIMIT ?
-                FOR UPDATE SKIP LOCKED
                 """;
         List<DeviceClaimCandidate> candidates = jdbcTemplate.query(
                 connection -> {
