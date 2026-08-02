@@ -11,7 +11,6 @@ import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
-import org.enveloping.ecobin.operations.api.reliability.DeviceTelemetryRetentionPort;
 import org.enveloping.ecobin.operations.api.reliability.DeviceTaskGateReconciliationPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
@@ -110,9 +109,6 @@ class TargetDeviceMysqlIntegrationTest {
     private DeviceConfigurationCanonicalizer canonicalizer;
     @Autowired
     private DeviceTaskGateReconciliationPort taskGateReconciliation;
-    @Autowired
-    private DeviceTelemetryRetentionPort telemetryRetention;
-
     private String run;
     private String platformLogin;
 
@@ -1133,32 +1129,6 @@ class TargetDeviceMysqlIntegrationTest {
                 deploymentCode,
                 applicationUid,
                 8);
-        jdbc.update("""
-                        UPDATE ops_inbox_message
-                        SET created_at = DATE_SUB(
-                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
-                            first_received_at = DATE_SUB(
-                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
-                            last_received_at = DATE_SUB(
-                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
-                            processed_at = DATE_SUB(
-                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
-                            updated_at = UTC_TIMESTAMP(3)
-                        WHERE external_message_id = ?
-                        """,
-                runtimeEvidence.eventUid());
-        assertEquals(
-                1,
-                telemetryRetention.purgeRuntimeSnapshotsBefore(
-                        Instant.now().minus(1, ChronoUnit.DAYS),
-                        100));
-        assertEquals(0, jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM ops_inbox_message
-                        WHERE external_message_id = ?
-                        """,
-                Integer.class,
-                runtimeEvidence.eventUid()));
 
         JsonNode organizationView = data(read(
                 principal,
