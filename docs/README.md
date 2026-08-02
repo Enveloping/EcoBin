@@ -6,16 +6,17 @@
 
 1. [项目上下文](architecture/project-context.md)：当前阶段、跨会话决策、已知工程坑和续作入口。
 2. [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)：覆盖旧主动检测方案；只有当前袋明确 `FULL` 阻止下一次投递。
-3. [产品需求基线](planning/requirements-baseline.md)：当前目标需求；与旧实现冲突时用于判断后续应实现什么。
-4. [一周 P0 范围基线](planning/p0-scope-baseline.md)：近期受控真实闭环的承诺范围和验收边界。
-5. [P0 业务模型基线](planning/business-model-baseline.md)：已冻结的业务主体、事实、状态机和不变量；2026-07-24 已同步 session 一单与清运电子锁事实。
-6. [P0 系统架构设计基线](planning/system-architecture-draft.md)：已冻结的系统边界、九模块布局、一致性、安全、运行与验证方案。
-7. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
-8. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
-9. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
-10. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、H-02、F-01～F-11、V-01、V-02 已完成，V-02 的微信开发环境限制由非阻塞 P0-FOLLOWUP-01 延期跟踪，H-03、V-09 为 `ready` 但尚未获得实施授权；H-02 已通过本地 MySQL 8.4.10 开发演练及服务器整改阶段 0～3 验收，当前试验期由项目负责人接受操作机 ACL 受限 `.ecobin` 保管长期凭证原件，加密密码库和异机密码库副本延期到下一版本；F-11 后续验证发现范围内问题时重开，固定帧真机证据保留在 H-03。
-11. [权限与角色设计](architecture/permission-design.md)：当前旧实现的三类登录主体、多租户隔离和接口鉴权。
-12. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构、迁移版本和业务数据关系；新栈目标迁移已推进到 V25，并由只读 epoch guard 校验，运行制品不携带 Flyway/迁移脚本。
+3. [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：真实 OneNet/COS、模拟 MCU/双摄的打通过程、易错点和下次检查清单。
+4. [产品需求基线](planning/requirements-baseline.md)：当前目标需求；与旧实现冲突时用于判断后续应实现什么。
+5. [一周 P0 范围基线](planning/p0-scope-baseline.md)：近期受控真实闭环的承诺范围和验收边界。
+6. [P0 业务模型基线](planning/business-model-baseline.md)：已冻结的业务主体、事实、状态机和不变量；2026-07-24 已同步 session 一单与清运电子锁事实。
+7. [P0 系统架构设计基线](planning/system-architecture-draft.md)：已冻结的系统边界、九模块布局、一致性、安全、运行与验证方案。
+8. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
+9. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
+10. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
+11. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、H-02、F-01～F-11、V-01、V-02 已完成，V-02 的微信开发环境限制由非阻塞 P0-FOLLOWUP-01 延期跟踪，H-03、V-09 为 `ready` 但尚未获得实施授权；H-02 已通过本地 MySQL 8.4.10 开发演练及服务器整改阶段 0～3 验收，当前试验期由项目负责人接受操作机 ACL 受限 `.ecobin` 保管长期凭证原件，加密密码库和异机密码库副本延期到下一版本；F-11 后续验证发现范围内问题时重开，固定帧真机证据保留在 H-03。
+12. [权限与角色设计](architecture/permission-design.md)：当前旧实现的三类登录主体、多租户隔离和接口鉴权。
+13. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构、迁移版本和业务数据关系；新栈目标迁移已推进到 V25，并由只读 epoch guard 校验，运行制品不携带 Flyway/迁移脚本。
 
 ## 目录说明
 
@@ -55,6 +56,7 @@
 ### `operations/` — 操作与恢复证据
 
 - [H-01 旧栈恢复单元与所有权证据](operations/h-01-legacy-recovery-evidence.md)
+- [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：V25 真实云链路、模拟 MCU/双摄的故障分层、复跑顺序和证据清单。
 
 ### `flows/` — 流程图与可视化说明
 

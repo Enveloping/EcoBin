@@ -80,3 +80,11 @@ uv run --python 3.11 --with pytest \
 ```bash
 uv run --python 3.11 --with pytest pytest -q
 ```
+
+## 跨端联调
+
+需要连接真实 OneNet、北向 MQ、后端、MySQL 和 COS，并验证订单、业务确认回执及 V25
+当前袋 `FULL/NOT_FULL` 准入时，按
+[投递全链路联调复盘与复跑手册](../../docs/operations/delivery-e2e-integration-retrospective-2026-08-02.md)
+执行。不要只因 MQTT/OneNet 返回成功或数据库出现订单，就跳过确认回执、四图和满溢状态的
+收敛检查。

@@ -220,6 +220,7 @@
 - [目标接口设计基线](docs/planning/interface-design-draft.md)
 - [详细设计与任务拆分](docs/planning/detailed-design-draft.md)
 - [P0 受控闭环正式任务](docs/planning/tasks/p0-controlled-loop/00-index.md)
+- [投递全链路联调复盘与复跑手册](docs/operations/delivery-e2e-integration-retrospective-2026-08-02.md)
 - [Agent 任务仓库配置](docs/agents/issue-tracker.md)
 - [当前旧权限设计](docs/architecture/permission-design.md)
 - [当前旧数据库结构](docs/architecture/database-design.md)

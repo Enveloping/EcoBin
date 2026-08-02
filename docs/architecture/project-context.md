@@ -149,6 +149,13 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 
 ## 5. 已知工程坑
 
+- 2026-08-02 的 V25 投递联调已经打通真实 OneNet/COS、模拟 MCU/双摄、订单、业务确认
+  回执和当前袋 `FULL` 准入。期间遇到的 systemd 双实例、旧边缘数据、V24→V25 迁移、
+  `.m2` 旧 jar、OneNet 确认引用缺少 `PORT_FULLNESS_STATE`、BLOCKED 原任务受控恢复和
+  时钟偏差等问题，已整理为
+  [`投递全链路联调复盘与复跑手册`](../operations/delivery-e2e-integration-retrospective-2026-08-02.md)。
+  下次跨端联调先按该手册执行环境与契约预检，不以 OneNet `code=0` 或出现订单单独宣称
+  闭环完成。
 - `./mvnw spring-boot:run -pl ecobin-bootstrap` 不会重建其他模块，会直接使用 `.m2` 的旧 jar。改过 identity/framework/device/business 或其他模块后先 `./mvnw install -DskipTests`，再运行 bootstrap。不要用 `-am spring-boot:run`，它会尝试在父 POM 找主类。
 - IDEA 运行使用各模块 `target/classes`，代码编译后仍需 Stop/Run 重启 JVM 才能替换已加载类。
 - `AdminController.list` 与 `TenantController.list` 返回 `Result<List<T>>`，Web 端做客户端分页；用户、设备、投递、清运、提现等主要列表返回 `PageResult`，由服务端分页。
