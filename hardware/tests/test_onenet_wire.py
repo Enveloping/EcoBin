@@ -212,10 +212,10 @@ def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
         "deviceConfig",
         "ports",
     }
-    assert command["payload"]["deviceConfig"]["edgeHeartbeatIntervalMs"] == 30_000
+    assert command["payload"]["deviceConfig"]["edgeHeartbeatIntervalMs"] == 300_000
     assert command["payload"]["deviceConfig"]["edgeHeartbeatMissThreshold"] == 3
     assert command["payloadSha256"] == (
-        "46e8b2c7239ba04b94b7b5046c71d119e4b2f5c4bd9b802cad7d7810702e7e02"
+        "281de5721b8bdabd0c903f290c841b90c2c4cd90433c4d5fe7256651c3b04f11"
     )
 
 

@@ -14,10 +14,13 @@ public class ReliableDeviceTaskRegistrationService
         implements ReliableDeviceTaskRegistrationPort {
 
     private final ReliableOperationsJdbcRepository repository;
+    private final ReliableWorkSignal workSignal;
 
     public ReliableDeviceTaskRegistrationService(
-            ReliableOperationsJdbcRepository repository) {
+            ReliableOperationsJdbcRepository repository,
+            ReliableWorkSignal workSignal) {
         this.repository = repository;
+        this.workSignal = workSignal;
     }
 
     @Override
@@ -43,7 +46,7 @@ public class ReliableDeviceTaskRegistrationService
                     registration.taskType(),
                     now);
         }
-        return repository.insertDeviceBusinessTask(
+        UUID taskUid = repository.insertDeviceBusinessTask(
                 keys[0],
                 keys[1],
                 keys[2],
@@ -62,5 +65,7 @@ public class ReliableDeviceTaskRegistrationService
                         ? now
                         : registration.initialRunAt(),
                 now);
+        workSignal.deviceCommand();
+        return taskUid;
     }
 }

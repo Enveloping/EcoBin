@@ -408,6 +408,7 @@ public class ReliableOperationsJdbcRepository {
                     completed_at = COALESCE(completed_at, ?),
                     blocked_reason_code = NULL,
                     blocked_diagnostic = NULL,
+                    dispatch_wait_reason = NULL,
                     lock_version = lock_version + 1,
                     updated_at = ?
                 WHERE scope_kind = 'ORGANIZATION'
@@ -445,6 +446,7 @@ public class ReliableOperationsJdbcRepository {
                     completed_at = COALESCE(completed_at, ?),
                     blocked_reason_code = NULL,
                     blocked_diagnostic = NULL,
+                    dispatch_wait_reason = NULL,
                     lock_version = lock_version + 1,
                     updated_at = ?
                 WHERE scope_kind = 'ORGANIZATION'
@@ -866,10 +868,8 @@ public class ReliableOperationsJdbcRepository {
                                 (
                                     candidate.task_type =
                                         'ENSURE_DEVICE_CONFIGURATION'
-                                    AND COALESCE(
-                                        transport.onenet_connection_status,
-                                        'UNKNOWN'
-                                    ) <> 'OFFLINE'
+                                    AND transport.onenet_connection_status =
+                                        'ONLINE'
                                 )
                                 OR
                                 (
@@ -897,22 +897,6 @@ public class ReliableOperationsJdbcRepository {
                                     AND runtime.trusted_runtime_received_at
                                         IS NOT NULL
                                     AND config.id IS NOT NULL
-                                    AND TIMESTAMPDIFF(
-                                        MICROSECOND,
-                                        runtime.trusted_runtime_received_at,
-                                        UTC_TIMESTAMP(3)
-                                    ) BETWEEN 0 AND LEAST(
-                                        CAST(
-                                            config.edge_heartbeat_interval_ms
-                                            AS DECIMAL(30, 0)
-                                        ) * CAST(
-                                            config.edge_heartbeat_miss_threshold
-                                            AS DECIMAL(30, 0)
-                                        ) * CAST(1000 AS DECIMAL(30, 0)),
-                                        CAST(
-                                            86400000000 AS DECIMAL(30, 0)
-                                        )
-                                    )
                                 )
                             )
                       )
@@ -1223,6 +1207,8 @@ public class ReliableOperationsJdbcRepository {
                     lease_worker = NULL,
                     lease_until = NULL,
                     consecutive_failure_count = 0,
+                    dispatch_wait_reason =
+                        'AWAITING_DEVICE_EVIDENCE',
                     completed_at = NULL,
                     blocked_reason_code = NULL,
                     blocked_diagnostic = NULL,
@@ -1234,6 +1220,31 @@ public class ReliableOperationsJdbcRepository {
                 now,
                 taskId);
         requireSingleRow(updated, "schedule device evidence recheck");
+    }
+
+    public int blockExpiredDeviceEvidenceWaits(LocalDateTime now) {
+        return jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED',
+                    next_run_at = NULL,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    dispatch_wait_reason = NULL,
+                    handled_wake_version = wake_version,
+                    completed_at = ?,
+                    blocked_reason_code = 'DEVICE_EVIDENCE_TIMEOUT',
+                    blocked_diagnostic =
+                        'OneNet accepted the command but no trusted device evidence arrived before the evidence deadline',
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE state = 'PENDING'
+                  AND execution_lane = 'DEVICE'
+                  AND dispatch_wait_reason =
+                      'AWAITING_DEVICE_EVIDENCE'
+                  AND next_run_at <= ?
+                  AND lease_token IS NULL
+                """, now, now, now);
     }
 
     public void blockDeviceTask(
@@ -1250,6 +1261,7 @@ public class ReliableOperationsJdbcRepository {
                     lease_token = NULL,
                     lease_worker = NULL,
                     lease_until = NULL,
+                    dispatch_wait_reason = NULL,
                     consecutive_failure_count = ?,
                     handled_wake_version = ?,
                     completed_at = ?,
@@ -1390,6 +1402,7 @@ public class ReliableOperationsJdbcRepository {
                     lease_token = NULL,
                     lease_worker = NULL,
                     lease_until = NULL,
+                    dispatch_wait_reason = NULL,
                     consecutive_failure_count = 0,
                     handled_wake_version = ?,
                     completed_at = ?,
@@ -1410,6 +1423,7 @@ public class ReliableOperationsJdbcRepository {
                     lease_token = NULL,
                     lease_worker = NULL,
                     lease_until = NULL,
+                    dispatch_wait_reason = NULL,
                     completed_at = NULL,
                     blocked_reason_code = NULL,
                     blocked_diagnostic = NULL,
@@ -1432,6 +1446,7 @@ public class ReliableOperationsJdbcRepository {
                     lease_token = NULL,
                     lease_worker = NULL,
                     lease_until = NULL,
+                    dispatch_wait_reason = NULL,
                     consecutive_failure_count = ?,
                     completed_at = NULL,
                     blocked_reason_code = NULL,
@@ -1491,6 +1506,7 @@ public class ReliableOperationsJdbcRepository {
                     blocked_reason_code = 'AUTO_RETRY_EXHAUSTED',
                     blocked_diagnostic =
                         'automatic retry limit reached; inspect original task',
+                    dispatch_wait_reason = NULL,
                     lock_version = lock_version + 1,
                     updated_at = ?
                 WHERE id = ?
@@ -1511,6 +1527,9 @@ public class ReliableOperationsJdbcRepository {
                 : " AND deployment.asset_id = ?";
         String desiredWait = """
                 CASE
+                    WHEN task.dispatch_wait_reason =
+                        'AWAITING_DEVICE_EVIDENCE'
+                    THEN 'AWAITING_DEVICE_EVIDENCE'
                     WHEN COALESCE(
                         transport.onenet_connection_status,
                         'UNKNOWN'
@@ -1520,8 +1539,6 @@ public class ReliableOperationsJdbcRepository {
                         transport.onenet_connection_status,
                         'UNKNOWN'
                     ) = 'UNKNOWN'
-                         AND task.task_type <>
-                             'ENSURE_DEVICE_CONFIGURATION'
                     THEN 'DEVICE_PRESENCE_UNKNOWN'
                     WHEN task.task_type IN (
                         'START_DELIVERY_SESSION',
@@ -1532,23 +1549,10 @@ public class ReliableOperationsJdbcRepository {
                         'MEASURE_EMPTY_BAG_BASELINE'
                     )
                     AND (
-                        runtime.edge_connection_status <> 'ONLINE'
-                        OR runtime.trusted_runtime_received_at IS NULL
+                        runtime.trusted_runtime_received_at IS NULL
                         OR config.id IS NULL
-                        OR TIMESTAMPDIFF(
-                            MICROSECOND,
-                            runtime.trusted_runtime_received_at,
-                            UTC_TIMESTAMP(3)
-                        ) NOT BETWEEN 0 AND LEAST(
-                            CAST(config.edge_heartbeat_interval_ms
-                                AS DECIMAL(30, 0))
-                                * CAST(config.edge_heartbeat_miss_threshold
-                                    AS DECIMAL(30, 0))
-                                * CAST(1000 AS DECIMAL(30, 0)),
-                            CAST(86400000000 AS DECIMAL(30, 0))
-                        )
                     )
-                    THEN 'RUNTIME_STALE'
+                    THEN 'RUNTIME_MISSING'
                     ELSE NULL
                 END
                 """;
@@ -1607,28 +1611,12 @@ public class ReliableOperationsJdbcRepository {
                 : " AND deployment.asset_id = ?";
         String desiredStatus = """
                 CASE
-                    WHEN runtime.trusted_runtime_received_at IS NULL
-                    THEN CASE
-                        WHEN transport.onenet_connection_status = 'OFFLINE'
-                        THEN 'OFFLINE'
-                        ELSE 'UNKNOWN'
-                    END
+                    WHEN transport.onenet_connection_status = 'OFFLINE'
+                    THEN 'OFFLINE'
                     WHEN transport.onenet_connection_status = 'ONLINE'
-                         AND config.id IS NOT NULL
-                         AND TIMESTAMPDIFF(
-                             MICROSECOND,
-                             runtime.trusted_runtime_received_at,
-                             UTC_TIMESTAMP(3)
-                         ) BETWEEN 0 AND LEAST(
-                             CAST(config.edge_heartbeat_interval_ms
-                                 AS DECIMAL(30, 0))
-                                 * CAST(config.edge_heartbeat_miss_threshold
-                                     AS DECIMAL(30, 0))
-                                 * CAST(1000 AS DECIMAL(30, 0)),
-                             CAST(86400000000 AS DECIMAL(30, 0))
-                         )
+                         AND runtime.trusted_runtime_received_at IS NOT NULL
                     THEN 'ONLINE'
-                    ELSE 'OFFLINE'
+                    ELSE 'UNKNOWN'
                 END
                 """;
         String sql = """

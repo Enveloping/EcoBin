@@ -116,6 +116,7 @@ ecobin:
   operations:
     reliable:
       workers-enabled: true
+      recovery-scan-interval: 30s
       iot-device:
         worker-count: 2
         batch-size: 16
@@ -123,7 +124,7 @@ ecobin:
         external-timeout: 10s
         maximum-in-flight: 16
         bounded-queue-capacity: 64
-        poll-interval: 500ms
+        poll-interval: 30s
         initial-backoff: 1s
         maximum-backoff: 5m
         max-auto-attempts: 10
@@ -149,6 +150,11 @@ ecobin:
         initial-backoff: 5s
         maximum-backoff: 30m
         max-auto-attempts: 10
+    telemetry:
+      retained-for: 24h
+      cleanup-interval: 1h
+      cleanup-batch-size: 1000
+      maximum-batches: 20
 
   # F-07：目标纪元与外联模式均参与启动/就绪门禁。
   database:

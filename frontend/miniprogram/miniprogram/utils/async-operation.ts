@@ -11,6 +11,7 @@ export interface AcceptedOperation {
 
 export interface PollableProjection {
   status: string
+  phase?: string
   recommendedPollAfterMs?: number
 }
 
@@ -41,6 +42,12 @@ function pollDelay(value: number | undefined): number {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+const UNCHANGED_BACKOFF_MS = [1000, 2000, 3000, 5000, 10000]
+
+function projectionKey(projection: PollableProjection): string {
+  return `${projection.status}|${projection.phase || ''}`
 }
 
 export function rememberAcceptedOperation(
@@ -78,10 +85,10 @@ export async function pollAcceptedOperation<T extends PollableProjection>(
   rememberAcceptedOperation(operation)
   const startedAt = Date.now()
   const maximumElapsedMs = options.maximumElapsedMs ?? 5 * 60 * 1000
-  let waitMs = pollDelay(operation.recommendedPollAfterMs)
+  let previousKey: string | undefined
+  let unchangedCount = 0
 
   while (true) {
-    await delay(waitMs)
     if (isCancelled?.()) throw new Error('异步状态查询已取消')
     const projection = await request<T>({
       url: operation.statusUrl,
@@ -97,6 +104,20 @@ export async function pollAcceptedOperation<T extends PollableProjection>(
     if (Date.now() - startedAt >= maximumElapsedMs) {
       throw new Error('异步状态仍未结束，可稍后按资源编号继续查询')
     }
-    waitMs = pollDelay(projection.recommendedPollAfterMs)
+    const key = projectionKey(projection)
+    if (key === previousKey) {
+      unchangedCount = Math.min(
+        unchangedCount + 1,
+        UNCHANGED_BACKOFF_MS.length - 1,
+      )
+    } else {
+      unchangedCount = 0
+      previousKey = key
+    }
+    const waitMs = Math.max(
+      pollDelay(projection.recommendedPollAfterMs),
+      UNCHANGED_BACKOFF_MS[unchangedCount],
+    )
+    await delay(waitMs)
   }
 }

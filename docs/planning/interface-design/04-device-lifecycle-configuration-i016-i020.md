@@ -234,7 +234,7 @@ POST {deploymentBase}/{deploymentCode}/configuration-releases
     "address": "A区北门",
     "longitude": "113.123456",
     "latitude": "23.123456",
-    "edgeHeartbeatIntervalMs": 30000,
+    "edgeHeartbeatIntervalMs": 300000,
     "edgeHeartbeatMissThreshold": 3,
     "mcuHeartbeatIntervalMs": 5000,
     "mcuHeartbeatMissThreshold": 3,

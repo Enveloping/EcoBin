@@ -11,6 +11,7 @@ import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
+import org.enveloping.ecobin.operations.api.reliability.DeviceTelemetryRetentionPort;
 import org.enveloping.ecobin.operations.api.reliability.DeviceTaskGateReconciliationPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
@@ -109,6 +110,8 @@ class TargetDeviceMysqlIntegrationTest {
     private DeviceConfigurationCanonicalizer canonicalizer;
     @Autowired
     private DeviceTaskGateReconciliationPort taskGateReconciliation;
+    @Autowired
+    private DeviceTelemetryRetentionPort telemetryRetention;
 
     private String run;
     private String platformLogin;
@@ -399,6 +402,12 @@ class TargetDeviceMysqlIntegrationTest {
                             '$.payload') = 0
                         """, Integer.class, applicationUid));
 
+        long lifecycleTime = Instant.now().toEpochMilli();
+        acceptTransportLifecycle(
+                hardwareSn,
+                "ONLINE",
+                lifecycleTime,
+                "configuration-initial-online-" + run);
         ReliableWorkerBatchResult batch =
                 worker.runBatch("device-integration-worker");
         assertEquals(1, batch.claimed());
@@ -442,6 +451,27 @@ class TargetDeviceMysqlIntegrationTest {
                           AND task.task_type =
                               'ENSURE_DEVICE_CONFIGURATION'
                         """, String.class, applicationUid));
+        assertEquals(
+                "AWAITING_DEVICE_EVIDENCE",
+                jdbc.queryForObject("""
+                                SELECT task.dispatch_wait_reason
+                                FROM ops_reliable_task task
+                                JOIN dev_device_command command_row
+                                  ON command_row.id =
+                                     task.source_device_command_id
+                                JOIN dev_config_application application
+                                  ON application.id =
+                                     command_row.config_application_id
+                                WHERE application.application_uid = ?
+                                  AND task.task_type =
+                                      'ENSURE_DEVICE_CONFIGURATION'
+                                """,
+                        String.class,
+                        applicationUid));
+        ReliableWorkerBatchResult acceptedAgain =
+                worker.runBatch("device-accepted-no-resend-worker");
+        assertEquals(0, acceptedAgain.claimed());
+        assertEquals(1, submissionProbe.submissionCount());
         assertEquals("PENDING", jdbc.queryForObject("""
                         SELECT status FROM dev_config_application
                         WHERE application_uid = ?
@@ -598,7 +628,6 @@ class TargetDeviceMysqlIntegrationTest {
                 confirmationEnvelope.path("payload")
                         .path("outcome").asText());
 
-        long lifecycleTime = Instant.now().toEpochMilli();
         acceptTransportLifecycle(
                 hardwareSn,
                 "OFFLINE",
@@ -850,7 +879,7 @@ class TargetDeviceMysqlIntegrationTest {
                 deploymentCode);
         transportPresencePort.observeAuthenticatedMessage(
                 hardwareSn, staleRuntimeInboxId);
-        assertEquals("OFFLINE|DEVICE_OFFLINE", jdbc.queryForObject("""
+        assertEquals("ONLINE|DEVICE_OFFLINE", jdbc.queryForObject("""
                         SELECT CONCAT(
                             transport.onenet_connection_status, '|',
                             task.dispatch_wait_reason
@@ -1098,6 +1127,38 @@ class TargetDeviceMysqlIntegrationTest {
                 "SAFE",
                 stillSafeRuntime.path("health")
                         .path("safetyStatus").asText());
+
+        applyTrustedRuntimeSnapshot(
+                hardwareSn,
+                deploymentCode,
+                applicationUid,
+                8);
+        jdbc.update("""
+                        UPDATE ops_inbox_message
+                        SET created_at = DATE_SUB(
+                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
+                            first_received_at = DATE_SUB(
+                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
+                            last_received_at = DATE_SUB(
+                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
+                            processed_at = DATE_SUB(
+                                UTC_TIMESTAMP(3), INTERVAL 2 DAY),
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE external_message_id = ?
+                        """,
+                runtimeEvidence.eventUid());
+        assertEquals(
+                1,
+                telemetryRetention.purgeRuntimeSnapshotsBefore(
+                        Instant.now().minus(1, ChronoUnit.DAYS),
+                        100));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """,
+                Integer.class,
+                runtimeEvidence.eventUid()));
 
         JsonNode organizationView = data(read(
                 principal,
@@ -1589,13 +1650,32 @@ class TargetDeviceMysqlIntegrationTest {
                 "device-integration-message-" + eventUid,
                 "encrypted-device-integration-envelope"
                         .getBytes(StandardCharsets.UTF_8));
-        assertEquals("ORGANIZATION|RECEIVED", jdbc.queryForObject("""
+        boolean runtimeTelemetry =
+                "deviceRuntimeSnapshot".equals(identifier);
+        assertEquals(
+                runtimeTelemetry
+                        ? "ORGANIZATION|PROCESSED"
+                        : "ORGANIZATION|RECEIVED",
+                jdbc.queryForObject("""
                         SELECT CONCAT(scope_kind, '|', processing_state)
                         FROM ops_inbox_message
                         WHERE external_message_id = ?
                         """,
                 String.class,
                 eventUid));
+
+        if (runtimeTelemetry) {
+            assertEquals(0, jdbc.queryForObject("""
+                            SELECT COUNT(*)
+                            FROM ops_reliable_task task
+                            JOIN ops_inbox_message inbox
+                              ON inbox.id = task.source_inbox_id
+                            WHERE inbox.external_message_id = ?
+                            """,
+                    Integer.class,
+                    eventUid));
+            return;
+        }
 
         ReliableWorkerBatchResult result = inboxWorker.runBatch(
                 "device-inbox-" + eventUid);

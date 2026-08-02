@@ -1295,7 +1295,7 @@ public class TargetDeviceApplication {
         if (!configurationReady(scope, deployment, runtime)) {
             blockers.add("CONFIGURATION_NOT_APPLIED");
         }
-        if (!trustedOrangePiRuntimeFresh(
+        if (!trustedOrangePiRuntimeAvailable(
                 scope, deployment.id())) {
             blockers.add("TRUSTED_DEVICE_IDENTITY_UNPROVEN");
         }
@@ -1403,7 +1403,7 @@ public class TargetDeviceApplication {
         if (!configurationReady(scope, deployment, runtime)) {
             blockers.add("CONFIGURATION_NOT_APPLIED");
         }
-        if (!trustedOrangePiRuntimeFresh(scope, deployment.id())
+        if (!trustedOrangePiRuntimeAvailable(scope, deployment.id())
                 || !"ONLINE".equals(
                 runtime.edgeConnectionStatus())) {
             blockers.add("EDGE_OFFLINE");
@@ -1456,19 +1456,11 @@ public class TargetDeviceApplication {
         return exact != null && exact == 1;
     }
 
-    private boolean trustedOrangePiRuntimeFresh(
+    private boolean trustedOrangePiRuntimeAvailable(
             AuthorizedScope scope, long deploymentId) {
-        Integer fresh = jdbc.queryForObject("""
+        Integer available = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_deployment_runtime_state runtime
-                        JOIN dev_config_version config
-                          ON config.tenant_id = runtime.tenant_id
-                         AND config.organization_id =
-                             runtime.organization_id
-                         AND config.deployment_id =
-                             runtime.deployment_id
-                         AND config.version_no =
-                             runtime.orange_pi_reported_config_version_no
                         WHERE runtime.tenant_id = ?
                           AND runtime.organization_id = ?
                           AND runtime.deployment_id = ?
@@ -1476,24 +1468,12 @@ public class TargetDeviceApplication {
                               IS NOT NULL
                           AND runtime.trusted_runtime_received_at
                               IS NOT NULL
-                          AND TIMESTAMPDIFF(
-                              MICROSECOND,
-                              runtime.trusted_runtime_received_at,
-                              UTC_TIMESTAMP(3)
-                          ) BETWEEN 0 AND LEAST(
-                              CAST(config.edge_heartbeat_interval_ms
-                                  AS DECIMAL(30, 0))
-                                  * CAST(config.edge_heartbeat_miss_threshold
-                                      AS DECIMAL(30, 0))
-                                  * CAST(1000 AS DECIMAL(30, 0)),
-                              CAST(86400000000 AS DECIMAL(30, 0))
-                          )
                         """,
                 Integer.class,
                 scope.tenantId(),
                 scope.organizationId(),
                 deploymentId);
-        return fresh != null && fresh == 1;
+        return available != null && available == 1;
     }
 
     private static boolean sensorHealthy(PortRuntimeRow port) {

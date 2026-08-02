@@ -29,7 +29,12 @@ public record TrustedInboxReceipt(
             Objects.requireNonNull(quarantineUid, "quarantineUid");
         } else {
             Objects.requireNonNull(inboxUid, "inboxUid");
-            Objects.requireNonNull(taskUid, "taskUid");
+            if (state != TrustedInboxReceiptState.TELEMETRY_APPLIED) {
+                Objects.requireNonNull(taskUid, "taskUid");
+            } else if (taskUid != null) {
+                throw new IllegalArgumentException(
+                        "telemetry receipt must not contain taskUid");
+            }
             if (quarantineUid != null) {
                 throw new IllegalArgumentException(
                         "accepted receipt must not contain quarantineUid");

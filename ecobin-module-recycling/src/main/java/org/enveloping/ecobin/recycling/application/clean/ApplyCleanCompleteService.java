@@ -1,7 +1,6 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
 import org.enveloping.ecobin.device.api.port.ReliableEdgeConfirmationPort;
-import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
@@ -94,19 +93,16 @@ public class ApplyCleanCompleteService
     private final ObjectMapper objectMapper;
     private final ReliableDeviceTaskProofPort taskProofPort;
     private final ReliableEdgeConfirmationPort confirmationPort;
-    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public ApplyCleanCompleteService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             ReliableDeviceTaskProofPort taskProofPort,
-            ReliableEdgeConfirmationPort confirmationPort,
-            TrustedDeviceTransportPresencePort transportPresence) {
+            ReliableEdgeConfirmationPort confirmationPort) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.taskProofPort = taskProofPort;
         this.confirmationPort = confirmationPort;
-        this.transportPresence = transportPresence;
     }
 
     @Override
@@ -140,8 +136,6 @@ public class ApplyCleanCompleteService
                 asset.id(),
                 tenantId,
                 organizationId);
-        transportPresence.observeAuthenticatedMessage(
-                fact.hardwareSn(), inboxId);
         lockDeploymentRuntime(
                 deployment.id(), tenantId, organizationId);
         Operation operation = lockOperation(

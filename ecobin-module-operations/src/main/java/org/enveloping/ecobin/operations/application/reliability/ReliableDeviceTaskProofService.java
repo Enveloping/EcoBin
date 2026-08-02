@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 public class ReliableDeviceTaskProofService
@@ -18,6 +19,63 @@ public class ReliableDeviceTaskProofService
 
     public ReliableDeviceTaskProofService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void completeDispatchFromTrustedCommandObservation(
+            UUID commandUid) {
+        Objects.requireNonNull(commandUid, "commandUid");
+        List<LockedTask> rows = jdbc.query("""
+                        SELECT task.id, task.state
+                        FROM dev_device_command command_row
+                        JOIN ops_reliable_task task
+                          ON task.source_device_command_id = command_row.id
+                        WHERE command_row.command_uid = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new LockedTask(
+                        rs.getLong("id"),
+                        rs.getString("state")),
+                commandUid.toString());
+        if (rows.size() != 1) {
+            throw new ReliableTaskInvariantException(
+                    "trusted command observation did not resolve one reliable task");
+        }
+        complete(rows.getFirst());
+    }
+
+    private void complete(LockedTask task) {
+        if ("DONE".equals(task.state())
+                || "CANCELLED".equals(task.state())) {
+            return;
+        }
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        int updated = jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET state = 'DONE',
+                            next_run_at = NULL,
+                            lease_token = NULL,
+                            lease_worker = NULL,
+                            lease_until = NULL,
+                            dispatch_wait_reason = NULL,
+                            handled_wake_version = wake_version,
+                            completed_at = ?,
+                            blocked_reason_code = NULL,
+                            blocked_diagnostic = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND state IN ('PENDING', 'BLOCKED')
+                        """,
+                now,
+                now,
+                task.taskId());
+        if (updated != 1) {
+            throw new ReliableTaskInvariantException(
+                    "trusted device proof could not complete its task");
+        }
     }
 
     @Override
@@ -61,6 +119,7 @@ public class ReliableDeviceTaskProofService
                             lease_token = NULL,
                             lease_worker = NULL,
                             lease_until = NULL,
+                            dispatch_wait_reason = NULL,
                             handled_wake_version = wake_version,
                             completed_at = ?,
                             blocked_reason_code = NULL,

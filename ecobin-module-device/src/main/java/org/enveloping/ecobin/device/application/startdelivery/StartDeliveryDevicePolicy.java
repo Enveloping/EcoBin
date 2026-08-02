@@ -4,7 +4,6 @@ import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
@@ -12,8 +11,6 @@ import java.util.Set;
 
 final class StartDeliveryDevicePolicy {
 
-    private static final long MAX_TRUSTED_RUNTIME_AGE_MS =
-            Duration.ofDays(1).toMillis();
     private static final Set<String> KNOWN_ACTUATOR_FAILURES = Set.of(
             "TIMEOUT",
             "ACTUATOR_FAULT",
@@ -117,16 +114,11 @@ final class StartDeliveryDevicePolicy {
                         && runtime.trustedRuntimeSequence() > 0
                         && runtime.trustedRuntimeReceivedAt() != null;
         if (!trustedSource
-                || !"ONLINE".equals(runtime.edgeConnectionStatus())
-                || !fresh(
-                        runtime.trustedRuntimeReceivedAt(),
-                        now,
-                        configuration.edgeHeartbeatIntervalMs(),
-                        configuration.edgeHeartbeatMissThreshold())) {
+                || !"ONLINE".equals(runtime.edgeConnectionStatus())) {
             throw new TargetApiException(
                     422,
                     "DEVICE.DEPLOYMENT_UNAVAILABLE",
-                    "香橙派没有在允许的心跳窗口内提供可信运行快照");
+                    "设备当前没有 OneNet 在线事实和可信运行快照");
         }
         if (!"HEALTHY".equals(runtime.localStorageState())
                 || !"OK".equals(runtime.localStorageHealth())) {
@@ -229,41 +221,6 @@ final class StartDeliveryDevicePolicy {
                 422,
                 "DEVICE.SAFETY_LOCKED",
                 detail);
-    }
-
-    private static boolean fresh(
-            LocalDateTime receivedAt,
-            LocalDateTime now,
-            long heartbeatIntervalMs,
-            long heartbeatMissThreshold) {
-        if (heartbeatIntervalMs <= 0
-                || heartbeatMissThreshold <= 0
-                || receivedAt.isAfter(now)) {
-            return false;
-        }
-        long allowedAge = saturatingMultiply(
-                heartbeatIntervalMs,
-                heartbeatMissThreshold,
-                MAX_TRUSTED_RUNTIME_AGE_MS);
-        long actualAge;
-        try {
-            actualAge = Duration.between(
-                    receivedAt,
-                    now).toMillis();
-        } catch (ArithmeticException exception) {
-            return false;
-        }
-        return actualAge >= 0 && actualAge <= allowedAge;
-    }
-
-    private static long saturatingMultiply(
-            long left,
-            long right,
-            long cap) {
-        if (left > cap / right) {
-            return cap;
-        }
-        return Math.min(left * right, cap);
     }
 
     private static boolean sameDigest(byte[] left, byte[] right) {

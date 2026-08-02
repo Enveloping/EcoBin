@@ -893,18 +893,6 @@ public class DeviceLifecycleApplication {
                           AND runtime.clock_sync_health = 'OK'
                           AND runtime.pending_reliable_event_count = 0
                           AND runtime.trusted_runtime_received_at IS NOT NULL
-                          AND TIMESTAMPDIFF(
-                              MICROSECOND,
-                              runtime.trusted_runtime_received_at,
-                              UTC_TIMESTAMP(3)
-                          ) BETWEEN 0 AND LEAST(
-                              CAST(config.edge_heartbeat_interval_ms
-                                  AS DECIMAL(30, 0))
-                                  * CAST(config.edge_heartbeat_miss_threshold
-                                      AS DECIMAL(30, 0))
-                                  * CAST(1000 AS DECIMAL(30, 0)),
-                              CAST(86400000000 AS DECIMAL(30, 0))
-                          )
                           AND runtime.orange_pi_reported_config_version_no =
                               config.version_no
                           AND runtime.orange_pi_reported_config_content_sha256 =
@@ -1103,18 +1091,9 @@ public class DeviceLifecycleApplication {
         if (!exactConfiguration) {
             blockers.add("CONFIGURATION_NOT_APPLIED");
         }
-        long freshLimitUs = row.heartbeatIntervalMs() == null
-                || row.heartbeatMissThreshold() == null
-                ? 0
-                : heartbeatWindowMicros(
-                        row.heartbeatIntervalMs(),
-                        row.heartbeatMissThreshold());
         if (row.runtimeEventId() == null
-                || row.runtimeReceivedAt() == null
-                || row.runtimeAgeUs() == null
-                || row.runtimeAgeUs() < 0
-                || row.runtimeAgeUs() > freshLimitUs) {
-            blockers.add("TRUSTED_RUNTIME_STALE");
+                || row.runtimeReceivedAt() == null) {
+            blockers.add("TRUSTED_RUNTIME_MISSING");
         }
         if (!"ONLINE".equals(row.edgeConnectionStatus())) {
             blockers.add("EDGE_OFFLINE");

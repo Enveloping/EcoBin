@@ -64,7 +64,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
-    void staleOrangePiSnapshotAndOccupancyAreVisibleBlockers() {
+    void oldTrustedSnapshotRemainsUsableWhileOccupancyStillBlocks() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 deployment(
                         CONTENT_SHA,
@@ -76,11 +76,9 @@ class MiniappDeliveryDeviceQueryPolicyTest {
 
         assertThat(evaluation.commonBlockers())
                 .containsExactly(
-                        MiniappDeliveryDeviceQueryPolicy.EDGE_OFFLINE,
                         MiniappDeliveryDeviceQueryPolicy.DEVICE_BUSY);
         assertThat(evaluation.ports().getFirst().blockers())
                 .containsExactly(
-                        MiniappDeliveryDeviceQueryPolicy.EDGE_OFFLINE,
                         MiniappDeliveryDeviceQueryPolicy.DEVICE_BUSY);
     }
 

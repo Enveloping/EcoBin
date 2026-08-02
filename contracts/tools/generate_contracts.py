@@ -2669,7 +2669,7 @@ def build_onenet_examples() -> dict[str, Any]:
         "applicationUid": application_uid,
         "config": config,
         "deviceConfig": {
-            "edgeHeartbeatIntervalMs": 30000,
+            "edgeHeartbeatIntervalMs": 300000,
             "edgeHeartbeatMissThreshold": 3,
             "continueDeliveryWaitMs": 30000,
             "negativeWeightThresholdGrams": 500,

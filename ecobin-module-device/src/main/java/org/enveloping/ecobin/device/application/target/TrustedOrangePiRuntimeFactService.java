@@ -1,7 +1,6 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
-import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.PhotoStatusBusinessResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
@@ -69,7 +68,6 @@ public class TrustedOrangePiRuntimeFactService {
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness;
     private final ReliablePhotoUploadGrantService photoUploadGrants;
-    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public TrustedOrangePiRuntimeFactService(
             JdbcTemplate jdbc,
@@ -79,8 +77,7 @@ public class TrustedOrangePiRuntimeFactService {
             TrustedInboxQuarantinePort quarantinePort,
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness,
-            ReliablePhotoUploadGrantService photoUploadGrants,
-            TrustedDeviceTransportPresencePort transportPresence) {
+            ReliablePhotoUploadGrantService photoUploadGrants) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -89,7 +86,6 @@ public class TrustedOrangePiRuntimeFactService {
         this.inboxRefFactory = inboxRefFactory;
         this.photoStatusBusiness = photoStatusBusiness;
         this.photoUploadGrants = photoUploadGrants;
-        this.transportPresence = transportPresence;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -130,9 +126,6 @@ public class TrustedOrangePiRuntimeFactService {
                     ? TrustedDeviceEventApplyResult.QUARANTINED
                     : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
         }
-
-        transportPresence.observeAuthenticatedMessage(
-                event.hardwareSn(), inboxId);
 
         String effectKind;
         switch (event.eventType()) {
@@ -584,41 +577,51 @@ public class TrustedOrangePiRuntimeFactService {
         String capability = requiredText(
                 payload, "capabilityBitmapHex");
         int updated = jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
-                        SET edge_connection_status = 'ONLINE',
-                            mcu_link_status = ?,
-                            aggregate_weight_health = ?,
-                            local_storage_health = ?,
-                            clock_sync_health = ?,
-                            edge_boot_id = ?,
-                            edge_software_version = ?,
-                            mcu_firmware_version = ?,
-                            mcu_boot_id = ?,
-                            uart_state = ?,
-                            uart_protocol_major = ?,
-                            uart_protocol_minor = ?,
-                            capability_bitmap_hex = ?,
-                            local_storage_state = ?,
-                            clock_state = ?,
-                            pending_reliable_event_count = ?,
-                            trusted_runtime_edge_event_id = ?,
-                            trusted_runtime_edge_event_type =
+                        UPDATE dev_deployment_runtime_state runtime
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = runtime.deployment_id
+                        LEFT JOIN dev_device_transport_state transport
+                          ON transport.asset_id = deployment.asset_id
+                        SET runtime.edge_connection_status = CASE
+                                WHEN transport.onenet_connection_status =
+                                    'ONLINE' THEN 'ONLINE'
+                                WHEN transport.onenet_connection_status =
+                                    'OFFLINE' THEN 'OFFLINE'
+                                ELSE 'UNKNOWN'
+                            END,
+                            runtime.mcu_link_status = ?,
+                            runtime.aggregate_weight_health = ?,
+                            runtime.local_storage_health = ?,
+                            runtime.clock_sync_health = ?,
+                            runtime.edge_boot_id = ?,
+                            runtime.edge_software_version = ?,
+                            runtime.mcu_firmware_version = ?,
+                            runtime.mcu_boot_id = ?,
+                            runtime.uart_state = ?,
+                            runtime.uart_protocol_major = ?,
+                            runtime.uart_protocol_minor = ?,
+                            runtime.capability_bitmap_hex = ?,
+                            runtime.local_storage_state = ?,
+                            runtime.clock_state = ?,
+                            runtime.pending_reliable_event_count = ?,
+                            runtime.trusted_runtime_edge_event_id = ?,
+                            runtime.trusted_runtime_edge_event_type =
                                 'DEVICE_RUNTIME_SNAPSHOT',
-                            trusted_runtime_sequence = ?,
-                            trusted_runtime_received_at = ?,
-                            orange_pi_reported_config_version_no = ?,
-                            orange_pi_reported_config_content_sha256 = ?,
-                            orange_pi_reported_config_mcu_payload_sha256 = ?,
-                            last_heartbeat_at = ?,
-                            last_device_event_at = ?,
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
+                            runtime.trusted_runtime_sequence = ?,
+                            runtime.trusted_runtime_received_at = ?,
+                            runtime.orange_pi_reported_config_version_no = ?,
+                            runtime.orange_pi_reported_config_content_sha256 = ?,
+                            runtime.orange_pi_reported_config_mcu_payload_sha256 = ?,
+                            runtime.last_heartbeat_at = ?,
+                            runtime.last_device_event_at = ?,
+                            runtime.lock_version = runtime.lock_version + 1,
+                            runtime.updated_at = ?
+                        WHERE runtime.tenant_id = ?
+                          AND runtime.organization_id = ?
+                          AND runtime.deployment_id = ?
                           AND (
-                              trusted_runtime_sequence IS NULL
-                              OR trusted_runtime_sequence < ?
+                              runtime.trusted_runtime_sequence IS NULL
+                              OR runtime.trusted_runtime_sequence < ?
                           )
                         """,
                 mcuLink,
@@ -760,6 +763,9 @@ public class TrustedOrangePiRuntimeFactService {
                 errorCode,
                 now),
                 "insert device command observation");
+
+        taskProofPort.completeDispatchFromTrustedCommandObservation(
+                UUID.fromString(event.commandUid()));
 
         String desiredState = switch (stage) {
             case "RECEIVED", "ACCEPTED" -> "EDGE_ACCEPTED";
