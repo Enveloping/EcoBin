@@ -25,7 +25,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -108,6 +108,10 @@ class EdgeStore:
         if current < 6:
             self._migrate_v6()
             conn.execute("INSERT INTO schema_version (version) VALUES (6)")
+            current = 6
+        if current < 7:
+            self._migrate_v7()
+            conn.execute("INSERT INTO schema_version (version) VALUES (7)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -144,6 +148,9 @@ class EdgeStore:
             next_retry_at TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             confirmed_at TEXT,
+            last_platform_code INTEGER,
+            platform_accepted_at TEXT,
+            last_platform_reply_at TEXT,
             work_uid TEXT,
             tombstoned INTEGER NOT NULL DEFAULT 0
         )""")
@@ -555,6 +562,27 @@ class EdgeStore:
                SET url=NULL
                WHERE state<>'UPLOADED' AND url IS NOT NULL"""
         )
+
+    def _migrate_v7(self) -> None:
+        """Persist sanitized OneNet event-post reply evidence."""
+        columns = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info(event_outbox)"
+            ).fetchall()
+        }
+        if not columns:
+            return
+        for name, declaration in {
+            "last_platform_code": "INTEGER",
+            "platform_accepted_at": "TEXT",
+            "last_platform_reply_at": "TEXT",
+        }.items():
+            if name not in columns:
+                self._conn.execute(
+                    "ALTER TABLE event_outbox "
+                    f"ADD COLUMN {name} {declaration}"
+                )
 
     def _backfill_photo_metadata(self, conn) -> None:
         delivery_slots = {
@@ -1612,6 +1640,18 @@ class EdgeStore:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM event_outbox WHERE event_uid=?", (event_uid,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_event_by_sequence(
+        self,
+        edge_event_sequence: int,
+    ) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM event_outbox "
+                "WHERE edge_event_sequence=?",
+                (edge_event_sequence,),
             ).fetchone()
         return dict(row) if row else None
 
@@ -2692,9 +2732,56 @@ class EdgeStore:
         )
         with self.transaction():
             self._conn.execute(
-                "UPDATE event_outbox SET state='PENDING', retry_count=retry_count+1, next_retry_at=? WHERE event_uid=?",
+                "UPDATE event_outbox SET state='PENDING', "
+                "retry_count=retry_count+1, next_retry_at=? "
+                "WHERE event_uid=? AND state IN ('PENDING', 'SENDING')",
                 (next_retry, event_uid),
             )
+
+    def record_event_platform_reply(
+        self,
+        edge_event_sequence: int,
+        code: int,
+    ) -> Optional[str]:
+        event = self.get_event_by_sequence(edge_event_sequence)
+        if not event:
+            return None
+        event_uid = event["event_uid"]
+        now = self._now()
+        with self.transaction():
+            if code in (0, 200):
+                self._conn.execute(
+                    """UPDATE event_outbox
+                       SET last_platform_code=?,
+                           platform_accepted_at=COALESCE(
+                               platform_accepted_at, ?
+                           ),
+                           last_platform_reply_at=?
+                       WHERE event_uid=?""",
+                    (code, now, now, event_uid),
+                )
+            elif 2400 <= code <= 2499:
+                self._conn.execute(
+                    """UPDATE event_outbox
+                       SET state='DEAD',
+                           last_platform_code=?,
+                           last_platform_reply_at=?,
+                           next_retry_at=NULL
+                       WHERE event_uid=?
+                         AND state<>'CONFIRMED'""",
+                    (code, now, event_uid),
+                )
+            else:
+                self._conn.execute(
+                    """UPDATE event_outbox
+                       SET last_platform_code=?,
+                           last_platform_reply_at=?
+                       WHERE event_uid=?""",
+                    (code, now, event_uid),
+                )
+        if code not in (0, 200) and not 2400 <= code <= 2499:
+            self.mark_event_pending_retry(event_uid)
+        return event_uid
 
     def mark_event_dead(self, event_uid: str) -> None:
         with self.transaction():

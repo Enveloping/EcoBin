@@ -96,6 +96,9 @@ public final class DeviceModels {
             Long appliedConfigurationVersion,
             String configurationApplicationStatus,
             String edgeConnectionStatus,
+            String oneNetConnectionStatus,
+            Instant oneNetStatusObservedAt,
+            Instant trustedRuntimeReceivedAt,
             long version,
             Instant commissionedAt,
             Instant enabledAt,
@@ -133,6 +136,9 @@ public final class DeviceModels {
 
     public record RuntimeHealthSummary(
             String edgeConnectionStatus,
+            String oneNetConnectionStatus,
+            Instant oneNetStatusObservedAt,
+            Instant trustedRuntimeReceivedAt,
             String mcuLinkStatus,
             String safetyStatus,
             String aggregateWeightHealth,

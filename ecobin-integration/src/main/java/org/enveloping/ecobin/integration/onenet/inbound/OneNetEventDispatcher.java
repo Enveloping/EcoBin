@@ -16,9 +16,13 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -224,6 +228,15 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent("decrypted OneNet body is not JSON", exception);
         }
         String msgType = text(root, "msgType", 32);
+        if ("deviceOnline".equals(msgType)
+                || "deviceOffline".equals(msgType)) {
+            acceptTransportPresence(
+                    root,
+                    msgType,
+                    mqMessageId,
+                    rawTransportBody);
+            return;
+        }
         if (!"thingEvent".equals(msgType)) {
             log.info(
                     "[OneNet·分发] target Adapter skipped msgType={}",
@@ -262,6 +275,129 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     unwrap(params.get(identifier)),
                     rawTransportBody);
         }
+    }
+
+    private void acceptTransportPresence(
+            JsonNode root,
+            String msgType,
+            String mqMessageId,
+            byte[] rawTransportBody) {
+        String productId = null;
+        String hardwareSn = null;
+        try {
+            JsonNode subData = object(root, "subData");
+            hardwareSn = text(subData, "deviceName", 64);
+            productId = text(subData, "productId", 128);
+            if (oneNetProperties.getProductId() == null
+                    || !oneNetProperties.getProductId().equals(productId)) {
+                throw permanent(
+                        "authenticated OneNet product does not match runtime epoch");
+            }
+            JsonNode time = subData.get("time");
+            if (time == null || !time.canConvertToLong()
+                    || time.asLong() <= 0) {
+                throw permanent(
+                        "OneNet lifecycle time must be a positive epoch millisecond");
+            }
+            String externalMessageId = boundedMqMessageId(mqMessageId);
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("productId", productId);
+            source.put("deviceName", hardwareSn);
+            Map<String, Object> presence = new LinkedHashMap<>();
+            presence.put(
+                    "status",
+                    "deviceOnline".equals(msgType)
+                            ? "ONLINE"
+                            : "OFFLINE");
+            presence.put(
+                    "observedAt",
+                    Instant.ofEpochMilli(time.asLong()).toString());
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            normalized.put("trustedSource", source);
+            normalized.put("presence", presence);
+            TrustedInboxReceipt receipt = trustedInboxPort.receive(
+                    new TrustedInboxMessage(
+                            "onenet.device-lifecycle",
+                            OneNetCanonicalJson.stablePrincipalKey(
+                                    productId, hardwareSn),
+                            externalMessageId,
+                            "DEVICE_TRANSPORT_STATUS_CHANGED",
+                            1,
+                            requireRawTransportBody(rawTransportBody),
+                            objectMapper.writeValueAsString(normalized),
+                            "ONENET_PULSAR_AES",
+                            "product:" + productId
+                                    + ";device:" + hardwareSn,
+                            null,
+                            null,
+                            TrustedInboxExecutionLane.DEVICE,
+                            sourceScopePort.resolverForAsset(hardwareSn)));
+            if (!receipt.transportAcknowledgementAllowed()) {
+                throw new IllegalStateException(
+                        "reliable inbox did not permit lifecycle ACK");
+            }
+            log.info(
+                    "[OneNet·分发] lifecycle durably received status={} device={} state={}",
+                    presence.get("status"),
+                    safeToken(hardwareSn),
+                    receipt.state());
+        } catch (OneNetPermanentMessageException exception) {
+            quarantinePresence(
+                    productId,
+                    hardwareSn,
+                    mqMessageId,
+                    rawTransportBody,
+                    "PERMANENT_FORMAT_ERROR",
+                    exception.getMessage());
+            throw exception;
+        } catch (UntrustedInboxSourceException exception) {
+            OneNetPermanentMessageException rejected = permanent(
+                    "OneNet lifecycle device is not registered",
+                    exception);
+            quarantinePresence(
+                    productId,
+                    hardwareSn,
+                    mqMessageId,
+                    rawTransportBody,
+                    "UNRESOLVED_SCOPE",
+                    rejected.getMessage());
+            throw rejected;
+        }
+    }
+
+    private void quarantinePresence(
+            String productId,
+            String hardwareSn,
+            String externalMessageId,
+            byte[] rawTransportBody,
+            String reason,
+            String diagnostic) {
+        trustedInboxPort.quarantine(new TrustedInboxRejection(
+                "onenet.device-lifecycle",
+                OneNetCanonicalJson.stablePrincipalKey(
+                        productId == null ? "unknown" : productId,
+                        hardwareSn == null ? "unknown" : hardwareSn),
+                boundedMqMessageId(externalMessageId),
+                requireRawTransportBody(rawTransportBody),
+                reason,
+                diagnostic));
+    }
+
+    private static String boundedMqMessageId(String value) {
+        if (value == null || value.isBlank()) {
+            throw permanent("OneNet MQ message id is missing");
+        }
+        if (value.length() > 160) {
+            try {
+                byte[] digest = MessageDigest.getInstance("SHA-256")
+                        .digest(value.getBytes(StandardCharsets.UTF_8));
+                return "sha256:" + HexFormat.of().formatHex(digest);
+            } catch (NoSuchAlgorithmException exception) {
+                throw new IllegalStateException(
+                        "JVM does not provide SHA-256", exception);
+            }
+        }
+        return value;
     }
 
     private void accept(
@@ -1726,14 +1862,13 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         "mcuBootIdPresent",
                         "mcuBootId",
                         true));
-        payload.put(
-                "mcuFirmwareVersion",
-                nullablePresenceText(
+        String mcuFirmwareVersion = nullablePresenceText(
                         wire,
                         "mcuFirmwareVersionPresent",
                         "mcuFirmwareVersion",
                         "^.{1,64}$",
-                        64));
+                        64);
+        payload.put("mcuFirmwareVersion", mcuFirmwareVersion);
         payload.put(
                 "uartState",
                 enumText(
@@ -1812,14 +1947,19 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent("runtime ports must be a non-empty array");
         }
         List<Map<String, Object>> normalizedPorts = new ArrayList<>();
+        boolean fixedFrameCompatibility =
+                "fixed-frame-compat".equals(mcuFirmwareVersion);
         for (JsonNode port : ports) {
-            normalizedPorts.add(runtimePort(port));
+            normalizedPorts.add(runtimePort(
+                    port, fixedFrameCompatibility));
         }
         payload.put("ports", normalizedPorts);
         return payload;
     }
 
-    private static Map<String, Object> runtimePort(JsonNode wire) {
+    private static Map<String, Object> runtimePort(
+            JsonNode wire,
+            boolean fixedFrameCompatibility) {
         Map<String, Object> port = new LinkedHashMap<>();
         port.put("portNo", positiveSafeInteger(wire, "portNo"));
         port.put(
@@ -2011,14 +2151,24 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         port.put(
                 "faultBitmap",
                 nonNegativeSafeInteger(wire, "faultBitmap"));
+        boolean stableKindValid = fixedFrameCompatibility
+                ? "LAST_OBSERVED".equals(valueKind)
+                : "STABLE_WINDOW_MEAN".equals(valueKind);
         if (valueAvailable
                 != (port.get("reportedWeightGrams") != null)
                 || (!valueAvailable && !"NONE".equals(valueKind))
                 || ("STABLE".equals(measurementStatus)
                 && (!valueAvailable
-                || !"STABLE_WINDOW_MEAN".equals(valueKind)))) {
+                || !stableKindValid))) {
             throw permanent(
                     "runtime weight availability fields differ");
+        }
+        long sampleCount = (Long) port.get("weightSampleCount");
+        if (fixedFrameCompatibility
+                && "STABLE".equals(measurementStatus)
+                && (sampleCount < 0 || sampleCount > 1)) {
+            throw permanent(
+                    "fixed-frame runtime weight sample count differs");
         }
         boolean closeConfirmed =
                 (Boolean) port.get("cleanerPhysicalCloseConfirmed");

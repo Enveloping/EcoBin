@@ -616,6 +616,12 @@ class UartLink:
             "contentSha256": config["contentSha256"],
             "mcuPayloadSha256": config["mcuPayloadSha256"],
         }
+        device_fields = (
+            "continueDeliveryWaitMs", "negativeWeightThresholdGrams",
+            "deliveryAutoCloseMs", "weightMeasurementTimeoutMs",
+            "deliveryDoorTravelWaitMs", "cleanSolenoidPulseMs",
+            "smokeMonitoringEnabled",
+        )
         segments: list[tuple[str, dict]] = [
             (
                 "CONFIG_BEGIN",
@@ -632,7 +638,10 @@ class UartLink:
                     **common,
                     "partIndex": 2,
                     "partCount": part_count,
-                    **device_config,
+                    **{
+                        field: device_config[field]
+                        for field in device_fields
+                    },
                 },
             ),
         ]

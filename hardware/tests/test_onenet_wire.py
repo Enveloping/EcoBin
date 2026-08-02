@@ -182,8 +182,10 @@ def test_decode_apply_configuration_excludes_envelope_fields_from_payload():
         "deviceConfig",
         "ports",
     }
+    assert command["payload"]["deviceConfig"]["edgeHeartbeatIntervalMs"] == 30_000
+    assert command["payload"]["deviceConfig"]["edgeHeartbeatMissThreshold"] == 3
     assert command["payloadSha256"] == (
-        "13e51cebfdb5db942183cf722c9c5bf72cb9327672a5565db4e67ed0c97de956"
+        "46e8b2c7239ba04b94b7b5046c71d119e4b2f5c4bd9b802cad7d7810702e7e02"
     )
 
 
@@ -224,11 +226,35 @@ def test_encode_business_confirmation_receipt_event_shape():
     wire = encode_event_post("BUSINESS_CONFIRMATION_RECEIPT", event)
 
     value = wire["params"]["businessConfirmationReceipt"]["value"]
-    assert wire["id"] == "60000000-0000-4000-8000-000000000003"
+    assert wire["id"] == "1045"
     assert value["eventType"] == 1
     assert value["deliveryClass"] == 1
     assert value["outcome"] == 1
     assert value["target"] == {"type": 1, "uid": "conf-1"}
+
+
+def test_event_post_requires_bounded_numeric_edge_sequence():
+    event = {
+        "schemaVersion": 1,
+        "eventUid": str(uuid.uuid4()),
+        "deploymentCode": "Dp_demo_01",
+        "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
+        "deliveryClass": "CONTROL_RECEIPT",
+        "target": {"type": "BUSINESS_CONFIRMATION", "uid": "conf-1"},
+        "commandUid": "cmd-1",
+        "occurredAt": "2026-07-24T01:00:30.000Z",
+        "clockQuality": "SYNCED",
+        "payloadSha256": "abc",
+        "payload": {
+            "confirmationUid": "conf-1",
+            "originalEventUid": "evt-1",
+            "originalPayloadSha256": "def",
+            "outcome": "BUSINESS_APPLIED",
+        },
+    }
+
+    with pytest.raises(ValueError, match="edgeEventSequence"):
+        encode_event_post("BUSINESS_CONFIRMATION_RECEIPT", event)
 
 
 def test_encode_configuration_progress_presence_and_enum_fields():

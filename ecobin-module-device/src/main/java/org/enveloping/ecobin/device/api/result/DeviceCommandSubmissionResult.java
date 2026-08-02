@@ -56,6 +56,8 @@ public record DeviceCommandSubmissionResult(
 
     public enum Outcome {
         PLATFORM_ACCEPTED,
+        TARGET_OFFLINE,
+        TARGET_NOT_FOUND,
         RETRYABLE_FAILURE,
         PERMANENT_FAILURE
     }

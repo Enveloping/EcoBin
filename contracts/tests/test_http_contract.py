@@ -143,6 +143,46 @@ class HttpContractTests(unittest.TestCase):
         }
         self.assertEqual(set(), stale & set(paths))
 
+    def test_device_transport_and_runtime_presence_cannot_drift(self) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+        deployment = schemas["DeviceDeployment"]
+        runtime_health = schemas["DeviceRuntimeHealthSummary"]
+        expected_presence = {
+            "oneNetConnectionStatus",
+            "oneNetStatusObservedAt",
+            "trustedRuntimeReceivedAt",
+        }
+        self.assertEqual(
+            set(),
+            expected_presence - set(deployment["required"]),
+        )
+        self.assertEqual(
+            set(),
+            expected_presence - set(deployment["properties"]),
+        )
+        self.assertEqual(
+            set(),
+            expected_presence - set(runtime_health["required"]),
+        )
+        self.assertEqual(
+            set(),
+            expected_presence - set(runtime_health["properties"]),
+        )
+
+        for path in (
+            "/api/v1/web/organizations/{organizationCode}"
+            "/device-deployments",
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}/device-deployments",
+        ):
+            query_names = {
+                parameter["name"]
+                for parameter in document["paths"][path]["get"]["parameters"]
+                if parameter.get("in") == "query"
+            }
+            self.assertIn("oneNetConnectionStatus", query_names)
+
     def test_cleaning_controller_surface_is_in_authoritative_contract(
         self,
     ) -> None:

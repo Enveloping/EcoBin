@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
@@ -45,6 +46,7 @@ public class TrustedConfigurationProgressService
     private final ReliableEdgeConfirmationService confirmationService;
     private final TrustedInboxQuarantinePort quarantinePort;
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
+    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public TrustedConfigurationProgressService(
             JdbcTemplate jdbc,
@@ -52,13 +54,15 @@ public class TrustedConfigurationProgressService
             ReliableDeviceTaskProofPort taskProofPort,
             ReliableEdgeConfirmationService confirmationService,
             TrustedInboxQuarantinePort quarantinePort,
-            TrustedOrganizationInboxRefFactory inboxRefFactory) {
+            TrustedOrganizationInboxRefFactory inboxRefFactory,
+            TrustedDeviceTransportPresencePort transportPresence) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.taskProofPort = taskProofPort;
         this.confirmationService = confirmationService;
         this.quarantinePort = quarantinePort;
         this.inboxRefFactory = inboxRefFactory;
+        this.transportPresence = transportPresence;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -91,6 +95,8 @@ public class TrustedConfigurationProgressService
                 tenantKey,
                 organizationKey);
         verifyTarget(event, target);
+        transportPresence.observeAuthenticatedMessage(
+                event.hardwareSn(), inboxKey);
 
         List<ExistingEvent> collisions = jdbc.query("""
                         SELECT

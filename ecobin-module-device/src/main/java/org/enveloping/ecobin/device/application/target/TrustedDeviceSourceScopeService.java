@@ -19,6 +19,25 @@ public class TrustedDeviceSourceScopeService
     }
 
     @Override
+    public TrustedInboxScopeResolver resolverForAsset(String hardwareSn) {
+        String trustedHardwareSn = requireHardwareSn(hardwareSn);
+        return writer -> {
+            Integer count = jdbc.queryForObject("""
+                            SELECT COUNT(*)
+                            FROM dev_device_asset
+                            WHERE hardware_sn = ?
+                            """,
+                    Integer.class,
+                    trustedHardwareSn);
+            if (count == null || count != 1) {
+                throw new UntrustedInboxSourceException(
+                        "authenticated device asset is not registered");
+            }
+            writer.platform();
+        };
+    }
+
+    @Override
     public TrustedInboxScopeResolver resolverFor(
             String hardwareSn,
             String deploymentCode) {

@@ -110,6 +110,10 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - P0 后端只配置一个 OneNet 产品 ID，可信设备名固定等于硬件 SN；资产表不重复保存该可推导映射。设备 Key 只配置在对应香橙派，后端下行使用产品级 AccessKey。
 - 整条链路只需要出站连接：上行订阅 MQ、下行调用 OneNet HTTP、设备访问 COS；没有 OneNet HTTP 公网入站回调需求。
 - 2026-07-23 已正式确认 [`I-041～I-045`](../planning/interface-design/09-onenet-cos-edge-confirmation-i041-i045.md)：可靠边缘事实使用稳定 `eventUid`、原作业身份、规范摘要和部署内全局 `edgeEventSequence`；OneNet 传输 ACK、设备受理、物理结果和后端业务确认严格分层。后端权威事务与确认意图共同提交，设备持久化确认并回执后才清理原事件。
+- 2026-08-02 已把“在线”拆为两层事实：资产级 `oneNetConnectionStatus` 表示 OneNet 传输连接状态，由北向 `deviceOnline` / `deviceOffline` 通知、已鉴权设备消息和 OneNet 下行结果更新；部署级 `edgeConnectionStatus` 表示业务有效在线，必须同时有 OneNet 在线事实和未过期的可信运行快照。默认运行快照间隔 30 秒，连续 3 个周期未收到即视为业务离线。接口必须同时返回两层状态及其观测时间，不能再用单个布尔值混用。
+- 业务命令只在 OneNet 明确 `ONLINE` 且运行快照新鲜时下发；`UNKNOWN` 仅允许首次配置等接入探测。OneNet `10421` 表示目标离线，任务保持 `PENDING`、标记 `DEVICE_OFFLINE`，不增加连续失败计数，等上线通知或可信设备消息自动唤醒；`10410` 表示当前产品下找不到设备，任务阻断为 `DEVICE_IDENTITY_UNRESOLVED`，不能盲目重试。后端不再用周期性服务调用探测在线，Pulsar 生命周期通知是主要唤醒来源。
+- OneNet 返回 HTTP 200 但业务码非零时，只将明确的临时平台内部错误 `10500` 归为可重试；`10415` 等参数、物模型、权限及其他未进入临时白名单的业务错误直接永久失败，不能让冻结载荷持续重放。
+- 当前联调产品为 `tB6NlBWW0V`，唯一应保留的设备名/硬件 SN 为 `test-divice-1`。历史假设备及其关联事实应使用受控清理工具处理，不能只删资产主表；操作手册见 [`fake-device-cleanup.md`](../operations/fake-device-cleanup.md)。
 - 2026-07-23 已正式确认 [`I-046～I-050`](../planning/interface-design/10-uart-protocol-i046-i050.md)：UART 1.0 使用 `0xEC42`、最大 256 字节、big-endian 和 CRC-16/CCITT-FALSE 的有界二进制帧；启动先 HELLO/QUERY_STATE，命令 ACK 与物理结果分层，关键 MCU 事件提交边缘 SQLite 后才 ACK。`txSequence`、`mcuCommandUid`、`mcuBootId + mcuEventSequence` 和云端作业身份互不替代，任一端重启都禁止自动重放旧开门。
 - 投递和清运照片统一为设备直传 COS。对象 key 由设备在 `ecobin/{deploymentCode}/{workType}/{workUid}/` 授权前缀内生成；临时凭证只在发送时附加且不进入稳定摘要/日志。完成事件回传四个槽位状态，尚未上传完成的槽位 URL 为空；上传完成后再由照片状态事件回传可信 URL。
 - Jackson 使用 Spring Boot 4 的 Jackson 3 包 `tools.jackson.databind`；不要在 framework 模块误用 `com.fasterxml.jackson.databind`。

@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.DeviceTaskExecution;
@@ -16,12 +17,18 @@ public class ReliableDeviceCommandCompletionService {
 
     private final ReliableOperationsJdbcRepository repository;
     private final ReliableTaskProperties properties;
+    private final TrustedDeviceTransportPresencePort transportPresencePort;
+    private final ReliableDeviceTaskGateService taskGateService;
 
     public ReliableDeviceCommandCompletionService(
             ReliableOperationsJdbcRepository repository,
-            ReliableTaskProperties properties) {
+            ReliableTaskProperties properties,
+            TrustedDeviceTransportPresencePort transportPresencePort,
+            ReliableDeviceTaskGateService taskGateService) {
         this.repository = repository;
         this.properties = properties;
+        this.transportPresencePort = transportPresencePort;
+        this.taskGateService = taskGateService;
     }
 
     @Transactional(
@@ -70,6 +77,28 @@ public class ReliableDeviceCommandCompletionService {
         var now = repository.databaseNow();
         if (execution.wakeVersion() != claim.claimedWakeVersion()) {
             repository.releaseForImmediateRecheck(execution.taskId(), now);
+            return;
+        }
+
+        if (result.outcome()
+                == DeviceCommandSubmissionResult.Outcome.TARGET_OFFLINE) {
+            var presence = transportPresencePort.observeOutboundOffline(
+                    claim.hardwareSn());
+            taskGateService.reconcileAsset(presence.assetId());
+            repository.releaseForDispatchWait(
+                    execution.taskId(), "DEVICE_OFFLINE", now);
+            return;
+        }
+
+        if (result.outcome()
+                == DeviceCommandSubmissionResult.Outcome.TARGET_NOT_FOUND) {
+            repository.blockDeviceTask(
+                    execution.taskId(),
+                    execution.consecutiveFailureCount() + 1,
+                    execution.wakeVersion(),
+                    "DEVICE_IDENTITY_UNRESOLVED",
+                    "OneNet cannot resolve product_id and device_name",
+                    now);
             return;
         }
 
@@ -128,6 +157,8 @@ public class ReliableDeviceCommandCompletionService {
             DeviceCommandSubmissionResult.Outcome outcome) {
         return switch (outcome) {
             case PLATFORM_ACCEPTED -> "TECHNICAL_SUCCESS";
+            case TARGET_OFFLINE -> "TARGET_OFFLINE";
+            case TARGET_NOT_FOUND -> "TARGET_NOT_FOUND";
             case RETRYABLE_FAILURE -> "RETRYABLE_FAILURE";
             case PERMANENT_FAILURE -> "PERMANENT_TECHNICAL_FAILURE";
         };

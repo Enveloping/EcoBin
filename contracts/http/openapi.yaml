@@ -2621,6 +2621,12 @@
             "schema": {"type": "string", "maxLength": 32}
           },
           {
+            "name": "oneNetConnectionStatus",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "maxLength": 32}
+          },
+          {
             "name": "configurationApplicationStatus",
             "in": "query",
             "required": false,
@@ -2952,6 +2958,12 @@
           },
           {
             "name": "edgeConnectionStatus",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "maxLength": 32}
+          },
+          {
+            "name": "oneNetConnectionStatus",
             "in": "query",
             "required": false,
             "schema": {"type": "string", "maxLength": 32}
@@ -6203,6 +6215,9 @@
           "appliedConfigurationVersion",
           "configurationApplicationStatus",
           "edgeConnectionStatus",
+          "oneNetConnectionStatus",
+          "oneNetStatusObservedAt",
+          "trustedRuntimeReceivedAt",
           "version",
           "commissionedAt",
           "enabledAt",
@@ -6240,6 +6255,22 @@
           "edgeConnectionStatus": {
             "type": ["string", "null"],
             "maxLength": 32
+          },
+          "oneNetConnectionStatus": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "oneNetStatusObservedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "trustedRuntimeReceivedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
           },
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
           "commissionedAt": {
@@ -6328,6 +6359,9 @@
         "additionalProperties": false,
         "required": [
           "edgeConnectionStatus",
+          "oneNetConnectionStatus",
+          "oneNetStatusObservedAt",
+          "trustedRuntimeReceivedAt",
           "mcuLinkStatus",
           "safetyStatus",
           "aggregateWeightHealth",
@@ -6346,6 +6380,19 @@
         ],
         "properties": {
           "edgeConnectionStatus": {"type": "string", "maxLength": 32},
+          "oneNetConnectionStatus": {"type": "string", "maxLength": 32},
+          "oneNetStatusObservedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "trustedRuntimeReceivedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
           "mcuLinkStatus": {"type": "string", "maxLength": 32},
           "safetyStatus": {"type": "string", "maxLength": 32},
           "aggregateWeightHealth": {"type": "string", "maxLength": 32},

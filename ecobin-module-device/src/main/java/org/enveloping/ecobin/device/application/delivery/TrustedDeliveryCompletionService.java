@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.delivery;
 
 import org.enveloping.ecobin.device.api.port.CompleteDeliveryDeviceParticipationPort;
 import org.enveloping.ecobin.device.api.port.DeliveryCompletionBusinessWriter;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompleteDoorCommand;
 import org.enveloping.ecobin.device.api.result.DeliveryCompleteMeasurement;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletePhoto;
@@ -117,18 +118,21 @@ public class TrustedDeliveryCompletionService
     private final DeliveryCompletionFactsRefFactory factsRefFactory;
     private final ReliableEdgeConfirmationService confirmationService;
     private final ReliableDeviceTaskProofPort taskProofPort;
+    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public TrustedDeliveryCompletionService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             DeliveryCompletionFactsRefFactory factsRefFactory,
             ReliableEdgeConfirmationService confirmationService,
-            ReliableDeviceTaskProofPort taskProofPort) {
+            ReliableDeviceTaskProofPort taskProofPort,
+            TrustedDeviceTransportPresencePort transportPresence) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.factsRefFactory = factsRefFactory;
         this.confirmationService = confirmationService;
         this.taskProofPort = taskProofPort;
+        this.transportPresence = transportPresence;
     }
 
     @Override
@@ -166,6 +170,8 @@ public class TrustedDeliveryCompletionService
                 asset.id(),
                 tenantId,
                 organizationId);
+        transportPresence.observeAuthenticatedMessage(
+                fact.hardwareSn(), inboxId);
         lockRuntime(deploymentId, tenantId, organizationId);
         SessionRow session = lockSession(
                 fact,

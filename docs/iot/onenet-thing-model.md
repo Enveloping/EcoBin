@@ -180,6 +180,24 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 > 依赖：`callType:async`，平台 `code=0` 仅表示**受理并转发**，命令是否到设备看设备是否在线（文档明确"仅支持 OneJson 设备，需要设备在线"）。`docs/references/设备服务调用.md`、`安全鉴权.md` 为官方原文留档。
 
+### 3.6 当前在线状态与下发结果口径（2026-08-02）
+
+当前 9 服务 / 13 事件目标契约以
+`contracts/onenet/generated/onenet-thing-model.candidate.json` 为机器生成候选，控制台已确认
+包含 `confirmEdgeEvent`。本文件前述 3 服务表格保留早期联调历史，不应再用于缩减当前
+控制台物模型。
+
+- OneNet 北向 `deviceOnline` / `deviceOffline` 作为资产级传输状态的主要事实来源，通过
+  已有 Pulsar 订阅进入后端，不需要公网 HTTP 回调。
+- 后端公开 `oneNetConnectionStatus`（传输在线）和 `edgeConnectionStatus`（可信运行快照
+  仍新鲜）两层状态；默认心跳 30 秒，失效阈值 3 个周期。
+- `10410` 是产品下找不到 `device_name`，阻断设备身份；`10421` 是设备离线，暂停任务且
+  不消耗连续失败次数。后端等待上线通知或可信上行消息唤醒，不用服务调用轮询在线状态。
+- OneNet 业务响应只对白名单中的平台内部错误 `10500` 自动重试；`10415` 等参数、物模型、
+  权限或其他未明确证明为临时故障的业务码按永久失败记录，避免重复发送同一份错误载荷。
+- `code=0` 仍只表示 OneNet 平台已受理。设备是否观察、执行及后端是否完成业务处理，分别
+  由可靠边缘事件和业务确认闭环证明。
+
 ---
 
 ## 4. 事件（Event）— 设备主动上报业务数据
@@ -320,4 +338,3 @@ COS 临时上传密钥不另开服务，作为 struct 入参随开门命令下�
 
 **代码落点**：`DeviceSessionService`（device 模块）、`DeliveryOrderServiceImpl.openDoor/completeDelivery`、
 `DeliveryReportRequest`（+`doorIndex`）、`OneNetClient.openDeliveryDoor`（仅凭证）、迁移 `V13__add_device_session.sql`。
-

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 4
+    CatalogVersion = 5
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -145,6 +145,15 @@
             "applied_at"
             "last_failure_at"
             "last_failure_code"
+            "lock_version"
+            "updated_at"
+        )
+        dev_device_transport_state = @(
+            "onenet_connection_status"
+            "status_observed_at"
+            "status_received_at"
+            "evidence_source"
+            "source_inbox_id"
             "lock_version"
             "updated_at"
         )
@@ -536,6 +545,7 @@
             "completed_at"
             "blocked_reason_code"
             "blocked_diagnostic"
+            "dispatch_wait_reason"
             "lock_version"
             "updated_at"
         )

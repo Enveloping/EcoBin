@@ -557,6 +557,58 @@ class TestEventOutboxOperations:
         assert row["state"] == "DEAD"
         store.close()
 
+    def test_platform_acceptance_is_recorded_without_confirming_business(self):
+        store = make_store()
+        store.receive_mcu_event("evt-1", "E1", {})
+        event = store.get_event("evt-1")
+
+        event_uid = store.record_event_platform_reply(
+            event["edge_event_sequence"],
+            200,
+        )
+
+        row = store.get_event("evt-1")
+        assert event_uid == "evt-1"
+        assert row["state"] == EVENT_PENDING
+        assert row["last_platform_code"] == 200
+        assert row["platform_accepted_at"] is not None
+        assert row["last_platform_reply_at"] is not None
+        store.close()
+
+    def test_permanent_platform_rejection_cannot_be_resurrected_by_puback(self):
+        store = make_store()
+        store.receive_mcu_event("evt-1", "E1", {})
+        event = store.get_event("evt-1")
+
+        store.record_event_platform_reply(
+            event["edge_event_sequence"],
+            2402,
+        )
+        store.mark_event_pending_retry("evt-1")
+
+        row = store.get_event("evt-1")
+        assert row["state"] == "DEAD"
+        assert row["last_platform_code"] == 2402
+        assert row["next_retry_at"] is None
+        store.close()
+
+    def test_retryable_platform_rejection_requeues_event(self):
+        store = make_store()
+        store.receive_mcu_event("evt-1", "E1", {})
+        store.mark_event_sending("evt-1", 42)
+        event = store.get_event("evt-1")
+
+        store.record_event_platform_reply(
+            event["edge_event_sequence"],
+            500,
+        )
+
+        row = store.get_event("evt-1")
+        assert row["state"] == EVENT_PENDING
+        assert row["retry_count"] == 1
+        assert row["last_platform_code"] == 500
+        store.close()
+
 
 class TestPhotoOutboxOperations:
     """照片发件箱操作。"""

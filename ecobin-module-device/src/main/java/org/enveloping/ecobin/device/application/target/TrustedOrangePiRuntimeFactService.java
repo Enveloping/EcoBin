@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.PhotoStatusBusinessResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
@@ -58,6 +59,7 @@ public class TrustedOrangePiRuntimeFactService {
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness;
     private final ReliablePhotoUploadGrantService photoUploadGrants;
+    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public TrustedOrangePiRuntimeFactService(
             JdbcTemplate jdbc,
@@ -67,7 +69,8 @@ public class TrustedOrangePiRuntimeFactService {
             TrustedInboxQuarantinePort quarantinePort,
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness,
-            ReliablePhotoUploadGrantService photoUploadGrants) {
+            ReliablePhotoUploadGrantService photoUploadGrants,
+            TrustedDeviceTransportPresencePort transportPresence) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -76,6 +79,7 @@ public class TrustedOrangePiRuntimeFactService {
         this.inboxRefFactory = inboxRefFactory;
         this.photoStatusBusiness = photoStatusBusiness;
         this.photoUploadGrants = photoUploadGrants;
+        this.transportPresence = transportPresence;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -116,6 +120,9 @@ public class TrustedOrangePiRuntimeFactService {
                     ? TrustedDeviceEventApplyResult.QUARANTINED
                     : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
         }
+
+        transportPresence.observeAuthenticatedMessage(
+                event.hardwareSn(), inboxId);
 
         String effectKind;
         switch (event.eventType()) {
@@ -387,6 +394,7 @@ public class TrustedOrangePiRuntimeFactService {
                     "authenticated Orange Pi deployment is not authoritative");
         }
         return new DeploymentTarget(
+                asset.assetId(),
                 deploymentIds.getFirst(),
                 asset.portCount());
     }
@@ -2214,6 +2222,7 @@ public class TrustedOrangePiRuntimeFactService {
     }
 
     private record DeploymentTarget(
+            long assetId,
             long deploymentId,
             int portCount) {
     }

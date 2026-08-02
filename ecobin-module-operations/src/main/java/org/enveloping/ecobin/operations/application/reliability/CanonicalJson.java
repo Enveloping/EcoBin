@@ -50,6 +50,25 @@ public class CanonicalJson {
         return newDigest().digest(value);
     }
 
+    public String trustedDeviceName(String payload) {
+        JsonNode root = exactNumberReader.readTree(payload);
+        JsonNode trustedSource = root.get("trustedSource");
+        JsonNode deviceName = trustedSource == null
+                ? null
+                : trustedSource.get("deviceName");
+        if (deviceName == null || !deviceName.isString()) {
+            throw new IllegalArgumentException(
+                    "normalized device payload misses trusted source");
+        }
+        String value = deviceName.stringValue();
+        if (value.isBlank() || value.length() > 64
+                || !value.equals(value.trim())) {
+            throw new IllegalArgumentException(
+                    "normalized device payload has invalid trusted device name");
+        }
+        return value;
+    }
+
     public byte[] sha256LengthPrefixed(byte[]... values) {
         MessageDigest digest = newDigest();
         for (byte[] value : values) {

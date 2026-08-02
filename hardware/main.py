@@ -330,7 +330,9 @@ class EcoBinEdge:
     def _runtime_snapshot_loop(self):
         """Publish periodic runtime snapshots."""
         while not self._exit_flag.is_set():
-            self._exit_flag.wait(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S)
+            self._exit_flag.wait(
+                self._runtime_snapshot_interval_seconds()
+            )
             if self._exit_flag.is_set():
                 break
             try:
@@ -338,6 +340,25 @@ class EcoBinEdge:
                     self._publish_runtime_snapshot_now()
             except Exception as e:
                 logger.error("runtime snapshot error: %s", e)
+
+    def _runtime_snapshot_interval_seconds(self):
+        applied = self.store.get_latest_applied_configuration()
+        if applied:
+            device_config = applied.get("payload", {}).get(
+                "deviceConfig",
+                {},
+            )
+            interval_ms = device_config.get(
+                "edgeHeartbeatIntervalMs",
+                30_000,
+            )
+            if (
+                isinstance(interval_ms, int)
+                and not isinstance(interval_ms, bool)
+                and 1 <= interval_ms <= 4_294_967_295
+            ):
+                return interval_ms / 1000.0
+        return max(0.001, float(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S))
 
     def _publish_runtime_snapshot_now(self):
         from edge_boot import _publish_runtime_snapshot

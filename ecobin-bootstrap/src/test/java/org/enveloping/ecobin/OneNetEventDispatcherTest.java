@@ -20,6 +20,8 @@ import tools.jackson.databind.json.JsonMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -64,6 +66,8 @@ class OneNetEventDispatcherTest {
         when(sourceScopePort.resolverFor(
                 HARDWARE_SN, "Dp_demo_01"))
                 .thenReturn(resolver);
+        when(sourceScopePort.resolverForAsset(HARDWARE_SN))
+                .thenReturn(TrustedInboxScopeResolver.platform());
         when(inboxPort.receive(any())).thenReturn(
                 new TrustedInboxReceipt(
                         TrustedInboxReceiptState.ACCEPTED,
@@ -189,6 +193,83 @@ class OneNetEventDispatcherTest {
                     .asText())
                     .matches("[0-9a-f]{64}");
         }
+    }
+
+    @Test
+    void deviceLifecycleNotificationBecomesPlatformScopedReliableFact()
+            throws Exception {
+        dispatcher.handle(
+                """
+                {
+                  "msgType": "deviceOffline",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "time": 1785603630000
+                  }
+                }
+                """.formatted(PRODUCT_ID, HARDWARE_SN),
+                "persistent://tenant/ns/topic-ledger-entry-42",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        TrustedInboxMessage message = captor.getValue();
+        assertThat(message.sourceNamespace())
+                .isEqualTo("onenet.device-lifecycle");
+        assertThat(message.externalMessageId())
+                .isEqualTo("persistent://tenant/ns/topic-ledger-entry-42");
+        assertThat(message.messageKind())
+                .isEqualTo("DEVICE_TRANSPORT_STATUS_CHANGED");
+        assertThat(message.executionLane())
+                .isEqualTo(
+                        org.enveloping.ecobin.operations.api.inbox
+                                .TrustedInboxExecutionLane.DEVICE);
+        JsonNode normalized =
+                objectMapper.readTree(message.normalizedPayload());
+        assertThat(normalized.path("presence").path("status").asText())
+                .isEqualTo("OFFLINE");
+        assertThat(normalized.path("presence").path("observedAt").asText())
+                .isEqualTo("2026-08-01T17:00:30Z");
+
+        message.scopeResolver().resolve(
+                (scopeKind, tenantKey, organizationKey) -> {
+                    assertThat(scopeKind).isEqualTo("PLATFORM");
+                    assertThat(tenantKey).isNull();
+                    assertThat(organizationKey).isNull();
+                });
+        verify(sourceScopePort).resolverForAsset(HARDWARE_SN);
+    }
+
+    @Test
+    void longLifecycleMqMessageIdUsesCollisionResistantDigest()
+            throws Exception {
+        String mqMessageId = "persistent://tenant/ns/topic/"
+                + "ledger-entry-".repeat(20);
+
+        dispatcher.handle(
+                """
+                {
+                  "msgType": "deviceOnline",
+                  "subData": {
+                    "productId": "%s",
+                    "deviceName": "%s",
+                    "time": 1785603630000
+                  }
+                }
+                """.formatted(PRODUCT_ID, HARDWARE_SN),
+                mqMessageId,
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        String expectedDigest = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(
+                        mqMessageId.getBytes(StandardCharsets.UTF_8)));
+        assertThat(captor.getValue().externalMessageId())
+                .isEqualTo("sha256:" + expectedDigest);
     }
 
     @Test

@@ -8,6 +8,8 @@ import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
  */
 public interface TrustedDeviceSourceScopePort {
 
+    TrustedInboxScopeResolver resolverForAsset(String hardwareSn);
+
     TrustedInboxScopeResolver resolverFor(
             String hardwareSn,
             String deploymentCode);

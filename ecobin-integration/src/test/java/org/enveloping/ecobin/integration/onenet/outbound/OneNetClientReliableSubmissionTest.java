@@ -215,6 +215,113 @@ class OneNetClientReliableSubmissionTest {
     }
 
     @Test
+    void exposesSanitizedOneNetBusinessErrorCode() throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok(
+                        "{\"code\":10410,\"msg\":\"sensitive detail\"}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.TARGET_NOT_FOUND,
+                result.outcome());
+        assertEquals(200, result.httpStatus());
+        assertEquals("ONENET_10410", result.externalErrorCode());
+    }
+
+    @Test
+    void classifiesOfflineWithoutTreatingItAsGenericRetryFailure()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok(
+                        "{\"code\":10421,\"msg\":\"device offline\"}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.TARGET_OFFLINE,
+                result.outcome());
+        assertEquals(200, result.httpStatus());
+        assertEquals("ONENET_10421", result.externalErrorCode());
+    }
+
+    @Test
+    void treatsDeterministicServiceCallFailureAsPermanent() throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok(
+                        "{\"code\":10415,\"msg\":\"required value\"}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals("ONENET_10415", result.externalErrorCode());
+    }
+
+    @Test
+    void keepsExplicitInternalServiceErrorRetryable() throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "confirm-edge-event.command.json"));
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok(
+                        "{\"code\":10500,\"msg\":\"internal service error\"}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.RETRYABLE_FAILURE,
+                result.outcome());
+        assertEquals("ONENET_10500", result.externalErrorCode());
+    }
+
+    @Test
     void projectsFrozenDeliverySessionToGeneratedWireContract()
             throws Exception {
         String envelope = Files.readString(contractPath(

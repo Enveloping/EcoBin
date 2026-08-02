@@ -6042,6 +6042,32 @@
         "dataType": {
          "specs": {
           "max": "4294967295",
+          "min": "1",
+          "step": "1",
+          "unit": ""
+         },
+         "type": "int64"
+        },
+        "identifier": "edgeHeartbeatIntervalMs",
+        "name": "edgeHeartbeatIntervalMs"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "max": "4294967295",
+          "min": "1",
+          "step": "1",
+          "unit": ""
+         },
+         "type": "int64"
+        },
+        "identifier": "edgeHeartbeatMissThreshold",
+        "name": "edgeHeartbeatMissThreshold"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "max": "4294967295",
           "min": "1000",
           "step": "1",
           "unit": ""

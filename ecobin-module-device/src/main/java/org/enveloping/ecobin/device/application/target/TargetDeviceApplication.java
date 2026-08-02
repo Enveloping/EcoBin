@@ -275,6 +275,32 @@ public class TargetDeviceApplication {
                                 "DEVICE.ASSET_ALREADY_EXISTS",
                                 "硬件序列号已经登记");
                     }
+                    Long assetId = jdbc.queryForObject("""
+                                    SELECT id
+                                    FROM dev_device_asset
+                                    WHERE hardware_sn = ?
+                                    """,
+                            Long.class,
+                            hardwareSn);
+                    jdbc.update("""
+                                    INSERT INTO dev_device_transport_state (
+                                        asset_id,
+                                        onenet_connection_status,
+                                        status_observed_at,
+                                        status_received_at,
+                                        evidence_source,
+                                        source_inbox_id,
+                                        lock_version,
+                                        created_at,
+                                        updated_at
+                                    ) VALUES (
+                                        ?, 'UNKNOWN', NULL, NULL,
+                                        NULL, NULL, 0, ?, ?
+                                    )
+                                    """,
+                            assetId,
+                            now,
+                            now);
                     DeviceAssetView response = findAssetView(hardwareSn)
                             .orElseThrow(TargetDeviceApplication::invariant);
                     return new CommandResult<>(
@@ -296,6 +322,7 @@ public class TargetDeviceApplication {
             Boolean businessEnabled,
             String hardwareSn,
             String edgeConnectionStatus,
+            String oneNetConnectionStatus,
             String configurationApplicationStatus) {
         AuthorizedScope scope = authorize(
                 platformPath,
@@ -326,6 +353,11 @@ public class TargetDeviceApplication {
             predicate.append(
                     " AND runtime.edge_connection_status = ?");
             parameters.add(edge);
+        }
+        String oneNet = upperOrNull(oneNetConnectionStatus);
+        if (oneNet != null) {
+            predicate.append(" AND COALESCE(transport.onenet_connection_status, 'UNKNOWN') = ?");
+            parameters.add(oneNet);
         }
         String appStatus = upperOrNull(configurationApplicationStatus);
         if (appStatus != null) {
@@ -1318,6 +1350,9 @@ public class TargetDeviceApplication {
                                 scope, deployment, runtime));
         RuntimeHealthSummary health = new RuntimeHealthSummary(
                 runtime.edgeConnectionStatus(),
+                runtime.oneNetConnectionStatus(),
+                runtime.oneNetStatusObservedAt(),
+                runtime.trustedRuntimeReceivedAt(),
                 runtime.mcuLinkStatus(),
                 runtime.safetyStatus(),
                 runtime.aggregateWeightHealth(),
@@ -1446,10 +1481,12 @@ public class TargetDeviceApplication {
                               runtime.trusted_runtime_received_at,
                               UTC_TIMESTAMP(3)
                           ) BETWEEN 0 AND LEAST(
-                              config.edge_heartbeat_interval_ms
-                                  * config.edge_heartbeat_miss_threshold
-                                  * 1000,
-                              86400000000
+                              CAST(config.edge_heartbeat_interval_ms
+                                  AS DECIMAL(30, 0))
+                                  * CAST(config.edge_heartbeat_miss_threshold
+                                      AS DECIMAL(30, 0))
+                                  * CAST(1000 AS DECIMAL(30, 0)),
+                              CAST(86400000000 AS DECIMAL(30, 0))
                           )
                         """,
                 Integer.class,
@@ -2461,7 +2498,14 @@ public class TargetDeviceApplication {
                        latest.version_no AS latest_configuration_version,
                        app.status AS configuration_application_status,
                        applied.version_no AS applied_configuration_version,
-                       runtime.edge_connection_status
+                       runtime.edge_connection_status,
+                       COALESCE(
+                           transport.onenet_connection_status,
+                           'UNKNOWN'
+                       ) AS onenet_connection_status,
+                       transport.status_observed_at
+                           AS onenet_status_observed_at,
+                       runtime.trusted_runtime_received_at
                 """;
     }
 
@@ -2504,6 +2548,8 @@ public class TargetDeviceApplication {
                   ON runtime.tenant_id = d.tenant_id
                  AND runtime.organization_id = d.organization_id
                  AND runtime.deployment_id = d.id
+                LEFT JOIN dev_device_transport_state transport
+                  ON transport.asset_id = d.asset_id
                 """;
     }
 
@@ -2527,6 +2573,9 @@ public class TargetDeviceApplication {
                 nullableLong(rs, "applied_configuration_version"),
                 rs.getString("configuration_application_status"),
                 rs.getString("edge_connection_status"),
+                rs.getString("onenet_connection_status"),
+                nullableInstant(rs, "onenet_status_observed_at"),
+                nullableInstant(rs, "trusted_runtime_received_at"),
                 rs.getLong("lock_version"),
                 nullableInstant(rs, "commissioned_at"),
                 nullableInstant(rs, "enabled_at"),
@@ -2554,26 +2603,47 @@ public class TargetDeviceApplication {
             boolean forUpdate) {
         String lock = forUpdate ? " FOR UPDATE" : "";
         return jdbc.query("""
-                        SELECT edge_connection_status, mcu_link_status,
-                               safety_status, aggregate_weight_health,
-                               camera_health, local_storage_health,
-                               clock_sync_health, edge_software_version,
-                               mcu_firmware_version, uart_state,
-                               uart_protocol_major, uart_protocol_minor,
-                               capability_bitmap_hex,
-                               applied_config_version_no,
-                               orange_pi_reported_config_version_no,
-                               orange_pi_reported_config_content_sha256,
-                               orange_pi_reported_config_mcu_payload_sha256,
-                               last_heartbeat_at, last_device_event_at,
-                               lock_version
-                        FROM dev_deployment_runtime_state
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
+                        SELECT runtime.edge_connection_status,
+                               COALESCE(
+                                   transport.onenet_connection_status,
+                                   'UNKNOWN'
+                               ) AS onenet_connection_status,
+                               transport.status_observed_at
+                                   AS onenet_status_observed_at,
+                               runtime.trusted_runtime_received_at,
+                               runtime.mcu_link_status,
+                               runtime.safety_status,
+                               runtime.aggregate_weight_health,
+                               runtime.camera_health,
+                               runtime.local_storage_health,
+                               runtime.clock_sync_health,
+                               runtime.edge_software_version,
+                               runtime.mcu_firmware_version,
+                               runtime.uart_state,
+                               runtime.uart_protocol_major,
+                               runtime.uart_protocol_minor,
+                               runtime.capability_bitmap_hex,
+                               runtime.applied_config_version_no,
+                               runtime.orange_pi_reported_config_version_no,
+                               runtime.orange_pi_reported_config_content_sha256,
+                               runtime.orange_pi_reported_config_mcu_payload_sha256,
+                               runtime.last_heartbeat_at,
+                               runtime.last_device_event_at,
+                               runtime.lock_version
+                        FROM dev_deployment_runtime_state runtime
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = runtime.deployment_id
+                        LEFT JOIN dev_device_transport_state transport
+                          ON transport.asset_id = deployment.asset_id
+                        WHERE runtime.tenant_id = ?
+                          AND runtime.organization_id = ?
+                          AND runtime.deployment_id = ?
                         """ + lock,
                 (rs, ignored) -> new RuntimeRow(
                         rs.getString("edge_connection_status"),
+                        rs.getString("onenet_connection_status"),
+                        nullableInstant(rs, "onenet_status_observed_at"),
+                        nullableInstant(rs, "trusted_runtime_received_at"),
                         rs.getString("mcu_link_status"),
                         rs.getString("safety_status"),
                         rs.getString("aggregate_weight_health"),
@@ -3312,6 +3382,9 @@ public class TargetDeviceApplication {
 
     private record RuntimeRow(
             String edgeConnectionStatus,
+            String oneNetConnectionStatus,
+            Instant oneNetStatusObservedAt,
+            Instant trustedRuntimeReceivedAt,
             String mcuLinkStatus,
             String safetyStatus,
             String aggregateWeightHealth,

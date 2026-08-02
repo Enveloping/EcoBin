@@ -30,6 +30,7 @@ public class ReliableEdgeConfirmationService
 
     static final String TASK_TYPE = "CONFIRM_EDGE_EVENT";
     static final String TARGET_TYPE = "BUSINESS_CONFIRMATION";
+    static final int MAX_AUTO_ATTEMPTS = 100;
 
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
@@ -214,7 +215,7 @@ public class ReliableEdgeConfirmationService
                         envelopeSha256,
                         UUID.fromString(originalEventUid),
                         UUID.fromString(originalEventUid),
-                        1000));
+                        MAX_AUTO_ATTEMPTS));
         return confirmationUid;
     }
 

@@ -594,6 +594,15 @@ def encode_event_post(event_type: str, event: dict[str, Any]) -> dict[str, Any]:
     projection = _EVENT_PROJECTIONS.get(event_type)
     if projection is None:
         raise ValueError(f"unsupported OneNet event type: {event_type}")
+    transport_id = event.get("edgeEventSequence")
+    if (
+        isinstance(transport_id, bool)
+        or not isinstance(transport_id, int)
+        or not 1 <= transport_id <= 9_999_999_999_999
+    ):
+        raise ValueError(
+            "edgeEventSequence must fit the OneNet 13-digit message id"
+        )
     identifier, definition = projection
     value = _encode_function_parameters(
         definition["outputData"],
@@ -603,7 +612,7 @@ def encode_event_post(event_type: str, event: dict[str, Any]) -> dict[str, Any]:
     )
 
     return {
-        "id": str(event.get("eventUid") or event.get("event_uid") or uuid.uuid4()),
+        "id": str(transport_id),
         "version": "1.0",
         "params": {identifier: {"value": value}},
     }
@@ -1000,6 +1009,24 @@ def _validate_apply_configuration(command: dict[str, Any]) -> None:
     ports = payload.get("ports")
     if not isinstance(config, dict) or not isinstance(device_config, dict):
         raise ValueError("configuration blocks are required")
+    heartbeat_interval = device_config.get(
+        "edgeHeartbeatIntervalMs",
+        30_000,
+    )
+    heartbeat_misses = device_config.get(
+        "edgeHeartbeatMissThreshold",
+        3,
+    )
+    for field, value in (
+        ("edgeHeartbeatIntervalMs", heartbeat_interval),
+        ("edgeHeartbeatMissThreshold", heartbeat_misses),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 1 <= value <= 4_294_967_295
+        ):
+            raise ValueError(f"deviceConfig.{field} out of range")
     if not isinstance(ports, list) or not 1 <= len(ports) <= 6:
         raise ValueError("ports must contain 1..6 entries")
     version = config.get("version")

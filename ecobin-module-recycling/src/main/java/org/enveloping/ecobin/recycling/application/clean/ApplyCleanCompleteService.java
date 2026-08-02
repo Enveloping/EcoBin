@@ -3,6 +3,7 @@ package org.enveloping.ecobin.recycling.application.clean;
 import org.enveloping.ecobin.device.api.command.ScheduleFullnessSampleCommand;
 import org.enveloping.ecobin.device.api.port.ReliableEdgeConfirmationPort;
 import org.enveloping.ecobin.device.api.port.ScheduleFullnessSampleDevicePort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
@@ -70,18 +71,21 @@ public class ApplyCleanCompleteService
     private final ScheduleFullnessSampleDevicePort fullnessSamples;
     private final ReliableDeviceTaskProofPort taskProofPort;
     private final ReliableEdgeConfirmationPort confirmationPort;
+    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public ApplyCleanCompleteService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             ScheduleFullnessSampleDevicePort fullnessSamples,
             ReliableDeviceTaskProofPort taskProofPort,
-            ReliableEdgeConfirmationPort confirmationPort) {
+            ReliableEdgeConfirmationPort confirmationPort,
+            TrustedDeviceTransportPresencePort transportPresence) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.fullnessSamples = fullnessSamples;
         this.taskProofPort = taskProofPort;
         this.confirmationPort = confirmationPort;
+        this.transportPresence = transportPresence;
     }
 
     @Override
@@ -115,6 +119,8 @@ public class ApplyCleanCompleteService
                 asset.id(),
                 tenantId,
                 organizationId);
+        transportPresence.observeAuthenticatedMessage(
+                fact.hardwareSn(), inboxId);
         lockDeploymentRuntime(
                 deployment.id(), tenantId, organizationId);
         Operation operation = lockOperation(

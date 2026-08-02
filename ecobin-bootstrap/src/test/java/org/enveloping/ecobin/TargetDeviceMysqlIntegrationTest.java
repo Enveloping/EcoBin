@@ -3,6 +3,7 @@ package org.enveloping.ecobin;
 import jakarta.servlet.http.Cookie;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.enveloping.ecobin.device.application.target.DeviceConfigurationCanonicalizer;
@@ -10,6 +11,7 @@ import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
+import org.enveloping.ecobin.operations.api.reliability.DeviceTaskGateReconciliationPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
@@ -47,6 +49,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -93,9 +96,13 @@ class TargetDeviceMysqlIntegrationTest {
     @Autowired
     private TrustedDeviceSourceScopePort sourceScopePort;
     @Autowired
+    private TrustedDeviceTransportPresencePort transportPresencePort;
+    @Autowired
     private AcceptedSubmissionProbe submissionProbe;
     @Autowired
     private DeviceConfigurationCanonicalizer canonicalizer;
+    @Autowired
+    private DeviceTaskGateReconciliationPort taskGateReconciliation;
 
     private String run;
     private String platformLogin;
@@ -539,6 +546,7 @@ class TargetDeviceMysqlIntegrationTest {
                 SELECT
                     task.target_stable_key AS confirmation_uid,
                     task.state,
+                    task.max_auto_attempts,
                     task.source_device_command_id,
                     CAST(task.redacted_execution_snapshot AS CHAR)
                         AS execution_envelope
@@ -557,6 +565,10 @@ class TargetDeviceMysqlIntegrationTest {
                 deploymentCode);
         assertEquals(
                 "PENDING", confirmationTask.get("state").toString());
+        assertEquals(
+                100,
+                ((Number) confirmationTask.get("max_auto_attempts"))
+                        .intValue());
         assertEquals(
                 null, confirmationTask.get("source_device_command_id"));
         assertEquals(0, jdbc.queryForObject("""
@@ -579,6 +591,67 @@ class TargetDeviceMysqlIntegrationTest {
                 "BUSINESS_APPLIED",
                 confirmationEnvelope.path("payload")
                         .path("outcome").asText());
+
+        long lifecycleTime = Instant.now().toEpochMilli();
+        acceptTransportLifecycle(
+                hardwareSn,
+                "OFFLINE",
+                lifecycleTime + 1,
+                "configuration-offline-" + run);
+        assertEquals("OFFLINE|DEVICE_OFFLINE", jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            transport.onenet_connection_status,
+                            '|', task.dispatch_wait_reason
+                        )
+                        FROM ops_reliable_task task
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id =
+                             task.source_device_deployment_id
+                        JOIN dev_device_transport_state transport
+                          ON transport.asset_id = deployment.asset_id
+                        WHERE task.task_key = ?
+                        """,
+                String.class,
+                "CONFIRM_EDGE_EVENT:"
+                        + configurationEvidence.eventUid()
+                        .toUpperCase()));
+        ReliableWorkerBatchResult offlineBatch =
+                worker.runBatch("device-offline-integration-worker");
+        assertEquals(0, offlineBatch.claimed());
+        assertEquals(1, submissionProbe.submissionCount());
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_task_attempt attempt
+                        JOIN ops_reliable_task task
+                          ON task.id = attempt.task_id
+                        WHERE task.task_key = ?
+                        """,
+                Integer.class,
+                "CONFIRM_EDGE_EVENT:"
+                        + configurationEvidence.eventUid()
+                        .toUpperCase()));
+
+        acceptTransportLifecycle(
+                hardwareSn,
+                "ONLINE",
+                lifecycleTime + 2,
+                "configuration-online-" + run);
+        assertEquals("ONLINE", jdbc.queryForObject("""
+                        SELECT transport.onenet_connection_status
+                        FROM dev_device_transport_state transport
+                        JOIN dev_device_asset asset
+                          ON asset.id = transport.asset_id
+                        WHERE asset.hardware_sn = ?
+                        """, String.class, hardwareSn));
+        assertEquals(null, jdbc.queryForObject("""
+                        SELECT dispatch_wait_reason
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                        """,
+                String.class,
+                "CONFIRM_EDGE_EVENT:"
+                        + configurationEvidence.eventUid()
+                        .toUpperCase()));
 
         ReliableWorkerBatchResult confirmationBatch =
                 worker.runBatch("device-confirmation-integration-worker");
@@ -726,6 +799,65 @@ class TargetDeviceMysqlIntegrationTest {
                         String.class,
                         faultUid));
         assertPendingConfirmation(faultEvidence);
+        submissionProbe.respondNextWith(
+                DeviceCommandSubmissionResult.Outcome.TARGET_OFFLINE);
+        ReliableWorkerBatchResult targetOfflineBatch =
+                worker.runBatch("device-target-offline-worker");
+        assertEquals(1, targetOfflineBatch.claimed());
+        assertEquals(0, targetOfflineBatch.accepted());
+        assertEquals(1, targetOfflineBatch.failed());
+        assertEquals("PENDING|DEVICE_OFFLINE|0|TARGET_OFFLINE",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    task.state, '|',
+                                    task.dispatch_wait_reason, '|',
+                                    task.consecutive_failure_count, '|',
+                                    attempt.technical_result
+                                )
+                                FROM ops_reliable_task task
+                                JOIN ops_task_attempt attempt
+                                  ON attempt.task_id = task.id
+                                WHERE task.task_key = ?
+                                ORDER BY attempt.id DESC
+                                LIMIT 1
+                                """,
+                        String.class,
+                        "CONFIRM_EDGE_EVENT:"
+                                + faultEvidence.eventUid().toUpperCase()));
+        long staleRuntimeInboxId = jdbc.queryForObject("""
+                        SELECT edge_event.source_inbox_id
+                        FROM dev_deployment_runtime_state runtime
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = runtime.deployment_id
+                        JOIN dev_edge_event edge_event
+                          ON edge_event.id =
+                              runtime.trusted_runtime_edge_event_id
+                        WHERE deployment.public_code = ?
+                        """,
+                Long.class,
+                deploymentCode);
+        transportPresencePort.observeAuthenticatedMessage(
+                hardwareSn, staleRuntimeInboxId);
+        assertEquals("OFFLINE|DEVICE_OFFLINE", jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            transport.onenet_connection_status, '|',
+                            task.dispatch_wait_reason
+                        )
+                        FROM dev_device_transport_state transport
+                        JOIN dev_device_asset asset
+                          ON asset.id = transport.asset_id
+                        JOIN dev_device_deployment deployment
+                          ON deployment.asset_id = asset.id
+                         AND deployment.ended_at IS NULL
+                        JOIN ops_reliable_task task
+                          ON task.source_device_deployment_id = deployment.id
+                        WHERE asset.hardware_sn = ?
+                          AND task.task_key = ?
+                        """,
+                String.class,
+                hardwareSn,
+                "CONFIRM_EDGE_EVENT:"
+                        + faultEvidence.eventUid().toUpperCase()));
         JsonNode faultBlockedRuntime = data(read(
                 platform,
                 deploymentBase + "/" + deploymentCode + "/runtime",
@@ -749,6 +881,21 @@ class TargetDeviceMysqlIntegrationTest {
                 faultUid,
                 5,
                 49);
+        assertEquals("ONLINE", jdbc.queryForObject("""
+                        SELECT transport.onenet_connection_status
+                        FROM dev_device_transport_state transport
+                        JOIN dev_device_asset asset
+                          ON asset.id = transport.asset_id
+                        WHERE asset.hardware_sn = ?
+                        """, String.class, hardwareSn));
+        assertEquals(null, jdbc.queryForObject("""
+                        SELECT dispatch_wait_reason
+                        FROM ops_reliable_task
+                        WHERE task_key = ?
+                        """,
+                String.class,
+                "CONFIRM_EDGE_EVENT:"
+                        + faultEvidence.eventUid().toUpperCase()));
         assertEquals(
                 "RECOVERED|DEVICE_REPORTED|1",
                 jdbc.queryForObject("""
@@ -947,6 +1094,26 @@ class TargetDeviceMysqlIntegrationTest {
                 200));
         assertEquals(deploymentCode,
                 organizationView.path("deploymentCode").asText());
+
+        jdbc.update("""
+                        UPDATE dev_config_version version
+                        JOIN dev_device_deployment deployment
+                          ON deployment.id = version.deployment_id
+                        SET version.edge_heartbeat_interval_ms = 4294967295,
+                            version.edge_heartbeat_miss_threshold = 2147483647
+                        WHERE deployment.public_code = ?
+                          AND version.version_no = 1
+                        """,
+                deploymentCode);
+        assertDoesNotThrow(taskGateReconciliation::reconcileAll);
+        JsonNode extremeHeartbeatReadiness = data(read(
+                platform,
+                deploymentBase + "/" + deploymentCode
+                        + "/acceptance-readiness",
+                200));
+        assertFalse(contains(
+                extremeHeartbeatReadiness.path("blockers"),
+                "TRUSTED_RUNTIME_STALE"));
 
         String audit = jdbc.queryForObject("""
                         SELECT CAST(JSON_ARRAYAGG(
@@ -1390,6 +1557,55 @@ class TargetDeviceMysqlIntegrationTest {
                 eventUid));
     }
 
+    private void acceptTransportLifecycle(
+            String hardwareSn,
+            String status,
+            long observedAtEpochMillis,
+            String externalMessageId) {
+        Map<String, Object> subData = new LinkedHashMap<>();
+        subData.put("productId", "device-integration-product");
+        subData.put("deviceName", hardwareSn);
+        subData.put("time", observedAtEpochMillis);
+        Map<String, Object> decrypted = new LinkedHashMap<>();
+        decrypted.put(
+                "msgType",
+                "ONLINE".equals(status)
+                        ? "deviceOnline"
+                        : "deviceOffline");
+        decrypted.put("subData", subData);
+
+        OneNetProperties properties = new OneNetProperties();
+        properties.setProductId("device-integration-product");
+        CosProperties cosProperties = new CosProperties();
+        OneNetEventDispatcher dispatcher = new OneNetEventDispatcher(
+                trustedInboxPort,
+                sourceScopePort,
+                properties,
+                cosProperties,
+                objectMapper);
+        dispatcher.handle(
+                objectMapper.writeValueAsString(decrypted),
+                externalMessageId,
+                "encrypted-device-lifecycle-envelope"
+                        .getBytes(StandardCharsets.UTF_8));
+        assertEquals("PLATFORM|RECEIVED", jdbc.queryForObject("""
+                        SELECT CONCAT(scope_kind, '|', processing_state)
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """, String.class, externalMessageId));
+
+        ReliableWorkerBatchResult result = inboxWorker.runBatch(
+                "device-lifecycle-" + externalMessageId);
+        assertEquals(1, result.claimed());
+        assertEquals(1, result.accepted());
+        assertEquals(0, result.failed());
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """, String.class, externalMessageId));
+    }
+
     private String inboxFailureDiagnostic(String eventUid) {
         return jdbc.queryForObject("""
                         SELECT attempt.redacted_diagnostic
@@ -1603,19 +1819,30 @@ class TargetDeviceMysqlIntegrationTest {
 
         private int submissionCount;
         private DeviceCommandSubmission lastSubmission;
+        private DeviceCommandSubmissionResult.Outcome nextOutcome =
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED;
 
         @Override
         public DeviceCommandSubmissionResult submit(
                 DeviceCommandSubmission submission) {
             submissionCount++;
             lastSubmission = submission;
+            DeviceCommandSubmissionResult.Outcome outcome = nextOutcome;
+            nextOutcome =
+                    DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED;
             return new DeviceCommandSubmissionResult(
-                    DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                    outcome,
                     digest((byte) 1),
                     digest((byte) 2),
                     200,
-                    null,
-                    "isolated test platform accepted; device proof pending");
+                    outcome == DeviceCommandSubmissionResult.Outcome
+                            .TARGET_OFFLINE
+                            ? "ONENET_10421"
+                            : null,
+                    outcome == DeviceCommandSubmissionResult.Outcome
+                            .TARGET_OFFLINE
+                            ? "isolated test target is offline"
+                            : "isolated test platform accepted; device proof pending");
         }
 
         int submissionCount() {
@@ -1626,9 +1853,16 @@ class TargetDeviceMysqlIntegrationTest {
             return lastSubmission;
         }
 
+        void respondNextWith(
+                DeviceCommandSubmissionResult.Outcome outcome) {
+            nextOutcome = outcome;
+        }
+
         void reset() {
             submissionCount = 0;
             lastSubmission = null;
+            nextOutcome =
+                    DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED;
         }
 
         private static byte[] digest(byte fill) {

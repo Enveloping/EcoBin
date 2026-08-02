@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.fullness;
 
 import org.enveloping.ecobin.device.api.port.CompleteFullnessSampleDeviceParticipationPort;
 import org.enveloping.ecobin.device.api.port.FullnessSampleBusinessWriter;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.FullnessSampleBusinessResult;
 import org.enveloping.ecobin.device.api.result.FullnessSampleMeasurement;
 import org.enveloping.ecobin.device.api.result.FullnessSamplePersistenceFacts;
@@ -44,18 +45,21 @@ public class TrustedFullnessSampleCompletionService
     private final FullnessSampleFactsRefFactory factsRefFactory;
     private final ReliableEdgeConfirmationService confirmationService;
     private final ReliableDeviceTaskProofPort taskProofPort;
+    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public TrustedFullnessSampleCompletionService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             FullnessSampleFactsRefFactory factsRefFactory,
             ReliableEdgeConfirmationService confirmationService,
-            ReliableDeviceTaskProofPort taskProofPort) {
+            ReliableDeviceTaskProofPort taskProofPort,
+            TrustedDeviceTransportPresencePort transportPresence) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.factsRefFactory = factsRefFactory;
         this.confirmationService = confirmationService;
         this.taskProofPort = taskProofPort;
+        this.transportPresence = transportPresence;
     }
 
     @Override
@@ -93,6 +97,8 @@ public class TrustedFullnessSampleCompletionService
                 assetId,
                 tenantId,
                 organizationId);
+        transportPresence.observeAuthenticatedMessage(
+                fact.hardwareSn(), inboxId);
         lockDeploymentRuntime(
                 deploymentId,
                 tenantId,

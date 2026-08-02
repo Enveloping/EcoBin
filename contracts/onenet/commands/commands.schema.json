@@ -49,6 +49,16 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "edgeHeartbeatIntervalMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "edgeHeartbeatMissThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
         "continueDeliveryWaitMs": {
           "type": "integer",
           "minimum": 1000,

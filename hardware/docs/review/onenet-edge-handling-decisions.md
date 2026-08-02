@@ -53,6 +53,44 @@
 | 12 | `businessConfirmationReceipt` | 已确认 |
 | 13 | `deviceRuntimeSnapshot` | 已确认 |
 
+### 2.3 在线判定、下发暂停与恢复
+
+状态：**已确认并于 2026-08-02 实现**
+
+“设备连接到 OneNet”和“设备可以安全执行业务”是两种不同事实：
+
+| 状态 | 作用域 | 事实来源 | 是否足以允许投递、清运等业务命令 |
+|---|---|---|---|
+| `oneNetConnectionStatus` | 设备资产 | OneNet 北向 `deviceOnline` / `deviceOffline`、已通过产品和设备身份校验的上行消息、下行 `10421` | 否，只证明传输层是否可达 |
+| `edgeConnectionStatus` | 设备部署 | OneNet 明确在线，并且最近一次可信 `deviceRuntimeSnapshot` 未超过配置的心跳失效窗口 | 是，但仍需同时通过配置、安全、门和传感器等业务闸门 |
+
+香橙派通过已发布的 `applyConfiguration.deviceConfig` 接收
+`edgeHeartbeatIntervalMs` 和 `edgeHeartbeatMissThreshold`。默认每 30 秒上报一次运行快照；
+连续 3 个周期没有收到可信快照时，后端把部署的业务有效状态降为 `OFFLINE`，但不伪造一条
+OneNet 断线事实。两层状态都通过设备部署详情和运行状态接口返回，并带各自观测时间。
+
+下发规则如下：
+
+1. 投递、清运、满溢检测和事件确认等业务任务只在 OneNet 状态明确为 `ONLINE`，且部署
+   运行快照新鲜时领取；`UNKNOWN` 不等于在线。
+2. 首次配置属于接入探测，在 `UNKNOWN` 时允许尝试，但明确 `OFFLINE` 时仍暂停。
+3. OneNet 返回 `10421` 时，记录本次技术结果 `TARGET_OFFLINE`，把任务恢复为
+   `PENDING / DEVICE_OFFLINE`，不增加连续失败计数，也不按五分钟周期继续主动请求。
+4. OneNet 返回 `10410` 时，记录 `TARGET_NOT_FOUND` 并把任务阻断为
+   `DEVICE_IDENTITY_UNRESOLVED`。这表示 `product_id + device_name` 无法定位设备，不能按
+   “暂时离线”处理。
+5. 收到 `deviceOnline` 或任何已经通过产品和设备身份校验的设备消息后，后端更新传输状态并
+   重新计算任务闸门；满足运行快照新鲜度后，等待中的业务任务立即恢复可领取。
+
+OneNet 生命周期通知经既有北向 Pulsar 链路进入，不增加公网回调。后端不发送空命令或
+周期性服务调用来探测在线；只有首次接入/配置允许在状态未知时产生一次真实、有业务意义的
+探测。确认边缘事件的自动尝试上限为 100 次。
+
+可靠事件上报的 OneJSON 外层 `id` 固定使用十进制 `edgeEventSequence`。香橙派在 SQLite
+中保存 OneNet 事件上报业务回执：`code=0/200` 才形成平台已受理证据，`2400～2499`
+作为永久载荷拒绝进入 `DEAD`，其他代码保留为可重试；MQTT PUBACK 只证明传输送达，不能
+覆盖业务拒绝结果或把 `DEAD` 事件重新变成待发送。
+
 ## 3. 服务决策
 
 ### 3.1 `applyConfiguration`

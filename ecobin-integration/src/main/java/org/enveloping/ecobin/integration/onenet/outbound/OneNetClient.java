@@ -126,11 +126,12 @@ public class OneNetClient
             body.put("params", params);
             DeviceCommandSubmissionResult result = submitWireBody(body);
             log.info(
-                    "[OneNet] reliable command attempt type={} task={} outcome={} http={}",
+                    "[OneNet] reliable command attempt type={} task={} outcome={} http={} externalCode={}",
                     submission.commandType(),
                     submission.taskUid(),
                     result.outcome(),
-                    result.httpStatus());
+                    result.httpStatus(),
+                    result.externalErrorCode());
             return result;
         } catch (RuntimeException exception) {
             log.warn(
@@ -376,13 +377,58 @@ public class OneNetClient
                         null,
                         "OneNet accepted the service call; device outcome pending");
             }
-            String code = safeExternalCode(responseJson.path("code").asText());
-            return retryable(
+            String rawCode = responseJson.path("code").asText();
+            String code = safeExternalCode(rawCode);
+            DeviceCommandSubmissionResult.Outcome businessOutcome =
+                    switch (rawCode) {
+                        case "10410" ->
+                                DeviceCommandSubmissionResult.Outcome
+                                        .TARGET_NOT_FOUND;
+                        case "10421" ->
+                                DeviceCommandSubmissionResult.Outcome
+                                        .TARGET_OFFLINE;
+                        case "10500" ->
+                                DeviceCommandSubmissionResult.Outcome
+                                        .RETRYABLE_FAILURE;
+                        default ->
+                                DeviceCommandSubmissionResult.Outcome
+                                        .PERMANENT_FAILURE;
+                    };
+            if (businessOutcome
+                    == DeviceCommandSubmissionResult.Outcome
+                            .RETRYABLE_FAILURE) {
+                return retryable(
+                        requestSha256,
+                        responseSha256,
+                        response.getStatusCode().value(),
+                        code,
+                        "OneNet reported a temporary internal service failure");
+            }
+            if (businessOutcome
+                    == DeviceCommandSubmissionResult.Outcome
+                            .TARGET_NOT_FOUND
+                    || businessOutcome
+                    == DeviceCommandSubmissionResult.Outcome
+                            .TARGET_OFFLINE) {
+                return new DeviceCommandSubmissionResult(
+                        businessOutcome,
+                        requestSha256,
+                        responseSha256,
+                        response.getStatusCode().value(),
+                        code,
+                        businessOutcome
+                                == DeviceCommandSubmissionResult.Outcome
+                                        .TARGET_OFFLINE
+                                ? "OneNet reports that the device is offline"
+                                : "OneNet cannot resolve the configured device identity");
+            }
+            return new DeviceCommandSubmissionResult(
+                    DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
                     requestSha256,
                     responseSha256,
                     response.getStatusCode().value(),
                     code,
-                    "OneNet rejected the service call");
+                    "OneNet permanently rejected the service call contract");
         } catch (RestClientResponseException exception) {
             byte[] responseBody = exception.getResponseBodyAsByteArray();
             int status = exception.getStatusCode().value();

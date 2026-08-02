@@ -76,6 +76,7 @@ public class OrganizationDeviceDeploymentController {
             @RequestParam(required = false) Boolean businessEnabled,
             @RequestParam(required = false) String hardwareSn,
             @RequestParam(required = false) String edgeConnectionStatus,
+            @RequestParam(required = false) String oneNetConnectionStatus,
             @RequestParam(required = false)
             String configurationApplicationStatus,
             HttpServletRequest request) {
@@ -89,6 +90,7 @@ public class OrganizationDeviceDeploymentController {
                 businessEnabled,
                 hardwareSn,
                 edgeConnectionStatus,
+                oneNetConnectionStatus,
                 configurationApplicationStatus), request);
     }
 

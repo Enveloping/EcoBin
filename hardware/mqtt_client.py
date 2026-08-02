@@ -313,10 +313,6 @@ class MqttClient:
         topic = _topic_event_post(pid, dn)
         try:
             payload = encode_event_post(event_type, params)
-        except ValueError:
-            payload = {"id": params.get("event_uid", str(int(time.time() * 1000))),
-                       "version": "1.0", "params": params}
-        try:
             info = self.client.publish(topic, _json.dumps(payload), qos=1)
             return info.mid if info.rc == mqtt.MQTT_ERR_SUCCESS else None
         except Exception as e:
@@ -453,6 +449,41 @@ class MqttClient:
             )
 
     def _handle_confirmation(self, topic: str, payload: dict) -> None:
+        if "/thing/event/post/reply" in topic:
+            transport_id = payload.get("id")
+            code = payload.get("code")
+            if (
+                isinstance(transport_id, str)
+                and transport_id.isdigit()
+                and 1 <= len(transport_id) <= 13
+                and isinstance(code, int)
+                and not isinstance(code, bool)
+            ):
+                event_uid = self._store.record_event_platform_reply(
+                    int(transport_id),
+                    code,
+                )
+                if event_uid and code not in (0, 200):
+                    logger.error(
+                        "OneNet event rejected: event=%s code=%d",
+                        event_uid,
+                        code,
+                    )
+                elif event_uid:
+                    logger.debug(
+                        "OneNet event accepted: event=%s",
+                        event_uid,
+                    )
+                elif code not in (0, 200):
+                    logger.warning(
+                        "OneNet telemetry event rejected: id=%s code=%d",
+                        transport_id,
+                        code,
+                    )
+            else:
+                logger.warning(
+                    "ignored malformed OneNet event reply"
+                )
         if self.on_confirmation_received:
             self.on_confirmation_received(topic, payload)
 

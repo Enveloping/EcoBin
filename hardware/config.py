@@ -175,7 +175,10 @@ EDGE_BOOT_ID_PATH = os.getenv(
 )
 EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
-EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = int(os.getenv("ECOBIN_RUNTIME_SNAPSHOT_INTERVAL_S", "300"))
+EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = float(os.getenv(
+    "ECOBIN_RUNTIME_SNAPSHOT_INTERVAL_S",
+    "30",
+))
 PHOTO_UPLOAD_POLL_SECONDS = float(os.getenv(
     "ECOBIN_PHOTO_UPLOAD_POLL_SECONDS",
     "1",
@@ -231,6 +234,10 @@ def validate():
         raise ValueError("photo grant expiry skew must be non-negative")
     if PHOTO_RETENTION_HOURS <= 0:
         raise ValueError("photo retention hours must be positive")
+    if EDGE_RUNTIME_SNAPSHOT_INTERVAL_S <= 0:
+        raise ValueError(
+            "runtime snapshot interval must be positive"
+        )
     if not all(TRUSTED_COS_ENVIRONMENT.values()):
         raise ValueError(
             "trusted COS bucket, region and base URL must be configured"

@@ -898,10 +898,12 @@ public class DeviceLifecycleApplication {
                               runtime.trusted_runtime_received_at,
                               UTC_TIMESTAMP(3)
                           ) BETWEEN 0 AND LEAST(
-                              config.edge_heartbeat_interval_ms
-                                  * config.edge_heartbeat_miss_threshold
-                                  * 1000,
-                              86400000000
+                              CAST(config.edge_heartbeat_interval_ms
+                                  AS DECIMAL(30, 0))
+                                  * CAST(config.edge_heartbeat_miss_threshold
+                                      AS DECIMAL(30, 0))
+                                  * CAST(1000 AS DECIMAL(30, 0)),
+                              CAST(86400000000 AS DECIMAL(30, 0))
                           )
                           AND runtime.orange_pi_reported_config_version_no =
                               config.version_no
@@ -1104,10 +1106,9 @@ public class DeviceLifecycleApplication {
         long freshLimitUs = row.heartbeatIntervalMs() == null
                 || row.heartbeatMissThreshold() == null
                 ? 0
-                : Math.min(
-                        row.heartbeatIntervalMs()
-                                * row.heartbeatMissThreshold() * 1_000L,
-                        86_400_000_000L);
+                : heartbeatWindowMicros(
+                        row.heartbeatIntervalMs(),
+                        row.heartbeatMissThreshold());
         if (row.runtimeEventId() == null
                 || row.runtimeReceivedAt() == null
                 || row.runtimeAgeUs() == null
@@ -1219,6 +1220,22 @@ public class DeviceLifecycleApplication {
                 row.latestVersion(),
                 row.runtimeEventId(),
                 row.runtimeReceivedAt());
+    }
+
+    static long heartbeatWindowMicros(
+            long heartbeatIntervalMs,
+            long heartbeatMissThreshold) {
+        if (heartbeatIntervalMs <= 0 || heartbeatMissThreshold <= 0) {
+            throw new IllegalArgumentException(
+                    "heartbeat values must be positive");
+        }
+        long maximumWindowMicros = 86_400_000_000L;
+        long maximumIntervalBeforeSaturation =
+                maximumWindowMicros / 1_000L / heartbeatMissThreshold;
+        if (heartbeatIntervalMs > maximumIntervalBeforeSaturation) {
+            return maximumWindowMicros;
+        }
+        return heartbeatIntervalMs * heartbeatMissThreshold * 1_000L;
     }
 
     private List<String> closureBlockers(DeploymentClosure deployment) {

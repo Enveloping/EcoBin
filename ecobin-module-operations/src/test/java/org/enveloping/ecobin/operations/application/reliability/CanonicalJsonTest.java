@@ -5,6 +5,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CanonicalJsonTest {
 
@@ -65,5 +66,22 @@ class CanonicalJsonTest {
         assertNotEquals(zero.sha256Hex(), huge.sha256Hex());
         assertEquals("{\"value\":1e-10000}", tiny.json());
         assertEquals("{\"value\":1e+10000}", huge.json());
+    }
+
+    @Test
+    void extractsOnlyABoundedTrustedDeviceName() {
+        assertEquals(
+                "HW-A",
+                canonicalJson.trustedDeviceName("""
+                        {"trustedSource":{"deviceName":"HW-A"}}
+                        """));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> canonicalJson.trustedDeviceName("{}"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> canonicalJson.trustedDeviceName("""
+                        {"trustedSource":{"deviceName":" HW-A"}}
+                        """));
     }
 }

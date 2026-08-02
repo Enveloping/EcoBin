@@ -18,6 +18,8 @@
         "continueDeliveryWaitMs": 30000,
         "deliveryAutoCloseMs": 120000,
         "deliveryDoorTravelWaitMs": 30000,
+        "edgeHeartbeatIntervalMs": 30000,
+        "edgeHeartbeatMissThreshold": 3,
         "negativeWeightThresholdGrams": 500,
         "smokeMonitoringEnabled": true,
         "weightMeasurementTimeoutMs": 6000
@@ -25,7 +27,7 @@
       "expiresAt": "2026-07-24T01:01:00.000Z",
       "issuedAt": "2026-07-24T01:00:00.000Z",
       "payloadSchemaVersion": 1,
-      "payloadSha256": "13e51cebfdb5db942183cf722c9c5bf72cb9327672a5565db4e67ed0c97de956",
+      "payloadSha256": "46e8b2c7239ba04b94b7b5046c71d119e4b2f5c4bd9b802cad7d7810702e7e02",
       "ports": [
         {
           "calibrationVersion": 4,

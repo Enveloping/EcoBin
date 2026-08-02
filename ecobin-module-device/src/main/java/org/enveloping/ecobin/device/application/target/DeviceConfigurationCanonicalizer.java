@@ -459,6 +459,12 @@ public class DeviceConfigurationCanonicalizer
             ConfigurationDeviceSnapshot device) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put(
+                "edgeHeartbeatIntervalMs",
+                device.edgeHeartbeatIntervalMs());
+        result.put(
+                "edgeHeartbeatMissThreshold",
+                device.edgeHeartbeatMissThreshold());
+        result.put(
                 "continueDeliveryWaitMs",
                 device.continueDeliveryWaitMs());
         result.put(

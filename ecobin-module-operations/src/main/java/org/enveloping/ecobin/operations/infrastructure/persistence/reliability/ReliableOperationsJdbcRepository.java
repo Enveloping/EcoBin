@@ -27,6 +27,19 @@ public class ReliableOperationsJdbcRepository {
                 "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
     }
 
+    public long requireDeviceAssetId(String hardwareSn) {
+        Long assetId = jdbcTemplate.queryForObject("""
+                SELECT id
+                FROM dev_device_asset
+                WHERE hardware_sn = ?
+                """, Long.class, hardwareSn);
+        if (assetId == null || assetId <= 0) {
+            throw new IllegalStateException(
+                    "trusted device asset has no positive identity");
+        }
+        return assetId;
+    }
+
     public void insertInbox(NewInbox inbox, LocalDateTime now) {
         jdbcTemplate.update("""
                 INSERT INTO ops_inbox_message (
@@ -594,7 +607,8 @@ public class ReliableOperationsJdbcRepository {
                     t.attempt_sequence,
                     t.wake_version,
                     t.source_inbox_id
-                FROM ops_reliable_task t FORCE INDEX (ix_ops_task_claim)
+                FROM ops_reliable_task t
+                    FORCE INDEX (ix_ops_task_device_dispatch)
                 WHERE t.state = 'PENDING'
                   AND t.task_type = 'PROCESS_INBOX'
                   AND t.claimable_at <= UTC_TIMESTAMP(3)
@@ -779,6 +793,18 @@ public class ReliableOperationsJdbcRepository {
                  AND d.organization_id = t.organization_id
                  AND d.id = t.source_device_deployment_id
                 JOIN dev_device_asset a ON a.id = d.asset_id
+                LEFT JOIN dev_device_transport_state transport
+                  ON transport.asset_id = a.id
+                LEFT JOIN dev_deployment_runtime_state runtime
+                  ON runtime.deployment_id = d.id
+                LEFT JOIN dev_config_version config
+                  ON config.id = (
+                      SELECT latest.id
+                      FROM dev_config_version latest
+                      WHERE latest.deployment_id = d.id
+                      ORDER BY latest.version_no DESC
+                      LIMIT 1
+                  )
                 WHERE t.state = 'PENDING'
                   AND t.task_category = 'BUSINESS_INTENT'
                   AND (
@@ -787,18 +813,72 @@ public class ReliableOperationsJdbcRepository {
                               'ENSURE_DEVICE_CONFIGURATION',
                               'START_DELIVERY_SESSION',
                               'START_CLEAN_OPERATION',
-                              'SAMPLE_FULLNESS'
+                              'END_CLEAN_BEFORE_UNLOCK',
+                              'RESUME_CLEAN_OPERATION',
+                              'SAMPLE_FULLNESS',
+                              'MEASURE_EMPTY_BAG_BASELINE'
                           )
                           AND c.id IS NOT NULL
                       )
                       OR
                       (
-                          t.task_type = 'CONFIRM_EDGE_EVENT'
+                          t.task_type IN (
+                              'CONFIRM_EDGE_EVENT',
+                              'PROVIDE_PHOTO_UPLOAD_GRANT'
+                          )
                           AND c.id IS NULL
                       )
                   )
                   AND t.execution_lane = 'DEVICE'
+                  AND t.dispatch_wait_reason IS NULL
                   AND t.claimable_at <= UTC_TIMESTAMP(3)
+                  AND (
+                      (
+                          t.task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                          AND COALESCE(
+                              transport.onenet_connection_status,
+                              'UNKNOWN'
+                          ) <> 'OFFLINE'
+                      )
+                      OR
+                      (
+                          t.task_type IN (
+                              'CONFIRM_EDGE_EVENT',
+                              'PROVIDE_PHOTO_UPLOAD_GRANT'
+                          )
+                          AND transport.onenet_connection_status =
+                              'ONLINE'
+                      )
+                      OR
+                      (
+                          t.task_type IN (
+                              'START_DELIVERY_SESSION',
+                              'START_CLEAN_OPERATION',
+                              'END_CLEAN_BEFORE_UNLOCK',
+                              'RESUME_CLEAN_OPERATION',
+                              'SAMPLE_FULLNESS',
+                              'MEASURE_EMPTY_BAG_BASELINE'
+                          )
+                          AND transport.onenet_connection_status =
+                              'ONLINE'
+                          AND runtime.edge_connection_status = 'ONLINE'
+                          AND runtime.trusted_runtime_received_at
+                              IS NOT NULL
+                          AND config.id IS NOT NULL
+                          AND TIMESTAMPDIFF(
+                              MICROSECOND,
+                              runtime.trusted_runtime_received_at,
+                              UTC_TIMESTAMP(3)
+                          ) BETWEEN 0 AND LEAST(
+                              CAST(config.edge_heartbeat_interval_ms
+                                  AS DECIMAL(30, 0))
+                                  * CAST(config.edge_heartbeat_miss_threshold
+                                      AS DECIMAL(30, 0))
+                                  * CAST(1000 AS DECIMAL(30, 0)),
+                              CAST(86400000000 AS DECIMAL(30, 0))
+                          )
+                      )
+                  )
                 ORDER BY t.claimable_at, t.priority, t.id
                 LIMIT ?
                 FOR UPDATE SKIP LOCKED
@@ -969,13 +1049,19 @@ public class ReliableOperationsJdbcRepository {
                               'ENSURE_DEVICE_CONFIGURATION',
                               'START_DELIVERY_SESSION',
                               'START_CLEAN_OPERATION',
-                              'SAMPLE_FULLNESS'
+                              'END_CLEAN_BEFORE_UNLOCK',
+                              'RESUME_CLEAN_OPERATION',
+                              'SAMPLE_FULLNESS',
+                              'MEASURE_EMPTY_BAG_BASELINE'
                           )
                           AND c.id IS NOT NULL
                       )
                       OR
                       (
-                          t.task_type = 'CONFIRM_EDGE_EVENT'
+                          t.task_type IN (
+                              'CONFIRM_EDGE_EVENT',
+                              'PROVIDE_PHOTO_UPLOAD_GRANT'
+                          )
                           AND c.id IS NULL
                       )
                   )
@@ -1309,6 +1395,32 @@ public class ReliableOperationsJdbcRepository {
         requireSingleRow(updated, "schedule reliable task retry");
     }
 
+    public void releaseForDispatchWait(
+            long taskId,
+            String waitReason,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'PENDING',
+                    next_run_at = ?,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    dispatch_wait_reason = ?,
+                    completed_at = NULL,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                now,
+                waitReason,
+                now,
+                taskId);
+        requireSingleRow(updated, "release task for dispatch wait");
+    }
+
     public void blockAfterRetryExhaustion(
             long taskId,
             int failureCount,
@@ -1337,6 +1449,165 @@ public class ReliableOperationsJdbcRepository {
                 now,
                 taskId);
         requireSingleRow(updated, "block reliable task");
+    }
+
+    public int reconcileDeviceTaskGates(
+            Long assetId,
+            LocalDateTime now) {
+        String assetPredicate = assetId == null
+                ? ""
+                : " AND deployment.asset_id = ?";
+        String desiredWait = """
+                CASE
+                    WHEN COALESCE(
+                        transport.onenet_connection_status,
+                        'UNKNOWN'
+                    ) = 'OFFLINE'
+                    THEN 'DEVICE_OFFLINE'
+                    WHEN COALESCE(
+                        transport.onenet_connection_status,
+                        'UNKNOWN'
+                    ) = 'UNKNOWN'
+                         AND task.task_type <>
+                             'ENSURE_DEVICE_CONFIGURATION'
+                    THEN 'DEVICE_PRESENCE_UNKNOWN'
+                    WHEN task.task_type IN (
+                        'START_DELIVERY_SESSION',
+                        'START_CLEAN_OPERATION',
+                        'END_CLEAN_BEFORE_UNLOCK',
+                        'RESUME_CLEAN_OPERATION',
+                        'SAMPLE_FULLNESS',
+                        'MEASURE_EMPTY_BAG_BASELINE'
+                    )
+                    AND (
+                        runtime.edge_connection_status <> 'ONLINE'
+                        OR runtime.trusted_runtime_received_at IS NULL
+                        OR config.id IS NULL
+                        OR TIMESTAMPDIFF(
+                            MICROSECOND,
+                            runtime.trusted_runtime_received_at,
+                            UTC_TIMESTAMP(3)
+                        ) NOT BETWEEN 0 AND LEAST(
+                            CAST(config.edge_heartbeat_interval_ms
+                                AS DECIMAL(30, 0))
+                                * CAST(config.edge_heartbeat_miss_threshold
+                                    AS DECIMAL(30, 0))
+                                * CAST(1000 AS DECIMAL(30, 0)),
+                            CAST(86400000000 AS DECIMAL(30, 0))
+                        )
+                    )
+                    THEN 'RUNTIME_STALE'
+                    ELSE NULL
+                END
+                """;
+        String sql = """
+                UPDATE ops_reliable_task task
+                JOIN dev_device_deployment deployment
+                  ON deployment.id = task.source_device_deployment_id
+                JOIN dev_device_asset asset
+                  ON asset.id = deployment.asset_id
+                LEFT JOIN dev_device_transport_state transport
+                  ON transport.asset_id = asset.id
+                LEFT JOIN dev_deployment_runtime_state runtime
+                  ON runtime.deployment_id = deployment.id
+                LEFT JOIN dev_config_version config
+                  ON config.id = (
+                      SELECT latest.id
+                      FROM dev_config_version latest
+                      WHERE latest.deployment_id = deployment.id
+                      ORDER BY latest.version_no DESC
+                      LIMIT 1
+                  )
+                SET task.dispatch_wait_reason =
+                %s,
+                    task.next_run_at = CASE
+                        WHEN task.lease_token IS NULL
+                             AND (
+                %s
+                             ) IS NULL
+                        THEN ?
+                        ELSE task.next_run_at
+                    END,
+                    task.wake_version = task.wake_version + 1,
+                    task.lock_version = task.lock_version + 1,
+                    task.updated_at = ?
+                WHERE task.state = 'PENDING'
+                  AND task.execution_lane = 'DEVICE'
+                  AND task.task_category = 'BUSINESS_INTENT'
+                  AND NOT (
+                      task.dispatch_wait_reason <=> (
+                %s
+                      )
+                  )
+                %s
+                """.formatted(desiredWait, desiredWait, desiredWait, assetPredicate);
+        if (assetId == null) {
+            return jdbcTemplate.update(sql, now, now);
+        }
+        return jdbcTemplate.update(sql, now, now, assetId);
+    }
+
+    public int reconcileDeploymentRuntimeFreshness(
+            Long assetId,
+            LocalDateTime now) {
+        String assetPredicate = assetId == null
+                ? ""
+                : " AND deployment.asset_id = ?";
+        String desiredStatus = """
+                CASE
+                    WHEN runtime.trusted_runtime_received_at IS NULL
+                    THEN CASE
+                        WHEN transport.onenet_connection_status = 'OFFLINE'
+                        THEN 'OFFLINE'
+                        ELSE 'UNKNOWN'
+                    END
+                    WHEN transport.onenet_connection_status = 'ONLINE'
+                         AND config.id IS NOT NULL
+                         AND TIMESTAMPDIFF(
+                             MICROSECOND,
+                             runtime.trusted_runtime_received_at,
+                             UTC_TIMESTAMP(3)
+                         ) BETWEEN 0 AND LEAST(
+                             CAST(config.edge_heartbeat_interval_ms
+                                 AS DECIMAL(30, 0))
+                                 * CAST(config.edge_heartbeat_miss_threshold
+                                     AS DECIMAL(30, 0))
+                                 * CAST(1000 AS DECIMAL(30, 0)),
+                             CAST(86400000000 AS DECIMAL(30, 0))
+                         )
+                    THEN 'ONLINE'
+                    ELSE 'OFFLINE'
+                END
+                """;
+        String sql = """
+                UPDATE dev_deployment_runtime_state runtime
+                JOIN dev_device_deployment deployment
+                  ON deployment.id = runtime.deployment_id
+                JOIN dev_device_transport_state transport
+                  ON transport.asset_id = deployment.asset_id
+                LEFT JOIN dev_config_version config
+                  ON config.id = (
+                      SELECT latest.id
+                      FROM dev_config_version latest
+                      WHERE latest.deployment_id = deployment.id
+                      ORDER BY latest.version_no DESC
+                      LIMIT 1
+                  )
+                SET runtime.edge_connection_status =
+                %s,
+                    runtime.lock_version = runtime.lock_version + 1,
+                    runtime.updated_at = ?
+                WHERE NOT (
+                    runtime.edge_connection_status <=> (
+                %s
+                    )
+                )
+                %s
+                """.formatted(desiredStatus, desiredStatus, assetPredicate);
+        if (assetId == null) {
+            return jdbcTemplate.update(sql, now);
+        }
+        return jdbcTemplate.update(sql, now, assetId);
     }
 
     public long wakeTask(UUID taskUid, LocalDateTime now) {
