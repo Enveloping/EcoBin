@@ -13,7 +13,7 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_PRODUCT_ID     — OneNet 产品 ID
     ECOBIN_DEVICE_NAME    — 设备名称 = biz_device.sn
     ECOBIN_DEVICE_KEY     — 设备密钥 Base64（必填，无默认值）
-    ECOBIN_MQTT_HOST      — MQTT 服务器地址（默认: mqtts.heclouds.com）
+    ECOBIN_MQTT_HOST      — OneNET Studio MQTT 地址（默认: studio-mqtt.heclouds.com）
     ECOBIN_MQTT_PORT      — MQTT 端口（默认: 1883）
     ECOBIN_SERIAL_PORT    — 串口设备路径（默认: /dev/ttyS5）
     ECOBIN_SERIAL_BAUDRATE— 串口波特率（默认: 115200）
@@ -102,7 +102,7 @@ TRUSTED_COS_ENVIRONMENT = {
 }
 
 # ── MQTT ──
-MQTT_HOST = os.getenv("ECOBIN_MQTT_HOST", "mqtts.heclouds.com")
+MQTT_HOST = os.getenv("ECOBIN_MQTT_HOST", "studio-mqtt.heclouds.com")
 MQTT_PORT = int(os.getenv("ECOBIN_MQTT_PORT", "1883"))
 MQTT_CLEAN_SESSION = os.getenv("ECOBIN_MQTT_CLEAN_SESSION", "true").lower() in (
     "true",

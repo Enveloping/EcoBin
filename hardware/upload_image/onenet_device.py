@@ -14,7 +14,7 @@
 （清运 openCleanDoor 不在本脚本范围。）
 
 连接四元组（OneJSON 设备接入）：
-  Host:Port = mqtts.heclouds.com:1883（明文）
+  Host:Port = studio-mqtt.heclouds.com:1883（明文）
   ClientID  = 设备名（DEVICE_NAME，= biz_device.sn）
   Username  = 产品ID（PRODUCT_ID）
   Password  = 连接 token（build_token，见下）
@@ -65,8 +65,8 @@ TOKEN_TTL_SECONDS = 7 * 24 * 3600   # token 有效期，模拟设备给长一点
 TOKEN_VERSION = "2018-10-31"
 
 USE_TLS = False                  # 预留：True 时走 8883 + tls_set（需 OneNET CA 证书）
-MQTT_HOST = "mqtts.heclouds.com"
-MQTT_PORT = 1883                 # 明文 1883；TLS 用 mqttstls.heclouds.com:8883
+MQTT_HOST = "studio-mqtt.heclouds.com"
+MQTT_PORT = 1883                 # 明文 1883；TLS 用 studio-mqtts.heclouds.com:8883
 
 # 投递测试参数
 TEST_IMAGE = "test.jpg"          # 固定测试图（hardware/test.jpg），上传到 4 个槽位

@@ -68,7 +68,9 @@ class MqttClient:
 
     def __init__(
         self, product_id: str, device_name: str, device_key: str,
-        edge_store, mqtt_host: str = "mqtts.heclouds.com", mqtt_port: int = 1883,
+        edge_store,
+        mqtt_host: str = "studio-mqtt.heclouds.com",
+        mqtt_port: int = 1883,
         deployment_code: str = "", edge_boot_id: int = 0,
         clean_session: bool = True,
         trusted_cos_environment=None,
@@ -93,6 +95,7 @@ class MqttClient:
         self._network_loop_started = False
         self._reconnect_required = False
         self._mid_to_event_uid: dict[int, str] = {}
+        self._subscription_mid_to_topic: dict[int, str] = {}
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=device_name,
@@ -102,6 +105,7 @@ class MqttClient:
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
         self.client.on_publish = self._on_publish
+        self.client.on_subscribe = self._on_subscribe
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.on_command_received: Optional[Callable] = None
         self.on_confirmation_received: Optional[Callable] = None
@@ -273,6 +277,12 @@ class MqttClient:
         try:
             payload = _json.loads(msg.payload.decode("utf-8"))
             topic = msg.topic
+            logger.info(
+                "MQTT message received: topic=%s bytes=%d keys=%s",
+                topic,
+                len(msg.payload),
+                sorted(payload.keys()) if isinstance(payload, dict) else [],
+            )
             if "/cmd/request/" in topic:
                 self._handle_command(msg.topic, payload)
             elif "/thing/service/" in topic and "/invoke" in topic:
@@ -292,18 +302,51 @@ class MqttClient:
             elif event:
                 self._store.mark_event_pending_retry(event_uid)
 
+    def _on_subscribe(
+        self,
+        client,
+        userdata,
+        mid,
+        reason_code_list,
+        properties,
+    ) -> None:
+        topic = self._subscription_mid_to_topic.pop(mid, "<unknown>")
+        reason_codes = list(reason_code_list or ())
+        rejected = any(
+            self._reason_code_int(reason_code) >= 128
+            for reason_code in reason_codes
+        )
+        if rejected:
+            logger.error(
+                "MQTT subscription rejected: topic=%s reason_codes=%s",
+                topic,
+                reason_codes,
+            )
+        else:
+            logger.info(
+                "MQTT subscription acknowledged: topic=%s",
+                topic,
+            )
+
     def _subscribe_topics(self) -> None:
         pid, dn = self.product_id, self.device_name
         topics = [
             (f"$sys/{pid}/{dn}/cmd/request/+", 1),
-            (f"$sys/{pid}/{dn}/thing/service/+/invoke", 1),
-            (f"$sys/{pid}/{dn}/thing/property/set", 1),
-            (f"$sys/{pid}/{dn}/thing/event/post/reply", 1),
-            (f"$sys/{pid}/{dn}/thing/property/post/reply", 1),
+            # 订阅完整 OneJSON 物模型主题树，统一覆盖当前服务调用、属性
+            # 设置和平台回执，也避免以后增加服务标识时漏改设备订阅表。
+            (f"$sys/{pid}/{dn}/thing/#", 1),
             (f"$sys/{pid}/{dn}/cmd/response/+", 1),
         ]
         for topic, qos in topics:
-            self.client.subscribe(topic, qos)
+            result, mid = self.client.subscribe(topic, qos)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                logger.error(
+                    "MQTT subscription could not be queued: topic=%s rc=%s",
+                    topic,
+                    result,
+                )
+                continue
+            self._subscription_mid_to_topic[mid] = topic
 
     def _publish_online(self) -> None:
         self.publish_property("online", {"value": True, "time": int(time.time() * 1000)})

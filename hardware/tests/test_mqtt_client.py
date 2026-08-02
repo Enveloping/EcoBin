@@ -50,6 +50,7 @@ class LifecyclePahoClient:
         self.on_disconnect = None
         self.on_message = None
         self.on_publish = None
+        self.on_subscribe = None
         self.auto_connect = auto_connect
         self.connect_async_calls = 0
         self.reconnect_calls = 0
@@ -58,6 +59,7 @@ class LifecyclePahoClient:
         self.disconnect_calls = 0
         self.delay = None
         self.publishes = []
+        self.subscriptions = []
 
     def reconnect_delay_set(self, min_delay, max_delay):
         self.delay = (min_delay, max_delay)
@@ -97,6 +99,7 @@ class LifecyclePahoClient:
         self.disconnect_calls += 1
 
     def subscribe(self, topic, qos):
+        self.subscriptions.append((topic, qos))
         return (0, 1)
 
     def publish(self, topic, payload, qos):
@@ -175,6 +178,36 @@ def test_reconnect_reuses_one_paho_network_loop(monkeypatch):
     assert paho.loop_start_calls == 1
     assert paho.loop_stop_calls == 0
     assert snapshots == ["snapshot", "snapshot"]
+
+
+def test_connect_subscribes_to_onenet_thing_topic_tree(monkeypatch):
+    paho = LifecyclePahoClient()
+    monkeypatch.setattr(
+        mqtt_module.mqtt,
+        "Client",
+        lambda *args, **kwargs: paho,
+    )
+    client = MqttClient(
+        product_id="product",
+        device_name="device",
+        device_key=base64.b64encode(b"device-key").decode(),
+        edge_store=FakeStore(),
+    )
+    client._start_relay_loop = lambda: None
+    client._publish_online = lambda: None
+
+    assert client.connect()
+
+    assert (
+        "$sys/product/device/thing/#",
+        1,
+    ) in paho.subscriptions
+    thing_topics = {
+        topic
+        for topic, _qos in paho.subscriptions
+        if "/thing/" in topic
+    }
+    assert thing_topics == {"$sys/product/device/thing/#"}
 
 
 def test_connect_timeout_keeps_paho_network_loop_running(monkeypatch):
