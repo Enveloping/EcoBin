@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
+import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.StartCleanIdentityParticipationPort;
 import org.enveloping.ecobin.identity.api.result.LockedCleanOrganizationUser;
@@ -89,8 +90,9 @@ public class CleanQueryService {
         requireScope(locked, tenantId, organizationId);
         Deployment deployment = jdbc.query("""
                         SELECT deployment.id, deployment.asset_id,
-                               configuration.display_name,
-                               configuration.address
+                               configuration.device_display_name
+                                   AS display_name,
+                               configuration.location_address AS address
                         FROM dev_device_deployment deployment
                         LEFT JOIN dev_config_version configuration
                           ON configuration.id = (
@@ -162,6 +164,12 @@ public class CleanQueryService {
                                runtime.weight_sensor_health,
                                runtime.weight_measurement_status,
                                runtime.weight_value_available,
+                               runtime.reported_weight_grams,
+                               runtime.weight_value_kind,
+                               runtime.calibration_version
+                                   AS runtime_calibration_version,
+                               snapshot.calibration_version
+                                   AS configured_calibration_version,
                                runtime.smoke_state,
                                runtime.smoke_sensor_health,
                                runtime.runtime_fault_bitmap,
@@ -279,10 +287,14 @@ public class CleanQueryService {
         if (!"OK".equals(rs.getString("clean_solenoid_health"))) {
             blockers.add("CLEAN_SOLENOID_UNAVAILABLE");
         }
-        if (!"OK".equals(rs.getString("weight_sensor_health"))
-                || !"STABLE".equals(
-                rs.getString("weight_measurement_status"))
-                || !rs.getBoolean("weight_value_available")) {
+        if (!DeviceRuntimeWeightPolicy.isStartEligible(
+                rs.getString("weight_sensor_health"),
+                rs.getString("weight_measurement_status"),
+                nullableBoolean(rs, "weight_value_available"),
+                nullableLong(rs, "reported_weight_grams"),
+                rs.getString("weight_value_kind"),
+                nullableLong(rs, "runtime_calibration_version"),
+                nullableLong(rs, "configured_calibration_version"))) {
             blockers.add("WEIGHT_UNAVAILABLE");
         }
         if (!"NORMAL".equals(rs.getString("smoke_state"))
@@ -397,6 +409,12 @@ public class CleanQueryService {
     private static Long nullableLong(ResultSet rs, String column)
             throws SQLException {
         long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    private static Boolean nullableBoolean(ResultSet rs, String column)
+            throws SQLException {
+        boolean value = rs.getBoolean(column);
         return rs.wasNull() ? null : value;
     }
 

@@ -66,6 +66,34 @@ public class ApplyCleanCompleteService
                OR source_inbox_id = ?
             """;
 
+    static final String OPERATION_LOCK_CLAUSE =
+            "FOR UPDATE OF operation";
+    static final String CAPACITY_NO_OP_DUPLICATE_CLAUSE = """
+            ON DUPLICATE KEY UPDATE
+                updated_at = rec_port_capacity_state.updated_at
+            """;
+    static final String DELETE_RESERVED_BAG_SLOT_SQL = """
+            DELETE FROM rec_bag_current_occupancy
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND bag_id = ?
+              AND occupancy_type = 'CLEAN_RESERVED'
+              AND clean_operation_id = ?
+            """;
+    static final String INSERT_PORT_BOUND_BAG_SLOT_SQL = """
+            INSERT INTO rec_bag_current_occupancy (
+                bag_id, tenant_id, organization_id,
+                occupancy_type, port_id,
+                clean_operation_id, acquired_at
+            ) VALUES (?, ?, ?, 'PORT_BOUND', ?, NULL, ?)
+            """;
+
+    static boolean isTerminalPhotoState(String status) {
+        return Set.of(
+                "AVAILABLE",
+                "PERMANENTLY_MISSING").contains(status);
+    }
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final ScheduleFullnessSampleDevicePort fullnessSamples;
@@ -238,17 +266,9 @@ public class ApplyCleanCompleteService
                 deployment.id(), operation, receivedAt);
 
         List<DeliveryCompletionResultReference> references =
-                new ArrayList<>();
-        references.add(new DeliveryCompletionResultReference(
-                "CLEAN_RECORD", recordNo));
-        references.add(new DeliveryCompletionResultReference(
-                "FULLNESS_DETECTION",
-                detection.uid().toString()));
-        if (baseline.id() != null) {
-            references.add(new DeliveryCompletionResultReference(
-                    "WEIGHT_BASELINE",
-                    Long.toString(baseline.id())));
-        }
+                cleanCompletionResultReferences(
+                        recordNo,
+                        detection.uid());
         confirmationPort.registerApplied(
                 tenantId,
                 organizationId,
@@ -260,6 +280,18 @@ public class ApplyCleanCompleteService
                 references,
                 receivedAt);
         return TrustedDeviceEventApplyResult.APPLIED;
+    }
+
+    static List<DeliveryCompletionResultReference>
+            cleanCompletionResultReferences(
+            String recordNo,
+            UUID detectionUid) {
+        return List.of(
+                new DeliveryCompletionResultReference(
+                        "CLEAN_RECORD", recordNo),
+                new DeliveryCompletionResultReference(
+                        "FULLNESS_DETECTION",
+                        detectionUid.toString()));
     }
 
     private TrustedDeviceEventApplyResult requirePreviouslyApplied(
@@ -367,7 +399,6 @@ public class ApplyCleanCompleteService
                                snapshot.fullness_settle_wait_ms,
                                snapshot.fullness_confirmation_wait_ms,
                                snapshot.weight_measurement_timeout_ms,
-                               snapshot.weight_required_sample_count,
                                snapshot.weight_minimum_g,
                                snapshot.weight_maximum_g,
                                snapshot.calibration_version,
@@ -416,8 +447,8 @@ public class ApplyCleanCompleteService
                           AND operation.tenant_id = ?
                           AND operation.organization_id = ?
                           AND operation.deployment_id = ?
-                        FOR UPDATE
-                        """,
+                        %s
+                        """.formatted(OPERATION_LOCK_CLAUSE),
                 (rs, ignored) -> operation(rs),
                 fact.operationUid().toString(),
                 tenantId,
@@ -569,8 +600,7 @@ public class ApplyCleanCompleteService
                 digest(fact.configurationMcuPayloadSha256()))
                 || pre.calibrationVersion()
                 != operation.calibrationVersion()
-                || pre.sampleCount()
-                < operation.requiredSampleCount()
+                || !hasAtLeastOneReportedSample(pre.sampleCount())
                 || pre.reportedWeightGrams()
                 < operation.weightMinimumGrams()
                 || pre.reportedWeightGrams()
@@ -578,8 +608,8 @@ public class ApplyCleanCompleteService
                 || finalMeasurement.calibrationVersion()
                 != operation.calibrationVersion()
                 || ("STABLE".equals(finalMeasurement.status())
-                && (finalMeasurement.sampleCount()
-                < operation.requiredSampleCount()
+                && (!hasAtLeastOneReportedSample(
+                finalMeasurement.sampleCount())
                 || finalMeasurement.reportedWeightGrams()
                 < operation.weightMinimumGrams()
                 || finalMeasurement.reportedWeightGrams()
@@ -604,6 +634,10 @@ public class ApplyCleanCompleteService
                 deploymentId,
                 fact.edgeEventSequence(),
                 inboxId);
+    }
+
+    static boolean hasAtLeastOneReportedSample(int sampleCount) {
+        return sampleCount >= 1;
     }
 
     private long insertEdgeEvent(
@@ -798,8 +832,9 @@ public class ApplyCleanCompleteService
                             'UNKNOWN', NULL, ?, 'UNKNOWN',
                             NULL, NULL, 0, ?
                         )
-                        ON DUPLICATE KEY UPDATE port_id = VALUES(port_id)
-                        """,
+                        %s
+                        """.formatted(
+                        CAPACITY_NO_OP_DUPLICATE_CLAUSE),
                 operation.portId(),
                 operation.tenantId(),
                 operation.organizationId(),
@@ -1090,16 +1125,25 @@ public class ApplyCleanCompleteService
         }
         for (String position : PHOTO_POSITIONS) {
             CleanPhoto photo = photos.get(position);
+            PhotoSlot target = lockPhotoSlot(operation, position);
+            if (target.terminal()) {
+                // PHOTO_STATUS_REPORTED is a later lifecycle fact than the
+                // completion snapshot. Preserve a terminal slot that was
+                // already applied independently.
+                continue;
+            }
+            if (!"UPLOAD_PENDING".equals(target.status())) {
+                throw new IllegalStateException(
+                        "clean photo slot has unsupported state "
+                                + position + ": " + target.status());
+            }
             requireSingle(jdbc.update("""
                             UPDATE rec_clean_photo
                             SET photo_uid = ?, status = ?, object_url = ?,
                                 sha256 = ?, size_bytes = ?, captured_at = ?,
                                 linked_at = ?, missing_reason = ?,
                                 updated_at = ?
-                            WHERE tenant_id = ?
-                              AND organization_id = ?
-                              AND clean_operation_id = ?
-                              AND position = ?
+                            WHERE id = ?
                               AND status = 'UPLOAD_PENDING'
                             """,
                     photo.photoUid() == null
@@ -1113,12 +1157,36 @@ public class ApplyCleanCompleteService
                             ? null : now,
                     photo.missingReason(),
                     now,
-                    operation.tenantId(),
-                    operation.organizationId(),
-                    operation.id(),
-                    position),
+                    target.id()),
                     "merge clean photo " + position);
         }
+    }
+
+    private PhotoSlot lockPhotoSlot(
+            Operation operation,
+            String position) {
+        List<PhotoSlot> rows = jdbc.query("""
+                        SELECT id, status
+                        FROM rec_clean_photo
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND clean_operation_id = ?
+                          AND position = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new PhotoSlot(
+                        rs.getLong("id"),
+                        rs.getString("status")),
+                operation.tenantId(),
+                operation.organizationId(),
+                operation.id(),
+                position);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "clean photo slot " + position + " mapped to "
+                            + rows.size() + " rows");
+        }
+        return rows.getFirst();
     }
 
     private BagSwap swapBags(
@@ -1144,23 +1212,20 @@ public class ApplyCleanCompleteService
                     "REMOVED_BY_CLEAN",
                     now);
         }
-        requireSingle(jdbc.update("""
-                        UPDATE rec_bag_current_occupancy
-                        SET occupancy_type = 'PORT_BOUND',
-                            port_id = ?, clean_operation_id = NULL,
-                            acquired_at = ?
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND bag_id = ?
-                          AND occupancy_type = 'CLEAN_RESERVED'
-                          AND clean_operation_id = ?
-                        """,
-                operation.portId(),
-                now,
+        requireSingle(jdbc.update(
+                        DELETE_RESERVED_BAG_SLOT_SQL,
                 operation.tenantId(),
                 operation.organizationId(),
                 operation.newBagId(),
                 operation.id()),
+                "remove reserved clean bag slot");
+        requireSingle(jdbc.update(
+                        INSERT_PORT_BOUND_BAG_SLOT_SQL,
+                operation.newBagId(),
+                operation.tenantId(),
+                operation.organizationId(),
+                operation.portId(),
+                now),
                 "install reserved clean bag");
         long installedEventId = insertBagEvent(
                 operation,
@@ -2055,7 +2120,6 @@ public class ApplyCleanCompleteService
                 rs.getLong("fullness_settle_wait_ms"),
                 rs.getLong("fullness_confirmation_wait_ms"),
                 rs.getLong("weight_measurement_timeout_ms"),
-                rs.getInt("weight_required_sample_count"),
                 rs.getLong("weight_minimum_g"),
                 rs.getLong("weight_maximum_g"),
                 rs.getLong("calibration_version"),
@@ -2174,7 +2238,6 @@ public class ApplyCleanCompleteService
             long fullnessSettleWaitMs,
             long fullnessConfirmationWaitMs,
             long measurementTimeoutMs,
-            int requiredSampleCount,
             long weightMinimumGrams,
             long weightMaximumGrams,
             long calibrationVersion,
@@ -2234,6 +2297,15 @@ public class ApplyCleanCompleteService
             Long sizeBytes,
             Instant capturedAt,
             String missingReason) {
+    }
+
+    private record PhotoSlot(
+            long id,
+            String status) {
+
+        private boolean terminal() {
+            return isTerminalPhotoState(status);
+        }
     }
 
     private record CleanFact(

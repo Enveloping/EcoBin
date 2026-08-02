@@ -1,5 +1,7 @@
 package org.enveloping.ecobin.device.application.deliveryquery;
 
+import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
+
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -112,18 +114,14 @@ final class MiniappDeliveryDeviceQueryPolicy {
                         && Objects.equals(
                                 port.trustedRuntimeSequence(),
                                 deployment.trustedRuntimeSequence());
-        boolean weightReady =
-                "OK".equals(port.weightSensorHealth())
-                        && "STABLE".equals(
-                                port.weightMeasurementStatus())
-                        && Boolean.TRUE.equals(
-                                port.weightValueAvailable())
-                        && port.reportedWeightGrams() != null
-                        && "STABLE_WINDOW_MEAN".equals(
-                                port.weightValueKind())
-                        && Objects.equals(
-                                port.runtimeCalibrationVersion(),
-                                port.configuredCalibrationVersion());
+        boolean weightReady = DeviceRuntimeWeightPolicy.isStartEligible(
+                port.weightSensorHealth(),
+                port.weightMeasurementStatus(),
+                port.weightValueAvailable(),
+                port.reportedWeightGrams(),
+                port.weightValueKind(),
+                port.runtimeCalibrationVersion(),
+                port.configuredCalibrationVersion());
         if (!sameTrustedSnapshot || !weightReady) {
             blockers.add(PORT_SENSOR_UNHEALTHY);
         }

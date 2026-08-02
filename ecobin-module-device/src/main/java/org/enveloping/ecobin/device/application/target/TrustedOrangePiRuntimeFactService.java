@@ -51,6 +51,16 @@ public class TrustedOrangePiRuntimeFactService {
             "PHOTO_UPLOAD_GRANT_REQUESTED",
             "BUSINESS_CONFIRMATION_RECEIPT");
 
+    static final String LOAD_COMMAND_STAGE_SQL = """
+            SELECT
+                event_row.edge_event_id,
+                event_row.mcu_command_uid,
+                event_row.error_code
+            FROM dev_device_command_event event_row
+            WHERE event_row.command_id = ?
+              AND event_row.observation_stage = ?
+            """;
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final ReliableEdgeConfirmationService confirmationService;
@@ -710,16 +720,8 @@ public class TrustedOrangePiRuntimeFactService {
         String mcuCommandUid = nullableText(
                 payload, "mcuCommandUid");
         String errorCode = nullableText(payload, "errorCode");
-        List<CommandStageRow> existing = jdbc.query("""
-                        SELECT
-                            event_row.edge_event_id,
-                            event_row.mcu_command_uid,
-                            event_row.error_code
-                        FROM dev_device_command_event event_row
-                        WHERE event_row.command_id = ?
-                          AND event_row.observation_stage = ?
-                        FOR UPDATE
-                        """,
+        List<CommandStageRow> existing = jdbc.query(
+                LOAD_COMMAND_STAGE_SQL,
                 (rs, ignored) -> new CommandStageRow(
                         rs.getLong("edge_event_id"),
                         rs.getString("mcu_command_uid"),

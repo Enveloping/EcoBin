@@ -22,6 +22,18 @@ def _compat_uid(work_uid: str, label: str) -> str:
     return _new_uid()
 
 
+def _compat_measurement_sequence(
+    source_sequence: int,
+    label: str,
+) -> int:
+    """Give paired flow facts distinct IDs and preserve single-fact identity."""
+    if label == "pre":
+        return source_sequence * 2 - 1
+    if label == "post":
+        return source_sequence * 2
+    return source_sequence
+
+
 def _compat_measurement(
     work_uid: str,
     label: str,
@@ -40,7 +52,10 @@ def _compat_measurement(
         "weightSensorHealth": "OK",
         "faultCode": "NONE",
         "mcuBootId": source["mcuBootId"],
-        "mcuEventSequence": source["mcuEventSequence"],
+        "mcuEventSequence": _compat_measurement_sequence(
+            source["mcuEventSequence"],
+            label,
+        ),
     }
 
 

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import time
 import uuid as _uuid
 from edge_identity import is_valid_edge_boot_id, new_edge_boot_id
@@ -808,6 +809,12 @@ def _fixed_frame_runtime_ports(store, applied, faults):
             store,
             f"port_{port_no}_clean_runtime_context_json",
         )
+        cleaner_close_confirmed = bool(
+            clean_context.get(
+                "cleaner_physical_close_confirmed",
+                False,
+            )
+        )
         ports.append({
             "portNo": port_no,
             "lastDeliveryDoorCommand": delivery_context.get(
@@ -829,13 +836,12 @@ def _fixed_frame_runtime_ports(store, applied, faults):
                 )
                 else "OK"
             ),
-            "cleanDoorStateBasis": "NOT_OBSERVABLE",
-            "cleanerPhysicalCloseConfirmed": bool(
-                clean_context.get(
-                    "cleaner_physical_close_confirmed",
-                    False,
-                )
+            "cleanDoorStateBasis": (
+                "CLEANER_CONFIRMATION"
+                if cleaner_close_confirmed
+                else "NOT_OBSERVABLE"
             ),
+            "cleanerPhysicalCloseConfirmed": cleaner_close_confirmed,
             "weightMeasurementUid": measurement_uid,
             "weightMeasurementStatus": "STABLE",
             "weightValueAvailable": True,
@@ -923,16 +929,30 @@ def _clock_state():
         return "UNAVAILABLE"
     sync_marker = "/run/systemd/timesync/synchronized"
     if os.path.isfile(sync_marker):
-        try:
-            with open(sync_marker, encoding="ascii") as marker:
-                return (
-                    "SYNCED"
-                    if marker.read().strip().lower() == "yes"
-                    else "ESTIMATED"
-                )
-        except OSError:
-            return "ESTIMATED"
-    return "SYNCED" if os.name == "nt" else "ESTIMATED"
+        return "SYNCED"
+    if os.name == "nt":
+        return "SYNCED"
+    try:
+        result = subprocess.run(
+            [
+                "timedatectl",
+                "show",
+                "--property=NTPSynchronized",
+                "--value",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "ESTIMATED"
+    return (
+        "SYNCED"
+        if result.returncode == 0
+        and result.stdout.strip().lower() == "yes"
+        else "ESTIMATED"
+    )
 
 
 def _runtime_ports_from_snapshots(snapshots):

@@ -41,6 +41,15 @@ EFFECT_KIND_BY_CODE = {
     2: "UPDATED",
     3: "NO_ACTION_REQUIRED",
 }
+RESULT_REFERENCE_TYPE_BY_CODE = {
+    1: "DELIVERY_ORDER",
+    2: "CLEAN_RECORD",
+    3: "FULLNESS_DETECTION",
+    4: "BASELINE_MEASUREMENT",
+    5: "CONFIGURATION_APPLICATION",
+    6: "PHOTO_SLOT",
+    7: "DEVICE_FAULT",
+}
 CLEAN_END_REASON_BY_CODE = {
     1: "CLEANER_CANCELLED",
     2: "START_AUTHORIZATION_EXPIRED",
@@ -977,8 +986,10 @@ def _decode_optional_enum(scalars: dict[str, Any], field: str,
 
 def _decode_reference(ref: dict[str, Any]) -> dict[str, Any]:
     result = dict(ref)
-    if result.get("type") == 1:
-        result["type"] = "DELIVERY_ORDER"
+    result["type"] = RESULT_REFERENCE_TYPE_BY_CODE.get(
+        result.get("type"),
+        result.get("type"),
+    )
     return result
 
 

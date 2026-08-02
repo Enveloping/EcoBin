@@ -43,6 +43,27 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
+    void fixedFrameLastObservationLeavesHealthyPortUnblocked() {
+        var fixedFramePort = portWithWeightKind(
+                "LAST_OBSERVED",
+                0L,
+                0L,
+                0L);
+
+        var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
+                deployment(
+                        CONTENT_SHA,
+                        CONTENT_SHA,
+                        NOW.minusSeconds(2),
+                        false),
+                List.of(fixedFramePort),
+                NOW);
+
+        assertThat(evaluation.ports()).singleElement()
+                .satisfies(port -> assertThat(port.blockers()).isEmpty());
+    }
+
+    @Test
     void staleOrangePiSnapshotAndOccupancyAreVisibleBlockers() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 deployment(
@@ -182,6 +203,19 @@ class MiniappDeliveryDeviceQueryPolicyTest {
 
     private static MiniappDeliveryDeviceQueryRepository.PortSnapshotRow
             healthyPort() {
+        return portWithWeightKind(
+                "STABLE_WINDOW_MEAN",
+                13_250L,
+                4L,
+                4L);
+    }
+
+    private static MiniappDeliveryDeviceQueryRepository.PortSnapshotRow
+            portWithWeightKind(
+                    String valueKind,
+                    long weightGrams,
+                    long runtimeCalibrationVersion,
+                    long configuredCalibrationVersion) {
         return new MiniappDeliveryDeviceQueryRepository
                 .PortSnapshotRow(
                 301L,
@@ -190,16 +224,16 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 true,
                 new BigDecimal("0.4500"),
                 "INFRARED_OR_WEIGHT",
-                4L,
+                configuredCalibrationVersion,
                 "UNKNOWN",
                 "DEENERGIZED",
                 "OK",
                 "OK",
                 "STABLE",
                 true,
-                13_250L,
-                "STABLE_WINDOW_MEAN",
-                4L,
+                weightGrams,
+                valueKind,
+                runtimeCalibrationVersion,
                 "NORMAL",
                 "OK",
                 0L,

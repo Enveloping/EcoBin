@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
+import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 import org.enveloping.ecobin.device.api.port.DeviceCommandCanonicalizationPort;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
@@ -59,6 +60,63 @@ public class StartCleanOperationService {
     private static final Duration MAX_TRUSTED_RUNTIME_AGE =
             Duration.ofDays(1);
     private static final long RECOMMENDED_POLL_AFTER_MS = 1_000L;
+
+    static final String LOAD_LATEST_CONFIGURATION_SQL = """
+            SELECT id, version_no, content_sha256,
+                   mcu_payload_sha256,
+                   edge_heartbeat_interval_ms,
+                   edge_heartbeat_miss_threshold
+            FROM dev_config_version
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND deployment_id = ?
+            ORDER BY version_no DESC
+            LIMIT 1
+            """;
+
+    static final String LOAD_PORT_SQL = """
+            SELECT id, port_no
+            FROM dev_port
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND deployment_id = ?
+              AND port_no = ?
+            """;
+
+    static final String LOAD_PORT_CONFIGURATION_SQL = """
+            SELECT id, business_enabled, calibration_version
+            FROM dev_port_config_snapshot
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND deployment_id = ?
+              AND config_version_id = ?
+              AND port_id = ?
+            """;
+
+    static final String LOAD_BAG_SQL = """
+            SELECT id, tenant_id, organization_id,
+                   bag_uid, bag_code
+            FROM rec_bag
+            WHERE bag_code = ?
+            """;
+
+    static final String LOCK_CURRENT_BAG_OCCUPANCY_SQL = """
+            SELECT bag_id
+            FROM rec_bag_current_occupancy
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND port_id = ?
+              AND occupancy_type = 'PORT_BOUND'
+            FOR UPDATE
+            """;
+
+    static final String LOAD_CURRENT_BAG_SQL = """
+            SELECT id, bag_uid, bag_code
+            FROM rec_bag
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND id = ?
+            """;
 
     private final JdbcTemplate jdbc;
     private final StartCleanIdentityParticipationPort identity;
@@ -345,19 +403,8 @@ public class StartCleanOperationService {
                     "设备正在执行其他物理操作");
         }
 
-        Configuration configuration = one("""
-                        SELECT id, version_no, content_sha256,
-                               mcu_payload_sha256,
-                               edge_heartbeat_interval_ms,
-                               edge_heartbeat_miss_threshold
-                        FROM dev_config_version
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                        ORDER BY version_no DESC
-                        LIMIT 1
-                        FOR UPDATE
-                        """,
+        Configuration configuration = one(
+                LOAD_LATEST_CONFIGURATION_SQL,
                 (rs, ignored) -> new Configuration(
                         rs.getLong("id"),
                         rs.getLong("version_no"),
@@ -395,15 +442,8 @@ public class StartCleanOperationService {
                 configuration.id()).orElseThrow(
                 StartCleanOperationService::configurationUnavailable);
 
-        Port port = one("""
-                        SELECT id, port_no
-                        FROM dev_port
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND port_no = ?
-                        FOR UPDATE
-                        """,
+        Port port = one(
+                LOAD_PORT_SQL,
                 (rs, ignored) -> new Port(
                         rs.getLong("id"),
                         rs.getInt("port_no")),
@@ -411,16 +451,8 @@ public class StartCleanOperationService {
                 organizationId,
                 deployment.id(),
                 portNo).orElseThrow(StartCleanOperationService::notFound);
-        PortConfiguration portConfiguration = one("""
-                        SELECT id, business_enabled, calibration_version
-                        FROM dev_port_config_snapshot
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND config_version_id = ?
-                          AND port_id = ?
-                        FOR UPDATE
-                        """,
+        PortConfiguration portConfiguration = one(
+                LOAD_PORT_CONFIGURATION_SQL,
                 (rs, ignored) -> new PortConfiguration(
                         rs.getLong("id"),
                         rs.getBoolean("business_enabled"),
@@ -501,28 +533,22 @@ public class StartCleanOperationService {
                 organizationId,
                 port.id());
 
-        CurrentBag oldBag = one("""
-                        SELECT occupancy.bag_id,
-                               bag.bag_uid,
-                               bag.bag_code
-                        FROM rec_bag_current_occupancy occupancy
-                        JOIN rec_bag bag
-                          ON bag.tenant_id = occupancy.tenant_id
-                         AND bag.organization_id = occupancy.organization_id
-                         AND bag.id = occupancy.bag_id
-                        WHERE occupancy.tenant_id = ?
-                          AND occupancy.organization_id = ?
-                          AND occupancy.port_id = ?
-                          AND occupancy.occupancy_type = 'PORT_BOUND'
-                        FOR UPDATE
-                        """,
+        Long oldBagId = one(
+                LOCK_CURRENT_BAG_OCCUPANCY_SQL,
+                (rs, ignored) -> rs.getLong("bag_id"),
+                tenantId,
+                organizationId,
+                port.id()).orElse(null);
+        CurrentBag oldBag = oldBagId == null ? null : one(
+                LOAD_CURRENT_BAG_SQL,
                 (rs, ignored) -> new CurrentBag(
-                        rs.getLong("bag_id"),
+                        rs.getLong("id"),
                         UUID.fromString(rs.getString("bag_uid")),
                         rs.getString("bag_code")),
                 tenantId,
                 organizationId,
-                port.id()).orElse(null);
+                oldBagId).orElseThrow(
+                StartCleanOperationService::cleaningUnavailable);
         Capacity capacity = one("""
                         SELECT baseline_state, current_baseline_id,
                                current_baseline_weight_g
@@ -742,13 +768,8 @@ public class StartCleanOperationService {
             long organizationId,
             String bagCode,
             LocalDateTime now) {
-        Optional<Bag> existing = one("""
-                        SELECT id, tenant_id, organization_id,
-                               bag_uid, bag_code
-                        FROM rec_bag
-                        WHERE bag_code = ?
-                        FOR UPDATE
-                        """,
+        Optional<Bag> existing = one(
+                LOAD_BAG_SQL,
                 (rs, ignored) -> new Bag(
                         rs.getLong("id"),
                         rs.getLong("tenant_id"),
@@ -1209,15 +1230,12 @@ public class StartCleanOperationService {
                 && "DEENERGIZED".equals(
                 portRuntime.cleanLockPowerState())
                 && "OK".equals(portRuntime.cleanSolenoidHealth())
-                && "OK".equals(portRuntime.weightSensorHealth())
-                && "STABLE".equals(
-                portRuntime.weightMeasurementStatus())
-                && Boolean.TRUE.equals(
-                portRuntime.weightValueAvailable())
-                && portRuntime.reportedWeightGrams() != null
-                && "STABLE_WINDOW_MEAN".equals(
-                portRuntime.weightValueKind())
-                && Objects.equals(
+                && DeviceRuntimeWeightPolicy.isStartEligible(
+                portRuntime.weightSensorHealth(),
+                portRuntime.weightMeasurementStatus(),
+                portRuntime.weightValueAvailable(),
+                portRuntime.reportedWeightGrams(),
+                portRuntime.weightValueKind(),
                 portRuntime.calibrationVersion(),
                 portConfiguration.calibrationVersion())
                 && "NORMAL".equals(portRuntime.smokeState())

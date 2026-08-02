@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 5
+    CatalogVersion = 7
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -93,6 +93,7 @@
         )
         iam_organization_user_capability = @(
             "enabled"
+            "granted_at"
             "revoked_at"
             "lock_version"
             "updated_at"
@@ -323,6 +324,10 @@
             "pre_unlock_weight_g"
             "pre_unlock_weight_fault_code"
             "status"
+            "edge_saved_confirmed"
+            "first_unlock_may_have_executed"
+            "clean_lock_deenergized_confirmed"
+            "cleaner_physical_close_confirmed"
             "edge_saved_at"
             "first_possible_unlock_at"
             "solenoid_powered_off_at"

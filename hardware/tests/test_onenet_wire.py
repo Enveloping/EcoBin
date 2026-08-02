@@ -84,6 +84,35 @@ def test_decode_confirm_edge_event_wire_example():
     ]
 
 
+def test_decode_confirmation_maps_all_result_reference_types():
+    expected_types = [
+        "DELIVERY_ORDER",
+        "CLEAN_RECORD",
+        "FULLNESS_DETECTION",
+        "BASELINE_MEASUREMENT",
+        "CONFIGURATION_APPLICATION",
+        "PHOTO_SLOT",
+        "DEVICE_FAULT",
+    ]
+    params = {
+        "scalarFields": {
+            "outcome": 1,
+            "effectKind": 1,
+        },
+        "resultReferences": [
+            {"type": code, "key": f"reference-{code}"}
+            for code in range(1, 8)
+        ],
+    }
+
+    command = decode_service_command("confirmEdgeEvent", params)
+
+    assert [
+        reference["type"]
+        for reference in command["payload"]["resultReferences"]
+    ] == expected_types
+
+
 def test_decode_required_photo_grant_without_presence_flag():
     path = (
         Path(__file__).resolve().parents[2]

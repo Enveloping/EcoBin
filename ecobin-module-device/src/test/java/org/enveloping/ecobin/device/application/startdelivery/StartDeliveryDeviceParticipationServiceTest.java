@@ -340,6 +340,25 @@ class StartDeliveryDeviceParticipationServiceTest {
     }
 
     @Test
+    void acceptsFixedFrameLastObservedWeight() {
+        stubHappyPath();
+        when(repository.lockPortRuntime(
+                TENANT_ID,
+                ORGANIZATION_ID,
+                DEPLOYMENT_ID,
+                PORT_ID)).thenReturn(Optional.of(
+                        portRuntime(
+                                "STABLE",
+                                true,
+                                "LAST_OBSERVED")));
+
+        service.start(command());
+
+        verify(repository).insertSession(any());
+        verify(repository).insertCommand(any());
+    }
+
+    @Test
     void rejectsASecondActiveSessionForTheSameUserFirst() {
         when(repository.lockActiveSessionIds(
                 TENANT_ID,
@@ -513,6 +532,17 @@ class StartDeliveryDeviceParticipationServiceTest {
             portRuntime(
                     String measurementStatus,
                     boolean valueAvailable) {
+        return portRuntime(
+                measurementStatus,
+                valueAvailable,
+                valueAvailable ? "STABLE_WINDOW_MEAN" : "NONE");
+    }
+
+    private static StartDeliveryDeviceRepository.PortRuntimeRow
+            portRuntime(
+                    String measurementStatus,
+                    boolean valueAvailable,
+                    String valueKind) {
         return new StartDeliveryDeviceRepository.PortRuntimeRow(
                 "UNKNOWN",
                 "DEENERGIZED",
@@ -521,7 +551,7 @@ class StartDeliveryDeviceParticipationServiceTest {
                 measurementStatus,
                 valueAvailable,
                 valueAvailable ? 13_250L : null,
-                valueAvailable ? "STABLE_WINDOW_MEAN" : "NONE",
+                valueKind,
                 4L,
                 "NORMAL",
                 "OK",

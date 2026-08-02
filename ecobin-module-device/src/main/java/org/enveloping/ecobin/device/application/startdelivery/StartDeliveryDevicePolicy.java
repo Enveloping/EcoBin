@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.application.startdelivery;
 
+import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 
 import java.security.MessageDigest;
@@ -188,18 +189,14 @@ final class StartDeliveryDevicePolicy {
             throw safetyLocked(
                     "当前投口的香橙派可信快照显示存在物理安全阻断");
         }
-        boolean weightReady =
-                "OK".equals(port.weightSensorHealth())
-                        && "STABLE".equals(
-                                port.weightMeasurementStatus())
-                        && Boolean.TRUE.equals(
-                                port.weightValueAvailable())
-                        && port.reportedWeightGrams() != null
-                        && "STABLE_WINDOW_MEAN".equals(
-                                port.weightValueKind())
-                        && Objects.equals(
-                                port.calibrationVersion(),
-                                configuration.calibrationVersion());
+        boolean weightReady = DeviceRuntimeWeightPolicy.isStartEligible(
+                port.weightSensorHealth(),
+                port.weightMeasurementStatus(),
+                port.weightValueAvailable(),
+                port.reportedWeightGrams(),
+                port.weightValueKind(),
+                port.calibrationVersion(),
+                configuration.calibrationVersion());
         if (!weightReady) {
             throw portUnavailable(
                     "当前投口没有可用于开始前校验的可信稳定称重事实");

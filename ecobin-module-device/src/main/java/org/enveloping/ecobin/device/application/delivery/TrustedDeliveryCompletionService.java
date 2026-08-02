@@ -724,15 +724,25 @@ public class TrustedDeliveryCompletionService
     private static void requireMeasurementMatchesFrozenPort(
             DeliveryCompleteMeasurement measurement,
             PortConfiguration port) {
-        long weight = measurement.reportedWeightGrams();
-        if (measurement.calibrationVersion()
-                != port.calibrationVersion()
-                || measurement.sampleCount()
-                < port.weightRequiredSampleCount()
-                || weight < port.weightMinimumGrams()
-                || weight > port.weightMaximumGrams()) {
+        if (!measurementMatchesFrozenPort(
+                measurement,
+                port.calibrationVersion(),
+                port.weightMinimumGrams(),
+                port.weightMaximumGrams())) {
             throw untrusted();
         }
+    }
+
+    static boolean measurementMatchesFrozenPort(
+            DeliveryCompleteMeasurement measurement,
+            long calibrationVersion,
+            long minimumWeightGrams,
+            long maximumWeightGrams) {
+        long weight = measurement.reportedWeightGrams();
+        return measurement.calibrationVersion() == calibrationVersion
+                && measurement.sampleCount() >= 1
+                && weight >= minimumWeightGrams
+                && weight <= maximumWeightGrams;
     }
 
     private long insertEdgeEvent(

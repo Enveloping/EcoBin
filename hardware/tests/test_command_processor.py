@@ -1005,6 +1005,14 @@ def test_compat_dd_completes_delivery_and_caches_raw_fullness(tmp_path):
     encode_event_post("DELIVERY_COMPLETE", delivery_events[0])
     assert payload["deliveryNetWeightGrams"] == 2_500
     assert payload["negativeWeightAnomaly"] is False
+    assert (
+        payload["firstPreOpenMeasurement"]["mcuEventSequence"]
+        == 1
+    )
+    assert (
+        payload["finalPostCloseMeasurement"]["mcuEventSequence"]
+        == 2
+    )
     assert payload["unitPriceTenThousandths"] == (
         command["payload"]["unitPriceTenThousandths"]
     )
@@ -1104,6 +1112,16 @@ def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     encode_event_post("CLEAN_COMPLETE", clean_events[0])
     assert payload["removedNetWeightGrams"] == 48_500
     assert payload["newBaselineWeightGrams"] == 2_000
+    assert (
+        payload["preUnlockMeasurement"]["mcuEventSequence"]
+        == 3
+    )
+    assert (
+        payload["cleanerConfirmedFinalMeasurement"][
+            "mcuEventSequence"
+        ]
+        == 4
+    )
     confirmation = payload["cleanLockAndManualDoorConfirmation"]
     assert confirmation["lockPowerState"] == "DEENERGIZED"
     assert confirmation["solenoidHealth"] == "UNKNOWN"
@@ -1208,6 +1226,7 @@ def test_compat_fullness_uses_latest_dd_observation_without_uart(tmp_path):
     assert payload["totalWeightMeasurement"]["reportedWeightGrams"] == (
         21_000
     )
+    assert payload["totalWeightMeasurement"]["mcuEventSequence"] == 3
     assert uart.calls == []
     store.close()
 

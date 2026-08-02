@@ -1,7 +1,9 @@
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
+import edge_boot as edge_boot_module
 from edge_boot import (
     _publish_runtime_snapshot,
     boot_sequence,
@@ -14,6 +16,63 @@ from onenet_wire import (
     encode_event_post,
 )
 from uart_link import compute_mcu_payload_sha256
+
+
+def test_clock_state_treats_systemd_sync_marker_as_authoritative(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        edge_boot_module.os.path,
+        "isfile",
+        lambda path: True,
+    )
+    monkeypatch.setattr(
+        edge_boot_module.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("timedatectl must not run when marker exists")
+        ),
+    )
+
+    assert edge_boot_module._clock_state() == "SYNCED"
+
+
+def test_clock_state_accepts_timedatectl_sync_for_chrony(monkeypatch):
+    monkeypatch.setattr(
+        edge_boot_module.os.path,
+        "isfile",
+        lambda path: False,
+    )
+    monkeypatch.setattr(edge_boot_module.os, "name", "posix")
+    monkeypatch.setattr(
+        edge_boot_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="yes\n",
+        ),
+    )
+
+    assert edge_boot_module._clock_state() == "SYNCED"
+
+
+def test_clock_state_remains_estimated_without_sync_evidence(monkeypatch):
+    monkeypatch.setattr(
+        edge_boot_module.os.path,
+        "isfile",
+        lambda path: False,
+    )
+    monkeypatch.setattr(edge_boot_module.os, "name", "posix")
+    monkeypatch.setattr(
+        edge_boot_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="no\n",
+        ),
+    )
+
+    assert edge_boot_module._clock_state() == "ESTIMATED"
 
 
 class FakeMqttClient:
@@ -303,6 +362,25 @@ def test_publish_runtime_snapshot_uses_valid_edge_boot_id_and_event_uid(tmp_path
     assert payload["payload"]["edgeBootId"] == 123
     assert payload["payload"]["mcuBootId"] == 456
     assert "lastDeliveryDoorActualOutputMs" not in payload["payload"]["ports"][0]
+
+
+def test_fixed_frame_runtime_marks_cleaner_confirmation_basis(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_state(
+        "port_1_clean_runtime_context_json",
+        json.dumps({"cleaner_physical_close_confirmed": True}),
+    )
+
+    port = edge_boot_module._fixed_frame_runtime_ports(
+        store,
+        None,
+        [],
+    )[0]
+
+    assert port["cleanerPhysicalCloseConfirmed"] is True
+    assert port["cleanDoorStateBasis"] == "CLEANER_CONFIRMATION"
+    store.close()
 
 
 def test_non_uart_fault_does_not_misreport_uart_link_as_faulted(tmp_path):
