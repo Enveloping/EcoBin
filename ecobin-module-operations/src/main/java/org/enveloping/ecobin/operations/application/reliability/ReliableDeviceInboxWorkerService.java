@@ -13,6 +13,7 @@ import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResul
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyCleanCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyFullnessSampleCompleteUseCase;
+import org.enveloping.ecobin.recycling.api.port.ApplyFullnessStateChangedUseCase;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -29,6 +30,7 @@ public class ReliableDeviceInboxWorkerService
     private final ApplyDeliveryCompleteUseCase deliveryComplete;
     private final ApplyCleanCompleteUseCase cleanComplete;
     private final ApplyFullnessSampleCompleteUseCase fullnessComplete;
+    private final ApplyFullnessStateChangedUseCase fullnessStateChanged;
 
     public ReliableDeviceInboxWorkerService(
             ReliableInboxTaskRunner runner,
@@ -40,7 +42,8 @@ public class ReliableDeviceInboxWorkerService
             CanonicalJson canonicalJson,
             ApplyDeliveryCompleteUseCase deliveryComplete,
             ApplyCleanCompleteUseCase cleanComplete,
-            ApplyFullnessSampleCompleteUseCase fullnessComplete) {
+            ApplyFullnessSampleCompleteUseCase fullnessComplete,
+            ApplyFullnessStateChangedUseCase fullnessStateChanged) {
         this.runner = runner;
         this.platformInboxRefFactory = platformInboxRefFactory;
         this.inboxRefFactory = inboxRefFactory;
@@ -51,6 +54,7 @@ public class ReliableDeviceInboxWorkerService
         this.deliveryComplete = deliveryComplete;
         this.cleanComplete = cleanComplete;
         this.fullnessComplete = fullnessComplete;
+        this.fullnessStateChanged = fullnessStateChanged;
     }
 
     @Override
@@ -102,6 +106,8 @@ public class ReliableDeviceInboxWorkerService
                                         cleanComplete.apply(event);
                                 case "FULLNESS_SAMPLE_COMPLETE" ->
                                         fullnessComplete.apply(event);
+                                case "FULLNESS_STATE_CHANGED" ->
+                                        fullnessStateChanged.apply(event);
                                 default ->
                                         deviceEventPort.apply(event);
                             };

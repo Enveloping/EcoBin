@@ -1656,6 +1656,176 @@
       ],
       "schemaRef": "events/events.schema.json#/$defs/fullnessSampleCompleteEvent"
     },
+    "fullnessStateChanged": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "FULLNESS_STATE_CHANGED",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deploymentCode",
+          "nullable": false,
+          "wireIdentifier": "deploymentCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": true,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.stateChangeUid",
+          "nullable": false,
+          "wireIdentifier": "stateChangeUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.portNo",
+          "nullable": false,
+          "wireIdentifier": "portNo"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.bagUid",
+          "nullable": false,
+          "wireIdentifier": "bagUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.state",
+          "nullable": false,
+          "wireIdentifier": "state"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sourceWorkType",
+          "nullable": false,
+          "wireIdentifier": "sourceWorkType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sourceWorkUid",
+          "nullable": false,
+          "wireIdentifier": "sourceWorkUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessMode",
+          "nullable": false,
+          "wireIdentifier": "fullnessMode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessSensorKind",
+          "nullable": false,
+          "wireIdentifier": "fullnessSensorKind"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessSensorValue",
+          "nullable": false,
+          "wireIdentifier": "fullnessSensorValue"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.confirmationBasis",
+          "nullable": false,
+          "wireIdentifier": "confirmationBasis"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.totalWeightMeasurement",
+          "nullable": false,
+          "wireIdentifier": "totalWeightMeasurement"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.baselineWeightGrams",
+          "nullable": true,
+          "wireIdentifier": "baselineWeightGrams"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.configuredFullWeightGrams",
+          "nullable": false,
+          "wireIdentifier": "configuredFullWeightGrams"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.fullnessPercentHundredths",
+          "nullable": true,
+          "wireIdentifier": "fullnessPercentHundredths"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.weightFull",
+          "nullable": true,
+          "wireIdentifier": "weightFull"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.frozenConfig",
+          "nullable": false,
+          "wireIdentifier": "frozenConfig"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/fullnessStateChangedEvent"
+    },
     "measureEmptyBagBaseline": {
       "commandType": "MEASURE_EMPTY_BAG_BASELINE",
       "inputMappings": [

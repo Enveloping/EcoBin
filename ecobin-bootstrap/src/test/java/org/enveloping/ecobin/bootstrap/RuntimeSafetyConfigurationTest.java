@@ -40,7 +40,8 @@ class RuntimeSafetyConfigurationTest {
             "V21__clean_normal_flow_facts.sql",
             "V22__device_tenant_allocation.sql",
             "V23__device_acceptance_reclaim_credentials.sql",
-            "V24__device_transport_presence_and_dispatch_gates.sql"
+            "V24__device_transport_presence_and_dispatch_gates.sql",
+            "V25__edge_reported_current_bag_fullness.sql"
     };
 
     @Test

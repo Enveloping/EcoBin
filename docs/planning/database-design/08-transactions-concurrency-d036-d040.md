@@ -1,5 +1,8 @@
 # EcoBin P0 目标数据库设计：事务、锁序与并发验收（D-036～D-040）
 
+> [!IMPORTANT]
+> 2026-08-02：投递/清运完成事务不再共同创建满溢检测 gate。满溢状态变化作为后续独立可靠事件应用，并通过当前袋与单调事件序号防止旧袋、乱序覆盖；详见 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md)。
+
 > 总索引：[database-design-draft.md](../database-design-draft.md)
 >
 > 状态：**D-036～D-040 已确认**

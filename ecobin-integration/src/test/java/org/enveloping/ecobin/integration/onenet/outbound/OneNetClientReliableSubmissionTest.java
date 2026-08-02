@@ -221,6 +221,50 @@ class OneNetClientReliableSubmissionTest {
     }
 
     @Test
+    void projectsPortFullnessStateConfirmationReference()
+            throws Exception {
+        ObjectNode envelope = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "confirm-edge-event.command.json")));
+        ((ObjectNode) envelope.path("payload")
+                .path("resultReferences").get(0))
+                .put("type", "PORT_FULLNESS_STATE")
+                .put("key", "8498e540-3ba6-43ce-b00f-1cef766de064");
+        UUID commandUid = UUID.fromString(
+                "60000000-0000-4000-8000-000000000002");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        objectMapper.writeValueAsString(envelope),
+                        commandUid,
+                        "CONFIRM_EDGE_EVENT"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        assertEquals(
+                8,
+                actual.path("params")
+                        .path("resultReferences")
+                        .get(0)
+                        .path("type")
+                        .asInt());
+    }
+
+    @Test
     void exposesSanitizedOneNetBusinessErrorCode() throws Exception {
         String envelope = Files.readString(contractPath(
                 "contracts/examples/onenet/"

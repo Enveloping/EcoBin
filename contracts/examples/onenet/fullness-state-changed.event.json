@@ -1,0 +1,51 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": null,
+  "deliveryClass": "RELIABLE_FACT",
+  "deploymentCode": "Dp_demo_01",
+  "edgeEventSequence": 1045,
+  "eventType": "FULLNESS_STATE_CHANGED",
+  "eventUid": "51000000-0000-4000-8000-000000000002",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "bagUid": "30000000-0000-4000-8000-000000000002",
+    "baselineWeightGrams": 1200,
+    "configuredFullWeightGrams": 50000,
+    "confirmationBasis": "FIXED_FRAME_CACHED_FINAL_OBSERVATION",
+    "frozenConfig": {
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version": 8
+    },
+    "fullnessMode": "SENSOR_OR_WEIGHT",
+    "fullnessPercentHundredths": 10000,
+    "fullnessSensorKind": "DIGITAL_INFRARED",
+    "fullnessSensorValue": "BLOCKED",
+    "portNo": 2,
+    "sourceWorkType": "DELIVERY_SESSION",
+    "sourceWorkUid": "30000000-0000-4000-8000-000000000001",
+    "state": "FULL",
+    "stateChangeUid": "51000000-0000-4000-8000-000000000001",
+    "totalWeightMeasurement": {
+      "calibrationVersion": 4,
+      "faultCode": null,
+      "mcuBootId": 101,
+      "mcuEventSequence": 46,
+      "measurementElapsedMs": 1200,
+      "measurementUid": "51000000-0000-4000-8000-000000000003",
+      "reportedWeightGrams": 51200,
+      "sampleCount": 12,
+      "sensorHealth": "OK",
+      "status": "STABLE",
+      "weightValueAvailable": true,
+      "weightValueKind": "STABLE_WINDOW_MEAN"
+    },
+    "weightFull": true
+  },
+  "payloadSha256": "71bc3cf128131c8c8d899c3ac1f22d039520692eb672aeb8d086f77dee8dacea",
+  "schemaVersion": 1,
+  "target": {
+    "type": "PORT_FULLNESS_STATE",
+    "uid": "51000000-0000-4000-8000-000000000001"
+  }
+}

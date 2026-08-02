@@ -1,5 +1,8 @@
 # EcoBin P0 详细设计与任务拆分总索引
 
+> [!IMPORTANT]
+> 2026-08-02：满溢准入的现行详细设计为设备被动上报当前袋状态，见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)；旧章节中的后端主动检测 gate 与失败阻断不再适用。
+
 > 状态：**详细设计已批准；H-01、H-02、F-01～F-11、V-01、V-02 已完成；H-03、V-09 已 ready 但仍须单独授权；V-02 设备来源问题由非阻塞 P0-FOLLOWUP-01 延期跟踪**
 >
 > 启动日期：2026-07-23

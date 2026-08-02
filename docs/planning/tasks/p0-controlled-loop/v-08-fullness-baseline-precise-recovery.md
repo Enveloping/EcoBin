@@ -10,7 +10,7 @@ earliest_start:
   integration: "V-04、V-07 integration 完成，真实红外、称重、门状态和故障注入可用"
   acceptance: "V-04、V-07 均 done，integration 完成并可取得传感器与恢复真机证据"
 phase_progress:
-  software: not-started
+  software: in-progress
   integration: not-started
   acceptance: not-started
 blocked_by:
@@ -20,6 +20,8 @@ implementation_authorized: false
 ---
 
 # V-08｜满溢、基准和精确安全恢复
+
+> 2026-08-02 裁决：正常投递准入已经改为设备状态变化被动上报，只有当前袋明确 `FULL` 才阻止下一次投递。后端主动检测、过期 `SAMPLE_FULLNESS` 重新签发和人工重检不再是完成本任务的前置条件；详见 [`../../../architecture/fullness-reporting-v25.md`](../../../architecture/fullness-reporting-v25.md)。本任务仍因真实传感器、基准重测、精确安全恢复和真机验收等剩余范围保持 `blocked`，不能据此宣称 V-08 整体完成。
 
 ## 目标
 
@@ -84,3 +86,4 @@ V-04、V-07 是任务整体完成门。软件计算或 Stub 结果不能替代�
 
 - 2026-07-23：发布任务文件；仅完成设计与任务拆分，尚未授权实施。
 - 2026-07-24：同步满溢仅在整场投递结束后判断并影响下一 session；依赖及授权状态不变。
+- 2026-08-02：软件侧已实施 V25 当前袋状态变化上报、后端被动接收、旧袋/乱序防护以及查询/启动统一 `FULL` 准入；V25 迁移停用旧主动检测任务。取消“过期命令重新签发/人工重检恢复”阻塞项，V-08 其余真机与精确恢复范围仍未完成。

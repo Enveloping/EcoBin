@@ -2,7 +2,7 @@
   "identifier": "deviceCommandObserved",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "104",
+    "id": "105",
     "params": {
       "deviceCommandObserved": {
         "value": {

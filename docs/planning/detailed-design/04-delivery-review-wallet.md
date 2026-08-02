@@ -1,5 +1,8 @@
 # 04｜投递、审核纠错与钱包入账纵向闭环
 
+> [!IMPORTANT]
+> 2026-08-02：投递完成事务已取消后端满溢检测 gate/采样任务。订单照常提交，设备后续独立上报当前袋状态；只有明确 `FULL` 影响下一场投递。下方相反描述由 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md) 覆盖。
+
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
 > 状态：**已批准；已按 2026-07-24 会话级结算决策修订；尚未授权实施**

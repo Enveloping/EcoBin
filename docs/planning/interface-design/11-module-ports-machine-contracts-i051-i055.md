@@ -1,5 +1,8 @@
 # EcoBin P0 目标接口设计：模块公开端口、机器契约与首版治理（I-051～I-055）
 
+> [!IMPORTANT]
+> 2026-08-02：`DELIVERY_COMPLETE` 事务不再创建投递后满溢检测；订单提交与当前会话结束不等待满溢结果。之后独立到达的 `FULLNESS_STATE_CHANGED` 只在属于当前袋且为 `FULL` 时阻止下一场投递。详见 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md)。
+
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
 > 状态：**I-051～I-055 已确认；I-051/I-053 已按 DD-004 补充两个严格受限的同事务例外；2026-07-24 已把 PDD-001 收口为仅开始投递复合事务；I-055 采用分阶段治理**

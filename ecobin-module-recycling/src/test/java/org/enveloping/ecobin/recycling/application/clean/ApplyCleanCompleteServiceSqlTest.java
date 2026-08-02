@@ -3,7 +3,6 @@ package org.enveloping.ecobin.recycling.application.clean;
 import org.junit.jupiter.api.Test;
 
 import java.util.Locale;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -65,15 +64,10 @@ class ApplyCleanCompleteServiceSqlTest {
     @Test
     void cleanConfirmationUsesOnlyWireContractReferenceTypes() {
         var references = ApplyCleanCompleteService
-                .cleanCompletionResultReferences(
-                        "CR-test",
-                        UUID.fromString(
-                                "10000000-0000-4000-8000-000000000001"));
+                .cleanCompletionResultReferences("CR-test");
 
         assertThat(references)
                 .extracting(reference -> reference.type())
-                .containsExactly(
-                        "CLEAN_RECORD",
-                        "FULLNESS_DETECTION");
+                .containsExactly("CLEAN_RECORD");
     }
 }

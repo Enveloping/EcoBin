@@ -1,5 +1,8 @@
 # EcoBin P0 目标接口设计基线
 
+> [!IMPORTANT]
+> 2026-08-02：满溢接口由 V25 更新为设备状态变化被动入站；只有当前袋明确 `FULL` 阻止下一次投递，旧主动检测/人工重检前置要求不再生效。详见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)。
+
 > 状态：**接口设计基线已完成；I-001～I-055 均已确认；2026-07-24 已按最新投递/清运硬件边界修订；2026-07-27 已记录固定帧 MCU 显式适配配置；2026-08-01 已取消清运审核并确认记录可直接修改**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)、[`database-design-draft.md`](database-design-draft.md)

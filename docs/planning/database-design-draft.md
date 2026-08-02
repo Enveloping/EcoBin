@@ -1,5 +1,8 @@
 # EcoBin P0 目标数据库设计草案
 
+> [!IMPORTANT]
+> 2026-08-02：容量数据模型已由 V25 增量更新为设备上报当前袋 `FULL/NOT_FULL`，旧主动检测表仅保留历史兼容。现行模型见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md) 和 V25 迁移。
+
 > 状态：**数据库设计基线已确认，D-001～D-045 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 7
+    CatalogVersion = 8
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -396,6 +396,11 @@
             "confirmed_fullness_state"
             "last_detection_id"
             "current_fullness_event_id"
+            "current_bag_id"
+            "current_fullness_state_change_id"
+            "last_fullness_edge_event_id"
+            "last_fullness_edge_event_sequence"
+            "last_fullness_reported_at"
             "lock_version"
             "updated_at"
         )

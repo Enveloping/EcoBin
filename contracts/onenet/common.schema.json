@@ -159,6 +159,7 @@
             "DELIVERY_SESSION",
             "CLEAN_OPERATION",
             "FULLNESS_DETECTION",
+            "PORT_FULLNESS_STATE",
             "BASELINE_MEASUREMENT",
             "DEVICE_DEPLOYMENT",
             "EDGE_EVENT",
@@ -637,7 +638,8 @@
             "BASELINE_MEASUREMENT",
             "CONFIGURATION_APPLICATION",
             "PHOTO_SLOT",
-            "DEVICE_FAULT"
+            "DEVICE_FAULT",
+            "PORT_FULLNESS_STATE"
           ]
         },
         "key": {

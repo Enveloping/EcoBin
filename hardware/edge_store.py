@@ -25,7 +25,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -112,6 +112,10 @@ class EdgeStore:
         if current < 7:
             self._migrate_v7()
             conn.execute("INSERT INTO schema_version (version) VALUES (7)")
+            current = 7
+        if current < 8:
+            self._migrate_v8()
+            conn.execute("INSERT INTO schema_version (version) VALUES (8)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -583,6 +587,19 @@ class EdgeStore:
                     "ALTER TABLE event_outbox "
                     f"ADD COLUMN {name} {declaration}"
                 )
+
+    def _migrate_v8(self) -> None:
+        """Persist the current-bag fullness state owned by the edge."""
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS port_fullness_state (
+                port_no INTEGER NOT NULL PRIMARY KEY,
+                bag_uid TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('FULL', 'NOT_FULL')),
+                last_state_change_uid TEXT,
+                last_event_uid TEXT,
+                updated_at TEXT NOT NULL
+            )"""
+        )
 
     def _backfill_photo_metadata(self, conn) -> None:
         delivery_slots = {
@@ -2856,6 +2873,7 @@ class EdgeStore:
         deployment_code: str,
         target_type: str,
         bag_baseline: Optional[dict] = None,
+        fullness_transition: Optional[dict] = None,
     ) -> str:
         """Atomically finish a DD/EF work item and release the single slot."""
         with self.transaction():
@@ -2919,6 +2937,11 @@ class EdgeStore:
                 self._upsert_bag_baseline_in_tx(
                     self._conn,
                     bag_baseline,
+                )
+            if fullness_transition is not None:
+                self._apply_fullness_transition_in_tx(
+                    self._conn,
+                    fullness_transition,
                 )
             self._conn.execute(
                 """UPDATE work_slot
@@ -2984,6 +3007,103 @@ class EdgeStore:
                 (bag_uid,),
             ).fetchone()
         return dict(row) if row else None
+
+    def get_port_fullness_state(
+        self,
+        port_no: int,
+        bag_uid: str,
+    ) -> str:
+        """Absence of a FULL fact is the deliberate NOT_FULL default."""
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT bag_uid, state
+                   FROM port_fullness_state
+                   WHERE port_no=?""",
+                (port_no,),
+            ).fetchone()
+        if row is None or row["bag_uid"] != bag_uid:
+            return "NOT_FULL"
+        return row["state"]
+
+    def _apply_fullness_transition_in_tx(
+        self,
+        conn,
+        transition: dict,
+    ) -> bool:
+        port_no = transition["port_no"]
+        bag_uid = transition["bag_uid"]
+        desired_state = transition["state"]
+        current = conn.execute(
+            """SELECT bag_uid, state
+               FROM port_fullness_state
+               WHERE port_no=?""",
+            (port_no,),
+        ).fetchone()
+        current_state = (
+            current["state"]
+            if current is not None and current["bag_uid"] == bag_uid
+            else "NOT_FULL"
+        )
+        now = self._now()
+        if current_state == desired_state:
+            conn.execute(
+                """INSERT INTO port_fullness_state
+                   (port_no, bag_uid, state, last_state_change_uid,
+                    last_event_uid, updated_at)
+                   VALUES (?, ?, ?, NULL, NULL, ?)
+                   ON CONFLICT(port_no) DO UPDATE SET
+                     bag_uid=excluded.bag_uid,
+                     state=excluded.state,
+                     last_state_change_uid=CASE
+                       WHEN port_fullness_state.bag_uid=excluded.bag_uid
+                       THEN port_fullness_state.last_state_change_uid
+                       ELSE NULL END,
+                     last_event_uid=CASE
+                       WHEN port_fullness_state.bag_uid=excluded.bag_uid
+                       THEN port_fullness_state.last_event_uid
+                       ELSE NULL END,
+                     updated_at=excluded.updated_at""",
+                (port_no, bag_uid, desired_state, now),
+            )
+            return False
+
+        sequence = self._next_seq(conn)
+        envelope = build_event_envelope(
+            event_uid=transition["event_uid"],
+            deployment_code=transition["deployment_code"],
+            edge_event_sequence=sequence,
+            event_type="FULLNESS_STATE_CHANGED",
+            target_type="PORT_FULLNESS_STATE",
+            target_uid=transition["state_change_uid"],
+            command_uid=None,
+            payload=transition["payload"],
+        )
+        self._insert_event(
+            conn,
+            envelope,
+            "FULLNESS_STATE_CHANGED",
+        )
+        conn.execute(
+            """INSERT INTO port_fullness_state
+               (port_no, bag_uid, state, last_state_change_uid,
+                last_event_uid, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(port_no) DO UPDATE SET
+                 bag_uid=excluded.bag_uid,
+                 state=excluded.state,
+                 last_state_change_uid=excluded.last_state_change_uid,
+                 last_event_uid=excluded.last_event_uid,
+                 updated_at=excluded.updated_at""",
+            (
+                port_no,
+                bag_uid,
+                desired_state,
+                transition["state_change_uid"],
+                transition["event_uid"],
+                now,
+            ),
+        )
+        return True
 
     @staticmethod
     def _upsert_bag_baseline_in_tx(conn, baseline: dict) -> None:
@@ -3383,7 +3503,8 @@ class EdgeStore:
                           target_type: Optional[str] = None,
                           target_uid: Optional[str] = None,
                           command_uid: Optional[str] = None,
-                          delivery_class: str = "RELIABLE_FACT") -> str:
+                          delivery_class: str = "RELIABLE_FACT",
+                          fullness_transition: Optional[dict] = None) -> str:
         with self.transaction():
             conn = self._conn
             existing = conn.execute(
@@ -3415,6 +3536,11 @@ class EdgeStore:
                     work_uid,
                 ),
             )
+            if fullness_transition is not None:
+                self._apply_fullness_transition_in_tx(
+                    conn,
+                    fullness_transition,
+                )
             if work_state_update and work_uid:
                 ctx = work_state_update.get("context", {})
                 conn.execute(

@@ -1,8 +1,6 @@
 package org.enveloping.ecobin.recycling.application.delivery;
 
 import org.enveloping.ecobin.device.api.port.CompleteDeliveryDeviceParticipationPort;
-import org.enveloping.ecobin.device.api.command.ScheduleFullnessSampleCommand;
-import org.enveloping.ecobin.device.api.port.ScheduleFullnessSampleDevicePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompleteMeasurement;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletePhoto;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletePhysicalFact;
@@ -14,7 +12,6 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.enveloping.ecobin.recycling.application.photo.RecyclingPhotoStatusService;
-import org.enveloping.ecobin.recycling.infrastructure.fullness.TransactionBoundFullnessDetectionCommandRef;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -26,7 +23,6 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -39,11 +35,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Builds the single pending recycling order and the next-delivery fullness
- * gate from a trusted, stable delivery result.
- *
- * <p>The normal delivery slice schedules the initial fullness sample. Device
- * command retries and physical recovery remain outside this use case.</p>
+ * Builds the single pending recycling order from a trusted, stable delivery
+ * result. Fullness is evaluated by the edge and arrives independently as a
+ * state-change fact; this use case never creates or polls a sample command.
  */
 @Service
 public class ApplyDeliveryCompleteService
@@ -80,19 +74,16 @@ public class ApplyDeliveryCompleteService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final RecyclingPhotoStatusService photoStatusService;
-    private final ScheduleFullnessSampleDevicePort fullnessSamples;
 
     public ApplyDeliveryCompleteService(
             CompleteDeliveryDeviceParticipationPort deviceCompletion,
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            RecyclingPhotoStatusService photoStatusService,
-            ScheduleFullnessSampleDevicePort fullnessSamples) {
+            RecyclingPhotoStatusService photoStatusService) {
         this.deviceCompletion = deviceCompletion;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.photoStatusService = photoStatusService;
-        this.fullnessSamples = fullnessSamples;
     }
 
     @Override
@@ -127,56 +118,13 @@ public class ApplyDeliveryCompleteService
         insertPhotos(facts, orderId);
         photoStatusService.mergeStagedDeliveryFacts(
                 facts, orderId);
-        DetectionResult detection = createPendingDetection(
-                facts,
-                orderId,
-                capacity);
-        scheduleInitialSample(
-                facts,
-                capacity,
-                detection);
+        projectCapacityObservation(facts, capacity);
 
         return new DeliveryCompletionBusinessResult(
                 orderNo,
-                List.of(
-                        new DeliveryCompletionResultReference(
-                                "DELIVERY_ORDER",
-                                orderNo),
-                        new DeliveryCompletionResultReference(
-                                "FULLNESS_DETECTION",
-                                detection.uid().toString())));
-    }
-
-    private void scheduleInitialSample(
-            DeliveryCompletionPersistenceFacts facts,
-            CapacityState capacity,
-            DetectionResult detection) {
-        fullnessSamples.schedule(
-                new ScheduleFullnessSampleCommand(
-                        TransactionBoundFullnessDetectionCommandRef.issue(
-                                facts.tenantId(),
-                                facts.organizationId(),
-                                facts.deploymentId(),
-                                facts.portId(),
-                                detection.id(),
-                                facts.deviceConfigVersionId(),
-                                facts.portConfigSnapshotId()),
-                        detection.uid(),
-                        facts.physicalFact().portNo(),
-                        "INITIAL",
-                        "DELIVERY_COMPLETE",
-                        facts.fullnessMode(),
-                        capacity.baselineWeightGrams(),
-                        facts.configuredFullWeightGrams(),
-                        facts.fullnessSettleWaitMs(),
-                        facts.fullnessMeasurementTimeoutMs(),
-                        facts.physicalFact().configurationVersion(),
-                        facts.physicalFact()
-                                .configurationContentSha256(),
-                        facts.physicalFact()
-                                .configurationMcuPayloadSha256(),
-                        facts.physicalFact().sessionUid(),
-                        facts.physicalFact().eventUid()));
+                List.of(new DeliveryCompletionResultReference(
+                        "DELIVERY_ORDER",
+                        orderNo)));
     }
 
     private DeliveryConfiguration requireFrozenDeliveryConfiguration(
@@ -271,23 +219,6 @@ public class ApplyDeliveryCompleteService
                     "delivery capacity state is missing");
         }
         CapacityState capacity = rows.getFirst();
-        if (!"READY".equals(capacity.detectionGate())
-                || capacity.currentDetectionId() != null
-                || capacity.ruleFingerprint() == null
-                || !"NOT_FULL".equals(
-                        capacity.confirmedFullnessState())) {
-            throw untrusted(
-                    "delivery capacity generation has changed");
-        }
-        boolean weightParticipates =
-                !"INFRARED_ONLY".equals(facts.fullnessMode());
-        if (weightParticipates
-                && (!"VALID".equals(capacity.baselineState())
-                || capacity.baselineId() == null
-                || capacity.baselineWeightGrams() == null)) {
-            throw untrusted(
-                    "delivery weight baseline has changed");
-        }
         return capacity;
     }
 
@@ -590,121 +521,9 @@ public class ApplyDeliveryCompleteService
         }
     }
 
-    private DetectionResult createPendingDetection(
+    private void projectCapacityObservation(
             DeliveryCompletionPersistenceFacts facts,
-            long orderId,
             CapacityState capacity) {
-        String baselineSnapshot =
-                switch (capacity.baselineState()) {
-                    case "VALID" -> "VALID";
-                    case "INVALID" -> "INVALID";
-                    case "UNINITIALIZED" -> "MISSING";
-                    default -> throw untrusted(
-                            "unknown delivery baseline state");
-                };
-        UUID detectionUid = UUID.randomUUID();
-        LocalDateTime nextSampleAt =
-                facts.backendReceivedAt().plus(
-                        Duration.ofMillis(
-                                facts.fullnessSettleWaitMs()));
-        requireSingle(jdbc.update("""
-                        INSERT INTO rec_fullness_detection (
-                            detection_uid,
-                            tenant_id, organization_id,
-                            deployment_id, port_id,
-                            trigger_type,
-                            delivery_order_id, clean_record_id,
-                            initiator_kind,
-                            platform_admin_id, staff_account_id,
-                            bag_id,
-                            baseline_state_snapshot,
-                            baseline_id_snapshot,
-                            baseline_weight_g_snapshot,
-                            device_config_version_id,
-                            port_config_snapshot_id,
-                            rule_fingerprint,
-                            decision_mode,
-                            configured_full_weight_g,
-                            settle_wait_ms,
-                            confirmation_wait_ms,
-                            measurement_timeout_ms,
-                            calculation_basis,
-                            status, final_result, failure_code,
-                            disposition,
-                            initial_sample_id,
-                            initial_sample_conclusion,
-                            terminal_sample_id,
-                            terminal_sample_conclusion,
-                            next_sample_at, completed_at,
-                            lock_version,
-                            created_at, updated_at
-                        ) VALUES (
-                            ?,
-                            ?, ?,
-                            ?, ?,
-                            'DELIVERY_COMPLETE',
-                            ?, NULL,
-                            NULL,
-                            NULL, NULL,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            ?,
-                            'FIXED_FRAME_TOTAL_WEIGHT',
-                            'PENDING_INITIAL_SAMPLE',
-                            NULL, NULL,
-                            'PENDING',
-                            NULL,
-                            NULL,
-                            NULL,
-                            NULL,
-                            ?, NULL,
-                            0,
-                            ?, ?
-                        )
-                        """,
-                detectionUid.toString(),
-                facts.tenantId(),
-                facts.organizationId(),
-                facts.deploymentId(),
-                facts.portId(),
-                orderId,
-                facts.bagId(),
-                baselineSnapshot,
-                capacity.baselineId(),
-                capacity.baselineWeightGrams(),
-                facts.deviceConfigVersionId(),
-                facts.portConfigSnapshotId(),
-                capacity.ruleFingerprint(),
-                facts.fullnessMode(),
-                facts.configuredFullWeightGrams(),
-                facts.fullnessSettleWaitMs(),
-                facts.fullnessConfirmationWaitMs(),
-                facts.fullnessMeasurementTimeoutMs(),
-                nextSampleAt,
-                facts.backendReceivedAt(),
-                facts.backendReceivedAt()),
-                "insert pending delivery fullness detection");
-        Long detectionId = jdbc.queryForObject("""
-                        SELECT id
-                        FROM rec_fullness_detection
-                        WHERE detection_uid = ?
-                        """,
-                Long.class,
-                detectionUid.toString());
-        if (detectionId == null) {
-            throw new IllegalStateException(
-                    "fullness detection id is missing");
-        }
-
         CapacityProjection projection =
                 capacityProjection(facts, capacity);
         requireSingle(jdbc.update("""
@@ -712,30 +531,22 @@ public class ApplyDeliveryCompleteService
                         SET latest_stable_total_weight_g = ?,
                             raw_net_weight_g = ?,
                             displayed_fullness_percent = ?,
-                            detection_gate = 'PENDING',
-                            current_detection_id = ?,
-                            current_rule_fingerprint = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
                           AND deployment_id = ?
                           AND port_id = ?
-                          AND detection_gate = 'READY'
-                          AND current_detection_id IS NULL
                         """,
                 projection.latestTotalWeightGrams(),
                 projection.rawNetWeightGrams(),
                 projection.displayedFullnessPercent(),
-                detectionId,
-                capacity.ruleFingerprint(),
                 facts.backendReceivedAt(),
                 facts.tenantId(),
                 facts.organizationId(),
                 facts.deploymentId(),
                 facts.portId()),
-                "open pending delivery fullness gate");
-        return new DetectionResult(detectionId, detectionUid);
+                "project post-delivery capacity observation");
     }
 
     private static CapacityProjection capacityProjection(
@@ -903,8 +714,4 @@ public class ApplyDeliveryCompleteService
             BigDecimal displayedFullnessPercent) {
     }
 
-    private record DetectionResult(
-            long id,
-            UUID uid) {
-    }
 }

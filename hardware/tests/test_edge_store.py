@@ -43,6 +43,7 @@ class TestEdgeStoreInit:
             "schema_version", "command_inbox", "work_slot",
             "event_outbox", "photo_outbox", "confirmation_inbox",
             "device_state", "faults", "tombstones",
+            "port_fullness_state",
         ]
         for name in tables:
             row = store._conn.execute(
@@ -396,6 +397,133 @@ class TestAtomicCreateEdgeEvent:
         slot = store.get_work_slot()
         assert slot["work_state"] == "COMPLETED"
         assert slot["context"]["done"] is True
+        store.close()
+
+
+class TestPortFullnessStateTransitions:
+    """只有当前袋状态真正变化时才创建可靠满溢事件。"""
+
+    @staticmethod
+    def transition(
+        *,
+        bag_uid: str,
+        state: str,
+        event_uid: str,
+        state_change_uid: str,
+    ) -> dict:
+        return {
+            "port_no": 1,
+            "bag_uid": bag_uid,
+            "state": state,
+            "state_change_uid": state_change_uid,
+            "event_uid": event_uid,
+            "deployment_code": "Dp_demo_01",
+            "payload": {
+                "stateChangeUid": state_change_uid,
+                "portNo": 1,
+                "bagUid": bag_uid,
+                "state": state,
+            },
+        }
+
+    @staticmethod
+    def complete_with_transition(
+        store: EdgeStore,
+        completion_uid: str,
+        transition: dict,
+    ) -> None:
+        assert store.create_edge_event(
+            completion_uid,
+            "DELIVERY_COMPLETE",
+            {},
+            deployment_code="Dp_demo_01",
+            target_type="DELIVERY_SESSION",
+            target_uid=completion_uid,
+            fullness_transition=transition,
+        ) == "ACCEPTED"
+
+    def test_full_not_full_and_bag_replacement_are_state_changes_only(self):
+        store = make_store()
+        bag_a = "10000000-0000-4000-8000-000000000001"
+        bag_b = "10000000-0000-4000-8000-000000000002"
+
+        assert store.get_port_fullness_state(1, bag_a) == "NOT_FULL"
+
+        self.complete_with_transition(
+            store,
+            "20000000-0000-4000-8000-000000000001",
+            self.transition(
+                bag_uid=bag_a,
+                state="FULL",
+                event_uid="30000000-0000-4000-8000-000000000001",
+                state_change_uid=(
+                    "40000000-0000-4000-8000-000000000001"
+                ),
+            ),
+        )
+        assert store.get_port_fullness_state(1, bag_a) == "FULL"
+
+        self.complete_with_transition(
+            store,
+            "20000000-0000-4000-8000-000000000002",
+            self.transition(
+                bag_uid=bag_a,
+                state="FULL",
+                event_uid="30000000-0000-4000-8000-000000000002",
+                state_change_uid=(
+                    "40000000-0000-4000-8000-000000000002"
+                ),
+            ),
+        )
+        assert store._conn.execute(
+            """SELECT COUNT(*) FROM event_outbox
+               WHERE event_type='FULLNESS_STATE_CHANGED'"""
+        ).fetchone()[0] == 1
+
+        self.complete_with_transition(
+            store,
+            "20000000-0000-4000-8000-000000000003",
+            self.transition(
+                bag_uid=bag_a,
+                state="NOT_FULL",
+                event_uid="30000000-0000-4000-8000-000000000003",
+                state_change_uid=(
+                    "40000000-0000-4000-8000-000000000003"
+                ),
+            ),
+        )
+        assert store.get_port_fullness_state(1, bag_a) == "NOT_FULL"
+        assert store._conn.execute(
+            """SELECT COUNT(*) FROM event_outbox
+               WHERE event_type='FULLNESS_STATE_CHANGED'"""
+        ).fetchone()[0] == 2
+
+        self.complete_with_transition(
+            store,
+            "20000000-0000-4000-8000-000000000004",
+            self.transition(
+                bag_uid=bag_b,
+                state="NOT_FULL",
+                event_uid="30000000-0000-4000-8000-000000000004",
+                state_change_uid=(
+                    "40000000-0000-4000-8000-000000000004"
+                ),
+            ),
+        )
+        assert store.get_port_fullness_state(1, bag_b) == "NOT_FULL"
+        assert store._conn.execute(
+            """SELECT COUNT(*) FROM event_outbox
+               WHERE event_type='FULLNESS_STATE_CHANGED'"""
+        ).fetchone()[0] == 2
+        row = store._conn.execute(
+            """SELECT bag_uid, state, last_event_uid
+               FROM port_fullness_state WHERE port_no=1"""
+        ).fetchone()
+        assert dict(row) == {
+            "bag_uid": bag_b,
+            "state": "NOT_FULL",
+            "last_event_uid": None,
+        }
         store.close()
 
 

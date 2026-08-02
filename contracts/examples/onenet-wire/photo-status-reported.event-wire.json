@@ -2,7 +2,7 @@
   "identifier": "photoStatusReported",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "110",
+    "id": "111",
     "params": {
       "photoStatusReported": {
         "value": {

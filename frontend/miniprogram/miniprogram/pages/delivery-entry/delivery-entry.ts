@@ -69,9 +69,7 @@ const BLOCKER_TEXT: Record<DeliveryOptionBlocker, string> = {
   PORT_SENSOR_UNHEALTHY: '投口传感器状态异常',
   DELIVERY_RESULT_PENDING: '上一笔投递结果仍在处理中',
   CURRENT_BAG_MISSING: '投口尚未安装有效垃圾袋',
-  WEIGHT_BASELINE_MISSING: '投口重量基准不可用',
   BASELINE_REMEASUREMENT_ACTIVE: '投口正在重测重量基准',
-  FULLNESS_CHECK_PENDING: '投口满溢状态仍在确认',
   PORT_FULL: '投口已满',
   PORT_CLEAN_OPERATION_ACTIVE: '投口正在清运',
 }

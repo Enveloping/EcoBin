@@ -4491,7 +4491,7 @@ export interface components {
         /** @description Stable public identity of one whole delivery session */
         DeliverySessionUid: components["schemas"]["UuidV4"];
         /** @enum {string} */
-        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "DEPLOYMENT_NOT_ENABLED" | "BUSINESS_SWITCH_DISABLED" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "SAFETY_LOCKED" | "DEVICE_BUSY" | "PORT_DISABLED" | "PORT_SENSOR_UNHEALTHY" | "DELIVERY_RESULT_PENDING" | "CURRENT_BAG_MISSING" | "WEIGHT_BASELINE_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "FULLNESS_CHECK_PENDING" | "PORT_FULL" | "PORT_CLEAN_OPERATION_ACTIVE";
+        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "DEPLOYMENT_NOT_ENABLED" | "BUSINESS_SWITCH_DISABLED" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "SAFETY_LOCKED" | "DEVICE_BUSY" | "PORT_DISABLED" | "PORT_SENSOR_UNHEALTHY" | "DELIVERY_RESULT_PENDING" | "CURRENT_BAG_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "PORT_FULL" | "PORT_CLEAN_OPERATION_ACTIVE";
         /**
          * @description Non-negative display percentage preserved as an exact decimal string; values may exceed 100.00.
          * @example 87.50

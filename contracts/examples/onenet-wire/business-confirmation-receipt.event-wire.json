@@ -2,7 +2,7 @@
   "identifier": "businessConfirmationReceipt",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "103",
+    "id": "104",
     "params": {
       "businessConfirmationReceipt": {
         "value": {

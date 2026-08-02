@@ -1,5 +1,8 @@
 # EcoBin P0 目标接口设计：投递、审核与钱包（I-021～I-025）
 
+> [!IMPORTANT]
+> 2026-08-02：投递选项与启动准入现统一为“仅当前袋明确 `FULL` 阻断”。`FULLNESS_CHECK_PENDING`、因满溢测量失败产生的阻断以及后端主动 `SAMPLE_FULLNESS` 均已退出当前实现；本文件下方相反描述由 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md) 覆盖。
+
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
 > 状态：**I-021～I-025 已确认；2026-07-24 已按“一次有效扫码会话一单”重写**

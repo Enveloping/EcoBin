@@ -44,8 +44,18 @@ JdbcDeliveryBusinessReadRepository
                    capacity.baseline_state,
                    capacity.displayed_fullness_percent,
                    capacity.detection_gate,
-                   capacity.confirmed_fullness_state
+                   CASE
+                       WHEN capacity.confirmed_fullness_state = 'FULL'
+                        AND capacity.current_bag_id = occupancy.bag_id
+                       THEN 'FULL'
+                       ELSE 'NOT_FULL'
+                   END AS confirmed_fullness_state
             FROM rec_port_capacity_state capacity
+            LEFT JOIN rec_bag_current_occupancy occupancy
+              ON occupancy.tenant_id = capacity.tenant_id
+             AND occupancy.organization_id = capacity.organization_id
+             AND occupancy.port_id = capacity.port_id
+             AND occupancy.occupancy_type = 'PORT_BOUND'
             WHERE capacity.tenant_id = ?
               AND capacity.organization_id = ?
               AND capacity.deployment_id = ?

@@ -35,12 +35,8 @@ public class MiniappDeliveryQueryService {
             "CONFIGURATION_NOT_APPLIED";
     static final String CURRENT_BAG_MISSING =
             "CURRENT_BAG_MISSING";
-    static final String WEIGHT_BASELINE_MISSING =
-            "WEIGHT_BASELINE_MISSING";
     static final String BASELINE_REMEASUREMENT_ACTIVE =
             "BASELINE_REMEASUREMENT_ACTIVE";
-    static final String FULLNESS_CHECK_PENDING =
-            "FULLNESS_CHECK_PENDING";
     static final String PORT_FULL = "PORT_FULL";
     static final String PORT_CLEAN_OPERATION_ACTIVE =
             "PORT_CLEAN_OPERATION_ACTIVE";
@@ -150,7 +146,6 @@ public class MiniappDeliveryQueryService {
         String fullnessPercent = null;
         if (businessPort.isEmpty()) {
             blockers.add(CURRENT_BAG_MISSING);
-            blockers.add(FULLNESS_CHECK_PENDING);
         } else {
             DeliveryPortBusinessFacts facts =
                     businessPort.orElseThrow();
@@ -158,7 +153,6 @@ public class MiniappDeliveryQueryService {
                     facts.displayedFullnessPercent());
             addBusinessBlockers(
                     blockers,
-                    devicePort.fullnessMode(),
                     facts);
         }
         List<String> blockerList = List.copyOf(blockers);
@@ -173,38 +167,15 @@ public class MiniappDeliveryQueryService {
 
     private static void addBusinessBlockers(
             LinkedHashSet<String> blockers,
-            String fullnessMode,
             DeliveryPortBusinessFacts facts) {
         if (!facts.currentBagPresent()) {
             blockers.add(CURRENT_BAG_MISSING);
         }
-        boolean usesWeight =
-                "WEIGHT_ONLY".equals(fullnessMode)
-                        || "INFRARED_OR_WEIGHT".equals(
-                                fullnessMode);
-        if (usesWeight
-                && facts.baselineState()
-                != DeliveryPortBusinessFacts.BaselineState.VALID) {
-            blockers.add(WEIGHT_BASELINE_MISSING);
-        }
         if (facts.baselineRemeasurementActive()) {
             blockers.add(BASELINE_REMEASUREMENT_ACTIVE);
         }
-        /*
-         * POST requires a reusable READY + NOT_FULL capacity fact. The
-         * display blocker also covers missing/failed/unknown facts so this
-         * read snapshot never claims a port is available when POST cannot.
-         */
-        if (facts.detectionGate()
-                != DeliveryPortBusinessFacts.DetectionGate.READY
-                || facts.confirmedFullnessState()
-                == DeliveryPortBusinessFacts
-                .ConfirmedFullnessState.UNKNOWN
-                || facts.confirmedFullnessState()
-                == DeliveryPortBusinessFacts
-                .ConfirmedFullnessState.MISSING) {
-            blockers.add(FULLNESS_CHECK_PENDING);
-        }
+        // No FULL report is the authoritative NOT_FULL default. Pending,
+        // failed, missing, or legacy unknown sample gates do not block.
         if (facts.confirmedFullnessState()
                 == DeliveryPortBusinessFacts
                 .ConfirmedFullnessState.FULL) {

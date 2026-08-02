@@ -1,8 +1,6 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
-import org.enveloping.ecobin.device.api.command.ScheduleFullnessSampleCommand;
 import org.enveloping.ecobin.device.api.port.ReliableEdgeConfirmationPort;
-import org.enveloping.ecobin.device.api.port.ScheduleFullnessSampleDevicePort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
@@ -10,7 +8,6 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyCleanCompleteUseCase;
-import org.enveloping.ecobin.recycling.infrastructure.fullness.TransactionBoundFullnessDetectionCommandRef;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -23,7 +20,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -96,7 +92,6 @@ public class ApplyCleanCompleteService
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
-    private final ScheduleFullnessSampleDevicePort fullnessSamples;
     private final ReliableDeviceTaskProofPort taskProofPort;
     private final ReliableEdgeConfirmationPort confirmationPort;
     private final TrustedDeviceTransportPresencePort transportPresence;
@@ -104,13 +99,11 @@ public class ApplyCleanCompleteService
     public ApplyCleanCompleteService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            ScheduleFullnessSampleDevicePort fullnessSamples,
             ReliableDeviceTaskProofPort taskProofPort,
             ReliableEdgeConfirmationPort confirmationPort,
             TrustedDeviceTransportPresencePort transportPresence) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
-        this.fullnessSamples = fullnessSamples;
         this.taskProofPort = taskProofPort;
         this.confirmationPort = confirmationPort;
         this.transportPresence = transportPresence;
@@ -229,27 +222,12 @@ public class ApplyCleanCompleteService
                 physicalResultId,
                 swap.installedEventId(),
                 receivedAt);
-        Detection detection = createFullnessDetection(
-                fact,
-                operation,
-                cleanRecordId,
-                capacity,
-                baseline,
-                receivedAt);
         projectCapacity(
                 fact,
                 operation,
                 capacity,
                 baseline,
-                detection,
                 receivedAt);
-        if (detection.samplingRequired()) {
-            scheduleInitialFullnessSample(
-                    fact,
-                    operation,
-                    baseline,
-                    detection);
-        }
 
         mergeStartCommandSuccess(command, receivedAt);
         taskProofPort.completeFromTrustedProof(
@@ -266,9 +244,7 @@ public class ApplyCleanCompleteService
                 deployment.id(), operation, receivedAt);
 
         List<DeliveryCompletionResultReference> references =
-                cleanCompletionResultReferences(
-                        recordNo,
-                        detection.uid());
+                cleanCompletionResultReferences(recordNo);
         confirmationPort.registerApplied(
                 tenantId,
                 organizationId,
@@ -284,14 +260,9 @@ public class ApplyCleanCompleteService
 
     static List<DeliveryCompletionResultReference>
             cleanCompletionResultReferences(
-            String recordNo,
-            UUID detectionUid) {
-        return List.of(
-                new DeliveryCompletionResultReference(
-                        "CLEAN_RECORD", recordNo),
-                new DeliveryCompletionResultReference(
-                        "FULLNESS_DETECTION",
-                        detectionUid.toString()));
+            String recordNo) {
+        return List.of(new DeliveryCompletionResultReference(
+                "CLEAN_RECORD", recordNo));
     }
 
     private TrustedDeviceEventApplyResult requirePreviouslyApplied(
@@ -1335,150 +1306,12 @@ public class ApplyCleanCompleteService
                 "VALID");
     }
 
-    private Detection createFullnessDetection(
-            CleanFact fact,
-            Operation operation,
-            long cleanRecordId,
-            Capacity capacity,
-            Baseline baseline,
-            LocalDateTime now) {
-        UUID detectionUid = UUID.randomUUID();
-        boolean immediateBaselineFailure =
-                "WEIGHT_ONLY".equals(operation.fullnessMode())
-                        && !"VALID".equals(baseline.state());
-        LocalDateTime nextSampleAt = immediateBaselineFailure
-                ? null
-                : now.plus(Duration.ofMillis(
-                        operation.fullnessSettleWaitMs()));
-        requireSingle(jdbc.update("""
-                        INSERT INTO rec_fullness_detection (
-                            detection_uid,
-                            tenant_id, organization_id,
-                            deployment_id, port_id,
-                            trigger_type,
-                            delivery_order_id, clean_record_id,
-                            initiator_kind,
-                            platform_admin_id, staff_account_id,
-                            bag_id,
-                            baseline_state_snapshot,
-                            baseline_id_snapshot,
-                            baseline_weight_g_snapshot,
-                            device_config_version_id,
-                            port_config_snapshot_id,
-                            rule_fingerprint,
-                            decision_mode,
-                            configured_full_weight_g,
-                            settle_wait_ms,
-                            confirmation_wait_ms,
-                            measurement_timeout_ms,
-                            calculation_basis,
-                            status, final_result, failure_code,
-                            disposition,
-                            initial_sample_id,
-                            initial_sample_conclusion,
-                            terminal_sample_id,
-                            terminal_sample_conclusion,
-                            next_sample_at, completed_at,
-                            lock_version, created_at, updated_at
-                        ) VALUES (
-                            ?, ?, ?, ?, ?,
-                            'CLEAN_COMPLETE', NULL, ?, NULL,
-                            NULL, NULL, ?,
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            'FIXED_FRAME_TOTAL_WEIGHT',
-                            ?, ?, ?, ?,
-                            NULL, NULL, NULL, NULL,
-                            ?, ?, 0, ?, ?
-                        )
-                        """,
-                detectionUid.toString(),
-                operation.tenantId(),
-                operation.organizationId(),
-                operation.deploymentId(),
-                operation.portId(),
-                cleanRecordId,
-                operation.newBagId(),
-                baseline.state(),
-                baseline.id(),
-                baseline.weightGrams(),
-                operation.deviceConfigVersionId(),
-                operation.portConfigSnapshotId(),
-                capacity.ruleFingerprint(),
-                operation.fullnessMode(),
-                operation.configuredFullWeightGrams(),
-                operation.fullnessSettleWaitMs(),
-                operation.fullnessConfirmationWaitMs(),
-                operation.measurementTimeoutMs(),
-                immediateBaselineFailure
-                        ? "FAILED" : "PENDING_INITIAL_SAMPLE",
-                immediateBaselineFailure
-                        ? "SOURCE_FAILED" : null,
-                immediateBaselineFailure
-                        ? "WEIGHT_BASELINE_UNAVAILABLE" : null,
-                immediateBaselineFailure
-                        ? "APPLIED" : "PENDING",
-                nextSampleAt,
-                immediateBaselineFailure ? now : null,
-                now,
-                now),
-                "create post-clean fullness detection");
-        long id = requiredId("""
-                        SELECT id
-                        FROM rec_fullness_detection
-                        WHERE detection_uid = ?
-                        """,
-                detectionUid.toString(),
-                "post-clean fullness detection");
-        return new Detection(
-                id,
-                detectionUid,
-                !immediateBaselineFailure);
-    }
-
     private void projectCapacity(
             CleanFact fact,
             Operation operation,
             Capacity capacity,
             Baseline baseline,
-            Detection detection,
             LocalDateTime now) {
-        if (!detection.samplingRequired()) {
-            requireSingle(jdbc.update("""
-                            UPDATE rec_port_capacity_state
-                            SET baseline_state = ?,
-                                current_baseline_id = ?,
-                                current_baseline_weight_g = ?,
-                                latest_stable_total_weight_g = NULL,
-                                raw_net_weight_g = NULL,
-                                displayed_fullness_percent = NULL,
-                                detection_gate = 'FAILED',
-                                current_detection_id = NULL,
-                                current_rule_fingerprint = ?,
-                                confirmed_fullness_state = 'UNKNOWN',
-                                last_detection_id = ?,
-                                lock_version = lock_version + 1,
-                                updated_at = ?
-                            WHERE tenant_id = ?
-                              AND organization_id = ?
-                              AND deployment_id = ?
-                              AND port_id = ?
-                              AND lock_version = ?
-                              AND current_detection_id IS NULL
-                            """,
-                    baseline.state(),
-                    baseline.id(),
-                    baseline.weightGrams(),
-                    capacity.ruleFingerprint(),
-                    detection.id(),
-                    now,
-                    operation.tenantId(),
-                    operation.organizationId(),
-                    operation.deploymentId(),
-                    operation.portId(),
-                    capacity.lockVersion()),
-                    "project failed post-clean capacity gate");
-            return;
-        }
         requireSingle(jdbc.update("""
                         UPDATE rec_port_capacity_state
                         SET baseline_state = ?,
@@ -1487,10 +1320,16 @@ public class ApplyCleanCompleteService
                             latest_stable_total_weight_g = ?,
                             raw_net_weight_g = ?,
                             displayed_fullness_percent = ?,
-                            detection_gate = 'PENDING',
-                            current_detection_id = ?,
+                            detection_gate = 'READY',
+                            current_detection_id = NULL,
                             current_rule_fingerprint = ?,
-                            confirmed_fullness_state = 'UNKNOWN',
+                            confirmed_fullness_state = 'NOT_FULL',
+                            current_fullness_event_id = NULL,
+                            current_bag_id = ?,
+                            current_fullness_state_change_id = NULL,
+                            last_fullness_edge_event_id = NULL,
+                            last_fullness_edge_event_sequence = NULL,
+                            last_fullness_reported_at = NULL,
                             lock_version = lock_version + 1,
                             updated_at = ?
                         WHERE tenant_id = ?
@@ -1506,47 +1345,15 @@ public class ApplyCleanCompleteService
                 baseline.weightGrams(),
                 baseline.id() == null ? null : 0L,
                 baseline.id() == null ? null : 0,
-                detection.id(),
                 capacity.ruleFingerprint(),
+                operation.newBagId(),
                 now,
                 operation.tenantId(),
                 operation.organizationId(),
                 operation.deploymentId(),
                 operation.portId(),
                 capacity.lockVersion()),
-                "project post-clean capacity gate");
-    }
-
-    private void scheduleInitialFullnessSample(
-            CleanFact fact,
-            Operation operation,
-            Baseline baseline,
-            Detection detection) {
-        fullnessSamples.schedule(new ScheduleFullnessSampleCommand(
-                TransactionBoundFullnessDetectionCommandRef.issue(
-                        operation.tenantId(),
-                        operation.organizationId(),
-                        operation.deploymentId(),
-                        operation.portId(),
-                        detection.id(),
-                        operation.deviceConfigVersionId(),
-                        operation.portConfigSnapshotId()),
-                detection.uid(),
-                operation.portNo(),
-                "INITIAL",
-                "CLEAN_COMPLETE",
-                operation.fullnessMode(),
-                baseline.weightGrams(),
-                operation.configuredFullWeightGrams(),
-                operation.fullnessSettleWaitMs(),
-                operation.measurementTimeoutMs(),
-                operation.configVersionNo(),
-                HexFormat.of().formatHex(
-                        operation.configContentSha256()),
-                HexFormat.of().formatHex(
-                        operation.configMcuSha256()),
-                operation.uid(),
-                fact.eventUid()));
+                "project new-bag default capacity state");
     }
 
     private void mergeStartCommandSuccess(
@@ -2182,12 +1989,6 @@ public class ApplyCleanCompleteService
             Long id,
             Long weightGrams,
             String state) {
-    }
-
-    private record Detection(
-            long id,
-            UUID uid,
-            boolean samplingRequired) {
     }
 
     private record Calculation(

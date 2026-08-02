@@ -6,6 +6,9 @@
 >
 > 说明：本文件定义清运员扫码换袋、清运操作恢复、清运记录及直接修改、袋码追溯、满溢查询/人工重检，以及与本批主链直接相关的最小设备恢复 HTTP 契约。OneNet、COS、边缘 SQLite 和 UART 已由 [`I-041～I-045`](09-onenet-cos-edge-confirmation-i041-i045.md) 与 [`I-046～I-050`](10-uart-protocol-i046-i050.md) 承接；这些后续协议不得改写本章冻结的操作身份、不可逆边界和业务确认语义。
 
+> [!IMPORTANT]
+> 2026-08-02：I-030 的人工满溢重检、检测 gate 和“检测中/失败阻断”接口尚未作为当前准入能力实施，并已被 V25 投递优先裁决取代。后端只被动接收当前袋的设备状态变化；只有明确 `FULL` 阻止下一次投递。清运、袋、基准重测和精确安全恢复的其余边界继续有效。详见 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md)。
+
 ## 本章统一边界
 
 1. 清运员是当前机构普通用户附加 `CLEAN_OPERATION` 能力后的主体，继续使用 `aud=miniapp` 会话；工作人员小程序使用独立 `aud=miniapp-staff` 会话。两种主体、Token 和入口不能互换。

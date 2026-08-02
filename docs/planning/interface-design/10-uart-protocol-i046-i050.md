@@ -1,5 +1,8 @@
 # EcoBin P0 目标接口设计：香橙派—MCU UART 正式协议（I-046～I-050）
 
+> [!IMPORTANT]
+> 2026-08-02：`SAMPLE_FULLNESS` 不再由后端正常下发。香橙派使用投递结束/清运完成时的最终设备观察计算当前袋状态，并只在状态变化时向云端上报；fixed-frame 兼容路径必须标记缓存观察来源。本文下方主动采样描述仅保留为历史协议能力，现行准入见 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md)。
+
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
 > 状态：**I-046～I-050 规范模型已确认；2026-07-24 已按投递会话一单及清运电磁阀实际能力修订；2026-07-27 增加现有 MCU 固定帧适配配置**

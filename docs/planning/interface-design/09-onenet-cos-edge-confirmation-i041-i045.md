@@ -1,5 +1,8 @@
 # EcoBin P0 目标接口设计：OneNet、COS、边缘持久化与业务确认（I-041～I-045）
 
+> [!IMPORTANT]
+> 2026-08-02：当前物模型新增 `FULLNESS_STATE_CHANGED` 可靠事实，满溢由设备在作业结束后计算并被动上报；正常业务不再由后端创建检测或下发 `SAMPLE_FULLNESS`。本文旧事件/服务目录和完成事务中的检测 gate 描述由 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md) 覆盖。
+
 > 总索引：[interface-design-draft.md](../interface-design-draft.md)
 >
 > 状态：**I-041～I-045 已确认；2026-07-27 已按会话一单、最终一次上报及清运门位未知边界修订；2026-08-01 已取消清运审核并确认记录可直接修改**

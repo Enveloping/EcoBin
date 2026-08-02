@@ -79,6 +79,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "CLEAN_COMPLETE",
                     "RELIABLE_FACT",
                     "CLEAN_OPERATION")),
+            Map.entry("fullnessStateChanged",
+            new EventContract(
+                    "FULLNESS_STATE_CHANGED",
+                    "RELIABLE_FACT",
+                    "PORT_FULLNESS_STATE")),
             Map.entry("fullnessSampleComplete",
             new EventContract(
                     "FULLNESS_SAMPLE_COMPLETE",
@@ -614,7 +619,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                  "DEVICE_COMMAND",
                  "DELIVERY_SESSION",
                  "CLEAN_OPERATION",
-                 "FULLNESS_DETECTION" ->
+                 "FULLNESS_DETECTION",
+                 "PORT_FULLNESS_STATE" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
                     "unsupported trusted event target");
@@ -680,6 +686,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             trustedCosBaseUrl);
             case "FULLNESS_SAMPLE_COMPLETE" ->
                     fullnessSampleCompletePayload(wire);
+            case "FULLNESS_STATE_CHANGED" ->
+                    fullnessStateChangedPayload(wire);
             case "PHOTO_STATUS_REPORTED" ->
                     photoStatusPayload(
                             wire,
@@ -1216,6 +1224,104 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put(
                 "totalWeightMeasurement",
                 compatibility.measurement());
+        payload.put(
+                "frozenConfig",
+                configSnapshot(object(wire, "frozenConfig")));
+        return payload;
+    }
+
+    private static Map<String, Object> fullnessStateChangedPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "stateChangeUid",
+                pattern(wire, "stateChangeUid", UUID_V4));
+        payload.put(
+                "portNo",
+                requiredIntegerInRange(wire, "portNo", 1, 6));
+        payload.put("bagUid", pattern(wire, "bagUid", UUID_V4));
+        payload.put(
+                "state",
+                enumText(
+                        integer(wire, "state"),
+                        Map.of(1L, "FULL", 2L, "NOT_FULL"),
+                        "state"));
+        payload.put(
+                "sourceWorkType",
+                enumText(
+                        integer(wire, "sourceWorkType"),
+                        Map.of(
+                                1L, "DELIVERY_SESSION",
+                                2L, "CLEAN_OPERATION"),
+                        "sourceWorkType"));
+        payload.put(
+                "sourceWorkUid",
+                pattern(wire, "sourceWorkUid", UUID_V4));
+        payload.put(
+                "fullnessMode",
+                enumText(
+                        integer(wire, "fullnessMode"),
+                        Map.of(
+                                1L, "SENSOR_ONLY",
+                                2L, "WEIGHT_ONLY",
+                                3L, "SENSOR_OR_WEIGHT"),
+                        "fullnessMode"));
+        payload.put(
+                "fullnessSensorKind",
+                enumText(
+                        integer(wire, "fullnessSensorKind"),
+                        Map.of(
+                                1L, "ULTRASONIC",
+                                2L, "DIGITAL_INFRARED"),
+                        "fullnessSensorKind"));
+        payload.put(
+                "fullnessSensorValue",
+                enumText(
+                        integer(wire, "fullnessSensorValue"),
+                        Map.of(
+                                1L, "CLEAR",
+                                2L, "BLOCKED",
+                                3L, "NOT_SAMPLED"),
+                        "fullnessSensorValue"));
+        payload.put(
+                "confirmationBasis",
+                enumText(
+                        integer(wire, "confirmationBasis"),
+                        Map.of(
+                                1L,
+                                "FIXED_FRAME_CACHED_FINAL_OBSERVATION",
+                                2L, "MCU_INDEPENDENT_RECHECK"),
+                        "confirmationBasis"));
+        payload.put(
+                "totalWeightMeasurement",
+                measurement(object(wire, "totalWeightMeasurement")));
+        payload.put(
+                "baselineWeightGrams",
+                nullablePresenceSignedInteger(
+                        wire,
+                        "baselineWeightGramsPresent",
+                        "baselineWeightGrams"));
+        payload.put(
+                "configuredFullWeightGrams",
+                requiredIntegerInRange(
+                        wire,
+                        "configuredFullWeightGrams",
+                        1,
+                        4_294_967_295L));
+        payload.put(
+                "fullnessPercentHundredths",
+                nullablePresenceIntegerInRange(
+                        wire,
+                        "fullnessPercentHundredthsPresent",
+                        "fullnessPercentHundredths",
+                        0,
+                        SAFE_INTEGER_MAX));
+        payload.put(
+                "weightFull",
+                nullablePresenceBoolean(
+                        wire,
+                        "weightFullPresent",
+                        "weightFull"));
         payload.put(
                 "frozenConfig",
                 configSnapshot(object(wire, "frozenConfig")));
@@ -2369,6 +2475,13 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "fullness detection target differs from payload");
         }
+        if ("FULLNESS_STATE_CHANGED".equals(
+                contract.messageKind())
+                && (!payload.get("stateChangeUid").equals(targetUid)
+                || event.get("commandUid") != null)) {
+            throw permanent(
+                    "fullness state target differs from payload");
+        }
         if (Set.of(
                 "PHOTO_STATUS_REPORTED",
                 "PHOTO_UPLOAD_GRANT_REQUESTED").contains(
@@ -2616,6 +2729,18 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(field + " must be a boolean");
         }
         return value.booleanValue();
+    }
+
+    private static Boolean nullablePresenceBoolean(
+            JsonNode node,
+            String presenceField,
+            String valueField) {
+        boolean present = bool(node, presenceField);
+        JsonNode value = node.get(valueField);
+        if (value != null && !value.isBoolean()) {
+            throw permanent(valueField + " must be a boolean");
+        }
+        return present ? bool(node, valueField) : null;
     }
 
     private static String pattern(

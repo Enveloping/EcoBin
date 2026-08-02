@@ -134,7 +134,8 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                                detection_gate,
                                current_detection_id,
                                current_rule_fingerprint,
-                               confirmed_fullness_state
+                               confirmed_fullness_state,
+                               current_bag_id
                         FROM rec_port_capacity_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
@@ -147,12 +148,16 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                 organizationId,
                 deploymentId,
                 portId);
-        if (capacities.size() != 1) {
+        if (capacities.size() > 1) {
             throw conflict(
                     "DEVICE.PORT_UNAVAILABLE",
-                    "当前投口还没有可信容量状态");
+                    "当前投口存在重复的容量状态");
         }
-        requireCapacityEligible(query.fullnessMode(), capacities.getFirst());
+        if (!capacities.isEmpty()) {
+            requireCapacityEligible(
+                    capacities.getFirst(),
+                    bag.id());
+        }
 
         return new LockedStartDeliveryBusinessFacts(
                 bag.bagUid(),
@@ -218,13 +223,6 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                 tenantId,
                 organizationId,
                 portId);
-        rejectRows(
-                "rec_fullness_detection",
-                "DEVICE.FULLNESS_CHECK_PENDING",
-                "当前投口还有未完成的满溢检测",
-                tenantId,
-                organizationId,
-                portId);
     }
 
     private void rejectRows(
@@ -250,39 +248,24 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
     }
 
     private static void requireCapacityEligible(
-            String fullnessMode,
-            CapacityRow capacity) {
-        if ("PENDING".equals(capacity.detectionGate())
-                || "IN_PROGRESS".equals(capacity.detectionGate())
-                || capacity.currentDetectionId() != null) {
-            throw conflict(
-                    "DEVICE.FULLNESS_CHECK_PENDING",
-                    "当前投口还有未完成的满溢检测");
-        }
-        if (!"READY".equals(capacity.detectionGate())
-                || capacity.ruleFingerprint() == null) {
-            throw conflict(
-                    "DEVICE.PORT_UNAVAILABLE",
-                    "当前投口没有可复用的满溢判断结果");
-        }
-        if ("FULL".equals(capacity.fullnessState())) {
+            CapacityRow capacity,
+            long currentBagId) {
+        if (isCurrentBagFull(
+                capacity.fullnessState(),
+                capacity.currentBagId(),
+                currentBagId)) {
             throw conflict(
                     "DEVICE.PORT_FULL",
                     "当前投口已经满溢");
         }
-        if (!"NOT_FULL".equals(capacity.fullnessState())) {
-            throw conflict(
-                    "DEVICE.PORT_UNAVAILABLE",
-                    "当前投口的满溢状态尚不确定");
-        }
-        boolean usesWeight = "WEIGHT_ONLY".equals(fullnessMode)
-                || "INFRARED_OR_WEIGHT".equals(fullnessMode);
-        if (usesWeight
-                && !"VALID".equals(capacity.baselineState())) {
-            throw conflict(
-                    "DEVICE.WEIGHT_BASELINE_MISSING",
-                    "当前投口缺少有效的在位袋重量基准");
-        }
+    }
+
+    static boolean isCurrentBagFull(
+            String fullnessState,
+            Long reportedBagId,
+            long currentBagId) {
+        return "FULL".equals(fullnessState)
+                && Long.valueOf(currentBagId).equals(reportedBagId);
     }
 
     private static void verifyRule(
@@ -314,7 +297,8 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                 fingerprint == null
                         ? null
                         : HexFormat.of().formatHex(fingerprint),
-                rs.getString("confirmed_fullness_state"));
+                rs.getString("confirmed_fullness_state"),
+                nullableLong(rs, "current_bag_id"));
     }
 
     private static Long nullableLong(
@@ -354,6 +338,7 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
             String detectionGate,
             Long currentDetectionId,
             String ruleFingerprint,
-            String fullnessState) {
+            String fullnessState,
+            Long currentBagId) {
     }
 }

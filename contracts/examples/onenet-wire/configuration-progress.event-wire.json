@@ -2,7 +2,7 @@
   "identifier": "configurationProgress",
   "kind": "EVENT",
   "oneJsonPayload": {
-    "id": "105",
+    "id": "106",
     "params": {
       "configurationProgress": {
         "value": {

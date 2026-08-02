@@ -13,6 +13,7 @@
     "device-runtime-snapshot.event-wire.json",
     "end-clean-before-unlock.service-wire.json",
     "fullness-sample-complete.event-wire.json",
+    "fullness-state-changed.event-wire.json",
     "measure-empty-bag-baseline.service-wire.json",
     "photo-status-reported.event-wire.json",
     "photo-upload-grant-requested.event-wire.json",

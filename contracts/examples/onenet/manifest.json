@@ -21,6 +21,10 @@
       "schema": "../../onenet/events/events.schema.json"
     },
     {
+      "file": "fullness-state-changed.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
       "file": "confirm-edge-event.command.json",
       "schema": "../../onenet/commands/commands.schema.json"
     },

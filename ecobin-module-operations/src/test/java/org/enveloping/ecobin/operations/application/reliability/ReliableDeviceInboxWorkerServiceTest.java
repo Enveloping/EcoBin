@@ -9,6 +9,7 @@ import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRefFactor
 import org.enveloping.ecobin.recycling.api.port.ApplyCleanCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyFullnessSampleCompleteUseCase;
+import org.enveloping.ecobin.recycling.api.port.ApplyFullnessStateChangedUseCase;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -45,6 +46,8 @@ class ReliableDeviceInboxWorkerServiceTest {
                 mock(ApplyCleanCompleteUseCase.class);
         ApplyFullnessSampleCompleteUseCase fullness =
                 mock(ApplyFullnessSampleCompleteUseCase.class);
+        ApplyFullnessStateChangedUseCase fullnessStateChanged =
+                mock(ApplyFullnessStateChangedUseCase.class);
 
         TrustedOrganizationInboxRef inboxRef =
                 mock(TrustedOrganizationInboxRef.class);
@@ -77,7 +80,8 @@ class ReliableDeviceInboxWorkerServiceTest {
                         canonicalJson,
                         delivery,
                         clean,
-                        fullness);
+                        fullness,
+                        fullnessStateChanged);
 
         service.runBatch("worker-a");
 

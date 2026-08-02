@@ -1,0 +1,69 @@
+{
+  "identifier": "fullnessStateChanged",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "103",
+    "params": {
+      "fullnessStateChanged": {
+        "value": {
+          "bagUid": "30000000-0000-4000-8000-000000000002",
+          "baselineWeightGrams": 1200,
+          "baselineWeightGramsPresent": true,
+          "clockQuality": 1,
+          "commandUidPresent": false,
+          "configuredFullWeightGrams": 50000,
+          "confirmationBasis": 1,
+          "deliveryClass": 1,
+          "deploymentCode": "Dp_demo_01",
+          "edgeEventSequence": 1045,
+          "eventType": 1,
+          "eventUid": "51000000-0000-4000-8000-000000000002",
+          "frozenConfig": {
+            "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mcuPayloadSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": 8
+          },
+          "fullnessMode": 3,
+          "fullnessPercentHundredths": 10000,
+          "fullnessPercentHundredthsPresent": true,
+          "fullnessSensorKind": 2,
+          "fullnessSensorValue": 2,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "71bc3cf128131c8c8d899c3ac1f22d039520692eb672aeb8d086f77dee8dacea",
+          "portNo": 2,
+          "schemaVersion": 1,
+          "sourceWorkType": 1,
+          "sourceWorkUid": "30000000-0000-4000-8000-000000000001",
+          "state": 1,
+          "stateChangeUid": "51000000-0000-4000-8000-000000000001",
+          "target": {
+            "type": 1,
+            "uid": "51000000-0000-4000-8000-000000000001"
+          },
+          "totalWeightMeasurement": {
+            "calibrationVersion": 4,
+            "faultCode": 1,
+            "faultCodePresent": false,
+            "mcuBootId": 101,
+            "mcuEventSequence": 46,
+            "measurementElapsedMs": 1200,
+            "measurementUid": "51000000-0000-4000-8000-000000000003",
+            "reportedWeightGrams": 51200,
+            "reportedWeightGramsPresent": true,
+            "sampleCount": 12,
+            "sensorHealth": 1,
+            "status": 1,
+            "weightValueAvailable": true,
+            "weightValueKind": 2
+          },
+          "weightFull": true,
+          "weightFullPresent": true
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

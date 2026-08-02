@@ -1,5 +1,8 @@
 # EcoBin P0 目标数据库设计：投递、清运与满溢（D-016～D-020）
 
+> [!IMPORTANT]
+> 2026-08-02：V25 在保留旧检测历史的同时，新增设备满溢状态事实/状态变化历史和容量当前袋指针；正常业务不再创建 `rec_fullness_detection` 或 `SAMPLE_FULLNESS` 任务。只有当前袋明确 `FULL` 阻止下一次投递。本文 D-020 的旧主动检测模型由 [`../../architecture/fullness-reporting-v25.md`](../../architecture/fullness-reporting-v25.md) 覆盖。
+
 > 总索引：[database-design-draft.md](../database-design-draft.md)
 >
 > 状态：**D-016～D-020 已确认**

@@ -83,4 +83,17 @@ class JdbcDeliveryBusinessReadRepositorySqlTest {
         assertThat(sql).contains("capacity.port_id IN (?, ?, ?)");
         assertThat(sql).doesNotContain("%s");
     }
+
+    @Test
+    void displayedFullStateMustBelongToCurrentBag() {
+        String sql = JdbcDeliveryBusinessReadRepository
+                .FIND_CAPACITY_STATES_SQL
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(sql)
+                .contains("left join rec_bag_current_occupancy")
+                .contains("capacity.current_bag_id = occupancy.bag_id")
+                .contains("then 'full'")
+                .contains("else 'not_full'");
+    }
 }

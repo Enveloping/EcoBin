@@ -9,6 +9,9 @@
 > 现状参考：[`project-context.md`](../architecture/project-context.md)、当前代码、测试与 Flyway 迁移
 > 目的：确定 P0 的系统边界、部署形态、模块职责、依赖方向和一致性机制；本文不设计数据库字段、接口 URL、消息字段或类结构。
 
+> [!IMPORTANT]
+> 2026-08-02：容量准入结构已由 V25 更新为“设备状态变化被动上报”。后端不主动建立或轮询满溢检测；只有当前袋明确 `FULL` 阻止下一次投递，缺失/失败不阻断。本文中的旧检测 gate、`SAMPLE_FULLNESS` 任务及人工重检前置要求由 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md) 覆盖。
+
 ## 1. 文档效力与设计边界
 
 1. 冻结的需求、P0 范围和业务模型决定系统必须实现什么；本文只决定这些业务结果如何由系统结构共同保证。

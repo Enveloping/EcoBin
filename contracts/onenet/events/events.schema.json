@@ -7,6 +7,7 @@
     { "$ref": "#/$defs/configurationProgressEvent" },
     { "$ref": "#/$defs/deliveryCompleteEvent" },
     { "$ref": "#/$defs/cleanCompleteEvent" },
+    { "$ref": "#/$defs/fullnessStateChangedEvent" },
     { "$ref": "#/$defs/fullnessSampleCompleteEvent" },
     { "$ref": "#/$defs/baselineMeasurementCompleteEvent" },
     { "$ref": "#/$defs/deviceFaultObservedEvent" },
@@ -476,6 +477,93 @@
           }
         }
       ]
+    },
+    "fullnessStateChangedPayload": {
+      "type": "object",
+      "required": [
+        "stateChangeUid",
+        "portNo",
+        "bagUid",
+        "state",
+        "sourceWorkType",
+        "sourceWorkUid",
+        "fullnessMode",
+        "fullnessSensorKind",
+        "fullnessSensorValue",
+        "confirmationBasis",
+        "totalWeightMeasurement",
+        "baselineWeightGrams",
+        "configuredFullWeightGrams",
+        "fullnessPercentHundredths",
+        "weightFull",
+        "frozenConfig"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stateChangeUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "portNo": {
+          "$ref": "../common.schema.json#/$defs/portNo"
+        },
+        "bagUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "state": {
+          "enum": ["FULL", "NOT_FULL"]
+        },
+        "sourceWorkType": {
+          "enum": ["DELIVERY_SESSION", "CLEAN_OPERATION"]
+        },
+        "sourceWorkUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "fullnessMode": {
+          "enum": ["SENSOR_ONLY", "WEIGHT_ONLY", "SENSOR_OR_WEIGHT"]
+        },
+        "fullnessSensorKind": {
+          "enum": ["ULTRASONIC", "DIGITAL_INFRARED"]
+        },
+        "fullnessSensorValue": {
+          "enum": ["CLEAR", "BLOCKED", "NOT_SAMPLED"]
+        },
+        "confirmationBasis": {
+          "enum": [
+            "FIXED_FRAME_CACHED_FINAL_OBSERVATION",
+            "MCU_INDEPENDENT_RECHECK"
+          ]
+        },
+        "totalWeightMeasurement": {
+          "$ref": "../common.schema.json#/$defs/measurementWithQuality"
+        },
+        "baselineWeightGrams": {
+          "$ref": "../common.schema.json#/$defs/nullableSignedInt32Grams"
+        },
+        "configuredFullWeightGrams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "fullnessPercentHundredths": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            { "type": "null" }
+          ]
+        },
+        "weightFull": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "null" }
+          ]
+        },
+        "frozenConfig": {
+          "$ref": "#/$defs/configSnapshot"
+        }
+      }
     },
     "baselineMeasurementCompletePayload": {
       "type": "object",
@@ -1193,6 +1281,31 @@
             },
             "payload": {
               "$ref": "#/$defs/fullnessSampleCompletePayload"
+            }
+          }
+        }
+      ]
+    },
+    "fullnessStateChangedEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "FULLNESS_STATE_CHANGED" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "PORT_FULLNESS_STATE" }
+                  }
+                }
+              ]
+            },
+            "commandUid": { "type": "null" },
+            "payload": {
+              "$ref": "#/$defs/fullnessStateChangedPayload"
             }
           }
         }

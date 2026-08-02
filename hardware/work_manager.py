@@ -1074,6 +1074,7 @@ class WorkManager:
         payload: dict[str, Any],
         work_state_update: Optional[dict] = None,
         event_uid: Optional[str] = None,
+        fullness_transition: Optional[dict] = None,
     ) -> str:
         event_uid = event_uid or _new_uid()
         return self._store.create_edge_event(
@@ -1085,7 +1086,156 @@ class WorkManager:
             deployment_code=deployment_code or "Dp_unknown",
             target_type=target_type,
             command_uid=command_uid,
+            fullness_transition=fullness_transition,
         )
+
+    def _fullness_transition(
+        self,
+        *,
+        port_no: int,
+        bag_uid: Optional[str],
+        source_work_type: str,
+        source_work_uid: str,
+        deployment_code: str,
+        measurement: dict[str, Any],
+        infrared_blocked: Optional[bool],
+        fixed_frame: bool,
+        baseline_weight_grams: Optional[int] = None,
+        reset_for_new_bag: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        """Build a reliable event only for a locally confirmed state change.
+
+        A missing or failed observation never changes the current bag. A bag
+        replacement deliberately starts at NOT_FULL; this mirrors the cloud
+        rule that only an explicit current-bag FULL fact blocks delivery.
+        """
+        if not bag_uid:
+            return None
+        applied = self._store.get_latest_applied_configuration()
+        if not applied:
+            return self._new_bag_default_transition(
+                port_no,
+                bag_uid,
+                deployment_code,
+            ) if reset_for_new_bag else None
+        port_config = next(
+            (
+                port
+                for port in applied["payload"].get("ports", [])
+                if port.get("portNo") == port_no
+            ),
+            None,
+        )
+        if not port_config or port_config.get("enabled") is not True:
+            return self._new_bag_default_transition(
+                port_no,
+                bag_uid,
+                deployment_code,
+            ) if reset_for_new_bag else None
+
+        total_weight = _delivery_usable_weight(measurement)
+        if baseline_weight_grams is None:
+            baseline = self._store.get_bag_baseline(bag_uid)
+            if baseline is not None:
+                baseline_weight_grams = baseline.get("weight_grams")
+        configured_full_weight = port_config.get(
+            "configuredFullWeightGrams"
+        )
+        weight_available = (
+            isinstance(total_weight, int)
+            and not isinstance(total_weight, bool)
+            and isinstance(baseline_weight_grams, int)
+            and not isinstance(baseline_weight_grams, bool)
+            and isinstance(configured_full_weight, int)
+            and not isinstance(configured_full_weight, bool)
+            and configured_full_weight > 0
+        )
+        weight_full = None
+        fullness_percent_hundredths = None
+        if weight_available:
+            net_weight = max(0, total_weight - baseline_weight_grams)
+            weight_full = net_weight >= configured_full_weight
+            fullness_percent_hundredths = (
+                net_weight * 10_000 // configured_full_weight
+            )
+        sensor_available = isinstance(infrared_blocked, bool)
+        mode = port_config.get("fullnessMode")
+        decided_state: Optional[str] = None
+        if mode == "SENSOR_ONLY" and sensor_available:
+            decided_state = "FULL" if infrared_blocked else "NOT_FULL"
+        elif mode == "WEIGHT_ONLY" and weight_available:
+            decided_state = "FULL" if weight_full else "NOT_FULL"
+        elif mode == "SENSOR_OR_WEIGHT":
+            if (sensor_available and infrared_blocked) or weight_full is True:
+                decided_state = "FULL"
+            elif sensor_available and weight_available:
+                decided_state = "NOT_FULL"
+
+        if decided_state is None:
+            return self._new_bag_default_transition(
+                port_no,
+                bag_uid,
+                deployment_code,
+            ) if reset_for_new_bag else None
+
+        state_change_uid = _new_uid()
+        event_uid = _new_uid()
+        measurement_fact = _measurement_fact(measurement)
+        payload = {
+            "stateChangeUid": state_change_uid,
+            "portNo": port_no,
+            "bagUid": bag_uid,
+            "state": decided_state,
+            "sourceWorkType": source_work_type,
+            "sourceWorkUid": source_work_uid,
+            "fullnessMode": mode,
+            "fullnessSensorKind": (
+                "DIGITAL_INFRARED"
+                if fixed_frame
+                else port_config.get("fullnessSensorKind")
+            ),
+            "fullnessSensorValue": (
+                "NOT_SAMPLED"
+                if not sensor_available
+                else ("BLOCKED" if infrared_blocked else "CLEAR")
+            ),
+            "confirmationBasis": (
+                "FIXED_FRAME_CACHED_FINAL_OBSERVATION"
+                if fixed_frame
+                else "MCU_INDEPENDENT_RECHECK"
+            ),
+            "totalWeightMeasurement": measurement_fact,
+            "baselineWeightGrams": baseline_weight_grams,
+            "configuredFullWeightGrams": configured_full_weight,
+            "fullnessPercentHundredths": fullness_percent_hundredths,
+            "weightFull": weight_full,
+            "frozenConfig": _frozen_config(applied["payload"]["config"]),
+        }
+        return {
+            "port_no": port_no,
+            "bag_uid": bag_uid,
+            "state": decided_state,
+            "state_change_uid": state_change_uid,
+            "event_uid": event_uid,
+            "deployment_code": deployment_code,
+            "payload": payload,
+        }
+
+    @staticmethod
+    def _new_bag_default_transition(
+        port_no: int,
+        bag_uid: str,
+        deployment_code: str,
+    ) -> dict[str, Any]:
+        return {
+            "port_no": port_no,
+            "bag_uid": bag_uid,
+            "state": "NOT_FULL",
+            "state_change_uid": _new_uid(),
+            "event_uid": _new_uid(),
+            "deployment_code": deployment_code,
+            "payload": {},
+        }
 
     def start_delivery_session(self, session_uid, port_no, unit_price_ten_thousandths,
                                bag_qr_code, negative_weight_threshold_grams=500):
@@ -1260,6 +1410,16 @@ class WorkManager:
             "mcuEventSequence": payload["mcuEventSequence"],
             "measurementUid": final_measurement["measurementUid"],
         }
+        fullness_transition = self._fullness_transition(
+            port_no=ctx["port_no"],
+            bag_uid=ctx.get("bag_uid"),
+            source_work_type="DELIVERY_SESSION",
+            source_work_uid=ctx.get("session_uid", work_uid),
+            deployment_code=ctx.get("deployment_code") or "Dp_unknown",
+            measurement=final_measurement,
+            infrared_blocked=payload["infraredBlocked"],
+            fixed_frame=True,
+        )
         created = self._store.complete_fixed_frame_work(
             work_type=WORK_TYPE_DELIVERY,
             work_uid=work_uid,
@@ -1276,6 +1436,7 @@ class WorkManager:
             event_payload=event_payload,
             deployment_code=ctx.get("deployment_code") or "Dp_unknown",
             target_type="DELIVERY_SESSION",
+            fullness_transition=fullness_transition,
         )
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
@@ -1409,6 +1570,20 @@ class WorkManager:
                 ],
                 "updated_at": now,
             },
+            fullness_transition=self._fullness_transition(
+                port_no=ctx["port_no"],
+                bag_uid=ctx["new_bag_uid"],
+                source_work_type="CLEAN_OPERATION",
+                source_work_uid=ctx.get("operation_uid", work_uid),
+                deployment_code=(
+                    ctx.get("deployment_code") or "Dp_unknown"
+                ),
+                measurement=final_measurement,
+                infrared_blocked=payload["infraredBlocked"],
+                fixed_frame=True,
+                baseline_weight_grams=post_weight,
+                reset_for_new_bag=True,
+            ),
         )
         if created not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
@@ -1758,6 +1933,18 @@ class WorkManager:
                     "state": "COMPLETING",
                     "context": ctx,
                 },
+                fullness_transition=self._fullness_transition(
+                    port_no=ctx["port_no"],
+                    bag_uid=ctx.get("bag_uid"),
+                    source_work_type="DELIVERY_SESSION",
+                    source_work_uid=session_uid,
+                    deployment_code=(
+                        ctx.get("deployment_code") or "Dp_unknown"
+                    ),
+                    measurement=ctx.get("final_measurement") or {},
+                    infrared_blocked=ctx.get("infrared_blocked"),
+                    fixed_frame=False,
+                ),
             )
             logger.info("delivery complete: %s net=%d", session_uid, net or 0)
         else:
@@ -2040,6 +2227,20 @@ class WorkManager:
                 "state": "COMPLETING",
                 "context": ctx,
             },
+            fullness_transition=self._fullness_transition(
+                port_no=ctx["port_no"],
+                bag_uid=ctx["new_bag_uid"],
+                source_work_type="CLEAN_OPERATION",
+                source_work_uid=ctx["operation_uid"],
+                deployment_code=(
+                    ctx.get("deployment_code") or "Dp_unknown"
+                ),
+                measurement=ctx.get("final_measurement") or {},
+                infrared_blocked=ctx.get("infrared_blocked"),
+                fixed_frame=False,
+                baseline_weight_grams=final_usable,
+                reset_for_new_bag=True,
+            ),
         )
         logger.info("clean complete: %s", ctx["operation_uid"])
 

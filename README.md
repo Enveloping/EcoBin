@@ -17,9 +17,10 @@
 | Lombok          | —      | 编译期注解处理器                                     |
 | Maven           | —      | 多模块构建                                        |
 
-> **当前阶段**：F-07 已交付目标 V10 空业务库的 Fake bootstrap。运行制品不包含
-> Flyway 运行库或迁移脚本，只做只读 epoch guard；目标迁移必须由一次性迁移作业执行。目标数据库上的
-> 纵向业务用例仍由后续任务迁移，不能把“可启动”理解为完整业务已切换。
+> **当前阶段**：目标数据库迁移已推进到 V25，运行制品不包含 Flyway 运行库或迁移脚本，
+> 只执行只读 epoch guard；目标迁移必须由一次性迁移作业执行。V25 将满溢准入切换为设备
+> 状态变化被动上报，只有当前袋明确 `FULL` 才阻止下一次投递，详见
+> [`docs/architecture/fullness-reporting-v25.md`](docs/architecture/fullness-reporting-v25.md)。
 
 ## 项目结构
 

@@ -6,6 +6,9 @@
 > 兼容路径及其后端闭环
 > 决策方式：项目负责人逐项确认；未标记“已确认”的条目不得从讨论稿推导实现要求
 
+> [!IMPORTANT]
+> 2026-08-02 新裁决：满溢改为香橙派在投递结束/清运完成后判断，并仅以 `FULLNESS_STATE_CHANGED` 被动上报状态变化。后端不再为正常业务创建检测或主动下发 `sampleFullness`，无上报/失败不阻止投递，只有当前袋明确 `FULL` 阻止下一次会话。本文下方关于 `SAMPLE_FULLNESS`、检测 gate、人工重检和失败阻断的逐项记录仅保留为历史设计，不再指导当前实现。权威说明见 [`../../../docs/architecture/fullness-reporting-v25.md`](../../../docs/architecture/fullness-reporting-v25.md)。
+
 ## 1. 已确认的共同前提
 
 1. 当前 OneNet 控制台已经使用 9 服务 / 13 事件物模型，不再把旧

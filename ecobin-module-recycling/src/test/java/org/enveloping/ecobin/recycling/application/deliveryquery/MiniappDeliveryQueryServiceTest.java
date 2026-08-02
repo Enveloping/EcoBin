@@ -139,7 +139,6 @@ class MiniappDeliveryQueryServiceTest {
                             "WALLET_DELIVERY_LIMIT_REACHED",
                             "DEVICE_BUSY",
                             "CURRENT_BAG_MISSING",
-                            "WEIGHT_BASELINE_MISSING",
                             "BASELINE_REMEASUREMENT_ACTIVE",
                             "PORT_FULL",
                             "PORT_CLEAN_OPERATION_ACTIVE");
@@ -168,7 +167,7 @@ class MiniappDeliveryQueryServiceTest {
     }
 
     @Test
-    void unavailableCapacityIsNullAndCannotAppearDeliverable() {
+    void missingFullnessObservationDoesNotBlockDelivery() {
         when(identity.current()).thenReturn(identity(true));
         when(device.deliveryOptions(any())).thenReturn(
                 healthyDeviceOptions());
@@ -195,10 +194,8 @@ class MiniappDeliveryQueryServiceTest {
         assertThat(result.ports()).singleElement()
                 .satisfies(port -> {
                     assertThat(port.fullnessPercent()).isNull();
-                    assertThat(port.deliveryAllowed()).isFalse();
-                    assertThat(port.blockers()).containsExactly(
-                            "WEIGHT_BASELINE_MISSING",
-                            "FULLNESS_CHECK_PENDING");
+                    assertThat(port.deliveryAllowed()).isTrue();
+                    assertThat(port.blockers()).isEmpty();
                 });
     }
 

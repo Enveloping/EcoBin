@@ -2842,6 +2842,43 @@ def build_onenet_examples() -> dict[str, Any]:
         fullness_payload,
         command_uid="50000000-0000-4000-8000-000000000004",
     )
+    fullness_state_change_uid = (
+        "51000000-0000-4000-8000-000000000001"
+    )
+    fullness_state_event = _event(
+        "51000000-0000-4000-8000-000000000002",
+        1045,
+        "FULLNESS_STATE_CHANGED",
+        "RELIABLE_FACT",
+        "PORT_FULLNESS_STATE",
+        fullness_state_change_uid,
+        {
+            "stateChangeUid": fullness_state_change_uid,
+            "portNo": 2,
+            "bagUid": start_delivery_payload["bagUid"],
+            "state": "FULL",
+            "sourceWorkType": "DELIVERY_SESSION",
+            "sourceWorkUid": session_uid,
+            "fullnessMode": "SENSOR_OR_WEIGHT",
+            "fullnessSensorKind": "DIGITAL_INFRARED",
+            "fullnessSensorValue": "BLOCKED",
+            "confirmationBasis": (
+                "FIXED_FRAME_CACHED_FINAL_OBSERVATION"
+            ),
+            "totalWeightMeasurement": _measurement(
+                "51000000-0000-4000-8000-000000000003",
+                51200,
+                101,
+                46,
+            ),
+            "baselineWeightGrams": 1200,
+            "configuredFullWeightGrams": 50000,
+            "fullnessPercentHundredths": 10000,
+            "weightFull": True,
+            "frozenConfig": config,
+        },
+        command_uid=None,
+    )
 
     confirmation_uid = "60000000-0000-4000-8000-000000000001"
     confirmation_payload = {
@@ -3231,6 +3268,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "fullness-sample-complete.event.json": (
             fullness_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "fullness-state-changed.event.json": (
+            fullness_state_event,
             "../../onenet/events/events.schema.json",
         ),
         "confirm-edge-event.command.json": (
