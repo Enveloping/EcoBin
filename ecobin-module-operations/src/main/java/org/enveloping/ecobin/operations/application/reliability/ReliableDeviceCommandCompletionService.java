@@ -1,7 +1,6 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
-import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.DeviceTaskExecution;
@@ -11,24 +10,35 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Set;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ReliableDeviceCommandCompletionService {
 
     private final ReliableOperationsJdbcRepository repository;
     private final ReliableTaskProperties properties;
-    private final TrustedDeviceTransportPresencePort transportPresencePort;
-    private final ReliableDeviceTaskGateService taskGateService;
+    private final ObjectMapper objectMapper;
+
+    private static final Set<String> SAFE_CONTROL_COMMANDS = Set.of(
+            "CONFIRM_EDGE_EVENT",
+            "PROVIDE_PHOTO_UPLOAD_GRANT");
+    private static final Duration CONFIGURATION_EVIDENCE_WINDOW =
+            Duration.ofMinutes(2);
+    private static final Duration PHYSICAL_EVIDENCE_GRACE =
+            Duration.ofSeconds(30);
 
     public ReliableDeviceCommandCompletionService(
             ReliableOperationsJdbcRepository repository,
             ReliableTaskProperties properties,
-            TrustedDeviceTransportPresencePort transportPresencePort,
-            ReliableDeviceTaskGateService taskGateService) {
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.properties = properties;
-        this.transportPresencePort = transportPresencePort;
-        this.taskGateService = taskGateService;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(
@@ -82,9 +92,6 @@ public class ReliableDeviceCommandCompletionService {
 
         if (result.outcome()
                 == DeviceCommandSubmissionResult.Outcome.TARGET_OFFLINE) {
-            var presence = transportPresencePort.observeOutboundOffline(
-                    claim.hardwareSn());
-            taskGateService.reconcileAsset(presence.assetId());
             repository.releaseForDispatchWait(
                     execution.taskId(), "DEVICE_OFFLINE", now);
             return;
@@ -110,6 +117,15 @@ public class ReliableDeviceCommandCompletionService {
                     execution.wakeVersion(),
                     "PERMANENT_TECHNICAL_FAILURE",
                     "frozen device command was permanently rejected by transport",
+                    now);
+            return;
+        }
+        if (result.outcome()
+                == DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED
+                && !SAFE_CONTROL_COMMANDS.contains(claim.commandType())) {
+            repository.scheduleAwaitingDeviceEvidence(
+                    execution.taskId(),
+                    evidenceDeadline(claim, now),
                     now);
             return;
         }
@@ -142,14 +158,48 @@ public class ReliableDeviceCommandCompletionService {
                 execution.attemptsForCurrentWake());
         if (result.outcome()
                 == DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED) {
-            repository.scheduleAwaitingDeviceEvidence(
-                    execution.taskId(), now.plus(backoff), now);
+            repository.scheduleRetry(
+                    execution.taskId(),
+                    execution.consecutiveFailureCount(),
+                    now.plus(backoff),
+                    now);
         } else {
             repository.scheduleRetry(
                     execution.taskId(),
                     execution.consecutiveFailureCount() + 1,
                     now.plus(backoff),
                     now);
+        }
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED)
+    public int expireEvidenceWaits() {
+        return repository.blockExpiredDeviceEvidenceWaits(
+                repository.databaseNow());
+    }
+
+    private LocalDateTime evidenceDeadline(
+            ClaimedDeviceCommandTask claim,
+            LocalDateTime now) {
+        if ("APPLY_CONFIGURATION".equals(claim.commandType())) {
+            return now.plus(CONFIGURATION_EVIDENCE_WINDOW);
+        }
+        try {
+            JsonNode root = objectMapper.readTree(
+                    claim.semanticEnvelopeJson());
+            JsonNode value = root.get("expiresAt");
+            if (value == null || !value.isTextual()) {
+                return now.plus(PHYSICAL_EVIDENCE_GRACE);
+            }
+            LocalDateTime deadline = LocalDateTime.ofInstant(
+                    Instant.parse(value.asText()),
+                    ZoneOffset.UTC).plus(PHYSICAL_EVIDENCE_GRACE);
+            return deadline.isAfter(now) ? deadline : now;
+        } catch (RuntimeException invalidFrozenEnvelope) {
+            throw new ReliableTaskInvariantException(
+                    "device command evidence deadline is invalid");
         }
     }
 

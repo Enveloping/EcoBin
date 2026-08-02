@@ -3454,7 +3454,9 @@ export interface components {
             latestConfigurationVersion: number | null;
             appliedConfigurationVersion: number | null;
             configurationApplicationStatus: components["schemas"]["DeviceConfigurationApplicationStatus"] | null;
+            /** @description 部署业务连接状态：OneNet 明确在线且至少存在一份可信运行快照时为 ONLINE；不按快照年龄过期。 */
             edgeConnectionStatus: string | null;
+            /** @description OneNet 传输连接状态，唯一权威来源为 deviceOnline/deviceOffline 生命周期通知。 */
             oneNetConnectionStatus: string;
             oneNetStatusObservedAt: components["schemas"]["UtcTimestamp"] | null;
             trustedRuntimeReceivedAt: components["schemas"]["UtcTimestamp"] | null;
@@ -3485,7 +3487,9 @@ export interface components {
             latestPreciselyApplied: boolean;
         };
         DeviceRuntimeHealthSummary: {
+            /** @description OneNet 在线且至少存在一份可信运行快照时为 ONLINE；不按快照年龄过期。 */
             edgeConnectionStatus: string;
+            /** @description 仅由 OneNet 生命周期上线/下线通知更新。 */
             oneNetConnectionStatus: string;
             oneNetStatusObservedAt: components["schemas"]["UtcTimestamp"] | null;
             trustedRuntimeReceivedAt: components["schemas"]["UtcTimestamp"] | null;

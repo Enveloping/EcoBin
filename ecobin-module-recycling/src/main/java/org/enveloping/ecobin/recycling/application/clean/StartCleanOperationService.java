@@ -57,8 +57,6 @@ public class StartCleanOperationService {
     private static final String TARGET_TYPE = "CLEAN_OPERATION";
     private static final String ACTION = "clean.start";
     private static final Duration START_WINDOW = Duration.ofSeconds(60);
-    private static final Duration MAX_TRUSTED_RUNTIME_AGE =
-            Duration.ofDays(1);
     private static final long RECOMMENDED_POLL_AFTER_MS = 1_000L;
 
     static final String LOAD_LATEST_CONFIGURATION_SQL = """
@@ -1209,12 +1207,7 @@ public class StartCleanOperationService {
                 && "SAFE".equals(runtime.safetyStatus())
                 && "OK".equals(runtime.localStorageHealth())
                 && "HEALTHY".equals(runtime.localStorageState())
-                && runtime.receivedAt() != null
-                && runtimeFresh(
-                runtime.receivedAt(),
-                now,
-                configuration.heartbeatIntervalMs(),
-                configuration.heartbeatMissThreshold());
+                && runtime.receivedAt() != null;
         boolean sameTrustedSnapshot =
                 portRuntime.trustedEventId() != null
                         && "DEVICE_RUNTIME_SNAPSHOT".equals(
@@ -1477,31 +1470,6 @@ public class StartCleanOperationService {
         return left != null
                 && right != null
                 && MessageDigest.isEqual(left, right);
-    }
-
-    private static boolean runtimeFresh(
-            LocalDateTime receivedAt,
-            LocalDateTime now,
-            long heartbeatIntervalMs,
-            long heartbeatMissThreshold) {
-        if (heartbeatIntervalMs <= 0
-                || heartbeatMissThreshold <= 0
-                || receivedAt.isAfter(now)) {
-            return false;
-        }
-        long maximumMs = MAX_TRUSTED_RUNTIME_AGE.toMillis();
-        long allowedMs = heartbeatIntervalMs >
-                maximumMs / heartbeatMissThreshold
-                ? maximumMs
-                : Math.min(
-                heartbeatIntervalMs * heartbeatMissThreshold,
-                maximumMs);
-        try {
-            long ageMs = Duration.between(receivedAt, now).toMillis();
-            return ageMs >= 0 && ageMs <= allowedMs;
-        } catch (ArithmeticException exception) {
-            return false;
-        }
     }
 
     private static Boolean nullableBoolean(ResultSet rs, String column)

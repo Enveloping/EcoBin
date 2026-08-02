@@ -6254,11 +6254,13 @@
           },
           "edgeConnectionStatus": {
             "type": ["string", "null"],
-            "maxLength": 32
+            "maxLength": 32,
+            "description": "部署业务连接状态：OneNet 明确在线且至少存在一份可信运行快照时为 ONLINE；不按快照年龄过期。"
           },
           "oneNetConnectionStatus": {
             "type": "string",
-            "maxLength": 32
+            "maxLength": 32,
+            "description": "OneNet 传输连接状态，唯一权威来源为 deviceOnline/deviceOffline 生命周期通知。"
           },
           "oneNetStatusObservedAt": {
             "oneOf": [
@@ -6379,8 +6381,8 @@
           "runtimeVersion"
         ],
         "properties": {
-          "edgeConnectionStatus": {"type": "string", "maxLength": 32},
-          "oneNetConnectionStatus": {"type": "string", "maxLength": 32},
+          "edgeConnectionStatus": {"type": "string", "maxLength": 32, "description": "OneNet 在线且至少存在一份可信运行快照时为 ONLINE；不按快照年龄过期。"},
+          "oneNetConnectionStatus": {"type": "string", "maxLength": 32, "description": "仅由 OneNet 生命周期上线/下线通知更新。"},
           "oneNetStatusObservedAt": {
             "oneOf": [
               {"$ref": "#/components/schemas/UtcTimestamp"},

@@ -3,7 +3,6 @@ package org.enveloping.ecobin.device.application.deliveryquery;
 import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -27,8 +26,6 @@ final class MiniappDeliveryDeviceQueryPolicy {
             "DELIVERY_RESULT_PENDING";
     static final String DEVICE_BUSY = "DEVICE_BUSY";
 
-    private static final long MAX_TRUSTED_RUNTIME_AGE_MS =
-            Duration.ofDays(1).toMillis();
     private static final Set<String> KNOWN_ACTUATOR_FAILURES = Set.of(
             "TIMEOUT",
             "ACTUATOR_FAULT",
@@ -58,7 +55,7 @@ final class MiniappDeliveryDeviceQueryPolicy {
         if (!exactConfiguration) {
             common.add(CONFIGURATION_NOT_APPLIED);
         }
-        if (!trustedAndFresh(deployment, now)) {
+        if (!trustedRuntimeAvailable(deployment)) {
             common.add(EDGE_OFFLINE);
         }
         if (!"HEALTHY".equals(deployment.localStorageState())
@@ -199,47 +196,16 @@ final class MiniappDeliveryDeviceQueryPolicy {
         return applicationExact && orangePiExact;
     }
 
-    private static boolean trustedAndFresh(
+    private static boolean trustedRuntimeAvailable(
             MiniappDeliveryDeviceQueryRepository.DeploymentSnapshotRow
-                    deployment,
-            LocalDateTime now) {
-        if (deployment.trustedRuntimeEdgeEventId() == null
-                || !"DEVICE_RUNTIME_SNAPSHOT".equals(
+                    deployment) {
+        return deployment.trustedRuntimeEdgeEventId() != null
+                && "DEVICE_RUNTIME_SNAPSHOT".equals(
                         deployment.trustedRuntimeEdgeEventType())
-                || deployment.trustedRuntimeSequence() == null
-                || deployment.trustedRuntimeSequence() <= 0
-                || deployment.trustedRuntimeReceivedAt() == null
-                || !"ONLINE".equals(
-                        deployment.edgeConnectionStatus())
-                || deployment.edgeHeartbeatIntervalMs() == null
-                || deployment.edgeHeartbeatMissThreshold() == null
-                || deployment.edgeHeartbeatIntervalMs() <= 0
-                || deployment.edgeHeartbeatMissThreshold() <= 0
-                || deployment.trustedRuntimeReceivedAt().isAfter(now)) {
-            return false;
-        }
-        long allowedAge = saturatingMultiply(
-                deployment.edgeHeartbeatIntervalMs(),
-                deployment.edgeHeartbeatMissThreshold(),
-                MAX_TRUSTED_RUNTIME_AGE_MS);
-        try {
-            long actualAge = Duration.between(
-                    deployment.trustedRuntimeReceivedAt(),
-                    now).toMillis();
-            return actualAge >= 0 && actualAge <= allowedAge;
-        } catch (ArithmeticException exception) {
-            return false;
-        }
-    }
-
-    private static long saturatingMultiply(
-            long left,
-            long right,
-            long cap) {
-        if (left > cap / right) {
-            return cap;
-        }
-        return Math.min(left * right, cap);
+                && deployment.trustedRuntimeSequence() != null
+                && deployment.trustedRuntimeSequence() > 0
+                && deployment.trustedRuntimeReceivedAt() != null
+                && "ONLINE".equals(deployment.edgeConnectionStatus());
     }
 
     private static boolean sameDigest(byte[] left, byte[] right) {

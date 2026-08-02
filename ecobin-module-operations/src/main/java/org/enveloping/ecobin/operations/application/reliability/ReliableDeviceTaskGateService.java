@@ -11,10 +11,13 @@ public class ReliableDeviceTaskGateService
         implements DeviceTaskGateReconciliationPort {
 
     private final ReliableOperationsJdbcRepository repository;
+    private final ReliableWorkSignal workSignal;
 
     public ReliableDeviceTaskGateService(
-            ReliableOperationsJdbcRepository repository) {
+            ReliableOperationsJdbcRepository repository,
+            ReliableWorkSignal workSignal) {
         this.repository = repository;
+        this.workSignal = workSignal;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -23,7 +26,11 @@ public class ReliableDeviceTaskGateService
         int readiness = repository.reconcileDeploymentRuntimeFreshness(
                 assetId, now);
         int tasks = repository.reconcileDeviceTaskGates(assetId, now);
-        return readiness + tasks;
+        int changed = readiness + tasks;
+        if (changed > 0) {
+            workSignal.deviceCommand();
+        }
+        return changed;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -38,6 +45,10 @@ public class ReliableDeviceTaskGateService
         int readiness = repository.reconcileDeploymentRuntimeFreshness(
                 null, now);
         int tasks = repository.reconcileDeviceTaskGates(null, now);
-        return readiness + tasks;
+        int changed = readiness + tasks;
+        if (changed > 0) {
+            workSignal.deviceCommand();
+        }
+        return changed;
     }
 }

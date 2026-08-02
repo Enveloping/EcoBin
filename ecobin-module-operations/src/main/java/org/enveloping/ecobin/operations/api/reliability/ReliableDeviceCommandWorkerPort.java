@@ -6,4 +6,8 @@ package org.enveloping.ecobin.operations.api.reliability;
 public interface ReliableDeviceCommandWorkerPort {
 
     ReliableWorkerBatchResult runBatch(String workerId);
+
+    default int recoverExpiredEvidenceWaits() {
+        return 0;
+    }
 }

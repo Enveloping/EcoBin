@@ -177,7 +177,7 @@ EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
 EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = float(os.getenv(
     "ECOBIN_RUNTIME_SNAPSHOT_INTERVAL_S",
-    "30",
+    "300",
 ))
 PHOTO_UPLOAD_POLL_SECONDS = float(os.getenv(
     "ECOBIN_PHOTO_UPLOAD_POLL_SECONDS",

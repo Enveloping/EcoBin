@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
 
 @Service
 public class ReliableTaskClaimService {
@@ -40,6 +41,23 @@ public class ReliableTaskClaimService {
     @Transactional(
             propagation = Propagation.REQUIRES_NEW,
             isolation = Isolation.READ_COMMITTED)
+    public List<ClaimedInboxTask> claimInboxBatch(
+            ReliableTaskChannel channel, String workerId) {
+        validate(channel, workerId);
+        properties.validate();
+        ReliableTaskProperties.Channel policy = channelProperties(channel);
+        int claimSize = Math.min(
+                policy.getBatchSize(), policy.getWorkerCount());
+        return repository.claimInboxTasks(
+                channel,
+                workerId,
+                claimSize,
+                policy.getLeaseDuration());
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED)
     public Optional<ClaimedDeviceCommandTask> claimNextDeviceCommand(
             String workerId) {
         validate(ReliableTaskChannel.IOT_DEVICE, workerId);
@@ -50,6 +68,22 @@ public class ReliableTaskClaimService {
                         workerId, 1, policy.getLeaseDuration())
                 .stream()
                 .findFirst();
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED)
+    public List<ClaimedDeviceCommandTask> claimDeviceCommandBatch(
+            String workerId) {
+        validate(ReliableTaskChannel.IOT_DEVICE, workerId);
+        properties.validate();
+        ReliableTaskProperties.Channel policy = properties.getIotDevice();
+        int claimSize = Math.min(
+                policy.getBatchSize(), policy.getWorkerCount());
+        return repository.claimDeviceCommandTasks(
+                workerId,
+                claimSize,
+                policy.getLeaseDuration());
     }
 
     public int batchBudget(ReliableTaskChannel channel) {

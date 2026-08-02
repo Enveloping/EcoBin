@@ -455,11 +455,11 @@ Page({
   async pollSession(entry: PendingDeviceEntry) {
     if (this.polling || !entry.accepted) return
     this.polling = true
-    let waitMs = pollDelay(entry.accepted.recommendedPollAfterMs)
+    let previousPhase: DeliverySessionPhase | undefined
+    let unchangedCount = 0
+    const backoffMs = [1000, 2000, 3000, 5000, 10000]
     try {
       while (this.pageVisible) {
-        await delay(waitMs)
-        if (!this.pageVisible) return
         const current = peekPendingDeviceEntry()
         if (
           !current
@@ -477,7 +477,21 @@ Page({
           completePendingDeviceEntry(entry.entryId)
           return
         }
-        waitMs = pollDelay(session.recommendedPollAfterMs)
+        if (session.phase === previousPhase) {
+          unchangedCount = Math.min(
+            unchangedCount + 1,
+            backoffMs.length - 1,
+          )
+        } else {
+          previousPhase = session.phase
+          unchangedCount = 0
+        }
+        const waitMs = Math.max(
+          pollDelay(session.recommendedPollAfterMs),
+          backoffMs[unchangedCount],
+        )
+        await delay(waitMs)
+        if (!this.pageVisible) return
       }
     } catch (error) {
       if (this.pageVisible) this.showError(error)

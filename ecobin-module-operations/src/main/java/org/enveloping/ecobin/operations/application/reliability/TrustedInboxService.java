@@ -10,11 +10,15 @@ import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProper
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.InboxAggregate;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.NewInbox;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
+import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
+import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -27,14 +31,41 @@ public class TrustedInboxService implements TrustedInboxPort {
     private final ReliableOperationsJdbcRepository repository;
     private final CanonicalJson canonicalJson;
     private final ReliableTaskProperties properties;
+    private final ReliableWorkSignal workSignal;
+    private final TrustedOrganizationInboxRefFactory inboxRefFactory;
+    private final TrustedDeviceInboxEventPort deviceEventPort;
+    private final ReliableDeviceTaskGateService taskGateService;
 
+    @Autowired
     public TrustedInboxService(
             ReliableOperationsJdbcRepository repository,
             CanonicalJson canonicalJson,
-            ReliableTaskProperties properties) {
+            ReliableTaskProperties properties,
+            ReliableWorkSignal workSignal,
+            TrustedOrganizationInboxRefFactory inboxRefFactory,
+            TrustedDeviceInboxEventPort deviceEventPort,
+            ReliableDeviceTaskGateService taskGateService) {
         this.repository = repository;
         this.canonicalJson = canonicalJson;
         this.properties = properties;
+        this.workSignal = workSignal;
+        this.inboxRefFactory = inboxRefFactory;
+        this.deviceEventPort = deviceEventPort;
+        this.taskGateService = taskGateService;
+    }
+
+    TrustedInboxService(
+            ReliableOperationsJdbcRepository repository,
+            CanonicalJson canonicalJson,
+            ReliableTaskProperties properties) {
+        this(
+                repository,
+                canonicalJson,
+                properties,
+                new ReliableWorkSignal(ignored -> { }),
+                null,
+                null,
+                null);
     }
 
     @Override
@@ -89,6 +120,12 @@ public class TrustedInboxService implements TrustedInboxPort {
         }
 
         InboxAggregate inserted = repository.lockInboxByUid(proposedInboxUid);
+        if (isRuntimeTelemetry(message)) {
+            applyRuntimeTelemetry(inserted);
+            return telemetryReceipt(
+                    inserted.inboxUid(),
+                    canonicalPayload.sha256Hex());
+        }
         TaskSnapshot taskSnapshot = taskSnapshot(
                 inserted.inboxUid(),
                 inserted.messageKind(),
@@ -106,6 +143,7 @@ public class TrustedInboxService implements TrustedInboxPort {
                 message.causationUid(),
                 channelProperties(message.executionLane()).getMaxAutoAttempts(),
                 now);
+        signal(message.executionLane());
         return accepted(
                 TrustedInboxReceiptState.ACCEPTED,
                 inserted.inboxUid(),
@@ -159,6 +197,14 @@ public class TrustedInboxService implements TrustedInboxPort {
         }
 
         repository.touchDuplicate(existing.inboxId(), now);
+        if (isRuntimeTelemetry(message)) {
+            if (!"PROCESSED".equals(existing.processingState())) {
+                applyRuntimeTelemetry(existing);
+            }
+            return telemetryReceipt(
+                    existing.inboxUid(),
+                    incomingPayload.sha256Hex());
+        }
         TaskSnapshot expectedSnapshot = taskSnapshot(
                 existing.inboxUid(),
                 existing.messageKind(),
@@ -190,6 +236,7 @@ public class TrustedInboxService implements TrustedInboxPort {
             }
             repository.wakeTask(taskUid, now);
         }
+        signal(message.executionLane());
         return accepted(
                 TrustedInboxReceiptState.DUPLICATE_ACCEPTED,
                 existing.inboxUid(),
@@ -217,6 +264,52 @@ public class TrustedInboxService implements TrustedInboxPort {
         return lane == TrustedInboxExecutionLane.DEVICE
                 ? properties.getIotDevice()
                 : properties.getFundsWechat();
+    }
+
+    private void signal(TrustedInboxExecutionLane lane) {
+        if (lane == TrustedInboxExecutionLane.DEVICE) {
+            workSignal.deviceInbox();
+        }
+    }
+
+    private static boolean isRuntimeTelemetry(
+            TrustedInboxMessage message) {
+        return message.executionLane() == TrustedInboxExecutionLane.DEVICE
+                && "DEVICE_RUNTIME_SNAPSHOT".equals(message.messageKind());
+    }
+
+    private void applyRuntimeTelemetry(InboxAggregate inbox) {
+        if (!"ORGANIZATION".equals(inbox.scopeKind())
+                || inbox.tenantId() == null
+                || inbox.organizationId() == null) {
+            throw new ReliableTaskInvariantException(
+                    "runtime telemetry inbox is not organization scoped");
+        }
+        deviceEventPort.apply(new TrustedDeviceInboxEvent(
+                inboxRefFactory.issue(
+                        inbox.inboxId(),
+                        inbox.tenantId(),
+                        inbox.organizationId()),
+                inbox.messageKind(),
+                inbox.normalizedSchemaVersion(),
+                inbox.normalizedPayload()));
+        LocalDateTime now = repository.databaseNow();
+        repository.markInboxProcessed(inbox.inboxId(), now);
+        taskGateService.reconcileHardwareSn(
+                canonicalJson.trustedDeviceName(
+                        inbox.normalizedPayload()));
+    }
+
+    private static TrustedInboxReceipt telemetryReceipt(
+            UUID inboxUid,
+            String normalizedContentSha256) {
+        return new TrustedInboxReceipt(
+                TrustedInboxReceiptState.TELEMETRY_APPLIED,
+                inboxUid,
+                null,
+                null,
+                normalizedContentSha256,
+                true);
     }
 
     @Override

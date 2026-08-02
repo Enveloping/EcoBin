@@ -59,14 +59,7 @@ public class TrustedDeviceTransportPresenceService
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DeviceTransportPresenceApplyResult observeOutboundOffline(
             String hardwareSn) {
-        LocalDateTime now = databaseNow();
-        return merge(
-                requireHardwareSn(hardwareSn),
-                "OFFLINE",
-                now,
-                now,
-                "OUTBOUND_RESPONSE",
-                null);
+        return current(requireHardwareSn(hardwareSn));
     }
 
     @Override
@@ -78,25 +71,44 @@ public class TrustedDeviceTransportPresenceService
             throw new IllegalArgumentException(
                     "sourceInboxId must be positive");
         }
-        LocalDateTime observedAt = jdbc.queryForObject("""
-                        SELECT first_received_at
+        Integer inboxExists = jdbc.queryForObject("""
+                        SELECT COUNT(*)
                         FROM ops_inbox_message
                         WHERE id = ?
                         """,
-                LocalDateTime.class,
+                Integer.class,
                 sourceInboxId);
-        if (observedAt == null) {
+        if (inboxExists == null || inboxExists != 1) {
             throw new UntrustedInboxSourceException(
                     "authenticated device inbox is not authoritative");
         }
-        LocalDateTime now = databaseNow();
-        return merge(
-                requireHardwareSn(hardwareSn),
-                "ONLINE",
-                observedAt,
-                now,
-                "DEVICE_MESSAGE",
-                sourceInboxId);
+        return current(requireHardwareSn(hardwareSn));
+    }
+
+    /**
+     * 普通设备消息和 OneNet 下行错误只能证明某次收发发生过，不能证明设备当前在线或
+     * 离线。保留这两个旧入口供现有调用方平滑迁移，但它们只读取生命周期投影，不再
+     * 改写权威连接状态。
+     */
+    private DeviceTransportPresenceApplyResult current(String hardwareSn) {
+        List<DeviceTransportPresenceApplyResult> rows = jdbc.query("""
+                        SELECT transport.asset_id,
+                               transport.onenet_connection_status
+                        FROM dev_device_asset asset
+                        JOIN dev_device_transport_state transport
+                          ON transport.asset_id = asset.id
+                        WHERE asset.hardware_sn = ?
+                        """,
+                (rs, ignored) -> new DeviceTransportPresenceApplyResult(
+                        rs.getLong("asset_id"),
+                        rs.getString("onenet_connection_status"),
+                        false),
+                hardwareSn);
+        if (rows.size() != 1) {
+            throw new UntrustedInboxSourceException(
+                    "authenticated device asset is not authoritative");
+        }
+        return rows.getFirst();
     }
 
     private DeviceTransportPresenceApplyResult merge(

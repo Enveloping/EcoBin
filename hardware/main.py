@@ -56,6 +56,9 @@ class EcoBinEdge:
     def __init__(self):
         self._exit_flag = threading.Event()
         self._uart_recovering = threading.Event()
+        self._runtime_snapshot_requested = threading.Event()
+        self._runtime_snapshot_lock = threading.Lock()
+        self._last_runtime_snapshot_monotonic = 0.0
 
         config_validate()
         # -- EdgeStore (SQLite) --
@@ -266,6 +269,7 @@ class EcoBinEdge:
                 result["mcu_info"]["mcu_receive_generation"],
             )
             self.commands.wake()
+            self._request_runtime_snapshot()
         except Exception as error:
             logger.critical("online MCU recovery failed: %s", error)
             self.store.record_fault(
@@ -325,21 +329,44 @@ class EcoBinEdge:
                 logger.error("command consumer error: %s", error)
             if not progressed:
                 self.commands.wait(0.5)
+            else:
+                self._request_runtime_snapshot()
         logger.info("command consumer stopped")
 
     def _runtime_snapshot_loop(self):
-        """Publish periodic runtime snapshots."""
+        """Publish state-change snapshots plus a low-frequency fallback."""
+        next_periodic = (
+            time.monotonic()
+            + self._runtime_snapshot_interval_seconds()
+        )
         while not self._exit_flag.is_set():
-            self._exit_flag.wait(
-                self._runtime_snapshot_interval_seconds()
+            now = time.monotonic()
+            requested = self._runtime_snapshot_requested.wait(
+                max(0.0, next_periodic - now)
             )
             if self._exit_flag.is_set():
                 break
             try:
+                if requested:
+                    remaining = max(
+                        0.0,
+                        5.0 - (
+                            time.monotonic()
+                            - self._last_runtime_snapshot_monotonic
+                        ),
+                    )
+                    if remaining and self._exit_flag.wait(remaining):
+                        break
+                    self._runtime_snapshot_requested.clear()
                 if self.mqtt.connected:
                     self._publish_runtime_snapshot_now()
+                next_periodic = (
+                    time.monotonic()
+                    + self._runtime_snapshot_interval_seconds()
+                )
             except Exception as e:
                 logger.error("runtime snapshot error: %s", e)
+                next_periodic = time.monotonic() + 30.0
 
     def _runtime_snapshot_interval_seconds(self):
         applied = self.store.get_latest_applied_configuration()
@@ -350,27 +377,32 @@ class EcoBinEdge:
             )
             interval_ms = device_config.get(
                 "edgeHeartbeatIntervalMs",
-                30_000,
+                300_000,
             )
             if (
                 isinstance(interval_ms, int)
                 and not isinstance(interval_ms, bool)
                 and 1 <= interval_ms <= 4_294_967_295
             ):
-                return interval_ms / 1000.0
-        return max(0.001, float(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S))
+                return max(300.0, interval_ms / 1000.0)
+        return max(300.0, float(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S))
+
+    def _request_runtime_snapshot(self):
+        """Coalesce repeated state changes into at most one snapshot per 5s."""
+        self._runtime_snapshot_requested.set()
 
     def _publish_runtime_snapshot_now(self):
         from edge_boot import _publish_runtime_snapshot
-        compatibility_mode = getattr(
-            self.uart,
-            "compatibility_mode",
-            False,
-        )
-        _publish_runtime_snapshot(
-            self.store,
-            self.mqtt,
-            {
+        with self._runtime_snapshot_lock:
+            compatibility_mode = getattr(
+                self.uart,
+                "compatibility_mode",
+                False,
+            )
+            _publish_runtime_snapshot(
+                self.store,
+                self.mqtt,
+                {
                 "mcu_boot_id": (
                     getattr(self.uart, "_mcu_boot_id", None) or 0
                 ),
@@ -399,9 +431,10 @@ class EcoBinEdge:
                     else "DISCONNECTED"
                 ),
                 "compatibility_mode": compatibility_mode,
-            },
-            [],
-        )
+                },
+                [],
+            )
+            self._last_runtime_snapshot_monotonic = time.monotonic()
 
     def _shutdown(self):
         logger.info("shutting down...")

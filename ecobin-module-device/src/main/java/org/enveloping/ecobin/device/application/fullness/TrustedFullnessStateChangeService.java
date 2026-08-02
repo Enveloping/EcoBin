@@ -3,7 +3,6 @@ package org.enveloping.ecobin.device.application.fullness;
 import org.enveloping.ecobin.device.api.persistence.DeviceOwnedFullnessStateChangeFactsRefFactory;
 import org.enveloping.ecobin.device.api.port.CompleteFullnessStateChangeDeviceParticipationPort;
 import org.enveloping.ecobin.device.api.port.FullnessStateChangeBusinessWriter;
-import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.FullnessSampleMeasurement;
 import org.enveloping.ecobin.device.api.result.FullnessStateChangeBusinessResult;
 import org.enveloping.ecobin.device.api.result.FullnessStateChangePersistenceFacts;
@@ -46,19 +45,16 @@ public class TrustedFullnessStateChangeService
     private final ObjectMapper objectMapper;
     private final DeviceOwnedFullnessStateChangeFactsRefFactory factsFactory;
     private final ReliableEdgeConfirmationService confirmationService;
-    private final TrustedDeviceTransportPresencePort transportPresence;
 
     public TrustedFullnessStateChangeService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             DeviceOwnedFullnessStateChangeFactsRefFactory factsFactory,
-            ReliableEdgeConfirmationService confirmationService,
-            TrustedDeviceTransportPresencePort transportPresence) {
+            ReliableEdgeConfirmationService confirmationService) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.factsFactory = factsFactory;
         this.confirmationService = confirmationService;
-        this.transportPresence = transportPresence;
     }
 
     @Override
@@ -93,8 +89,6 @@ public class TrustedFullnessStateChangeService
         long assetId = lockAsset(fact.hardwareSn());
         long deploymentId = lockDeployment(
                 fact, assetId, tenantId, organizationId);
-        transportPresence.observeAuthenticatedMessage(
-                fact.hardwareSn(), inboxId);
         lockDeploymentRuntime(
                 deploymentId, tenantId, organizationId);
         long portId = lockPort(
