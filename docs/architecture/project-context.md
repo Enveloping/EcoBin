@@ -116,7 +116,7 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 - 2026-08-02 已把“在线”拆为两层事实：资产级 `oneNetConnectionStatus` 表示 OneNet 传输连接状态，唯一权威来源是北向 `deviceOnline` / `deviceOffline` 生命周期通知；普通已鉴权消息和 OneNet 下行错误都不能覆盖它。部署级 `edgeConnectionStatus` 表示业务有效在线，只有 OneNet 明确在线且后端至少收过一份可信运行快照时才为 `ONLINE`；快照不会因为时间经过而自行过期。接口必须同时返回两层状态及其观测时间，不能再用单个布尔值混用。
 - 业务命令只在 OneNet 明确 `ONLINE` 且至少存在一份可信运行快照时下发；首次配置也不在 `UNKNOWN` 状态主动探测。OneNet `10421` 只把当前任务暂停为 `PENDING / DEVICE_OFFLINE`，不改写资产在线状态；后续 `deviceOnline` 生命周期通知重新计算并唤醒任务。`10410` 表示当前产品下找不到设备，任务阻断为 `DEVICE_IDENTITY_UNRESOLVED`，不能盲目重试。后端不再用周期性服务调用或数据库时间差探测在线。
 - 物理命令和配置命令被 OneNet 接受后不再自动重复下发，而是进入 `AWAITING_DEVICE_EVIDENCE` 等待香橙派命令观察或最终业务事实；到期仍无证据时阻断为 `DEVICE_EVIDENCE_TIMEOUT`，迟到可信证据仍可完成原任务。`CONFIRM_EDGE_EVENT` 和 `PROVIDE_PHOTO_UPLOAD_GRANT` 是安全幂等控制命令，继续保留重试。
-- 运行快照用于诊断和当前配置/安全投影：启动、重连和状态变化时上报，状态变化在 5 秒内合并，正常在线期间每 5 分钟兜底一次。后端在收件事务中直接更新投影并提交后 ACK，不为每份快照建立可靠处理任务；快照证据保留 24 小时，当前投影引用的快照不清理。
+- 运行快照用于诊断和当前配置/安全投影：启动、重连和状态变化时上报，状态变化在 5 秒内合并，正常在线期间每 5 分钟兜底一次。后端在收件事务中直接更新投影并提交后 ACK，不为每份快照建立可靠处理任务。运行快照仍属于只追加设备证据，日常应用账号不得删除；若长期数据量需要归档，必须由独立维护身份执行受控归档，不能为进程内清理扩大 `ecobin_app` 对 inbox、设备事件或任务尝试表的删除权限。
 - OneNet 返回 HTTP 200 但业务码非零时，只将明确的临时平台内部错误 `10500` 归为可重试；`10415` 等参数、物模型、权限及其他未进入临时白名单的业务错误直接永久失败，不能让冻结载荷持续重放。
 - 当前联调产品为 `tB6NlBWW0V`，唯一应保留的设备名/硬件 SN 为 `test-divice-1`。历史假设备及其关联事实应使用受控清理工具处理，不能只删资产主表；操作手册见 [`fake-device-cleanup.md`](../operations/fake-device-cleanup.md)。
 - 2026-07-23 已正式确认 [`I-046～I-050`](../planning/interface-design/10-uart-protocol-i046-i050.md)：UART 1.0 使用 `0xEC42`、最大 256 字节、big-endian 和 CRC-16/CCITT-FALSE 的有界二进制帧；启动先 HELLO/QUERY_STATE，命令 ACK 与物理结果分层，关键 MCU 事件提交边缘 SQLite 后才 ACK。`txSequence`、`mcuCommandUid`、`mcuBootId + mcuEventSequence` 和云端作业身份互不替代，任一端重启都禁止自动重放旧开门。
