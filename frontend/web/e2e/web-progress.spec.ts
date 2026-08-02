@@ -1588,6 +1588,23 @@ test('late delivery detail responses cannot replace or review the selected order
     }
     if (
       request.method() === 'POST'
+      && url.pathname.endsWith('/review-previews')
+    ) {
+      await json(route, {
+        deliveryOrderNo: orderB,
+        revisionType: 'INITIAL_REVIEW',
+        expectedRevisionNo: 0,
+        decision: 'ORIGINAL_APPROVED',
+        finalWeightKg: '1.25',
+        finalAmountYuan: '1.00',
+        walletDeltaYuan: '1.00',
+        walletEffect: 'APPLIED',
+        previewedAt: '2026-07-30T02:59:00.123Z',
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
       && url.pathname.endsWith('/reviews')
     ) {
       reviewedPath = url.pathname;
@@ -1623,10 +1640,11 @@ test('late delivery detail responses cannot replace or review the selected order
   await expect(drawer.getByText(orderA, { exact: true })).toHaveCount(0);
 
   await drawer.getByRole('button', { name: '审核', exact: true }).click();
-  await page
+  const lateOrderConfirm = page
     .getByRole('dialog')
-    .getByRole('button', { name: '确认审核' })
-    .click();
+    .getByRole('button', { name: '确认审核' });
+  await expect(lateOrderConfirm).toBeEnabled();
+  await lateOrderConfirm.click();
   await expect.poll(() => reviewedPath).toBe(
     `/api/v1/web/organizations/org-delivery/delivery-orders/${orderB}/reviews`,
   );
@@ -1713,6 +1731,24 @@ test('delivery list applies deep-link filters and reviews from the evidence draw
     if (
       request.method() === 'POST'
       && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}/review-previews`
+    ) {
+      await json(route, {
+        deliveryOrderNo,
+        revisionType: 'INITIAL_REVIEW',
+        expectedRevisionNo: 0,
+        decision: 'ORIGINAL_APPROVED',
+        finalWeightKg: '1.25',
+        finalAmountYuan: '1.00',
+        walletDeltaYuan: '1.00',
+        walletEffect: 'APPLIED',
+        previewedAt: '2026-07-30T02:59:00.123Z',
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname
         === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}/reviews`
     ) {
       reviewRequest = {
@@ -1750,7 +1786,9 @@ test('delivery list applies deep-link filters and reviews from the evidence draw
   await page.getByRole('button', { name: '审核', exact: true }).click();
   const reviewDialog = page.getByRole('dialog');
   await expect(reviewDialog.getByText('审核会形成第一条认定版本')).toBeVisible();
-  await reviewDialog.getByRole('button', { name: '确认审核' }).click();
+  const confirmReview = reviewDialog.getByRole('button', { name: '确认审核' });
+  await expect(confirmReview).toBeEnabled();
+  await confirmReview.click();
 
   await expect.poll(() => reviewRequest?.body).toEqual({
     expectedRevisionNo: 0,
@@ -1768,6 +1806,274 @@ test('delivery list applies deep-link filters and reviews from the evidence draw
   await expect(
     page.getByText('已通过', { exact: true }).first(),
   ).toBeVisible();
+});
+
+test('delivery review waits for the latest silent preview before committing', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'organization.read',
+      'delivery.read',
+      'review.execute',
+    ],
+  };
+  const previewBodies: Array<{
+    expectedRevisionNo: number;
+    decision: 'ORIGINAL_APPROVED' | 'MODIFIED_APPROVED';
+    finalWeightKg: string | null;
+  }> = [];
+  const previewHeaders: Array<Record<string, string>> = [];
+  let releaseOneKgPreview: (() => void) | undefined;
+  const oneKgPreviewGate = new Promise<void>((resolve) => {
+    releaseOneKgPreview = resolve;
+  });
+  let reviewBody: unknown;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, {
+        token: 'latest-preview-csrf-e2e',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname === '/api/v1/web/auth/sessions/current') {
+      await json(route, session);
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname === '/api/v1/web/organizations') {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname
+          === '/api/v1/web/organizations/org-delivery/delivery-orders') {
+      await json(route, {
+        items: [deliveryItem('PENDING', 0)],
+        asOf: '2026-07-30T03:10:00.123Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname
+          === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}`) {
+      await json(route, deliveryDetail('PENDING', 0));
+      return;
+    }
+    if (request.method() === 'POST'
+        && url.pathname.endsWith('/review-previews')) {
+      const body = request.postDataJSON() as {
+        expectedRevisionNo: number;
+        decision: 'ORIGINAL_APPROVED' | 'MODIFIED_APPROVED';
+        finalWeightKg: string | null;
+      };
+      previewBodies.push(body);
+      previewHeaders.push(request.headers());
+      if (body.finalWeightKg === '1.00') {
+        await oneKgPreviewGate;
+      }
+      const weight = body.finalWeightKg ?? '1.25';
+      const amounts: Record<string, string> = {
+        '1.00': '0.80',
+        '1.25': '1.00',
+        '2.00': '1.60',
+      };
+      const amount = amounts[weight] ?? '0.00';
+      await json(route, {
+        deliveryOrderNo,
+        revisionType: 'INITIAL_REVIEW',
+        expectedRevisionNo: 0,
+        decision: body.decision,
+        finalWeightKg: weight,
+        finalAmountYuan: amount,
+        walletDeltaYuan: amount,
+        walletEffect: amount === '0.00' ? 'NO_CHANGE' : 'APPLIED',
+        previewedAt: '2026-07-30T02:59:00.123Z',
+      });
+      return;
+    }
+    if (request.method() === 'POST'
+        && url.pathname.endsWith('/reviews')) {
+      reviewBody = request.postDataJSON();
+      await json(route, {
+        deliveryOrderNo,
+        revisionUid: '40000000-0000-4000-8000-000000000059',
+        revisionNo: 1,
+        reviewStatus: 'APPROVED',
+        decision: 'MODIFIED_APPROVED',
+        finalWeightKg: '2.00',
+        finalAmountYuan: '1.60',
+        walletDeltaYuan: '1.60',
+        walletEffect: 'APPLIED',
+        reviewedAt: '2026-07-30T03:00:00.123Z',
+      }, 201);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/deliveries?organization=org-delivery');
+  await page.getByText(deliveryOrderNo, { exact: true }).click();
+  await page.getByRole('button', { name: '审核', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: '确认审核' }))
+    .toBeEnabled();
+
+  await dialog.getByText('修改重量后通过', { exact: true }).click();
+  await dialog.getByLabel('最终认定重量（千克）').fill('1.00');
+  await expect.poll(() => previewBodies.some(
+    (body) => body.finalWeightKg === '1.00',
+  )).toBe(true);
+  await expect(dialog.getByRole('button', { name: '确认审核' }))
+    .toBeDisabled();
+
+  await dialog.getByLabel('最终认定重量（千克）').fill('2.00');
+  await expect.poll(() => previewBodies.some(
+    (body) => body.finalWeightKg === '2.00',
+  )).toBe(true);
+  await expect(dialog.getByText(
+    '客户端换算与服务端预览一致，可以确认',
+    { exact: true },
+  )).toBeVisible();
+  await expect(dialog.getByText(/最终金额 ¥ 1\.60/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '确认审核' }))
+    .toBeEnabled();
+
+  releaseOneKgPreview?.();
+  await page.waitForTimeout(100);
+  await expect(dialog.getByText(/最终金额 ¥ 1\.60/)).toBeVisible();
+  await expect(dialog.getByText(/最终金额 ¥ 0\.80/)).toHaveCount(0);
+
+  const previewCountBeforeReason = previewBodies.length;
+  await dialog.getByLabel('说明').fill('只修改说明不应使预览失效');
+  await page.waitForTimeout(400);
+  expect(previewBodies).toHaveLength(previewCountBeforeReason);
+  await expect(dialog.getByRole('button', { name: '确认审核' }))
+    .toBeEnabled();
+
+  const latestPreviewHeaders = previewHeaders.at(-1);
+  expect(latestPreviewHeaders?.['idempotency-key']).toBeUndefined();
+  expect(latestPreviewHeaders?.['x-csrf-token'])
+    .toBe('latest-preview-csrf-e2e');
+  expect(latestPreviewHeaders?.['cache-control']).toBe('no-store');
+
+  await dialog.getByRole('button', { name: '确认审核' }).click();
+  await expect.poll(() => reviewBody).toEqual({
+    expectedRevisionNo: 0,
+    decision: 'MODIFIED_APPROVED',
+    finalWeightKg: '2.00',
+    reason: '只修改说明不应使预览失效',
+  });
+});
+
+test('delivery preview revision conflict closes the modal and reloads evidence', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: [
+      'organization.read',
+      'delivery.read',
+      'review.execute',
+    ],
+  };
+  let detailReads = 0;
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, {
+        token: 'preview-conflict-csrf-e2e',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname === '/api/v1/web/auth/sessions/current') {
+      await json(route, session);
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname === '/api/v1/web/organizations') {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-delivery',
+          organizationName: '投递运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00.123Z',
+          updatedAt: '2026-07-01T00:00:00.123Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname
+          === '/api/v1/web/organizations/org-delivery/delivery-orders') {
+      await json(route, {
+        items: [deliveryItem(detailReads > 1 ? 'APPROVED' : 'PENDING',
+          detailReads > 1 ? 1 : 0)],
+        asOf: '2026-07-30T03:10:00.123Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (request.method() === 'GET'
+        && url.pathname
+          === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}`) {
+      detailReads += 1;
+      await json(route, deliveryDetail(
+        detailReads > 1 ? 'APPROVED' : 'PENDING',
+        detailReads > 1 ? 1 : 0,
+      ));
+      return;
+    }
+    if (request.method() === 'POST'
+        && url.pathname.endsWith('/review-previews')) {
+      await route.fulfill(problem(
+        409,
+        'DELIVERY.REVISION_VERSION_CONFLICT',
+        '投递订单已被其他审核操作更新，请刷新后重试',
+      ));
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/deliveries?organization=org-delivery');
+  await page.getByText(deliveryOrderNo, { exact: true }).click();
+  await page.getByRole('button', { name: '审核', exact: true }).click();
+  await expect(page.getByText(
+    /订单版本已经变化，已关闭审核窗口并载入最新记录/,
+  )).toBeVisible();
+  await expect.poll(() => detailReads).toBeGreaterThan(1);
+  await expect(page.getByText(
+    `审核投递订单 · ${deliveryOrderNo}`,
+    { exact: true },
+  )).toHaveCount(0);
 });
 
 test('approved delivery can append a correction with the observed revision', async ({
@@ -1858,6 +2164,39 @@ test('approved delivery can append a correction with the observed revision', asy
     if (
       request.method() === 'POST'
       && url.pathname
+        === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}/review-previews`
+    ) {
+      const previewBody = request.postDataJSON() as {
+        expectedRevisionNo: number;
+        decision: 'ORIGINAL_APPROVED' | 'MODIFIED_APPROVED';
+        finalWeightKg: string | null;
+      };
+      const weight = previewBody.finalWeightKg ?? '1.25';
+      const amountByWeight: Record<string, string> = {
+        '1.25': '1.00',
+        '1.50': '1.20',
+      };
+      const amount = amountByWeight[weight] ?? '1.00';
+      const deltaByAmount: Record<string, string> = {
+        '1.00': '0.00',
+        '1.20': '0.20',
+      };
+      await json(route, {
+        deliveryOrderNo,
+        revisionType: 'CORRECTION',
+        expectedRevisionNo: previewBody.expectedRevisionNo,
+        decision: previewBody.decision,
+        finalWeightKg: weight,
+        finalAmountYuan: amount,
+        walletDeltaYuan: deltaByAmount[amount] ?? '0.00',
+        walletEffect: amount === '1.00' ? 'NO_CHANGE' : 'APPLIED',
+        previewedAt: '2026-07-30T03:19:00.123Z',
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname
         === `/api/v1/web/organizations/org-delivery/delivery-orders/${deliveryOrderNo}/corrections`
     ) {
       correctionBody = request.postDataJSON();
@@ -1889,7 +2228,11 @@ test('approved delivery can append a correction with the observed revision', asy
   await correctionDialog
     .getByLabel('说明')
     .fill('现场复核后重新认定');
-  await correctionDialog.getByRole('button', { name: '确认纠正' }).click();
+  const confirmCorrection = correctionDialog.getByRole('button', {
+    name: '确认纠正',
+  });
+  await expect(confirmCorrection).toBeEnabled();
+  await confirmCorrection.click();
 
   await expect.poll(() => correctionBody).toEqual({
     expectedRevisionNo: 1,

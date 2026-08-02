@@ -159,7 +159,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
     }
 
     @Test
-    void normalDeliveryCreatesExactlyOnePendingOrderAndNextDeliveryGate()
+    void normalDeliveryCreatesPendingOrderAndExercisesReviewWalletDelta()
             throws Exception {
         ReadyDeployment ready = prepareReadyDeployment();
         seedDeliveryBusinessFacts(ready);
@@ -419,32 +419,6 @@ class DeliveryHappyPathMysqlIntegrationTest {
                           )
                         """, Integer.class, order.get("id")));
 
-        Map<String, Object> detection = jdbc.queryForMap("""
-                SELECT detection.id,
-                       detection.detection_uid,
-                       detection.status,
-                       detection.disposition,
-                       detection.active_port_id
-                FROM rec_fullness_detection detection
-                WHERE detection.delivery_order_id = ?
-                """, order.get("id"));
-        assertEquals(
-                "PENDING_INITIAL_SAMPLE",
-                detection.get("status").toString());
-        assertEquals(
-                "PENDING",
-                detection.get("disposition").toString());
-        assertNotNull(detection.get("active_port_id"));
-        assertEquals("PENDING|" + detection.get("id"),
-                jdbc.queryForObject("""
-                        SELECT CONCAT(
-                            detection_gate, '|',
-                            current_detection_id
-                        )
-                        FROM rec_port_capacity_state
-                        WHERE port_id = ?
-                        """, String.class, ready.portId()));
-
         Map<String, Object> confirmation = jdbc.queryForMap("""
                 SELECT task.state,
                        task.source_device_command_id,
@@ -471,11 +445,6 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         confirmationEnvelope,
                         "DELIVERY_ORDER",
                         order.get("delivery_order_no").toString()));
-        assertTrue(
-                hasResultReference(
-                        confirmationEnvelope,
-                        "FULLNESS_DETECTION",
-                        detection.get("detection_uid").toString()));
 
         dispatchTrustedWireEvent(
                 "deliveryComplete",
@@ -495,16 +464,6 @@ class DeliveryHappyPathMysqlIntegrationTest {
                              order_row.delivery_session_id
                         WHERE session_row.session_uid = ?
                         """, Integer.class, sessionUid.toString()));
-        assertEquals(1, jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM rec_fullness_detection
-                        WHERE delivery_order_id = ?
-                        """, Integer.class, order.get("id")));
-
-        completeAndAssertNotFullDetection(
-                ready,
-                detection.get("detection_uid").toString(),
-                4);
 
         assertDeliveryOrderQueryAndReviewFlow(
                 ready,
@@ -513,11 +472,6 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 deliveryEvent,
                 ((Number) order.get("id")).longValue(),
                 order.get("delivery_order_no").toString());
-
-        assertFullDetectionRequiresConfirmation(
-                ready,
-                miniappUser,
-                5);
     }
 
     @Test
@@ -1684,25 +1638,139 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 owner,
                 deliveryOrderNo);
 
+        String orderBeforePreview = jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            review_status, '|',
+                            current_revision_no, '|',
+                            COALESCE(final_business_weight_kg, 'null'), '|',
+                            COALESCE(final_amount_cent, 'null'), '|',
+                            DATE_FORMAT(
+                                updated_at,
+                                '%Y-%m-%dT%H:%i:%s.%f'
+                            )
+                        )
+                        FROM rec_delivery_order
+                        WHERE id = ?
+                        """, String.class, orderId);
+        int revisionsBeforePreview = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_delivery_revision
+                        WHERE delivery_order_id = ?
+                        """, Integer.class, orderId);
+        String walletBeforePreview = walletProjection(ready, owner);
+        int walletEntriesBeforePreview = walletEntryCount(ready, owner);
+        int auditsBeforePreview = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_audit_log
+                        WHERE target_type = 'DELIVERY_ORDER'
+                          AND target_stable_key = ?
+                          AND action_code IN (
+                              'delivery.review',
+                              'delivery.correct'
+                          )
+                        """, Integer.class, deliveryOrderNo);
+        Map<String, Object> previewRequest = new LinkedHashMap<>();
+        previewRequest.put("expectedRevisionNo", 0);
+        previewRequest.put("decision", "ORIGINAL_APPROVED");
+        previewRequest.put("finalWeightKg", null);
+        MvcResult previewResult = write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/review-previews"),
+                null,
+                previewRequest,
+                200);
+        assertEquals(
+                "no-store",
+                previewResult.getResponse().getHeader("Cache-Control"));
+        JsonNode preview = data(previewResult);
+        assertEquals(deliveryOrderNo,
+                preview.path("deliveryOrderNo").asText());
+        assertEquals("INITIAL_REVIEW",
+                preview.path("revisionType").asText());
+        assertEquals(0, preview.path("expectedRevisionNo").asLong());
+        assertEquals("ORIGINAL_APPROVED",
+                preview.path("decision").asText());
+        assertEquals("1.25", preview.path("finalWeightKg").asText());
+        assertEquals("0.56", preview.path("finalAmountYuan").asText());
+        assertEquals("0.56", preview.path("walletDeltaYuan").asText());
+        assertEquals("APPLIED", preview.path("walletEffect").asText());
+        assertFalse(preview.path("previewedAt").asText().isBlank());
+        assertEquals(orderBeforePreview, jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            review_status, '|',
+                            current_revision_no, '|',
+                            COALESCE(final_business_weight_kg, 'null'), '|',
+                            COALESCE(final_amount_cent, 'null'), '|',
+                            DATE_FORMAT(
+                                updated_at,
+                                '%Y-%m-%dT%H:%i:%s.%f'
+                            )
+                        )
+                        FROM rec_delivery_order
+                        WHERE id = ?
+                        """, String.class, orderId));
+        assertEquals(revisionsBeforePreview, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_delivery_revision
+                        WHERE delivery_order_id = ?
+                        """, Integer.class, orderId));
+        assertEquals(walletBeforePreview, walletProjection(ready, owner));
+        assertEquals(walletEntriesBeforePreview,
+                walletEntryCount(ready, owner));
+        assertEquals(auditsBeforePreview, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM ops_audit_log
+                        WHERE target_type = 'DELIVERY_ORDER'
+                          AND target_stable_key = ?
+                          AND action_code IN (
+                              'delivery.review',
+                              'delivery.correct'
+                          )
+                        """, Integer.class, deliveryOrderNo));
+
         Map<String, Object> initialReview = Map.of(
                 "expectedRevisionNo", 0,
                 "decision", "ORIGINAL_APPROVED",
                 "reason", "delivery integration initial review");
-        UUID reviewOperationUid = UUID.randomUUID();
+        UUID firstReviewOperationUid = UUID.randomUUID();
+        UUID secondReviewOperationUid = UUID.randomUUID();
         List<MvcResult> concurrentReviewResults =
                 concurrentWrites(
                         platform,
                         orderBase + "/" + deliveryOrderNo + "/reviews",
-                        reviewOperationUid,
+                        firstReviewOperationUid,
+                        secondReviewOperationUid,
                         initialReview);
-        for (MvcResult result : concurrentReviewResults) {
-            assertEquals(
-                    201,
-                    result.getResponse().getStatus(),
-                    result.getResponse().getContentAsString());
-        }
-        JsonNode reviewed = data(concurrentReviewResults.get(0));
-        JsonNode replayed = data(concurrentReviewResults.get(1));
+        assertEquals(
+                List.of(201, 409),
+                concurrentReviewResults.stream()
+                        .map(result -> result.getResponse().getStatus())
+                        .sorted()
+                        .toList());
+        int successfulReviewIndex =
+                concurrentReviewResults.get(0).getResponse().getStatus()
+                        == 201 ? 0 : 1;
+        int conflictedReviewIndex = 1 - successfulReviewIndex;
+        JsonNode conflict = objectMapper.readTree(
+                concurrentReviewResults.get(conflictedReviewIndex)
+                        .getResponse().getContentAsByteArray());
+        assertTrue(
+                "DELIVERY.ORDER_ALREADY_APPROVED".equals(
+                        conflict.path("code").asText())
+                        || "DELIVERY.REVISION_VERSION_CONFLICT".equals(
+                        conflict.path("code").asText()));
+        JsonNode reviewed = data(
+                concurrentReviewResults.get(successfulReviewIndex));
+        UUID successfulReviewOperationUid = successfulReviewIndex == 0
+                ? firstReviewOperationUid
+                : secondReviewOperationUid;
+        JsonNode replayed = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo + "/reviews"),
+                successfulReviewOperationUid,
+                initialReview,
+                201));
         assertEquals(
                 reviewed.path("revisionUid").asText(),
                 replayed.path("revisionUid").asText());
@@ -1880,6 +1948,239 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 2,
                 "0.90");
 
+        WithdrawalSupport withdrawalSupport =
+                seedWithdrawalSupport(ready, owner);
+        long preBoundaryWithdrawalId = activateWithdrawal(
+                withdrawalSupport,
+                "PENDING_REVIEW",
+                "pre");
+
+        JsonNode negativeCorrection = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedRevisionNo", 2,
+                        "decision", "MODIFIED_APPROVED",
+                        "finalWeightKg", "-1.00",
+                        "reason", "negative wallet delta proof"),
+                201));
+        assertEquals(3,
+                negativeCorrection.path("revisionNo").asLong());
+        assertEquals("-0.45",
+                negativeCorrection.path("finalAmountYuan").asText());
+        assertEquals("-1.35",
+                negativeCorrection.path("walletDeltaYuan").asText());
+        assertWalletState(
+                ready,
+                owner,
+                orderId,
+                -45L,
+                3L,
+                List.of(
+                        "1|DELIVERY_INITIAL_REVIEW|56|0|56",
+                        "2|DELIVERY_CORRECTION|34|56|90",
+                        "3|DELIVERY_CORRECTION|-135|90|-45"));
+        assertEquals(
+                "PENDING_REVIEW|1|0|0",
+                withdrawalRiskProjection(preBoundaryWithdrawalId));
+
+        JsonNode zeroCorrection = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedRevisionNo", 3,
+                        "decision", "MODIFIED_APPROVED",
+                        "finalWeightKg", "0.00",
+                        "reason", "return recognized amount to zero"),
+                201));
+        assertEquals(4, zeroCorrection.path("revisionNo").asLong());
+        assertEquals("0.00",
+                zeroCorrection.path("finalAmountYuan").asText());
+        assertEquals("0.45",
+                zeroCorrection.path("walletDeltaYuan").asText());
+        assertWalletState(
+                ready,
+                owner,
+                orderId,
+                0L,
+                4L,
+                List.of(
+                        "1|DELIVERY_INITIAL_REVIEW|56|0|56",
+                        "2|DELIVERY_CORRECTION|34|56|90",
+                        "3|DELIVERY_CORRECTION|-135|90|-45",
+                        "4|DELIVERY_CORRECTION|45|-45|0"));
+        assertEquals(
+                "PENDING_REVIEW|0|0|0",
+                withdrawalRiskProjection(preBoundaryWithdrawalId));
+        jdbc.update("""
+                        DELETE FROM fund_active_withdrawal
+                        WHERE wallet_id = ?
+                        """, withdrawalSupport.walletId());
+        long postBoundaryWithdrawalId = activateWithdrawal(
+                withdrawalSupport,
+                "CHANNEL_PROCESSING",
+                "post");
+
+        JsonNode zeroDeltaCorrection = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedRevisionNo", 4,
+                        "decision", "MODIFIED_APPROVED",
+                        "finalWeightKg", "0.00",
+                        "reason", "zero delta still appends revision"),
+                201));
+        assertEquals(5,
+                zeroDeltaCorrection.path("revisionNo").asLong());
+        assertEquals("0.00",
+                zeroDeltaCorrection.path("walletDeltaYuan").asText());
+        assertEquals("NO_CHANGE",
+                zeroDeltaCorrection.path("walletEffect").asText());
+        assertEquals(5, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_delivery_revision
+                        WHERE delivery_order_id = ?
+                        """, Integer.class, orderId));
+        assertEquals(4, walletEntryCount(ready, owner));
+
+        JsonNode positiveHalfUp = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedRevisionNo", 5,
+                        "decision", "MODIFIED_APPROVED",
+                        "finalWeightKg", "0.10",
+                        "reason", "positive HALF_UP cent boundary"),
+                201));
+        assertEquals("0.05",
+                positiveHalfUp.path("finalAmountYuan").asText());
+        assertEquals("0.05",
+                positiveHalfUp.path("walletDeltaYuan").asText());
+
+        JsonNode negativeHalfUp = data(write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedRevisionNo", 6,
+                        "decision", "MODIFIED_APPROVED",
+                        "finalWeightKg", "-0.10",
+                        "reason", "negative HALF_UP cent boundary"),
+                201));
+        assertEquals(7, negativeHalfUp.path("revisionNo").asLong());
+        assertEquals("-0.05",
+                negativeHalfUp.path("finalAmountYuan").asText());
+        assertEquals("-0.10",
+                negativeHalfUp.path("walletDeltaYuan").asText());
+        assertWalletState(
+                ready,
+                owner,
+                orderId,
+                -5L,
+                6L,
+                List.of(
+                        "1|DELIVERY_INITIAL_REVIEW|56|0|56",
+                        "2|DELIVERY_CORRECTION|34|56|90",
+                        "3|DELIVERY_CORRECTION|-135|90|-45",
+                        "4|DELIVERY_CORRECTION|45|-45|0",
+                        "6|DELIVERY_CORRECTION|5|0|5",
+                        "7|DELIVERY_CORRECTION|-10|5|-5"));
+        assertEquals(
+                "CHANNEL_PROCESSING|0|1|1",
+                withdrawalRiskProjection(postBoundaryWithdrawalId));
+
+        jdbc.update("""
+                        UPDATE fund_user_wallet wallet
+                        JOIN iam_organization_user user_row
+                          ON user_row.tenant_id = wallet.tenant_id
+                         AND user_row.organization_id =
+                             wallet.organization_id
+                         AND user_row.id = wallet.organization_user_id
+                        SET wallet.last_entry_sequence_no =
+                                9007199254740991
+                        WHERE wallet.tenant_id = ?
+                          AND wallet.organization_id = ?
+                          AND user_row.organization_user_uid = ?
+                        """,
+                ready.tenantId(),
+                ready.organizationId(),
+                owner.organizationUserUid().toString());
+        String orderBeforeFundsFailure = jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            current_revision_no, '|',
+                            final_business_weight_kg, '|',
+                            final_amount_cent, '|',
+                            DATE_FORMAT(
+                                updated_at,
+                                '%Y-%m-%dT%H:%i:%s.%f'
+                            )
+                        )
+                        FROM rec_delivery_order
+                        WHERE id = ?
+                        """, String.class, orderId);
+        int revisionsBeforeFundsFailure = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_delivery_revision
+                        WHERE delivery_order_id = ?
+                        """, Integer.class, orderId);
+        int entriesBeforeFundsFailure = walletEntryCount(ready, owner);
+        write(
+                platform,
+                post(orderBase + "/" + deliveryOrderNo
+                        + "/corrections"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedRevisionNo", 7,
+                        "decision", "MODIFIED_APPROVED",
+                        "finalWeightKg", "0.20",
+                        "reason", "wallet sequence exhaustion rollback"),
+                500);
+        assertEquals(orderBeforeFundsFailure, jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            current_revision_no, '|',
+                            final_business_weight_kg, '|',
+                            final_amount_cent, '|',
+                            DATE_FORMAT(
+                                updated_at,
+                                '%Y-%m-%dT%H:%i:%s.%f'
+                            )
+                        )
+                        FROM rec_delivery_order
+                        WHERE id = ?
+                        """, String.class, orderId));
+        assertEquals(revisionsBeforeFundsFailure,
+                jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_delivery_revision
+                        WHERE delivery_order_id = ?
+                        """, Integer.class, orderId));
+        assertEquals(entriesBeforeFundsFailure,
+                walletEntryCount(ready, owner));
+        jdbc.update("""
+                        UPDATE fund_user_wallet wallet
+                        JOIN iam_organization_user user_row
+                          ON user_row.tenant_id = wallet.tenant_id
+                         AND user_row.organization_id =
+                             wallet.organization_id
+                         AND user_row.id = wallet.organization_user_id
+                        SET wallet.last_entry_sequence_no = 6
+                        WHERE wallet.tenant_id = ?
+                          AND wallet.organization_id = ?
+                          AND user_row.organization_user_uid = ?
+                        """,
+                ready.tenantId(),
+                ready.organizationId(),
+                owner.organizationUserUid().toString());
+
         JsonNode approvedDetail = data(read(
                 platform,
                 orderBase + "/" + deliveryOrderNo,
@@ -1888,25 +2189,25 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 "APPROVED",
                 approvedDetail.path("review").path("status").asText());
         assertEquals(
-                2,
+                7,
                 approvedDetail.path("review")
                         .path("currentRevisionNo").asLong());
         assertEquals(
-                "2.00",
+                "-0.10",
                 approvedDetail.path("review")
                         .path("finalWeightKg").asText());
-        assertEquals(2, approvedDetail.path("revisions").size());
+        assertEquals(7, approvedDetail.path("revisions").size());
         assertEquals(
                 "INITIAL_REVIEW",
                 approvedDetail.path("revisions").get(0)
                         .path("revisionType").asText());
         assertEquals(
                 "CORRECTION",
-                approvedDetail.path("revisions").get(1)
+                approvedDetail.path("revisions").get(6)
                         .path("revisionType").asText());
         assertEquals(
-                "0.34",
-                approvedDetail.path("revisions").get(1)
+                "-0.10",
+                approvedDetail.path("revisions").get(6)
                         .path("amountDeltaYuan").asText());
 
         JsonNode ownerPage = miniappRead(
@@ -1920,7 +2221,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 ownerPage.path("items").get(0)
                         .path("deliveryOrderNo").asText());
         assertEquals(
-                "2.00",
+                "-0.10",
                 ownerPage.path("items").get(0)
                         .path("finalWeightKg").asText());
         JsonNode ownerDetail = miniappRead(
@@ -1935,7 +2236,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 "APPROVED",
                 ownerDetail.path("review").path("status").asText());
         assertEquals(
-                "2.00",
+                "-0.10",
                 ownerDetail.path("review")
                         .path("finalWeightKg").asText());
 
@@ -2142,6 +2443,308 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 + "/wallet-entries";
     }
 
+    private String walletProjection(
+            ReadyDeployment ready,
+            MiniappUser owner) {
+        return jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            wallet.available_balance_cent, '|',
+                            wallet.frozen_withdrawal_cent, '|',
+                            wallet.last_entry_sequence_no, '|',
+                            wallet.delivery_gate_state, '|',
+                            wallet.lock_version
+                        )
+                        FROM fund_user_wallet wallet
+                        JOIN iam_organization_user user_row
+                          ON user_row.tenant_id = wallet.tenant_id
+                         AND user_row.organization_id =
+                             wallet.organization_id
+                         AND user_row.id = wallet.organization_user_id
+                        WHERE wallet.tenant_id = ?
+                          AND wallet.organization_id = ?
+                          AND user_row.organization_user_uid = ?
+                        """,
+                String.class,
+                ready.tenantId(),
+                ready.organizationId(),
+                owner.organizationUserUid().toString());
+    }
+
+    private int walletEntryCount(
+            ReadyDeployment ready,
+            MiniappUser owner) {
+        return jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM fund_user_wallet_entry entry_row
+                        JOIN iam_organization_user user_row
+                          ON user_row.tenant_id = entry_row.tenant_id
+                         AND user_row.organization_id =
+                             entry_row.organization_id
+                         AND user_row.id =
+                             entry_row.organization_user_id
+                        WHERE entry_row.tenant_id = ?
+                          AND entry_row.organization_id = ?
+                          AND user_row.organization_user_uid = ?
+                        """,
+                Integer.class,
+                ready.tenantId(),
+                ready.organizationId(),
+                owner.organizationUserUid().toString());
+    }
+
+    private WithdrawalSupport seedWithdrawalSupport(
+            ReadyDeployment ready,
+            MiniappUser owner) {
+        Map<String, Object> identity = jdbc.queryForMap("""
+                SELECT user_row.id AS organization_user_id,
+                       user_row.openid,
+                       miniapp.id AS organization_miniapp_id,
+                       miniapp.appid,
+                       miniapp.lock_version AS miniapp_lock_version,
+                       wallet.id AS wallet_id
+                FROM iam_organization_user user_row
+                JOIN iam_organization_miniapp miniapp
+                  ON miniapp.id = user_row.organization_miniapp_id
+                 AND miniapp.tenant_id = user_row.tenant_id
+                 AND miniapp.organization_id = user_row.organization_id
+                JOIN fund_user_wallet wallet
+                  ON wallet.tenant_id = user_row.tenant_id
+                 AND wallet.organization_id = user_row.organization_id
+                 AND wallet.organization_user_id = user_row.id
+                WHERE user_row.tenant_id = ?
+                  AND user_row.organization_id = ?
+                  AND user_row.organization_user_uid = ?
+                """,
+                ready.tenantId(),
+                ready.organizationId(),
+                owner.organizationUserUid().toString());
+        long platformAdminId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM iam_platform_admin
+                        WHERE login_name = ?
+                        """, Long.class, platformLogin);
+
+        UUID merchantUid = UUID.randomUUID();
+        String mchid = "mch" + digits(run, 20);
+        jdbc.update("""
+                        INSERT INTO fund_wechat_merchant_profile (
+                            merchant_profile_uid, mchid,
+                            merchant_kind, status,
+                            scene_id, report_type, report_content,
+                            transfer_page_style,
+                            non_secret_config_ref,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, 'ORDINARY_MERCHANT', 'ENABLED',
+                            'DELIVERY_INTEGRATION',
+                            'RECYCLED_GOODS_NAME',
+                            'MIXED_RECYCLABLES',
+                            'STANDARD', NULL,
+                            0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """, merchantUid.toString(), mchid);
+        long merchantId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM fund_wechat_merchant_profile
+                        WHERE merchant_profile_uid = ?
+                        """, Long.class, merchantUid.toString());
+
+        UUID bindingUid = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO fund_miniapp_merchant_binding (
+                            binding_uid,
+                            tenant_id, organization_id,
+                            organization_miniapp_id, appid,
+                            miniapp_lock_version_snapshot,
+                            merchant_profile_id,
+                            status, verified_by_platform_admin_id,
+                            verified_at, disabled_at,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?,
+                            'VERIFIED', ?,
+                            UTC_TIMESTAMP(3), NULL,
+                            0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                bindingUid.toString(),
+                ready.tenantId(),
+                ready.organizationId(),
+                identity.get("organization_miniapp_id"),
+                identity.get("appid"),
+                identity.get("miniapp_lock_version"),
+                merchantId,
+                platformAdminId);
+        long bindingId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM fund_miniapp_merchant_binding
+                        WHERE binding_uid = ?
+                        """, Long.class, bindingUid.toString());
+
+        jdbc.update("""
+                        INSERT INTO fund_organization_withdraw_config (
+                            tenant_id, organization_id,
+                            version_no, content_sha256,
+                            hard_limit_cent,
+                            manual_min_cent, manual_max_cent,
+                            manual_review_free_threshold_cent,
+                            publication_source,
+                            published_by_staff_account_id,
+                            published_at, created_at
+                        ) VALUES (
+                            ?, ?, 1, ?,
+                            20000, 10, 20000, 0,
+                            'SYSTEM', NULL,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                ready.tenantId(),
+                ready.organizationId(),
+                sha256(("withdraw-config-" + run)
+                        .getBytes(StandardCharsets.UTF_8)));
+        long withdrawConfigId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM fund_organization_withdraw_config
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND version_no = 1
+                        """,
+                Long.class,
+                ready.tenantId(),
+                ready.organizationId());
+
+        UUID accountUid = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO fund_organization_payout_account (
+                            account_uid,
+                            tenant_id, organization_id,
+                            available_payout_cent,
+                            frozen_withdrawal_cent,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?,
+                            0, 0,
+                            0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                accountUid.toString(),
+                ready.tenantId(),
+                ready.organizationId());
+        long payoutAccountId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM fund_organization_payout_account
+                        WHERE account_uid = ?
+                        """, Long.class, accountUid.toString());
+
+        return new WithdrawalSupport(
+                ready.tenantId(),
+                ready.organizationId(),
+                ((Number) identity.get("organization_user_id"))
+                        .longValue(),
+                ((Number) identity.get("wallet_id")).longValue(),
+                payoutAccountId,
+                withdrawConfigId,
+                bindingId,
+                ((Number) identity.get("organization_miniapp_id"))
+                        .longValue(),
+                merchantId,
+                mchid,
+                identity.get("appid").toString(),
+                identity.get("openid").toString());
+    }
+
+    private long activateWithdrawal(
+            WithdrawalSupport support,
+            String businessState,
+            String suffix) {
+        String withdrawalOrderNo = "WD" + suffix + run;
+        jdbc.update("""
+                        INSERT INTO fund_withdrawal_order (
+                            withdrawal_order_no,
+                            tenant_id, organization_id,
+                            organization_user_id, wallet_id,
+                            organization_payout_account_id,
+                            withdraw_config_id,
+                            withdraw_config_version_no,
+                            hard_limit_cent_snapshot,
+                            manual_min_cent_snapshot,
+                            manual_max_cent_snapshot,
+                            manual_review_free_threshold_cent_snapshot,
+                            amount_cent,
+                            miniapp_merchant_binding_id,
+                            organization_miniapp_id,
+                            merchant_profile_id,
+                            mchid_snapshot, appid_snapshot,
+                            openid_snapshot,
+                            business_state,
+                            negative_balance_pause,
+                            post_boundary_risk,
+                            pre_channel_block_reason,
+                            channel_boundary_at,
+                            long_unsettled_at, reviewed_at,
+                            channel_terminal_at, ended_at,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?,
+                            ?, 1,
+                            20000, 10, 20000, 0,
+                            10,
+                            ?, ?, ?, ?, ?, ?,
+                            ?,
+                            0, 0, NULL,
+                            CASE WHEN ? = 'CHANNEL_PROCESSING'
+                                 THEN UTC_TIMESTAMP(3)
+                                 ELSE NULL END,
+                            NULL, NULL, NULL, NULL,
+                            0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                withdrawalOrderNo,
+                support.tenantId(),
+                support.organizationId(),
+                support.organizationUserId(),
+                support.walletId(),
+                support.payoutAccountId(),
+                support.withdrawConfigId(),
+                support.bindingId(),
+                support.organizationMiniappId(),
+                support.merchantId(),
+                support.mchid(),
+                support.appid(),
+                support.openid(),
+                businessState,
+                businessState);
+        long withdrawalOrderId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM fund_withdrawal_order
+                        WHERE withdrawal_order_no = ?
+                        """, Long.class, withdrawalOrderNo);
+        jdbc.update("""
+                        INSERT INTO fund_active_withdrawal (
+                            wallet_id, tenant_id, organization_id,
+                            withdrawal_order_id, acquired_at
+                        ) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(3))
+                        """,
+                support.walletId(),
+                support.tenantId(),
+                support.organizationId(),
+                withdrawalOrderId);
+        return withdrawalOrderId;
+    }
+
+    private String withdrawalRiskProjection(long withdrawalOrderId) {
+        return jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            business_state, '|',
+                            negative_balance_pause, '|',
+                            post_boundary_risk, '|',
+                            channel_boundary_at IS NOT NULL
+                        )
+                        FROM fund_withdrawal_order
+                        WHERE id = ?
+                        """, String.class, withdrawalOrderId);
+    }
+
     private void assertWalletState(
             ReadyDeployment ready,
             MiniappUser owner,
@@ -2226,11 +2829,19 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 201);
         String tenantCode = code("tenant");
         String organizationCode = code("org");
+        String principalLogin = "delivery-principal-" + run;
         createEnabledScope(
                 platform,
                 tenantCode,
                 organizationCode,
-                "delivery-principal-" + run);
+                principalLogin);
+        BrowserClient principal = new BrowserClient();
+        login(
+                principal,
+                "/api/v1/web/auth/sessions",
+                principalLogin,
+                PRINCIPAL_PASSWORD,
+                201);
 
         String hardwareSn = "HW-DELIVERY-" + run;
         JsonNode asset = data(write(
@@ -2243,17 +2854,33 @@ class DeliveryHappyPathMysqlIntegrationTest {
                         "productionBatch", "BATCH-" + run,
                         "expectedPortCount", 2),
                 201));
-        String deploymentBase = "/api/v1/web/platform/tenants/"
-                + tenantCode + "/organizations/" + organizationCode
-                + "/device-deployments";
-        JsonNode deployment = data(write(
+        JsonNode allocation = data(write(
                 platform,
-                post(deploymentBase),
+                post("/api/v1/web/platform/tenants/" + tenantCode
+                        + "/device-asset-allocations"),
                 UUID.randomUUID(),
                 Map.of(
                         "hardwareSn", hardwareSn,
                         "expectedAssetVersion",
-                        asset.path("version").asLong()),
+                        asset.path("version").asLong(),
+                        "reason",
+                        "delivery integration allocation"),
+                201));
+        String organizationDeploymentBase =
+                "/api/v1/web/organizations/" + organizationCode
+                        + "/device-deployments";
+        String deploymentBase = "/api/v1/web/platform/tenants/"
+                + tenantCode + "/organizations/" + organizationCode
+                + "/device-deployments";
+        JsonNode deployment = data(write(
+                principal,
+                post(organizationDeploymentBase),
+                UUID.randomUUID(),
+                Map.of(
+                        "allocationUid",
+                        allocation.path("allocationUid").asText(),
+                        "expectedAllocationVersion",
+                        allocation.path("allocationVersion").asLong()),
                 201));
         String deploymentCode =
                 deployment.path("deploymentCode").asText();
@@ -2272,60 +2899,50 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 deploymentCode);
         assertNotNull(applicationUid);
 
-        jdbc.update("""
-                UPDATE dev_config_application application
-                JOIN dev_config_version version
-                  ON version.id =
-                     application.config_version_id
-                SET application.status = 'APPLIED',
-                    application.reported_version_no =
-                        version.version_no,
-                    application.reported_content_sha256 =
-                        version.content_sha256,
-                    application.reported_mcu_payload_sha256 =
-                        version.mcu_payload_sha256,
-                    application.edge_persisted_at =
-                        UTC_TIMESTAMP(3),
-                    application.mcu_synced_at =
-                        UTC_TIMESTAMP(3),
-                    application.applied_at =
-                        UTC_TIMESTAMP(3),
-                    application.updated_at =
-                        UTC_TIMESTAMP(3),
-                    application.lock_version =
-                        application.lock_version + 1
-                WHERE application.application_uid = ?
-                """, applicationUid);
-        jdbc.update("""
-                UPDATE ops_reliable_task
-                SET next_run_at =
-                        DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 1 DAY),
-                    updated_at = UTC_TIMESTAMP(3),
-                    lock_version = lock_version + 1
-                WHERE task_type = 'ENSURE_DEVICE_CONFIGURATION'
-                  AND target_stable_key = ?
-                """, applicationUid);
-
+        acceptTransportLifecycle(
+                hardwareSn,
+                "ONLINE",
+                Instant.now().toEpochMilli(),
+                "delivery-configuration-online-" + run);
+        ReliableWorkerBatchResult configurationSubmission =
+                commandWorker.runBatch(
+                        "delivery-configuration-" + run);
+        assertEquals(1, configurationSubmission.claimed());
+        assertEquals(1, configurationSubmission.accepted());
+        assertEquals(0, configurationSubmission.failed());
+        applyTrustedConfigurationProgress(
+                hardwareSn,
+                deploymentCode,
+                applicationUid);
         applyTrustedRuntimeSnapshot(
                 hardwareSn,
                 deploymentCode,
                 applicationUid,
-                1);
+                2);
+        Long deploymentId = jdbc.queryForObject("""
+                SELECT id
+                FROM dev_device_deployment
+                WHERE public_code = ?
+                """, Long.class, deploymentCode);
+        assertNotNull(deploymentId);
+        deferConfirmationTasks(deploymentId);
         data(write(
                 platform,
                 post(deploymentBase + "/" + deploymentCode
-                        + "/activations"),
+                        + "/acceptances"),
                 UUID.randomUUID(),
                 Map.of(
-                        "expectedVersion", 0,
+                        "expectedDeploymentVersion", 0,
                         "expectedConfigurationVersion", 1,
-                        "acceptanceConfirmed", true,
+                        "deliveryDoorObservedNormal", true,
+                        "camerasObservedNormal", true,
+                        "cleanDoorInstallationObservedNormal", true,
                         "reason",
                         "trusted Orange Pi delivery fixture"),
                 200));
         data(write(
-                platform,
-                post(deploymentBase + "/" + deploymentCode
+                principal,
+                post(organizationDeploymentBase + "/" + deploymentCode
                         + "/business-switch/enablements"),
                 UUID.randomUUID(),
                 Map.of(
@@ -2352,7 +2969,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 deploymentCode,
                 ((Number) ids.get("tenant_id")).longValue(),
                 ((Number) ids.get("organization_id")).longValue(),
-                ((Number) ids.get("deployment_id")).longValue(),
+                deploymentId,
                 ((Number) ids.get("port_id")).longValue());
     }
 
@@ -2733,7 +3350,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         wire.put("commandUid", downlink.commandUid().toString());
         wire.put("operationUid", operationUid.toString());
         wire.put("deploymentCode", ready.deploymentCode());
-        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("edgeEventSequence", edgeEventSequence + 1);
         wire.put("occurredAt", occurredAt);
         wire.put("occurredAtPresent", true);
         ((ObjectNode) wire.path("target"))
@@ -3000,7 +3617,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         String afterMeasurementUid =
                 UUID.randomUUID().toString();
         wire.put("eventUid", eventUid);
-        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("edgeEventSequence", edgeEventSequence + 1);
         wire.put("deploymentCode", ready.deploymentCode());
         wire.put("commandUid", commandUid);
         wire.put("sessionUid", sessionUid.toString());
@@ -3177,7 +3794,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         JsonNode commandConfig =
                 commandPayload.path("config");
         wire.put("eventUid", eventUid);
-        wire.put("edgeEventSequence", edgeEventSequence);
+        wire.put("edgeEventSequence", edgeEventSequence + 1);
         wire.put("deploymentCode", ready.deploymentCode());
         wire.put(
                 "commandUid",
@@ -3389,7 +4006,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 + photoUid
                 + ".jpg";
         wire.put("eventUid", eventUid);
-        wire.put("edgeEventSequence", 2);
+        wire.put("edgeEventSequence", 3);
         wire.put("deploymentCode", ready.deploymentCode());
         wire.put("occurredAt", occurredAt);
         wire.put("workUid", sessionUid.toString());
@@ -3442,6 +4059,135 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 objectUrl);
     }
 
+    private void applyTrustedConfigurationProgress(
+            String hardwareSn,
+            String deploymentCode,
+            String applicationUid) {
+        Map<String, Object> target = jdbc.queryForMap("""
+                SELECT command_row.command_uid,
+                       version.version_no,
+                       LOWER(HEX(version.content_sha256))
+                           AS content_sha256,
+                       LOWER(HEX(version.mcu_payload_sha256))
+                           AS mcu_payload_sha256
+                FROM dev_config_application application
+                JOIN dev_config_version version
+                  ON version.id = application.config_version_id
+                JOIN dev_device_command command_row
+                  ON command_row.config_application_id = application.id
+                 AND command_row.command_type = 'APPLY_CONFIGURATION'
+                WHERE application.application_uid = ?
+                """, applicationUid);
+        String commandUid = target.get("command_uid").toString();
+        long version = ((Number) target.get("version_no")).longValue();
+        String contentSha256 = target.get("content_sha256").toString();
+        String mcuPayloadSha256 =
+                target.get("mcu_payload_sha256").toString();
+        String mcuCommandUid = UUID.randomUUID().toString();
+
+        Map<String, Object> semanticPayload = new LinkedHashMap<>();
+        semanticPayload.put("applicationUid", applicationUid);
+        semanticPayload.put("contentSha256", contentSha256);
+        semanticPayload.put("errorCode", null);
+        semanticPayload.put("mcuCommandUid", mcuCommandUid);
+        semanticPayload.put("mcuPayloadSha256", mcuPayloadSha256);
+        semanticPayload.put("stage", "APPLIED");
+        semanticPayload.put("version", version);
+        String payloadSha256 = canonicalizer.hex(
+                canonicalizer.payloadSha256(semanticPayload));
+
+        Map<String, Object> eventTarget = new LinkedHashMap<>();
+        eventTarget.put("type", 1);
+        eventTarget.put("uid", applicationUid);
+        String eventUid = UUID.randomUUID().toString();
+        Map<String, Object> wire = new LinkedHashMap<>();
+        wire.put("applicationUid", applicationUid);
+        wire.put("clockQuality", 1);
+        wire.put("commandUid", commandUid);
+        wire.put("contentSha256", contentSha256);
+        wire.put("deliveryClass", 1);
+        wire.put("deploymentCode", deploymentCode);
+        wire.put("edgeEventSequence", 1);
+        wire.put("errorCode", "");
+        wire.put("errorCodePresent", false);
+        wire.put("eventType", 1);
+        wire.put("eventUid", eventUid);
+        wire.put("mcuCommandUid", mcuCommandUid);
+        wire.put("mcuCommandUidPresent", true);
+        wire.put("mcuPayloadSha256", mcuPayloadSha256);
+        wire.put(
+                "occurredAt",
+                Instant.now().truncatedTo(ChronoUnit.MILLIS).toString());
+        wire.put("occurredAtPresent", true);
+        wire.put("payloadSha256", payloadSha256);
+        wire.put("schemaVersion", 1);
+        wire.put("stage", 2);
+        wire.put("target", eventTarget);
+        wire.put("version", version);
+
+        dispatchTrustedWireEvent(
+                "configurationProgress",
+                wire,
+                hardwareSn);
+        ReliableWorkerBatchResult result = inboxWorker.runBatch(
+                "configuration-progress-" + eventUid);
+        assertEquals(1, result.claimed());
+        assertEquals(
+                0,
+                result.failed(),
+                () -> inboxFailureDiagnostic(eventUid));
+        assertEquals(1, result.accepted());
+        assertEquals("APPLIED", jdbc.queryForObject("""
+                        SELECT status
+                        FROM dev_config_application
+                        WHERE application_uid = ?
+                        """, String.class, applicationUid));
+    }
+
+    private void acceptTransportLifecycle(
+            String hardwareSn,
+            String status,
+            long observedAtEpochMillis,
+            String externalMessageId) {
+        Map<String, Object> subData = new LinkedHashMap<>();
+        subData.put("productId", "delivery-integration-product");
+        subData.put("deviceName", hardwareSn);
+        subData.put("time", observedAtEpochMillis);
+        Map<String, Object> decrypted = new LinkedHashMap<>();
+        decrypted.put(
+                "msgType",
+                "ONLINE".equals(status)
+                        ? "deviceOnline"
+                        : "deviceOffline");
+        decrypted.put("subData", subData);
+
+        OneNetProperties properties = new OneNetProperties();
+        properties.setProductId("delivery-integration-product");
+        CosProperties cosProperties = new CosProperties();
+        cosProperties.setBaseUrl(COS_BASE_URL);
+        OneNetEventDispatcher dispatcher = new OneNetEventDispatcher(
+                trustedInboxPort,
+                sourceScopePort,
+                properties,
+                cosProperties,
+                objectMapper);
+        dispatcher.handle(
+                objectMapper.writeValueAsString(decrypted),
+                externalMessageId,
+                "encrypted-delivery-lifecycle-envelope"
+                        .getBytes(StandardCharsets.UTF_8));
+        ReliableWorkerBatchResult result = inboxWorker.runBatch(
+                "delivery-lifecycle-" + externalMessageId);
+        assertEquals(1, result.claimed());
+        assertEquals(1, result.accepted());
+        assertEquals(0, result.failed());
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                        """, String.class, externalMessageId));
+    }
+
     private void applyTrustedRuntimeSnapshot(
             String hardwareSn,
             String deploymentCode,
@@ -3486,7 +4232,8 @@ class DeliveryHappyPathMysqlIntegrationTest {
         semanticPayload.put("mcuFirmwareVersion", null);
         semanticPayload.put("uartProtocolMajor", null);
         semanticPayload.put("uartProtocolMinor", null);
-        semanticPayload.put("uartState", "FAULT");
+        semanticPayload.put("uartState", "READY");
+        semanticPayload.put("pendingReliableEventCount", 0);
         useFixedFrameRuntimePortFacts(semanticPayload, false);
         String payloadSha256 = canonicalizer.hex(
                 canonicalizer.payloadSha256(semanticPayload));
@@ -3530,7 +4277,8 @@ class DeliveryHappyPathMysqlIntegrationTest {
         wire.remove("mcuFirmwareVersion");
         wire.remove("uartProtocolMajor");
         wire.remove("uartProtocolMinor");
-        wire.put("uartState", 5);
+        wire.put("uartState", 3);
+        wire.put("pendingReliableEventCount", 0);
         useFixedFrameRuntimePortFacts(wire, true);
         wire.put("payloadSha256", payloadSha256);
         mutableMap(wire.get("target"))
@@ -3540,15 +4288,40 @@ class DeliveryHappyPathMysqlIntegrationTest {
                 "deviceRuntimeSnapshot",
                 wire,
                 hardwareSn);
-        ReliableWorkerBatchResult result =
-                inboxWorker.runBatch(
-                        "runtime-" + eventUid);
-        assertEquals(1, result.claimed());
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE external_message_id = ?
+                          AND message_kind =
+                              'DEVICE_RUNTIME_SNAPSHOT'
+                        """, String.class, eventUid));
+        Map<String, Object> appliedRuntime = jdbc.queryForMap("""
+                SELECT edge_event.event_uid
+                           AS trusted_runtime_edge_event_uid,
+                       runtime.trusted_runtime_sequence,
+                       runtime.uart_state,
+                       runtime.applied_config_version_no
+                FROM dev_deployment_runtime_state runtime
+                JOIN dev_device_deployment deployment
+                  ON deployment.id = runtime.deployment_id
+                JOIN dev_edge_event edge_event
+                  ON edge_event.id =
+                     runtime.trusted_runtime_edge_event_id
+                WHERE deployment.public_code = ?
+                """, deploymentCode);
         assertEquals(
-                0,
-                result.failed(),
-                () -> inboxFailureDiagnostic(eventUid));
-        assertEquals(1, result.accepted());
+                eventUid,
+                appliedRuntime.get(
+                        "trusted_runtime_edge_event_uid").toString());
+        assertEquals(
+                edgeEventSequence,
+                ((Number) appliedRuntime.get(
+                        "trusted_runtime_sequence")).longValue());
+        assertEquals("READY", appliedRuntime.get("uart_state"));
+        assertEquals(
+                version,
+                ((Number) appliedRuntime.get(
+                        "applied_config_version_no")).longValue());
     }
 
     private void dispatchTrustedWireEvent(
@@ -3800,7 +4573,8 @@ class DeliveryHappyPathMysqlIntegrationTest {
     private List<MvcResult> concurrentWrites(
             BrowserClient client,
             String path,
-            UUID operationUid,
+            UUID firstOperationUid,
+            UUID secondOperationUid,
             Object body) throws Exception {
         String csrfToken = csrf(client);
         Cookie[] requestCookies = client.cookies.values()
@@ -3813,7 +4587,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         var first = executor.submit(
                 () -> concurrentWrite(
                         path,
-                        operationUid,
+                        firstOperationUid,
                         csrfToken,
                         requestCookies,
                         requestBody,
@@ -3822,7 +4596,7 @@ class DeliveryHappyPathMysqlIntegrationTest {
         var second = executor.submit(
                 () -> concurrentWrite(
                         path,
-                        operationUid,
+                        secondOperationUid,
                         csrfToken,
                         requestCookies,
                         requestBody,
@@ -4033,6 +4807,21 @@ class DeliveryHappyPathMysqlIntegrationTest {
             String accessToken,
             UUID organizationUserUid,
             String appId) {
+    }
+
+    private record WithdrawalSupport(
+            long tenantId,
+            long organizationId,
+            long organizationUserId,
+            long walletId,
+            long payoutAccountId,
+            long withdrawConfigId,
+            long bindingId,
+            long organizationMiniappId,
+            long merchantId,
+            String mchid,
+            String appid,
+            String openid) {
     }
 
     private record DeliveryEvent(

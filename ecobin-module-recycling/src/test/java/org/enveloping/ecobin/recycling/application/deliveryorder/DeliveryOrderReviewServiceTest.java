@@ -19,6 +19,8 @@ import org.enveloping.ecobin.identity.api.port.DeliveryScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.port.DeliveryWalletEntryOwnerResolverPort;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeliveryScope;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewResult;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewPreview;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.PreviewDeliveryReviewRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -172,6 +174,179 @@ class DeliveryOrderReviewServiceTest {
                 .setActualTransactionActive(false);
         TransactionSynchronizationManager
                 .setCurrentTransactionReadOnly(false);
+    }
+
+    @Test
+    void pendingPreviewUsesInitialPermissionAndHasNoSideEffects() {
+        when(repository.findOrder(any(), any()))
+                .thenReturn(Optional.of(pendingOrder(
+                        null,
+                        null,
+                        "INVALID")));
+
+        DeliveryReviewPreview preview = service.preview(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                previewRequest(
+                        0,
+                        "MODIFIED_APPROVED",
+                        "2.00"));
+
+        assertThat(preview.deliveryOrderNo()).isEqualTo(ORDER_NO);
+        assertThat(preview.revisionType())
+                .isEqualTo("INITIAL_REVIEW");
+        assertThat(preview.expectedRevisionNo()).isZero();
+        assertThat(preview.decision())
+                .isEqualTo("MODIFIED_APPROVED");
+        assertThat(preview.finalWeightKg()).isEqualTo("2.00");
+        assertThat(preview.finalAmountYuan()).isEqualTo("1.60");
+        assertThat(preview.walletDeltaYuan()).isEqualTo("1.60");
+        assertThat(preview.walletEffect()).isEqualTo("APPLIED");
+        assertThat(preview.previewedAt()).isEqualTo(REVIEWED_AT);
+
+        verify(repository, never())
+                .lockCurrentOpenBalanceFloor(any());
+        verify(repository, never()).lockOrder(any(), any());
+        verify(repository, never())
+                .insertRevision(any(), any(), any());
+        verify(repository, never()).updateCurrentRevision(
+                any(), any(), any(), any(), anyLong(), any());
+        verify(walletOwnerResolver, never()).resolve(any());
+        verify(funds, never()).applyDeliveryRevisionDelta(any());
+        verify(audit, never()).findSuccessful(any());
+        verify(audit, never()).append(any());
+    }
+
+    @Test
+    void approvedPreviewIsCorrectionAndCalculatesOnlyTheDelta() {
+        when(repository.findOrder(any(), any()))
+                .thenReturn(Optional.of(approvedOrder(2)));
+
+        DeliveryReviewPreview preview = service.preview(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                previewRequest(
+                        2,
+                        "MODIFIED_APPROVED",
+                        "0.50"));
+
+        assertThat(preview.revisionType()).isEqualTo("CORRECTION");
+        assertThat(preview.finalAmountYuan()).isEqualTo("0.40");
+        assertThat(preview.walletDeltaYuan()).isEqualTo("-0.40");
+        assertThat(preview.walletEffect()).isEqualTo("APPLIED");
+    }
+
+    @Test
+    void previewRequiresCapabilitySelectedByCurrentOrderState() {
+        when(authorization.authorize(any()))
+                .thenReturn(
+                        authorized(true, false, true),
+                        authorized(true, true, false));
+        when(repository.findOrder(any(), any()))
+                .thenReturn(
+                        Optional.of(pendingOrder(
+                                new BigDecimal("1.00"),
+                                80L,
+                                "RELIABLE")),
+                        Optional.of(approvedOrder(1)));
+
+        assertCapabilityRequired(() -> service.preview(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                previewRequest(
+                        0,
+                        "ORIGINAL_APPROVED",
+                        null)));
+        assertCapabilityRequired(() -> service.preview(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                previewRequest(
+                        1,
+                        "ORIGINAL_APPROVED",
+                        null)));
+
+        verify(repository, never())
+                .insertRevision(any(), any(), any());
+        verify(funds, never()).applyDeliveryRevisionDelta(any());
+        verify(audit, never()).append(any());
+    }
+
+    @Test
+    void previewRejectsStaleRevisionWithoutWrites() {
+        when(repository.findOrder(any(), any()))
+                .thenReturn(Optional.of(approvedOrder(2)));
+
+        assertThatThrownBy(() -> service.preview(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                previewRequest(
+                        1,
+                        "MODIFIED_APPROVED",
+                        "2.00")))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        failure -> {
+                            assertThat(failure.status()).isEqualTo(409);
+                            assertThat(failure.code()).isEqualTo(
+                                    "DELIVERY.REVISION_VERSION_CONFLICT");
+                        });
+
+        verify(repository, never())
+                .insertRevision(any(), any(), any());
+        verify(funds, never()).applyDeliveryRevisionDelta(any());
+        verify(audit, never()).append(any());
+    }
+
+    @Test
+    void previewAndCommittingReviewUseTheSameCalculation() {
+        LockedDeliveryOrderRow order = pendingOrder(
+                null,
+                null,
+                "INVALID");
+        when(repository.findOrder(any(), any()))
+                .thenReturn(Optional.of(order));
+        when(repository.lockOrder(any(), any()))
+                .thenReturn(Optional.of(order));
+
+        DeliveryReviewPreview preview = service.preview(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                previewRequest(
+                        0,
+                        "MODIFIED_APPROVED",
+                        "2.00"));
+        DeliveryReviewResult committed = service.review(
+                false,
+                null,
+                "org-demo",
+                ORDER_NO,
+                OPERATION_UID,
+                request(
+                        0,
+                        "MODIFIED_APPROVED",
+                        "2.00",
+                        null));
+
+        assertThat(committed.finalWeightKg())
+                .isEqualTo(preview.finalWeightKg());
+        assertThat(committed.finalAmountYuan())
+                .isEqualTo(preview.finalAmountYuan());
+        assertThat(committed.walletDeltaYuan())
+                .isEqualTo(preview.walletDeltaYuan());
+        assertThat(committed.walletEffect())
+                .isEqualTo(preview.walletEffect());
     }
 
     @Test
@@ -698,6 +873,16 @@ class DeliveryOrderReviewServiceTest {
                 decision,
                 finalWeightKg,
                 reason);
+    }
+
+    private static PreviewDeliveryReviewRequest previewRequest(
+            long expectedRevisionNo,
+            String decision,
+            String finalWeightKg) {
+        return new PreviewDeliveryReviewRequest(
+                expectedRevisionNo,
+                decision,
+                finalWeightKg);
     }
 
     private static LockedDeliveryOrderRow pendingOrder(

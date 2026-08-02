@@ -2552,6 +2552,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/review-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview the server-authoritative amount and wallet delta for the current review state
+         * @description A read-only POST protected by the Web session and CSRF token. It does not accept an Idempotency-Key, lock the order or wallet, append a revision or audit, or guarantee that the later committing review will succeed.
+         */
+        post: operations["previewWebDeliveryOrderReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/reviews": {
         parameters: {
             query?: never;
@@ -2627,6 +2650,30 @@ export interface paths {
         get: operations["getPlatformWebDeliveryOrder"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/delivery-orders/{deliveryOrderNo}/review-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a delivery review in an explicit platform target scope
+         * @description The current order state selects INITIAL_REVIEW or CORRECTION and therefore review.execute or delivery.correct. The preview is read-only and is recalculated under locks by the later committing command.
+         */
+        post: operations["previewPlatformWebDeliveryOrderReview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4436,6 +4483,25 @@ export interface components {
             finalWeightKg?: string | null;
             reason?: string | null;
         };
+        PreviewDeliveryReviewRequest: {
+            /** Format: int64 */
+            expectedRevisionNo: number;
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            /** @description Must be null for ORIGINAL_APPROVED and present for MODIFIED_APPROVED. The server never accepts a client-calculated final amount. */
+            finalWeightKg: string | null;
+        };
+        DeliveryReviewPreview: {
+            deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
+            revisionType: components["schemas"]["DeliveryRevisionType"];
+            /** Format: int64 */
+            expectedRevisionNo: number;
+            decision: components["schemas"]["DeliveryReviewDecision"];
+            finalWeightKg: components["schemas"]["BusinessWeightKg"];
+            finalAmountYuan: components["schemas"]["MoneyCny"];
+            walletDeltaYuan: components["schemas"]["MoneyCny"];
+            walletEffect: components["schemas"]["DeliveryWalletEffect"];
+            previewedAt: components["schemas"]["UtcTimestamp"];
+        };
         DeliveryReviewResult: {
             deliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
             revisionUid: components["schemas"]["UuidV4"];
@@ -4490,6 +4556,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DeliveryReviewResult"];
+            requestId: string;
+        };
+        DeliveryReviewPreviewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeliveryReviewPreview"];
             requestId: string;
         };
         /** @description Stable public identity of one whole delivery session */
@@ -5635,6 +5707,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeliveryReviewResultEnvelope"];
+            };
+        };
+        /** @description A no-store calculation from the currently observed order revision; no business state was changed */
+        DeliveryReviewPreviewOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeliveryReviewPreviewEnvelope"];
             };
         };
         /** @description Pending reward and wallet balances observed from one repeatable-read snapshot */
@@ -9102,6 +9185,31 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
         };
     };
+    previewWebDeliveryOrderReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewDeliveryReviewRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeliveryReviewPreviewOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
     reviewWebDeliveryOrder: {
         parameters: {
             query?: never;
@@ -9205,6 +9313,32 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    previewPlatformWebDeliveryOrderReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deliveryOrderNo: components["parameters"]["DeliveryOrderNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewDeliveryReviewRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeliveryReviewPreviewOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     reviewPlatformWebDeliveryOrder: {

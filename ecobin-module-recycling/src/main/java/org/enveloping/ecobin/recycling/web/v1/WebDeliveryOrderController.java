@@ -7,12 +7,15 @@ import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.enveloping.ecobin.recycling.application.deliveryorder.DeliveryOrderQueryService;
 import org.enveloping.ecobin.recycling.application.deliveryorder.DeliveryOrderReviewService;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.CursorPage;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewPreview;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewResult;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.PreviewDeliveryReviewRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.WebDeliveryOrderDetail;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.WebDeliveryOrderItem;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -156,6 +159,46 @@ public class WebDeliveryOrderController {
 
     @PostMapping(
             "/api/v1/web/organizations/{organizationCode}"
+                    + "/delivery-orders/{deliveryOrderNo}/review-previews")
+    public ResponseEntity<TargetApiEnvelope<DeliveryReviewPreview>>
+    staffReviewPreview(
+            @PathVariable String organizationCode,
+            @PathVariable String deliveryOrderNo,
+            @Valid @RequestBody PreviewDeliveryReviewRequest body,
+            HttpServletRequest request) {
+        return previewed(
+                reviewService.preview(
+                        false,
+                        null,
+                        organizationCode,
+                        deliveryOrderNo,
+                        body),
+                request);
+    }
+
+    @PostMapping(
+            "/api/v1/web/platform/tenants/{tenantCode}"
+                    + "/organizations/{organizationCode}"
+                    + "/delivery-orders/{deliveryOrderNo}/review-previews")
+    public ResponseEntity<TargetApiEnvelope<DeliveryReviewPreview>>
+    platformReviewPreview(
+            @PathVariable String tenantCode,
+            @PathVariable String organizationCode,
+            @PathVariable String deliveryOrderNo,
+            @Valid @RequestBody PreviewDeliveryReviewRequest body,
+            HttpServletRequest request) {
+        return previewed(
+                reviewService.preview(
+                        true,
+                        tenantCode,
+                        organizationCode,
+                        deliveryOrderNo,
+                        body),
+                request);
+    }
+
+    @PostMapping(
+            "/api/v1/web/organizations/{organizationCode}"
                     + "/delivery-orders/{deliveryOrderNo}/reviews")
     public ResponseEntity<TargetApiEnvelope<DeliveryReviewResult>>
     staffReview(
@@ -247,6 +290,17 @@ public class WebDeliveryOrderController {
             DeliveryReviewResult result,
             HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
+                .body(TargetApiEnvelope.ok(
+                        result,
+                        TargetRequestIds.resolve(request)));
+    }
+
+    private static ResponseEntity<TargetApiEnvelope<DeliveryReviewPreview>>
+    previewed(
+            DeliveryReviewPreview result,
+            HttpServletRequest request) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
                 .body(TargetApiEnvelope.ok(
                         result,
                         TargetRequestIds.resolve(request)));

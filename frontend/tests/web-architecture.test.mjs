@@ -164,6 +164,10 @@ test('delivery Web slice stays on generated contracts and additive commands', ()
     routeSource,
     /path: '\/deliveries'[\s\S]*?<DeliveryOrdersPage \/>/,
   );
+  assert.match(
+    routeSource,
+    /path: '\/clean-records'[\s\S]*?allOf: \['clean\.read'\]/,
+  );
   assert.match(apiSource, /Schemas\['WebDeliveryOrderItem'\]/);
   assert.match(apiSource, /operations\['listWebDeliveryOrders'\]/);
   assert.match(apiSource, /intent\.execute/);

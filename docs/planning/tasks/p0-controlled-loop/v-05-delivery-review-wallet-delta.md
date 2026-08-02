@@ -6,9 +6,13 @@ executor: agent
 owner: "待指派 - 审核与钱包端到端切片负责人"
 effort_range: "5-8 person-days"
 earliest_start: "V-04 done"
+phase_progress:
+  software: done
+  integration: done
+  acceptance: not-started
 blocked_by:
   - V-04
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # V-05｜投递审核/纠错形成真实钱包差额
@@ -66,3 +70,18 @@ implementation_authorized: false
 
 - 2026-07-23：发布任务文件；仅完成设计与任务拆分，尚未授权实施。
 - 2026-07-24：同步 session 首末重量和负重量布尔标志审核语义；依赖及授权状态不变。
+- 2026-08-03：完成本轮投递审核正式收口。后端新增首次审核/纠错共用的只读金额
+  预览，按当前订单状态分别校验 `review.execute`（执行首次审核）或
+  `delivery.correct`（纠错已通过订单）权限；预览沿用锁定单价和 `HALF_UP`（五入）
+  分币规则，不锁钱包、不追加修订、不写审计，正式提交仍重新锁单和计算。Web 使用
+  字符串与 `BigInt` 定点数完成重量/金额双向换算，300ms 稳定后静默预览，只有最新
+  输入、客户端结果和服务端结果一致时才允许确认；版本冲突会关闭弹窗并刷新订单。
+  OpenAPI、生成类型、生产构建、后端 18 项、定点换算 5 项、Web 架构 9 项和投递
+  Playwright 浏览器自动化 6 项均通过。
+- 2026-08-03：全新 MySQL 8.4、Flyway V1～V26 隔离库中的审核专项通过，覆盖预览
+  前后订单/修订/钱包/审计零变化、正金额首次审核、正负纠错仅记差额、最终零金额、
+  零差额仍追加修订、正负 `HALF_UP` 分币边界、两个不同幂等键竞争同一版本、钱包
+  序列耗尽时订单和修订整体回滚，以及提现在微信渠道边界前因负余额暂停、越过边界后
+  只记录风险。真实“提现创建或审核与投递纠错同时竞争”仍按范围留给 V-10。本轮没有
+  使用开发库中的待审核订单，也没有恢复旧设备端点。由于 V-04 真机人工验收尚未完成，
+  V-05 acceptance 保持 `not-started`，整体状态继续为 `blocked`，不标记为 `done`。

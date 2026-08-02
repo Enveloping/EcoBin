@@ -9,6 +9,7 @@
     "api:types": "openapi-typescript ../../contracts/http/openapi.yaml -o src/api/generated/openapi.d.ts",
     "api:types:check": "openapi-typescript ../../contracts/http/openapi.yaml -o src/api/generated/openapi.d.ts --check",
     "test:architecture": "node --no-warnings --experimental-strip-types --test ../tests/web-architecture.test.mjs",
+    "test:delivery-review": "node --no-warnings --experimental-strip-types --test ../tests/delivery-review-math.test.mjs",
     "test:e2e": "playwright test",
     "test:http-foundation": "node --no-warnings --experimental-strip-types --test ../tests/http-foundation.test.mjs",
     "test:bundle-budget": "node scripts/check-bundle-budget.mjs",
