@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.sql.SQLException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -53,11 +54,46 @@ public class OneNetReliableCommandWorker {
                         result.failed());
             }
         } catch (RuntimeException failure) {
+            FailureDiagnostic diagnostic = diagnose(failure);
             LOGGER.error(
-                    "OneNet reliable worker batch failed type={}",
-                    failure.getClass().getSimpleName());
+                    "OneNet reliable worker batch failed "
+                            + "failureType={} causeType={} sqlState={} "
+                            + "vendorCode={}",
+                    diagnostic.failureType(),
+                    diagnostic.causeType(),
+                    diagnostic.sqlState(),
+                    diagnostic.vendorCode());
         } finally {
             polling.set(false);
         }
+    }
+
+    private static FailureDiagnostic diagnose(RuntimeException failure) {
+        Throwable cursor = failure;
+        Throwable deepest = failure;
+        SQLException sqlFailure = null;
+        for (int depth = 0; cursor != null && depth < 32; depth++) {
+            deepest = cursor;
+            if (cursor instanceof SQLException candidate) {
+                sqlFailure = candidate;
+            }
+            cursor = cursor.getCause();
+        }
+        return new FailureDiagnostic(
+                failure.getClass().getSimpleName(),
+                deepest.getClass().getSimpleName(),
+                sqlFailure == null || sqlFailure.getSQLState() == null
+                        ? "NONE"
+                        : sqlFailure.getSQLState(),
+                sqlFailure == null
+                        ? "NONE"
+                        : Integer.toString(sqlFailure.getErrorCode()));
+    }
+
+    private record FailureDiagnostic(
+            String failureType,
+            String causeType,
+            String sqlState,
+            String vendorCode) {
     }
 }

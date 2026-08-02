@@ -1001,6 +1001,36 @@ WHERE version = '1';
         -PasswordFile $appPasswordPath `
         -Sql @"
 START TRANSACTION;
+SELECT locked_task.id
+FROM (
+    SELECT candidate.id
+    FROM ops_reliable_task candidate FORCE INDEX (ix_ops_task_claim)
+    WHERE candidate.state = 'PENDING'
+      AND EXISTS (
+          SELECT 1
+          FROM dev_config_version config
+          WHERE config.deployment_id =
+              candidate.source_device_deployment_id
+      )
+    ORDER BY candidate.claimable_at, candidate.priority, candidate.id
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+) locked_task;
+ROLLBACK;
+"@ | Out-Null
+    Invoke-ClientSql `
+        -User "ecobin_app" `
+        -PasswordFile $appPasswordPath `
+        -Sql (
+            "UPDATE dev_config_version SET " +
+            "device_display_name=device_display_name WHERE 1=0;"
+        ) `
+        -ExpectFailure
+    Invoke-ClientSql `
+        -User "ecobin_app" `
+        -PasswordFile $appPasswordPath `
+        -Sql @"
+START TRANSACTION;
 INSERT INTO iam_tenant (
     tenant_code, enterprise_name, status,
     created_at, updated_at
