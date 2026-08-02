@@ -138,7 +138,7 @@ export const appRoutes: AppRoute[] = [
     name: '清运订单',
     icon: <TruckOutlined />,
     element: <BusinessContractPendingPage kind="cleaning" />,
-    anyOf: ['clean.read', 'review.execute'],
+    allOf: ['clean.read'],
   },
   {
     path: '/withdrawals',

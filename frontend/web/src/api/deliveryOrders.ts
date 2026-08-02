@@ -14,6 +14,9 @@ export type DeliveryPhotoCompleteness =
   Schemas['DeliveryPhotoCompleteness'];
 export type DeliveryReviewRequest = Schemas['ReviewDeliveryOrderRequest'];
 export type DeliveryReviewResult = Schemas['DeliveryReviewResult'];
+export type DeliveryReviewPreviewRequest =
+  Schemas['PreviewDeliveryReviewRequest'];
+export type DeliveryReviewPreview = Schemas['DeliveryReviewPreview'];
 export type DeliveryOrderListParams = NonNullable<
   operations['listWebDeliveryOrders']['parameters']['query']
 >;
@@ -59,6 +62,25 @@ export function getDeliveryOrder(
       + encodeURIComponent(deliveryOrderNo),
     method: 'GET',
     noStore: true,
+  });
+}
+
+export function previewDeliveryOrderReview(
+  context: DirectoryContext,
+  organizationCode: string,
+  deliveryOrderNo: string,
+  data: DeliveryReviewPreviewRequest,
+  signal?: AbortSignal,
+) {
+  return request<DeliveryReviewPreview, DeliveryReviewPreviewRequest>({
+    url:
+      `${collectionUrl(context, organizationCode)}/`
+      + `${encodeURIComponent(deliveryOrderNo)}/review-previews`,
+    method: 'POST',
+    data,
+    signal,
+    noStore: true,
+    silent: true,
   });
 }
 

@@ -185,6 +185,24 @@ public final class DeliveryOrderModels {
             @Size(max = 500) String reason) {
     }
 
+    public record PreviewDeliveryReviewRequest(
+            @NotNull @Min(0) Long expectedRevisionNo,
+            @NotBlank @Size(max = 24) String decision,
+            @Size(max = 64) String finalWeightKg) {
+    }
+
+    public record DeliveryReviewPreview(
+            String deliveryOrderNo,
+            String revisionType,
+            long expectedRevisionNo,
+            String decision,
+            String finalWeightKg,
+            String finalAmountYuan,
+            String walletDeltaYuan,
+            String walletEffect,
+            Instant previewedAt) {
+    }
+
     public record DeliveryReviewResult(
             String deliveryOrderNo,
             UUID revisionUid,

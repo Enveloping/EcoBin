@@ -410,6 +410,47 @@ class JdbcDeliveryOrderRepository {
                 deliveryOrderNo).stream().findFirst();
     }
 
+    /**
+     * Reads the current review projection without taking an order lock.
+     * Review previews deliberately use this eventually-stale snapshot and the
+     * committing command always locks and recalculates the order again.
+     */
+    Optional<LockedDeliveryOrderRow> findOrder(
+            DeliveryOrderScope scope,
+            String deliveryOrderNo) {
+        return jdbc.query("""
+                        SELECT id, delivery_order_no,
+                               organization_user_id,
+                               unit_price_yuan_per_kg,
+                               max_review_abs_weight_g,
+                               raw_business_weight_kg,
+                               raw_amount_cent,
+                               raw_calculation_status,
+                               EXISTS (
+                                   SELECT 1
+                                   FROM rec_delivery_anomaly mismatch
+                                   WHERE mismatch.delivery_order_id =
+                                         rec_delivery_order.id
+                                     AND mismatch.anomaly_code =
+                                         'DELIVERY_NET_WEIGHT_MISMATCH'
+                               ) AS net_weight_inconsistent,
+                               review_status,
+                               current_revision_no,
+                               current_revision_id,
+                               final_business_weight_kg,
+                               final_amount_cent,
+                               first_approved_at
+                        FROM rec_delivery_order
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND delivery_order_no = ?
+                        """,
+                (rs, ignored) -> lockedOrder(rs),
+                scope.tenantId(),
+                scope.organizationId(),
+                deliveryOrderNo).stream().findFirst();
+    }
+
     InsertedDeliveryRevision insertRevision(
             DeliveryOrderScope scope,
             LockedDeliveryOrderRow order,

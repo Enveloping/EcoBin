@@ -10,13 +10,13 @@ earliest_start:
   integration: "V-02 acceptance 完成，V-03 integration 完成，真实试点部署可安全作业"
   acceptance: "V-02、V-03 均 done，integration 完成并可执行受控真机开关门"
 phase_progress:
-  software: not-started
-  integration: not-started
+  software: done
+  integration: in-progress
   acceptance: not-started
 blocked_by:
   - V-02
   - V-03
-implementation_authorized: false
+implementation_authorized: true
 ---
 
 # V-04｜一次真实投递形成待审核订单
@@ -89,3 +89,11 @@ V-02、V-03 是任务整体完成门；先行的软件工作不得绕过 PDD-001
 
 - 2026-07-23：发布任务文件；仅完成设计与任务拆分，尚未授权实施。
 - 2026-07-24：同步一次 session 一单、整场首末重量/四图和本地继续语义；依赖及授权状态不变。
+- 2026-08-03：软件链路和隔离集成证据更新。真实 MySQL 8.4 全新空库从目标
+  Flyway V1～V26 安装，测试按当前正式流程完成“平台创建库存资产 → 分配租户 →
+  租户主体部署到机构 → 可信 OneNet 在线、配置应用和运行快照 → 平台硬件验收 →
+  租户开启经营”，随后由小程序用户投递并形成唯一待审核订单；不再调用已删除的
+  “平台直接部署”或设备 `/activations` 兼容入口。投递审核专项已使用该真实订单继续
+  验证，证明订单来源链可用。当前仍未取得香橙派、MCU、称重、开关门和四路相机的
+  真机人工证据，因此 integration 只记为 `in-progress`，acceptance 保持
+  `not-started`，整体任务继续受 V-03 和真机条件阻塞，不标记为 `done`。

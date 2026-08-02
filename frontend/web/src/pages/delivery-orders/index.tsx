@@ -27,10 +27,12 @@ import {
   correctDeliveryOrder,
   getDeliveryOrder,
   listDeliveryOrders,
+  previewDeliveryOrderReview,
   reviewDeliveryOrder,
   type DeliveryOrderDetail,
   type DeliveryOrderItem,
   type DeliveryPhotoCompleteness,
+  type DeliveryReviewPreviewRequest,
   type DeliveryReviewRequest,
   type DeliveryReviewStatus,
 } from '@/api/deliveryOrders';
@@ -320,6 +322,45 @@ export default function DeliveryOrdersPage() {
       setSubmitting(false);
     }
   };
+
+  const requestReviewPreview = useCallback(
+    (
+      request: DeliveryReviewPreviewRequest,
+      signal: AbortSignal,
+    ) => {
+      if (
+        !detail
+        || selectedDetailOrderNo.current !== detail.deliveryOrderNo
+        || !scope.context
+        || !organizationCode
+      ) {
+        return Promise.reject(
+          new Error('当前投递订单范围已经变化'),
+        );
+      }
+      return previewDeliveryOrderReview(
+        scope.context,
+        organizationCode,
+        detail.deliveryOrderNo,
+        request,
+        signal,
+      );
+    },
+    [detail, organizationCode, scope.context],
+  );
+
+  const handlePreviewVersionConflict = useCallback(async () => {
+    const orderNo = detail?.deliveryOrderNo;
+    setMutationKind(null);
+    try {
+      if (orderNo && selectedDetailOrderNo.current === orderNo) {
+        await loadDetail(orderNo);
+      }
+      actionRef.current?.reload();
+    } finally {
+      message.warning('订单版本已经变化，已关闭审核窗口并载入最新记录；请重新核对');
+    }
+  }, [detail?.deliveryOrderNo, loadDetail, message]);
 
   const columns: ProColumns<DeliveryOrderItem>[] = [
     {
@@ -743,6 +784,8 @@ export default function DeliveryOrdersPage() {
         onOpenChange={(open) => {
           if (!open && !submitting) setMutationKind(null);
         }}
+        onPreview={requestReviewPreview}
+        onPreviewVersionConflict={handlePreviewVersionConflict}
         onSubmit={submitReview}
       />
     </PageContainer>

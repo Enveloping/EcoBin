@@ -16,6 +16,8 @@ import org.enveloping.ecobin.identity.api.port.DeliveryWalletEntryOwnerResolverP
 import org.enveloping.ecobin.identity.api.query.DeliveryScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeliveryScope;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewResult;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewPreview;
+import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.PreviewDeliveryReviewRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -91,6 +93,36 @@ public class DeliveryOrderReviewService {
 
     @Transactional(
             isolation = Isolation.READ_COMMITTED,
+            readOnly = true)
+    public DeliveryReviewPreview preview(
+            boolean platformPath,
+            String tenantCode,
+            String organizationCode,
+            String deliveryOrderNo,
+            PreviewDeliveryReviewRequest request) {
+        AuthorizedDeliveryScope authorized = authorization.authorize(
+                new DeliveryScopeAuthorizationQuery(
+                        platformPath,
+                        tenantCode,
+                        organizationCode));
+        String normalizedOrderNo = requiredOrderNo(deliveryOrderNo);
+        NormalizedReviewRequest normalized = normalizeRequest(request);
+        return authorized.persistenceRef().withScopeOnce(
+                (tenantId,
+                 organizationId,
+                 platformAdminId,
+                 staffAccountId) -> previewInScope(
+                        authorized,
+                        new DeliveryOrderScope(
+                                tenantId,
+                                organizationId,
+                                null),
+                        normalizedOrderNo,
+                        normalized));
+    }
+
+    @Transactional(
+            isolation = Isolation.READ_COMMITTED,
             readOnly = false)
     public DeliveryReviewResult review(
             boolean platformPath,
@@ -127,6 +159,46 @@ public class DeliveryOrderReviewService {
                 deliveryOrderNo,
                 operationUid,
                 request);
+    }
+
+    private DeliveryReviewPreview previewInScope(
+            AuthorizedDeliveryScope authorized,
+            DeliveryOrderScope scope,
+            String deliveryOrderNo,
+            NormalizedReviewRequest request) {
+        LockedDeliveryOrderRow order = repository.findOrder(
+                        scope,
+                        deliveryOrderNo)
+                .orElseThrow(DeliveryOrderReviewService::notFound);
+        Operation operation = operationForPreview(order);
+        requireCapability(operation, authorized);
+        requireExpectedRevision(order, request.expectedRevisionNo());
+        requireCurrentState(
+                operation,
+                order,
+                request.expectedRevisionNo());
+
+        DeliveryReviewPolicy.ReviewValues values =
+                DeliveryReviewPolicy.calculate(
+                        order,
+                        request.decision(),
+                        request.finalWeightKg());
+        long beforeAmountCent = order.finalAmountCent() == null
+                ? 0L
+                : order.finalAmountCent();
+        long amountDeltaCent = amountDelta(
+                values.finalAmountCent(),
+                beforeAmountCent);
+        return new DeliveryReviewPreview(
+                deliveryOrderNo,
+                operation.revisionKind,
+                request.expectedRevisionNo(),
+                values.decision(),
+                decimal(values.finalWeightKg()),
+                money(values.finalAmountCent()),
+                money(amountDeltaCent),
+                amountDeltaCent == 0 ? "NO_CHANGE" : "APPLIED",
+                clock.instant().truncatedTo(ChronoUnit.MILLIS));
     }
 
     private DeliveryReviewResult execute(
@@ -232,17 +304,9 @@ public class DeliveryOrderReviewService {
         long beforeAmountCent = order.finalAmountCent() == null
                 ? 0L
                 : order.finalAmountCent();
-        long amountDeltaCent;
-        try {
-            amountDeltaCent = Math.subtractExact(
-                    values.finalAmountCent(),
-                    beforeAmountCent);
-        } catch (ArithmeticException exception) {
-            throw new TargetApiException(
-                    422,
-                    "DELIVERY.FINAL_AMOUNT_OUT_OF_RANGE",
-                    "本次审核金额差额超出系统可精确保存的范围");
-        }
+        long amountDeltaCent = amountDelta(
+                values.finalAmountCent(),
+                beforeAmountCent);
         DeliveryWalletEntryOwnerRef walletOwnerRef =
                 amountDeltaCent == 0
                         ? null
@@ -534,6 +598,29 @@ public class DeliveryOrderReviewService {
         }
     }
 
+    private static Operation operationForPreview(
+            LockedDeliveryOrderRow order) {
+        return switch (order.reviewStatus()) {
+            case "PENDING" -> Operation.INITIAL_REVIEW;
+            case "APPROVED" -> Operation.CORRECTION;
+            default -> throw new TargetApiException(
+                    409,
+                    "DELIVERY.REVIEW_STATE_CONFLICT",
+                    "投递订单当前状态不允许审核预览");
+        };
+    }
+
+    private static void requireExpectedRevision(
+            LockedDeliveryOrderRow order,
+            long expectedRevisionNo) {
+        if (order.currentRevisionNo() != expectedRevisionNo) {
+            throw new TargetApiException(
+                    409,
+                    "DELIVERY.REVISION_VERSION_CONFLICT",
+                    "投递订单已被其他审核操作更新，请刷新后重试");
+        }
+    }
+
     private static NormalizedReviewRequest normalizeRequest(
             ReviewDeliveryOrderRequest request) {
         if (request == null || request.expectedRevisionNo() == null) {
@@ -573,6 +660,35 @@ public class DeliveryOrderReviewService {
                 decision,
                 finalWeight,
                 reason);
+    }
+
+    private static NormalizedReviewRequest normalizeRequest(
+            PreviewDeliveryReviewRequest request) {
+        if (request == null) {
+            throw validation(
+                    "expectedRevisionNo",
+                    "审核预览请求不能为空");
+        }
+        return normalizeRequest(new ReviewDeliveryOrderRequest(
+                request.expectedRevisionNo(),
+                request.decision(),
+                request.finalWeightKg(),
+                null));
+    }
+
+    private static long amountDelta(
+            long finalAmountCent,
+            long beforeAmountCent) {
+        try {
+            return Math.subtractExact(
+                    finalAmountCent,
+                    beforeAmountCent);
+        } catch (ArithmeticException exception) {
+            throw new TargetApiException(
+                    422,
+                    "DELIVERY.FINAL_AMOUNT_OUT_OF_RANGE",
+                    "本次审核金额差额超出系统可精确保存的范围");
+        }
     }
 
     private static String requiredOrderNo(String value) {
