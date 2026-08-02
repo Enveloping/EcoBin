@@ -7,6 +7,8 @@ import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -56,6 +58,7 @@ public class OneNetClient
     private final RestTemplate restTemplate;
     private final CosUploadCredentialPort cosUploadCredentialPort;
     private final ObjectMapper objectMapper;
+    private final OneNetDiagnosticLogger diagnosticLogger;
 
     /**
      * Submits the exact command envelope frozen by the business transaction.
@@ -64,7 +67,11 @@ public class OneNetClient
     @Override
     public DeviceCommandSubmissionResult submit(
             DeviceCommandSubmission submission) {
-        try {
+        long submissionStartedAt = diagnosticLogger.started();
+        try (MDC.MDCCloseable ignoredTask = MDC.putCloseable(
+                     "taskUid", submission.taskUid().toString());
+             MDC.MDCCloseable ignoredDevice = MDC.putCloseable(
+                     "hardwareSn", submission.hardwareSn())) {
             JsonNode envelope =
                     objectMapper.readTree(submission.semanticEnvelopeJson());
             requireEnvelopeIdentity(envelope, submission);
@@ -124,7 +131,8 @@ public class OneNetClient
             body.put("device_name", submission.hardwareSn());
             body.put("identifier", identifier);
             body.put("params", params);
-            DeviceCommandSubmissionResult result = submitWireBody(body);
+            DeviceCommandSubmissionResult result = submitWireBody(
+                    body, submission, identifier);
             log.info(
                     "[OneNet] reliable command attempt type={} task={} outcome={} http={} externalCode={}",
                     submission.commandType(),
@@ -137,7 +145,18 @@ public class OneNetClient
             log.warn(
                     "[OneNet] frozen command projection rejected type={} task={}",
                     submission.commandType(),
-                    submission.taskUid());
+                    submission.taskUid(),
+                    diagnosticLogger.sanitized(exception));
+            diagnosticLogger.outboundFailure(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    "COMMAND_PROJECTION",
+                    null,
+                    "COMMAND_PROJECTION_INVALID",
+                    null,
+                    exception,
+                    submissionStartedAt);
             return permanent(
                     "COMMAND_PROJECTION_INVALID",
                     "frozen command cannot be projected to the target OneNet schema");
@@ -318,17 +337,40 @@ public class OneNetClient
     }
 
     private DeviceCommandSubmissionResult submitWireBody(
-            Map<String, Object> body) {
+            Map<String, Object> body,
+            DeviceCommandSubmission submission,
+            String identifier) {
+        long startedAt = diagnosticLogger.started();
         byte[] requestBody;
         try {
             requestBody = objectMapper.writeValueAsBytes(body);
         } catch (RuntimeException exception) {
+            diagnosticLogger.outboundFailure(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    "REQUEST_SERIALIZATION",
+                    null,
+                    "REQUEST_SERIALIZATION_FAILED",
+                    null,
+                    exception,
+                    startedAt);
             return permanent(
                     "REQUEST_SERIALIZATION_FAILED",
                     "OneNet request serialization failed");
         }
         byte[] requestSha256 = sha256(requestBody);
         if (!properties.isConfigured()) {
+            diagnosticLogger.outboundFailure(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    "CONFIGURATION_CHECK",
+                    null,
+                    "ONENET_NOT_CONFIGURED",
+                    null,
+                    null,
+                    startedAt);
             return new DeviceCommandSubmissionResult(
                     DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE,
                     requestSha256,
@@ -348,6 +390,14 @@ public class OneNetClient
             headers.set(HttpHeaders.AUTHORIZATION, token);
             String url = properties.getBaseUrl()
                     + properties.getInvokeServicePath();
+            diagnosticLogger.outboundRequest(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    identifier,
+                    url,
+                    body,
+                    requestSha256);
             ResponseEntity<String> response = restTemplate.postForEntity(
                     url,
                     new HttpEntity<>(body, headers),
@@ -357,6 +407,15 @@ public class OneNetClient
                     : response.getBody();
             byte[] responseSha256 = sha256(
                     responseBody.getBytes(StandardCharsets.UTF_8));
+            diagnosticLogger.outboundResponse(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    response.getStatusCode().value(),
+                    diagnosticExternalCode(responseBody),
+                    responseBody,
+                    responseSha256,
+                    startedAt);
             JsonNode responseJson;
             try {
                 responseJson = objectMapper.readTree(responseBody);
@@ -432,6 +491,18 @@ public class OneNetClient
         } catch (RestClientResponseException exception) {
             byte[] responseBody = exception.getResponseBodyAsByteArray();
             int status = exception.getStatusCode().value();
+            String responseText = new String(
+                    responseBody, StandardCharsets.UTF_8);
+            diagnosticLogger.outboundFailure(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    "HTTP_RESPONSE",
+                    status,
+                    diagnosticExternalCode(responseText),
+                    responseText,
+                    exception,
+                    startedAt);
             DeviceCommandSubmissionResult.Outcome outcome =
                     retryableHttpStatus(status)
                             ? DeviceCommandSubmissionResult.Outcome
@@ -446,6 +517,16 @@ public class OneNetClient
                     "ONENET_HTTP_" + status,
                     "OneNet HTTP request failed");
         } catch (RestClientException exception) {
+            diagnosticLogger.outboundFailure(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    "HTTP_TRANSPORT",
+                    null,
+                    "ONENET_TRANSPORT_FAILURE",
+                    null,
+                    exception,
+                    startedAt);
             return retryable(
                     requestSha256,
                     null,
@@ -453,6 +534,16 @@ public class OneNetClient
                     "ONENET_TRANSPORT_FAILURE",
                     "OneNet transport is temporarily unavailable");
         } catch (RuntimeException exception) {
+            diagnosticLogger.outboundFailure(
+                    submission.taskUid().toString(),
+                    submission.hardwareSn(),
+                    submission.commandType(),
+                    "CLIENT_EXECUTION",
+                    null,
+                    "ONENET_CLIENT_FAILURE",
+                    null,
+                    exception,
+                    startedAt);
             return retryable(
                     requestSha256,
                     null,
@@ -1468,6 +1559,20 @@ public class OneNetClient
                 || status == 425
                 || status == 429
                 || status >= 500;
+    }
+
+    private String diagnosticExternalCode(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode response = objectMapper.readTree(responseBody);
+            JsonNode code = response.get("code");
+            return code == null || code.isNull()
+                    ? null : code.asText();
+        } catch (RuntimeException ignored) {
+            return "INVALID_RESPONSE_ENVELOPE";
+        }
     }
 
     private static String safeExternalCode(String rawCode) {

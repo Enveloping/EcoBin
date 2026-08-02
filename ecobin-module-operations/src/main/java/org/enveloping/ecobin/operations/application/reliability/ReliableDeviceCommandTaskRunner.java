@@ -4,6 +4,7 @@ import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -66,20 +67,26 @@ public class ReliableDeviceCommandTaskRunner
     private boolean process(ClaimedDeviceCommandTask claim) {
         long startedAt = System.nanoTime();
         DeviceCommandSubmissionResult result;
-        try {
+        try (MDC.MDCCloseable ignoredTask = MDC.putCloseable(
+                     "taskUid", claim.taskUid().toString());
+             MDC.MDCCloseable ignoredDevice = MDC.putCloseable(
+                     "hardwareSn", claim.hardwareSn())) {
             attemptService.markExternalCallMayHaveStarted(claim);
-            result = submissionPort.submit(claim.submission());
-        } catch (RuntimeException failure) {
-            result = new DeviceCommandSubmissionResult(
-                    DeviceCommandSubmissionResult.Outcome.RETRYABLE_FAILURE,
-                    null,
-                    null,
-                    null,
-                    "DEVICE_ADAPTER_FAILURE",
-                    "device submission Adapter raised "
-                            + safeClassName(failure));
+            try {
+                result = submissionPort.submit(claim.submission());
+            } catch (RuntimeException failure) {
+                result = new DeviceCommandSubmissionResult(
+                        DeviceCommandSubmissionResult.Outcome.RETRYABLE_FAILURE,
+                        null,
+                        null,
+                        null,
+                        "DEVICE_ADAPTER_FAILURE",
+                        "device submission Adapter raised "
+                                + safeClassName(failure));
+            }
+            completionService.complete(
+                    claim, result, elapsedMillis(startedAt));
         }
-        completionService.complete(claim, result, elapsedMillis(startedAt));
         return result.outcome()
                 == DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED;
     }

@@ -4,6 +4,9 @@ import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.framework.observability.DiagnosticLoggingProperties;
+import org.enveloping.ecobin.framework.observability.DiagnosticPayloadSanitizer;
+import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -96,7 +99,10 @@ class OneNetClientReliableSubmissionTest {
                 properties,
                 restTemplate,
                 cosUploadCredentialPort,
-                objectMapper);
+                objectMapper,
+                new OneNetDiagnosticLogger(
+                        new DiagnosticLoggingProperties(),
+                        new DiagnosticPayloadSanitizer(objectMapper)));
     }
 
     @Test

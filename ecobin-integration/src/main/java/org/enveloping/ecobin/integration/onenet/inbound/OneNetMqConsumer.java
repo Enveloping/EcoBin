@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.integration.onenet.inbound;
 
 import lombok.extern.slf4j.Slf4j;
+import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+import org.slf4j.MDC;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -23,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <ol>
  *   <li>解析第一层报文 {@code {superMsg,pv,t,data,sign}}，取出 {@code data}（Base64 密文）；</li>
  *   <li>用消费组 KEY 经 {@link OneNetCipher} 解密得到第二层明文 JSON；</li>
- *   <li>交 {@link OneNetMessageHandler} 分发，日志不包含密文、明文或凭证；</li>
+ *   <li>交 {@link OneNetMessageHandler} 分发；local-real 可记录脱敏、限长后的明文诊断载荷，绝不记录密文或凭证；</li>
  *   <li>仅处理成功或永久无效报文 ACK，暂时性处理失败使用 negative ACK 重投。</li>
  * </ol>
  * 仅当凭证齐全、{@code enabled=true} 且非 {@code test} 环境时启动；否则记日志跳过，不影响应用启动。
@@ -40,6 +42,7 @@ public class OneNetMqConsumer implements SmartLifecycle {
     private final ObjectProvider<OneNetMessageHandler> handlerProvider;
     private final ObjectMapper objectMapper;
     private final Environment environment;
+    private final OneNetDiagnosticLogger diagnosticLogger;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile PulsarClient client;
@@ -49,11 +52,13 @@ public class OneNetMqConsumer implements SmartLifecycle {
     public OneNetMqConsumer(OneNetSubscriptionProperties properties,
                             ObjectProvider<OneNetMessageHandler> handlerProvider,
                             ObjectMapper objectMapper,
-                            Environment environment) {
+                            Environment environment,
+                            OneNetDiagnosticLogger diagnosticLogger) {
         this.properties = properties;
         this.handlerProvider = handlerProvider;
         this.objectMapper = objectMapper;
         this.environment = environment;
+        this.diagnosticLogger = diagnosticLogger;
     }
 
     @Override
@@ -81,6 +86,7 @@ public class OneNetMqConsumer implements SmartLifecycle {
     }
 
     private void runLoop() {
+        long connectionStartedAt = diagnosticLogger.started();
         try {
             client = PulsarClient.builder()
                     .serviceUrl(properties.getBrokerUrl())
@@ -95,7 +101,18 @@ public class OneNetMqConsumer implements SmartLifecycle {
                     .autoUpdatePartitions(Boolean.FALSE)
                     .subscribe();
         } catch (Exception e) {
-            log.error("[OneNet·MQ] 消费者连接失败，北向上行暂不可用（不影响其它业务）", e);
+            log.error(
+                    "[OneNet·MQ] 消费者连接失败，北向上行暂不可用（不影响其它业务）",
+                    diagnosticLogger.sanitized(e));
+            diagnosticLogger.inboundFailure(
+                    null,
+                    "MQ_CONNECTION",
+                    "CONNECTION_FAILURE",
+                    false,
+                    0,
+                    null,
+                    e,
+                    connectionStartedAt);
             running.set(false);
             return;
         }
@@ -105,16 +122,21 @@ public class OneNetMqConsumer implements SmartLifecycle {
             boolean acknowledge = false;
             try {
                 message = consumer.receive();
-                acknowledge = dispatch(
-                        new String(
-                                message.getData(),
-                                java.nio.charset.StandardCharsets.UTF_8),
-                        message.getMessageId().toString());
+                String messageId = message.getMessageId().toString();
+                try (MDC.MDCCloseable ignored = MDC.putCloseable(
+                        "mqMessageId", messageId)) {
+                    acknowledge = dispatch(
+                            new String(
+                                    message.getData(),
+                                    java.nio.charset.StandardCharsets.UTF_8),
+                            messageId);
+                }
             } catch (Exception e) {
                 if (running.get()) {
                     log.error(
                             "[OneNet·MQ] 处理消息异常 type={}",
-                            e.getClass().getSimpleName());
+                            e.getClass().getSimpleName(),
+                            diagnosticLogger.sanitized(e));
                 }
             } finally {
                 if (message != null) {
@@ -127,7 +149,17 @@ public class OneNetMqConsumer implements SmartLifecycle {
                     } catch (Exception ackEx) {
                         log.warn(
                                 "[OneNet·MQ] 消息确认操作失败 type={}",
-                                ackEx.getClass().getSimpleName());
+                                ackEx.getClass().getSimpleName(),
+                                diagnosticLogger.sanitized(ackEx));
+                        diagnosticLogger.inboundFailure(
+                                message.getMessageId().toString(),
+                                "TRANSPORT_ACK",
+                                "ACK_OPERATION_FAILURE",
+                                false,
+                                message.getData().length,
+                                null,
+                                ackEx,
+                                diagnosticLogger.started());
                     }
                 }
             }
@@ -139,6 +171,9 @@ public class OneNetMqConsumer implements SmartLifecycle {
      * 缺少处理器或业务处理异常返回 false 触发重投。
      */
     private boolean dispatch(String envelope, String mqMessageId) {
+        long startedAt = diagnosticLogger.started();
+        int transportBytes = envelope.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8).length;
         String decrypted;
         try {
             JsonNode root = objectMapper.readTree(envelope);
@@ -147,6 +182,15 @@ public class OneNetMqConsumer implements SmartLifecycle {
                 log.warn(
                         "[OneNet·MQ] 永久无效报文缺少 data messageId={}",
                         mqMessageId);
+                diagnosticLogger.inboundFailure(
+                        mqMessageId,
+                        "TRANSPORT_ENVELOPE",
+                        "MISSING_ENCRYPTED_DATA",
+                        true,
+                        transportBytes,
+                        null,
+                        null,
+                        startedAt);
                 return true;
             }
             decrypted = OneNetCipher.decrypt(data, properties.getSecretKey());
@@ -154,15 +198,37 @@ public class OneNetMqConsumer implements SmartLifecycle {
             log.error(
                     "[OneNet·MQ] 永久无效报文解包或认证失败 messageId={} type={}",
                     mqMessageId,
-                    e.getClass().getSimpleName());
+                    e.getClass().getSimpleName(),
+                    diagnosticLogger.sanitized(e));
+            diagnosticLogger.inboundFailure(
+                    mqMessageId,
+                    "TRANSPORT_DECRYPTION",
+                    "PERMANENT_TRANSPORT_REJECTION",
+                    true,
+                    transportBytes,
+                    null,
+                    e,
+                    startedAt);
             return true;
         }
+
+        diagnosticLogger.inboundMessage(
+                mqMessageId, transportBytes, decrypted);
 
         OneNetMessageHandler handler = handlerProvider.getIfAvailable();
         if (handler == null) {
             log.error(
                     "[OneNet·MQ] 无消息处理器，暂不确认 messageId={}",
                     mqMessageId);
+            diagnosticLogger.inboundFailure(
+                    mqMessageId,
+                    "HANDLER_RESOLUTION",
+                    "HANDLER_UNAVAILABLE",
+                    false,
+                    transportBytes,
+                    decrypted,
+                    null,
+                    startedAt);
             return false;
         }
         try {
@@ -171,18 +237,43 @@ public class OneNetMqConsumer implements SmartLifecycle {
                     mqMessageId,
                     envelope.getBytes(
                             java.nio.charset.StandardCharsets.UTF_8));
+            diagnosticLogger.inboundOutcome(
+                    mqMessageId,
+                    "DURABLY_ACCEPTED",
+                    true,
+                    startedAt);
             return true;
         } catch (OneNetPermanentMessageException e) {
             log.warn(
                     "[OneNet·MQ] 永久无效业务报文已安全拒绝 messageId={} type={}",
                     mqMessageId,
-                    e.getClass().getSimpleName());
+                    e.getClass().getSimpleName(),
+                    diagnosticLogger.sanitized(e));
+            diagnosticLogger.inboundFailure(
+                    mqMessageId,
+                    "BUSINESS_DISPATCH",
+                    "PERMANENT_MESSAGE_REJECTION",
+                    true,
+                    transportBytes,
+                    decrypted,
+                    e,
+                    startedAt);
             return true;
         } catch (Exception e) {
             log.error(
                     "[OneNet·MQ] 分发处理失败，消息将重投 messageId={} type={}",
                     mqMessageId,
-                    e.getClass().getSimpleName());
+                    e.getClass().getSimpleName(),
+                    diagnosticLogger.sanitized(e));
+            diagnosticLogger.inboundFailure(
+                    mqMessageId,
+                    "BUSINESS_DISPATCH",
+                    "RETRYABLE_DISPATCH_FAILURE",
+                    false,
+                    transportBytes,
+                    decrypted,
+                    e,
+                    startedAt);
             return false;
         }
     }
@@ -198,14 +289,18 @@ public class OneNetMqConsumer implements SmartLifecycle {
                 consumer.close();
             }
         } catch (Exception e) {
-            log.warn("[OneNet·MQ] 关闭 consumer 异常", e);
+            log.warn(
+                    "[OneNet·MQ] 关闭 consumer 异常",
+                    diagnosticLogger.sanitized(e));
         }
         try {
             if (client != null) {
                 client.close();
             }
         } catch (Exception e) {
-            log.warn("[OneNet·MQ] 关闭 client 异常", e);
+            log.warn(
+                    "[OneNet·MQ] 关闭 client 异常",
+                    diagnosticLogger.sanitized(e));
         }
         log.info("[OneNet·MQ] 北向消费者已停止");
     }

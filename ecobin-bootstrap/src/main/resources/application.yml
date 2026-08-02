@@ -69,6 +69,19 @@ ecobin:
       max-payload-length: 4096
       excluded-path-prefixes:
         - /actuator/health
+    # 逐条外部报文和 SQL 诊断默认关闭，只在 local-real 中开启。
+    diagnostic-logging:
+      one-net:
+        enabled: false
+        include-payload: true
+        include-stack-trace: true
+        max-payload-length: 32768
+      sql:
+        enabled: false
+        include-parameter-types: true
+        include-stack-trace: true
+        max-sql-length: 4096
+        slow-query-threshold-ms: 200
 
   device:
     # 创建设备部署时按型号选择初始硬件档案并发布 v1。
