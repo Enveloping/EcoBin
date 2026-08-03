@@ -36,7 +36,7 @@ const STATUS: Record<string, { text: string; color: string }> = {
   PENDING_REVIEW: { text: '待人工审核', color: 'warning' },
   READY_TO_SUBMIT: { text: '审核通过，待提交', color: 'processing' },
   CHANNEL_PROCESSING: { text: '微信转账处理中', color: 'processing' },
-  SUCCESS: { text: '提现成功', color: 'success' },
+  SUCCEEDED: { text: '提现成功', color: 'success' },
   REJECTED: { text: '审核拒绝', color: 'error' },
   LOCAL_CANCELLED: { text: '用户已取消', color: 'default' },
   LOCAL_ABORTED_BEFORE_CHANNEL: { text: '渠道前已终止', color: 'default' },

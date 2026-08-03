@@ -54,6 +54,15 @@ public class FundsIdentityAccessService implements FundsIdentityAccessPort {
                 actor.sessionUid(), actor.displayName());
     }
 
+    @Override
+    public AuthorizedPlatformIdentity authorizePlatform() {
+        TargetWebActor actor = TargetWebActorContext.required();
+        if (!actor.platform()) throw forbidden();
+        return new AuthorizedPlatformIdentity(
+                actor.principalId(), actor.principalUid(),
+                actor.sessionUid(), actor.displayName());
+    }
+
     private static TargetApiException forbidden() {
         return new TargetApiException(
                 403,

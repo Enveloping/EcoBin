@@ -51,6 +51,20 @@ public class WithdrawalController {
                 true, tenantCode, organizationCode), request);
     }
 
+    @GetMapping("/api/v1/web/platform/payout-gate")
+    public ResponseEntity<TargetApiEnvelope<PayoutGateView>> payoutGate(
+            HttpServletRequest request) {
+        return ok(service.payoutGate(), request);
+    }
+
+    @PostMapping("/api/v1/web/platform/payout-gate/restorations")
+    public ResponseEntity<TargetApiEnvelope<PayoutGateView>> restorePayoutGate(
+            @RequestHeader("Idempotency-Key") UUID operationUid,
+            @RequestBody RestorePayoutGateRequest body,
+            HttpServletRequest request) {
+        return ok(service.restorePayoutGate(operationUid, body), request);
+    }
+
     @PostMapping("/api/v1/miniapp/me/withdrawals")
     public ResponseEntity<TargetApiEnvelope<WithdrawalView>> create(
             @RequestHeader("Idempotency-Key") UUID operationUid,

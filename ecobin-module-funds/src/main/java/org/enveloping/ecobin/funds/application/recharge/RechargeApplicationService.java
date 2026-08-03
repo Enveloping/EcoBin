@@ -60,7 +60,7 @@ public class RechargeApplicationService {
             NativePaymentChannelPort channel,
             ReliableFundsAttemptBoundaryPort attemptBoundary,
             TransactionTemplate transactions,
-            @Value("${ecobin.funds.wechat.notify-base-url:https://fake.invalid}")
+            @Value("${ecobin.funds.wechat-pay.notify-base-url:https://fake.invalid}")
             String notifyBaseUrl) {
         this.jdbc = jdbc;
         this.access = access;
@@ -286,6 +286,7 @@ public class RechargeApplicationService {
         return switch (command.taskType()) {
             case "CREATE_NATIVE_PAYMENT" -> createNative(command);
             case "QUERY_NATIVE_PAYMENT" -> queryNative(command);
+            case "CLOSE_NATIVE_PAYMENT" -> closeNative(command);
             case "POST_RECHARGE_NET_AMOUNT" -> postRecharge(command);
             default -> new Result(
                     Result.Outcome.BLOCKED,
@@ -383,17 +384,38 @@ public class RechargeApplicationService {
                         payment.amountCent(), payment.description(),
                         instant(payment.expiresAt()), payment.notifyUrl()));
         return transactions.execute(status -> mergePaymentResult(
-                command, payment, "CREATE_RESPONSE", response, true));
+                command, payment, "CREATE_RESPONSE", response,
+                PaymentAttemptKind.CREATE));
     }
 
     private Result queryNative(Command command) {
         PaymentSnapshot payment = paymentSnapshot(command.targetStableKey());
+        if (!"PENDING_PAYMENT".equals(payment.businessState())) {
+            return new Result(Result.Outcome.DONE,
+                    "recharge is already terminal or paid");
+        }
         attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
         NativePaymentResult response = channel.query(
                 new NativePaymentChannelPort.NativePaymentQuery(
                         payment.mchid(), payment.outTradeNo()));
         return transactions.execute(status -> mergePaymentResult(
-                command, payment, "QUERY", response, false));
+                command, payment, "QUERY", response,
+                PaymentAttemptKind.QUERY));
+    }
+
+    private Result closeNative(Command command) {
+        PaymentSnapshot payment = paymentSnapshot(command.targetStableKey());
+        if (!"PENDING_PAYMENT".equals(payment.businessState())) {
+            return new Result(Result.Outcome.DONE,
+                    "recharge is already terminal or paid");
+        }
+        attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
+        NativePaymentResult response = channel.close(
+                new NativePaymentChannelPort.NativePaymentQuery(
+                        payment.mchid(), payment.outTradeNo()));
+        return transactions.execute(status -> mergePaymentResult(
+                command, payment, "CLOSE_RESPONSE", response,
+                PaymentAttemptKind.CLOSE));
     }
 
     private Result mergePaymentResult(
@@ -401,7 +423,7 @@ public class RechargeApplicationService {
             PaymentSnapshot snapshot,
             String observationType,
             NativePaymentResult result,
-            boolean createAttempt) {
+            PaymentAttemptKind attemptKind) {
         PaymentSnapshot current = lockPayment(snapshot.rechargeNo());
         LocalDateTime now = databaseNow();
         jdbc.update("""
@@ -430,6 +452,16 @@ public class RechargeApplicationService {
                 return new Result(Result.Outcome.BLOCKED,
                         "successful payment lacks transaction id");
             }
+            if (current.transactionId() != null
+                    && !current.transactionId().equals(result.transactionId())) {
+                return new Result(Result.Outcome.BLOCKED,
+                        "successful payment transaction id conflicts");
+            }
+            if (List.of("CLOSED", "EXPIRED").contains(
+                    current.businessState())) {
+                return new Result(Result.Outcome.BLOCKED,
+                        "successful payment conflicts with a closed recharge");
+            }
             jdbc.update("""
                     UPDATE fund_wechat_payment
                     SET transaction_id = COALESCE(transaction_id, ?),
@@ -456,6 +488,60 @@ public class RechargeApplicationService {
             }
             return new Result(Result.Outcome.DONE, "payment success merged");
         }
+        if (NativePaymentLifecyclePolicy.successAlreadyEstablished(
+                current.businessState(), current.channelState(),
+                current.transactionId())) {
+            return new Result(Result.Outcome.DONE,
+                    "late non-success observation preserved without projection rollback");
+        }
+        if (attemptKind == PaymentAttemptKind.CLOSE) {
+            jdbc.update("""
+                    UPDATE fund_wechat_payment
+                    SET last_api_error_code = ?, channel_updated_at = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ?
+                    """, result.errorCode(), now, now, current.paymentId());
+            if (result.outcome() == NativePaymentResult.Outcome.CLOSED) {
+                jdbc.update("""
+                        UPDATE fund_wechat_payment
+                        SET channel_state = 'CLOSE_ACCEPTED',
+                            last_api_error_code = NULL,
+                            channel_updated_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                        """, now, now, current.paymentId());
+                registerTask(
+                        current.tenantId(), current.organizationId(),
+                        "QUERY_NATIVE_PAYMENT",
+                        "QUERY_NATIVE_PAYMENT_AFTER_CLOSE:"
+                                + current.rechargeNo(),
+                        current.rechargeNo(),
+                        "{\"rechargeNo\":\"" + current.rechargeNo()
+                                + "\",\"afterClose\":true}",
+                        now.plusSeconds(2));
+                return new Result(Result.Outcome.DONE,
+                        "close accepted; final channel query scheduled");
+            }
+            return result.outcome()
+                    == NativePaymentResult.Outcome.PERMANENT_FAILURE
+                    ? new Result(Result.Outcome.BLOCKED,
+                    "payment close was permanently rejected")
+                    : new Result(Result.Outcome.WAITING,
+                    "payment close remains uncertain");
+        }
+        if (attemptKind == PaymentAttemptKind.QUERY
+                && "CLOSE_ACCEPTED".equals(current.channelState())
+                && result.outcome() != NativePaymentResult.Outcome.CLOSED) {
+            jdbc.update("""
+                    UPDATE fund_wechat_payment
+                    SET last_api_error_code = ?, channel_updated_at = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ?
+                    """, result.errorCode(), now, now, current.paymentId());
+            return new Result(Result.Outcome.WAITING,
+                    "close was accepted; awaiting authoritative CLOSED query");
+        }
         jdbc.update("""
                 UPDATE fund_wechat_payment
                 SET code_url = CASE WHEN ? IS NOT NULL THEN ? ELSE code_url END,
@@ -466,7 +552,7 @@ public class RechargeApplicationService {
                 """, validCodeUrl(result.codeUrl()), validCodeUrl(result.codeUrl()),
                 result.channelState(), result.errorCode(), now, now,
                 current.paymentId());
-        if (createAttempt
+        if (attemptKind == PaymentAttemptKind.CREATE
                 && result.outcome() == NativePaymentResult.Outcome.ACCEPTED) {
             registerTask(
                     current.tenantId(), current.organizationId(),
@@ -477,14 +563,34 @@ public class RechargeApplicationService {
                     now.plusSeconds(2));
             return new Result(Result.Outcome.DONE, "native code url prepared");
         }
+        if (attemptKind == PaymentAttemptKind.QUERY
+                && NativePaymentLifecyclePolicy
+                .shouldCloseAfterExpiredUnpaidQuery(
+                        current.expiresAt(), now, result)) {
+            registerTask(
+                    current.tenantId(), current.organizationId(),
+                    "CLOSE_NATIVE_PAYMENT",
+                    "CLOSE_NATIVE_PAYMENT:" + current.rechargeNo(),
+                    current.rechargeNo(),
+                    "{\"rechargeNo\":\"" + current.rechargeNo()
+                            + "\",\"expiredUnpaid\":true}",
+                    now);
+            return new Result(Result.Outcome.DONE,
+                    "expired unpaid order queued for close");
+        }
         return switch (result.outcome()) {
             case CLOSED, PERMANENT_FAILURE -> {
+                String businessState = result.outcome()
+                        == NativePaymentResult.Outcome.CLOSED
+                        ? NativePaymentLifecyclePolicy.closedBusinessState(
+                        current.expiresAt(), now)
+                        : "CLOSED";
                 jdbc.update("""
                         UPDATE fund_recharge_order
-                        SET business_state = 'CLOSED', closed_at = ?,
+                        SET business_state = ?, closed_at = ?,
                             lock_version = lock_version + 1, updated_at = ?
                         WHERE id = ? AND business_state = 'PENDING_PAYMENT'
-                        """, now, now, current.rechargeId());
+                        """, businessState, now, now, current.rechargeId());
                 yield new Result(Result.Outcome.DONE, "payment closed");
             }
             case ACCEPTED, RETRYABLE_FAILURE, UNKNOWN -> new Result(
@@ -567,7 +673,8 @@ public class RechargeApplicationService {
                        r.gross_amount_cent, r.fee_amount_cent,
                        r.net_amount_cent, r.business_state, r.expires_at,
                        p.id payment_id, p.mchid_snapshot, p.appid_snapshot,
-                       p.out_trade_no, p.description
+                       p.out_trade_no, p.description, p.channel_state,
+                       p.transaction_id
                 FROM fund_recharge_order r
                 JOIN fund_wechat_payment p ON p.recharge_order_id = r.id
                 WHERE p.out_trade_no = ?
@@ -587,6 +694,8 @@ public class RechargeApplicationService {
                         rs.getString("description"),
                         rs.getObject("expires_at", LocalDateTime.class),
                         rs.getString("business_state"),
+                        rs.getString("channel_state"),
+                        rs.getString("transaction_id"),
                         notifyBaseUrl
                                 + "/api/v1/wechat-pay/notifications/native-payments"),
                 outTradeNo);
@@ -599,7 +708,8 @@ public class RechargeApplicationService {
                        r.gross_amount_cent, r.fee_amount_cent,
                        r.net_amount_cent, r.business_state, r.expires_at,
                        p.id payment_id, p.mchid_snapshot, p.appid_snapshot,
-                       p.out_trade_no, p.description
+                       p.out_trade_no, p.description, p.channel_state,
+                       p.transaction_id
                 FROM fund_recharge_order r
                 JOIN fund_wechat_payment p ON p.recharge_order_id = r.id
                 WHERE r.recharge_order_no = ?
@@ -619,6 +729,8 @@ public class RechargeApplicationService {
                         rs.getString("description"),
                         rs.getObject("expires_at", LocalDateTime.class),
                         rs.getString("business_state"),
+                        rs.getString("channel_state"),
+                        rs.getString("transaction_id"),
                         notifyBaseUrl
                                 + "/api/v1/wechat-pay/notifications/native-payments"),
                 rechargeNo);
@@ -902,7 +1014,14 @@ public class RechargeApplicationService {
             String appid, String outTradeNo, long amountCent,
             long feeCent, long netCent, String description,
             LocalDateTime expiresAt, String businessState,
+            String channelState, String transactionId,
             String notifyUrl) {
+    }
+
+    private enum PaymentAttemptKind {
+        CREATE,
+        QUERY,
+        CLOSE
     }
 
     private record AccountRow(long id, long availableCent, long frozenCent) {

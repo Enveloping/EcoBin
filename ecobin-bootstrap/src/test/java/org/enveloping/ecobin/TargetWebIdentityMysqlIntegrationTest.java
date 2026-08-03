@@ -13,12 +13,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort;
+import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort;
+import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -64,6 +71,15 @@ class TargetWebIdentityMysqlIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ReliableFundsTaskRegistrationPort reliableFundsTasks;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private FundsOperationalControlPort fundsOperationalControl;
 
     private String run;
     private String platformLogin;
@@ -216,6 +232,12 @@ class TargetWebIdentityMysqlIntegrationTest {
                 platformLogin,
                 PLATFORM_PASSWORD,
                 201);
+        JsonNode payoutGate = data(read(
+                platformManager,
+                "/api/v1/web/platform/payout-gate",
+                200));
+        assertEquals("OPEN", payoutGate.path("status").asText());
+        assertTrue(payoutGate.path("version").asLong() >= 0);
         String organizationA = code("oa");
         String organizationB = code("ob");
         String otherTenantOrganization = code("ox");
@@ -235,6 +257,10 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertZeroOrganizationPayoutAccount(tenantA, organizationB);
         assertZeroOrganizationPayoutAccount(
                 tenantB, otherTenantOrganization);
+        assertReliableFundsTaskKeySatisfiesMysqlConstraint(
+                tenantA, organizationA);
+        assertPayoutLiquidityAlertAndTaskWakeUseRuntimeGrants(
+                tenantA, organizationA);
 
         String workerLogin = "v01-worker-" + run;
         JsonNode worker = data(write(
@@ -1413,6 +1439,107 @@ class TargetWebIdentityMysqlIntegrationTest {
                                   AND organization.organization_code = ?
                                 """, String.class,
                         tenantCode, organizationCode));
+    }
+
+    private void assertReliableFundsTaskKeySatisfiesMysqlConstraint(
+            String tenantCode,
+            String organizationCode) {
+        String rechargeNo = RechargeApplicationService.stableNo(
+                "RC",
+                UUID.fromString("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"));
+        String storedTaskKey = new TransactionTemplate(transactionManager)
+                .execute(status -> {
+                    long[] scope = jdbc.queryForObject("""
+                                    SELECT tenant.id, organization.id
+                                    FROM iam_tenant tenant
+                                    JOIN iam_organization organization
+                                      ON organization.tenant_id = tenant.id
+                                    WHERE tenant.tenant_code = ?
+                                      AND organization.organization_code = ?
+                                    """,
+                            (rs, ignored) -> new long[]{
+                                    rs.getLong(1), rs.getLong(2)},
+                            tenantCode, organizationCode);
+                    reliableFundsTasks.register(
+                            new ReliableFundsTaskRegistrationPort
+                                    .ReliableFundsTaskRegistration(
+                                    scope[0], scope[1],
+                                    "CREATE_NATIVE_PAYMENT",
+                                    "CREATE_NATIVE_PAYMENT:" + rechargeNo,
+                                    "RECHARGE_ORDER", rechargeNo, 1, "{}",
+                                    RechargeApplicationService.sha256("{}"),
+                                    20, null));
+                    String taskKey = jdbc.queryForObject("""
+                                    SELECT task_key FROM ops_reliable_task
+                                    WHERE target_type = 'RECHARGE_ORDER'
+                                      AND target_stable_key = ?
+                                    """, String.class, rechargeNo);
+                    status.setRollbackOnly();
+                    return taskKey;
+                });
+        assertEquals(
+                ("CREATE_NATIVE_PAYMENT:" + rechargeNo)
+                        .toUpperCase(Locale.ROOT),
+                storedTaskKey);
+    }
+
+    private void assertPayoutLiquidityAlertAndTaskWakeUseRuntimeGrants(
+            String tenantCode,
+            String organizationCode) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            long[] scope = jdbc.queryForObject("""
+                            SELECT tenant.id, organization.id
+                            FROM iam_tenant tenant
+                            JOIN iam_organization organization
+                              ON organization.tenant_id = tenant.id
+                            WHERE tenant.tenant_code = ?
+                              AND organization.organization_code = ?
+                            """,
+                    (rs, ignored) -> new long[]{rs.getLong(1), rs.getLong(2)},
+                    tenantCode, organizationCode);
+            long merchantId = jdbc.queryForObject("""
+                    SELECT id FROM fund_wechat_merchant_profile
+                    WHERE status = 'ENABLED' ORDER BY id LIMIT 1
+                    """, Long.class);
+            String withdrawalNo = "WDaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            reliableFundsTasks.register(
+                    new ReliableFundsTaskRegistrationPort
+                            .ReliableFundsTaskRegistration(
+                            scope[0], scope[1],
+                            "SUBMIT_MERCHANT_TRANSFER",
+                            "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                            "WITHDRAWAL_ORDER", withdrawalNo, 1, "{}",
+                            RechargeApplicationService.sha256("{}"),
+                            20, null));
+            UUID pausedEventUid = UUID.randomUUID();
+            LocalDateTime now = jdbc.queryForObject(
+                    "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+            fundsOperationalControl.observePayoutLiquidityPause(
+                    merchantId, pausedEventUid, now);
+            assertEquals("OPEN|1", jdbc.queryForObject("""
+                            SELECT CONCAT(status, '|', discovery_count)
+                            FROM ops_alert
+                            WHERE source_type = 'PAYOUT_GATE_PAUSE'
+                              AND source_key = ?
+                            """, String.class,
+                    "PAYOUT_GATE:" + merchantId + ":" + pausedEventUid));
+            fundsOperationalControl.wakePayoutTasks(now);
+            assertEquals(1L, jdbc.queryForObject("""
+                            SELECT wake_version FROM ops_reliable_task
+                            WHERE task_key = ?
+                            """, Long.class,
+                    ("SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo)
+                            .toUpperCase(Locale.ROOT)));
+            fundsOperationalControl.resolvePayoutLiquidityPause(
+                    merchantId, pausedEventUid, now);
+            assertEquals("RESOLVED", jdbc.queryForObject("""
+                            SELECT status FROM ops_alert
+                            WHERE source_type = 'PAYOUT_GATE_PAUSE'
+                              AND source_key = ?
+                            """, String.class,
+                    "PAYOUT_GATE:" + merchantId + ":" + pausedEventUid));
+            status.setRollbackOnly();
+        });
     }
 
     private MvcResult login(

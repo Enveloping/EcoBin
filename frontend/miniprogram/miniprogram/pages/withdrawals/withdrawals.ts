@@ -33,7 +33,7 @@ const STATUS: Record<string, [string, string]> = {
   PENDING_REVIEW: ['等待人工审核', 'warning'],
   READY_TO_SUBMIT: ['审核通过，准备转账', 'processing'],
   CHANNEL_PROCESSING: ['微信转账处理中', 'processing'],
-  SUCCESS: ['提现成功', 'success'],
+  SUCCEEDED: ['提现成功', 'success'],
   REJECTED: ['审核未通过', 'failed'],
   LOCAL_CANCELLED: ['已取消', 'neutral'],
   LOCAL_ABORTED_BEFORE_CHANNEL: ['已终止', 'neutral'],

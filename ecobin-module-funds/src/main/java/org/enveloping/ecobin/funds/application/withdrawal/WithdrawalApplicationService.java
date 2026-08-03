@@ -7,12 +7,14 @@ import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort.MerchantTransferRequest;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort.MerchantTransferResult;
+import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsAttemptBoundaryPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskExecutorPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort.ReliableFundsTaskRegistration;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService.MiniappScope;
+import org.enveloping.ecobin.funds.application.access.FundsAccessService.PlatformScope;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService.WebScope;
 import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.*;
@@ -41,6 +43,7 @@ public class WithdrawalApplicationService {
     private final MerchantTransferChannelPort channel;
     private final TransactionTemplate transactions;
     private final AuditPort audit;
+    private final FundsOperationalControlPort operationalControl;
     private final String notifyBaseUrl;
 
     public WithdrawalApplicationService(
@@ -51,7 +54,8 @@ public class WithdrawalApplicationService {
             MerchantTransferChannelPort channel,
             TransactionTemplate transactions,
             AuditPort audit,
-            @Value("${ecobin.funds.wechat.notify-base-url:https://fake.invalid}")
+            FundsOperationalControlPort operationalControl,
+            @Value("${ecobin.funds.wechat-pay.notify-base-url:https://fake.invalid}")
             String notifyBaseUrl) {
         this.jdbc = jdbc;
         this.access = access;
@@ -60,6 +64,7 @@ public class WithdrawalApplicationService {
         this.channel = channel;
         this.transactions = transactions;
         this.audit = audit;
+        this.operationalControl = operationalControl;
         this.notifyBaseUrl = stripTrailingSlash(notifyBaseUrl);
     }
 
@@ -72,6 +77,88 @@ public class WithdrawalApplicationService {
                 platformPath, tenantCode, organizationCode,
                 "withdrawal.read", "withdrawal.configuration.manage", false);
         return currentConfig(scope.tenantId(), scope.organizationId(), false).view();
+    }
+
+    @Transactional(readOnly = true)
+    public PayoutGateView payoutGate() {
+        access.platformScope();
+        return payoutGateView(currentPlatformGate(false));
+    }
+
+    @Transactional
+    public PayoutGateView restorePayoutGate(
+            UUID operationUid,
+            RestorePayoutGateRequest request) {
+        requireUuidV4(operationUid);
+        PlatformScope actor = access.platformScope();
+        if (request == null || request.expectedGateVersion() == null
+                || request.pausedEventUid() == null) {
+            throw validation(
+                    "expectedGateVersion 和 pausedEventUid 不能为空");
+        }
+        if (!Boolean.TRUE.equals(request.fundsReplenishedConfirmed())) {
+            throw new TargetApiException(
+                    422,
+                    "FUNDS.PAYOUT_GATE_RESTORE_NOT_CONFIRMED",
+                    "必须明确确认公司运营账户已经补足资金");
+        }
+        GateRow gate = currentPlatformGate(true);
+        if (gate.version() != request.expectedGateVersion()) {
+            throw new TargetApiException(
+                    409,
+                    "FUNDS.PAYOUT_GATE_VERSION_CONFLICT",
+                    "出款闸门版本已变化，请刷新后重试");
+        }
+        if (!"PAUSED_NOT_ENOUGH".equals(gate.state())
+                || !request.pausedEventUid().equals(
+                gate.currentPauseEventUid())) {
+            throw new TargetApiException(
+                    409,
+                    "FUNDS.PAYOUT_GATE_TARGET_CHANGED",
+                    "当前暂停事件已经变化，不能恢复旧目标");
+        }
+        LocalDateTime now = databaseNow();
+        UUID restoredEventUid = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO fund_payout_gate_event (
+                    event_uid, merchant_profile_id, event_type,
+                    triggering_transfer_observation_id,
+                    triggering_transfer_id, original_pause_event_id,
+                    original_pause_event_type,
+                    restored_by_platform_admin_id, note,
+                    occurred_at, created_at
+                ) VALUES (?, ?, 'RESTORED', NULL, NULL, ?, 'PAUSED', ?, ?, ?, ?)
+                """, restoredEventUid.toString(), gate.merchantId(),
+                gate.currentPauseEventId(), actor.platformAdminId(),
+                trimTo(request.reason(), 500), now, now);
+        int restored = jdbc.update("""
+                UPDATE fund_payout_gate
+                SET gate_state = 'OPEN', current_pause_event_id = NULL,
+                    paused_at = NULL, lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE merchant_profile_id = ?
+                  AND gate_state = 'PAUSED_NOT_ENOUGH'
+                  AND current_pause_event_id = ? AND lock_version = ?
+                """, now, gate.merchantId(), gate.currentPauseEventId(),
+                gate.version());
+        if (restored != 1) {
+            throw new TargetApiException(
+                    409,
+                    "FUNDS.PAYOUT_GATE_TARGET_CHANGED",
+                    "出款闸门已被其他操作修改");
+        }
+        operationalControl.resolvePayoutLiquidityPause(
+                gate.merchantId(), gate.currentPauseEventUid(), now);
+        int wokenTasks = operationalControl.wakePayoutTasks(now);
+        appendPlatformAudit(
+                actor, operationUid, "payout-gate.restore", gate.mchid(),
+                request.reason(),
+                "{\"pausedEventUid\":\"" + gate.currentPauseEventUid()
+                        + "\",\"restoredEventUid\":\"" + restoredEventUid
+                        + "\",\"wokenTasks\":" + wokenTasks + "}", now);
+        TargetWebAuditRequestContext.describe(
+                "payout-gate.restore", gate.mchid());
+        return payoutGateView(currentPlatformGate(false));
     }
 
     @Transactional
@@ -169,13 +256,18 @@ public class WithdrawalApplicationService {
                     422, "WITHDRAWAL.USER_UNAVAILABLE",
                     "当前机构用户状态不允许提现");
         }
-        BindingRow binding = requiredBinding(
-                scope.tenantId(), scope.organizationId(), true);
-        GateRow gate = requiredGate(binding.merchantId(), true);
+        BindingRow bindingHint = requiredBinding(
+                scope.tenantId(), scope.organizationId(), false);
+        GateRow gate = requiredGate(bindingHint.merchantId(), true);
         if (!"OPEN".equals(gate.state())) {
             throw new TargetApiException(
                     422, "WITHDRAWAL.PAYOUT_GATE_PAUSED",
                     "平台出款暂时停止，请稍后再试");
+        }
+        BindingRow binding = requiredBinding(
+                scope.tenantId(), scope.organizationId(), true);
+        if (binding.merchantId() != gate.merchantId()) {
+            throw stateConflict("商户绑定在提现创建期间发生变化");
         }
         ConfigRow config = currentConfig(
                 scope.tenantId(), scope.organizationId(), true);
@@ -354,7 +446,7 @@ public class WithdrawalApplicationService {
         if (!"PENDING_REVIEW".equals(row.state())) {
             throw stateConflict("该提现已不在待审核状态");
         }
-        if (row.negativePause()) {
+        if ("APPROVED".equals(decision) && row.negativePause()) {
             throw stateConflict("用户钱包负余额暂停期间不能审核通过");
         }
         AccountRow account = requiredAccountById(row, true);
@@ -688,21 +780,32 @@ public class WithdrawalApplicationService {
     private TransferSnapshot prepareTransfer(String withdrawalNo) {
         WithdrawalRow initial = requiredWithdrawalByNo(withdrawalNo, false);
         if ("CHANNEL_PROCESSING".equals(initial.state())) {
-            return transferSnapshot(withdrawalNo);
+            TransferSnapshot existing = transferSnapshot(withdrawalNo);
+            if ("NOT_ENOUGH".equals(existing.lastApiErrorCode())) {
+                GateRow gate = requiredGate(existing.merchantId(), true);
+                if (!"OPEN".equals(gate.state())) return null;
+            }
+            return existing;
         }
         if (!"READY_TO_SUBMIT".equals(initial.state())
                 || initial.negativePause()) {
             return null;
         }
+        GateRow gate = requiredGate(initial.merchantId(), true);
+        if (!"OPEN".equals(gate.state())) return null;
+        if (!lockAndVerifyCurrentBinding(initial)) return null;
         WalletRow wallet = requiredWalletById(initial, true);
         lockActive(initial.walletId());
         WithdrawalRow row = requiredWithdrawal(
                 initial.tenantId(), initial.organizationId(), withdrawalNo, true);
         AccountRow account = requiredAccountById(row, true);
-        GateRow gate = requiredGate(row.merchantId(), true);
-        if (!"OPEN".equals(gate.state()) || row.negativePause()
+        if (row.negativePause()
                 || !"READY_TO_SUBMIT".equals(row.state())) {
             return null;
+        }
+        if (wallet.frozenCent() < row.amountCent()
+                || account.frozenCent() < row.amountCent()) {
+            throw stateConflict("提现双方冻结事实不完整，已停止提交微信");
         }
         String outBillNo = "MT" + withdrawalNo.substring(2);
         String notifyUrl = notifyBaseUrl
@@ -759,6 +862,9 @@ public class WithdrawalApplicationService {
                     ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                     "trusted transfer terminal merged");
         }
+        if (result.outcome() == MerchantTransferResult.Outcome.NOT_ENOUGH) {
+            requiredGate(known.merchantId(), true);
+        }
         TransferSnapshot transfer = lockTransfer(known.withdrawalNo());
         long observationId = appendTransferObservation(
                 command, transfer, observationType, result, now);
@@ -778,6 +884,9 @@ public class WithdrawalApplicationService {
                 submitAttempt, now, now, now, transfer.transferId());
         if (result.outcome() == MerchantTransferResult.Outcome.NOT_ENOUGH) {
             pausePayoutGate(transfer, observationId, now);
+            return new ReliableFundsTaskExecutorPort.Result(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                    "payout liquidity is paused; original submit task retained");
         }
         if (submitAttempt) {
             registerTask(transfer.withdrawal(), "QUERY_MERCHANT_TRANSFER",
@@ -908,7 +1017,14 @@ public class WithdrawalApplicationService {
             long observationId,
             LocalDateTime now) {
         GateRow gate = requiredGate(transfer.merchantId(), true);
-        if (!"OPEN".equals(gate.state())) return;
+        if (!"OPEN".equals(gate.state())) {
+            if (gate.currentPauseEventUid() != null) {
+                operationalControl.observePayoutLiquidityPause(
+                        transfer.merchantId(),
+                        gate.currentPauseEventUid(), now);
+            }
+            return;
+        }
         UUID eventUid = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO fund_payout_gate_event (
@@ -932,6 +1048,8 @@ public class WithdrawalApplicationService {
                     lock_version = lock_version + 1, updated_at = ?
                 WHERE merchant_profile_id = ? AND gate_state = 'OPEN'
                 """, eventId, now, now, transfer.merchantId());
+        operationalControl.observePayoutLiquidityPause(
+                transfer.merchantId(), eventUid, now);
     }
 
     private void freezeWallet(
@@ -1351,14 +1469,45 @@ public class WithdrawalApplicationService {
         return rows.getFirst();
     }
 
+    private boolean lockAndVerifyCurrentBinding(WithdrawalRow row) {
+        List<Long> rows = jdbc.query("""
+                SELECT b.id
+                FROM fund_miniapp_merchant_binding b
+                JOIN fund_wechat_merchant_profile m
+                  ON m.id = b.merchant_profile_id
+                JOIN iam_organization_miniapp app
+                  ON app.id = b.organization_miniapp_id
+                 AND app.tenant_id = b.tenant_id
+                 AND app.organization_id = b.organization_id
+                 AND app.appid = b.appid
+                WHERE b.id = ? AND b.tenant_id = ?
+                  AND b.organization_id = ?
+                  AND b.organization_miniapp_id = ?
+                  AND b.merchant_profile_id = ?
+                  AND b.appid = ? AND m.mchid = ?
+                  AND b.status = 'VERIFIED'
+                  AND m.status = 'ENABLED'
+                  AND app.login_enabled = 1
+                FOR UPDATE
+                """, (rs, ignored) -> rs.getLong("id"), row.bindingId(),
+                row.tenantId(), row.organizationId(), row.miniappId(),
+                row.merchantId(), row.appid(), row.mchid());
+        return rows.size() == 1;
+    }
+
     private GateRow requiredGate(long merchantId, boolean lock) {
         List<GateRow> rows = jdbc.query("""
-                SELECT merchant_profile_id, gate_state, lock_version
-                FROM fund_payout_gate WHERE merchant_profile_id = ?
+                SELECT g.merchant_profile_id, m.mchid, g.gate_state,
+                       g.lock_version, g.current_pause_event_id,
+                       e.event_uid current_pause_event_uid, g.paused_at
+                FROM fund_payout_gate g
+                JOIN fund_wechat_merchant_profile m
+                  ON m.id = g.merchant_profile_id
+                LEFT JOIN fund_payout_gate_event e
+                  ON e.id = g.current_pause_event_id
+                WHERE g.merchant_profile_id = ?
                 """ + (lock ? " FOR UPDATE" : ""),
-                (rs, ignored) -> new GateRow(
-                        rs.getLong("merchant_profile_id"),
-                        rs.getString("gate_state"), rs.getLong("lock_version")),
+                (rs, ignored) -> gateRow(rs),
                 merchantId);
         if (rows.isEmpty()) {
             throw new TargetApiException(
@@ -1366,6 +1515,50 @@ public class WithdrawalApplicationService {
                     "系统商户出款闸门尚未初始化");
         }
         return rows.getFirst();
+    }
+
+    private GateRow currentPlatformGate(boolean lock) {
+        List<GateRow> rows = jdbc.query("""
+                SELECT g.merchant_profile_id, m.mchid, g.gate_state,
+                       g.lock_version, g.current_pause_event_id,
+                       e.event_uid current_pause_event_uid, g.paused_at
+                FROM fund_payout_gate g
+                JOIN fund_wechat_merchant_profile m
+                  ON m.id = g.merchant_profile_id
+                 AND m.status = 'ENABLED'
+                LEFT JOIN fund_payout_gate_event e
+                  ON e.id = g.current_pause_event_id
+                ORDER BY g.merchant_profile_id
+                """ + (lock ? " FOR UPDATE" : ""),
+                (rs, ignored) -> gateRow(rs));
+        if (rows.isEmpty()) {
+            throw new TargetApiException(
+                    404, "RESOURCE.NOT_FOUND", "平台出款闸门尚未初始化");
+        }
+        if (rows.size() != 1) {
+            throw new TargetApiException(
+                    409,
+                    "FUNDS.PAYOUT_GATE_CONFIGURATION_CONFLICT",
+                    "存在多个启用的系统商户，无法确定唯一出款闸门");
+        }
+        return rows.getFirst();
+    }
+
+    private static GateRow gateRow(java.sql.ResultSet rs)
+            throws java.sql.SQLException {
+        String eventUid = rs.getString("current_pause_event_uid");
+        Long eventId = rs.getObject("current_pause_event_id", Long.class);
+        return new GateRow(
+                rs.getLong("merchant_profile_id"), rs.getString("mchid"),
+                rs.getString("gate_state"), rs.getLong("lock_version"),
+                eventId, eventUid == null ? null : UUID.fromString(eventUid),
+                rs.getObject("paused_at", LocalDateTime.class));
+    }
+
+    private static PayoutGateView payoutGateView(GateRow gate) {
+        return new PayoutGateView(
+                gate.mchid(), gate.state(), gate.version(),
+                gate.currentPauseEventUid(), instant(gate.pausedAt()));
     }
 
     private WalletRow requiredWallet(
@@ -1486,15 +1679,15 @@ public class WithdrawalApplicationService {
     private TransferSnapshot findTransfer(String withdrawalNo, boolean lock) {
         return jdbc.queryForObject("""
                 SELECT t.id transfer_id, t.out_bill_no, t.transfer_bill_no,
-                       t.terminal_classification,
+                       t.terminal_classification, t.last_api_error_code,
                        w.*, t.channel_state transfer_channel_state,
                        t.package_info transfer_package_info,
-                       m.scene_id, m.report_type, m.report_content,
-                       m.transfer_page_style
+                       t.scene_id_snapshot scene_id,
+                       t.report_type_snapshot report_type,
+                       t.report_content_snapshot report_content,
+                       t.transfer_page_style_snapshot transfer_page_style
                 FROM fund_withdrawal_order w
                 JOIN fund_wechat_transfer t ON t.withdrawal_order_id = w.id
-                JOIN fund_wechat_merchant_profile m
-                  ON m.id = w.merchant_profile_id
                 WHERE w.withdrawal_order_no = ?
                 """ + (lock ? " FOR UPDATE" : ""), (rs, ignored) -> {
                     WithdrawalRow order = new WithdrawalRow(
@@ -1528,7 +1721,8 @@ public class WithdrawalApplicationService {
                     return new TransferSnapshot(
                             rs.getLong("transfer_id"), rs.getString("out_bill_no"),
                             rs.getString("transfer_bill_no"),
-                            rs.getString("terminal_classification"), order);
+                            rs.getString("terminal_classification"),
+                            rs.getString("last_api_error_code"), order);
                 }, withdrawalNo);
     }
 
@@ -1565,6 +1759,29 @@ public class WithdrawalApplicationService {
                     null, scope.actorDisplayName(), action,
                     "WITHDRAWAL", target, "WEB", "SUCCEEDED",
                     scope.sessionUid(), reason, summary, instant(now)));
+        } catch (DuplicateKeyException duplicate) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private long appendPlatformAudit(
+            PlatformScope actor,
+            UUID operationUid,
+            String action,
+            String target,
+            String reason,
+            String summary,
+            LocalDateTime now) {
+        try {
+            return audit.append(new AuditEntry(
+                    UUID.randomUUID(), UUID.randomUUID(), operationUid,
+                    AuditScopeKind.PLATFORM, null, null,
+                    AuditActorKind.PLATFORM_ADMIN,
+                    actor.platformAdminId(), null, null, null,
+                    actor.actorDisplayName(), action,
+                    "PAYOUT_GATE", target, "WEB", "SUCCEEDED",
+                    actor.sessionUid(), trimTo(reason, 500), summary,
+                    instant(now)));
         } catch (DuplicateKeyException duplicate) {
             throw idempotencyConflict();
         }
@@ -1814,7 +2031,10 @@ public class WithdrawalApplicationService {
             String appid, String mchid) {
     }
 
-    private record GateRow(long merchantId, String state, long version) {
+    private record GateRow(
+            long merchantId, String mchid, String state, long version,
+            Long currentPauseEventId, UUID currentPauseEventUid,
+            LocalDateTime pausedAt) {
     }
 
     private record WalletRow(
@@ -1844,7 +2064,8 @@ public class WithdrawalApplicationService {
 
     private record TransferSnapshot(
             long transferId, String outBillNo, String transferBillNo,
-            String terminalClassification, WithdrawalRow withdrawal) {
+            String terminalClassification, String lastApiErrorCode,
+            WithdrawalRow withdrawal) {
 
         String withdrawalNo() { return withdrawal.withdrawalNo(); }
         long tenantId() { return withdrawal.tenantId(); }

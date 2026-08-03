@@ -2,6 +2,7 @@ package org.enveloping.ecobin.funds.web.v1;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 public final class FundsModels {
 
@@ -135,6 +136,21 @@ public final class FundsModels {
             String mchId,
             String packageInfo,
             String channelState) {
+    }
+
+    public record PayoutGateView(
+            String merchantId,
+            String status,
+            long version,
+            UUID pausedEventUid,
+            Instant pausedAt) {
+    }
+
+    public record RestorePayoutGateRequest(
+            Long expectedGateVersion,
+            UUID pausedEventUid,
+            Boolean fundsReplenishedConfirmed,
+            String reason) {
     }
 
     public record MerchantBindingView(

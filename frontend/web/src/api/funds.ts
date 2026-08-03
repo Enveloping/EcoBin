@@ -6,6 +6,8 @@ import request from './request';
 type Schemas = components['schemas'];
 
 export type PayoutAccount = Schemas['PayoutAccountView'];
+export type PayoutGate = Schemas['PayoutGateView'];
+export type RestorePayoutGateRequest = Schemas['RestorePayoutGateRequest'];
 export type RechargeOrder = Schemas['RechargeView'];
 export type RechargePage = Schemas['RechargePage'];
 export type CreateRechargeRequest = Schemas['CreateRechargeRequest'];
@@ -45,6 +47,25 @@ export function getPayoutAccount(
     url: `${organizationBase(context, organizationCode)}/payout-account`,
     method: 'GET',
     noStore: true,
+  });
+}
+
+export function getPayoutGate() {
+  return request<PayoutGate>({
+    url: '/api/v1/web/platform/payout-gate',
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function restorePayoutGate(
+  data: RestorePayoutGateRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<PayoutGate, RestorePayoutGateRequest>({
+    url: '/api/v1/web/platform/payout-gate/restorations',
+    method: 'POST',
+    data,
   });
 }
 

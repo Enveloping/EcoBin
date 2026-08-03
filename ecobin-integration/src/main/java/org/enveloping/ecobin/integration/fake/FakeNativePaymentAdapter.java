@@ -4,6 +4,7 @@ import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -12,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
 
     private final Map<String, Integer> queryCounts = new ConcurrentHashMap<>();
+    private final Set<String> closedOrders = ConcurrentHashMap.newKeySet();
     private final boolean autoSucceed;
 
     FakeNativePaymentAdapter(boolean autoSucceed) {
@@ -21,6 +23,7 @@ final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
     @Override
     public NativePaymentResult create(NativePaymentRequest request) {
         queryCounts.putIfAbsent(request.outTradeNo(), 0);
+        closedOrders.remove(request.outTradeNo());
         return new NativePaymentResult(
                 NativePaymentResult.Outcome.ACCEPTED,
                 "SIMULATED_NOTPAY",
@@ -31,6 +34,12 @@ final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
 
     @Override
     public NativePaymentResult query(NativePaymentQuery query) {
+        if (closedOrders.contains(query.outTradeNo())) {
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.CLOSED,
+                    "SIMULATED_CLOSED",
+                    null, null, null, "SIMULATED", Instant.now());
+        }
         int count = queryCounts.merge(query.outTradeNo(), 1, Integer::sum);
         if (autoSucceed && count >= 1) {
             return new NativePaymentResult(
@@ -48,6 +57,7 @@ final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
 
     @Override
     public NativePaymentResult close(NativePaymentQuery query) {
+        closedOrders.add(query.outTradeNo());
         return new NativePaymentResult(
                 NativePaymentResult.Outcome.CLOSED,
                 "SIMULATED_CLOSED",

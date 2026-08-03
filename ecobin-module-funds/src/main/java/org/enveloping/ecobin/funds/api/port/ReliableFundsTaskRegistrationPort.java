@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.funds.api.port;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -30,6 +31,9 @@ public interface ReliableFundsTaskRegistrationPort {
             if (taskType == null
                     || !taskType.matches("[A-Z][A-Z0-9_]{0,63}")) {
                 throw new IllegalArgumentException("taskType is invalid");
+            }
+            if (taskKey != null) {
+                taskKey = taskKey.toUpperCase(Locale.ROOT);
             }
             if (taskKey == null
                     || !taskKey.matches("[A-Z0-9_:-]{8,255}")) {

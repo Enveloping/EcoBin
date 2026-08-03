@@ -13,6 +13,7 @@ import {
   App,
   Button,
   Card,
+  Checkbox,
   Col,
   Descriptions,
   Empty,
@@ -34,11 +35,14 @@ import {
   disableMerchantBinding,
   getMerchantBinding,
   getPayoutAccount,
+  getPayoutGate,
   getWithdrawalConfiguration,
   listRechargeOrders,
+  restorePayoutGate,
   verifyMerchantBinding,
   type MerchantBinding,
   type PayoutAccount,
+  type PayoutGate,
   type RechargeOrder,
   type WithdrawalConfiguration,
 } from '@/api/funds';
@@ -77,14 +81,21 @@ export default function FundsPage() {
   const executeCommand = useCommandExecutor();
   const { message } = App.useApp();
   const [rechargeForm] = Form.useForm<{ grossAmountYuan: string }>();
+  const [restoreForm] = Form.useForm<{
+    fundsReplenishedConfirmed: boolean;
+    reason?: string;
+  }>();
   const [account, setAccount] = useState<PayoutAccount | null>(null);
+  const [gate, setGate] = useState<PayoutGate | null>(null);
   const [recharges, setRecharges] = useState<RechargeOrder[]>([]);
   const [configuration, setConfiguration] =
     useState<WithdrawalConfiguration | null>(null);
   const [binding, setBinding] = useState<MerchantBinding | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [gateError, setGateError] = useState<string>();
   const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [createdRecharge, setCreatedRecharge] =
     useState<RechargeOrder | null>(null);
@@ -135,6 +146,25 @@ export default function FundsPage() {
     void load();
   }, [load]);
 
+  const loadGate = useCallback(async () => {
+    if (!directory.platform) {
+      setGate(null);
+      setGateError(undefined);
+      return;
+    }
+    try {
+      setGateError(undefined);
+      setGate(await getPayoutGate());
+    } catch (loadError) {
+      setGate(null);
+      setGateError(errorText(loadError));
+    }
+  }, [directory.platform]);
+
+  useEffect(() => {
+    void loadGate();
+  }, [loadGate]);
+
   const submitRecharge = async () => {
     if (!directory.context || !organization.organizationCode) return;
     const values = await rechargeForm.validateFields();
@@ -157,7 +187,7 @@ export default function FundsPage() {
       setCreatedRecharge(created);
       setRechargeOpen(false);
       message.success('充值单已创建，正在准备微信支付二维码');
-      await load();
+      await Promise.all([load(), loadGate()]);
     } catch (submitError) {
       message.error(errorText(submitError));
     } finally {
@@ -219,6 +249,33 @@ export default function FundsPage() {
     }
   };
 
+  const restoreGate = async () => {
+    if (!gate?.pausedEventUid) return;
+    const values = await restoreForm.validateFields();
+    const payload = {
+      expectedGateVersion: gate.version,
+      pausedEventUid: gate.pausedEventUid,
+      fundsReplenishedConfirmed: true as const,
+      reason: values.reason?.trim() || null,
+    };
+    setSubmitting(true);
+    try {
+      const restored = await executeCommand(
+        commandKey('restore-payout-gate', gate.pausedEventUid, payload),
+        (intent) => restorePayoutGate(payload, intent),
+      );
+      setGate(restored);
+      setRestoreOpen(false);
+      restoreForm.resetFields();
+      message.success('平台出款闸门已恢复，等待任务已被唤醒');
+      await load();
+    } catch (restoreError) {
+      message.error(errorText(restoreError));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const readiness = useMemo(() => {
     if (!account) return { ready: false, text: '状态未知' };
     const ready = account.merchantBindingStatus === 'VERIFIED'
@@ -249,7 +306,10 @@ export default function FundsPage() {
               options={organization.organizationOptions}
               onChange={organization.setOrganizationCode}
             />
-            <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => void Promise.all([load(), loadGate()])}
+            >
               刷新资金事实
             </Button>
           </Space>
@@ -362,6 +422,29 @@ export default function FundsPage() {
   return (
     <PageContainer {...pageHeader('机构资金', '机构钱包、充值、提现额度与微信渠道就绪事实')}>
       <DirectoryScopeBar scope={directory} />
+      {directory.platform && gateError && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="error"
+          showIcon
+          message="平台出款闸门读取失败"
+          description={gateError}
+        />
+      )}
+      {directory.platform && gate?.status === 'PAUSED_NOT_ENOUGH' && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="error"
+          showIcon
+          message="公司微信运营账户余额不足，平台出款已暂停"
+          description={`暂停时间：${gate.pausedAt ? formatShanghaiTime(gate.pausedAt) : '—'}。机构账本额度未改变；补足公司运营账户资金后，必须由平台管理员人工确认恢复。`}
+          action={(
+            <Button danger onClick={() => setRestoreOpen(true)}>
+              确认补资并恢复
+            </Button>
+          )}
+        />
+      )}
       {content}
 
       <Modal title="创建机构充值" open={rechargeOpen} confirmLoading={submitting} onOk={() => void submitRecharge()} onCancel={() => setRechargeOpen(false)} okText="创建并准备二维码">
@@ -369,6 +452,44 @@ export default function FundsPage() {
         <Form form={rechargeForm} layout="vertical">
           <Form.Item name="grossAmountYuan" label="充值金额（元）" rules={[{ required: true, message: '请输入充值金额' }, { pattern: MONEY, message: '请输入精确到分的金额，例如 100.00' }]}>
             <Input prefix="¥" placeholder="1000.00" inputMode="decimal" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="恢复平台出款闸门"
+        open={restoreOpen}
+        confirmLoading={submitting}
+        okText="确认恢复并唤醒原任务"
+        okButtonProps={{ danger: true }}
+        onOk={() => void restoreGate()}
+        onCancel={() => setRestoreOpen(false)}
+      >
+        <Alert
+          style={{ marginBottom: 18 }}
+          type="warning"
+          showIcon
+          message="此操作不会增加任何机构额度"
+          description="系统只会打开公司公共出款闸门，并唤醒原提现任务；每笔任务仍会复用原微信单号并重新核验当前状态。"
+        />
+        <Form
+          form={restoreForm}
+          layout="vertical"
+          initialValues={{ fundsReplenishedConfirmed: false }}
+        >
+          <Form.Item
+            name="fundsReplenishedConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, checked) => checked
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认公司运营账户已经补足资金')),
+            }]}
+          >
+            <Checkbox>我已核实公司微信运营账户资金已经补足</Checkbox>
+          </Form.Item>
+          <Form.Item name="reason" label="恢复说明（可选）">
+            <Input.TextArea maxLength={500} showCount rows={3} />
           </Form.Item>
         </Form>
       </Modal>

@@ -3534,6 +3534,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/payout-gate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the shared WeChat merchant payout gate */
+        get: operations["getPlatformPayoutGate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/payout-gate/restorations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore the exact paused payout gate after platform funds are replenished */
+        post: operations["restorePlatformPayoutGate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wechat-merchant-binding": {
         parameters: {
             query?: never;
@@ -5522,6 +5556,26 @@ export interface components {
             /** Format: date-time */
             asOf: string;
         };
+        PayoutGateView: {
+            merchantId: string;
+            /** @enum {string} */
+            status: "OPEN" | "PAUSED_NOT_ENOUGH";
+            /** Format: int64 */
+            version: number;
+            /** Format: uuid */
+            pausedEventUid: string | null;
+            /** Format: date-time */
+            pausedAt: string | null;
+        };
+        RestorePayoutGateRequest: {
+            /** Format: int64 */
+            expectedGateVersion: number;
+            /** Format: uuid */
+            pausedEventUid: string;
+            /** @constant */
+            fundsReplenishedConfirmed: true;
+            reason?: string | null;
+        };
         WithdrawalConfigurationView: {
             /** Format: int64 */
             versionNo: number;
@@ -5555,7 +5609,8 @@ export interface components {
         };
         WithdrawalView: {
             withdrawalNo: string;
-            status: string;
+            /** @enum {string} */
+            status: "PENDING_REVIEW" | "READY_TO_SUBMIT" | "CHANNEL_PROCESSING" | "SUCCEEDED" | "REJECTED" | "LOCAL_CANCELLED" | "LOCAL_ABORTED_BEFORE_CHANNEL" | "CHANNEL_FAILED" | "CHANNEL_CANCELLED";
             /** Format: int64 */
             version: number;
             amountYuan: components["schemas"]["PositiveMoneyCny"];
@@ -5628,6 +5683,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["PayoutAccountView"];
+            requestId: string;
+        };
+        PayoutGateEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["PayoutGateView"];
             requestId: string;
         };
         WithdrawalEnvelope: {
@@ -11005,6 +11066,62 @@ export interface operations {
                 };
             };
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformPayoutGate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current payout gate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayoutGateEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    restorePlatformPayoutGate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestorePayoutGateRequest"];
+            };
+        };
+        responses: {
+            /** @description Restored payout gate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayoutGateEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     getPlatformWechatMerchantBinding: {

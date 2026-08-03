@@ -14,6 +14,7 @@ public class FundsReliableTaskExecutorService
     private static final Set<String> RECHARGE_TASKS = Set.of(
             "CREATE_NATIVE_PAYMENT",
             "QUERY_NATIVE_PAYMENT",
+            "CLOSE_NATIVE_PAYMENT",
             "POST_RECHARGE_NET_AMOUNT");
 
     private final RechargeApplicationService recharge;

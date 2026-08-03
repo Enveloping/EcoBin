@@ -33,8 +33,8 @@ public class ReliableFundsTaskJdbcRepository {
     public UUID insert(ReliableFundsTaskRegistration task) {
         UUID uid = UUID.randomUUID();
         LocalDateTime now = databaseNow();
-        int count = jdbc.update("""
-                INSERT INTO ops_reliable_task (
+        jdbc.update("""
+                INSERT IGNORE INTO ops_reliable_task (
                     task_uid, scope_kind, tenant_id, organization_id,
                     task_category, task_type, execution_lane, task_key,
                     target_type, target_stable_key,
@@ -66,8 +66,26 @@ public class ReliableFundsTaskJdbcRepository {
                 task.maxAutoAttempts(),
                 task.initialRunAt() == null ? now : task.initialRunAt(),
                 now, now);
-        requireOne(count, "insert funds task");
-        return uid;
+        List<RegisteredTask> registered = jdbc.query("""
+                SELECT task_uid, tenant_id, organization_id, task_type,
+                       target_type, target_stable_key, payload_schema_version,
+                       payload_sha256
+                FROM ops_reliable_task WHERE task_key = ?
+                """, (rs, ignored) -> new RegisteredTask(
+                        UUID.fromString(rs.getString("task_uid")),
+                        rs.getLong("tenant_id"),
+                        rs.getLong("organization_id"),
+                        rs.getString("task_type"),
+                        rs.getString("target_type"),
+                        rs.getString("target_stable_key"),
+                        rs.getInt("payload_schema_version"),
+                        rs.getBytes("payload_sha256")), task.taskKey());
+        if (registered.size() != 1
+                || !registered.getFirst().sameIntent(task)) {
+            throw new IllegalStateException(
+                    "reliable funds task key collides with another intent");
+        }
+        return registered.getFirst().taskUid();
     }
 
     @Transactional(
@@ -283,5 +301,22 @@ public class ReliableFundsTaskJdbcRepository {
             UUID previousLeaseToken, long attemptSequence, long wakeVersion,
             int consecutiveFailureCount, int maxAutoAttempts,
             String taskType, String targetStableKey) {
+    }
+
+    private record RegisteredTask(
+            UUID taskUid, long tenantId, long organizationId,
+            String taskType, String targetType, String targetStableKey,
+            int payloadSchemaVersion, byte[] payloadSha256) {
+
+        boolean sameIntent(ReliableFundsTaskRegistration task) {
+            return tenantId == task.tenantId()
+                    && organizationId == task.organizationId()
+                    && taskType.equals(task.taskType())
+                    && targetType.equals(task.targetType())
+                    && targetStableKey.equals(task.targetStableKey())
+                    && payloadSchemaVersion == task.payloadSchemaVersion()
+                    && java.util.Arrays.equals(
+                    payloadSha256, task.payloadSha256());
+        }
     }
 }

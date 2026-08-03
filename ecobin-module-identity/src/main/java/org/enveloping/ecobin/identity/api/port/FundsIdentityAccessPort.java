@@ -18,6 +18,8 @@ public interface FundsIdentityAccessPort {
 
     CurrentMiniappIdentity currentMiniapp(boolean requirePhone);
 
+    AuthorizedPlatformIdentity authorizePlatform();
+
     record AuthorizedWebIdentity(
             boolean platform,
             String tenantCode,
@@ -36,6 +38,13 @@ public interface FundsIdentityAccessPort {
             String appid,
             long organizationUserId,
             UUID organizationUserUid,
+            UUID sessionUid,
+            String displayName) {
+    }
+
+    record AuthorizedPlatformIdentity(
+            long principalId,
+            UUID principalUid,
             UUID sessionUid,
             String displayName) {
     }

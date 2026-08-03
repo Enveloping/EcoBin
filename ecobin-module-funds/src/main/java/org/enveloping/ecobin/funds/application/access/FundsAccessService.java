@@ -4,6 +4,7 @@ import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.AuthorizedWebIdentity;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.CurrentMiniappIdentity;
+import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.AuthorizedPlatformIdentity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -70,6 +71,13 @@ public class FundsAccessService {
                 actor.sessionUid(), actor.displayName());
     }
 
+    public PlatformScope platformScope() {
+        AuthorizedPlatformIdentity actor = identity.authorizePlatform();
+        return new PlatformScope(
+                actor.principalId(), actor.principalUid(),
+                actor.sessionUid(), actor.displayName());
+    }
+
     private static TargetApiException notFound() {
         return new TargetApiException(
                 404,
@@ -102,6 +110,13 @@ public class FundsAccessService {
             String appid,
             long organizationUserId,
             UUID organizationUserUid,
+            UUID sessionUid,
+            String actorDisplayName) {
+    }
+
+    public record PlatformScope(
+            long platformAdminId,
+            UUID actorUid,
             UUID sessionUid,
             String actorDisplayName) {
     }
