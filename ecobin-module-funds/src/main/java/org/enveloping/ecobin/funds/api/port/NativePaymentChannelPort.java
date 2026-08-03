@@ -51,19 +51,37 @@ public interface NativePaymentChannelPort {
             String transactionId,
             String errorCode,
             String diagnostic,
-            Instant channelTime) {
+            Instant channelTime,
+            String mchid,
+            String appid,
+            String outTradeNo,
+            Long totalAmountCent,
+            String currency) {
 
         public NativePaymentResult {
             Objects.requireNonNull(outcome, "outcome");
+        }
+
+        public NativePaymentResult(
+                Outcome outcome,
+                String channelState,
+                String codeUrl,
+                String transactionId,
+                String errorCode,
+                String diagnostic,
+                Instant channelTime) {
+            this(outcome, channelState, codeUrl, transactionId, errorCode,
+                    diagnostic, channelTime, null, null, null, null, null);
         }
 
         public enum Outcome {
             ACCEPTED,
             SUCCEEDED,
             CLOSED,
+            NOT_FOUND,
             RETRYABLE_FAILURE,
             PERMANENT_FAILURE,
-            UNKNOWN
+            UNKNOWN_STATE
         }
     }
 

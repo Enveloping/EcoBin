@@ -58,10 +58,29 @@ public interface MerchantTransferChannelPort {
             String errorCode,
             String failReason,
             String diagnostic,
-            Instant channelTime) {
+            Instant channelTime,
+            String mchid,
+            String outBillNo,
+            String appid,
+            Long transferAmountCent,
+            String openid) {
 
         public MerchantTransferResult {
             Objects.requireNonNull(outcome, "outcome");
+        }
+
+        public MerchantTransferResult(
+                Outcome outcome,
+                String channelState,
+                String transferBillNo,
+                String packageInfo,
+                String errorCode,
+                String failReason,
+                String diagnostic,
+                Instant channelTime) {
+            this(outcome, channelState, transferBillNo, packageInfo,
+                    errorCode, failReason, diagnostic, channelTime,
+                    null, null, null, null, null);
         }
 
         public enum Outcome {
@@ -71,8 +90,10 @@ public interface MerchantTransferChannelPort {
             FAIL,
             CANCELLED,
             NOT_ENOUGH,
+            NOT_FOUND,
             RETRYABLE_FAILURE,
-            UNKNOWN
+            PERMANENT_FAILURE,
+            UNKNOWN_STATE
         }
     }
 

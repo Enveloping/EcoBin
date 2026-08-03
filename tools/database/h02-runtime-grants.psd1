@@ -521,6 +521,7 @@
             "last_api_error_code"
             "terminal_fail_reason"
             "state_conflict"
+            "submitted_at"
             "channel_updated_at"
             "terminal_at"
             "lock_version"
@@ -602,6 +603,7 @@
         ops_reconciliation_issue = @(
             "severity"
             "latest_seen_run_id"
+            "latest_seen_task_attempt_id"
             "last_seen_at"
             "discovery_count"
             "state"

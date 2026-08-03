@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.funds.api.port;
 
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -27,10 +28,19 @@ public interface ReliableFundsTaskExecutorPort {
         }
     }
 
-    record Result(Outcome outcome, String diagnostic) {
+    record Result(Outcome outcome, String diagnostic, Duration retryAfter) {
 
         public Result {
             Objects.requireNonNull(outcome, "outcome");
+            if (retryAfter != null && (retryAfter.isZero()
+                    || retryAfter.isNegative())) {
+                throw new IllegalArgumentException(
+                        "retryAfter must be positive when supplied");
+            }
+        }
+
+        public Result(Outcome outcome, String diagnostic) {
+            this(outcome, diagnostic, null);
         }
 
         public enum Outcome {

@@ -63,7 +63,12 @@ public class ReliableFundsTaskRunner implements ReliableFundsTaskWorkerPort {
             isolation = Isolation.READ_COMMITTED)
     void complete(ClaimedFundsTask claim, Result result, long durationMillis) {
         Duration retry = switch (result.outcome()) {
-            case WAITING -> properties.getFundsWechat().getPollInterval();
+            case WAITING -> result.retryAfter() == null
+                    ? properties.getFundsWechat().getPollInterval()
+                    : result.retryAfter();
+            case RETRY -> result.retryAfter() == null
+                    ? properties.getFundsWechat().getInitialBackoff()
+                    : result.retryAfter();
             default -> properties.getFundsWechat().getInitialBackoff();
         };
         String technical = switch (result.outcome()) {

@@ -3,6 +3,8 @@ package org.enveloping.ecobin.funds.application.recharge;
 import tools.jackson.databind.JsonNode;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
+import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort;
+import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort.ReconciliationIssue;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort.NativePaymentRequest;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort.NativePaymentResult;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskExecutorPort;
@@ -13,6 +15,8 @@ import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort.ReliableFundsTaskRegistration;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService.WebScope;
+import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy;
+import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy.Validation;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutAccountView;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutEntryPage;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutEntryView;
@@ -30,6 +34,7 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -49,6 +54,7 @@ public class RechargeApplicationService {
     private final FundsAccessService access;
     private final ReliableFundsTaskRegistrationPort tasks;
     private final NativePaymentChannelPort channel;
+    private final FundsOperationalControlPort operationalControl;
     private final ReliableFundsAttemptBoundaryPort attemptBoundary;
     private final TransactionTemplate transactions;
     private final String notifyBaseUrl;
@@ -58,6 +64,7 @@ public class RechargeApplicationService {
             FundsAccessService access,
             ReliableFundsTaskRegistrationPort tasks,
             NativePaymentChannelPort channel,
+            FundsOperationalControlPort operationalControl,
             ReliableFundsAttemptBoundaryPort attemptBoundary,
             TransactionTemplate transactions,
             @Value("${ecobin.funds.wechat-pay.notify-base-url:https://fake.invalid}")
@@ -66,6 +73,7 @@ public class RechargeApplicationService {
         this.access = access;
         this.tasks = tasks;
         this.channel = channel;
+        this.operationalControl = operationalControl;
         this.attemptBoundary = attemptBoundary;
         this.transactions = transactions;
         this.notifyBaseUrl = stripTrailingSlash(notifyBaseUrl);
@@ -432,21 +440,59 @@ public class RechargeApplicationService {
                     observation_type, evidence_source_kind, source_scope_kind,
                     source_inbox_id, source_task_attempt_id,
                     raw_channel_state, api_error_code, transaction_id,
+                    observed_mchid, observed_appid, observed_out_trade_no,
                     total_amount_cent, payer_total_cent, payer_openid,
-                    channel_occurred_at, content_sha256, observed_at, created_at
+                    observed_currency, channel_occurred_at, content_sha256,
+                    observed_at, created_at
                 ) VALUES (?, ?, ?, ?, ?, 'TASK_ATTEMPT', 'ORGANIZATION',
-                          NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+                          NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?,
+                          ?, ?)
                 """, UUID.randomUUID().toString(), current.tenantId(),
                 current.organizationId(), current.paymentId(), observationType,
                 command.sourceTaskAttemptId(), result.channelState(),
                 result.errorCode(), result.transactionId(),
-                result.outcome() == NativePaymentResult.Outcome.SUCCEEDED
-                        ? current.amountCent() : null,
+                result.mchid(), result.appid(), result.outTradeNo(),
+                result.totalAmountCent(), result.currency(),
                 databaseTime(result.channelTime()),
                 sha256(observationType + "|" + safe(result.channelState())
                         + "|" + safe(result.transactionId())
-                        + "|" + safe(result.errorCode())),
+                        + "|" + safe(result.errorCode())
+                        + "|" + safe(result.mchid())
+                        + "|" + safe(result.appid())
+                        + "|" + safe(result.outTradeNo())
+                        + "|" + result.totalAmountCent()
+                        + "|" + safe(result.currency())),
                 now, now);
+        if (isAuthoritativeNativeQuery(attemptKind, result)) {
+            Validation evidence = WechatChannelEvidencePolicy
+                    .validateNativeQuery(
+                            current.mchid(), current.appid(),
+                            current.outTradeNo(), current.amountCent(), result);
+            if (!evidence.trusted()) {
+                observePaymentIssue(
+                        command, current,
+                        "FUNDS.NATIVE_PAYMENT_EVIDENCE_MISMATCH",
+                        "CRITICAL", evidence.safeSummary(), result, now);
+                return new Result(Result.Outcome.BLOCKED,
+                        "Wechat payment evidence mismatch: "
+                                + evidence.safeSummary());
+            }
+        }
+        if (result.outcome() == NativePaymentResult.Outcome.UNKNOWN_STATE
+                || result.outcome()
+                == NativePaymentResult.Outcome.PERMANENT_FAILURE) {
+            String unknown = result.outcome()
+                    == NativePaymentResult.Outcome.UNKNOWN_STATE
+                    ? "UNKNOWN_CHANNEL_STATE" : "PERMANENT_CHANNEL_ERROR";
+            observePaymentIssue(
+                    command, current,
+                    result.outcome() == NativePaymentResult.Outcome.UNKNOWN_STATE
+                            ? "FUNDS.NATIVE_PAYMENT_UNKNOWN_STATE"
+                            : "FUNDS.NATIVE_PAYMENT_CHANNEL_CONFIGURATION",
+                    "CRITICAL", unknown, result, now);
+            return new Result(Result.Outcome.BLOCKED,
+                    "payment channel result requires reconciliation");
+        }
         if (result.outcome() == NativePaymentResult.Outcome.SUCCEEDED) {
             if (result.transactionId() == null || result.transactionId().isBlank()) {
                 return new Result(Result.Outcome.BLOCKED,
@@ -579,12 +625,9 @@ public class RechargeApplicationService {
                     "expired unpaid order queued for close");
         }
         return switch (result.outcome()) {
-            case CLOSED, PERMANENT_FAILURE -> {
-                String businessState = result.outcome()
-                        == NativePaymentResult.Outcome.CLOSED
-                        ? NativePaymentLifecyclePolicy.closedBusinessState(
-                        current.expiresAt(), now)
-                        : "CLOSED";
+            case CLOSED -> {
+                String businessState = NativePaymentLifecyclePolicy
+                        .closedBusinessState(current.expiresAt(), now);
                 jdbc.update("""
                         UPDATE fund_recharge_order
                         SET business_state = ?, closed_at = ?,
@@ -593,10 +636,46 @@ public class RechargeApplicationService {
                         """, businessState, now, now, current.rechargeId());
                 yield new Result(Result.Outcome.DONE, "payment closed");
             }
-            case ACCEPTED, RETRYABLE_FAILURE, UNKNOWN -> new Result(
-                    Result.Outcome.WAITING, "payment remains non-terminal");
+            case ACCEPTED, NOT_FOUND, RETRYABLE_FAILURE -> new Result(
+                    Result.Outcome.WAITING, "payment remains non-terminal",
+                    attemptKind == PaymentAttemptKind.QUERY
+                            ? Duration.ofSeconds(30) : null);
+            case PERMANENT_FAILURE, UNKNOWN_STATE ->
+                    throw new IllegalStateException("handled above");
             case SUCCEEDED -> throw new IllegalStateException("handled above");
         };
+    }
+
+    private static boolean isAuthoritativeNativeQuery(
+            PaymentAttemptKind attemptKind,
+            NativePaymentResult result) {
+        if (attemptKind != PaymentAttemptKind.QUERY) return false;
+        return switch (result.outcome()) {
+            case ACCEPTED, SUCCEEDED, CLOSED, UNKNOWN_STATE -> true;
+            case NOT_FOUND, RETRYABLE_FAILURE, PERMANENT_FAILURE -> false;
+        };
+    }
+
+    private void observePaymentIssue(
+            Command command,
+            PaymentSnapshot payment,
+            String issueCode,
+            String severity,
+            String reason,
+            NativePaymentResult result,
+            LocalDateTime now) {
+        String evidence = issueCode + "|" + payment.outTradeNo() + "|"
+                + safe(result.channelState()) + "|"
+                + safe(result.errorCode()) + "|" + reason;
+        String summary = "reason=" + reason
+                + "; channelState=" + safe(result.channelState())
+                + "; errorCode=" + safe(result.errorCode());
+        operationalControl.observeReconciliationIssue(
+                new ReconciliationIssue(
+                        payment.tenantId(), payment.organizationId(),
+                        command.sourceTaskAttemptId(), issueCode, severity,
+                        "WECHAT_PAYMENT", payment.outTradeNo(),
+                        sha256(evidence), summary, now));
     }
 
     private Result postRecharge(Command command) {

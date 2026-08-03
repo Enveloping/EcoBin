@@ -13,6 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
 
     private final Map<String, Integer> queryCounts = new ConcurrentHashMap<>();
+    private final Map<String, NativePaymentRequest> orders =
+            new ConcurrentHashMap<>();
     private final Set<String> closedOrders = ConcurrentHashMap.newKeySet();
     private final boolean autoSucceed;
 
@@ -23,6 +25,7 @@ final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
     @Override
     public NativePaymentResult create(NativePaymentRequest request) {
         queryCounts.putIfAbsent(request.outTradeNo(), 0);
+        orders.put(request.outTradeNo(), request);
         closedOrders.remove(request.outTradeNo());
         return new NativePaymentResult(
                 NativePaymentResult.Outcome.ACCEPTED,
@@ -34,11 +37,20 @@ final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
 
     @Override
     public NativePaymentResult query(NativePaymentQuery query) {
+        NativePaymentRequest request = orders.get(query.outTradeNo());
+        if (request == null) {
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.NOT_FOUND,
+                    "SIMULATED_NOT_FOUND", null, null, "ORDER_NOT_EXIST",
+                    "SIMULATED", Instant.now());
+        }
         if (closedOrders.contains(query.outTradeNo())) {
             return new NativePaymentResult(
                     NativePaymentResult.Outcome.CLOSED,
                     "SIMULATED_CLOSED",
-                    null, null, null, "SIMULATED", Instant.now());
+                    null, null, null, "SIMULATED", Instant.now(),
+                    request.mchid(), request.appid(), request.outTradeNo(),
+                    request.amountCent(), "CNY");
         }
         int count = queryCounts.merge(query.outTradeNo(), 1, Integer::sum);
         if (autoSucceed && count >= 1) {
@@ -47,12 +59,16 @@ final class FakeNativePaymentAdapter implements NativePaymentChannelPort {
                     "SIMULATED_SUCCESS",
                     null,
                     "FAKEPAY" + query.outTradeNo(),
-                    null, "SIMULATED", Instant.now());
+                    null, "SIMULATED", Instant.now(),
+                    request.mchid(), request.appid(), request.outTradeNo(),
+                    request.amountCent(), "CNY");
         }
         return new NativePaymentResult(
                 NativePaymentResult.Outcome.ACCEPTED,
                 "SIMULATED_NOTPAY",
-                null, null, null, "SIMULATED", Instant.now());
+                null, null, null, "SIMULATED", Instant.now(),
+                request.mchid(), request.appid(), request.outTradeNo(),
+                request.amountCent(), "CNY");
     }
 
     @Override

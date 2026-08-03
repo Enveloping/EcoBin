@@ -87,13 +87,19 @@ public class WechatPayNativePaymentAdapter
                     NativePaymentResult.Outcome.CLOSED;
             case "NOTPAY", "USERPAYING", "REFUND" ->
                     NativePaymentResult.Outcome.ACCEPTED;
-            default -> NativePaymentResult.Outcome.UNKNOWN;
+            default -> NativePaymentResult.Outcome.UNKNOWN_STATE;
         };
+        JsonNode amount = response == null ? null : response.get("amount");
         return new NativePaymentResult(
                 outcome, state, null,
                 WechatPayApiV3Client.text(response, "transaction_id"),
                 null, WechatPayApiV3Client.text(response, "trade_state_desc"),
-                parseInstant(WechatPayApiV3Client.text(response, "success_time")));
+                parseInstant(WechatPayApiV3Client.text(response, "success_time")),
+                WechatPayApiV3Client.text(response, "mchid"),
+                WechatPayApiV3Client.text(response, "appid"),
+                WechatPayApiV3Client.text(response, "out_trade_no"),
+                longValue(amount, "total"),
+                WechatPayApiV3Client.text(amount, "currency"));
     }
 
     private static NativePaymentResult error(WechatPayApiException failure) {
@@ -104,9 +110,17 @@ public class WechatPayNativePaymentAdapter
                 terminal ? NativePaymentResult.Outcome.CLOSED
                         : failure.retryable()
                         ? NativePaymentResult.Outcome.RETRYABLE_FAILURE
-                        : NativePaymentResult.Outcome.UNKNOWN,
+                        : "ORDER_NOT_EXIST".equals(failure.code())
+                        ? NativePaymentResult.Outcome.NOT_FOUND
+                        : NativePaymentResult.Outcome.PERMANENT_FAILURE,
                 "API_ERROR", null, null, failure.code(),
                 failure.getMessage(), Instant.now());
+    }
+
+    private static Long longValue(JsonNode node, String field) {
+        JsonNode value = node == null ? null : node.get(field);
+        return value == null || !value.canConvertToLong()
+                ? null : value.asLong();
     }
 
     private static Instant parseInstant(String value) {

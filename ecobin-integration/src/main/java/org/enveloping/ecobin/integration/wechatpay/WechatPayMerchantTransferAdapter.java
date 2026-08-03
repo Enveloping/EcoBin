@@ -56,7 +56,7 @@ public class WechatPayMerchantTransferAdapter
         try {
             return map(client.get(base(query.outBillNo())));
         } catch (WechatPayApiException failure) {
-            return error(failure);
+            return queryError(failure);
         }
     }
 
@@ -81,27 +81,59 @@ public class WechatPayMerchantTransferAdapter
             case "CANCELLED" -> MerchantTransferResult.Outcome.CANCELLED;
             case "ACCEPTED", "PROCESSING", "TRANSFERING", "CANCELING" ->
                     MerchantTransferResult.Outcome.PROCESSING;
-            default -> MerchantTransferResult.Outcome.UNKNOWN;
+            default -> MerchantTransferResult.Outcome.UNKNOWN_STATE;
         };
         return new MerchantTransferResult(
                 outcome, state,
                 WechatPayApiV3Client.text(response, "transfer_bill_no"),
                 WechatPayApiV3Client.text(response, "package_info"),
                 null, WechatPayApiV3Client.text(response, "fail_reason"),
-                null, parseInstant(response));
+                null, parseInstant(response),
+                WechatPayApiV3Client.text(response, "mch_id"),
+                WechatPayApiV3Client.text(response, "out_bill_no"),
+                WechatPayApiV3Client.text(response, "appid"),
+                longValue(response, "transfer_amount"),
+                WechatPayApiV3Client.text(response, "openid"));
     }
 
     private static MerchantTransferResult error(
             WechatPayApiException failure) {
-        MerchantTransferResult.Outcome outcome = "NOT_ENOUGH".equals(
-                failure.code())
-                ? MerchantTransferResult.Outcome.NOT_ENOUGH
-                : failure.retryable()
-                ? MerchantTransferResult.Outcome.RETRYABLE_FAILURE
-                : MerchantTransferResult.Outcome.UNKNOWN;
+        MerchantTransferResult.Outcome outcome;
+        if ("NOT_ENOUGH".equals(failure.code())) {
+            outcome = MerchantTransferResult.Outcome.NOT_ENOUGH;
+        } else if (isPermanentRequestError(failure.code())) {
+            outcome = MerchantTransferResult.Outcome.PERMANENT_FAILURE;
+        } else {
+            // SYSTEM_ERROR、限频、ALREADY_EXISTS 及新增错误码的结果
+            // 都不能被当成明确失败；业务层会先用原商户单号查单。
+            outcome = MerchantTransferResult.Outcome.RETRYABLE_FAILURE;
+        }
         return new MerchantTransferResult(
                 outcome, "API_ERROR", null, null, failure.code(),
                 null, failure.getMessage(), Instant.now());
+    }
+
+    private static MerchantTransferResult queryError(
+            WechatPayApiException failure) {
+        if (failure.status() == 404 && "NOT_FOUND".equals(failure.code())) {
+            return new MerchantTransferResult(
+                    MerchantTransferResult.Outcome.NOT_FOUND,
+                    "NOT_FOUND", null, null, failure.code(), null,
+                    failure.getMessage(), Instant.now());
+        }
+        return error(failure);
+    }
+
+    private static boolean isPermanentRequestError(String code) {
+        return java.util.Set.of(
+                "PARAM_ERROR", "INVALID_REQUEST", "NO_AUTH", "SIGN_ERROR")
+                .contains(code);
+    }
+
+    private static Long longValue(JsonNode node, String field) {
+        JsonNode value = node == null ? null : node.get(field);
+        return value == null || !value.canConvertToLong()
+                ? null : value.asLong();
     }
 
     private static Instant parseInstant(JsonNode response) {

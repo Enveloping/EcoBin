@@ -10,6 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
 final class FakeMerchantTransferAdapter implements MerchantTransferChannelPort {
 
     private final Map<String, Integer> queries = new ConcurrentHashMap<>();
+    private final Map<String, MerchantTransferRequest> requests =
+            new ConcurrentHashMap<>();
     private final boolean autoSucceed;
 
     FakeMerchantTransferAdapter(boolean autoSucceed) {
@@ -19,36 +21,54 @@ final class FakeMerchantTransferAdapter implements MerchantTransferChannelPort {
     @Override
     public MerchantTransferResult submit(MerchantTransferRequest request) {
         queries.putIfAbsent(request.outBillNo(), 0);
+        requests.put(request.outBillNo(), request);
         return new MerchantTransferResult(
                 MerchantTransferResult.Outcome.WAIT_USER_CONFIRM,
                 "WAIT_USER_CONFIRM",
                 "FAKEBILL" + request.outBillNo(),
                 "fake-package-" + request.outBillNo(),
-                null, null, "SIMULATED", Instant.now());
+                null, null, "SIMULATED", Instant.now(),
+                null, request.outBillNo(), null, null, null);
     }
 
     @Override
     public MerchantTransferResult query(MerchantTransferQuery query) {
+        MerchantTransferRequest request = requests.get(query.outBillNo());
+        if (request == null) {
+            return new MerchantTransferResult(
+                    MerchantTransferResult.Outcome.NOT_FOUND,
+                    "NOT_FOUND", null, null, "NOT_FOUND", null,
+                    "SIMULATED", Instant.now());
+        }
         int count = queries.merge(query.outBillNo(), 1, Integer::sum);
         if (autoSucceed && count >= 1) {
             return new MerchantTransferResult(
                     MerchantTransferResult.Outcome.SUCCESS,
                     "SUCCESS", "FAKEBILL" + query.outBillNo(),
-                    null, null, null, "SIMULATED", Instant.now());
+                    null, null, null, "SIMULATED", Instant.now(),
+                    request.mchid(), request.outBillNo(), request.appid(),
+                    request.amountCent(), request.openid());
         }
         return new MerchantTransferResult(
                 MerchantTransferResult.Outcome.WAIT_USER_CONFIRM,
                 "WAIT_USER_CONFIRM", "FAKEBILL" + query.outBillNo(),
                 "fake-package-" + query.outBillNo(),
-                null, null, "SIMULATED", Instant.now());
+                null, null, "SIMULATED", Instant.now(),
+                request.mchid(), request.outBillNo(), request.appid(),
+                request.amountCent(), request.openid());
     }
 
     @Override
     public MerchantTransferResult cancel(MerchantTransferQuery query) {
+        MerchantTransferRequest request = requests.get(query.outBillNo());
         return new MerchantTransferResult(
                 MerchantTransferResult.Outcome.CANCELLED,
                 "CANCELLED", "FAKEBILL" + query.outBillNo(),
                 null, null, "SIMULATED_CANCELLED",
-                "SIMULATED", Instant.now());
+                "SIMULATED", Instant.now(),
+                request == null ? null : request.mchid(), query.outBillNo(),
+                request == null ? null : request.appid(),
+                request == null ? null : request.amountCent(),
+                request == null ? null : request.openid());
     }
 }

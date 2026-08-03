@@ -2,6 +2,7 @@ package org.enveloping.ecobin.operations.infrastructure.persistence.reliability;
 
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort.ReliableFundsTaskRegistration;
 import org.enveloping.ecobin.operations.application.reliability.ClaimedFundsTask;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Isolation;
@@ -33,8 +34,12 @@ public class ReliableFundsTaskJdbcRepository {
     public UUID insert(ReliableFundsTaskRegistration task) {
         UUID uid = UUID.randomUUID();
         LocalDateTime now = databaseNow();
-        jdbc.update("""
-                INSERT IGNORE INTO ops_reliable_task (
+        LocalDateTime initialRunAt = task.initialRunAt() == null
+                || task.initialRunAt().isBefore(now)
+                ? now : task.initialRunAt();
+        try {
+            jdbc.update("""
+                INSERT INTO ops_reliable_task (
                     task_uid, scope_kind, tenant_id, organization_id,
                     task_category, task_type, execution_lane, task_key,
                     target_type, target_stable_key,
@@ -63,9 +68,11 @@ public class ReliableFundsTaskJdbcRepository {
                 task.taskType(), task.taskKey(), task.targetType(),
                 task.targetStableKey(), task.payloadSchemaVersion(),
                 task.redactedExecutionSnapshot(), task.payloadSha256(),
-                task.maxAutoAttempts(),
-                task.initialRunAt() == null ? now : task.initialRunAt(),
-                now, now);
+                task.maxAutoAttempts(), initialRunAt, now, now);
+        } catch (DuplicateKeyException ignored) {
+            // The exact immutable intent is verified below. Other database
+            // violations must not be downgraded to an idempotent collision.
+        }
         List<RegisteredTask> registered = jdbc.query("""
                 SELECT task_uid, tenant_id, organization_id, task_type,
                        target_type, target_stable_key, payload_schema_version,
@@ -104,6 +111,7 @@ public class ReliableFundsTaskJdbcRepository {
                 WHERE state = 'PENDING'
                   AND task_category IN ('BUSINESS_INTENT', 'TIMER')
                   AND execution_lane = 'FUNDS'
+                  AND dispatch_wait_reason IS NULL
                   AND claimable_at <= UTC_TIMESTAMP(3)
                 ORDER BY claimable_at, priority, id
                 LIMIT 1
@@ -227,6 +235,7 @@ public class ReliableFundsTaskJdbcRepository {
                         lease_until = NULL, handled_wake_version = wake_version,
                         completed_at = ?, consecutive_failure_count = 0,
                         blocked_reason_code = NULL, blocked_diagnostic = NULL,
+                        dispatch_wait_reason = NULL,
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
                     """, now, now, claim.taskId()), "complete funds task");
@@ -242,6 +251,7 @@ public class ReliableFundsTaskJdbcRepository {
                         lease_until = NULL, handled_wake_version = wake_version,
                         completed_at = ?, consecutive_failure_count = ?,
                         blocked_reason_code = ?, blocked_diagnostic = ?,
+                        dispatch_wait_reason = NULL,
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
                     """, now, failures,
