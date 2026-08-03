@@ -17,7 +17,8 @@ public record DeliveryPortBusinessFacts(
         DetectionGate detectionGate,
         ConfirmedFullnessState confirmedFullnessState,
         boolean baselineRemeasurementActive,
-        boolean cleanOperationActive) {
+        boolean cleanOperationActive,
+        boolean cleanRestartInterlockActive) {
 
     public DeliveryPortBusinessFacts {
         if (portNo < 1 || portNo > 6) {

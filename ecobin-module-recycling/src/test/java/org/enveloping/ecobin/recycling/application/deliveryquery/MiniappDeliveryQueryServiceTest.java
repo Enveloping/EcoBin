@@ -114,6 +114,7 @@ class MiniappDeliveryQueryServiceTest {
                                 DeliveryPortBusinessFacts
                                         .ConfirmedFullnessState.FULL,
                                 true,
+                                true,
                                 true))));
         when(wallet.current(any())).thenReturn(
                 new DeliveryWalletQualification(
@@ -140,8 +141,8 @@ class MiniappDeliveryQueryServiceTest {
                             "DEVICE_BUSY",
                             "CURRENT_BAG_MISSING",
                             "BASELINE_REMEASUREMENT_ACTIVE",
-                            "PORT_FULL",
-                            "PORT_CLEAN_OPERATION_ACTIVE");
+                            "PORT_CLEAN_OPERATION_ACTIVE",
+                            "CLEAN_RESTARTED_CLEAN_REQUIRED");
                 });
     }
 
@@ -184,6 +185,7 @@ class MiniappDeliveryQueryServiceTest {
                                         .DetectionGate.MISSING,
                                 DeliveryPortBusinessFacts
                                         .ConfirmedFullnessState.MISSING,
+                                false,
                                 false,
                                 false))));
         when(wallet.current(any())).thenReturn(
@@ -325,6 +327,7 @@ class MiniappDeliveryQueryServiceTest {
                 DeliveryPortBusinessFacts.DetectionGate.READY,
                 DeliveryPortBusinessFacts
                         .ConfirmedFullnessState.NOT_FULL,
+                false,
                 false,
                 false);
     }

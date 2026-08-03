@@ -100,6 +100,8 @@ public class RecyclingDeliveryBusinessReadAdapter
                     rows.portsWithActiveBaselineRemeasurement()
                             .contains(portId),
                     rows.portsWithActiveCleanOperation()
+                            .contains(portId),
+                    rows.portsWithCleanRestartInterlock()
                             .contains(portId));
         }
         return new DeliveryPortBusinessFacts(
@@ -114,7 +116,8 @@ public class RecyclingDeliveryBusinessReadAdapter
                         capacity.confirmedFullnessState()),
                 rows.portsWithActiveBaselineRemeasurement()
                         .contains(portId),
-                rows.portsWithActiveCleanOperation().contains(portId));
+                rows.portsWithActiveCleanOperation().contains(portId),
+                rows.portsWithCleanRestartInterlock().contains(portId));
     }
 
     private static void requireReadOnlyTransaction() {

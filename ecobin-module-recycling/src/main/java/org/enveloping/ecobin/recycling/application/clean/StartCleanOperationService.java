@@ -1,6 +1,5 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
-import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 import org.enveloping.ecobin.device.api.port.DeviceCommandCanonicalizationPort;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
@@ -343,49 +342,21 @@ public class StartCleanOperationService {
                 organizationId,
                 deploymentCode);
 
-        DeploymentRuntime runtime = one("""
-                        SELECT edge_connection_status, safety_status,
-                               local_storage_health, local_storage_state,
-                               trusted_runtime_edge_event_id,
-                               trusted_runtime_edge_event_type,
-                               trusted_runtime_sequence,
-                               trusted_runtime_received_at,
-                               orange_pi_reported_config_version_no,
-                               orange_pi_reported_config_content_sha256,
-                               orange_pi_reported_config_mcu_payload_sha256
-                        FROM dev_deployment_runtime_state
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
+        String onenetStatus = one("""
+                        SELECT onenet_connection_status
+                        FROM dev_device_transport_state
+                        WHERE asset_id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> new DeploymentRuntime(
-                        rs.getString("edge_connection_status"),
-                        rs.getString("safety_status"),
-                        rs.getString("local_storage_health"),
-                        rs.getString("local_storage_state"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_edge_event_id"),
-                        rs.getString(
-                                "trusted_runtime_edge_event_type"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_sequence"),
-                        rs.getObject(
-                                "trusted_runtime_received_at",
-                                LocalDateTime.class),
-                        nullableLong(
-                                rs,
-                                "orange_pi_reported_config_version_no"),
-                        rs.getBytes(
-                                "orange_pi_reported_config_content_sha256"),
-                        rs.getBytes(
-                                "orange_pi_reported_config_mcu_payload_sha256")),
-                tenantId,
-                organizationId,
-                deployment.id()).orElseThrow(
-                StartCleanOperationService::cleaningUnavailable);
+                (rs, ignored) -> rs.getString(
+                        "onenet_connection_status"),
+                asset.id()).orElse("UNKNOWN");
+        if (!"ONLINE".equals(onenetStatus)) {
+            throw new TargetApiException(
+                    422,
+                    "DEVICE.OFFLINE",
+                    "OneNet 当前未确认设备在线，不能创建清运任务");
+        }
 
         if (!query("""
                         SELECT occupancy_kind
@@ -414,32 +385,6 @@ public class StartCleanOperationService {
                 organizationId,
                 deployment.id()).orElseThrow(
                 StartCleanOperationService::configurationUnavailable);
-        ConfigurationApplication application = one("""
-                        SELECT status, reported_version_no,
-                               reported_content_sha256,
-                               reported_mcu_payload_sha256,
-                               applied_at
-                        FROM dev_config_application
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND config_version_id = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new ConfigurationApplication(
-                        rs.getString("status"),
-                        nullableLong(rs, "reported_version_no"),
-                        rs.getBytes("reported_content_sha256"),
-                        rs.getBytes("reported_mcu_payload_sha256"),
-                        rs.getObject(
-                                "applied_at",
-                                LocalDateTime.class)),
-                tenantId,
-                organizationId,
-                deployment.id(),
-                configuration.id()).orElseThrow(
-                StartCleanOperationService::configurationUnavailable);
-
         Port port = one(
                 LOAD_PORT_SQL,
                 (rs, ignored) -> new Port(
@@ -461,24 +406,11 @@ public class StartCleanOperationService {
                 configuration.id(),
                 port.id()).orElseThrow(
                 StartCleanOperationService::configurationUnavailable);
-        PortRuntime portRuntime = one("""
-                        SELECT delivery_door_actuator_health,
-                               clean_lock_power_state,
-                               clean_solenoid_health,
-                               weight_sensor_health,
-                               weight_measurement_status,
-                               weight_value_available,
-                               reported_weight_grams,
-                               weight_value_kind,
-                               calibration_version,
-                               smoke_state,
-                               smoke_sensor_health,
-                               runtime_fault_bitmap,
-                               safety_status,
-                               pending_delivery_result_session_id,
-                               trusted_runtime_edge_event_id,
-                               trusted_runtime_edge_event_type,
-                               trusted_runtime_sequence
+        if (!portConfiguration.businessEnabled()) {
+            throw cleaningUnavailable();
+        }
+        Long pendingDeliverySessionId = one("""
+                        SELECT pending_delivery_result_session_id
                         FROM dev_port_runtime_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
@@ -486,46 +418,16 @@ public class StartCleanOperationService {
                           AND port_id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> new PortRuntime(
-                        rs.getString(
-                                "delivery_door_actuator_health"),
-                        rs.getString("clean_lock_power_state"),
-                        rs.getString("clean_solenoid_health"),
-                        rs.getString("weight_sensor_health"),
-                        rs.getString("weight_measurement_status"),
-                        nullableBoolean(rs, "weight_value_available"),
-                        nullableLong(rs, "reported_weight_grams"),
-                        rs.getString("weight_value_kind"),
-                        nullableLong(rs, "calibration_version"),
-                        rs.getString("smoke_state"),
-                        rs.getString("smoke_sensor_health"),
-                        nullableLong(rs, "runtime_fault_bitmap"),
-                        rs.getString("safety_status"),
+                (rs, ignored) -> new PendingDelivery(
                         nullableLong(
                                 rs,
-                                "pending_delivery_result_session_id"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_edge_event_id"),
-                        rs.getString(
-                                "trusted_runtime_edge_event_type"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_sequence")),
+                                "pending_delivery_result_session_id")),
                 tenantId,
                 organizationId,
                 deployment.id(),
-                port.id()).orElseThrow(
-                StartCleanOperationService::cleaningUnavailable);
+                port.id()).map(PendingDelivery::sessionId).orElse(null);
 
         LocalDateTime now = databaseNow();
-        requireRuntime(
-                runtime,
-                application,
-                configuration,
-                portConfiguration,
-                portRuntime,
-                now);
         requireNoConflictingPortWork(
                 tenantId,
                 organizationId,
@@ -597,7 +499,7 @@ public class StartCleanOperationService {
                 oldBag,
                 frozenBaseline,
                 newBag,
-                portRuntime.pendingDeliveryResultSessionId(),
+                pendingDeliverySessionId,
                 authorizationExpiresAt,
                 now);
         reserveBag(
@@ -1166,80 +1068,6 @@ public class StartCleanOperationService {
         return new Baseline("UNTRUSTED", null, null);
     }
 
-    private static void requireRuntime(
-            DeploymentRuntime runtime,
-            ConfigurationApplication application,
-            Configuration configuration,
-            PortConfiguration portConfiguration,
-            PortRuntime portRuntime,
-            LocalDateTime now) {
-        boolean configurationApplied = "APPLIED".equals(
-                application.status())
-                && application.appliedAt() != null
-                && Objects.equals(
-                application.reportedVersion(),
-                configuration.version())
-                && digestEquals(
-                application.reportedContentSha256(),
-                configuration.contentSha256())
-                && digestEquals(
-                application.reportedMcuPayloadSha256(),
-                configuration.mcuPayloadSha256())
-                && Objects.equals(
-                runtime.reportedVersion(),
-                configuration.version())
-                && digestEquals(
-                runtime.reportedContentSha256(),
-                configuration.contentSha256())
-                && digestEquals(
-                runtime.reportedMcuPayloadSha256(),
-                configuration.mcuPayloadSha256());
-        if (!configurationApplied) {
-            throw configurationUnavailable();
-        }
-        boolean runtimeTrusted = runtime.trustedEventId() != null
-                && "DEVICE_RUNTIME_SNAPSHOT".equals(
-                runtime.trustedEventType())
-                && runtime.trustedSequence() != null
-                && runtime.trustedSequence() > 0
-                && "ONLINE".equals(
-                runtime.edgeConnectionStatus())
-                && "SAFE".equals(runtime.safetyStatus())
-                && "OK".equals(runtime.localStorageHealth())
-                && "HEALTHY".equals(runtime.localStorageState())
-                && runtime.receivedAt() != null;
-        boolean sameTrustedSnapshot =
-                portRuntime.trustedEventId() != null
-                        && "DEVICE_RUNTIME_SNAPSHOT".equals(
-                        portRuntime.trustedEventType())
-                        && Objects.equals(
-                        portRuntime.trustedEventId(),
-                        runtime.trustedEventId())
-                        && Objects.equals(
-                        portRuntime.trustedSequence(),
-                        runtime.trustedSequence());
-        boolean portTrusted = sameTrustedSnapshot
-                && portConfiguration.businessEnabled()
-                && "DEENERGIZED".equals(
-                portRuntime.cleanLockPowerState())
-                && "OK".equals(portRuntime.cleanSolenoidHealth())
-                && DeviceRuntimeWeightPolicy.isStartEligible(
-                portRuntime.weightSensorHealth(),
-                portRuntime.weightMeasurementStatus(),
-                portRuntime.weightValueAvailable(),
-                portRuntime.reportedWeightGrams(),
-                portRuntime.weightValueKind(),
-                portRuntime.calibrationVersion(),
-                portConfiguration.calibrationVersion())
-                && "NORMAL".equals(portRuntime.smokeState())
-                && "OK".equals(portRuntime.smokeSensorHealth())
-                && Objects.equals(portRuntime.faultBitmap(), 0L)
-                && "SAFE".equals(portRuntime.safetyStatus());
-        if (!runtimeTrusted || !portTrusted) {
-            throw cleaningUnavailable();
-        }
-    }
-
     private static void requireDeployment(
             Asset asset,
             ActiveDeployment active,
@@ -1466,18 +1294,6 @@ public class StartCleanOperationService {
         return rs.wasNull() ? null : value;
     }
 
-    private static boolean digestEquals(byte[] left, byte[] right) {
-        return left != null
-                && right != null
-                && MessageDigest.isEqual(left, right);
-    }
-
-    private static Boolean nullableBoolean(ResultSet rs, String column)
-            throws SQLException {
-        boolean value = rs.getBoolean(column);
-        return rs.wasNull() ? null : value;
-    }
-
     private static Instant instant(LocalDateTime value) {
         return value.toInstant(ZoneOffset.UTC);
     }
@@ -1558,20 +1374,6 @@ public class StartCleanOperationService {
             boolean businessEnabled) {
     }
 
-    private record DeploymentRuntime(
-            String edgeConnectionStatus,
-            String safetyStatus,
-            String localStorageHealth,
-            String localStorageState,
-            Long trustedEventId,
-            String trustedEventType,
-            Long trustedSequence,
-            LocalDateTime receivedAt,
-            Long reportedVersion,
-            byte[] reportedContentSha256,
-            byte[] reportedMcuPayloadSha256) {
-    }
-
     private record Configuration(
             long id,
             long version,
@@ -1581,14 +1383,6 @@ public class StartCleanOperationService {
             long heartbeatMissThreshold) {
     }
 
-    private record ConfigurationApplication(
-            String status,
-            Long reportedVersion,
-            byte[] reportedContentSha256,
-            byte[] reportedMcuPayloadSha256,
-            LocalDateTime appliedAt) {
-    }
-
     private record Port(long id, int portNo) {
     }
 
@@ -1596,26 +1390,6 @@ public class StartCleanOperationService {
             long id,
             boolean businessEnabled,
             long calibrationVersion) {
-    }
-
-    private record PortRuntime(
-            String deliveryDoorActuatorHealth,
-            String cleanLockPowerState,
-            String cleanSolenoidHealth,
-            String weightSensorHealth,
-            String weightMeasurementStatus,
-            Boolean weightValueAvailable,
-            Long reportedWeightGrams,
-            String weightValueKind,
-            Long calibrationVersion,
-            String smokeState,
-            String smokeSensorHealth,
-            Long faultBitmap,
-            String safetyStatus,
-            Long pendingDeliveryResultSessionId,
-            Long trustedEventId,
-            String trustedEventType,
-            Long trustedSequence) {
     }
 
     private record CurrentBag(
@@ -1642,6 +1416,9 @@ public class StartCleanOperationService {
             String state,
             Long id,
             Long weightGrams) {
+    }
+
+    private record PendingDelivery(Long sessionId) {
     }
 
     private record CreatedOperation(

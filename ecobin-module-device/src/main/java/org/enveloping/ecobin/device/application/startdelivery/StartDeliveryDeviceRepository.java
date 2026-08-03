@@ -23,10 +23,7 @@ interface StartDeliveryDeviceRepository {
 
     Optional<DeploymentRow> lockDeployment(long deploymentId);
 
-    Optional<DeploymentRuntimeRow> lockDeploymentRuntime(
-            long tenantId,
-            long organizationId,
-            long deploymentId);
+    Optional<TransportPresenceRow> lockTransportPresence(long assetId);
 
     Optional<OccupancyRow> lockOccupancy(long assetId);
 
@@ -34,12 +31,6 @@ interface StartDeliveryDeviceRepository {
             long tenantId,
             long organizationId,
             long deploymentId);
-
-    Optional<ConfigurationApplicationRow> lockConfigurationApplication(
-            long tenantId,
-            long organizationId,
-            long deploymentId,
-            long configurationId);
 
     Optional<PortRow> lockPort(
             long tenantId,
@@ -52,12 +43,6 @@ interface StartDeliveryDeviceRepository {
             long organizationId,
             long deploymentId,
             long configurationId,
-            long portId);
-
-    Optional<PortRuntimeRow> lockPortRuntime(
-            long tenantId,
-            long organizationId,
-            long deploymentId,
             long portId);
 
     long insertSession(SessionInsert insert);
@@ -96,18 +81,7 @@ interface StartDeliveryDeviceRepository {
             boolean businessEnabled) {
     }
 
-    record DeploymentRuntimeRow(
-            String edgeConnectionStatus,
-            String safetyStatus,
-            String localStorageHealth,
-            String localStorageState,
-            Long trustedRuntimeEdgeEventId,
-            String trustedRuntimeEdgeEventType,
-            Long trustedRuntimeSequence,
-            LocalDateTime trustedRuntimeReceivedAt,
-            Long orangePiConfigurationVersion,
-            byte[] orangePiConfigurationContentSha256,
-            byte[] orangePiConfigurationMcuPayloadSha256) {
+    record TransportPresenceRow(String onenetConnectionStatus) {
     }
 
     record OccupancyRow(String occupancyKind) {
@@ -125,14 +99,6 @@ interface StartDeliveryDeviceRepository {
             long deliveryAutoCloseMs) {
     }
 
-    record ConfigurationApplicationRow(
-            String status,
-            Long reportedVersion,
-            byte[] reportedContentSha256,
-            byte[] reportedMcuPayloadSha256,
-            LocalDateTime appliedAt) {
-    }
-
     record PortRow(long id, int portNo) {
     }
 
@@ -142,26 +108,6 @@ interface StartDeliveryDeviceRepository {
             BigDecimal unitPriceYuanPerKg,
             String fullnessMode,
             long calibrationVersion) {
-    }
-
-    record PortRuntimeRow(
-            String deliveryDoorActuatorHealth,
-            String cleanLockPowerState,
-            String cleanSolenoidHealth,
-            String weightSensorHealth,
-            String weightMeasurementStatus,
-            Boolean weightValueAvailable,
-            Long reportedWeightGrams,
-            String weightValueKind,
-            Long calibrationVersion,
-            String smokeState,
-            String smokeSensorHealth,
-            Long runtimeFaultBitmap,
-            String safetyStatus,
-            Long pendingDeliveryResultSessionId,
-            Long trustedRuntimeEdgeEventId,
-            String trustedRuntimeEdgeEventType,
-            Long trustedRuntimeSequence) {
     }
 
     record SessionInsert(

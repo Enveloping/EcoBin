@@ -55,7 +55,8 @@ class RecyclingDeliveryBusinessReadAdapterTest {
                                         "READY",
                                         "NOT_FULL")),
                         Set.of(102L),
-                        Set.of(102L));
+                        Set.of(102L),
+                        Set.of());
         RecyclingDeliveryBusinessReadAdapter adapter =
                 new RecyclingDeliveryBusinessReadAdapter(repository);
 
@@ -109,6 +110,7 @@ class RecyclingDeliveryBusinessReadAdapterTest {
                         OptionalLong.empty(),
                         Set.of(),
                         Map.of(),
+                        Set.of(),
                         Set.of(),
                         Set.of());
         RecyclingDeliveryBusinessReadAdapter adapter =
@@ -223,6 +225,7 @@ class RecyclingDeliveryBusinessReadAdapterTest {
                 OptionalLong.empty(),
                 Set.of(),
                 Map.of(),
+                Set.of(),
                 Set.of(),
                 Set.of());
         private Optional<String> deliveryOrderNo = Optional.empty();

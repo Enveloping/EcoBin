@@ -272,9 +272,7 @@ class TestAtomicReceiveCommand:
         assert recovered["physical_failed"] == 1
         command = store.get_command("cmd-1")
         assert command["state"] == "FAILED"
-        assert command["last_error"] == (
-            "PROCESS_RESTARTED_MCU_STATE_UNKNOWN"
-        )
+        assert command["last_error"] == "EDGE_RESTARTED"
         store.close()
 
 
@@ -610,6 +608,51 @@ class TestWorkSlotOperations:
         assert ok
         slot = store.get_work_slot()
         assert slot["context"]["phase"] == "opening"
+        store.close()
+
+    def test_restart_preserves_durable_completion_without_failed_event(self):
+        store = make_store()
+        command_uid = "10000000-0000-4000-8000-000000000001"
+        work_uid = "20000000-0000-4000-8000-000000000001"
+        command = {
+            "commandUid": command_uid,
+            "commandType": "START_DELIVERY_SESSION",
+            "deploymentCode": "Dp_demo_01",
+        }
+        store.receive_command(
+            command_uid,
+            command["commandType"],
+            command,
+        )
+        store.claim_next_command()
+        store.acquire_work_slot(
+            WORK_TYPE_DELIVERY,
+            work_uid,
+            1,
+            {
+                "start_command_uid": command_uid,
+                "deployment_code": "Dp_demo_01",
+            },
+        )
+        store.receive_mcu_event(
+            "30000000-0000-4000-8000-000000000001",
+            "DELIVERY_COMPLETE",
+            {"sessionUid": work_uid},
+            work_uid,
+        )
+
+        result = store.abort_interrupted_work()
+
+        assert result["outcome"] == "DURABLE_COMPLETION_PRESERVED"
+        assert store.get_work_slot() is None
+        assert [
+            row for row in store.list_pending_events()
+            if row["event_type"] == "DELIVERY_COMPLETE"
+        ]
+        assert not [
+            row for row in store.list_pending_events()
+            if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+        ]
         store.close()
 
 

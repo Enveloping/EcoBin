@@ -37,9 +37,10 @@ public class MiniappDeliveryQueryService {
             "CURRENT_BAG_MISSING";
     static final String BASELINE_REMEASUREMENT_ACTIVE =
             "BASELINE_REMEASUREMENT_ACTIVE";
-    static final String PORT_FULL = "PORT_FULL";
     static final String PORT_CLEAN_OPERATION_ACTIVE =
             "PORT_CLEAN_OPERATION_ACTIVE";
+    static final String CLEAN_RESTARTED_CLEAN_REQUIRED =
+            "CLEAN_RESTARTED_CLEAN_REQUIRED";
 
     private final MiniappDeliveryIdentityQueryPort identity;
     private final MiniappDeliveryDeviceQueryPort device;
@@ -174,15 +175,11 @@ public class MiniappDeliveryQueryService {
         if (facts.baselineRemeasurementActive()) {
             blockers.add(BASELINE_REMEASUREMENT_ACTIVE);
         }
-        // No FULL report is the authoritative NOT_FULL default. Pending,
-        // failed, missing, or legacy unknown sample gates do not block.
-        if (facts.confirmedFullnessState()
-                == DeliveryPortBusinessFacts
-                .ConfirmedFullnessState.FULL) {
-            blockers.add(PORT_FULL);
-        }
         if (facts.cleanOperationActive()) {
             blockers.add(PORT_CLEAN_OPERATION_ACTIVE);
+        }
+        if (facts.cleanRestartInterlockActive()) {
+            blockers.add(CLEAN_RESTARTED_CLEAN_REQUIRED);
         }
     }
 
@@ -215,6 +212,12 @@ public class MiniappDeliveryQueryService {
                     new SessionPresentation(
                             "ENDED",
                             "PRE_START_FAILED",
+                            null,
+                            List.of("SESSION_ENDED"));
+            case "DEVICE_ABORTED" ->
+                    new SessionPresentation(
+                            "ENDED",
+                            "DEVICE_RESTART_ABORTED",
                             null,
                             List.of("SESSION_ENDED"));
             default -> throw new IllegalStateException(

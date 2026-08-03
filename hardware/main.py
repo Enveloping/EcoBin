@@ -188,13 +188,7 @@ class EcoBinEdge:
         logger.info("Boot result: %s", result["status"])
         self.mqtt.on_connected = self._publish_runtime_snapshot_now
 
-        recovered = self.store.recover_interrupted_commands(
-            physical_recovery_required=not getattr(
-                self.uart,
-                "compatibility_mode",
-                False,
-            )
-        )
+        recovered = self.store.recover_interrupted_commands()
         if any(recovered.values()):
             logger.warning("Recovered interrupted commands: %s", recovered)
 

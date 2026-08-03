@@ -67,15 +67,12 @@ export type DeliveryOptionBlocker =
   | 'BUSINESS_SWITCH_DISABLED'
   | 'CONFIGURATION_NOT_APPLIED'
   | 'EDGE_OFFLINE'
-  | 'SAFETY_LOCKED'
   | 'DEVICE_BUSY'
   | 'PORT_DISABLED'
-  | 'PORT_SENSOR_UNHEALTHY'
-  | 'DELIVERY_RESULT_PENDING'
   | 'CURRENT_BAG_MISSING'
   | 'BASELINE_REMEASUREMENT_ACTIVE'
-  | 'PORT_FULL'
   | 'PORT_CLEAN_OPERATION_ACTIVE'
+  | 'CLEAN_RESTARTED_CLEAN_REQUIRED'
 
 export interface DeliveryPortOption {
   portNo: number
@@ -104,6 +101,7 @@ export type DeliverySessionPhase =
   | 'RECOVERY_REQUIRED'
   | 'BUSINESS_CONFIRMED'
   | 'PRE_START_FAILED'
+  | 'DEVICE_RESTART_ABORTED'
 
 export type DeliverySessionNextAction =
   | 'WAIT'

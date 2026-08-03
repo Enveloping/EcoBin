@@ -25,7 +25,8 @@ interface DeliveryBusinessReadRepository {
             Set<Long> portsWithCurrentBag,
             Map<Long, CapacityRow> capacityByPort,
             Set<Long> portsWithActiveBaselineRemeasurement,
-            Set<Long> portsWithActiveCleanOperation) {
+            Set<Long> portsWithActiveCleanOperation,
+            Set<Long> portsWithCleanRestartInterlock) {
     }
 
     record CapacityRow(

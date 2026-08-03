@@ -96,7 +96,7 @@ public class OneNetReliableCommandWorker {
             int expired = runner.recoverExpiredEvidenceWaits();
             if (expired > 0) {
                 LOGGER.warn(
-                        "OneNet device evidence waits expired={}", expired);
+                        "OneNet device evidence or undispatched authorization work expired={}", expired);
             }
             wake();
         } catch (RuntimeException failure) {

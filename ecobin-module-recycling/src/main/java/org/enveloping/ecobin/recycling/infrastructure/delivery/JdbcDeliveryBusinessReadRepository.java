@@ -87,6 +87,15 @@ JdbcDeliveryBusinessReadRepository
               AND clean.port_id IN (%s)
             """;
 
+    static final String FIND_CLEAN_RESTART_INTERLOCKS_SQL = """
+            SELECT interlock.port_id
+            FROM rec_port_clean_restart_interlock interlock
+            WHERE interlock.tenant_id = ?
+              AND interlock.organization_id = ?
+              AND interlock.deployment_id = ?
+              AND interlock.port_id IN (%s)
+            """;
+
     static final String FIND_DELIVERY_ORDER_NO_SQL = """
             SELECT delivery_order_no
             FROM rec_delivery_order
@@ -166,13 +175,21 @@ JdbcDeliveryBusinessReadRepository
                         organizationId,
                         deploymentId,
                         requestedPortIds);
+        Set<Long> cleanRestartInterlocks =
+                queryPortIds(
+                        FIND_CLEAN_RESTART_INTERLOCKS_SQL,
+                        tenantId,
+                        organizationId,
+                        deploymentId,
+                        requestedPortIds);
 
         return new OptionsRows(
                 openBalanceFloorCent,
                 Set.copyOf(currentBags),
                 Map.copyOf(capacityByPort),
                 activeBaselineRemeasurements,
-                activeCleanOperations);
+                activeCleanOperations,
+                cleanRestartInterlocks);
     }
 
     @Override

@@ -452,12 +452,7 @@ def test_fixed_frame_boot_skips_query_and_releases_stale_local_work(
     assert store.get_work_slot() is None
     inbox = store.get_command(command_uid)
     assert inbox["state"] == "FAILED"
-    assert inbox["last_error"] == (
-        "PROCESS_RESTARTED_MCU_STATE_UNKNOWN"
-    )
-    assert store.get_state(
-        "fixed_frame_last_abandoned_work_uid"
-    ) == work_uid
+    assert inbox["last_error"] == "EDGE_RESTARTED"
     assert store.get_state(
         "fixed_frame_latest_observation_json"
     ) == '{"postWeightGrams":123}'
@@ -524,7 +519,7 @@ def test_online_mcu_restart_runs_state_and_configuration_recovery(tmp_path):
     store.close()
 
 
-def test_boot_recovery_resumes_original_clean_without_resetting_window(
+def test_boot_restart_aborts_clean_and_requires_a_new_complete_clean(
     tmp_path, monkeypatch
 ):
     store = EdgeStore(str(tmp_path / "edge.db"))
@@ -535,6 +530,18 @@ def test_boot_recovery_resumes_original_clean_without_resetting_window(
         datetime.now(timezone.utc) + timedelta(minutes=20)
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     operation_uid = "70000000-0000-4000-8000-000000000001"
+    start_command_uid = "71000000-0000-4000-8000-000000000001"
+    start_command = {
+        "commandUid": start_command_uid,
+        "commandType": "START_CLEAN_OPERATION",
+        "deploymentCode": "Dp_demo_01",
+    }
+    store.receive_command(
+        start_command_uid,
+        start_command["commandType"],
+        start_command,
+    )
+    assert store.claim_next_command()["command_uid"] == start_command_uid
     store.acquire_work_slot(
         "CLEAN",
         operation_uid,
@@ -543,9 +550,8 @@ def test_boot_recovery_resumes_original_clean_without_resetting_window(
             "operation_uid": operation_uid,
             "port_no": 1,
             "config": {"version": 8, "contentSha256": "a" * 64},
-            "start_mcu_command_uid": (
-                "71000000-0000-4000-8000-000000000001"
-            ),
+            "start_command_uid": start_command_uid,
+            "start_mcu_command_uid": start_command_uid,
             "operation_deadline": deadline,
             "recovery_generation": 0,
             "action_sequence": 4,
@@ -561,21 +567,28 @@ def test_boot_recovery_resumes_original_clean_without_resetting_window(
     assert result["status"] == "READY"
     assert uart.commands == [
         "APPLY_CONFIGURATION",
-        "RESUME_CLEAN_OPERATION",
+        "CONFIRM_NO_ACTIVE_WORK",
     ]
-    _, values, _ = uart.sent_values[-1]
-    assert values["operationUid"] == operation_uid
-    assert values["recoveryGeneration"] == 1
-    assert values["nextCleanActionSequence"] == 5
-    slot = store.get_work_slot()
-    assert slot["context"]["operation_deadline"] == deadline
-    assert slot["context"]["recovery_generation"] == 1
-    assert slot["context"]["action_sequence"] == 4
-    assert slot["context"]["phase"] == "CLEAN_RECOVERY_REQUIRED"
+    assert store.get_work_slot() is None
+    assert store.clean_restart_interlock_active(1) is True
+    assert store.get_command(start_command_uid)["last_error"] == (
+        "EDGE_RESTARTED"
+    )
+    failed = [
+        row for row in store.list_pending_events()
+        if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+    ]
+    assert len(failed) == 1
+    assert json.loads(failed[0]["payload_json"])["payload"] == {
+        "observedCommandType": "START_CLEAN_OPERATION",
+        "stage": "FAILED",
+        "mcuCommandUid": start_command_uid,
+        "errorCode": "EDGE_RESTARTED",
+    }
     store.close()
 
 
-def test_boot_recovery_marks_interrupted_delivery_for_manual_review(
+def test_boot_restart_aborts_delivery_without_fake_completion(
     tmp_path, monkeypatch
 ):
     store = EdgeStore(str(tmp_path / "edge.db"))
@@ -583,6 +596,18 @@ def test_boot_recovery_marks_interrupted_delivery_for_manual_review(
     store.set_edge_boot_id("123")
     mark_configuration_applied(store)
     session_uid = "72000000-0000-4000-8000-000000000001"
+    start_command_uid = "73000000-0000-4000-8000-000000000001"
+    start_command = {
+        "commandUid": start_command_uid,
+        "commandType": "START_DELIVERY_SESSION",
+        "deploymentCode": "Dp_demo_01",
+    }
+    store.receive_command(
+        start_command_uid,
+        start_command["commandType"],
+        start_command,
+    )
+    assert store.claim_next_command()["command_uid"] == start_command_uid
     store.acquire_work_slot(
         "DELIVERY",
         session_uid,
@@ -590,9 +615,7 @@ def test_boot_recovery_marks_interrupted_delivery_for_manual_review(
         {
             "session_uid": session_uid,
             "port_no": 1,
-            "start_command_uid": (
-                "73000000-0000-4000-8000-000000000001"
-            ),
+            "start_command_uid": start_command_uid,
             "deployment_code": "Dp_demo_01",
             "unit_price_ten_thousandths": 4500,
             "phase": "WAITING_SELECTION",
@@ -624,16 +647,18 @@ def test_boot_recovery_marks_interrupted_delivery_for_manual_review(
 
     assert result["status"] == "READY"
     assert uart.commands[-1] == "CONFIRM_NO_ACTIVE_WORK"
-    slot = store.get_work_slot()
-    assert slot["work_state"] == "RECOVERY_REQUIRED"
-    assert slot["context"]["phase"] == "DEVICE_INTERRUPTED"
+    assert store.get_work_slot() is None
     event_rows = [
         row for row in store.list_pending_events()
         if row["event_type"] == "DELIVERY_COMPLETE"
     ]
-    assert len(event_rows) == 1
-    envelope = json.loads(event_rows[0]["payload_json"])
-    assert envelope["eventType"] == "DELIVERY_COMPLETE"
-    assert envelope["payload"]["completionReason"] == "DEVICE_INTERRUPTED"
-    assert envelope["payload"]["manualReviewRequired"] is True
+    assert event_rows == []
+    failed = [
+        row for row in store.list_pending_events()
+        if row["event_type"] == "DEVICE_COMMAND_OBSERVED"
+    ]
+    assert len(failed) == 1
+    assert json.loads(failed[0]["payload_json"])["payload"][
+        "errorCode"
+    ] == "EDGE_RESTARTED"
     store.close()

@@ -135,15 +135,9 @@ public class StartDeliveryDeviceParticipationService
                 organizationId,
                 deploymentCode,
                 command.portNo());
-
-        StartDeliveryDeviceRepository.DeploymentRuntimeRow runtime =
-                repository.lockDeploymentRuntime(
-                                tenantId,
-                                organizationId,
-                                deployment.id())
-                        .orElseThrow(
-                                StartDeliveryDevicePolicy
-                                        ::deploymentUnavailable);
+        StartDeliveryDevicePolicy.requireOnenetOnline(
+                repository.lockTransportPresence(asset.id())
+                        .orElse(null));
         StartDeliveryDevicePolicy.requireUnoccupied(
                 repository.lockOccupancy(asset.id()).orElse(null));
 
@@ -155,21 +149,6 @@ public class StartDeliveryDeviceParticipationService
                         .orElseThrow(
                                 StartDeliveryDevicePolicy
                                         ::configurationNotApplied);
-        StartDeliveryDeviceRepository.ConfigurationApplicationRow
-                application =
-                repository.lockConfigurationApplication(
-                                tenantId,
-                                organizationId,
-                                deployment.id(),
-                                configuration.id())
-                        .orElseThrow(
-                                StartDeliveryDevicePolicy
-                                        ::configurationNotApplied);
-        StartDeliveryDevicePolicy.requireExactAppliedConfiguration(
-                configuration,
-                application,
-                runtime);
-
         StartDeliveryDeviceRepository.PortRow port =
                 repository.lockPort(
                                 tenantId,
@@ -192,26 +171,6 @@ public class StartDeliveryDeviceParticipationService
                                         ::configurationNotApplied);
         StartDeliveryDevicePolicy.requirePortConfigured(
                 portConfiguration);
-        StartDeliveryDeviceRepository.PortRuntimeRow portRuntime =
-                repository.lockPortRuntime(
-                                tenantId,
-                                organizationId,
-                                deployment.id(),
-                                port.id())
-                        .orElseThrow(() ->
-                                StartDeliveryDevicePolicy.portUnavailable(
-                                        "当前投口没有运行状态"));
-
-        LocalDateTime eligibilityCheckedAt = repository.databaseNow();
-        StartDeliveryDevicePolicy.requireTrustedDeploymentRuntime(
-                runtime,
-                configuration,
-                eligibilityCheckedAt);
-        StartDeliveryDevicePolicy.requireTrustedPortRuntime(
-                portRuntime,
-                portConfiguration,
-                runtime);
-
         DeviceDeliveryPortRef devicePort = portRefFactory.issue(
                 tenantId,
                 organizationId,
@@ -227,15 +186,7 @@ public class StartDeliveryDeviceParticipationService
                         "lockedBusiness");
         requireBagUid(lockedBusiness.bagUid());
 
-        /*
-         * Business-fact locking may have waited. Re-read database time and
-         * recheck freshness before deriving the full 60-second authorization.
-         */
         LocalDateTime now = repository.databaseNow();
-        StartDeliveryDevicePolicy.requireTrustedDeploymentRuntime(
-                runtime,
-                configuration,
-                now);
 
         UUID sessionUid = UUID.randomUUID();
         UUID commandUid = UUID.randomUUID();

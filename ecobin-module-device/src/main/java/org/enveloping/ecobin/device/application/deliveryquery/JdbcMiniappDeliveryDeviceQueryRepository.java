@@ -51,7 +51,10 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                    application.reported_mcu_payload_sha256
                        AS application_reported_mcu_payload_sha256,
                    application.applied_at AS configuration_applied_at,
-                   runtime.edge_connection_status,
+                   COALESCE(
+                       transport.onenet_connection_status,
+                       'UNKNOWN'
+                   ) AS edge_connection_status,
                    runtime.safety_status,
                    runtime.local_storage_health,
                    runtime.local_storage_state,
@@ -68,6 +71,8 @@ class JdbcMiniappDeliveryDeviceQueryRepository
             FROM dev_device_deployment deployment
             JOIN dev_device_asset asset
               ON asset.id = deployment.asset_id
+            LEFT JOIN dev_device_transport_state transport
+              ON transport.asset_id = asset.id
             JOIN dev_asset_active_deployment active
               ON active.asset_id = deployment.asset_id
              AND active.tenant_id = deployment.tenant_id
@@ -106,8 +111,8 @@ class JdbcMiniappDeliveryDeviceQueryRepository
             """;
 
     /*
-     * The trusted snapshot cannot observe a physical delivery-door contact,
-     * so legacy door-state/contact columns must not become fake blockers.
+     * Runtime fields are returned for diagnostics only. They do not decide
+     * whether the backend may create a delivery task.
      */
     static final String FIND_PORTS_SQL = """
             SELECT port.id AS port_id,

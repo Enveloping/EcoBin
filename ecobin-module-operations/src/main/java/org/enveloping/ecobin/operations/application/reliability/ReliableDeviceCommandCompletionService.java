@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
+import org.enveloping.ecobin.device.api.port.ExpiredUnstartedDeviceWorkPort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
@@ -13,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Set;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -23,6 +25,8 @@ public class ReliableDeviceCommandCompletionService {
     private final ReliableOperationsJdbcRepository repository;
     private final ReliableTaskProperties properties;
     private final ObjectMapper objectMapper;
+    private final List<ExpiredUnstartedDeviceWorkPort>
+            expiredUnstartedWorkPorts;
 
     private static final Set<String> SAFE_CONTROL_COMMANDS = Set.of(
             "CONFIRM_EDGE_EVENT",
@@ -35,10 +39,14 @@ public class ReliableDeviceCommandCompletionService {
     public ReliableDeviceCommandCompletionService(
             ReliableOperationsJdbcRepository repository,
             ReliableTaskProperties properties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            List<ExpiredUnstartedDeviceWorkPort>
+                    expiredUnstartedWorkPorts) {
         this.repository = repository;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.expiredUnstartedWorkPorts = List.copyOf(
+                expiredUnstartedWorkPorts);
     }
 
     @Transactional(
@@ -176,8 +184,19 @@ public class ReliableDeviceCommandCompletionService {
             propagation = Propagation.REQUIRES_NEW,
             isolation = Isolation.READ_COMMITTED)
     public int expireEvidenceWaits() {
-        return repository.blockExpiredDeviceEvidenceWaits(
-                repository.databaseNow());
+        LocalDateTime now = repository.databaseNow();
+        int closed = 0;
+        for (ExpiredUnstartedDeviceWorkPort port
+                : expiredUnstartedWorkPorts) {
+            List<Long> commandIds =
+                    port.closeExpiredUnstartedWork(now);
+            for (long commandId : commandIds) {
+                repository.cancelExpiredUnstartedDeviceTask(
+                        commandId, now);
+            }
+            closed += commandIds.size();
+        }
+        return closed + repository.blockExpiredDeviceEvidenceWaits(now);
     }
 
     private LocalDateTime evidenceDeadline(
