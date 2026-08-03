@@ -22,6 +22,17 @@
         <text>{{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + withdrawalProcessing))}}</text>
       </view>
     </view>
+    <view
+      class="withdrawal-entry"
+      bindtap="onWithdrawals"
+      hover-class="withdrawal-entry--pressed"
+    >
+      <view>
+        <view class="withdrawal-entry-title">申请提现</view>
+        <view class="withdrawal-entry-copy">查看人工审核与微信收款状态</view>
+      </view>
+      <t-icon name="chevron-right" size="36rpx" color="#10a625" />
+    </view>
   </view>
 
   <view class="section-head">

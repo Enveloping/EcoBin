@@ -32,6 +32,8 @@ const DeliveryOrdersPage = lazy(
 const DeliveryConfigurationPage = lazy(
   () => import('@/pages/delivery-configuration'),
 );
+const FundsPage = lazy(() => import('@/pages/funds'));
+const WithdrawalsPage = lazy(() => import('@/pages/withdrawals'));
 const BusinessContractPendingPage = lazy(
   () => import('@/pages/business/BusinessContractPending'),
 );
@@ -141,10 +143,17 @@ export const appRoutes: AppRoute[] = [
     allOf: ['clean.read'],
   },
   {
+    path: '/funds',
+    name: '机构资金',
+    icon: <DollarOutlined />,
+    element: <FundsPage />,
+    anyOf: ['fund.read', 'recharge.create'],
+  },
+  {
     path: '/withdrawals',
     name: '提现订单',
     icon: <DollarOutlined />,
-    element: <BusinessContractPendingPage kind="withdrawal" />,
+    element: <WithdrawalsPage />,
     anyOf: ['withdrawal.read', 'review.execute'],
   },
   {
@@ -315,33 +324,17 @@ export function menuRoutesFor(
     });
   }
 
+  const funds = visibleRoute(session, '/funds');
   const withdrawal = visibleRoute(session, '/withdrawals');
-  if (withdrawal) {
+  if (funds || withdrawal) {
+    const fundsRoutes: AppMenuRoute[] = [];
+    if (funds) fundsRoutes.push(leaf(funds, funds.path, funds.name ?? '', false));
+    if (withdrawal) fundsRoutes.push(leaf(withdrawal, withdrawal.path, withdrawal.name ?? '', false));
     menu.push({
-      path: '/menu/withdrawals',
-      name: '提现订单',
-      icon: withdrawal.icon,
-      routes: [
-        leaf(withdrawal, withdrawal.path, withdrawal.name ?? '', false),
-        {
-          path: '/menu/withdrawals/organization-unpaid',
-          name: '机构未付款订单',
-          disabled: true,
-          tooltip: '目标资金模型在创建提现时同步冻结机构额度',
-        },
-        {
-          path: '/menu/withdrawals/member-refunded',
-          name: '已退款到会员订单',
-          disabled: true,
-          tooltip: '资金契约尚未提供这一单一列表状态',
-        },
-        {
-          path: '/menu/withdrawals/manual-review',
-          name: '人工审核订单',
-          disabled: true,
-          tooltip: '等待提现 Web 列表契约落地',
-        },
-      ],
+      path: '/menu/funds',
+      name: '资金管理',
+      icon: funds?.icon ?? withdrawal?.icon,
+      routes: fundsRoutes,
     });
   }
 

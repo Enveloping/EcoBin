@@ -145,6 +145,47 @@ export interface MiniappWalletView {
   asOf: string
 }
 
+export type WithdrawalStatus =
+  | 'PENDING_REVIEW'
+  | 'READY_TO_SUBMIT'
+  | 'CHANNEL_PROCESSING'
+  | 'SUCCESS'
+  | 'REJECTED'
+  | 'LOCAL_CANCELLED'
+  | 'LOCAL_ABORTED_BEFORE_CHANNEL'
+  | 'CHANNEL_FAILED'
+  | 'CHANNEL_CANCELLED'
+
+export interface WithdrawalView {
+  withdrawalNo: string
+  status: WithdrawalStatus
+  version: number
+  amountYuan: string
+  channelState: string | null
+  confirmationRequired: boolean
+  cancellable: boolean
+  channelBoundaryCrossed: boolean
+  negativeBalancePaused: boolean
+  postBoundaryRisk: boolean
+  createdAt: string
+  reviewedAt: string | null
+  endedAt: string | null
+}
+
+export interface WithdrawalPage {
+  items: WithdrawalView[]
+  asOf: string
+  nextCursor: string | null
+}
+
+export interface MerchantTransferConfirmationView {
+  withdrawalNo: string
+  appId: string
+  mchId: string
+  packageInfo: string
+  channelState: 'WAIT_USER_CONFIRM'
+}
+
 export type WalletEntryType =
   | 'DELIVERY_INITIAL_REVIEW'
   | 'DELIVERY_CORRECTION'

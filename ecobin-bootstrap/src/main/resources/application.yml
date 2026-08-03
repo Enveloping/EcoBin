@@ -158,6 +158,19 @@ ecobin:
     mode: ${externalMode:fake}
     fake:
       block-inbound: true
+  funds:
+    wechat:
+      notify-base-url: ${wechatPayNotifyBaseUrl:https://fake.invalid}
+    wechat-pay:
+      base-url: ${wechatPayBaseUrl:https://api.mch.weixin.qq.com}
+      mchid: ${wechatPayMchid:}
+      merchant-serial-number: ${wechatPayMerchantSerialNumber:}
+      merchant-private-key-path: ${wechatPayMerchantPrivateKeyPath:}
+      api-v3-key: ${wechatPayApiV3Key:}
+      platform-certificate-path: ${wechatPayPlatformCertificatePath:}
+      transfer-scene-id: ${wechatPayTransferSceneId:1010}
+      connect-timeout-millis: 5000
+      request-timeout-millis: 10000
 
 # 服务器端口
 server:

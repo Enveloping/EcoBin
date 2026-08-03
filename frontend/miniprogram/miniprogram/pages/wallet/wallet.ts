@@ -237,4 +237,8 @@ Page({
   onContinueLoading() {
     void this.loadMore()
   },
+
+  onWithdrawals() {
+    wx.navigateTo({ url: '/pages/withdrawals/withdrawals' })
+  },
 })

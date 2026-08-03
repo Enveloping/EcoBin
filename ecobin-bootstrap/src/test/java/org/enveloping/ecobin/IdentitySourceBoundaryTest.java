@@ -95,6 +95,10 @@ class IdentitySourceBoundaryTest {
                         Path.of(
                                 "ecobin-module-funds/src/main/java/org/enveloping/ecobin/funds/"
                                         + "infrastructure/registration/"
+                                        + "JdbcOrganizationBootstrapParticipant.java"),
+                        Path.of(
+                                "ecobin-module-funds/src/main/java/org/enveloping/ecobin/funds/"
+                                        + "infrastructure/registration/"
                                         + "JdbcOrganizationUserRegistrationParticipant.java"),
                         Path.of(
                                 "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"

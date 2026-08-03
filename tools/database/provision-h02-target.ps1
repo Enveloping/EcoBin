@@ -857,7 +857,7 @@ WHERE table_schema = '$DatabaseName'
             $existingDomainTableCount -ne 96 -or
             $existingHistoryCount -ne 27
         ) {
-            throw "Migrated resume requires the complete V27 target database"
+            throw "Migrated resume requires the complete V29 target database"
         }
         $migrationCompleted = $true
         $skipMigration = $true

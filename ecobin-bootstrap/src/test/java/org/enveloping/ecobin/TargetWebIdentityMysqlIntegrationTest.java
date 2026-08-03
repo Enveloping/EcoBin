@@ -231,6 +231,10 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertDefaultDeliveryRule(tenantA, organizationA);
         assertDefaultDeliveryRule(tenantA, organizationB);
         assertDefaultDeliveryRule(tenantB, otherTenantOrganization);
+        assertZeroOrganizationPayoutAccount(tenantA, organizationA);
+        assertZeroOrganizationPayoutAccount(tenantA, organizationB);
+        assertZeroOrganizationPayoutAccount(
+                tenantB, otherTenantOrganization);
 
         String workerLogin = "v01-worker-" + run;
         JsonNode worker = data(write(
@@ -1359,6 +1363,56 @@ class TargetWebIdentityMysqlIntegrationTest {
                         Integer.class,
                         tenantCode,
                         organizationCode));
+    }
+
+    private void assertZeroOrganizationPayoutAccount(
+            String tenantCode,
+            String organizationCode) {
+        assertEquals(
+                "1|0|0|0",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    COUNT(*), '|',
+                                    COALESCE(MAX(
+                                        account.available_payout_cent), -1), '|',
+                                    COALESCE(MAX(
+                                        account.frozen_withdrawal_cent), -1), '|',
+                                    COALESCE(MAX(account.lock_version), -1)
+                                )
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                LEFT JOIN fund_organization_payout_account account
+                                  ON account.tenant_id = organization.tenant_id
+                                 AND account.organization_id = organization.id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                """,
+                        String.class,
+                        tenantCode,
+                        organizationCode));
+        assertEquals(
+                "1|1000|10|1000|0",
+                jdbc.queryForObject("""
+                                SELECT CONCAT(
+                                    COUNT(*), '|',
+                                    MAX(config.hard_limit_cent), '|',
+                                    MAX(config.manual_min_cent), '|',
+                                    MAX(config.manual_max_cent), '|',
+                                    MAX(config.manual_review_free_threshold_cent)
+                                )
+                                FROM iam_tenant tenant
+                                JOIN iam_organization organization
+                                  ON organization.tenant_id = tenant.id
+                                JOIN fund_organization_withdraw_config_head head
+                                  ON head.tenant_id = organization.tenant_id
+                                 AND head.organization_id = organization.id
+                                JOIN fund_organization_withdraw_config config
+                                  ON config.id = head.current_config_id
+                                WHERE tenant.tenant_code = ?
+                                  AND organization.organization_code = ?
+                                """, String.class,
+                        tenantCode, organizationCode));
     }
 
     private MvcResult login(

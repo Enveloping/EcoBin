@@ -11,6 +11,7 @@
     "pages/management/management",
     "pages/profile/profile",
     "pages/wallet/wallet",
+    "pages/withdrawals/withdrawals",
     "pages/nearby/nearby",
     "pages/orders/orders",
     "pages/order-detail/order-detail",

@@ -38,7 +38,8 @@ function activeMenuParent(pathname: string): string | undefined {
     '/organization-users': '/menu/organization-users',
     '/deliveries': '/menu/deliveries',
     '/clean-records': '/menu/clean-records',
-    '/withdrawals': '/menu/withdrawals',
+    '/funds': '/menu/funds',
+    '/withdrawals': '/menu/funds',
   };
   return parentByPath[pathname];
 }

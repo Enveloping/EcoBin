@@ -77,6 +77,34 @@
   background: #edf0ed;
 }
 
+.withdrawal-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24rpx;
+  padding: 22rpx 24rpx;
+  background: #edf8ef;
+  border-radius: 22rpx;
+  transition: opacity .16s ease, transform .16s ease;
+}
+
+.withdrawal-entry--pressed {
+  opacity: .76;
+  transform: scale(.985);
+}
+
+.withdrawal-entry-title {
+  color: #128725;
+  font-size: 27rpx;
+  font-weight: 720;
+}
+
+.withdrawal-entry-copy {
+  margin-top: 6rpx;
+  color: #6f7c71;
+  font-size: 20rpx;
+}
+
 .section-head {
   display: flex;
   align-items: baseline;

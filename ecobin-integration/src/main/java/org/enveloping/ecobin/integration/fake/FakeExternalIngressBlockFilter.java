@@ -22,7 +22,8 @@ public final class FakeExternalIngressBlockFilter
             "/api/integration/onenet",
             "/api/integration/wechat",
             "/api/wechat/notify",
-            "/api/funds/wechat/notify");
+            "/api/funds/wechat/notify",
+            "/api/v1/wechat-pay/notifications");
 
     private final boolean enabled;
 

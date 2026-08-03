@@ -52,7 +52,7 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
     }
 
     @Override
-    public void append(AuditEntry entry) {
+    public long append(AuditEntry entry) {
         jdbc.update("""
                         INSERT INTO ops_audit_log (
                             audit_uid, request_uid, operation_uid, scope_kind,
@@ -91,6 +91,14 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
                 entry.safeChangeSummaryJson(),
                 LocalDateTime.ofInstant(entry.occurredAt(), ZoneOffset.UTC),
                 LocalDateTime.ofInstant(entry.occurredAt(), ZoneOffset.UTC));
+        Long id = jdbc.queryForObject(
+                "SELECT id FROM ops_audit_log WHERE audit_uid = ?",
+                Long.class,
+                entry.auditUid().toString());
+        if (id == null) {
+            throw new IllegalStateException("audit insert did not return an id");
+        }
+        return id;
     }
 
     private static Long nullableLong(

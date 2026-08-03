@@ -12,5 +12,5 @@ public interface AuditPort {
 
     Optional<SuccessfulAudit> findSuccessful(UUID operationUid);
 
-    void append(AuditEntry entry);
+    long append(AuditEntry entry);
 }

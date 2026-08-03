@@ -13,6 +13,19 @@ ecobin:
     mode: fake
     fake:
       block-inbound: true
+      wechat-pay:
+        auto-succeed: true
+      wechat-transfer:
+        auto-succeed: true
+  funds:
+    wechat:
+      notify-base-url: https://fake.invalid
+    wechat-pay:
+      mchid: ""
+      merchant-serial-number: ""
+      merchant-private-key-path: ""
+      api-v3-key: ""
+      platform-certificate-path: ""
 
 onenet:
   subscription:

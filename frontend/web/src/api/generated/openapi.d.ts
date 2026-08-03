@@ -3372,6 +3372,312 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/payout-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read the organization payout account and channel readiness */
+        get: operations["getOrganizationPayoutAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/recharge-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List organization Native recharge orders */
+        get: operations["listOrganizationRechargeOrders"];
+        put?: never;
+        /** Create one idempotent Native recharge order */
+        post: operations["createOrganizationRechargeOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/recharge-orders/{rechargeNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                rechargeNo: string;
+            };
+            cookie?: never;
+        };
+        /** Read one recharge order */
+        get: operations["getOrganizationRechargeOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/withdrawals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** List manual withdrawal orders */
+        get: operations["listOrganizationWithdrawals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        /** Read one withdrawal */
+        get: operations["getOrganizationWithdrawal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}/reviews": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or reject a pending withdrawal */
+        post: operations["reviewOrganizationWithdrawal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/withdrawal-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read current withdrawal limits */
+        get: operations["getOrganizationWithdrawalConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/withdrawal-configuration-releases": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish an immutable withdrawal configuration version */
+        post: operations["releaseOrganizationWithdrawalConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wechat-merchant-binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Read platform-owned AppID and merchant binding evidence */
+        get: operations["getPlatformWechatMerchantBinding"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wechat-merchant-binding/verifications": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record platform verification of the external AppID binding */
+        post: operations["verifyPlatformWechatMerchantBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wechat-merchant-binding/disablements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable local readiness without rewriting in-flight orders */
+        post: operations["disablePlatformWechatMerchantBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/withdrawals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the current user's withdrawals */
+        get: operations["listMyWithdrawals"];
+        put?: never;
+        /** Freeze user and organization funds and create a pending review */
+        post: operations["createMyWithdrawal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/withdrawals/{withdrawalNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        /** Read one owned withdrawal */
+        get: operations["getMyWithdrawal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/withdrawals/{withdrawalNo}/cancellations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel before review and release both freezes */
+        post: operations["cancelMyWithdrawal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/withdrawals/{withdrawalNo}/merchant-transfer-confirmation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        /** Read package only while WeChat requires user confirmation */
+        get: operations["getMyMerchantTransferConfirmation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5165,6 +5471,193 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["EditCleanRecordResult"];
+            requestId: string;
+        };
+        CreateRechargeRequest: {
+            grossAmountYuan: components["schemas"]["PositiveMoneyCny"];
+        };
+        RechargeView: {
+            operationId: string;
+            resourceId: string;
+            rechargeNo: string;
+            /** @enum {string} */
+            status: "PENDING_PAYMENT" | "PAID_PENDING_POST" | "POSTED" | "CLOSED" | "EXPIRED";
+            /** Format: int64 */
+            version: number;
+            grossAmountYuan: components["schemas"]["PositiveMoneyCny"];
+            feeYuan: components["schemas"]["PositiveMoneyCny"];
+            netAmountYuan: components["schemas"]["PositiveMoneyCny"];
+            /** @enum {string} */
+            paymentPreparationStatus: "PENDING" | "READY" | "RETRYING";
+            qrCodeUrl?: string | null;
+            /** Format: date-time */
+            expiresAt?: string | null;
+            statusUrl: components["schemas"]["StatusUrl"];
+            recommendedPollAfterMs: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            paidAt?: string | null;
+            /** Format: date-time */
+            postedAt?: string | null;
+        };
+        RechargePage: {
+            items: components["schemas"]["RechargeView"][];
+            /** Format: date-time */
+            asOf: string;
+            nextCursor: string | null;
+        };
+        PayoutAccountView: {
+            availablePayoutYuan: components["schemas"]["MoneyCny"];
+            frozenWithdrawalYuan: components["schemas"]["PositiveMoneyCny"];
+            totalPayoutYuan: components["schemas"]["MoneyCny"];
+            cumulativeRechargeGrossYuan: components["schemas"]["PositiveMoneyCny"];
+            cumulativeRechargeFeeYuan: components["schemas"]["PositiveMoneyCny"];
+            cumulativeRechargeNetYuan: components["schemas"]["PositiveMoneyCny"];
+            cumulativeSuccessfulWithdrawalYuan: components["schemas"]["PositiveMoneyCny"];
+            merchantBindingStatus: string;
+            payoutGateStatus: string;
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            asOf: string;
+        };
+        WithdrawalConfigurationView: {
+            /** Format: int64 */
+            versionNo: number;
+            hardLimitYuan: components["schemas"]["PositiveMoneyCny"];
+            manualMinimumYuan: components["schemas"]["PositiveMoneyCny"];
+            manualMaximumYuan: components["schemas"]["PositiveMoneyCny"];
+            manualReviewFreeThresholdYuan: components["schemas"]["PositiveMoneyCny"];
+            /** Format: date-time */
+            publishedAt: string;
+        };
+        ReleaseWithdrawalConfigurationRequest: {
+            /** Format: int64 */
+            expectedCurrentVersion: number;
+            hardLimitYuan: components["schemas"]["PositiveMoneyCny"];
+            manualMinimumYuan: components["schemas"]["PositiveMoneyCny"];
+            manualMaximumYuan: components["schemas"]["PositiveMoneyCny"];
+        };
+        CreateWithdrawalRequest: {
+            amountYuan: components["schemas"]["PositiveMoneyCny"];
+        };
+        ReviewWithdrawalRequest: {
+            /** Format: int64 */
+            expectedVersion: number;
+            /** @enum {string} */
+            decision: "APPROVED" | "REJECTED";
+            note?: string | null;
+        };
+        VersionedWithdrawalRequest: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
+        WithdrawalView: {
+            withdrawalNo: string;
+            status: string;
+            /** Format: int64 */
+            version: number;
+            amountYuan: components["schemas"]["PositiveMoneyCny"];
+            channelState?: string | null;
+            confirmationRequired: boolean;
+            cancellable: boolean;
+            channelBoundaryCrossed: boolean;
+            negativeBalancePaused: boolean;
+            postBoundaryRisk: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            reviewedAt?: string | null;
+            /** Format: date-time */
+            endedAt?: string | null;
+        };
+        WithdrawalPage: {
+            items: components["schemas"]["WithdrawalView"][];
+            /** Format: date-time */
+            asOf: string;
+            nextCursor: string | null;
+        };
+        MerchantTransferConfirmationView: {
+            withdrawalNo: string;
+            appId: string;
+            mchId: string;
+            packageInfo: string;
+            /** @constant */
+            channelState: "WAIT_USER_CONFIRM";
+        };
+        MerchantBindingView: {
+            /** @enum {string} */
+            status: "UNVERIFIED" | "VERIFIED" | "DISABLED" | "STALE";
+            appId: string;
+            /** Format: int64 */
+            miniappVersion: number;
+            /** Format: int64 */
+            bindingVersion?: number | null;
+            merchantId?: string | null;
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            /** Format: date-time */
+            disabledAt?: string | null;
+        };
+        VerifyMerchantBindingRequest: {
+            /** Format: int64 */
+            expectedMiniappVersion: number;
+            /** Format: int64 */
+            expectedBindingVersion?: number | null;
+            note?: string | null;
+        };
+        DisableMerchantBindingRequest: {
+            /** Format: int64 */
+            expectedBindingVersion: number;
+            reason?: string | null;
+        };
+        RechargeEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["RechargeView"];
+            requestId: string;
+        };
+        RechargePageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["RechargePage"];
+            requestId: string;
+        };
+        PayoutAccountEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["PayoutAccountView"];
+            requestId: string;
+        };
+        WithdrawalEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WithdrawalView"];
+            requestId: string;
+        };
+        WithdrawalPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WithdrawalPage"];
+            requestId: string;
+        };
+        WithdrawalConfigurationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WithdrawalConfigurationView"];
+            requestId: string;
+        };
+        MerchantBindingEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MerchantBindingView"];
+            requestId: string;
+        };
+        MerchantTransferConfirmationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MerchantTransferConfirmationView"];
             requestId: string;
         };
         CleanRecordChangePageEnvelope: {
@@ -10271,6 +10764,461 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationPayoutAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payout account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayoutAccountEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationRechargeOrders: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recharge orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RechargePageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createOrganizationRechargeOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRechargeRequest"];
+            };
+        };
+        responses: {
+            /** @description Native order preparation accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RechargeEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getOrganizationRechargeOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                rechargeNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recharge order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RechargeEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationWithdrawals: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawal orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalPageEnvelope"];
+                };
+            };
+        };
+    };
+    getOrganizationWithdrawal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    reviewOrganizationWithdrawal: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewWithdrawalRequest"];
+            };
+        };
+        responses: {
+            /** @description Reviewed withdrawal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getOrganizationWithdrawalConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawal configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalConfigurationEnvelope"];
+                };
+            };
+        };
+    };
+    releaseOrganizationWithdrawalConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseWithdrawalConfigurationRequest"];
+            };
+        };
+        responses: {
+            /** @description Published configuration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalConfigurationEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformWechatMerchantBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Merchant binding */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantBindingEnvelope"];
+                };
+            };
+        };
+    };
+    verifyPlatformWechatMerchantBinding: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyMerchantBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Verified binding */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantBindingEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    disablePlatformWechatMerchantBinding: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisableMerchantBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Disabled binding */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantBindingEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listMyWithdrawals: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description My withdrawals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalPageEnvelope"];
+                };
+            };
+        };
+    };
+    createMyWithdrawal: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWithdrawalRequest"];
+            };
+        };
+        responses: {
+            /** @description Withdrawal created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getMyWithdrawal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description My withdrawal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    cancelMyWithdrawal: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionedWithdrawalRequest"];
+            };
+        };
+        responses: {
+            /** @description Cancelled withdrawal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WithdrawalEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getMyMerchantTransferConfirmation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                withdrawalNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Confirmation package */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantTransferConfirmationEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
         };
     };
 }
