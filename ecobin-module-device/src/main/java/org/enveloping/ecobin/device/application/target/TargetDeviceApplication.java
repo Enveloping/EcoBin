@@ -961,39 +961,15 @@ public class TargetDeviceApplication {
                 portNo);
         LinkedHashSet<String> deliveryBlockers =
                 new LinkedHashSet<>(baseBlockers(
-                        scope, deployment, runtime, true));
+                        scope, deployment, runtime, true, true));
         LinkedHashSet<String> cleaningBlockers =
                 new LinkedHashSet<>(baseBlockers(
-                        scope, deployment, runtime, true));
+                        scope, deployment, runtime, true, true));
         if (!Boolean.TRUE.equals(port.businessEnabled())) {
             deliveryBlockers.add("PORT_DISABLED");
         }
-        if (!"CLOSED".equals(port.deliveryDoorState())
-                || !"CLOSED".equals(port.deliveryDoorContactState())) {
-            deliveryBlockers.add("DOOR_NOT_CLOSED");
-            cleaningBlockers.add("DOOR_NOT_CLOSED");
-        }
-        if (!"OK".equals(port.deliveryDoorActuatorHealth())
-                || !"DEENERGIZED".equals(port.cleanLockPowerState())
-                || !"OK".equals(port.cleanSolenoidHealth())
-                || !"SAFE".equals(port.safetyStatus())) {
-            deliveryBlockers.add("SAFETY_LOCKED");
-            cleaningBlockers.add("SAFETY_LOCKED");
-        }
-        if (!"OK".equals(port.weightSensorHealth())
-                || !sensorHealthy(port)) {
-            deliveryBlockers.add("PORT_SENSOR_UNHEALTHY");
-            cleaningBlockers.add("PORT_SENSOR_UNHEALTHY");
-        }
         if (!business.currentBagPresent()) {
             deliveryBlockers.add("CURRENT_BAG_MISSING");
-        }
-        if (usesWeight(port.fullnessMode())
-                && !"VALID".equals(business.baselineState())) {
-            deliveryBlockers.add("WEIGHT_BASELINE_MISSING");
-        }
-        if ("FULL".equals(business.fullnessState())) {
-            deliveryBlockers.add("PORT_FULL");
         }
         if ("PENDING".equals(business.detectionGate())
                 || "IN_PROGRESS".equals(business.detectionGate())) {
@@ -1003,6 +979,24 @@ public class TargetDeviceApplication {
         if (business.cleanOperationActive()) {
             deliveryBlockers.add("PORT_CLEAN_OPERATION_ACTIVE");
             cleaningBlockers.add("PORT_CLEAN_OPERATION_ACTIVE");
+        }
+        Integer cleanRestartInterlock = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                          AND port_id = ?
+                        """,
+                Integer.class,
+                scope.tenantId(),
+                scope.organizationId(),
+                deployment.id(),
+                port.portId());
+        if (cleanRestartInterlock != null
+                && cleanRestartInterlock > 0) {
+            deliveryBlockers.add(
+                    "CLEAN_RESTARTED_CLEAN_REQUIRED");
         }
         PortBusinessSummary businessView = new PortBusinessSummary(
                 business.currentBagPresent(),
@@ -1178,6 +1172,7 @@ public class TargetDeviceApplication {
                         scope,
                         before,
                         runtimeRow(scope, before.id(), true),
+                        false,
                         false);
                 if (!blockers.isEmpty()) {
                     throw new TargetApiException(
@@ -1338,9 +1333,9 @@ public class TargetDeviceApplication {
             DeploymentRow deployment,
             RuntimeRow runtime) {
         List<String> delivery = baseBlockers(
-                scope, deployment, runtime, true);
+                scope, deployment, runtime, true, true);
         List<String> cleaning = baseBlockers(
-                scope, deployment, runtime, true);
+                scope, deployment, runtime, true, true);
         RuntimeConfigurationSummary configuration =
                 new RuntimeConfigurationSummary(
                         deployment.latestConfigurationVersion(),
@@ -1386,7 +1381,8 @@ public class TargetDeviceApplication {
             AuthorizedScope scope,
             DeploymentRow deployment,
             RuntimeRow runtime,
-            boolean requireBusinessSwitch) {
+            boolean requireBusinessSwitch,
+            boolean requireOnline) {
         LinkedHashSet<String> blockers = new LinkedHashSet<>();
         if (!scope.tenantEnabled()) {
             blockers.add("TENANT_DISABLED");
@@ -1400,18 +1396,12 @@ public class TargetDeviceApplication {
         if (requireBusinessSwitch && !deployment.businessEnabled()) {
             blockers.add("BUSINESS_SWITCH_DISABLED");
         }
-        if (!configurationReady(scope, deployment, runtime)) {
+        if (deployment.latestConfigurationId() == null) {
             blockers.add("CONFIGURATION_NOT_APPLIED");
         }
-        if (!trustedOrangePiRuntimeAvailable(scope, deployment.id())
-                || !"ONLINE".equals(
-                runtime.edgeConnectionStatus())) {
+        if (requireOnline && !"ONLINE".equals(
+                runtime.oneNetConnectionStatus())) {
             blockers.add("EDGE_OFFLINE");
-        }
-        if ("SAFETY_BLOCKED".equals(runtime.safetyStatus())
-                || "OPERATION_BLOCKED".equals(
-                runtime.safetyStatus())) {
-            blockers.add("SAFETY_LOCKED");
         }
         if (occupied(deployment.assetId())) {
             blockers.add("DEVICE_BUSY");
@@ -1474,20 +1464,6 @@ public class TargetDeviceApplication {
                 scope.organizationId(),
                 deploymentId);
         return available != null && available == 1;
-    }
-
-    private static boolean sensorHealthy(PortRuntimeRow port) {
-        boolean infrared = "OK".equals(port.infraredSensorHealth())
-                && Set.of("CLEAR", "BLOCKED")
-                .contains(port.infraredValue());
-        boolean smoke = "OK".equals(port.smokeSensorHealth())
-                && Set.of("NORMAL", "ALARM").contains(port.smokeState());
-        return infrared && smoke;
-    }
-
-    private static boolean usesWeight(String fullnessMode) {
-        return "WEIGHT_ONLY".equals(fullnessMode)
-                || "INFRARED_OR_WEIGHT".equals(fullnessMode);
     }
 
     @Transactional(readOnly = true)
@@ -2656,6 +2632,7 @@ public class TargetDeviceApplication {
     private static PortRuntimeRow portRuntimeRow(ResultSet rs)
             throws SQLException {
         return new PortRuntimeRow(
+                rs.getLong("port_id"),
                 rs.getInt("port_no"),
                 rs.getString("delivery_door_state"),
                 rs.getString("delivery_door_actuator_health"),
@@ -3387,6 +3364,7 @@ public class TargetDeviceApplication {
     }
 
     private record PortRuntimeRow(
+            long portId,
             int portNo,
             String deliveryDoorState,
             String deliveryDoorActuatorHealth,

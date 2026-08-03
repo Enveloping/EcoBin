@@ -244,20 +244,12 @@ class StartDeliveryDeviceParticipationServiceTest {
         order.verify(repository).lockAsset(ASSET_ID);
         order.verify(repository).lockActiveDeployment(ASSET_ID);
         order.verify(repository).lockDeployment(DEPLOYMENT_ID);
-        order.verify(repository).lockDeploymentRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID);
+        order.verify(repository).lockTransportPresence(ASSET_ID);
         order.verify(repository).lockOccupancy(ASSET_ID);
         order.verify(repository).lockLatestConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
                 DEPLOYMENT_ID);
-        order.verify(repository).lockConfigurationApplication(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID,
-                CONFIGURATION_ID);
         order.verify(repository).lockPort(
                 TENANT_ID,
                 ORGANIZATION_ID,
@@ -268,11 +260,6 @@ class StartDeliveryDeviceParticipationServiceTest {
                 ORGANIZATION_ID,
                 DEPLOYMENT_ID,
                 CONFIGURATION_ID,
-                PORT_ID);
-        order.verify(repository).lockPortRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID,
                 PORT_ID);
         order.verify(businessFacts).lockForStart(any());
         order.verify(repository).insertSession(any());
@@ -287,75 +274,39 @@ class StartDeliveryDeviceParticipationServiceTest {
     }
 
     @Test
-    void rejectsReadOnlyOrangePiStorageBeforeWritingIntent() {
+    void ignoresReadOnlyRuntimeProjectionBecauseEdgeOwnsPhysicalAdmission() {
         stubHappyPath();
-        when(repository.lockDeploymentRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID)).thenReturn(Optional.of(
-                        runtime("OK", "READ_ONLY")));
-
-        assertThatThrownBy(() -> service.start(command()))
-                .isInstanceOfSatisfying(
-                        TargetApiException.class,
-                        exception -> {
-                            assertThat(exception.status()).isEqualTo(422);
-                            assertThat(exception.code()).isEqualTo(
-                                    "DEVICE.DEPLOYMENT_UNAVAILABLE");
-                        });
-
-        verify(businessFacts, never()).lockForStart(any());
-        verify(repository, never()).insertSession(any());
-        verify(repository, never()).insertOccupancy(
-                any(Long.class),
-                any(Long.class),
-                any(Long.class),
-                any(Long.class),
-                any(Long.class),
-                any(LocalDateTime.class));
-        verify(repository, never()).insertCommand(any());
-    }
-
-    @Test
-    void rejectsPortWithoutTrustedStableWeight() {
-        stubHappyPath();
-        when(repository.lockPortRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID,
-                PORT_ID)).thenReturn(Optional.of(
-                        portRuntime("UNSTABLE", false)));
-
-        assertThatThrownBy(() -> service.start(command()))
-                .isInstanceOfSatisfying(
-                        TargetApiException.class,
-                        exception -> {
-                            assertThat(exception.status()).isEqualTo(422);
-                            assertThat(exception.code()).isEqualTo(
-                                    "DEVICE.PORT_UNAVAILABLE");
-                        });
-
-        verify(businessFacts, never()).lockForStart(any());
-        verify(repository, never()).insertSession(any());
-    }
-
-    @Test
-    void acceptsFixedFrameLastObservedWeight() {
-        stubHappyPath();
-        when(repository.lockPortRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID,
-                PORT_ID)).thenReturn(Optional.of(
-                        portRuntime(
-                                "STABLE",
-                                true,
-                                "LAST_OBSERVED")));
 
         service.start(command());
 
         verify(repository).insertSession(any());
-        verify(repository).insertCommand(any());
+    }
+
+    @Test
+    void ignoresUnstableWeightProjectionBecauseEdgeOwnsPhysicalAdmission() {
+        stubHappyPath();
+
+        service.start(command());
+
+        verify(repository).insertSession(any());
+    }
+
+    @Test
+    void rejectsWhenOnenetDoesNotConfirmDeviceOnline() {
+        stubHappyPath();
+        when(repository.lockTransportPresence(ASSET_ID))
+                .thenReturn(Optional.of(
+                        new StartDeliveryDeviceRepository
+                                .TransportPresenceRow("OFFLINE")));
+
+        assertThatThrownBy(() -> service.start(command()))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        exception -> assertThat(exception.code())
+                                .isEqualTo("DEVICE.OFFLINE"));
+
+        verify(businessFacts, never()).lockForStart(any());
+        verify(repository, never()).insertSession(any());
     }
 
     @Test
@@ -408,30 +359,17 @@ class StartDeliveryDeviceParticipationServiceTest {
                                 DEPLOYMENT_CODE,
                                 "ENABLED",
                                 true)));
-        when(repository.lockDeploymentRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID)).thenReturn(Optional.of(
-                        runtime("OK", "HEALTHY")));
-        when(repository.lockOccupancy(ASSET_ID))
+        when(repository.lockTransportPresence(ASSET_ID))
+                .thenReturn(Optional.of(
+                        new StartDeliveryDeviceRepository
+                                .TransportPresenceRow("ONLINE")));
+        lenient().when(repository.lockOccupancy(ASSET_ID))
                 .thenReturn(Optional.empty());
-        when(repository.lockLatestConfiguration(
+        lenient().when(repository.lockLatestConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
                 DEPLOYMENT_ID)).thenReturn(Optional.of(configuration()));
-        when(repository.lockConfigurationApplication(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID,
-                CONFIGURATION_ID)).thenReturn(Optional.of(
-                        new StartDeliveryDeviceRepository
-                                .ConfigurationApplicationRow(
-                                "APPLIED",
-                                8L,
-                                CONTENT_SHA,
-                                MCU_SHA,
-                                NOW.minusMinutes(1))));
-        when(repository.lockPort(
+        lenient().when(repository.lockPort(
                 TENANT_ID,
                 ORGANIZATION_ID,
                 DEPLOYMENT_ID,
@@ -439,7 +377,7 @@ class StartDeliveryDeviceParticipationServiceTest {
                         new StartDeliveryDeviceRepository.PortRow(
                                 PORT_ID,
                                 2)));
-        when(repository.lockPortConfiguration(
+        lenient().when(repository.lockPortConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
                 DEPLOYMENT_ID,
@@ -452,13 +390,7 @@ class StartDeliveryDeviceParticipationServiceTest {
                                 new BigDecimal("0.4500"),
                                 "INFRARED_OR_WEIGHT",
                                 4L)));
-        when(repository.lockPortRuntime(
-                TENANT_ID,
-                ORGANIZATION_ID,
-                DEPLOYMENT_ID,
-                PORT_ID)).thenReturn(Optional.of(
-                        portRuntime("STABLE", true)));
-        when(repository.databaseNow()).thenReturn(NOW);
+        lenient().when(repository.databaseNow()).thenReturn(NOW);
         lenient().when(portRefFactory.issue(
                 TENANT_ID,
                 ORGANIZATION_ID,
@@ -508,59 +440,6 @@ class StartDeliveryDeviceParticipationServiceTest {
                 30_000,
                 500,
                 120_000);
-    }
-
-    private static StartDeliveryDeviceRepository.DeploymentRuntimeRow
-            runtime(
-                    String storageHealth,
-                    String storageState) {
-        return new StartDeliveryDeviceRepository.DeploymentRuntimeRow(
-                "ONLINE",
-                "SAFE",
-                storageHealth,
-                storageState,
-                9001L,
-                "DEVICE_RUNTIME_SNAPSHOT",
-                1053L,
-                NOW.minusSeconds(1),
-                8L,
-                CONTENT_SHA,
-                MCU_SHA);
-    }
-
-    private static StartDeliveryDeviceRepository.PortRuntimeRow
-            portRuntime(
-                    String measurementStatus,
-                    boolean valueAvailable) {
-        return portRuntime(
-                measurementStatus,
-                valueAvailable,
-                valueAvailable ? "STABLE_WINDOW_MEAN" : "NONE");
-    }
-
-    private static StartDeliveryDeviceRepository.PortRuntimeRow
-            portRuntime(
-                    String measurementStatus,
-                    boolean valueAvailable,
-                    String valueKind) {
-        return new StartDeliveryDeviceRepository.PortRuntimeRow(
-                "UNKNOWN",
-                "DEENERGIZED",
-                "OK",
-                "OK",
-                measurementStatus,
-                valueAvailable,
-                valueAvailable ? 13_250L : null,
-                valueKind,
-                4L,
-                "NORMAL",
-                "OK",
-                0L,
-                "SAFE",
-                null,
-                9001L,
-                "DEVICE_RUNTIME_SNAPSHOT",
-                1053L);
     }
 
     private static DeliverySessionBusinessFactsRef businessReference() {

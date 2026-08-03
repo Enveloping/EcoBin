@@ -968,51 +968,54 @@ class EdgeStore:
         *,
         physical_recovery_required: bool = True,
     ) -> dict[str, int]:
-        """Recover commands according to the active MCU protocol guarantees."""
+        """Requeue configuration only; never resume physical commands."""
         with self.transaction():
-            config_states = (
-                "('PROCESSING')"
-                if physical_recovery_required
-                else (
-                    "('PROCESSING','WAITING_MCU_RESULT',"
-                    "'RECOVERY_REQUIRED')"
-                )
-            )
             config = self._conn.execute(
-                f"""UPDATE command_inbox
+                """UPDATE command_inbox
                    SET state='PENDING', processing_started_at=NULL,
                        last_error='PROCESS_RESTARTED'
-                   WHERE state IN {config_states}
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
                      AND command_type='APPLY_CONFIGURATION'"""
             ).rowcount
-            if physical_recovery_required:
-                physical_locked = self._conn.execute(
-                    """UPDATE command_inbox
-                       SET state='RECOVERY_REQUIRED',
-                           processing_started_at=NULL,
-                           last_error='PROCESS_RESTARTED_PHYSICAL_COMMAND'
-                       WHERE state='PROCESSING'
-                         AND command_type<>'APPLY_CONFIGURATION'"""
-                ).rowcount
-                physical_failed = 0
-            else:
-                physical_locked = 0
-                physical_failed = self._conn.execute(
+            rows = self._conn.execute(
+                """SELECT command_uid, payload_json
+                   FROM command_inbox
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
+                     AND command_type<>'APPLY_CONFIGURATION'"""
+            ).fetchall()
+            physical_failed = 0
+            for row in rows:
+                command = _json.loads(row["payload_json"])
+                if command.get("deploymentCode"):
+                    observation = self._record_command_observation_in_tx(
+                        self._conn,
+                        command,
+                        "FAILED",
+                        error_code="EDGE_RESTARTED",
+                    )
+                    if observation == "CONFLICT":
+                        raise ValueError("command observation conflict")
+                physical_failed += self._conn.execute(
                     """UPDATE command_inbox
                        SET state='FAILED', processed_at=?,
                            processing_started_at=NULL,
-                           last_error='PROCESS_RESTARTED_MCU_STATE_UNKNOWN'
-                       WHERE state IN (
-                           'PROCESSING',
-                           'WAITING_MCU_RESULT',
-                           'RECOVERY_REQUIRED'
-                       )
-                         AND command_type<>'APPLY_CONFIGURATION'""",
-                    (self._now(),),
+                           last_error='EDGE_RESTARTED'
+                       WHERE command_uid=?
+                         AND state IN (
+                             'PROCESSING', 'WAITING_MCU_RESULT',
+                             'RECOVERY_REQUIRED'
+                         )""",
+                    (self._now(), row["command_uid"]),
                 ).rowcount
             return {
                 "configuration_requeued": config,
-                "physical_locked": physical_locked,
+                "physical_locked": 0,
                 "physical_failed": physical_failed,
             }
 
@@ -2943,6 +2946,12 @@ class EdgeStore:
                     self._conn,
                     fullness_transition,
                 )
+            if work_type == WORK_TYPE_CLEAN:
+                self._set_clean_restart_interlock_in_tx(
+                    self._conn,
+                    int(context["port_no"]),
+                    False,
+                )
             self._conn.execute(
                 """UPDATE work_slot
                    SET work_type='NONE', work_uid=NULL,
@@ -2999,6 +3008,148 @@ class EdgeStore:
                 (self._now(),),
             )
             return True
+
+    def abort_interrupted_work(self) -> dict[str, Any]:
+        """Cancel one non-durable physical work slot after edge restart.
+
+        A completion already present in the reliable outbox is authoritative:
+        its event and photos remain replayable and no FAILED observation is
+        generated. Otherwise the start command is failed with EDGE_RESTARTED,
+        incomplete photo uploads are stopped, and an interrupted clean sets a
+        persistent port interlock that only a later completed clean can clear.
+        """
+        with self.transaction():
+            slot = self._conn.execute(
+                "SELECT * FROM work_slot WHERE slot_id=1"
+            ).fetchone()
+            if not slot or slot["work_type"] == WORK_TYPE_NONE:
+                return {"outcome": "NO_ACTIVE_WORK"}
+            work_type = slot["work_type"]
+            work_uid = slot["work_uid"]
+            port_no = slot["port_no"]
+            context = (
+                _json.loads(slot["context_json"])
+                if slot["context_json"]
+                else {}
+            )
+            completion_type = {
+                WORK_TYPE_DELIVERY: "DELIVERY_COMPLETE",
+                WORK_TYPE_CLEAN: "CLEAN_COMPLETE",
+                WORK_TYPE_FULLNESS: "FULLNESS_SAMPLE_COMPLETE",
+                WORK_TYPE_BASELINE: "BASELINE_MEASUREMENT_COMPLETE",
+            }.get(work_type)
+            durable_completion = None
+            if completion_type:
+                durable_completion = self._conn.execute(
+                    """SELECT event_uid FROM event_outbox
+                       WHERE work_uid=? AND event_type=?
+                         AND tombstoned=0
+                       LIMIT 1""",
+                    (work_uid, completion_type),
+                ).fetchone()
+            if durable_completion:
+                if work_type == WORK_TYPE_CLEAN and port_no is not None:
+                    self._set_clean_restart_interlock_in_tx(
+                        self._conn, int(port_no), False
+                    )
+                self._clear_work_slot_in_tx(self._conn)
+                return {
+                    "outcome": "DURABLE_COMPLETION_PRESERVED",
+                    "work_type": work_type,
+                    "work_uid": work_uid,
+                }
+
+            command_uid = (
+                context.get("start_command_uid")
+                or context.get("command_uid")
+            )
+            command = None
+            if command_uid:
+                row = self._conn.execute(
+                    "SELECT payload_json FROM command_inbox WHERE command_uid=?",
+                    (command_uid,),
+                ).fetchone()
+                command = _json.loads(row["payload_json"]) if row else None
+            command_observed = False
+            if command and command.get("deploymentCode"):
+                observation = self._record_command_observation_in_tx(
+                    self._conn,
+                    command,
+                    "FAILED",
+                    mcu_command_uid=context.get("start_mcu_command_uid"),
+                    error_code="EDGE_RESTARTED",
+                )
+                if observation == "CONFLICT":
+                    raise ValueError("command observation conflict")
+                command_observed = True
+            if command:
+                self._conn.execute(
+                    """UPDATE command_inbox
+                       SET state='FAILED', processed_at=?,
+                           processing_started_at=NULL,
+                           last_error='EDGE_RESTARTED'
+                       WHERE command_uid=?""",
+                    (self._now(), command_uid),
+                )
+            self._conn.execute(
+                """UPDATE photo_outbox
+                   SET state='DEAD', next_retry_at=NULL,
+                       last_error='EDGE_RESTARTED'
+                   WHERE work_uid=?
+                     AND tombstoned=0
+                     AND state NOT IN ('UPLOADED', 'DEAD')""",
+                (work_uid,),
+            )
+            if work_type == WORK_TYPE_CLEAN and port_no is not None:
+                self._set_clean_restart_interlock_in_tx(
+                    self._conn, int(port_no), True
+                )
+            self._clear_work_slot_in_tx(self._conn)
+            return {
+                "outcome": "ABORTED",
+                "work_type": work_type,
+                "work_uid": work_uid,
+                "command_observed": command_observed,
+            }
+
+    @staticmethod
+    def _clear_work_slot_in_tx(conn) -> None:
+        conn.execute(
+            """UPDATE work_slot
+               SET work_type='NONE', work_uid=NULL,
+                   work_state=NULL, port_no=NULL,
+                   context_json=NULL, updated_at=datetime('now')
+               WHERE slot_id=1"""
+        )
+
+    @staticmethod
+    def _clean_restart_interlock_key(port_no: int) -> str:
+        return f"port_{port_no}_clean_restart_interlock"
+
+    def _set_clean_restart_interlock_in_tx(
+        self,
+        conn,
+        port_no: int,
+        active: bool,
+    ) -> None:
+        self._upsert_state(
+            conn,
+            self._clean_restart_interlock_key(port_no),
+            "true" if active else "false",
+            self._now(),
+        )
+
+    def clean_restart_interlock_active(self, port_no: int) -> bool:
+        return self.get_state(
+            self._clean_restart_interlock_key(port_no),
+            "false",
+        ) == "true"
+
+    def clear_clean_restart_interlock(self, port_no: int) -> None:
+        with self.transaction():
+            self._set_clean_restart_interlock_in_tx(
+                self._conn, port_no, False
+            )
 
     def get_bag_baseline(self, bag_uid: str) -> Optional[dict]:
         with self._lock:
@@ -3536,6 +3687,12 @@ class EdgeStore:
                     work_uid,
                 ),
             )
+            if event_type == "CLEAN_COMPLETE" and payload.get("portNo"):
+                self._set_clean_restart_interlock_in_tx(
+                    conn,
+                    int(payload["portNo"]),
+                    False,
+                )
             if fullness_transition is not None:
                 self._apply_fullness_transition_in_tx(
                     conn,

@@ -824,18 +824,6 @@ public class ReliableOperationsJdbcRepository {
                                 candidate.source_device_command_id
                           LEFT JOIN dev_device_transport_state transport
                             ON transport.asset_id = eligible_asset.id
-                          LEFT JOIN dev_deployment_runtime_state runtime
-                            ON runtime.deployment_id =
-                                eligible_deployment.id
-                          LEFT JOIN dev_config_version config
-                            ON config.id = (
-                                SELECT latest.id
-                                FROM dev_config_version latest
-                                WHERE latest.deployment_id =
-                                    eligible_deployment.id
-                                ORDER BY latest.version_no DESC
-                                LIMIT 1
-                            )
                           WHERE eligible_deployment.tenant_id =
                                 candidate.tenant_id
                             AND eligible_deployment.organization_id =
@@ -892,11 +880,6 @@ public class ReliableOperationsJdbcRepository {
                                     )
                                     AND transport.onenet_connection_status =
                                         'ONLINE'
-                                    AND runtime.edge_connection_status =
-                                        'ONLINE'
-                                    AND runtime.trusted_runtime_received_at
-                                        IS NOT NULL
-                                    AND config.id IS NOT NULL
                                 )
                             )
                       )
@@ -1247,6 +1230,38 @@ public class ReliableOperationsJdbcRepository {
                 """, now, now, now);
     }
 
+    public void cancelExpiredUnstartedDeviceTask(
+            long commandId,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET state = 'CANCELLED',
+                    next_run_at = NULL,
+                    lease_token = NULL,
+                    lease_worker = NULL,
+                    lease_until = NULL,
+                    dispatch_wait_reason = NULL,
+                    handled_wake_version = wake_version,
+                    completed_at = ?,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE source_device_command_id = ?
+                  AND state = 'PENDING'
+                  AND lease_token IS NULL
+                  AND dispatch_wait_reason IN (
+                      'DEVICE_OFFLINE',
+                      'DEVICE_PRESENCE_UNKNOWN'
+                  )
+                """,
+                now,
+                now,
+                commandId);
+        requireSingleRow(
+                updated, "cancel expired unstarted device task");
+    }
+
     public void blockDeviceTask(
             long taskId,
             int failureCount,
@@ -1540,19 +1555,6 @@ public class ReliableOperationsJdbcRepository {
                         'UNKNOWN'
                     ) = 'UNKNOWN'
                     THEN 'DEVICE_PRESENCE_UNKNOWN'
-                    WHEN task.task_type IN (
-                        'START_DELIVERY_SESSION',
-                        'START_CLEAN_OPERATION',
-                        'END_CLEAN_BEFORE_UNLOCK',
-                        'RESUME_CLEAN_OPERATION',
-                        'SAMPLE_FULLNESS',
-                        'MEASURE_EMPTY_BAG_BASELINE'
-                    )
-                    AND (
-                        runtime.trusted_runtime_received_at IS NULL
-                        OR config.id IS NULL
-                    )
-                    THEN 'RUNTIME_MISSING'
                     ELSE NULL
                 END
                 """;
@@ -1564,16 +1566,6 @@ public class ReliableOperationsJdbcRepository {
                   ON asset.id = deployment.asset_id
                 LEFT JOIN dev_device_transport_state transport
                   ON transport.asset_id = asset.id
-                LEFT JOIN dev_deployment_runtime_state runtime
-                  ON runtime.deployment_id = deployment.id
-                LEFT JOIN dev_config_version config
-                  ON config.id = (
-                      SELECT latest.id
-                      FROM dev_config_version latest
-                      WHERE latest.deployment_id = deployment.id
-                      ORDER BY latest.version_no DESC
-                      LIMIT 1
-                  )
                 SET task.dispatch_wait_reason =
                 %s,
                     task.next_run_at = CASE

@@ -298,7 +298,7 @@ class TargetDeviceMysqlIntegrationTest {
                 deploymentBase + "/" + deploymentCode + "/runtime",
                 200));
         assertFalse(runtime.path("deliveryAllowed").asBoolean());
-        assertTrue(contains(
+        assertFalse(contains(
                 runtime.path("deliveryBlockers"),
                 "CONFIGURATION_NOT_APPLIED"));
         assertTrue(contains(
@@ -899,13 +899,13 @@ class TargetDeviceMysqlIntegrationTest {
                 platform,
                 deploymentBase + "/" + deploymentCode + "/runtime",
                 200));
-        assertFalse(
+        assertTrue(
                 faultBlockedRuntime.path("deliveryAllowed").asBoolean());
         assertEquals(
                 "OPERATION_BLOCKED",
                 faultBlockedRuntime.path("health")
                         .path("safetyStatus").asText());
-        assertTrue(contains(
+        assertFalse(contains(
                 faultBlockedRuntime.path("deliveryBlockers"),
                 "SAFETY_LOCKED"));
 
@@ -990,8 +990,8 @@ class TargetDeviceMysqlIntegrationTest {
                 platform,
                 deploymentBase + "/" + deploymentCode + "/runtime",
                 200));
-        assertFalse(alarmRuntime.path("deliveryAllowed").asBoolean());
-        assertTrue(contains(
+        assertTrue(alarmRuntime.path("deliveryAllowed").asBoolean());
+        assertFalse(contains(
                 alarmRuntime.path("deliveryBlockers"),
                 "SAFETY_LOCKED"));
 

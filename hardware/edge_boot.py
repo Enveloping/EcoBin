@@ -88,6 +88,12 @@ def boot_sequence(store, uart_link, mqtt_client, work_manager, photo_manager):
             {"reasonCode": "SQLITE_INTEGRITY_FAILED"},
         )
         return {"status": "SAFETY_LOCKED", "reason": "sqlite_integrity_failed"}
+    restart_result = store.abort_interrupted_work()
+    if restart_result["outcome"] != "NO_ACTIVE_WORK":
+        logger.warning(
+            "BOOT: previous physical work resolved without replay: %s",
+            restart_result,
+        )
     boot_id = store.get_edge_boot_id()
     if not is_valid_edge_boot_id(boot_id):
         boot_id = str(new_edge_boot_id())
@@ -247,46 +253,6 @@ def _boot_fixed_frame_compatibility(
     )
     store.set_state("smoke_state", "NORMAL")
     store.set_state("smoke_sensor_health", "OK")
-    slot = store.get_work_slot()
-    if slot:
-        context = slot.get("context") or {}
-        command_uid = (
-            context.get("start_command_uid")
-            or context.get("command_uid")
-        )
-        if command_uid:
-            command_row = store.get_command(command_uid)
-            command = (
-                command_row.get("payload")
-                if command_row
-                else None
-            )
-            if command:
-                store.fail_fixed_frame_work(
-                    work_uid=slot["work_uid"],
-                    command=command,
-                    error_code=(
-                        "PROCESS_RESTARTED_MCU_STATE_UNKNOWN"
-                    ),
-                    mcu_command_uid=context.get(
-                        "start_mcu_command_uid"
-                    ),
-                    stage="FAILED",
-                )
-            else:
-                store.release_work_slot(slot["work_uid"])
-        else:
-            store.release_work_slot(slot["work_uid"])
-        store.set_state(
-            "fixed_frame_last_abandoned_work_uid",
-            str(slot["work_uid"]),
-        )
-        logger.warning(
-            "BOOT: abandoned stale local work without MCU replay: "
-            "type=%s uid=%s",
-            slot["work_type"],
-            slot["work_uid"],
-        )
     if not mqtt_client.connect():
         logger.error("BOOT: MQTT connect failed")
         _observe_edge_fault(
@@ -318,9 +284,14 @@ def _boot_fixed_frame_compatibility(
         "snapshot_count": 0,
     }
 
-
 def recover_after_online_mcu_hello(store, uart_link, hello_frame):
-    """Re-negotiate and reconcile an MCU that restarted while edge stays up."""
+    """Re-negotiate an MCU restart without replaying physical work."""
+    restart_result = store.abort_interrupted_work()
+    if restart_result["outcome"] != "NO_ACTIVE_WORK":
+        logger.warning(
+            "MCU restart cancelled active physical work: %s",
+            restart_result,
+        )
     mcu_info = uart_link.renegotiate_from_mcu_hello(hello_frame)
     mcu_info["mcu_receive_generation"] = (
         store.begin_mcu_receive_generation(mcu_info["mcu_boot_id"])
@@ -411,17 +382,6 @@ def _reconcile_mcu_boot_work(store, uart_link, snapshot_begin):
     configuration = store.get_latest_applied_configuration()
     if not configuration:
         raise ValueError("no applied configuration in SQLite")
-    slot = store.get_work_slot()
-    if slot and slot["work_type"] == "CLEAN":
-        _resume_clean_after_restart(
-            store,
-            uart_link,
-            configuration,
-            slot,
-        )
-        return
-    if slot and slot["work_type"] == "DELIVERY":
-        _record_interrupted_delivery(store, slot)
     command_uid = str(_uuid.uuid4())
     result = uart_link.send_command(
         "CONFIRM_NO_ACTIVE_WORK",
@@ -451,135 +411,6 @@ def _reconcile_mcu_boot_work(store, uart_link, snapshot_begin):
             "boot reconciliation rejected: "
             + str(payload.get("faultCode") or "MCU_INTERNAL")
         )
-    _mark_boot_event_processed(store, frame)
-
-
-def _record_interrupted_delivery(store, slot):
-    ctx = slot["context"]
-    event_uid = ctx.get("interruption_event_uid")
-    if event_uid and store.get_event(event_uid):
-        return
-    event_uid = event_uid or str(_uuid.uuid4())
-    ctx["interruption_event_uid"] = event_uid
-    ctx["phase"] = "DEVICE_INTERRUPTED"
-    ctx["manual_review_required"] = True
-    configuration = store.get_latest_applied_configuration()
-    frozen_config = ctx.get("config")
-    if not frozen_config and configuration:
-        frozen_config = {
-            "version": configuration["config_version"],
-            "contentSha256": configuration["content_sha256"],
-            "mcuPayloadSha256": configuration["mcu_payload_sha256"],
-        }
-    first_measurement = _measurement_fact(ctx.get("first_measurement"))
-    final_measurement = _measurement_fact(ctx.get("final_measurement"))
-    first_weight = _usable_weight(first_measurement)
-    final_weight = _usable_weight(final_measurement)
-    event_payload = {
-        "sessionUid": slot["work_uid"],
-        "portNo": slot["port_no"],
-        "firstPreOpenMeasurement": first_measurement,
-        "finalPostCloseMeasurement": final_measurement,
-        "deliveryNetWeightGrams": (
-            final_weight - first_weight
-            if first_weight is not None and final_weight is not None
-            else None
-        ),
-        "finalDoorCommand": None,
-        "completionReason": "DEVICE_INTERRUPTED",
-        "manualReviewRequired": True,
-        "negativeWeightAnomaly": ctx.get(
-            "negative_weight_anomaly",
-            False,
-        ),
-        "frozenConfig": frozen_config,
-        "unitPriceTenThousandths": ctx.get(
-            "unit_price_ten_thousandths",
-            0,
-        ),
-        "photos": [
-            _pending_photo(slot_name)
-            for slot_name in (
-                "BEFORE_INNER",
-                "BEFORE_OUTER",
-                "AFTER_INNER",
-                "AFTER_OUTER",
-            )
-        ],
-    }
-    created = store.create_edge_event(
-        event_uid=event_uid,
-        event_type="DELIVERY_COMPLETE",
-        payload=event_payload,
-        work_uid=slot["work_uid"],
-        work_state_update={
-            "state": "RECOVERY_REQUIRED",
-            "context": ctx,
-        },
-        deployment_code=ctx.get("deployment_code") or "Dp_unknown",
-        target_type="DELIVERY_SESSION",
-        command_uid=ctx.get("start_command_uid"),
-    )
-    if created not in ("ACCEPTED", "DUPLICATE"):
-        raise ValueError(f"interrupted delivery persistence {created.lower()}")
-
-
-def _resume_clean_after_restart(
-    store,
-    uart_link,
-    configuration,
-    slot,
-):
-    ctx = slot["context"]
-    recovery_generation = int(ctx.get("recovery_generation", 0)) + 1
-    next_action_sequence = int(ctx.get("action_sequence", 0)) + 1
-    if next_action_sequence > 65535:
-        raise ValueError("clean action sequence exhausted")
-    command_uid = str(_uuid.uuid4())
-    ctx["recovery_generation"] = recovery_generation
-    ctx["resume_mcu_command_uid"] = command_uid
-    ctx["phase"] = "RESUMING_AFTER_MCU_RESTART"
-    store.update_work_context(slot["work_uid"], ctx)
-    result = uart_link.send_command(
-        "RESUME_CLEAN_OPERATION",
-        {
-            "operationUid": slot["work_uid"],
-            "portNo": slot["port_no"],
-            "recoveryGeneration": recovery_generation,
-            "nextCleanActionSequence": next_action_sequence,
-            "configVersion": configuration["config_version"],
-            "configContentSha256": configuration["content_sha256"],
-        },
-        mcu_command_uid=command_uid,
-    )
-    if not result.get("acked"):
-        raise ValueError(
-            "clean resume ACK failed: "
-            + str(result.get("error") or "UART_FAILURE")
-        )
-    frame = _wait_for_mcu_event(
-        store,
-        uart_link,
-        "BOOT_RECONCILIATION_RESULT",
-        lambda payload: (
-            payload.get("mcuCommandUid") == command_uid
-            and payload.get("decision") == "RESUME_CLEAN_OPERATION"
-        ),
-    )
-    payload = frame["payload"]
-    if (
-        payload.get("status") != "ACCEPTED"
-        or payload.get("activeWorkUid") != slot["work_uid"]
-        or payload.get("activePortNo") != slot["port_no"]
-        or payload.get("recoveryGeneration") != recovery_generation
-        or payload.get("nextCleanActionSequence") != next_action_sequence
-    ):
-        raise ValueError(
-            "clean resume rejected: "
-            + str(payload.get("faultCode") or "MCU_INTERNAL")
-        )
-    ctx["phase"] = "CLEAN_RECOVERY_REQUIRED"
-    store.update_work_context(slot["work_uid"], ctx)
     _mark_boot_event_processed(store, frame)
 
 
@@ -1083,53 +914,4 @@ def _snapshot_measurement_fields(payload):
         ),
         "weightMcuBootId": payload.get("mcuBootId"),
         "weightMcuEventSequence": payload.get("mcuEventSequence"),
-    }
-
-
-def _measurement_fact(payload):
-    if not payload:
-        return None
-    value_present = bool(payload.get("weightValuePresent"))
-    fault_code = payload.get("faultCode")
-    return {
-        "measurementUid": payload.get("measurementUid"),
-        "status": payload.get("measurementStatus"),
-        "weightValueAvailable": value_present,
-        "reportedWeightGrams": (
-            payload.get("reportedWeightGrams")
-            if value_present
-            else None
-        ),
-        "weightValueKind": payload.get("weightValueKind", "NONE"),
-        "measurementElapsedMs": payload.get("measurementElapsedMs", 0),
-        "sampleCount": payload.get("sampleCount", 0),
-        "calibrationVersion": payload.get("calibrationVersion", 0),
-        "sensorHealth": payload.get("weightSensorHealth", "UNKNOWN"),
-        "faultCode": None if fault_code in (None, "NONE") else fault_code,
-        "mcuBootId": payload.get("mcuBootId"),
-        "mcuEventSequence": payload.get("mcuEventSequence"),
-    }
-
-
-def _usable_weight(measurement):
-    if (
-        not measurement
-        or not measurement.get("weightValueAvailable")
-        or measurement.get("status") not in ("STABLE", "UNSTABLE")
-        or measurement.get("sensorHealth") != "OK"
-    ):
-        return None
-    return measurement.get("reportedWeightGrams")
-
-
-def _pending_photo(slot):
-    return {
-        "slot": slot,
-        "status": "UPLOAD_PENDING",
-        "photoUid": None,
-        "url": None,
-        "sha256": None,
-        "sizeBytes": None,
-        "capturedAt": None,
-        "missingReason": "DEVICE_INTERRUPTED",
     }

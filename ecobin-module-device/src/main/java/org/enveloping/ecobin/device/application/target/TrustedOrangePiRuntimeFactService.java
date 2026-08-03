@@ -1,9 +1,11 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
+import org.enveloping.ecobin.device.api.port.TrustedEdgeRestartedBusinessPort;
 import org.enveloping.ecobin.device.api.result.PhotoStatusBusinessResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
+import org.enveloping.ecobin.device.api.result.TrustedEdgeRestartedWork;
 import org.enveloping.ecobin.device.api.result.TrustedPhotoStatusFact;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
@@ -68,6 +70,8 @@ public class TrustedOrangePiRuntimeFactService {
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness;
     private final ReliablePhotoUploadGrantService photoUploadGrants;
+    private final List<TrustedEdgeRestartedBusinessPort>
+            edgeRestartedBusinessPorts;
 
     public TrustedOrangePiRuntimeFactService(
             JdbcTemplate jdbc,
@@ -77,7 +81,9 @@ public class TrustedOrangePiRuntimeFactService {
             TrustedInboxQuarantinePort quarantinePort,
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness,
-            ReliablePhotoUploadGrantService photoUploadGrants) {
+            ReliablePhotoUploadGrantService photoUploadGrants,
+            List<TrustedEdgeRestartedBusinessPort>
+                    edgeRestartedBusinessPorts) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
@@ -86,6 +92,8 @@ public class TrustedOrangePiRuntimeFactService {
         this.inboxRefFactory = inboxRefFactory;
         this.photoStatusBusiness = photoStatusBusiness;
         this.photoUploadGrants = photoUploadGrants;
+        this.edgeRestartedBusinessPorts = List.copyOf(
+                edgeRestartedBusinessPorts);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -694,7 +702,8 @@ public class TrustedOrangePiRuntimeFactService {
         List<CommandRow> commands = jdbc.query("""
                         SELECT
                             id, command_type, delivery_session_id,
-                            physical_state
+                            clean_operation_id, fullness_detection_id,
+                            baseline_measurement_id, physical_state
                         FROM dev_device_command
                         WHERE tenant_id = ?
                           AND organization_id = ?
@@ -707,6 +716,12 @@ public class TrustedOrangePiRuntimeFactService {
                         rs.getString("command_type"),
                         nullableDatabaseLong(
                                 rs, "delivery_session_id"),
+                        nullableDatabaseLong(
+                                rs, "clean_operation_id"),
+                        nullableDatabaseLong(
+                                rs, "fullness_detection_id"),
+                        nullableDatabaseLong(
+                                rs, "baseline_measurement_id"),
                         rs.getString("physical_state")),
                 tenantId,
                 organizationId,
@@ -772,7 +787,9 @@ public class TrustedOrangePiRuntimeFactService {
             case "MCU_ACCEPTED" -> "PHYSICAL_STARTED";
             case "REJECTED", "PRE_START_FAILED" ->
                     "PRE_START_FAILED";
-            case "FAILED" -> "PHYSICAL_FAILED";
+            case "FAILED" -> "EDGE_RESTARTED".equals(errorCode)
+                    ? "EDGE_RESTARTED"
+                    : "PHYSICAL_FAILED";
             default -> throw new IllegalArgumentException(
                     "device command stage is unsupported");
         };
@@ -801,7 +818,8 @@ public class TrustedOrangePiRuntimeFactService {
                                 CASE
                                     WHEN ? IN (
                                         'PRE_START_FAILED',
-                                        'PHYSICAL_FAILED'
+                                        'PHYSICAL_FAILED',
+                                        'EDGE_RESTARTED'
                                     )
                                     THEN COALESCE(
                                         physical_ended_at, ?)
@@ -826,8 +844,77 @@ public class TrustedOrangePiRuntimeFactService {
                 organizationId,
                 deployment.deploymentId()),
                 "advance observed device command");
+        if ("FAILED".equals(stage)
+                && "EDGE_RESTARTED".equals(errorCode)) {
+            abortRestartedWork(
+                    command,
+                    tenantId,
+                    organizationId,
+                    deployment.deploymentId(),
+                    now);
+        }
         return new CommandObservationResult(
                 "UPDATED", false);
+    }
+
+    private void abortRestartedWork(
+            CommandRow command,
+            long tenantId,
+            long organizationId,
+            long deploymentId,
+            LocalDateTime now) {
+        if (command.deliverySessionId() != null) {
+            int ended = jdbc.update("""
+                            UPDATE dev_delivery_session
+                            SET status = 'DEVICE_ABORTED',
+                                ended_at = ?,
+                                end_reason = 'EDGE_RESTARTED',
+                                lock_version = lock_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                              AND tenant_id = ?
+                              AND organization_id = ?
+                              AND deployment_id = ?
+                              AND status IN (
+                                  'PREPARED',
+                                  'AUTHORIZATION_QUEUED',
+                                  'IN_PROGRESS',
+                                  'RESULT_PENDING_RECOVERY'
+                              )
+                            """,
+                    now,
+                    now,
+                    command.deliverySessionId(),
+                    tenantId,
+                    organizationId,
+                    deploymentId);
+            if (ended == 1) {
+                jdbc.update("""
+                                DELETE FROM dev_device_occupancy
+                                WHERE tenant_id = ?
+                                  AND organization_id = ?
+                                  AND deployment_id = ?
+                                  AND occupancy_kind = 'DELIVERY'
+                                  AND delivery_session_id = ?
+                                """,
+                        tenantId,
+                        organizationId,
+                        deploymentId,
+                        command.deliverySessionId());
+            }
+        }
+        TrustedEdgeRestartedWork work =
+                new TrustedEdgeRestartedWork(
+                        tenantId,
+                        organizationId,
+                        deploymentId,
+                        command.commandType(),
+                        command.cleanOperationId(),
+                        command.fullnessDetectionId(),
+                        command.baselineMeasurementId(),
+                        now);
+        edgeRestartedBusinessPorts.forEach(
+                port -> port.abortRestartedWork(work));
     }
 
     private static boolean shouldAdvanceCommand(
@@ -836,7 +923,8 @@ public class TrustedOrangePiRuntimeFactService {
         if (Set.of(
                 "PHYSICAL_SUCCEEDED",
                 "PHYSICAL_FAILED",
-                "PRE_START_FAILED").contains(current)) {
+                "PRE_START_FAILED",
+                "EDGE_RESTARTED").contains(current)) {
             return false;
         }
         int currentRank = switch (current) {
@@ -850,7 +938,8 @@ public class TrustedOrangePiRuntimeFactService {
         int desiredRank = switch (desired) {
             case "EDGE_ACCEPTED" -> 2;
             case "PHYSICAL_STARTED" -> 3;
-            case "PRE_START_FAILED", "PHYSICAL_FAILED" -> 4;
+            case "PRE_START_FAILED", "PHYSICAL_FAILED",
+                 "EDGE_RESTARTED" -> 4;
             default -> throw new IllegalArgumentException(
                     "desired command state is unsupported");
         };
@@ -2304,6 +2393,9 @@ public class TrustedOrangePiRuntimeFactService {
             long id,
             String commandType,
             Long deliverySessionId,
+            Long cleanOperationId,
+            Long fullnessDetectionId,
+            Long baselineMeasurementId,
             String physicalState) {
     }
 

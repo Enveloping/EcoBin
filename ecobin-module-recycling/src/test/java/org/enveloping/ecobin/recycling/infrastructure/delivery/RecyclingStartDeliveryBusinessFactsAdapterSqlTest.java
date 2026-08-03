@@ -35,18 +35,6 @@ class RecyclingStartDeliveryBusinessFactsAdapterSqlTest {
                 .doesNotContain("FOR UPDATE");
     }
 
-    @Test
-    void onlyFullFactBoundToCurrentBagBlocksDelivery() {
-        assertThat(RecyclingStartDeliveryBusinessFactsAdapter
-                .isCurrentBagFull("FULL", 41L, 41L)).isTrue();
-        assertThat(RecyclingStartDeliveryBusinessFactsAdapter
-                .isCurrentBagFull("FULL", 40L, 41L)).isFalse();
-        assertThat(RecyclingStartDeliveryBusinessFactsAdapter
-                .isCurrentBagFull("FULL", null, 41L)).isFalse();
-        assertThat(RecyclingStartDeliveryBusinessFactsAdapter
-                .isCurrentBagFull("NOT_FULL", 41L, 41L)).isFalse();
-    }
-
     private static String upper(String sql) {
         return sql.toUpperCase(Locale.ROOT);
     }

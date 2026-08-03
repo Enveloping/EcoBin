@@ -4567,7 +4567,7 @@ export interface components {
         /** @description Stable public identity of one whole delivery session */
         DeliverySessionUid: components["schemas"]["UuidV4"];
         /** @enum {string} */
-        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "DEPLOYMENT_NOT_ENABLED" | "BUSINESS_SWITCH_DISABLED" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "SAFETY_LOCKED" | "DEVICE_BUSY" | "PORT_DISABLED" | "PORT_SENSOR_UNHEALTHY" | "DELIVERY_RESULT_PENDING" | "CURRENT_BAG_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "PORT_FULL" | "PORT_CLEAN_OPERATION_ACTIVE";
+        DeliveryOptionBlocker: "PHONE_BINDING_REQUIRED" | "WALLET_DELIVERY_LIMIT_REACHED" | "DEPLOYMENT_NOT_ENABLED" | "BUSINESS_SWITCH_DISABLED" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CURRENT_BAG_MISSING" | "BASELINE_REMEASUREMENT_ACTIVE" | "PORT_CLEAN_OPERATION_ACTIVE" | "CLEAN_RESTARTED_CLEAN_REQUIRED";
         /**
          * @description Non-negative display percentage preserved as an exact decimal string; values may exceed 100.00.
          * @example 87.50
@@ -4592,7 +4592,7 @@ export interface components {
         /** @enum {string} */
         DeliverySessionStatus: "ACTIVE" | "COMPLETED" | "ENDED";
         /** @enum {string} */
-        DeliverySessionPhase: "START_QUEUED" | "IN_PROGRESS" | "FINAL_RESULT_PENDING" | "RECOVERY_REQUIRED" | "BUSINESS_CONFIRMED" | "PRE_START_FAILED";
+        DeliverySessionPhase: "START_QUEUED" | "IN_PROGRESS" | "FINAL_RESULT_PENDING" | "RECOVERY_REQUIRED" | "BUSINESS_CONFIRMED" | "PRE_START_FAILED" | "DEVICE_RESTART_ABORTED";
         /** @enum {string} */
         DeliverySessionNextAction: "WAIT" | "WAIT_ON_DEVICE" | "VIEW_ORDER" | "SESSION_ENDED";
         DeliverySessionAccepted: {

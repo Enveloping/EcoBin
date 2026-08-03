@@ -83,7 +83,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
-    void configurationMismatchHidesUnappliedBusinessPresentation() {
+    void configurationReceiptMismatchDoesNotBlockBackendAdmission() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
                 deployment(
                         CONTENT_SHA,
@@ -94,24 +94,21 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 List.of(healthyPort()),
                 NOW);
 
-        assertThat(evaluation.exactConfiguration()).isFalse();
-        assertThat(evaluation.commonBlockers())
-                .containsExactly(
-                        MiniappDeliveryDeviceQueryPolicy
-                                .CONFIGURATION_NOT_APPLIED);
+        assertThat(evaluation.exactConfiguration()).isTrue();
+        assertThat(evaluation.commonBlockers()).isEmpty();
         assertThat(evaluation.ports()).singleElement()
                 .satisfies(port -> {
-                    assertThat(port.displayName()).isNull();
-                    assertThat(port.unitPriceYuanPerKg()).isNull();
-                    assertThat(port.fullnessMode()).isNull();
-                    assertThat(port.blockers()).containsExactly(
-                            MiniappDeliveryDeviceQueryPolicy
-                                    .CONFIGURATION_NOT_APPLIED);
+                    assertThat(port.displayName()).isEqualTo("塑料投口");
+                    assertThat(port.unitPriceYuanPerKg())
+                            .isEqualTo("0.4500");
+                    assertThat(port.fullnessMode())
+                            .isEqualTo("INFRARED_OR_WEIGHT");
+                    assertThat(port.blockers()).isEmpty();
                 });
     }
 
     @Test
-    void pendingResultUnsafeProjectionAndBadWeightRemainDistinct() {
+    void runtimeSensorAndSafetyProjectionAreEdgeOwned() {
         var port = new MiniappDeliveryDeviceQueryRepository
                 .PortSnapshotRow(
                 301L,
@@ -148,14 +145,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 List.of(port),
                 NOW);
 
-        assertThat(evaluation.ports().getFirst().blockers())
-                .containsExactly(
-                        MiniappDeliveryDeviceQueryPolicy
-                                .PORT_SENSOR_UNHEALTHY,
-                        MiniappDeliveryDeviceQueryPolicy
-                                .DELIVERY_RESULT_PENDING,
-                        MiniappDeliveryDeviceQueryPolicy
-                                .SAFETY_LOCKED);
+        assertThat(evaluation.ports().getFirst().blockers()).isEmpty();
     }
 
     private static MiniappDeliveryDeviceQueryRepository

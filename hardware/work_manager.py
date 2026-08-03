@@ -318,6 +318,18 @@ class WorkManager:
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        if self._store.clean_restart_interlock_active(
+            payload["portNo"]
+        ):
+            return self._reject_command(
+                command,
+                "CLEAN_RESTARTED_CLEAN_REQUIRED",
+            )
+        if self._store.get_port_fullness_state(
+            payload["portNo"],
+            payload["bagUid"],
+        ) == "FULL":
+            return self._reject_command(command, "PORT_FULL")
         safety_error = self._safety_rejection(payload["portNo"])
         if safety_error:
             return self._reject_command(command, safety_error)

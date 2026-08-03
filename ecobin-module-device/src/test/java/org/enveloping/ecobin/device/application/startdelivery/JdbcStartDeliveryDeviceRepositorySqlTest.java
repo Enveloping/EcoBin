@@ -20,13 +20,9 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
                 JdbcStartDeliveryDeviceRepository
                         .LOCK_DEPLOYMENT_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_DEPLOYMENT_RUNTIME_SQL,
+                        .LOCK_TRANSPORT_PRESENCE_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_OCCUPANCY_SQL,
-                JdbcStartDeliveryDeviceRepository
-                        .LOCK_CONFIGURATION_APPLICATION_SQL,
-                JdbcStartDeliveryDeviceRepository
-                        .LOCK_PORT_RUNTIME_SQL);
+                        .LOCK_OCCUPANCY_SQL);
 
         assertThat(lockSql)
                 .allSatisfy(sql ->
@@ -50,36 +46,22 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
     }
 
     @Test
-    void eligibilitySqlDoesNotUseMcuOrUartTransportDiagnostics() {
-        String deploymentRuntime =
-                JdbcStartDeliveryDeviceRepository
-                        .LOCK_DEPLOYMENT_RUNTIME_SQL
-                        .toLowerCase(Locale.ROOT);
-        String portRuntime =
-                JdbcStartDeliveryDeviceRepository
-                        .LOCK_PORT_RUNTIME_SQL
-                        .toLowerCase(Locale.ROOT);
+    void startAdmissionReadsOnlyAuthoritativeOnenetPresence() {
+        String presence = JdbcStartDeliveryDeviceRepository
+                .LOCK_TRANSPORT_PRESENCE_SQL
+                .toLowerCase(Locale.ROOT);
 
-        assertThat(deploymentRuntime)
-                .doesNotContain(
-                        "mcu_link_status",
-                        "mcu_firmware_version",
-                        "mcu_boot_id",
-                        "uart_state",
-                        "uart_protocol_major",
-                        "uart_protocol_minor",
-                        "capability_bitmap_hex",
-                        "last_mcu_reset_reason",
-                        "applied_config_version_no");
-        assertThat(portRuntime)
-                .doesNotContain(
-                        "weight_mcu_boot_id",
-                        "weight_mcu_event_sequence");
-        assertThat(deploymentRuntime)
+        assertThat(presence)
                 .contains(
-                        "trusted_runtime_edge_event_id",
-                        "trusted_runtime_received_at",
-                        "orange_pi_reported_config_version_no");
+                        "from dev_device_transport_state",
+                        "onenet_connection_status")
+                .doesNotContain(
+                        "runtime",
+                        "heartbeat",
+                        "mcu",
+                        "uart",
+                        "safety",
+                        "sensor");
     }
 
     @Test

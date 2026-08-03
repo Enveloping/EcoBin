@@ -10,9 +10,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -101,6 +98,10 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                 tenantId,
                 organizationId,
                 portId);
+        rejectCleanRestartInterlock(
+                tenantId,
+                organizationId,
+                portId);
 
         List<Long> occupiedBagIds = jdbc.query(
                 LOCK_CURRENT_BAG_OCCUPANCY_SQL,
@@ -128,36 +129,6 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                     "当前投口没有可用于投递的在位袋");
         }
         BagRow bag = bags.getFirst();
-
-        List<CapacityRow> capacities = jdbc.query("""
-                        SELECT baseline_state,
-                               detection_gate,
-                               current_detection_id,
-                               current_rule_fingerprint,
-                               confirmed_fullness_state,
-                               current_bag_id
-                        FROM rec_port_capacity_state
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND port_id = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> capacity(rs),
-                tenantId,
-                organizationId,
-                deploymentId,
-                portId);
-        if (capacities.size() > 1) {
-            throw conflict(
-                    "DEVICE.PORT_UNAVAILABLE",
-                    "当前投口存在重复的容量状态");
-        }
-        if (!capacities.isEmpty()) {
-            requireCapacityEligible(
-                    capacities.getFirst(),
-                    bag.id());
-        }
 
         return new LockedStartDeliveryBusinessFacts(
                 bag.bagUid(),
@@ -225,6 +196,30 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                 portId);
     }
 
+    private void rejectCleanRestartInterlock(
+            long tenantId,
+            long organizationId,
+            long portId) {
+        List<Long> rows = jdbc.query("""
+                        SELECT source_clean_operation_id
+                        FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND port_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong(
+                        "source_clean_operation_id"),
+                tenantId,
+                organizationId,
+                portId);
+        if (!rows.isEmpty()) {
+            throw conflict(
+                    "CLEAN.RESTARTED_CLEAN_REQUIRED",
+                    "上一次清运被设备重启中断，必须先重新完成一次完整清运");
+        }
+    }
+
     private void rejectRows(
             String table,
             String code,
@@ -247,27 +242,6 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
         }
     }
 
-    private static void requireCapacityEligible(
-            CapacityRow capacity,
-            long currentBagId) {
-        if (isCurrentBagFull(
-                capacity.fullnessState(),
-                capacity.currentBagId(),
-                currentBagId)) {
-            throw conflict(
-                    "DEVICE.PORT_FULL",
-                    "当前投口已经满溢");
-        }
-    }
-
-    static boolean isCurrentBagFull(
-            String fullnessState,
-            Long reportedBagId,
-            long currentBagId) {
-        return "FULL".equals(fullnessState)
-                && Long.valueOf(currentBagId).equals(reportedBagId);
-    }
-
     private static void verifyRule(
             DeliveryRuleSnapshot expected,
             DeliveryConfiguration current) {
@@ -282,30 +256,6 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                     "DELIVERY.CONFIGURATION_CHANGED",
                     "投递规则已变化，请重新发起投递");
         }
-    }
-
-    private static CapacityRow capacity(ResultSet rs)
-            throws SQLException {
-        byte[] fingerprint =
-                rs.getBytes("current_rule_fingerprint");
-        Long currentDetection =
-                nullableLong(rs, "current_detection_id");
-        return new CapacityRow(
-                rs.getString("baseline_state"),
-                rs.getString("detection_gate"),
-                currentDetection,
-                fingerprint == null
-                        ? null
-                        : HexFormat.of().formatHex(fingerprint),
-                rs.getString("confirmed_fullness_state"),
-                nullableLong(rs, "current_bag_id"));
-    }
-
-    private static Long nullableLong(
-            ResultSet rs,
-            String column) throws SQLException {
-        long value = rs.getLong(column);
-        return rs.wasNull() ? null : value;
     }
 
     private static TargetApiException conflict(
@@ -333,12 +283,4 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
             String bagCode) {
     }
 
-    private record CapacityRow(
-            String baselineState,
-            String detectionGate,
-            Long currentDetectionId,
-            String ruleFingerprint,
-            String fullnessState,
-            Long currentBagId) {
-    }
 }

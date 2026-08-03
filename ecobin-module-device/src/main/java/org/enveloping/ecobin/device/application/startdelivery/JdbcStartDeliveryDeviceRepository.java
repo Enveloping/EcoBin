@@ -7,8 +7,6 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,27 +54,10 @@ class JdbcStartDeliveryDeviceRepository
             FOR UPDATE
             """;
 
-    /*
-     * Deliberately excludes mcu_link_status, uart_state and UART protocol
-     * fields. Start eligibility comes from the authenticated Orange Pi
-     * projection, not from the Orange Pi-to-MCU transport diagnostics.
-     */
-    static final String LOCK_DEPLOYMENT_RUNTIME_SQL = """
-            SELECT edge_connection_status,
-                   safety_status,
-                   local_storage_health,
-                   local_storage_state,
-                   trusted_runtime_edge_event_id,
-                   trusted_runtime_edge_event_type,
-                   trusted_runtime_sequence,
-                   trusted_runtime_received_at,
-                   orange_pi_reported_config_version_no,
-                   orange_pi_reported_config_content_sha256,
-                   orange_pi_reported_config_mcu_payload_sha256
-            FROM dev_deployment_runtime_state
-            WHERE tenant_id = ?
-              AND organization_id = ?
-              AND deployment_id = ?
+    static final String LOCK_TRANSPORT_PRESENCE_SQL = """
+            SELECT onenet_connection_status
+            FROM dev_device_transport_state
+            WHERE asset_id = ?
             FOR UPDATE
             """;
 
@@ -102,19 +83,6 @@ class JdbcStartDeliveryDeviceRepository
             LIMIT 1
             """;
 
-    static final String LOCK_CONFIGURATION_APPLICATION_SQL = """
-            SELECT status, reported_version_no,
-                   reported_content_sha256,
-                   reported_mcu_payload_sha256,
-                   applied_at
-            FROM dev_config_application
-            WHERE tenant_id = ?
-              AND organization_id = ?
-              AND deployment_id = ?
-              AND config_version_id = ?
-            FOR UPDATE
-            """;
-
     static final String LOCK_PORT_SQL = """
             SELECT id, port_no
             FROM dev_port
@@ -133,37 +101,6 @@ class JdbcStartDeliveryDeviceRepository
               AND deployment_id = ?
               AND config_version_id = ?
               AND port_id = ?
-            """;
-
-    /*
-     * Port eligibility uses only the facts projected from a trusted Orange Pi
-     * snapshot plus the authoritative safety projection. MCU boot IDs,
-     * events, link state and UART details are intentionally absent.
-     */
-    static final String LOCK_PORT_RUNTIME_SQL = """
-            SELECT delivery_door_actuator_health,
-                   clean_lock_power_state,
-                   clean_solenoid_health,
-                   weight_sensor_health,
-                   weight_measurement_status,
-                   weight_value_available,
-                   reported_weight_grams,
-                   weight_value_kind,
-                   calibration_version,
-                   smoke_state,
-                   smoke_sensor_health,
-                   runtime_fault_bitmap,
-                   safety_status,
-                   pending_delivery_result_session_id,
-                   trusted_runtime_edge_event_id,
-                   trusted_runtime_edge_event_type,
-                   trusted_runtime_sequence
-            FROM dev_port_runtime_state
-            WHERE tenant_id = ?
-              AND organization_id = ?
-              AND deployment_id = ?
-              AND port_id = ?
-            FOR UPDATE
             """;
 
     static final String INSERT_SESSION_SQL = """
@@ -346,38 +283,13 @@ class JdbcStartDeliveryDeviceRepository
     }
 
     @Override
-    public Optional<DeploymentRuntimeRow> lockDeploymentRuntime(
-            long tenantId,
-            long organizationId,
-            long deploymentId) {
+    public Optional<TransportPresenceRow> lockTransportPresence(
+            long assetId) {
         return jdbc.query(
-                LOCK_DEPLOYMENT_RUNTIME_SQL,
-                (rs, ignored) -> new DeploymentRuntimeRow(
-                        rs.getString("edge_connection_status"),
-                        rs.getString("safety_status"),
-                        rs.getString("local_storage_health"),
-                        rs.getString("local_storage_state"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_edge_event_id"),
-                        rs.getString(
-                                "trusted_runtime_edge_event_type"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_sequence"),
-                        rs.getObject(
-                                "trusted_runtime_received_at",
-                                LocalDateTime.class),
-                        nullableLong(
-                                rs,
-                                "orange_pi_reported_config_version_no"),
-                        rs.getBytes(
-                                "orange_pi_reported_config_content_sha256"),
-                        rs.getBytes(
-                                "orange_pi_reported_config_mcu_payload_sha256")),
-                tenantId,
-                organizationId,
-                deploymentId).stream().findFirst();
+                LOCK_TRANSPORT_PRESENCE_SQL,
+                (rs, ignored) -> new TransportPresenceRow(
+                        rs.getString("onenet_connection_status")),
+                assetId).stream().findFirst();
     }
 
     @Override
@@ -409,27 +321,6 @@ class JdbcStartDeliveryDeviceRepository
                 tenantId,
                 organizationId,
                 deploymentId).stream().findFirst();
-    }
-
-    @Override
-    public Optional<ConfigurationApplicationRow>
-            lockConfigurationApplication(
-                    long tenantId,
-                    long organizationId,
-                    long deploymentId,
-                    long configurationId) {
-        return jdbc.query(
-                LOCK_CONFIGURATION_APPLICATION_SQL,
-                (rs, ignored) -> new ConfigurationApplicationRow(
-                        rs.getString("status"),
-                        nullableLong(rs, "reported_version_no"),
-                        rs.getBytes("reported_content_sha256"),
-                        rs.getBytes("reported_mcu_payload_sha256"),
-                        rs.getObject("applied_at", LocalDateTime.class)),
-                tenantId,
-                organizationId,
-                deploymentId,
-                configurationId).stream().findFirst();
     }
 
     @Override
@@ -468,48 +359,6 @@ class JdbcStartDeliveryDeviceRepository
                 organizationId,
                 deploymentId,
                 configurationId,
-                portId).stream().findFirst();
-    }
-
-    @Override
-    public Optional<PortRuntimeRow> lockPortRuntime(
-            long tenantId,
-            long organizationId,
-            long deploymentId,
-            long portId) {
-        return jdbc.query(
-                LOCK_PORT_RUNTIME_SQL,
-                (rs, ignored) -> new PortRuntimeRow(
-                        rs.getString(
-                                "delivery_door_actuator_health"),
-                        rs.getString("clean_lock_power_state"),
-                        rs.getString("clean_solenoid_health"),
-                        rs.getString("weight_sensor_health"),
-                        rs.getString("weight_measurement_status"),
-                        nullableBoolean(
-                                rs,
-                                "weight_value_available"),
-                        nullableLong(rs, "reported_weight_grams"),
-                        rs.getString("weight_value_kind"),
-                        nullableLong(rs, "calibration_version"),
-                        rs.getString("smoke_state"),
-                        rs.getString("smoke_sensor_health"),
-                        nullableLong(rs, "runtime_fault_bitmap"),
-                        rs.getString("safety_status"),
-                        nullableLong(
-                                rs,
-                                "pending_delivery_result_session_id"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_edge_event_id"),
-                        rs.getString(
-                                "trusted_runtime_edge_event_type"),
-                        nullableLong(
-                                rs,
-                                "trusted_runtime_sequence")),
-                tenantId,
-                organizationId,
-                deploymentId,
                 portId).stream().findFirst();
     }
 
@@ -603,20 +452,6 @@ class JdbcStartDeliveryDeviceRepository
             throw invariant("generated key is unavailable");
         }
         return key.longValue();
-    }
-
-    private static Long nullableLong(
-            ResultSet resultSet,
-            String column) throws SQLException {
-        long result = resultSet.getLong(column);
-        return resultSet.wasNull() ? null : result;
-    }
-
-    private static Boolean nullableBoolean(
-            ResultSet resultSet,
-            String column) throws SQLException {
-        boolean result = resultSet.getBoolean(column);
-        return resultSet.wasNull() ? null : result;
     }
 
     private static void requireSingle(int affected, String operation) {

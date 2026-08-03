@@ -1,6 +1,5 @@
 package org.enveloping.ecobin.recycling.application.clean;
 
-import org.enveloping.ecobin.device.api.value.DeviceRuntimeWeightPolicy;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.StartCleanIdentityParticipationPort;
 import org.enveloping.ecobin.identity.api.result.LockedCleanOrganizationUser;
@@ -92,8 +91,14 @@ public class CleanQueryService {
                         SELECT deployment.id, deployment.asset_id,
                                configuration.device_display_name
                                    AS display_name,
-                               configuration.location_address AS address
+                               configuration.location_address AS address,
+                               COALESCE(
+                                   transport.onenet_connection_status,
+                                   'UNKNOWN'
+                               ) AS onenet_connection_status
                         FROM dev_device_deployment deployment
+                        LEFT JOIN dev_device_transport_state transport
+                          ON transport.asset_id = deployment.asset_id
                         LEFT JOIN dev_config_version configuration
                           ON configuration.id = (
                               SELECT latest.id
@@ -114,7 +119,8 @@ public class CleanQueryService {
                         rs.getLong("id"),
                         rs.getLong("asset_id"),
                         rs.getString("display_name"),
-                        rs.getString("address")),
+                        rs.getString("address"),
+                        rs.getString("onenet_connection_status")),
                 tenantId,
                 organizationId,
                 deploymentCode).stream().findFirst().orElseThrow(
@@ -159,21 +165,7 @@ public class CleanQueryService {
                                capacity.detection_gate,
                                capacity.confirmed_fullness_state,
                                capacity.displayed_fullness_percent,
-                               runtime.clean_lock_power_state,
-                               runtime.clean_solenoid_health,
-                               runtime.weight_sensor_health,
-                               runtime.weight_measurement_status,
-                               runtime.weight_value_available,
-                               runtime.reported_weight_grams,
-                               runtime.weight_value_kind,
-                               runtime.calibration_version
-                                   AS runtime_calibration_version,
-                               snapshot.calibration_version
-                                   AS configured_calibration_version,
-                               runtime.smoke_state,
-                               runtime.smoke_sensor_health,
-                               runtime.runtime_fault_bitmap,
-                               runtime.safety_status,
+                               snapshot.business_enabled,
                                EXISTS (
                                    SELECT 1
                                    FROM rec_clean_operation active_operation
@@ -200,8 +192,6 @@ public class CleanQueryService {
                          AND snapshot.deployment_id = port.deployment_id
                          AND snapshot.config_version_id = configuration.id
                          AND snapshot.port_id = port.id
-                        LEFT JOIN dev_port_runtime_state runtime
-                          ON runtime.port_id = port.id
                         LEFT JOIN rec_bag_current_occupancy occupancy
                           ON occupancy.port_id = port.id
                          AND occupancy.occupancy_type = 'PORT_BOUND'
@@ -213,7 +203,10 @@ public class CleanQueryService {
                           AND port.deployment_id = ?
                         ORDER BY port.port_no
                         """,
-                (rs, ignored) -> portOption(rs, deviceBusy),
+                (rs, ignored) -> portOption(
+                        rs,
+                        deviceBusy,
+                        deployment.onenetConnectionStatus()),
                 tenantId,
                 organizationId,
                 deployment.id());
@@ -272,40 +265,20 @@ public class CleanQueryService {
 
     private static CleanPortOption portOption(
             ResultSet rs,
-            boolean deviceBusy) throws SQLException {
+            boolean deviceBusy,
+            String onenetConnectionStatus) throws SQLException {
         List<String> blockers = new ArrayList<>();
+        if (!"ONLINE".equals(onenetConnectionStatus)) {
+            blockers.add("EDGE_OFFLINE");
+        }
         if (deviceBusy) {
             blockers.add("DEVICE_BUSY");
         }
         if (rs.getBoolean("operation_active")) {
             blockers.add("CLEAN_OPERATION_ACTIVE");
         }
-        if (!"DEENERGIZED".equals(
-                rs.getString("clean_lock_power_state"))) {
-            blockers.add("CLEAN_LOCK_NOT_SAFE");
-        }
-        if (!"OK".equals(rs.getString("clean_solenoid_health"))) {
-            blockers.add("CLEAN_SOLENOID_UNAVAILABLE");
-        }
-        if (!DeviceRuntimeWeightPolicy.isStartEligible(
-                rs.getString("weight_sensor_health"),
-                rs.getString("weight_measurement_status"),
-                nullableBoolean(rs, "weight_value_available"),
-                nullableLong(rs, "reported_weight_grams"),
-                rs.getString("weight_value_kind"),
-                nullableLong(rs, "runtime_calibration_version"),
-                nullableLong(rs, "configured_calibration_version"))) {
-            blockers.add("WEIGHT_UNAVAILABLE");
-        }
-        if (!"NORMAL".equals(rs.getString("smoke_state"))
-                || !"OK".equals(
-                rs.getString("smoke_sensor_health"))
-                || !"SAFE".equals(rs.getString("safety_status"))) {
-            blockers.add("SAFETY_UNAVAILABLE");
-        }
-        Long faultBitmap = nullableLong(rs, "runtime_fault_bitmap");
-        if (faultBitmap == null || faultBitmap != 0L) {
-            blockers.add("DEVICE_FAULT_ACTIVE");
+        if (!rs.getBoolean("business_enabled")) {
+            blockers.add("PORT_DISABLED");
         }
         return new CleanPortOption(
                 rs.getInt("port_no"),
@@ -406,18 +379,6 @@ public class CleanQueryService {
         }
     }
 
-    private static Long nullableLong(ResultSet rs, String column)
-            throws SQLException {
-        long value = rs.getLong(column);
-        return rs.wasNull() ? null : value;
-    }
-
-    private static Boolean nullableBoolean(ResultSet rs, String column)
-            throws SQLException {
-        boolean value = rs.getBoolean(column);
-        return rs.wasNull() ? null : value;
-    }
-
     private static Instant instant(ResultSet rs, String column)
             throws SQLException {
         return rs.getObject(column, LocalDateTime.class)
@@ -447,6 +408,7 @@ public class CleanQueryService {
             long id,
             long assetId,
             String displayName,
-            String address) {
+            String address,
+            String onenetConnectionStatus) {
     }
 }

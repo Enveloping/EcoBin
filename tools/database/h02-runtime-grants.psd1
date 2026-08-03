@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 8
+    CatalogVersion = 9
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -10,6 +10,7 @@
         "dev_asset_active_tenant_allocation"
         "dev_device_occupancy"
         "rec_bag_current_occupancy"
+        "rec_port_clean_restart_interlock"
         "fund_active_withdrawal"
     )
 

@@ -63,15 +63,12 @@ const BLOCKER_TEXT: Record<DeliveryOptionBlocker, string> = {
   BUSINESS_SWITCH_DISABLED: '设备暂停接收投递',
   CONFIGURATION_NOT_APPLIED: '设备配置尚未生效',
   EDGE_OFFLINE: '设备当前离线',
-  SAFETY_LOCKED: '设备处于安全锁定状态',
   DEVICE_BUSY: '设备正在执行其他作业',
   PORT_DISABLED: '投口已停用',
-  PORT_SENSOR_UNHEALTHY: '投口传感器状态异常',
-  DELIVERY_RESULT_PENDING: '上一笔投递结果仍在处理中',
   CURRENT_BAG_MISSING: '投口尚未安装有效垃圾袋',
   BASELINE_REMEASUREMENT_ACTIVE: '投口正在重测重量基准',
-  PORT_FULL: '投口已满',
   PORT_CLEAN_OPERATION_ACTIVE: '投口正在清运',
+  CLEAN_RESTARTED_CLEAN_REQUIRED: '上次清运被设备重启中断，请先重新完成清运',
 }
 
 const PHASE_TEXT: Record<DeliverySessionPhase, string> = {
@@ -81,6 +78,7 @@ const PHASE_TEXT: Record<DeliverySessionPhase, string> = {
   RECOVERY_REQUIRED: '设备结果需要恢复处理，请勿重复扫码',
   BUSINESS_CONFIRMED: '投递已完成',
   PRE_START_FAILED: '设备未能开始本次投递',
+  DEVICE_RESTART_ABORTED: '设备重启，本次投递已取消',
 }
 
 // 409 可能是同幂等键并发中的败者，或原请求刚成功后的 ACTIVE 冲突，

@@ -1420,6 +1420,17 @@ public class ApplyCleanCompleteService
                 operation.tenantId(),
                 operation.organizationId()),
                 "complete clean operation");
+        jdbc.update("""
+                        DELETE FROM rec_port_clean_restart_interlock
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND deployment_id = ?
+                          AND port_id = ?
+                        """,
+                operation.tenantId(),
+                operation.organizationId(),
+                operation.deploymentId(),
+                operation.portId());
     }
 
     private void releaseDeviceOccupancy(
