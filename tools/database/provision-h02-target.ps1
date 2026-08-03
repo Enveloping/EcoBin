@@ -855,9 +855,9 @@ WHERE table_schema = '$DatabaseName'
             -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1;")
         if (
             $existingDomainTableCount -ne 96 -or
-            $existingHistoryCount -ne 30
+            $existingHistoryCount -ne 31
         ) {
-            throw "Migrated resume requires the complete V30 target database"
+            throw "Migrated resume requires the complete V31 target database"
         }
         $migrationCompleted = $true
         $skipMigration = $true
@@ -898,7 +898,7 @@ GRANT SELECT (
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
 
-        Invoke-FlywayMigration -Target 30 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 31 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -956,8 +956,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 30) {
-        throw "Expected thirty successful Flyway migrations"
+    if ($historyCount -ne 31) {
+        throw "Expected thirty-one successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `

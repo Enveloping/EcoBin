@@ -21,6 +21,9 @@ export type VerifyMerchantBindingRequest =
   Schemas['VerifyMerchantBindingRequest'];
 export type DisableMerchantBindingRequest =
   Schemas['DisableMerchantBindingRequest'];
+export type WalletSummary = Schemas['WalletSummary'];
+export type AdjustWalletRequest = Schemas['AdjustWalletRequest'];
+export type WalletAdjustment = Schemas['WalletAdjustmentView'];
 
 function organizationBase(
   context: DirectoryContext,
@@ -47,6 +50,36 @@ export function getPayoutAccount(
     url: `${organizationBase(context, organizationCode)}/payout-account`,
     method: 'GET',
     noStore: true,
+  });
+}
+
+export function getOrganizationUserWallet(
+  context: DirectoryContext,
+  organizationCode: string,
+  organizationUserUid: string,
+) {
+  return request<WalletSummary>({
+    url:
+      `${organizationBase(context, organizationCode)}/organization-users/`
+      + `${encodeURIComponent(organizationUserUid)}/wallet`,
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function adjustOrganizationUserWallet(
+  context: DirectoryContext,
+  organizationCode: string,
+  organizationUserUid: string,
+  data: AdjustWalletRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<WalletAdjustment, AdjustWalletRequest>({
+    url:
+      `${organizationBase(context, organizationCode)}/organization-users/`
+      + `${encodeURIComponent(organizationUserUid)}/wallet-adjustments`,
+    method: 'POST',
+    data,
   });
 }
 

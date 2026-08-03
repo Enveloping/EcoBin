@@ -40,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
@@ -709,11 +710,19 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 third.outcome());
+        assertEquals(2, channel.submitCount);
+        assertEquals(1, channel.queryCount);
         ReliableFundsTaskExecutorPort.Result fourth = service.executeTask(
-                fundsCommand(taskUid, taskId, 4, fixture, withdrawalNo));
+                fundsCommand(
+                        taskUid, taskId, 4, fixture,
+                        "CANCEL_MERCHANT_TRANSFER", withdrawalNo));
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
                 fourth.outcome());
+        assertEquals(2, channel.submitCount,
+                "historical cancellation tasks must never call cancel/submit");
+        assertEquals(2, channel.queryCount,
+                "historical cancellation tasks must observe the original bill");
 
         assertEquals("CHANNEL_PROCESSING|990|10|990|10|1",
                 withdrawalFundsState(withdrawalNo));
@@ -790,18 +799,24 @@ class TargetWebIdentityMysqlIntegrationTest {
                         UUID.randomUUID(), "recharge-test-staff"));
         ScriptedNativePaymentChannel channel =
                 new ScriptedNativePaymentChannel();
+        RechargeApplicationService creator = new RechargeApplicationService(
+                jdbc, new FundsAccessService(jdbc, identity),
+                reliableFundsTasks, channel, fundsOperationalControl,
+                mock(ReliableFundsAttemptBoundaryPort.class),
+                new TransactionTemplate(transactionManager),
+                "https://original.example");
+
+        UUID operationUid = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> creator.create(
+                        false, null, organizationCode, operationUid,
+                        "1.00", "/api/v1/web/recharges"));
         RechargeApplicationService service = new RechargeApplicationService(
                 jdbc, new FundsAccessService(jdbc, identity),
                 reliableFundsTasks, channel, fundsOperationalControl,
                 mock(ReliableFundsAttemptBoundaryPort.class),
                 new TransactionTemplate(transactionManager),
-                "https://fake.invalid");
-
-        UUID operationUid = UUID.randomUUID();
-        new TransactionTemplate(transactionManager).executeWithoutResult(
-                status -> service.create(
-                        false, null, organizationCode, operationUid,
-                        "1.00", "/api/v1/web/recharges"));
+                "https://changed.example");
         String rechargeNo = RechargeApplicationService.stableNo(
                 "RC", operationUid);
         FundsTaskRef createTask = fundsTask(
@@ -812,6 +827,10 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 created.outcome());
+        assertEquals(
+                "https://original.example/api/v1/wechat-pay/notifications/native-payments",
+                channel.request.notifyUrl(),
+                "worker must reuse the immutable URL snapshot after restart");
 
         FundsTaskRef queryTask = fundsTask(
                 "QUERY_NATIVE_PAYMENT", rechargeNo);
@@ -880,6 +899,451 @@ class TargetWebIdentityMysqlIntegrationTest {
                 """, String.class, rechargeNo));
         assertEquals(1, channel.createCount);
         assertEquals(2, channel.queryCount);
+
+        UUID legacyOperation = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> creator.create(
+                        false, null, organizationCode, legacyOperation,
+                        "1.00", "/api/v1/web/recharges"));
+        String legacyRechargeNo = RechargeApplicationService.stableNo(
+                "RC", legacyOperation);
+        jdbc.update("""
+                UPDATE fund_wechat_payment payment
+                JOIN fund_recharge_order recharge
+                  ON recharge.id = payment.recharge_order_id
+                SET payment.notify_url_snapshot = NULL
+                WHERE recharge.recharge_order_no = ?
+                """, legacyRechargeNo);
+        FundsTaskRef legacyCreate = fundsTask(
+                "CREATE_NATIVE_PAYMENT", legacyRechargeNo);
+        ReliableFundsTaskExecutorPort.Result legacyBlocked =
+                service.executeTask(fundsCommand(
+                        legacyCreate.taskUid(), legacyCreate.taskId(), 1,
+                        fixture, "CREATE_NATIVE_PAYMENT", legacyRechargeNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                legacyBlocked.outcome());
+        assertEquals(1, channel.createCount,
+                "an unverifiable legacy URL must be blocked before WeChat");
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue issue_row
+                JOIN fund_wechat_payment payment
+                  ON payment.out_trade_no = issue_row.subject_stable_key
+                JOIN fund_recharge_order recharge
+                  ON recharge.id = payment.recharge_order_id
+                WHERE recharge.recharge_order_no = ?
+                  AND issue_row.issue_code =
+                      'FUNDS.NATIVE_PAYMENT_ORIGINAL_REQUEST_UNAVAILABLE'
+                """, Integer.class, legacyRechargeNo));
+    }
+
+    @Test
+    void authorizedWalletAdjustmentAppendsLedgerAndControlsSafetyGates()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("wa");
+        String organizationCode = code("wo");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Wallet adjustment integration");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode
+                + "/organization-users/" + fixture.userUid();
+
+        JsonNode wallet = data(read(platform, base + "/wallet", 200));
+        assertEquals("10.00", wallet.path("availableBalanceYuan").asText());
+        assertEquals(0, wallet.path("walletVersion").asLong());
+
+        UUID debitUid = UUID.randomUUID();
+        Map<String, Object> debit = Map.of(
+                "deltaYuan", "-21.00",
+                "expectedWalletVersion", 0,
+                "reason", "纠正重复返现");
+        JsonNode debited = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                debitUid,
+                debit,
+                201));
+        assertEquals(debitUid.toString(),
+                debited.path("adjustmentUid").asText());
+        assertEquals("10.00",
+                debited.path("availableBalanceBeforeYuan").asText());
+        assertEquals("-11.00",
+                debited.path("availableBalanceAfterYuan").asText());
+        assertEquals("MANUAL_RECOVERY_REQUIRED",
+                debited.path("deliveryGate").asText());
+        assertEquals("NONE",
+                debited.path("activeWithdrawalEffect").asText());
+        assertEquals(1, debited.path("walletVersion").asLong());
+
+        JsonNode replay = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                debitUid,
+                debit,
+                201));
+        assertEquals(debited, replay);
+        write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                debitUid,
+                Map.of(
+                        "deltaYuan", "-20.00",
+                        "expectedWalletVersion", 0,
+                        "reason", "纠正重复返现"),
+                409);
+
+        JsonNode restored = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "2.01",
+                        "expectedWalletVersion", 1),
+                201));
+        assertEquals("-8.99",
+                restored.path("availableBalanceAfterYuan").asText());
+        assertEquals("OPEN", restored.path("deliveryGate").asText());
+        assertEquals(2, restored.path("walletVersion").asLong());
+
+        assertEquals("-899|0|2|OPEN|NULL|NULL", jdbc.queryForObject("""
+                SELECT CONCAT(
+                    available_balance_cent, '|', frozen_withdrawal_cent, '|',
+                    last_entry_sequence_no, '|', delivery_gate_state, '|',
+                    COALESCE(delivery_gate_threshold_snapshot_cent, 'NULL'),
+                    '|', COALESCE(delivery_gate_trigger_entry_id, 'NULL'))
+                FROM fund_user_wallet
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, String.class, fixture.tenantId(),
+                fixture.organizationId(), fixture.userId()));
+        assertEquals(2, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM fund_wallet_adjustment
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND wallet_id = (
+                    SELECT id FROM fund_user_wallet
+                    WHERE tenant_id = ? AND organization_id = ?
+                      AND organization_user_id = ?)
+                """, Integer.class,
+                fixture.tenantId(), fixture.organizationId(),
+                fixture.tenantId(), fixture.organizationId(), fixture.userId()));
+        assertEquals(2, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM fund_user_wallet_entry
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                  AND event_type = 'MANUAL_ADJUSTMENT'
+                  AND frozen_delta_cent = 0
+                  AND frozen_before_cent = frozen_after_cent
+                """, Integer.class, fixture.tenantId(),
+                fixture.organizationId(), fixture.userId()));
+        assertEquals(2, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_audit_log
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND action_code = 'wallet.adjust'
+                  AND result = 'SUCCEEDED'
+                """, Integer.class,
+                fixture.tenantId(), fixture.organizationId()));
+    }
+
+    @Test
+    void walletAdjustmentPausesAndWakesPreChannelWithdrawal()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("wp");
+        String organizationCode = code("wr");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Wallet adjustment withdrawal recovery");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "wallet-adjustment-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        WithdrawalApplicationService withdrawalService =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        mock(MerchantTransferChannelPort.class),
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, "https://fake.invalid");
+
+        UUID createUid = UUID.randomUUID();
+        withdrawalService.create(
+                createUid, new CreateWithdrawalRequest("0.10"));
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "WD", createUid);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_withdrawal_order
+                SET business_state = 'READY_TO_SUBMIT', reviewed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE withdrawal_order_no = ?
+                  AND business_state = 'PENDING_REVIEW'
+                """, now, now, withdrawalNo));
+        String taskSnapshot = "{\"withdrawalNo\":\""
+                + withdrawalNo + "\"}";
+        UUID taskUid = new TransactionTemplate(transactionManager).execute(
+                status -> reliableFundsTasks.register(
+                        new ReliableFundsTaskRegistrationPort
+                                .ReliableFundsTaskRegistration(
+                                fixture.tenantId(), fixture.organizationId(),
+                                "SUBMIT_MERCHANT_TRANSFER",
+                                "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                                "WITHDRAWAL_ORDER", withdrawalNo, 1,
+                                taskSnapshot,
+                                RechargeApplicationService.sha256(
+                                        taskSnapshot),
+                                500, null)));
+        assertNotNull(taskUid);
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET next_run_at = UTC_TIMESTAMP(3) + INTERVAL 1 DAY
+                WHERE task_uid = ?
+                """, taskUid.toString());
+
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode
+                + "/organization-users/" + fixture.userUid();
+        JsonNode paused = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "-10.00",
+                        "expectedWalletVersion", 1,
+                        "reason", "纠正活动提现前余额"),
+                201));
+        assertEquals("-0.10",
+                paused.path("availableBalanceAfterYuan").asText());
+        assertEquals("PAUSED_BEFORE_CHANNEL",
+                paused.path("activeWithdrawalEffect").asText());
+        assertEquals("1|0", jdbc.queryForObject("""
+                SELECT CONCAT(negative_balance_pause, '|',
+                              post_boundary_risk)
+                FROM fund_withdrawal_order
+                WHERE withdrawal_order_no = ?
+                """, String.class, withdrawalNo));
+
+        JsonNode resumed = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "0.10",
+                        "expectedWalletVersion", 2,
+                        "reason", "恢复活动提现前余额"),
+                201));
+        assertEquals("0.00",
+                resumed.path("availableBalanceAfterYuan").asText());
+        assertEquals("RESUMED_BEFORE_CHANNEL",
+                resumed.path("activeWithdrawalEffect").asText());
+        assertEquals("0|0|0|10|3", jdbc.queryForObject("""
+                SELECT CONCAT(
+                    withdrawal.negative_balance_pause, '|',
+                    withdrawal.post_boundary_risk, '|',
+                    wallet.available_balance_cent, '|',
+                    wallet.frozen_withdrawal_cent, '|',
+                    wallet.lock_version)
+                FROM fund_withdrawal_order withdrawal
+                JOIN fund_user_wallet wallet
+                  ON wallet.id = withdrawal.wallet_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, String.class, withdrawalNo));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM ops_reliable_task
+                WHERE task_uid = ?
+                  AND state = 'PENDING'
+                  AND wake_version = 1
+                  AND next_run_at <= UTC_TIMESTAMP(3)
+                        + INTERVAL 2 SECOND
+                """, Integer.class, taskUid.toString()));
+    }
+
+    @Test
+    void nativeDuplicateNumberQueriesOriginalAndRefundBlocksPosting()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("nd");
+        String organizationCode = code("nf");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Native duplicate and refund recovery");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        long staffId = jdbc.queryForObject("""
+                SELECT staff.id
+                FROM iam_staff_account staff
+                JOIN iam_tenant tenant ON tenant.id = staff.tenant_id
+                WHERE tenant.tenant_code = ?
+                ORDER BY staff.id LIMIT 1
+                """, Long.class, tenantCode);
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        when(identity.authorizeWeb(
+                false, organizationCode, "recharge.create", true))
+                .thenReturn(new AuthorizedWebIdentity(
+                        false, tenantCode, staffId, UUID.randomUUID(),
+                        UUID.randomUUID(), "native-recovery-staff"));
+        DuplicateRefundNativeChannel channel =
+                new DuplicateRefundNativeChannel();
+        RechargeApplicationService service = new RechargeApplicationService(
+                jdbc, new FundsAccessService(jdbc, identity),
+                reliableFundsTasks, channel, fundsOperationalControl,
+                mock(ReliableFundsAttemptBoundaryPort.class),
+                new TransactionTemplate(transactionManager),
+                "https://native.example");
+
+        UUID operationUid = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> service.create(
+                        false, null, organizationCode, operationUid,
+                        "1.00", "/api/v1/web/recharges"));
+        String rechargeNo = RechargeApplicationService.stableNo(
+                "RC", operationUid);
+        FundsTaskRef createTask = fundsTask(
+                "CREATE_NATIVE_PAYMENT", rechargeNo);
+        ReliableFundsTaskExecutorPort.Result duplicate = service.executeTask(
+                fundsCommand(createTask.taskUid(), createTask.taskId(), 1,
+                        fixture, "CREATE_NATIVE_PAYMENT", rechargeNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                duplicate.outcome());
+        assertEquals(1, channel.createCount);
+
+        FundsTaskRef queryTask = fundsTask(
+                "QUERY_NATIVE_PAYMENT", rechargeNo);
+        ReliableFundsTaskExecutorPort.Result refunded = service.executeTask(
+                fundsCommand(queryTask.taskUid(), queryTask.taskId(), 1,
+                        fixture, "QUERY_NATIVE_PAYMENT", rechargeNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                refunded.outcome());
+        assertEquals(1, channel.queryCount);
+        assertEquals("PENDING_PAYMENT|1000", jdbc.queryForObject("""
+                SELECT CONCAT(recharge.business_state, '|',
+                              account.available_payout_cent)
+                FROM fund_recharge_order recharge
+                JOIN fund_organization_payout_account account
+                  ON account.tenant_id = recharge.tenant_id
+                 AND account.organization_id = recharge.organization_id
+                WHERE recharge.recharge_order_no = ?
+                """, String.class, rechargeNo));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code = 'FUNDS.NATIVE_PAYMENT_REFUNDED'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, Integer.class, channel.request.outTradeNo()));
+    }
+
+    @Test
+    void nativeCloseConvergenceUsesThirtySecondBackoff()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("nc");
+        String organizationCode = code("cl");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Native close convergence");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        long staffId = jdbc.queryForObject("""
+                SELECT staff.id
+                FROM iam_staff_account staff
+                JOIN iam_tenant tenant ON tenant.id = staff.tenant_id
+                WHERE tenant.tenant_code = ?
+                ORDER BY staff.id LIMIT 1
+                """, Long.class, tenantCode);
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        when(identity.authorizeWeb(
+                false, organizationCode, "recharge.create", true))
+                .thenReturn(new AuthorizedWebIdentity(
+                        false, tenantCode, staffId, UUID.randomUUID(),
+                        UUID.randomUUID(), "native-close-staff"));
+        ClosingNativeChannel channel = new ClosingNativeChannel();
+        RechargeApplicationService service = new RechargeApplicationService(
+                jdbc, new FundsAccessService(jdbc, identity),
+                reliableFundsTasks, channel, fundsOperationalControl,
+                mock(ReliableFundsAttemptBoundaryPort.class),
+                new TransactionTemplate(transactionManager),
+                "https://native-close.example");
+
+        UUID operationUid = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> service.create(
+                        false, null, organizationCode, operationUid,
+                        "1.00", "/api/v1/web/recharges"));
+        String rechargeNo = RechargeApplicationService.stableNo(
+                "RC", operationUid);
+        FundsTaskRef createTask = fundsTask(
+                "CREATE_NATIVE_PAYMENT", rechargeNo);
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                service.executeTask(fundsCommand(
+                        createTask.taskUid(), createTask.taskId(), 1,
+                        fixture, "CREATE_NATIVE_PAYMENT", rechargeNo))
+                        .outcome());
+        FundsTaskRef queryTask = fundsTask(
+                "QUERY_NATIVE_PAYMENT", rechargeNo);
+        ReliableFundsTaskExecutorPort.Result expiredQuery =
+                new TransactionTemplate(transactionManager).execute(status -> {
+                    jdbc.execute("SET SESSION timestamp = "
+                            + "UNIX_TIMESTAMP() + 1860");
+                    try {
+                        return service.executeTask(fundsCommand(
+                                queryTask.taskUid(), queryTask.taskId(), 1,
+                                fixture, "QUERY_NATIVE_PAYMENT", rechargeNo));
+                    } finally {
+                        jdbc.execute("SET SESSION timestamp = DEFAULT");
+                    }
+                });
+        assertNotNull(expiredQuery);
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                expiredQuery.outcome());
+        FundsTaskRef closeTask = fundsTask(
+                "CLOSE_NATIVE_PAYMENT", rechargeNo);
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                service.executeTask(fundsCommand(
+                        closeTask.taskUid(), closeTask.taskId(), 1,
+                        fixture, "CLOSE_NATIVE_PAYMENT", rechargeNo))
+                        .outcome());
+
+        ReliableFundsTaskExecutorPort.Result waiting = service.executeTask(
+                fundsCommand(
+                        queryTask.taskUid(), queryTask.taskId(), 2,
+                        fixture, "QUERY_NATIVE_PAYMENT", rechargeNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                waiting.outcome());
+        assertEquals(Duration.ofSeconds(30), waiting.retryAfter());
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM ops_reliable_task
+                WHERE task_type = 'QUERY_NATIVE_PAYMENT'
+                  AND task_key = ?
+                  AND next_run_at >= UTC_TIMESTAMP(3)
+                        + INTERVAL 25 SECOND
+                """, Integer.class,
+                ("QUERY_NATIVE_PAYMENT_AFTER_CLOSE:" + rechargeNo)
+                        .toUpperCase(Locale.ROOT)));
     }
 
     private String withdrawalFundsState(String withdrawalNo) {
@@ -2516,6 +2980,73 @@ class TargetWebIdentityMysqlIntegrationTest {
         }
     }
 
+    private static final class DuplicateRefundNativeChannel
+            implements NativePaymentChannelPort {
+
+        private int createCount;
+        private int queryCount;
+        private NativePaymentRequest request;
+
+        @Override
+        public NativePaymentResult create(NativePaymentRequest request) {
+            createCount++;
+            this.request = request;
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.ORDER_ALREADY_EXISTS,
+                    "API_ERROR", null, null, "OUT_TRADE_NO_USED",
+                    "order already exists", Instant.now());
+        }
+
+        @Override
+        public NativePaymentResult query(NativePaymentQuery query) {
+            queryCount++;
+            assertEquals(request.mchid(), query.mchid());
+            assertEquals(request.outTradeNo(), query.outTradeNo());
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.REFUNDED,
+                    "REFUND", null, "WXREFUND" + request.outTradeNo(),
+                    null, "refunded", Instant.now(),
+                    request.mchid(), request.appid(), request.outTradeNo(),
+                    request.amountCent(), "CNY");
+        }
+
+        @Override
+        public NativePaymentResult close(NativePaymentQuery query) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class ClosingNativeChannel
+            implements NativePaymentChannelPort {
+
+        private NativePaymentRequest request;
+
+        @Override
+        public NativePaymentResult create(NativePaymentRequest request) {
+            this.request = request;
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.ACCEPTED,
+                    "NOTPAY", "weixin://wxpay/bizpayurl?pr=CLOSETEST",
+                    null, null, null, Instant.now());
+        }
+
+        @Override
+        public NativePaymentResult query(NativePaymentQuery query) {
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.ACCEPTED,
+                    "NOTPAY", null, null, null, "not paid", Instant.now(),
+                    request.mchid(), request.appid(), request.outTradeNo(),
+                    request.amountCent(), "CNY");
+        }
+
+        @Override
+        public NativePaymentResult close(NativePaymentQuery query) {
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.CLOSED,
+                    "CLOSED", null, null, null, null, Instant.now());
+        }
+    }
+
     private static final class ScriptedMerchantTransferChannel
             implements MerchantTransferChannelPort {
 
@@ -2561,12 +3092,6 @@ class TargetWebIdentityMysqlIntegrationTest {
                     null, Instant.now(), originalRequest.mchid(),
                     originalRequest.outBillNo(), originalRequest.appid(),
                     observedAmount, originalRequest.openid());
-        }
-
-        @Override
-        public MerchantTransferResult cancel(MerchantTransferQuery query) {
-            throw new UnsupportedOperationException(
-                    "cancel is outside this state-machine scenario");
         }
 
         private String transferBillNo() {

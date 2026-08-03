@@ -39,6 +39,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -142,17 +143,21 @@ public class RechargeApplicationService {
                     miniapp_merchant_binding_id, organization_miniapp_id,
                     mchid_snapshot, appid_snapshot, out_trade_no,
                     request_amount_cent, currency, description, time_expire,
-                    notify_url_sha256, request_sha256, code_url,
+                    notify_url_snapshot, notify_url_sha256, request_sha256,
+                    code_url,
                     transaction_id, channel_state, last_api_error_code,
                     channel_updated_at, lock_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CNY', ?, ?,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CNY', ?, ?, ?,
                           ?, ?, NULL, NULL, NULL, NULL, NULL, 0, ?, ?)
                 """, UUID.randomUUID().toString(),
                 scope.tenantId(), scope.organizationId(), rechargeId,
                 binding.merchantProfileId(), binding.bindingId(),
-                binding.miniappId(), binding.mchid(), binding.appid(),
-                outTradeNo, gross, "EcoBin机构充值", expires,
-                sha256(notifyUrl), sha256(requestSnapshot), now, now);
+                 binding.miniappId(), binding.mchid(), binding.appid(),
+                 outTradeNo, gross, "EcoBin机构充值", expires,
+                 notifyUrl, sha256(notifyUrl), nativeRequestDigest(
+                         binding.mchid(), binding.appid(), outTradeNo,
+                         gross, "CNY", "EcoBin机构充值", expires,
+                         sha256(notifyUrl)), now, now);
         registerTask(
                 scope.tenantId(), scope.organizationId(),
                 "CREATE_NATIVE_PAYMENT", "CREATE_NATIVE_PAYMENT:" + rechargeNo,
@@ -385,6 +390,10 @@ public class RechargeApplicationService {
 
     private Result createNative(Command command) {
         PaymentSnapshot payment = paymentSnapshot(command.targetStableKey());
+        Result invalid = validateOriginalNativeRequest(command, payment);
+        if (invalid != null) {
+            return invalid;
+        }
         attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
         NativePaymentResult response = channel.create(
                 new NativePaymentRequest(
@@ -478,6 +487,15 @@ public class RechargeApplicationService {
                                 + evidence.safeSummary());
             }
         }
+        if (result.outcome() == NativePaymentResult.Outcome.REFUNDED) {
+            observePaymentIssue(
+                    command, current,
+                    "FUNDS.NATIVE_PAYMENT_REFUNDED",
+                    "CRITICAL", "AUTHORITATIVE_REFUND_TERMINAL_STATE",
+                    result, now);
+            return new Result(Result.Outcome.BLOCKED,
+                    "refunded payment requires reconciliation");
+        }
         if (result.outcome() == NativePaymentResult.Outcome.UNKNOWN_STATE
                 || result.outcome()
                 == NativePaymentResult.Outcome.PERMANENT_FAILURE) {
@@ -565,7 +583,7 @@ public class RechargeApplicationService {
                         current.rechargeNo(),
                         "{\"rechargeNo\":\"" + current.rechargeNo()
                                 + "\",\"afterClose\":true}",
-                        now.plusSeconds(2));
+                        now.plusSeconds(30));
                 return new Result(Result.Outcome.DONE,
                         "close accepted; final channel query scheduled");
             }
@@ -586,7 +604,27 @@ public class RechargeApplicationService {
                     WHERE id = ?
                     """, result.errorCode(), now, now, current.paymentId());
             return new Result(Result.Outcome.WAITING,
-                    "close was accepted; awaiting authoritative CLOSED query");
+                    "close was accepted; awaiting authoritative CLOSED query",
+                    Duration.ofSeconds(30));
+        }
+        if (attemptKind == PaymentAttemptKind.CREATE
+                && result.outcome()
+                == NativePaymentResult.Outcome.ORDER_ALREADY_EXISTS) {
+            jdbc.update("""
+                    UPDATE fund_wechat_payment
+                    SET last_api_error_code = ?, channel_updated_at = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ?
+                    """, result.errorCode(), now, now, current.paymentId());
+            registerTask(
+                    current.tenantId(), current.organizationId(),
+                    "QUERY_NATIVE_PAYMENT",
+                    "QUERY_NATIVE_PAYMENT:" + current.rechargeNo(),
+                    current.rechargeNo(),
+                    "{\"rechargeNo\":\"" + current.rechargeNo() + "\"}",
+                    now);
+            return new Result(Result.Outcome.DONE,
+                    "out_trade_no exists; authoritative query scheduled");
         }
         jdbc.update("""
                 UPDATE fund_wechat_payment
@@ -642,7 +680,8 @@ public class RechargeApplicationService {
                             ? Duration.ofSeconds(30) : null);
             case PERMANENT_FAILURE, UNKNOWN_STATE ->
                     throw new IllegalStateException("handled above");
-            case SUCCEEDED -> throw new IllegalStateException("handled above");
+            case SUCCEEDED, REFUNDED, ORDER_ALREADY_EXISTS ->
+                    throw new IllegalStateException("handled above");
         };
     }
 
@@ -651,9 +690,60 @@ public class RechargeApplicationService {
             NativePaymentResult result) {
         if (attemptKind != PaymentAttemptKind.QUERY) return false;
         return switch (result.outcome()) {
-            case ACCEPTED, SUCCEEDED, CLOSED, UNKNOWN_STATE -> true;
-            case NOT_FOUND, RETRYABLE_FAILURE, PERMANENT_FAILURE -> false;
+            case ACCEPTED, SUCCEEDED, REFUNDED, CLOSED, UNKNOWN_STATE -> true;
+            case ORDER_ALREADY_EXISTS, NOT_FOUND, RETRYABLE_FAILURE,
+                    PERMANENT_FAILURE -> false;
         };
+    }
+
+    private Result validateOriginalNativeRequest(
+            Command command,
+            PaymentSnapshot payment) {
+        String notifyUrl = payment.notifyUrlSnapshot();
+        if (notifyUrl == null) {
+            String current = notifyBaseUrl
+                    + "/api/v1/wechat-pay/notifications/native-payments";
+            if (MessageDigest.isEqual(
+                    sha256(current), payment.notifyUrlSha256())) {
+                notifyUrl = current;
+            }
+        }
+        boolean validNotify = notifyUrl != null
+                && MessageDigest.isEqual(
+                sha256(notifyUrl), payment.notifyUrlSha256());
+        byte[] rebuilt = nativeRequestDigest(
+                payment.mchid(), payment.appid(), payment.outTradeNo(),
+                payment.amountCent(), payment.currency(),
+                payment.description(), payment.expiresAt(),
+                payment.notifyUrlSha256());
+        boolean validRequest = MessageDigest.isEqual(
+                rebuilt, payment.requestSha256());
+        if (validNotify && validRequest) {
+            payment.useNotifyUrl(notifyUrl);
+            return null;
+        }
+        String reason = !validNotify
+                ? "NOTIFY_URL_SNAPSHOT_UNAVAILABLE_OR_MISMATCH"
+                : "ORIGINAL_REQUEST_DIGEST_MISMATCH";
+        String finalNotifyUrl = notifyUrl;
+        return transactions.execute(status -> {
+            PaymentSnapshot current = lockPayment(payment.rechargeNo());
+            observePaymentIssue(
+                    command, current,
+                    "FUNDS.NATIVE_PAYMENT_ORIGINAL_REQUEST_UNAVAILABLE",
+                    "CRITICAL", reason,
+                    new NativePaymentResult(
+                            NativePaymentResult.Outcome.PERMANENT_FAILURE,
+                            "LOCAL_REQUEST_VALIDATION", null, null,
+                            "ORIGINAL_REQUEST_MISMATCH",
+                            finalNotifyUrl == null
+                                    ? "notify URL unavailable"
+                                    : "request digest mismatch",
+                            Instant.now()),
+                    databaseNow());
+            return new Result(Result.Outcome.BLOCKED,
+                    "original native payment request cannot be reproduced");
+        });
     }
 
     private void observePaymentIssue(
@@ -752,8 +842,10 @@ public class RechargeApplicationService {
                        r.gross_amount_cent, r.fee_amount_cent,
                        r.net_amount_cent, r.business_state, r.expires_at,
                        p.id payment_id, p.mchid_snapshot, p.appid_snapshot,
-                       p.out_trade_no, p.description, p.channel_state,
-                       p.transaction_id
+                       p.out_trade_no, p.request_amount_cent, p.currency,
+                       p.description, p.time_expire, p.channel_state,
+                       p.transaction_id, p.notify_url_snapshot,
+                       p.notify_url_sha256, p.request_sha256
                 FROM fund_recharge_order r
                 JOIN fund_wechat_payment p ON p.recharge_order_id = r.id
                 WHERE p.out_trade_no = ?
@@ -767,16 +859,18 @@ public class RechargeApplicationService {
                         rs.getString("mchid_snapshot"),
                         rs.getString("appid_snapshot"),
                         rs.getString("out_trade_no"),
-                        rs.getLong("gross_amount_cent"),
+                        rs.getLong("request_amount_cent"),
                         rs.getLong("fee_amount_cent"),
                         rs.getLong("net_amount_cent"),
                         rs.getString("description"),
-                        rs.getObject("expires_at", LocalDateTime.class),
+                        rs.getString("currency"),
+                        rs.getObject("time_expire", LocalDateTime.class),
                         rs.getString("business_state"),
                         rs.getString("channel_state"),
                         rs.getString("transaction_id"),
-                        notifyBaseUrl
-                                + "/api/v1/wechat-pay/notifications/native-payments"),
+                        rs.getString("notify_url_snapshot"),
+                        rs.getBytes("notify_url_sha256"),
+                        rs.getBytes("request_sha256")),
                 outTradeNo);
     }
 
@@ -787,8 +881,10 @@ public class RechargeApplicationService {
                        r.gross_amount_cent, r.fee_amount_cent,
                        r.net_amount_cent, r.business_state, r.expires_at,
                        p.id payment_id, p.mchid_snapshot, p.appid_snapshot,
-                       p.out_trade_no, p.description, p.channel_state,
-                       p.transaction_id
+                       p.out_trade_no, p.request_amount_cent, p.currency,
+                       p.description, p.time_expire, p.channel_state,
+                       p.transaction_id, p.notify_url_snapshot,
+                       p.notify_url_sha256, p.request_sha256
                 FROM fund_recharge_order r
                 JOIN fund_wechat_payment p ON p.recharge_order_id = r.id
                 WHERE r.recharge_order_no = ?
@@ -802,16 +898,18 @@ public class RechargeApplicationService {
                         rs.getString("mchid_snapshot"),
                         rs.getString("appid_snapshot"),
                         rs.getString("out_trade_no"),
-                        rs.getLong("gross_amount_cent"),
+                        rs.getLong("request_amount_cent"),
                         rs.getLong("fee_amount_cent"),
                         rs.getLong("net_amount_cent"),
                         rs.getString("description"),
-                        rs.getObject("expires_at", LocalDateTime.class),
+                        rs.getString("currency"),
+                        rs.getObject("time_expire", LocalDateTime.class),
                         rs.getString("business_state"),
                         rs.getString("channel_state"),
                         rs.getString("transaction_id"),
-                        notifyBaseUrl
-                                + "/api/v1/wechat-pay/notifications/native-payments"),
+                        rs.getString("notify_url_snapshot"),
+                        rs.getBytes("notify_url_sha256"),
+                        rs.getBytes("request_sha256")),
                 rechargeNo);
     }
 
@@ -939,6 +1037,28 @@ public class RechargeApplicationService {
                 + ",\"expiresAt\":\"" + instant(expires)
                 + "\",\"notifyUrlSha256\":\""
                 + HexFormat.of().formatHex(sha256(notifyUrl)) + "\"}";
+    }
+
+    static byte[] nativeRequestDigest(
+            String mchid,
+            String appid,
+            String outTradeNo,
+            long amountCent,
+            String currency,
+            String description,
+            LocalDateTime expiresAt,
+            byte[] notifyUrlSha256) {
+        String canonical = "NATIVE_PAYMENT_REQUEST_V2|"
+                + part(mchid) + "|" + part(appid) + "|"
+                + part(outTradeNo) + "|" + amountCent + "|"
+                + part(currency) + "|" + part(description) + "|"
+                + expiresAt.toInstant(ZoneOffset.UTC).toEpochMilli() + "|"
+                + HexFormat.of().formatHex(notifyUrlSha256);
+        return sha256(canonical);
+    }
+
+    private static String part(String value) {
+        return value.getBytes(StandardCharsets.UTF_8).length + ":" + value;
     }
 
     private LocalDateTime databaseNow() {
@@ -1087,14 +1207,88 @@ public class RechargeApplicationService {
             String codeUrl, String channelState, String errorCode) {
     }
 
-    private record PaymentSnapshot(
+    private static final class PaymentSnapshot {
+        private final long rechargeId;
+        private final String rechargeNo;
+        private final long tenantId;
+        private final long organizationId;
+        private final long paymentId;
+        private final String mchid;
+        private final String appid;
+        private final String outTradeNo;
+        private final long amountCent;
+        private final long feeCent;
+        private final long netCent;
+        private final String description;
+        private final String currency;
+        private final LocalDateTime expiresAt;
+        private final String businessState;
+        private final String channelState;
+        private final String transactionId;
+        private final String notifyUrlSnapshot;
+        private final byte[] notifyUrlSha256;
+        private final byte[] requestSha256;
+        private String notifyUrl;
+
+        private PaymentSnapshot(
             long rechargeId, String rechargeNo, long tenantId,
             long organizationId, long paymentId, String mchid,
             String appid, String outTradeNo, long amountCent,
             long feeCent, long netCent, String description,
-            LocalDateTime expiresAt, String businessState,
+            String currency, LocalDateTime expiresAt, String businessState,
             String channelState, String transactionId,
-            String notifyUrl) {
+            String notifyUrlSnapshot, byte[] notifyUrlSha256,
+            byte[] requestSha256) {
+            this.rechargeId = rechargeId;
+            this.rechargeNo = rechargeNo;
+            this.tenantId = tenantId;
+            this.organizationId = organizationId;
+            this.paymentId = paymentId;
+            this.mchid = mchid;
+            this.appid = appid;
+            this.outTradeNo = outTradeNo;
+            this.amountCent = amountCent;
+            this.feeCent = feeCent;
+            this.netCent = netCent;
+            this.description = description;
+            this.currency = currency;
+            this.expiresAt = expiresAt;
+            this.businessState = businessState;
+            this.channelState = channelState;
+            this.transactionId = transactionId;
+            this.notifyUrlSnapshot = notifyUrlSnapshot;
+            this.notifyUrlSha256 = Arrays.copyOf(notifyUrlSha256,
+                    notifyUrlSha256.length);
+            this.requestSha256 = Arrays.copyOf(requestSha256,
+                    requestSha256.length);
+        }
+
+        long rechargeId() { return rechargeId; }
+        String rechargeNo() { return rechargeNo; }
+        long tenantId() { return tenantId; }
+        long organizationId() { return organizationId; }
+        long paymentId() { return paymentId; }
+        String mchid() { return mchid; }
+        String appid() { return appid; }
+        String outTradeNo() { return outTradeNo; }
+        long amountCent() { return amountCent; }
+        long feeCent() { return feeCent; }
+        long netCent() { return netCent; }
+        String description() { return description; }
+        String currency() { return currency; }
+        LocalDateTime expiresAt() { return expiresAt; }
+        String businessState() { return businessState; }
+        String channelState() { return channelState; }
+        String transactionId() { return transactionId; }
+        String notifyUrlSnapshot() { return notifyUrlSnapshot; }
+        byte[] notifyUrlSha256() {
+            return Arrays.copyOf(notifyUrlSha256, notifyUrlSha256.length);
+        }
+        byte[] requestSha256() {
+            return Arrays.copyOf(requestSha256, requestSha256.length);
+        }
+        String notifyUrl() { return notifyUrl; }
+        void useNotifyUrl(String value) { this.notifyUrl = value; }
     }
 
     private enum PaymentAttemptKind {

@@ -2803,6 +2803,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Append an authorized signed adjustment to one user wallet
+         * @description Requires wallet.adjust. Changes available balance only and atomically updates the delivery gate and any active withdrawal risk flags.
+         */
+        post: operations["adjustWebOrganizationUserWallet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a platform-authorized signed wallet adjustment */
+        post: operations["adjustPlatformOrganizationUserWallet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
         parameters: {
             query?: never;
@@ -3665,28 +3709,6 @@ export interface paths {
         get: operations["getMyWithdrawal"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/miniapp/me/withdrawals/{withdrawalNo}/cancellations": {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                withdrawalNo: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cancel before review and release both freezes */
-        post: operations["cancelMyWithdrawal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5003,6 +5025,31 @@ export interface components {
             availableBalanceYuan: components["schemas"]["MoneyCny"];
             withdrawalProcessingYuan: components["schemas"]["PositiveMoneyCny"];
             asOf: components["schemas"]["UtcTimestamp"];
+        };
+        AdjustWalletRequest: {
+            /** @description Signed non-zero difference in CNY. Positive adds available balance and negative subtracts it. */
+            deltaYuan: string;
+            expectedWalletVersion: number;
+            reason?: string | null;
+        };
+        WalletAdjustmentView: {
+            adjustmentUid: components["schemas"]["PublicUid"];
+            entryUid: components["schemas"]["PublicUid"];
+            deltaYuan: components["schemas"]["MoneyCny"];
+            availableBalanceBeforeYuan: components["schemas"]["MoneyCny"];
+            availableBalanceAfterYuan: components["schemas"]["MoneyCny"];
+            walletVersion: number;
+            /** @enum {string} */
+            deliveryGate: "OPEN" | "MANUAL_RECOVERY_REQUIRED";
+            /** @enum {string} */
+            activeWithdrawalEffect: "NONE" | "PAUSED_BEFORE_CHANNEL" | "RISK_MARKED_AFTER_CHANNEL" | "RESUMED_BEFORE_CHANNEL";
+            occurredAt: components["schemas"]["UtcTimestamp"];
+        };
+        WalletAdjustmentEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WalletAdjustmentView"];
+            requestId: string;
         };
         PersonalWalletEntry: {
             entryUid: components["schemas"]["PublicUid"];
@@ -10028,6 +10075,79 @@ export interface operations {
             500: components["responses"]["WalletInternalProblem"];
         };
     };
+    adjustWebOrganizationUserWallet: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustWalletRequest"];
+            };
+        };
+        responses: {
+            /** @description Immutable wallet adjustment */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletAdjustmentEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    adjustPlatformOrganizationUserWallet: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                organizationUserUid: components["parameters"]["OrganizationUserUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustWalletRequest"];
+            };
+        };
+        responses: {
+            /** @description Immutable wallet adjustment */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletAdjustmentEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
     listWebOrganizationUserWalletEntries: {
         parameters: {
             query?: {
@@ -11283,36 +11403,6 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFoundProblem"];
-        };
-    };
-    cancelMyWithdrawal: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                withdrawalNo: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VersionedWithdrawalRequest"];
-            };
-        };
-        responses: {
-            /** @description Cancelled withdrawal */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WithdrawalEnvelope"];
-                };
-            };
-            409: components["responses"]["ConflictProblem"];
         };
     };
     getMyMerchantTransferConfirmation: {

@@ -31,6 +31,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -112,7 +113,8 @@ class WalletQueryAuthorizationServiceTest {
         when(repository.findOrganizationUser(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                ORGANIZATION_USER_UID))
+                ORGANIZATION_USER_UID,
+                false))
                 .thenReturn(Optional.of(new OrganizationUser(
                         ORGANIZATION_USER_ID,
                         ORGANIZATION_USER_UID)));
@@ -163,7 +165,66 @@ class WalletQueryAuthorizationServiceTest {
         verify(repository, never()).findOrganizationUser(
                 anyLong(),
                 anyLong(),
-                any());
+                any(),
+                anyBoolean());
+    }
+
+    @Test
+    void walletAdjustGrantCanReadOnlyTheExactAdjustmentSummary() {
+        TargetWebActorContext.set(staffActor());
+        stubActorAndScope();
+        when(repository.findTenantDeliveryCapabilities(
+                TENANT_ID,
+                STAFF_ID))
+                .thenReturn(Set.of("wallet.adjust"));
+        when(repository.findOrganizationUser(
+                TENANT_ID,
+                ORGANIZATION_ID,
+                ORGANIZATION_USER_UID,
+                false))
+                .thenReturn(Optional.of(new OrganizationUser(
+                        ORGANIZATION_USER_ID,
+                        ORGANIZATION_USER_UID)));
+
+        AuthorizedWalletScope result = service.authorize(
+                new WalletScopeAuthorizationQuery(
+                        false,
+                        null,
+                        ORGANIZATION_CODE,
+                        ORGANIZATION_USER_UID,
+                        true));
+
+        assertThat(result.walletOwnerRef()).isSameAs(walletOwnerRef);
+        assertThat(result.pendingRewardOwnerRef())
+                .isSameAs(pendingRewardOwnerRef);
+    }
+
+    @Test
+    void walletAdjustGrantDoesNotOpenWalletHistoryAuthorization() {
+        TargetWebActorContext.set(staffActor());
+        stubActorAndScope();
+        when(repository.findTenantDeliveryCapabilities(
+                TENANT_ID,
+                STAFF_ID))
+                .thenReturn(Set.of("wallet.adjust"));
+        when(repository.findMembership(
+                TENANT_ID,
+                ORGANIZATION_ID,
+                STAFF_ID))
+                .thenReturn(Optional.of(new Membership(false, true)));
+        when(repository.findOrganizationDeliveryCapabilities(
+                TENANT_ID,
+                ORGANIZATION_ID,
+                STAFF_ID))
+                .thenReturn(Set.of());
+
+        assertThatThrownBy(() -> service.authorize(personalQuery()))
+                .isInstanceOfSatisfying(
+                        TargetApiException.class,
+                        failure -> assertThat(failure.code())
+                                .isEqualTo("AUTH.CAPABILITY_REQUIRED"));
+        verify(repository, never()).findOrganizationUser(
+                anyLong(), anyLong(), any(), anyBoolean());
     }
 
     @Test

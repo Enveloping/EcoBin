@@ -48,7 +48,7 @@ POST /api/v1/wechat-pay/notifications/merchant-transfers
 | `recharge.create` | `TENANT/ORGANIZATION` | 为授权机构创建需要付款人主动扫码确认的 Native 充值单；不包含人工入账或退款 |
 | `withdrawal.configuration.manage` | `TENANT/ORGANIZATION` | 发布授权机构新的手动提现配置版本 |
 | `withdrawal.read` | `TENANT/ORGANIZATION` | 查询授权范围内提现单及安全渠道摘要 |
-| `withdrawal.handle` | `TENANT/ORGANIZATION` | 对直接目标执行渠道前终止、原单查单或微信撤销请求；不包含审核、修改金额或伪造终态 |
+| `withdrawal.handle` | `TENANT/ORGANIZATION` | 对直接目标执行严格的渠道前终止或原单查单；不包含审核、用户取消、微信撤销、修改金额或伪造终态 |
 
 - 提现初审继续复用 `review.execute`；它只补足当前可审核 `PENDING_REVIEW` 直接目标，不开放全部提现历史。
 - `wallet.read`、`wallet.adjust`、`fund.read`、`recharge.create`、`withdrawal.configuration.manage`、`withdrawal.read`、`withdrawal.handle` 和 `review.execute` 互不隐含。
@@ -63,7 +63,7 @@ POST /api/v1/wechat-pay/notifications/merchant-transfers
 | 钱包调整 | `adjustmentUid` | 请求携带目标 `expectedWalletVersion` |
 | 提现配置 | 机构路径 + `versionNo` | 发布请求携带 `expectedCurrentVersion` |
 | 充值单 | `rechargeNo` | 查询返回 `version`；普通客户端不覆盖渠道状态 |
-| 提现单 | `withdrawalNo` | 审核、取消和处置携带 `expectedVersion` |
+| 提现单 | `withdrawalNo` | 审核和客服处置携带 `expectedVersion` |
 | 平台出款闸门 | 系统商户固定资源 | 恢复携带 `expectedGateVersion` 和当前暂停事件 UID |
 
 微信 `out_trade_no`、微信支付单号、`out_bill_no` 和 `transfer_bill_no` 是渠道关联身份，不替代 EcoBin 公开资源号。列表和详情不得暴露内部 `BIGINT` 主键。
@@ -294,7 +294,6 @@ POST {organizationBase}/withdrawal-configuration-releases
 POST /api/v1/miniapp/me/withdrawals
 GET  /api/v1/miniapp/me/withdrawals?status={optional}&cursor={opaque}&limit={1..100}
 GET  /api/v1/miniapp/me/withdrawals/{withdrawalNo}
-POST /api/v1/miniapp/me/withdrawals/{withdrawalNo}/cancellations
 Authorization: Bearer <aud=miniapp token>
 ```
 
@@ -324,7 +323,7 @@ Authorization: Bearer <aud=miniapp token>
   "reviewRequired": true,
   "channelState": null,
   "longUnsettled": false,
-  "canCancel": true,
+  "canCancel": false,
   "canConfirmReceipt": false,
   "createdAt": "2026-07-23T10:20:00.123Z"
 }
@@ -348,8 +347,8 @@ CHANNEL_CANCELLED
 
 - 用户列表按 `createdAt + withdrawalNo` 稳定倒序；详情只返回本人、当前机构的金额、阶段时间、安全失败原因和下一动作，不返回审核人身份、OpenID、内部渠道请求或后台审计。
 - P0 所有新单固定进入 `PENDING_REVIEW`。以后即使配置模型开放免审，也必须由新的接口版本显式改变，不能让当前客户端猜阈值。
-- 取消请求携带 `expectedVersion` 和可空原因，只允许本人对 `PENDING_REVIEW` 且不存在微信转账单的手动提现执行。成功事务推进 `LOCAL_CANCELLED`、释放双方冻结、追加双方 `FINAL` 明细并删除活动槽；返回 `200`。
-- 已审核通过、已存在微信转账单或已终态时不能本地取消。同一幂等键重放原取消结果，其他竞争返回版本/状态冲突。
+- 新创建的提现一旦完成双侧冻结，用户端不提供取消接口或取消按钮。待审核单只能由有权限人员审核通过或驳回；驳回仍原子释放双方冻结。
+- `LOCAL_CANCELLED` 仅保留为历史数据兼容状态，当前接口、页面和可靠任务都不能再创建该状态。
 
 主要创建拒绝码包括：
 
@@ -367,7 +366,7 @@ CHANNEL_CANCELLED
 
 ## I-034 提现查询、审核与客服处置
 
-**已确认：审核只决定是否允许按原金额继续；客服只能在渠道边界内终止、查单或请求撤销，不能修改提现或伪造微信终态。**
+**已确认：审核只决定是否允许按原金额继续；客服只能在渠道边界前严格终止或对既有渠道单查单，不能取消用户提现、请求微信撤销、修改提现或伪造微信终态。**
 
 ### 1. Web 查询
 
@@ -413,15 +412,15 @@ Idempotency-Key: <UUIDv4>
 ```http
 POST {organizationBase}/withdrawals/{withdrawalNo}/pre-channel-terminations
 POST {organizationBase}/withdrawals/{withdrawalNo}/channel-queries
-POST {organizationBase}/withdrawals/{withdrawalNo}/channel-cancellation-requests
 Idempotency-Key: <UUIDv4>
 ```
 
-三类请求都要求 `withdrawal.handle`、`expectedVersion` 和可空原因：
+两类请求都要求 `withdrawal.handle`、`expectedVersion` 和可空原因：
 
 - **渠道前终止**：只允许提现仍为 `READY_TO_SUBMIT` 且数据库不存在微信转账单。成功推进 `LOCAL_ABORTED_BEFORE_CHANNEL`，释放双方冻结并删除活动槽，返回 `200`。只要转账单已经建立，即使网络调用尚无响应，也不得使用本接口。
 - **主动查单**：要求已存在固定微信转账单，创建或唤醒使用原 `outBillNo` 的唯一可靠查单任务，返回 `202 + statusUrl`。GET 查询本身不得偷偷触发外部调用。
-- **微信撤销请求**：只对微信当前仍允许撤销的非终态原单创建可靠撤销任务，返回 `202`。撤销请求被受理只推进渠道原始状态，不能释放资金；最终 `CANCELLED` 才结算释放，并必须兼容撤销竞争后实际 `SUCCESS`。
+
+当前系统不主动调用微信撤销接口。微信回调或主动查单若观察到渠道自行进入 `CANCELLED`，仍按可信终态释放资金；这不等于 EcoBin 提供撤销操作。
 
 进入 `CHANNEL_PROCESSING` 30 分钟仍无微信终态时，只设置一次 `longUnsettledAt`、进入查询/告警筛选并继续接收回调。它不改变业务状态、不释放资金、不生成新单，也不自动发起撤销。
 
@@ -495,7 +494,7 @@ Authorization: Bearer <aud=miniapp token>
 
 ### 4. 渠道状态归并
 
-商家转账通知进入 `/api/v1/wechat-pay/notifications/merchant-transfers`，同样只有在验签/解密完成且唯一 inbox 与 `PROCESS_INBOX` 任务共同提交后才确认收件；领域归并失败由内部任务重试。回调、提交响应、主动查单、撤销响应和对账全部追加不可变 observation，并进入同一状态归并器：
+商家转账通知进入 `/api/v1/wechat-pay/notifications/merchant-transfers`，同样只有在验签/解密完成且唯一 inbox 与 `PROCESS_INBOX` 任务共同提交后才确认收件；领域归并失败由内部任务重试。回调、提交响应、主动查单和对账全部追加不可变 observation，并进入同一状态归并器；历史撤销响应只作为既有观察兼容读取，系统不再发起新的撤销请求：
 
 | 微信原始状态 | 渠道终态 | 本地处理 |
 |---|---|---|

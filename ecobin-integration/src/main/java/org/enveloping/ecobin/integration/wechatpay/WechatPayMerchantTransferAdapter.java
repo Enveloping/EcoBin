@@ -60,16 +60,6 @@ public class WechatPayMerchantTransferAdapter
         }
     }
 
-    @Override
-    public MerchantTransferResult cancel(MerchantTransferQuery query) {
-        try {
-            return map(client.post(base(query.outBillNo()) + "/cancel",
-                    mapper.createObjectNode()));
-        } catch (WechatPayApiException failure) {
-            return error(failure);
-        }
-    }
-
     private MerchantTransferResult map(JsonNode response) {
         String state = WechatPayApiV3Client.text(response, "state");
         MerchantTransferResult.Outcome outcome = switch (

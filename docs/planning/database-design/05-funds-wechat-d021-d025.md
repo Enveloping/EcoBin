@@ -21,7 +21,7 @@
 | `fund_organization_withdraw_config_head` | 以机构为主键，强引用本机构当前 `config_id + version_no`，保存切换时间和锁版本；发布事务插入新配置并原子切换，提现创建锁 head 后读取，不使用 `MAX(version_no)` 推导当前。 |
 | `fund_user_wallet` | `id + tenant_id + organization_id + organization_user_id`、带符号 `available_balance_cent`、非负 `frozen_withdrawal_cent`、非负 `last_entry_sequence_no`、`OPEN/MANUAL_RECOVERY_REQUIRED` 投递闸状态、可空停投阈值快照/触发明细/锁存时间、锁版本及时间列；机构用户复合唯一，钱包与机构用户同事务创建且余额、冻结和末序号初值均为 0、投递闸初值为 `OPEN`。 |
 | `fund_user_wallet_entry` | 全局唯一明细 UUID、钱包内从 1 开始严格递增的 `entry_sequence_no`、机构内严格递增的 `visibility_sequence_no`、事件类型、可用/冻结的有符号增量及两项变动前后值、投递认定版本/提现单/人工调整三选一的强类型来源、发生时间；只追加。唯一 `(wallet_id, entry_sequence_no)` 和 `(organization_id, visibility_sequence_no)`；投递认定版本唯一，提现按 `(withdrawal_order_id, fund_phase)` 唯一。 |
-| `fund_wallet_adjustment` | 全局唯一调整 UUID、钱包、有符号调整差额、调整前后可用余额、分型操作人、可空原因和发生时间；插入后只读，只能改变可用余额，不能改变提现冻结。唯一钱包明细只从 `fund_user_wallet_entry.adjustment_id` 引用并反查，调整表不反向持有明细外键，避免 MySQL 无延迟外键时形成插入死结。 |
+| `fund_wallet_adjustment` | 全局唯一调整 UUID、钱包、请求时预期的钱包版本、幂等请求摘要、有符号调整差额、调整前后可用余额、分型操作人、可空原因和发生时间；插入后只读，只能改变可用余额，不能改变提现冻结。相同调整 UUID 只有请求摘要一致时才重放既有成功结果，避免响应丢失后重复记账。唯一钱包明细只从 `fund_user_wallet_entry.adjustment_id` 引用并反查，调整表不反向持有明细外键，避免 MySQL 无延迟外键时形成插入死结。 |
 
 - 金额统一使用 `BIGINT` 分。配置必须满足 `10 <= manual_min_cent <= manual_max_cent <= hard_limit_cent <= 20000`、`0 <= manual_review_free_threshold_cent <= manual_max_cent`；阈值为 0 表示全部人工审核。新机构默认依次为 10、1000、1000、0 分，也就是手动最低 0.10 元、手动最高和单次硬限制均为 10.00 元；200.00 元只是允许后续人工发布配置时使用的产品级绝对上限，不是机构默认值。配置只影响之后创建的提现，提现单继续固化完整快照。
 - 钱包行不是资金事实本身。每次真实变动必须按“钱包 → 机构钱包明细计数器”取得锁，把钱包 `last_entry_sequence_no` 和机构 `last_visibility_sequence_no` 分别加一，以两个新值追加唯一明细并更新余额投影；持有机构计数器直到事务提交，使其序号成为机构级提交可见水位。数据库 `CHECK` 保证 `before + delta = after` 和冻结前后均不小于 0。差额为 0 且不形成资金明细时不得消耗任一序号。禁止 Controller、Mapper 或管理员直接覆盖余额列、末序号或机构计数器。
@@ -79,7 +79,7 @@
 - 创建事务按固定锁序串行检查，随后建立提现单和活动槽位，并分别追加用户与机构 `FREEZE` 明细、把双方可用转为冻结。任一行、明细、槽位或可靠任务失败都整体回滚，不允许只冻结一侧。
 - M0 免审阈值固定为 0，因此新单进入 `PENDING_REVIEW`。没有负余额暂停时，审核通过只推进 `READY_TO_SUBMIT` 并创建唯一可靠提交任务；暂停期间禁止通过，但仍可审核驳回或由用户按原边界取消。审核驳回在同一事务释放两侧冻结并删除活动槽位。允许审核自己的业务记录。用户仅能在 `PENDING_REVIEW` 且尚无渠道单时取消手动提现，取消同样原子释放两侧冻结。
 - 提交执行器先按 D-038 锁定租户/机构/小程序/机构用户身份前缀，再在短事务内依次锁平台闸门、AppID/系统商户绑定、钱包、活动槽位、提现单和机构账户，复核闸门开放、没有负余额暂停且收款绑定仍可用；提交阶段使用提现已经固化的配置快照，不反向读取或锁当前配置 head。随后创建唯一微信转账单和固定 `out_bill_no`、把提现改为 `CHANNEL_PROCESSING` 并越过“不可本地取消的领域渠道边界”；事务提交后，执行器还必须按 D-039 在独立技术短事务中记录 `external_call_may_have_started_at`，再调用微信，绝不持有数据库锁发网络请求。崩溃或超时只能用该原单号及原请求续办。
-- 为避免审核通过但从未触达微信的内部故障永久占住用户，已确认保留严格的 `LOCAL_ABORTED_BEFORE_CHANNEL` 恢复终态：系统强制“先提交微信转账单和渠道边界、后调用网络”，因此只有提现仍为 `READY_TO_SUBMIT` 且不存在 `fund_wechat_transfer` 时，有权限客服才可执行并原子释放两侧冻结；操作写审计。只要转账单已经存在，就按“可能已经调用”处理，只能使用其中的原 `out_bill_no` 查单、重试或请求微信撤销，不能人工伪造失败。
+- 为避免审核通过但从未触达微信的内部故障永久占住用户，已确认保留严格的 `LOCAL_ABORTED_BEFORE_CHANNEL` 恢复终态：系统强制“先提交微信转账单和渠道边界、后调用网络”，因此只有提现仍为 `READY_TO_SUBMIT` 且不存在 `fund_wechat_transfer` 时，有权限客服才可执行并原子释放两侧冻结；操作写审计。只要转账单已经存在，就按“可能已经调用”处理，只能使用其中的原 `out_bill_no` 查单或按原参数重试，不能人工伪造失败，也不主动请求微信撤销。
 - 任意可信钱包明细使可用余额 `< 0` 时，若尚未记录渠道调用边界，则活动提现只增加暂停标记并保持双侧冻结，待余额恢复至 `>= 0` 自动解除；如果已经越过边界，只增加风险标记并等待真实终态。纠错、人工调账和提交执行器都必须锁同一钱包及活动提现，防止已要求暂停的旧任务继续穿透。
 - `long_unsettled_at` 在进入渠道处理 30 分钟仍无终态时写一次，只用于查询、告警和客服查单；它不改变业务状态，不释放槽位/冻结，不自动撤销、退款、换单或创建新单。
 

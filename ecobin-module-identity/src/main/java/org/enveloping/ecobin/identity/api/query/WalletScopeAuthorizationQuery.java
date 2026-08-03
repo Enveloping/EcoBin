@@ -9,7 +9,17 @@ public record WalletScopeAuthorizationQuery(
         boolean platformPath,
         String tenantCode,
         String organizationCode,
-        UUID organizationUserUid) {
+        UUID organizationUserUid,
+        boolean directSummaryForAdjustment) {
+
+    public WalletScopeAuthorizationQuery(
+            boolean platformPath,
+            String tenantCode,
+            String organizationCode,
+            UUID organizationUserUid) {
+        this(platformPath, tenantCode, organizationCode,
+                organizationUserUid, false);
+    }
 
     public WalletScopeAuthorizationQuery {
         organizationCode = requiredCode(
@@ -20,6 +30,11 @@ public record WalletScopeAuthorizationQuery(
         } else if (tenantCode != null) {
             throw new IllegalArgumentException(
                     "staff wallet access must derive tenant from session");
+        }
+        if (directSummaryForAdjustment
+                && organizationUserUid == null) {
+            throw new IllegalArgumentException(
+                    "wallet adjustment summary requires an exact user");
         }
     }
 

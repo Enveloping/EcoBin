@@ -3775,6 +3775,54 @@
         }
       }
     },
+    "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet-adjustments": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/OrganizationUserUid"}
+      ],
+      "post": {
+        "operationId": "adjustWebOrganizationUserWallet",
+        "tags": ["Wallet"],
+        "summary": "Append an authorized signed adjustment to one user wallet",
+        "description": "Requires wallet.adjust. Changes available balance only and atomically updates the delivery gate and any active withdrawal risk flags.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdjustWalletRequest"}}}},
+        "responses": {
+          "201": {"description": "Immutable wallet adjustment", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WalletAdjustmentEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet-adjustments": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"$ref": "#/components/parameters/OrganizationUserUid"}
+      ],
+      "post": {
+        "operationId": "adjustPlatformOrganizationUserWallet",
+        "tags": ["Wallet"],
+        "summary": "Append a platform-authorized signed wallet adjustment",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdjustWalletRequest"}}}},
+        "responses": {
+          "201": {"description": "Immutable wallet adjustment", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WalletAdjustmentEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    },
     "/api/v1/web/organizations/{organizationCode}/organization-users/{organizationUserUid}/wallet/entries": {
       "parameters": [
         {"$ref": "#/components/parameters/OrganizationCode"},
@@ -4723,10 +4771,6 @@
     "/api/v1/miniapp/me/withdrawals/{withdrawalNo}": {
       "parameters": [{"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^WD[A-Za-z0-9]{30}$"}}],
       "get": {"operationId": "getMyWithdrawal", "tags": ["Funds"], "summary": "Read one owned withdrawal", "security": [{"miniappBearer": []}], "responses": {"200": {"description": "My withdrawal", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "404": {"$ref": "#/components/responses/NotFoundProblem"}}}
-    },
-    "/api/v1/miniapp/me/withdrawals/{withdrawalNo}/cancellations": {
-      "parameters": [{"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
-      "post": {"operationId": "cancelMyWithdrawal", "tags": ["Funds"], "summary": "Cancel before review and release both freezes", "security": [{"miniappBearer": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionedWithdrawalRequest"}}}}, "responses": {"200": {"description": "Cancelled withdrawal", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
     },
     "/api/v1/miniapp/me/withdrawals/{withdrawalNo}/merchant-transfer-confirmation": {
       "parameters": [{"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}],
@@ -10596,6 +10640,65 @@
           "asOf": {
             "$ref": "#/components/schemas/UtcTimestamp"
           }
+        }
+      },
+      "AdjustWalletRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deltaYuan", "expectedWalletVersion"],
+        "properties": {
+          "deltaYuan": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$",
+            "description": "Signed non-zero difference in CNY. Positive adds available balance and negative subtracts it."
+          },
+          "expectedWalletVersion": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "oneOf": [
+              {"type": "string", "minLength": 1, "maxLength": 500},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "WalletAdjustmentView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "adjustmentUid", "entryUid", "deltaYuan",
+          "availableBalanceBeforeYuan", "availableBalanceAfterYuan",
+          "walletVersion", "deliveryGate", "activeWithdrawalEffect",
+          "occurredAt"
+        ],
+        "properties": {
+          "adjustmentUid": {"$ref": "#/components/schemas/PublicUid"},
+          "entryUid": {"$ref": "#/components/schemas/PublicUid"},
+          "deltaYuan": {"$ref": "#/components/schemas/MoneyCny"},
+          "availableBalanceBeforeYuan": {"$ref": "#/components/schemas/MoneyCny"},
+          "availableBalanceAfterYuan": {"$ref": "#/components/schemas/MoneyCny"},
+          "walletVersion": {"type": "integer", "minimum": 1},
+          "deliveryGate": {
+            "type": "string",
+            "enum": ["OPEN", "MANUAL_RECOVERY_REQUIRED"]
+          },
+          "activeWithdrawalEffect": {
+            "type": "string",
+            "enum": ["NONE", "PAUSED_BEFORE_CHANNEL", "RISK_MARKED_AFTER_CHANNEL", "RESUMED_BEFORE_CHANNEL"]
+          },
+          "occurredAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      },
+      "WalletAdjustmentEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/WalletAdjustmentView"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },
       "PersonalWalletEntry": {

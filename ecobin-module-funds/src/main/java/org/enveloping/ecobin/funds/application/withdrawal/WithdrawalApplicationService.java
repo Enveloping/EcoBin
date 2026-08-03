@@ -382,36 +382,6 @@ public class WithdrawalApplicationService {
         return view(row);
     }
 
-    @Transactional
-    public WithdrawalView cancel(
-            String withdrawalNo,
-            UUID operationUid,
-            VersionedWithdrawalRequest request) {
-        requireUuidV4(operationUid);
-        MiniappScope scope = access.miniappScope(false);
-        WithdrawalRow initial = requiredWithdrawal(
-                scope.tenantId(), scope.organizationId(), withdrawalNo, false);
-        if (initial.userId() != scope.organizationUserId()) throw notFound();
-        requireExpectedVersion(initial, request);
-        WalletRow wallet = requiredWalletById(initial, true);
-        CounterRow counter = lockCounter(initial.tenantId(), initial.organizationId());
-        lockActive(initial.walletId());
-        WithdrawalRow row = requiredWithdrawal(
-                initial.tenantId(), initial.organizationId(), withdrawalNo, true);
-        if (!"PENDING_REVIEW".equals(row.state()) || transferExists(row.id())) {
-            throw stateConflict("该提现已不能由用户取消");
-        }
-        AccountRow account = requiredAccountById(row, true);
-        LocalDateTime now = databaseNow();
-        release(row, wallet, counter, account,
-                "LOCAL_CANCELLED", false, now);
-        appendMiniappAudit(
-                scope, operationUid, "withdrawal.cancel", withdrawalNo,
-                "{\"status\":\"LOCAL_CANCELLED\"}", now);
-        return view(requiredWithdrawal(
-                row.tenantId(), row.organizationId(), withdrawalNo, false));
-    }
-
     @Transactional(readOnly = true)
     public WithdrawalPage webList(
             boolean platformPath,
@@ -576,8 +546,7 @@ public class WithdrawalApplicationService {
             String organizationCode,
             String withdrawalNo,
             UUID operationUid,
-            VersionedWithdrawalRequest request,
-            boolean cancellation) {
+            VersionedWithdrawalRequest request) {
         requireUuidV4(operationUid);
         WebScope scope = access.webScope(
                 platformPath, tenantCode, organizationCode,
@@ -589,18 +558,14 @@ public class WithdrawalApplicationService {
                 || !transferExists(row.id())) {
             throw stateConflict("该提现尚未越过微信渠道边界");
         }
-        String type = cancellation
-                ? "CANCEL_MERCHANT_TRANSFER"
-                : "QUERY_MERCHANT_TRANSFER";
+        String type = "QUERY_MERCHANT_TRANSFER";
         String key = type + ":" + withdrawalNo + ":"
                 + operationUid.toString().replace("-", "").substring(0, 12)
                 .toUpperCase(Locale.ROOT);
         registerTask(row, type, key, databaseNow());
         appendWebAudit(
                 scope, operationUid,
-                cancellation
-                        ? "withdrawal.channel-cancel-request"
-                        : "withdrawal.channel-query",
+                "withdrawal.channel-query",
                 withdrawalNo, null,
                 "{\"taskType\":\"" + type + "\"}", databaseNow());
         return view(row);
@@ -611,7 +576,9 @@ public class WithdrawalApplicationService {
         return switch (command.taskType()) {
             case "SUBMIT_MERCHANT_TRANSFER" -> submitTransfer(command);
             case "QUERY_MERCHANT_TRANSFER" -> queryTransfer(command);
-            case "CANCEL_MERCHANT_TRANSFER" -> cancelTransfer(command);
+            // Historical cancel tasks can only observe the original transfer.
+            // They must never invoke WeChat cancellation again.
+            case "CANCEL_MERCHANT_TRANSFER" -> queryTransfer(command);
             default -> new ReliableFundsTaskExecutorPort.Result(
                     ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
                     "unsupported withdrawal task type");
@@ -835,18 +802,6 @@ public class WithdrawalApplicationService {
         return transactions.execute(status -> mergeTransferResult(
                 command, transfer, "QUERY", response,
                 false, false));
-    }
-
-    private ReliableFundsTaskExecutorPort.Result cancelTransfer(
-            ReliableFundsTaskExecutorPort.Command command) {
-        TransferSnapshot transfer = transferSnapshot(command.targetStableKey());
-        attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
-        MerchantTransferResult response = channel.cancel(
-                new MerchantTransferChannelPort.MerchantTransferQuery(
-                        transfer.mchid(), transfer.outBillNo()));
-        return transactions.execute(status -> mergeTransferResult(
-                command, transfer, "CANCEL_RESPONSE", response,
-                false, true));
     }
 
     private TransferPreparation prepareTransfer(
@@ -2243,7 +2198,7 @@ public class WithdrawalApplicationService {
                 money(row.amountCent()), row.channelState(),
                 "WAIT_USER_CONFIRM".equals(row.channelState())
                         && row.packageInfo() != null,
-                "PENDING_REVIEW".equals(row.state()),
+                false,
                 row.channelBoundaryAt() != null,
                 row.negativePause(), row.postBoundaryRisk(),
                 instant(row.createdAt()), instant(row.reviewedAt()),

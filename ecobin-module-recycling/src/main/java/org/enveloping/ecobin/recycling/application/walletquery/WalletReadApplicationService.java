@@ -87,7 +87,8 @@ public class WalletReadApplicationService {
                         platformPath,
                         tenantCode,
                         organizationCode,
-                        organizationUserUid));
+                        organizationUserUid,
+                        true));
         long pendingCent = pendingRewards.pendingRewardCent(
                 authorized.pendingRewardOwnerRef());
         WalletBalanceSnapshot balance = funds.balance(

@@ -83,9 +83,10 @@ public class WechatPayNativePaymentAdapter
         NativePaymentResult.Outcome outcome = switch (
                 state == null ? "" : state) {
             case "SUCCESS" -> NativePaymentResult.Outcome.SUCCEEDED;
+            case "REFUND" -> NativePaymentResult.Outcome.REFUNDED;
             case "CLOSED", "REVOKED", "PAYERROR" ->
                     NativePaymentResult.Outcome.CLOSED;
-            case "NOTPAY", "USERPAYING", "REFUND" ->
+            case "NOTPAY", "USERPAYING" ->
                     NativePaymentResult.Outcome.ACCEPTED;
             default -> NativePaymentResult.Outcome.UNKNOWN_STATE;
         };
@@ -110,6 +111,8 @@ public class WechatPayNativePaymentAdapter
                 terminal ? NativePaymentResult.Outcome.CLOSED
                         : failure.retryable()
                         ? NativePaymentResult.Outcome.RETRYABLE_FAILURE
+                        : "OUT_TRADE_NO_USED".equals(failure.code())
+                        ? NativePaymentResult.Outcome.ORDER_ALREADY_EXISTS
                         : "ORDER_NOT_EXIST".equals(failure.code())
                         ? NativePaymentResult.Outcome.NOT_FOUND
                         : NativePaymentResult.Outcome.PERMANENT_FAILURE,

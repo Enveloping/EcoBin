@@ -88,15 +88,6 @@ public class WithdrawalController {
         return ok(service.miniappDetail(withdrawalNo), request);
     }
 
-    @PostMapping("/api/v1/miniapp/me/withdrawals/{withdrawalNo}/cancellations")
-    public ResponseEntity<TargetApiEnvelope<WithdrawalView>> cancel(
-            @PathVariable String withdrawalNo,
-            @RequestHeader("Idempotency-Key") UUID operationUid,
-            @RequestBody VersionedWithdrawalRequest body,
-            HttpServletRequest request) {
-        return ok(service.cancel(withdrawalNo, operationUid, body), request);
-    }
-
     @GetMapping("/api/v1/miniapp/me/withdrawals/{withdrawalNo}/merchant-transfer-confirmation")
     public ResponseEntity<TargetApiEnvelope<MerchantTransferConfirmationView>>
     confirmation(
@@ -155,19 +146,7 @@ public class WithdrawalController {
             HttpServletRequest request) {
         return accepted(service.requestChannelAction(
                 false, null, organizationCode, withdrawalNo,
-                operationUid, body, false), request);
-    }
-
-    @PostMapping("/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}/channel-cancellation-requests")
-    public ResponseEntity<TargetApiEnvelope<WithdrawalView>> cancelChannelStaff(
-            @PathVariable String organizationCode,
-            @PathVariable String withdrawalNo,
-            @RequestHeader("Idempotency-Key") UUID operationUid,
-            @RequestBody VersionedWithdrawalRequest body,
-            HttpServletRequest request) {
-        return accepted(service.requestChannelAction(
-                false, null, organizationCode, withdrawalNo,
-                operationUid, body, true), request);
+                operationUid, body), request);
     }
 
     @GetMapping("/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals")

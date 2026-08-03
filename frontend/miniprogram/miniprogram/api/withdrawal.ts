@@ -26,18 +26,6 @@ export function createWithdrawal(
   )
 }
 
-export function cancelWithdrawal(
-  withdrawalNo: string,
-  expectedVersion: number,
-  idempotencyKey: string,
-) {
-  return http.post<WithdrawalView>(
-    `${COLLECTION}/${encodeURIComponent(withdrawalNo)}/cancellations`,
-    { expectedVersion },
-    { idempotencyKey, noStore: true },
-  )
-}
-
 export function merchantTransferConfirmation(withdrawalNo: string) {
   return http.get<MerchantTransferConfirmationView>(
     `${COLLECTION}/${encodeURIComponent(withdrawalNo)}`

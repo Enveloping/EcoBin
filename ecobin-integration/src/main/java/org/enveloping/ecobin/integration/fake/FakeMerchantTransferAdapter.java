@@ -58,17 +58,4 @@ final class FakeMerchantTransferAdapter implements MerchantTransferChannelPort {
                 request.amountCent(), request.openid());
     }
 
-    @Override
-    public MerchantTransferResult cancel(MerchantTransferQuery query) {
-        MerchantTransferRequest request = requests.get(query.outBillNo());
-        return new MerchantTransferResult(
-                MerchantTransferResult.Outcome.CANCELLED,
-                "CANCELLED", "FAKEBILL" + query.outBillNo(),
-                null, null, "SIMULATED_CANCELLED",
-                "SIMULATED", Instant.now(),
-                request == null ? null : request.mchid(), query.outBillNo(),
-                request == null ? null : request.appid(),
-                request == null ? null : request.amountCent(),
-                request == null ? null : request.openid());
-    }
 }

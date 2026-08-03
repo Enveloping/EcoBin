@@ -10,8 +10,6 @@ public interface MerchantTransferChannelPort {
 
     MerchantTransferResult query(MerchantTransferQuery query);
 
-    MerchantTransferResult cancel(MerchantTransferQuery query);
-
     record MerchantTransferRequest(
             String mchid,
             String appid,

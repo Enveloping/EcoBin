@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  DollarOutlined,
   EyeOutlined,
   StopOutlined,
   UndoOutlined,
@@ -17,6 +18,8 @@ import {
   Button,
   Drawer,
   Empty,
+  Input,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -25,6 +28,11 @@ import {
 } from 'antd';
 import { Link, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
+import {
+  adjustOrganizationUserWallet,
+  getOrganizationUserWallet,
+  type WalletSummary,
+} from '@/api/funds';
 import {
   changeOrganizationUserStatus,
   getOrganizationUser,
@@ -46,6 +54,24 @@ function userInitial(user: OrganizationUser): string {
   return user.nickname.trim().slice(0, 1).toUpperCase() || '用';
 }
 
+function parseMoneyCent(value: string): bigint | null {
+  const normalized = value.trim();
+  if (!/^-?(0|[1-9][0-9]*)\.[0-9]{2}$/.test(normalized)) return null;
+  const negative = normalized.startsWith('-');
+  const unsigned = negative ? normalized.slice(1) : normalized;
+  const [yuan, cent] = unsigned.split('.');
+  const result = BigInt(yuan) * 100n + BigInt(cent);
+  return negative ? -result : result;
+}
+
+function formatMoneyCent(value: bigint): string {
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  return `${negative ? '-' : ''}${absolute / 100n}.${String(
+    absolute % 100n,
+  ).padStart(2, '0')}`;
+}
+
 export default function OrganizationUserPage() {
   const scope = useDirectoryScope();
   const organizationScope = useOrganizationScope(scope);
@@ -56,6 +82,8 @@ export default function OrganizationUserPage() {
   const executeCommand = useCommandExecutor();
   const canFreeze = useAuthStore((state) =>
     state.hasCapability('user.freeze'));
+  const canAdjustWallet = useAuthStore((state) =>
+    state.hasCapability('wallet.adjust')) || scope.platform;
   const canReadDelivery = useAuthStore((state) =>
     state.hasCapability('delivery.read')
     || state.hasCapability('review.execute'));
@@ -66,10 +94,18 @@ export default function OrganizationUserPage() {
   const [detail, setDetail] = useState<OrganizationUser | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [mutating, setMutating] = useState<UserMutation | null>(null);
+  const [adjustingUser, setAdjustingUser] =
+    useState<OrganizationUser | null>(null);
+  const [walletPreview, setWalletPreview] = useState<WalletSummary | null>(null);
+  const [adjustDeltaYuan, setAdjustDeltaYuan] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
   useEffect(() => {
     actionRef.current?.reload();
     setDetail(null);
+    setAdjustingUser(null);
   }, [organizationCode]);
 
   const openDetail = async (user: OrganizationUser) => {
@@ -148,6 +184,70 @@ export default function OrganizationUserPage() {
     }
   };
 
+  const loadWalletPreview = async (user: OrganizationUser) => {
+    if (!scope.context || !organizationCode) return null;
+    return getOrganizationUserWallet(
+      scope.context,
+      organizationCode,
+      user.organizationUserUid,
+    );
+  };
+
+  const openWalletAdjustment = async (user: OrganizationUser) => {
+    setAdjustingUser(user);
+    setWalletPreview(null);
+    setAdjustDeltaYuan('');
+    setAdjustReason('');
+    setAdjustLoading(true);
+    try {
+      setWalletPreview(await loadWalletPreview(user));
+    } catch {
+      setAdjustingUser(null);
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
+
+  const submitWalletAdjustment = async () => {
+    if (!scope.context || !organizationCode
+      || !adjustingUser || !walletPreview) return;
+    const deltaCent = parseMoneyCent(adjustDeltaYuan);
+    if (deltaCent === null || deltaCent === 0n) {
+      message.warning('请输入精确到分且不为 0 的调整差额');
+      return;
+    }
+    const data = {
+      deltaYuan: adjustDeltaYuan.trim(),
+      expectedWalletVersion: walletPreview.walletVersion,
+      reason: adjustReason.trim() || null,
+    };
+    setAdjustSubmitting(true);
+    try {
+      const result = await executeCommand(
+        commandKey('wallet-adjust', adjustingUser.organizationUserUid, data),
+        (intent) => adjustOrganizationUserWallet(
+          scope.context!,
+          organizationCode,
+          adjustingUser.organizationUserUid,
+          data,
+          intent,
+        ),
+      );
+      message.success(
+        `余额已由 ¥${result.availableBalanceBeforeYuan} 调整为 ¥${result.availableBalanceAfterYuan}`,
+      );
+      setAdjustingUser(null);
+      setWalletPreview(null);
+    } catch (error) {
+      if (error instanceof ApiProblem && error.isVersionConflict) {
+        setWalletPreview(await loadWalletPreview(adjustingUser));
+        message.warning('钱包余额已经变化，已载入最新余额；请重新核对');
+      }
+    } finally {
+      setAdjustSubmitting(false);
+    }
+  };
+
   const actionButtons = (user: OrganizationUser) => [
     <Button
       key="detail"
@@ -181,6 +281,17 @@ export default function OrganizationUserPage() {
           {user.status === 'ACTIVE' ? '冻结' : '恢复'}
         </Button>
       </Popconfirm>
+    ) : null,
+    canAdjustWallet ? (
+      <Button
+        key="wallet-adjust"
+        type="link"
+        size="small"
+        icon={<DollarOutlined />}
+        onClick={() => openWalletAdjustment(user)}
+      >
+        调整余额
+      </Button>
     ) : null,
   ];
 
@@ -256,7 +367,7 @@ export default function OrganizationUserPage() {
       title: '关联记录',
       key: 'relatedRecords',
       search: false,
-      width: 150,
+      width: 230,
       render: (_, user) => (
         <Space size={12}>
           {canReadDelivery && (
@@ -420,6 +531,67 @@ export default function OrganizationUserPage() {
           </ProDescriptions>
         )}
       </Drawer>
+
+      <Modal
+        title="人工调整用户余额"
+        open={!!adjustingUser}
+        confirmLoading={adjustSubmitting}
+        okText="确认记账"
+        cancelText="取消"
+        okButtonProps={{
+          disabled: adjustLoading
+            || !walletPreview
+            || parseMoneyCent(adjustDeltaYuan) === null
+            || parseMoneyCent(adjustDeltaYuan) === 0n,
+        }}
+        onOk={submitWalletAdjustment}
+        onCancel={() => {
+          if (!adjustSubmitting) setAdjustingUser(null);
+        }}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Typography.Text>
+            目标用户：{adjustingUser?.nickname ?? '-'}
+          </Typography.Text>
+          <Typography.Text>
+            当前可用余额：
+            {adjustLoading
+              ? '读取中…'
+              : `¥${walletPreview?.availableBalanceYuan ?? '-'}`}
+          </Typography.Text>
+          <Input
+            aria-label="余额调整差额"
+            addonBefore="差额 ¥"
+            placeholder="例如 10.00 或 -10.00"
+            value={adjustDeltaYuan}
+            onChange={(event) => setAdjustDeltaYuan(event.target.value)}
+          />
+          <Typography.Text type="secondary">
+            调整后预计余额：
+            {(() => {
+              const before = walletPreview
+                ? parseMoneyCent(walletPreview.availableBalanceYuan)
+                : null;
+              const delta = parseMoneyCent(adjustDeltaYuan);
+              return before === null || delta === null
+                ? '-'
+                : `¥${formatMoneyCent(before + delta)}`;
+            })()}
+          </Typography.Text>
+          <Input.TextArea
+            aria-label="余额调整原因"
+            maxLength={500}
+            showCount
+            rows={3}
+            placeholder="原因可选；建议填写便于后续审计核对"
+            value={adjustReason}
+            onChange={(event) => setAdjustReason(event.target.value)}
+          />
+          <Typography.Text type="warning">
+            提交后会生成不可修改的钱包明细；只调整可用余额，不修改提现冻结金额。
+          </Typography.Text>
+        </Space>
+      </Modal>
     </PageContainer>
   );
 }

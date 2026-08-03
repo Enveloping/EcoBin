@@ -19,6 +19,7 @@ class JdbcDeliveryScopeAuthorizationRepository
                 'delivery.correct',
                 'delivery.configuration.manage',
                 'wallet.read',
+                'wallet.adjust',
                 'clean.read',
                 'clean.edit'
             )
@@ -145,14 +146,15 @@ class JdbcDeliveryScopeAuthorizationRepository
     public Optional<OrganizationUser> findOrganizationUser(
             long tenantId,
             long organizationId,
-            UUID organizationUserUid) {
+            UUID organizationUserUid,
+            boolean forUpdate) {
         return jdbc.query("""
                         SELECT id, organization_user_uid
                         FROM iam_organization_user
                         WHERE tenant_id = ?
                           AND organization_id = ?
                           AND organization_user_uid = ?
-                        """,
+                        """ + lockClause(forUpdate),
                 (rs, ignored) -> new OrganizationUser(
                         rs.getLong("id"),
                         UUID.fromString(

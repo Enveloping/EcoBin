@@ -1,5 +1,4 @@
 import {
-  cancelWithdrawal,
   createWithdrawal,
   merchantTransferConfirmation,
   myWithdrawals,
@@ -122,32 +121,6 @@ Page({
       }
     } finally {
       this.setData({ submitting: false })
-    }
-  },
-
-  async onCancel(event: WechatMiniprogram.TouchEvent) {
-    const withdrawalNo = String(event.currentTarget.dataset.no)
-    const version = Number(event.currentTarget.dataset.version)
-    const confirmed = await new Promise<boolean>((resolve) => {
-      wx.showModal({
-        title: '取消提现',
-        content: '取消后，用户余额和机构出款额度会同步解除冻结。',
-        confirmText: '确认取消',
-        success: (result) => resolve(result.confirm),
-        fail: () => resolve(false),
-      })
-    })
-    if (!confirmed) return
-    try {
-      await cancelWithdrawal(
-        withdrawalNo,
-        version,
-        await createIdempotencyKey(),
-      )
-      wx.showToast({ title: '提现已取消', icon: 'success' })
-      await this.reload()
-    } catch (error) {
-      wx.showToast({ title: errorText(error), icon: 'none' })
     }
   },
 

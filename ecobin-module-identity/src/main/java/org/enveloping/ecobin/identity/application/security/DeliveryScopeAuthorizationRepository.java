@@ -43,7 +43,8 @@ interface DeliveryScopeAuthorizationRepository {
     Optional<OrganizationUser> findOrganizationUser(
             long tenantId,
             long organizationId,
-            UUID organizationUserUid);
+            UUID organizationUserUid,
+            boolean forUpdate);
 
     record PlatformActor(
             long id,

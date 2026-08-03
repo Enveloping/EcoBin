@@ -23,7 +23,9 @@ public final class WechatChannelEvidencePolicy {
         requireEqual(actual.appid(), expectedAppid, "APPID", violations);
         requireEqual(actual.outTradeNo(), expectedOutTradeNo,
                 "OUT_TRADE_NO", violations);
-        if (actual.outcome() == NativePaymentResult.Outcome.SUCCEEDED) {
+        if (actual.outcome() == NativePaymentResult.Outcome.SUCCEEDED
+                || actual.outcome()
+                == NativePaymentResult.Outcome.REFUNDED) {
             if (actual.totalAmountCent() == null) {
                 violations.add("AMOUNT_MISSING");
             } else if (actual.totalAmountCent() != expectedAmountCent) {
@@ -35,6 +37,8 @@ public final class WechatChannelEvidencePolicy {
             violations.add("AMOUNT_MISMATCH");
         }
         if (actual.outcome() != NativePaymentResult.Outcome.SUCCEEDED
+                && actual.outcome()
+                != NativePaymentResult.Outcome.REFUNDED
                 && actual.currency() != null
                 && !"CNY".equals(actual.currency())) {
             violations.add("CURRENCY_MISMATCH");

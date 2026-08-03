@@ -23,6 +23,7 @@ public class WalletQueryAuthorizationService
         implements WalletQueryAuthorizationPort {
 
     private static final String WALLET_READ = "wallet.read";
+    private static final String WALLET_ADJUST = "wallet.adjust";
 
     private final DeliveryScopeAuthorizationRepository repository;
     private final DeliveryIdentityQueryRefFactory referenceFactory;
@@ -83,13 +84,16 @@ public class WalletQueryAuthorizationService
                 .filter(Scope::organizationEnabled)
                 .orElseThrow(
                         WalletQueryAuthorizationService::notFound);
-        if (!canReadWallet(current, scope)) {
+        if (!canReadWallet(current, scope, query)) {
             throw forbidden();
         }
         return authorized(scope, query, false);
     }
 
-    private boolean canReadWallet(StaffActor actor, Scope scope) {
+    private boolean canReadWallet(
+            StaffActor actor,
+            Scope scope,
+            WalletScopeAuthorizationQuery query) {
         if ("TENANT_PRINCIPAL".equals(actor.accountKind())) {
             return true;
         }
@@ -97,7 +101,9 @@ public class WalletQueryAuthorizationService
                 repository.findTenantDeliveryCapabilities(
                         actor.tenantId(),
                         actor.id());
-        if (tenantCapabilities.contains(WALLET_READ)) {
+        if (tenantCapabilities.contains(WALLET_READ)
+                || query.directSummaryForAdjustment()
+                && tenantCapabilities.contains(WALLET_ADJUST)) {
             return true;
         }
         Membership membership = repository.findMembership(
@@ -109,12 +115,13 @@ public class WalletQueryAuthorizationService
         if (membership == null) {
             return false;
         }
-        return membership.manager()
-                || repository.findOrganizationDeliveryCapabilities(
-                                actor.tenantId(),
-                                scope.organizationId(),
-                                actor.id())
-                        .contains(WALLET_READ);
+        if (membership.manager()) return true;
+        Set<String> organizationCapabilities =
+                repository.findOrganizationDeliveryCapabilities(
+                        actor.tenantId(), scope.organizationId(), actor.id());
+        return organizationCapabilities.contains(WALLET_READ)
+                || query.directSummaryForAdjustment()
+                && organizationCapabilities.contains(WALLET_ADJUST);
     }
 
     private AuthorizedWalletScope authorized(
@@ -126,7 +133,8 @@ public class WalletQueryAuthorizationService
                 : repository.findOrganizationUser(
                                 scope.tenantId(),
                                 scope.organizationId(),
-                                query.organizationUserUid())
+                                query.organizationUserUid(),
+                                false)
                         .orElseThrow(
                                 WalletQueryAuthorizationService::notFound);
         Long userId = user == null ? null : user.id();

@@ -86,7 +86,6 @@ NativePaymentChannelPort
 MerchantTransferChannelPort
   submitTransfer
   queryTransfer
-  cancelTransfer
 ```
 
 端口请求只使用固定业务单号、不可变请求快照和安全值对象；微信 SDK 类型、HTTP 状态和原始异常不得进入 funds domain。
@@ -297,7 +296,6 @@ Web 工作人员在当前机构发起，事务：
 ```text
 PENDING_REVIEW
   ├─ 审核驳回 → REJECTED
-  ├─ 用户合法取消 → LOCAL_CANCELLED
   └─ 审核通过 → READY_TO_SUBMIT
                     ├─ 渠道前受控终止 → LOCAL_ABORTED_BEFORE_CHANNEL
                     └─ 创建微信转账单 → CHANNEL_PROCESSING
@@ -305,6 +303,8 @@ PENDING_REVIEW
                          ├─ FAIL → CHANNEL_FAILED
                          └─ CANCELLED → CHANNEL_CANCELLED
 ```
+
+`LOCAL_CANCELLED` 只保留为历史兼容状态；当前流程不提供用户取消或主动微信撤销，也不再产生新的该状态。
 
 附加标记不是业务状态：
 
@@ -367,20 +367,13 @@ tenant
 
 平台闸门暂停不阻止把待审核单审核通过，但提交任务保持等待；负余额暂停期间不能审核通过。
 
-审核、驳回、取消和渠道前终止先普通读取不可变关联，再按 D-038 的
+审核、驳回和渠道前终止先普通读取不可变关联，再按 D-038 的
 `wallet → organization wallet-entry counter（仅产生释放明细时） → active slot → withdrawal order → organization account`
 重新进入；operations 审计/任务始终最后写入，不能先锁任务再申请资金锁。
 
-### 9.3 用户取消
+### 9.3 不提供提现取消
 
-只允许本人对以下单据取消：
-
-```text
-status = PENDING_REVIEW
-and no wechat transfer row
-```
-
-推进 `LOCAL_CANCELLED`，双侧释放并删除活动槽。自动提现不属于 P0。
+提现创建并完成双侧冻结后，用户端不提供取消入口。待审核单只能由有权限人员通过审核或驳回；驳回按既有释放路径原子释放双方冻结。系统也不主动调用微信撤销接口；若可信回调或查单观察到微信自行进入 `CANCELLED`，仍按渠道终态归并。
 
 ### 9.4 客服渠道前终止
 
@@ -409,7 +402,7 @@ and no wechat transfer row
 
 ### 10.2 状态归并
 
-所有提交响应、回调、主动查单、撤销响应和对账观察都追加保存，并进入同一归并器：
+所有提交响应、回调、主动查单和对账观察都追加保存，并进入同一归并器；历史撤销响应仅作为既有观察兼容读取：
 
 | 微信原始状态 | 是否终态 | 本地处理 |
 |---|---|---|
@@ -500,11 +493,12 @@ CLOSE_NATIVE_PAYMENT
 POST_RECHARGE_NET_AMOUNT
 SUBMIT_MERCHANT_TRANSFER
 QUERY_MERCHANT_TRANSFER
-CANCEL_MERCHANT_TRANSFER
 MARK_WITHDRAWAL_LONG_UNSETTLED
 PROCESS_WECHAT_INBOX
 DAILY_FUNDS_RECONCILIATION
 ```
+
+历史数据库中若仍存在 `CANCEL_MERCHANT_TRANSFER` 任务，执行器只能把它降级为原单查单，不能再次调用微信撤销接口。
 
 任务 payload 只保存稳定业务身份和不可变请求摘要；商户私钥、APIv3 key、证书私钥、OpenID 明文日志和完整回调正文不得进入任务或日志。
 
@@ -517,7 +511,7 @@ DAILY_FUNDS_RECONCILIATION
 M0 资金工作台至少包括：
 
 - 用户详情、钱包三项、明细和人工调账；
-- 提现审核队列、详情、查单、合法取消/渠道前终止；
+- 提现审核队列、详情、原单查单和严格渠道前终止；不提供用户取消或微信撤销；
 - 机构出款账户和流水；
 - 充值金额确认、手续费/净额、Native 二维码和状态轮询；
 - AppID 与系统商户绑定核查；
@@ -587,11 +581,11 @@ M0 资金工作台至少包括：
 2. 两笔提现并发创建，同钱包最多一个活动槽；
 3. 多钱包竞争机构额度，机构冻结不超过可用；
 4. 用户/机构双侧冻结、释放或终结任一步失败整体回滚；
-5. 审核通过、驳回、用户取消、客服终止和提交并发只一支生效；
+5. 审核通过、驳回、客服渠道前终止和提交并发只一支生效；
 6. 负余额纠错与微信提交边界并发；
 7. 支付回调和查单同时成功，充值只入账一次；
 8. 支付成功后入账任务崩溃，能从 `PAID_PENDING_POST` 恢复；
-9. 提交响应、回调、查单、撤销和对账乱序，只有首个可信终态结算一次；
+9. 提交响应、回调、查单和对账乱序，只有首个可信终态结算一次；
 10. 超时/未知错误后始终复用原 `outBillNo`；
 11. 多笔 `NOT_ENOUGH` 只产生一个暂停期和聚合告警；
 12. 闸门恢复与新提现/旧提交并发按版本线性化；
@@ -610,7 +604,7 @@ H2 和单线程测试不能证明这些性质。
 | FND-F01 | 钱包、机构账户与不可变双账本 tracer | AFK | 9 模块、V6/V7 | 空钱包初始化、双投影/明细和真实 MySQL 回滚成立。 |
 | FND-F02 | 投递审核/纠错到钱包 | AFK | recycling 订单、FND-F01 | 正/零/负认定只按 revision 差额入账一次。 |
 | FND-F03 | 人工调账与负余额联动 | AFK | FND-F02、投递配置 head | 调整可审计、停投闸/提现暂停按锁序一致。 |
-| FND-F04 | 提现创建、审核、取消和渠道前终止 | AFK | FND-F01、身份 | 双侧冻结、单活动槽、审核不等于到账。 |
+| FND-F04 | 提现创建、审核和渠道前终止 | AFK | FND-F01、身份 | 双侧冻结、单活动槽、审核不等于到账且新流程不可取消。 |
 | FND-F05 | Native 充值与净额入账 | AFK + 真实支付 HITL | reliable task、微信端口 | 1～20 万、0.6% 向上取整、两事务幂等。 |
 | FND-F06 | 商家转账与统一渠道归并 | AFK + HITL | FND-F04、微信端口 | 固定原单、三终态双侧结算、未知态不释放。 |
 | FND-F07 | NOT_ENOUGH 闸门和人工恢复 | AFK + HITL | FND-F06 | 全平台暂停、原单冻结、单一告警和版本化恢复。 |

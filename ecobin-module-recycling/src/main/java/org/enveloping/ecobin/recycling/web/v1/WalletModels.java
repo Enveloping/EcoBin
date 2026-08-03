@@ -53,4 +53,22 @@ public final class WalletModels {
             String sourceNo,
             Instant occurredAt) {
     }
+
+    public record AdjustWalletRequest(
+            String deltaYuan,
+            Long expectedWalletVersion,
+            String reason) {
+    }
+
+    public record WalletAdjustmentView(
+            UUID adjustmentUid,
+            UUID entryUid,
+            String deltaYuan,
+            String availableBalanceBeforeYuan,
+            String availableBalanceAfterYuan,
+            long walletVersion,
+            String deliveryGate,
+            String activeWithdrawalEffect,
+            Instant occurredAt) {
+    }
 }

@@ -77,7 +77,9 @@ public interface NativePaymentChannelPort {
         public enum Outcome {
             ACCEPTED,
             SUCCEEDED,
+            REFUNDED,
             CLOSED,
+            ORDER_ALREADY_EXISTS,
             NOT_FOUND,
             RETRYABLE_FAILURE,
             PERMANENT_FAILURE,

@@ -54,14 +54,7 @@
       <text wx:if="{{item.channelState}}">微信状态 {{item.channelState}}</text>
     </view>
     <view class="risk-note" wx:if="{{item.postBoundaryRisk}}">渠道结果待核对，冻结资金不会提前释放</view>
-    <view class="order-actions" wx:if="{{item.cancellable || item.confirmationRequired}}">
-      <button
-        wx:if="{{item.cancellable}}"
-        class="action action--plain"
-        data-no="{{item.withdrawalNo}}"
-        data-version="{{item.version}}"
-        bindtap="onCancel"
-      >取消提现</button>
+    <view class="order-actions" wx:if="{{item.confirmationRequired}}">
       <button
         wx:if="{{item.confirmationRequired}}"
         class="action action--primary"

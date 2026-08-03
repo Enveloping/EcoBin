@@ -5,6 +5,8 @@ import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -39,6 +41,51 @@ class WechatPayChannelEvidenceAdapterTest {
         assertEquals("NP123", result.outTradeNo());
         assertEquals(1234L, result.totalAmountCent());
         assertEquals("CNY", result.currency());
+    }
+
+    @Test
+    void nativeRefundIsAnExplicitTerminalReconciliationOutcome()
+            throws Exception {
+        when(client.get("/v3/pay/transactions/out-trade-no/NPREFUND?mchid=190001"))
+                .thenReturn(mapper.readTree("""
+                        {
+                          "appid":"wx-app-1",
+                          "mchid":"190001",
+                          "out_trade_no":"NPREFUND",
+                          "transaction_id":"WXREFUND1",
+                          "trade_state":"REFUND",
+                          "amount":{"total":1234,"currency":"CNY"}
+                        }
+                        """));
+
+        var result = new WechatPayNativePaymentAdapter(client, mapper).query(
+                new NativePaymentChannelPort.NativePaymentQuery(
+                        "190001", "NPREFUND"));
+
+        assertEquals(
+                NativePaymentChannelPort.NativePaymentResult.Outcome.REFUNDED,
+                result.outcome());
+        assertEquals(1234L, result.totalAmountCent());
+    }
+
+    @Test
+    void reusedNativeTradeNumberRequiresAuthoritativeQuery() {
+        when(client.post(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new WechatPayApiException(
+                        400, "OUT_TRADE_NO_USED", "order already exists"));
+
+        var result = new WechatPayNativePaymentAdapter(client, mapper)
+                .create(new NativePaymentChannelPort.NativePaymentRequest(
+                        "190001", "wx-app-1", "NPREUSED", 1234,
+                        "test", Instant.parse("2026-08-03T12:00:00Z"),
+                        "https://example.com/wechat/native-notify"));
+
+        assertEquals(
+                NativePaymentChannelPort.NativePaymentResult.Outcome
+                        .ORDER_ALREADY_EXISTS,
+                result.outcome());
     }
 
     @Test
