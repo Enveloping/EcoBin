@@ -76,9 +76,10 @@ public class WithdrawalController {
     @GetMapping("/api/v1/miniapp/me/withdrawals")
     public ResponseEntity<TargetApiEnvelope<WithdrawalPage>> miniappList(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
-        return ok(service.miniappList(status, limit), request);
+        return ok(service.miniappList(status, cursor, limit), request);
     }
 
     @GetMapping("/api/v1/miniapp/me/withdrawals/{withdrawalNo}")
@@ -100,10 +101,11 @@ public class WithdrawalController {
     public ResponseEntity<TargetApiEnvelope<WithdrawalPage>> staffList(
             @PathVariable String organizationCode,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         return ok(service.webList(false, null, organizationCode,
-                status, limit), request);
+                status, cursor, limit), request);
     }
 
     @GetMapping("/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}")
@@ -154,10 +156,11 @@ public class WithdrawalController {
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         return ok(service.webList(true, tenantCode, organizationCode,
-                status, limit), request);
+                status, cursor, limit), request);
     }
 
     @GetMapping("/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}")
@@ -180,6 +183,32 @@ public class WithdrawalController {
             HttpServletRequest request) {
         return ok(service.review(true, tenantCode, organizationCode,
                 withdrawalNo, operationUid, body), request);
+    }
+
+    @PostMapping("/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}/pre-channel-terminations")
+    public ResponseEntity<TargetApiEnvelope<WithdrawalView>> abortPlatform(
+            @PathVariable String tenantCode,
+            @PathVariable String organizationCode,
+            @PathVariable String withdrawalNo,
+            @RequestHeader("Idempotency-Key") UUID operationUid,
+            @RequestBody VersionedWithdrawalRequest body,
+            HttpServletRequest request) {
+        return ok(service.abortBeforeChannel(
+                true, tenantCode, organizationCode, withdrawalNo,
+                operationUid, body), request);
+    }
+
+    @PostMapping("/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}/channel-queries")
+    public ResponseEntity<TargetApiEnvelope<WithdrawalView>> queryPlatform(
+            @PathVariable String tenantCode,
+            @PathVariable String organizationCode,
+            @PathVariable String withdrawalNo,
+            @RequestHeader("Idempotency-Key") UUID operationUid,
+            @RequestBody VersionedWithdrawalRequest body,
+            HttpServletRequest request) {
+        return accepted(service.requestChannelAction(
+                true, tenantCode, organizationCode, withdrawalNo,
+                operationUid, body), request);
     }
 
     private static <T> ResponseEntity<TargetApiEnvelope<T>> ok(

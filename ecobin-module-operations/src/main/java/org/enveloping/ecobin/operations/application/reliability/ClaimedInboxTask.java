@@ -12,6 +12,7 @@ public record ClaimedInboxTask(
         Long tenantId,
         Long organizationId,
         UUID attemptUid,
+        long sourceTaskAttemptId,
         UUID leaseToken,
         long claimedWakeVersion,
         String messageKind,
@@ -39,6 +40,10 @@ public record ClaimedInboxTask(
                     "claimed inbox has an unsupported scope shape");
         }
         Objects.requireNonNull(attemptUid, "attemptUid");
+        if (sourceTaskAttemptId <= 0) {
+            throw new IllegalArgumentException(
+                    "sourceTaskAttemptId must be positive");
+        }
         Objects.requireNonNull(leaseToken, "leaseToken");
         Objects.requireNonNull(messageKind, "messageKind");
         Objects.requireNonNull(normalizedPayload, "normalizedPayload");

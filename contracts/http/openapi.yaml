@@ -4688,6 +4688,14 @@
         "responses": {"200": {"description": "Payout account", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PayoutAccountEnvelope"}}}}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}}
       }
     },
+    "/api/v1/web/organizations/{organizationCode}/payout-account/entries": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "listOrganizationPayoutEntries", "tags": ["Funds"], "summary": "List immutable organization payout entries with a stable cursor", "security": [{"webSessionCookie": []}],
+        "parameters": [{"name": "entryType", "in": "query", "schema": {"type": "string"}}, {"name": "sourceNo", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}],
+        "responses": {"200": {"description": "Payout entries", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PayoutEntryPageEnvelope"}}}}, "400": {"$ref": "#/components/responses/InvalidRequest"}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}, "404": {"$ref": "#/components/responses/NotFoundProblem"}}
+      }
+    },
     "/api/v1/web/organizations/{organizationCode}/recharge-orders": {
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
       "get": {
@@ -4695,7 +4703,7 @@
         "tags": ["Funds"],
         "summary": "List organization Native recharge orders",
         "security": [{"webSessionCookie": []}],
-        "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}],
+        "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}],
         "responses": {"200": {"description": "Recharge orders", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RechargePageEnvelope"}}}}, "401": {"$ref": "#/components/responses/UnauthorizedProblem"}, "403": {"$ref": "#/components/responses/ForbiddenProblem"}}
       },
       "post": {
@@ -4714,7 +4722,7 @@
     },
     "/api/v1/web/organizations/{organizationCode}/withdrawals": {
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
-      "get": {"operationId": "listOrganizationWithdrawals", "tags": ["Funds"], "summary": "List manual withdrawal orders", "security": [{"webSessionCookie": []}], "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "Withdrawal orders", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalPageEnvelope"}}}}}}
+      "get": {"operationId": "listOrganizationWithdrawals", "tags": ["Funds"], "summary": "List manual withdrawal orders", "security": [{"webSessionCookie": []}], "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "Withdrawal orders", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalPageEnvelope"}}}}, "400": {"$ref": "#/components/responses/InvalidRequest"}}}
     },
     "/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}": {
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^WD[A-Za-z0-9]{30}$"}}],
@@ -4724,6 +4732,14 @@
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
       "post": {"operationId": "reviewOrganizationWithdrawal", "tags": ["Funds"], "summary": "Approve or reject a pending withdrawal", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReviewWithdrawalRequest"}}}}, "responses": {"200": {"description": "Reviewed withdrawal", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}, "422": {"$ref": "#/components/responses/BusinessRuleProblem"}}}
     },
+    "/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}/pre-channel-terminations": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+      "post": {"operationId": "terminateOrganizationWithdrawalBeforeChannel", "tags": ["Funds"], "summary": "Release both freezes only before the WeChat channel boundary", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionedWithdrawalRequest"}}}}, "responses": {"200": {"description": "Withdrawal terminated before channel", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
+    },
+    "/api/v1/web/organizations/{organizationCode}/withdrawals/{withdrawalNo}/channel-queries": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+      "post": {"operationId": "queryOrganizationWithdrawalChannel", "tags": ["Funds"], "summary": "Schedule one deduplicated authoritative query of the original WeChat transfer", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionedWithdrawalRequest"}}}}, "responses": {"202": {"description": "Channel query scheduled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
+    },
     "/api/v1/web/organizations/{organizationCode}/withdrawal-configuration": {
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
       "get": {"operationId": "getOrganizationWithdrawalConfiguration", "tags": ["Funds"], "summary": "Read current withdrawal limits", "security": [{"webSessionCookie": []}], "responses": {"200": {"description": "Withdrawal configuration", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalConfigurationEnvelope"}}}}}}
@@ -4731,6 +4747,46 @@
     "/api/v1/web/organizations/{organizationCode}/withdrawal-configuration-releases": {
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
       "post": {"operationId": "releaseOrganizationWithdrawalConfiguration", "tags": ["Funds"], "summary": "Publish an immutable withdrawal configuration version", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReleaseWithdrawalConfigurationRequest"}}}}, "responses": {"201": {"description": "Published configuration", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalConfigurationEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/payout-account": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {"operationId": "getPlatformOrganizationPayoutAccount", "tags": ["Funds"], "summary": "Read one visible organization payout account", "security": [{"webSessionCookie": []}], "responses": {"200": {"description": "Payout account", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PayoutAccountEnvelope"}}}}, "404": {"$ref": "#/components/responses/NotFoundProblem"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/payout-account/entries": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {"operationId": "listPlatformOrganizationPayoutEntries", "tags": ["Funds"], "summary": "List immutable payout entries with a stable cursor", "security": [{"webSessionCookie": []}], "parameters": [{"name": "entryType", "in": "query", "schema": {"type": "string"}}, {"name": "sourceNo", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "Payout entries", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PayoutEntryPageEnvelope"}}}}, "400": {"$ref": "#/components/responses/InvalidRequest"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/recharge-orders": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {"operationId": "listPlatformOrganizationRechargeOrders", "tags": ["Funds"], "summary": "List organization Native recharge orders", "security": [{"webSessionCookie": []}], "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "Recharge orders", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RechargePageEnvelope"}}}}, "400": {"$ref": "#/components/responses/InvalidRequest"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/recharge-orders/{rechargeNo}": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}, {"name": "rechargeNo", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {"operationId": "getPlatformOrganizationRechargeOrder", "tags": ["Funds"], "summary": "Read one organization recharge order", "security": [{"webSessionCookie": []}], "responses": {"200": {"description": "Recharge order", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RechargeEnvelope"}}}}, "404": {"$ref": "#/components/responses/NotFoundProblem"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawal-configuration": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {"operationId": "getPlatformOrganizationWithdrawalConfiguration", "tags": ["Funds"], "summary": "Read current withdrawal limits", "security": [{"webSessionCookie": []}], "responses": {"200": {"description": "Withdrawal configuration", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalConfigurationEnvelope"}}}}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {"operationId": "listPlatformOrganizationWithdrawals", "tags": ["Funds"], "summary": "List organization withdrawals", "security": [{"webSessionCookie": []}], "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "Withdrawal orders", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalPageEnvelope"}}}}, "400": {"$ref": "#/components/responses/InvalidRequest"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "get": {"operationId": "getPlatformOrganizationWithdrawal", "tags": ["Funds"], "summary": "Read one organization withdrawal", "security": [{"webSessionCookie": []}], "responses": {"200": {"description": "Withdrawal", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "404": {"$ref": "#/components/responses/NotFoundProblem"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}/reviews": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+      "post": {"operationId": "reviewPlatformOrganizationWithdrawal", "tags": ["Funds"], "summary": "Approve or reject a pending withdrawal", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReviewWithdrawalRequest"}}}}, "responses": {"200": {"description": "Reviewed withdrawal", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}/pre-channel-terminations": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+      "post": {"operationId": "terminatePlatformOrganizationWithdrawalBeforeChannel", "tags": ["Funds"], "summary": "Release both freezes only before the channel boundary", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionedWithdrawalRequest"}}}}, "responses": {"200": {"description": "Withdrawal terminated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/withdrawals/{withdrawalNo}/channel-queries": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}, {"name": "withdrawalNo", "in": "path", "required": true, "schema": {"type": "string"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+      "post": {"operationId": "queryPlatformOrganizationWithdrawalChannel", "tags": ["Funds"], "summary": "Schedule one deduplicated query of the original transfer", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionedWithdrawalRequest"}}}}, "responses": {"202": {"description": "Channel query scheduled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
     },
     "/api/v1/web/platform/payout-gate": {
       "get": {
@@ -4765,7 +4821,7 @@
       "post": {"operationId": "disablePlatformWechatMerchantBinding", "tags": ["Funds"], "summary": "Disable local readiness without rewriting in-flight orders", "security": [{"webSessionCookie": [], "webCsrfToken": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DisableMerchantBindingRequest"}}}}, "responses": {"200": {"description": "Disabled binding", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MerchantBindingEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}}}
     },
     "/api/v1/miniapp/me/withdrawals": {
-      "get": {"operationId": "listMyWithdrawals", "tags": ["Funds"], "summary": "List the current user's withdrawals", "security": [{"miniappBearer": []}], "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "My withdrawals", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalPageEnvelope"}}}}}},
+      "get": {"operationId": "listMyWithdrawals", "tags": ["Funds"], "summary": "List the current user's withdrawals", "security": [{"miniappBearer": []}], "parameters": [{"name": "status", "in": "query", "schema": {"type": "string"}}, {"$ref": "#/components/parameters/Cursor"}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100}}], "responses": {"200": {"description": "My withdrawals", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalPageEnvelope"}}}}, "400": {"$ref": "#/components/responses/InvalidRequest"}}},
       "post": {"operationId": "createMyWithdrawal", "tags": ["Funds"], "summary": "Freeze user and organization funds and create a pending review", "security": [{"miniappBearer": []}], "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateWithdrawalRequest"}}}}, "responses": {"201": {"description": "Withdrawal created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WithdrawalEnvelope"}}}}, "409": {"$ref": "#/components/responses/ConflictProblem"}, "422": {"$ref": "#/components/responses/BusinessRuleProblem"}}}
     },
     "/api/v1/miniapp/me/withdrawals/{withdrawalNo}": {
@@ -11844,6 +11900,29 @@
           "merchantBindingStatus": {"type": "string"}, "payoutGateStatus": {"type": "string"}, "version": {"type": "integer", "format": "int64"}, "asOf": {"type": "string", "format": "date-time"}
         }
       },
+      "PayoutEntryView": {
+        "type": "object", "additionalProperties": false,
+        "required": ["entryUid", "entryType", "availableDeltaYuan", "frozenDeltaYuan", "availableAfterYuan", "frozenAfterYuan", "sourceNo", "occurredAt"],
+        "properties": {
+          "entryUid": {"type": "string", "format": "uuid"},
+          "entryType": {"type": "string", "enum": ["RECHARGE_POSTED", "WITHDRAWAL_FREEZE", "WITHDRAWAL_SUCCEEDED", "WITHDRAWAL_RELEASED"]},
+          "availableDeltaYuan": {"$ref": "#/components/schemas/MoneyCny"},
+          "frozenDeltaYuan": {"$ref": "#/components/schemas/MoneyCny"},
+          "availableAfterYuan": {"$ref": "#/components/schemas/MoneyCny"},
+          "frozenAfterYuan": {"$ref": "#/components/schemas/PositiveMoneyCny"},
+          "sourceNo": {"type": ["string", "null"]},
+          "occurredAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "PayoutEntryPage": {
+        "type": "object", "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/PayoutEntryView"}},
+          "asOf": {"type": "string", "format": "date-time"},
+          "nextCursor": {"type": ["string", "null"], "maxLength": 4096}
+        }
+      },
       "PayoutGateView": {
         "type": "object",
         "additionalProperties": false,
@@ -11895,6 +11974,7 @@
       "RechargeEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/RechargeView"}, "requestId": {"type": "string"}}},
       "RechargePageEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/RechargePage"}, "requestId": {"type": "string"}}},
       "PayoutAccountEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/PayoutAccountView"}, "requestId": {"type": "string"}}},
+      "PayoutEntryPageEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/PayoutEntryPage"}, "requestId": {"type": "string"}}},
       "PayoutGateEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/PayoutGateView"}, "requestId": {"type": "string"}}},
       "WithdrawalEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/WithdrawalView"}, "requestId": {"type": "string"}}},
       "WithdrawalPageEnvelope": {"type": "object", "additionalProperties": false, "required": ["code", "data", "requestId"], "properties": {"code": {"type": "string", "const": "OK"}, "data": {"$ref": "#/components/schemas/WithdrawalPage"}, "requestId": {"type": "string"}}},

@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -215,6 +216,128 @@ public class FundsOperationalControlService
         if (updated != 1) {
             throw new IllegalStateException(
                     "precise withdrawal submit wake updated "
+                            + updated + " rows");
+        }
+        return WithdrawalSubmitTaskWakeResult.WOKEN;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public WithdrawalSubmitTaskWakeResult scheduleWithdrawalChannelQuery(
+            long tenantId,
+            long organizationId,
+            String withdrawalNo,
+            LocalDateTime wakeAt) {
+        return reopenExactWithdrawalTask(
+                tenantId, organizationId, withdrawalNo,
+                "QUERY_MERCHANT_TRANSFER", true, wakeAt);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public WithdrawalSubmitTaskWakeResult
+    recoverWithdrawalSubmitAfterConfirmedNotFound(
+            long tenantId,
+            long organizationId,
+            String withdrawalNo,
+            LocalDateTime wakeAt) {
+        return reopenExactWithdrawalTask(
+                tenantId, organizationId, withdrawalNo,
+                "SUBMIT_MERCHANT_TRANSFER", false, wakeAt);
+    }
+
+    private WithdrawalSubmitTaskWakeResult reopenExactWithdrawalTask(
+            long tenantId,
+            long organizationId,
+            String withdrawalNo,
+            String taskType,
+            boolean allowDone,
+            LocalDateTime wakeAt) {
+        if (tenantId <= 0 || organizationId <= 0
+                || withdrawalNo == null || withdrawalNo.isBlank()) {
+            throw new IllegalArgumentException(
+                    "withdrawal task scope is incomplete");
+        }
+        Objects.requireNonNull(wakeAt, "wakeAt");
+        List<WithdrawalSubmitTask> tasks = jdbc.query("""
+                SELECT id, state, lease_token, dispatch_wait_reason,
+                       wake_version
+                FROM ops_reliable_task
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND execution_lane = 'FUNDS'
+                  AND task_type = ?
+                  AND target_type = 'WITHDRAWAL_ORDER'
+                  AND target_stable_key = ?
+                  AND task_key = ?
+                FOR UPDATE
+                """, (resultSet, ignored) -> new WithdrawalSubmitTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("state"),
+                        resultSet.getString("lease_token"),
+                        resultSet.getString("dispatch_wait_reason"),
+                        resultSet.getLong("wake_version")),
+                tenantId, organizationId, taskType, withdrawalNo,
+                (taskType + ":" + withdrawalNo)
+                        .toUpperCase(Locale.ROOT));
+        if (tasks.size() != 1) {
+            return WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE;
+        }
+        WithdrawalSubmitTask task = tasks.getFirst();
+        if (task.dispatchWaitReason() != null) {
+            return WithdrawalSubmitTaskWakeResult
+                    .WAITING_ON_ANOTHER_CONDITION;
+        }
+        if (task.wakeVersion() >= 9_007_199_254_740_991L) {
+            return WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE;
+        }
+        long nextWakeVersion = task.wakeVersion() + 1;
+        int updated;
+        if ("PENDING".equals(task.state())) {
+            if (task.leaseToken() == null) {
+                updated = jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET next_run_at = ?, wake_version = ?,
+                            lock_version = lock_version + 1, updated_at = ?
+                        WHERE id = ? AND state = 'PENDING'
+                          AND lease_token IS NULL
+                          AND dispatch_wait_reason IS NULL
+                          AND wake_version = ?
+                        """, wakeAt, nextWakeVersion, wakeAt,
+                        task.id(), task.wakeVersion());
+            } else {
+                updated = jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET wake_version = ?,
+                            lock_version = lock_version + 1, updated_at = ?
+                        WHERE id = ? AND state = 'PENDING'
+                          AND lease_token = ?
+                          AND dispatch_wait_reason IS NULL
+                          AND wake_version = ?
+                        """, nextWakeVersion, wakeAt, task.id(),
+                        task.leaseToken(), task.wakeVersion());
+            }
+        } else if ("BLOCKED".equals(task.state())
+                || allowDone && "DONE".equals(task.state())) {
+            updated = jdbc.update("""
+                    UPDATE ops_reliable_task
+                    SET state = 'PENDING', next_run_at = ?,
+                        lease_token = NULL, lease_worker = NULL,
+                        lease_until = NULL, dispatch_wait_reason = NULL,
+                        consecutive_failure_count = 0,
+                        wake_version = ?, completed_at = NULL,
+                        blocked_reason_code = NULL,
+                        blocked_diagnostic = NULL,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ? AND state = ? AND wake_version = ?
+                    """, wakeAt, nextWakeVersion, wakeAt, task.id(),
+                    task.state(), task.wakeVersion());
+        } else {
+            return WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE;
+        }
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "precise withdrawal task recovery updated "
                             + updated + " rows");
         }
         return WithdrawalSubmitTaskWakeResult.WOKEN;

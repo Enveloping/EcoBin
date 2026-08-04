@@ -7,9 +7,20 @@ import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappActorCont
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
 import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 public class FundsIdentityAccessService implements FundsIdentityAccessPort {
+
+    private final JdbcTemplate jdbc;
+
+    public FundsIdentityAccessService(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
 
     @Override
     public AuthorizedWebIdentity authorizeWeb(
@@ -61,6 +72,63 @@ public class FundsIdentityAccessService implements FundsIdentityAccessPort {
         return new AuthorizedPlatformIdentity(
                 actor.principalId(), actor.principalUid(),
                 actor.sessionUid(), actor.displayName());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean lockWithdrawalTransferIdentity(
+            WithdrawalTransferIdentity identity) {
+        if (identity == null
+                || identity.tenantId() <= 0
+                || identity.organizationId() <= 0
+                || identity.organizationMiniappId() <= 0
+                || identity.organizationUserId() <= 0
+                || identity.appid() == null
+                || identity.appid().isBlank()
+                || identity.openid() == null
+                || identity.openid().isBlank()) {
+            throw new IllegalArgumentException(
+                    "withdrawal transfer identity is incomplete");
+        }
+        if (!lockExists("""
+                SELECT id FROM iam_tenant
+                WHERE id = ? AND status = 'ENABLED'
+                FOR UPDATE
+                """, identity.tenantId())) {
+            return false;
+        }
+        if (!lockExists("""
+                SELECT id FROM iam_organization
+                WHERE tenant_id = ? AND id = ? AND status = 'ENABLED'
+                FOR UPDATE
+                """, identity.tenantId(), identity.organizationId())) {
+            return false;
+        }
+        if (!lockExists("""
+                SELECT id FROM iam_organization_miniapp
+                WHERE tenant_id = ? AND organization_id = ? AND id = ?
+                  AND appid = ? AND login_enabled = 1
+                FOR UPDATE
+                """, identity.tenantId(), identity.organizationId(),
+                identity.organizationMiniappId(), identity.appid())) {
+            return false;
+        }
+        return lockExists("""
+                SELECT id FROM iam_organization_user
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_miniapp_id = ? AND id = ?
+                  AND openid = ? AND status = 'ACTIVE'
+                FOR UPDATE
+                """, identity.tenantId(), identity.organizationId(),
+                identity.organizationMiniappId(),
+                identity.organizationUserId(), identity.openid());
+    }
+
+    private boolean lockExists(String sql, Object... arguments) {
+        List<Long> rows = jdbc.query(
+                sql, (resultSet, ignored) -> resultSet.getLong("id"),
+                arguments);
+        return rows.size() == 1;
     }
 
     private static TargetApiException forbidden() {

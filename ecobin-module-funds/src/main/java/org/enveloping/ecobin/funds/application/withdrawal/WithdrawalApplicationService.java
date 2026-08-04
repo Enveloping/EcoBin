@@ -20,6 +20,7 @@ import org.enveloping.ecobin.funds.application.access.FundsAccessService.WebScop
 import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy;
 import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy.Validation;
 import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
+import org.enveloping.ecobin.funds.application.pagination.FundsListCursorCodec;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
@@ -49,6 +50,7 @@ public class WithdrawalApplicationService {
     private final TransactionTemplate transactions;
     private final AuditPort audit;
     private final FundsOperationalControlPort operationalControl;
+    private final FundsListCursorCodec cursorCodec;
     private final String notifyBaseUrl;
 
     public WithdrawalApplicationService(
@@ -60,6 +62,7 @@ public class WithdrawalApplicationService {
             TransactionTemplate transactions,
             AuditPort audit,
             FundsOperationalControlPort operationalControl,
+            FundsListCursorCodec cursorCodec,
             @Value("${ecobin.funds.wechat-pay.notify-base-url:https://fake.invalid}")
             String notifyBaseUrl) {
         this.jdbc = jdbc;
@@ -70,6 +73,7 @@ public class WithdrawalApplicationService {
         this.transactions = transactions;
         this.audit = audit;
         this.operationalControl = operationalControl;
+        this.cursorCodec = cursorCodec;
         this.notifyBaseUrl = stripTrailingSlash(notifyBaseUrl);
     }
 
@@ -367,10 +371,12 @@ public class WithdrawalApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public WithdrawalPage miniappList(String status, Integer limit) {
+    public WithdrawalPage miniappList(
+            String status, String cursor, Integer limit) {
         MiniappScope scope = access.miniappScope(false);
         return list(scope.tenantId(), scope.organizationId(),
-                scope.organizationUserId(), normalizeStatus(status), limit);
+                scope.organizationUserId(), normalizeStatus(status),
+                cursor, limit);
     }
 
     @Transactional(readOnly = true)
@@ -388,12 +394,13 @@ public class WithdrawalApplicationService {
             String tenantCode,
             String organizationCode,
             String status,
+            String cursor,
             Integer limit) {
         WebScope scope = access.webScope(
                 platformPath, tenantCode, organizationCode,
                 "withdrawal.read", false);
         return list(scope.tenantId(), scope.organizationId(),
-                null, normalizeStatus(status), limit);
+                null, normalizeStatus(status), cursor, limit);
     }
 
     @Transactional(readOnly = true)
@@ -559,15 +566,22 @@ public class WithdrawalApplicationService {
             throw stateConflict("该提现尚未越过微信渠道边界");
         }
         String type = "QUERY_MERCHANT_TRANSFER";
-        String key = type + ":" + withdrawalNo + ":"
-                + operationUid.toString().replace("-", "").substring(0, 12)
-                .toUpperCase(Locale.ROOT);
-        registerTask(row, type, key, databaseNow());
+        LocalDateTime now = databaseNow();
+        String key = type + ":" + withdrawalNo;
+        registerTask(row, type, key, now);
+        FundsOperationalControlPort.WithdrawalSubmitTaskWakeResult scheduled =
+                operationalControl.scheduleWithdrawalChannelQuery(
+                        row.tenantId(), row.organizationId(),
+                        withdrawalNo, now);
+        if (scheduled == FundsOperationalControlPort
+                .WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE) {
+            throw stateConflict("人工查单任务当前无法安全派发");
+        }
         appendWebAudit(
                 scope, operationUid,
                 "withdrawal.channel-query",
                 withdrawalNo, null,
-                "{\"taskType\":\"" + type + "\"}", databaseNow());
+                "{\"taskType\":\"" + type + "\"}", now);
         return view(row);
     }
 
@@ -587,6 +601,7 @@ public class WithdrawalApplicationService {
 
     public boolean applyTrustedNotification(
             long sourceInboxId,
+            long sourceTaskAttemptId,
             long trustedTenantId,
             long trustedOrganizationId,
             JsonNode payload) {
@@ -623,10 +638,16 @@ public class WithdrawalApplicationService {
         if (!"NON_TERMINAL".equals(known.terminalClassification())) {
             TransferSnapshot locked = transferByOutBillNo(outBillNo, true);
             appendTransferInboxObservation(
-                    sourceInboxId, locked, payload, state, transferBillNo,
-                    amount, openid, now);
-            markTerminalConflictIfNeeded(locked, classification, now);
-            return false;
+                    sourceInboxId, sourceTaskAttemptId, locked, payload,
+                    state, transferBillNo, amount, openid, now);
+            boolean conflicted = markTerminalConflictIfNeeded(
+                    locked, classification, now);
+            if (conflicted) {
+                observeTransferInboxConflict(
+                        sourceTaskAttemptId, locked, classification,
+                        payload, now);
+            }
+            return conflicted;
         }
 
         WithdrawalRow initial = known.withdrawal();
@@ -636,11 +657,17 @@ public class WithdrawalApplicationService {
         if (!activeWithdrawalExists(initial.walletId(), true)) {
             TransferSnapshot locked = transferByOutBillNo(outBillNo, true);
             appendTransferInboxObservation(
-                    sourceInboxId, locked, payload, state, transferBillNo,
-                    amount, openid, now);
+                    sourceInboxId, sourceTaskAttemptId, locked, payload,
+                    state, transferBillNo, amount, openid, now);
             if (!"NON_TERMINAL".equals(locked.terminalClassification())) {
-                markTerminalConflictIfNeeded(locked, classification, now);
-                return false;
+                boolean conflicted = markTerminalConflictIfNeeded(
+                        locked, classification, now);
+                if (conflicted) {
+                    observeTransferInboxConflict(
+                            sourceTaskAttemptId, locked, classification,
+                            payload, now);
+                }
+                return conflicted;
             }
             throw new IllegalStateException(
                     "non-terminal transfer lost its active withdrawal slot");
@@ -651,11 +678,17 @@ public class WithdrawalApplicationService {
         AccountRow account = requiredAccountById(order, true);
         TransferSnapshot locked = transferByOutBillNo(outBillNo, true);
         appendTransferInboxObservation(
-                sourceInboxId, locked, payload, state, transferBillNo,
-                amount, openid, now);
+                sourceInboxId, sourceTaskAttemptId, locked, payload,
+                state, transferBillNo, amount, openid, now);
         if (!"NON_TERMINAL".equals(locked.terminalClassification())) {
-            markTerminalConflictIfNeeded(locked, classification, now);
-            return false;
+            boolean conflicted = markTerminalConflictIfNeeded(
+                    locked, classification, now);
+            if (conflicted) {
+                observeTransferInboxConflict(
+                        sourceTaskAttemptId, locked, classification,
+                        payload, now);
+            }
+            return conflicted;
         }
         jdbc.update("""
                 UPDATE fund_wechat_transfer
@@ -686,6 +719,7 @@ public class WithdrawalApplicationService {
 
     private void appendTransferInboxObservation(
             long sourceInboxId,
+            long sourceTaskAttemptId,
             TransferSnapshot transfer,
             JsonNode payload,
             String state,
@@ -703,16 +737,17 @@ public class WithdrawalApplicationService {
                     openid, channel_occurred_at, content_sha256,
                     observed_at, created_at
                 ) VALUES (?, ?, ?, ?, 'CALLBACK', 'INBOX', 'ORGANIZATION',
-                          ?, NULL, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                          ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID().toString(), transfer.tenantId(),
                 transfer.organizationId(), transfer.transferId(),
-                sourceInboxId, state, trimTo(text(payload, "fail_reason"), 255),
+                sourceInboxId, sourceTaskAttemptId, state,
+                trimTo(text(payload, "fail_reason"), 255),
                 transfer.outBillNo(), transferBillNo, amount, openid,
                 databaseTime(parseInstant(requiredText(payload, "update_time"))),
                 RechargeApplicationService.sha256(payload.toString()), now, now);
     }
 
-    private void markTerminalConflictIfNeeded(
+    private boolean markTerminalConflictIfNeeded(
             TransferSnapshot locked,
             String classification,
             LocalDateTime now) {
@@ -722,7 +757,34 @@ public class WithdrawalApplicationService {
                     SET state_conflict = 1, lock_version = lock_version + 1,
                         updated_at = ? WHERE id = ?
                     """, now, locked.transferId());
+            return true;
         }
+        return false;
+    }
+
+    private void observeTransferInboxConflict(
+            long sourceTaskAttemptId,
+            TransferSnapshot transfer,
+            String trustedClassification,
+            JsonNode payload,
+            LocalDateTime now) {
+        String evidence = "CALLBACK_TERMINAL_CONFLICT|"
+                + transfer.outBillNo() + "|"
+                + transfer.terminalClassification() + "|"
+                + trustedClassification + "|" + payload;
+        operationalControl.observeReconciliationIssue(
+                new ReconciliationIssue(
+                        transfer.tenantId(), transfer.organizationId(),
+                        sourceTaskAttemptId,
+                        "FUNDS.MERCHANT_TRANSFER_TERMINAL_CONFLICT",
+                        "CRITICAL", "WECHAT_TRANSFER",
+                        transfer.outBillNo(),
+                        RechargeApplicationService.sha256(evidence),
+                        "localTerminal="
+                                + transfer.terminalClassification()
+                                + "; trustedTerminal="
+                                + trustedClassification,
+                        now));
     }
 
     private ReliableFundsTaskExecutorPort.Result submitTransfer(
@@ -730,6 +792,11 @@ public class WithdrawalApplicationService {
         TransferPreparation preparation = transactions.execute(
                 status -> prepareTransfer(
                         command.targetStableKey(), command.taskUid()));
+        if (preparation.blockedReason() != null) {
+            return new ReliableFundsTaskExecutorPort.Result(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                    preparation.blockedReason());
+        }
         if (preparation.gateWaitEventUid() != null) {
             return new ReliableFundsTaskExecutorPort.Result(
                     ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
@@ -834,6 +901,13 @@ public class WithdrawalApplicationService {
         if (!"READY_TO_SUBMIT".equals(initial.state())
                 || initial.negativePause()) {
             return TransferPreparation.localWait();
+        }
+        if (!access.lockWithdrawalTransferIdentity(
+                initial.tenantId(), initial.organizationId(),
+                initial.miniappId(), initial.appid(), initial.userId(),
+                initial.openid())) {
+            return TransferPreparation.blocked(
+                    "tenant, organization or recipient identity is no longer active");
         }
         GateRow gate = requiredGate(initial.merchantId(), true);
         if (!"OPEN".equals(gate.state())) {
@@ -1054,9 +1128,26 @@ public class WithdrawalApplicationService {
         }
         if (result.outcome() == MerchantTransferResult.Outcome.NOT_FOUND) {
             if (!keepCurrentTask) {
+                FundsOperationalControlPort.WithdrawalSubmitTaskWakeResult
+                        recovered = operationalControl
+                        .recoverWithdrawalSubmitAfterConfirmedNotFound(
+                                transfer.tenantId(),
+                                transfer.organizationId(),
+                                transfer.withdrawalNo(), now);
+                if (recovered == FundsOperationalControlPort
+                        .WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE) {
+                    observeTransferIssue(
+                            command, transfer,
+                            "FUNDS.MERCHANT_TRANSFER_SUBMIT_RECOVERY_MISSING",
+                            "CRITICAL", "SUBMIT_TASK_NOT_WAKEABLE",
+                            result, now);
+                    return new ReliableFundsTaskExecutorPort.Result(
+                            ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                            "confirmed missing bill but original submit task could not be recovered");
+                }
                 return new ReliableFundsTaskExecutorPort.Result(
                         ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
-                        "manual query confirmed original bill absent; automatic submit workflow owns recovery");
+                        "manual query confirmed original bill absent; original submit workflow recovered");
             }
             return new ReliableFundsTaskExecutorPort.Result(
                     ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
@@ -1623,8 +1714,32 @@ public class WithdrawalApplicationService {
             long organizationId,
             Long userId,
             String state,
+            String cursor,
             Integer requestedLimit) {
         int limit = normalizeLimit(requestedLimit);
+        String fingerprint = FundsListCursorCodec.fingerprint(
+                "WITHDRAWAL", tenantId, organizationId, userId,
+                state, limit);
+        FundsListCursorCodec.Decoded decoded =
+                cursor == null || cursor.isBlank()
+                        ? null
+                        : cursorCodec.decode(
+                                cursor, "WITHDRAWAL", fingerprint);
+        long highWatermark = decoded == null
+                ? jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(id), 0)
+                        FROM fund_withdrawal_order
+                        WHERE tenant_id = ? AND organization_id = ?
+                          AND (? IS NULL OR organization_user_id = ?)
+                        """, Long.class, tenantId, organizationId,
+                        userId, userId)
+                : decoded.highWatermark();
+        Instant asOf = decoded == null
+                ? instant(databaseNow()) : decoded.asOf();
+        LocalDateTime anchor = decoded == null
+                ? null : decoded.lastOccurredAt();
+        String anchorNo = decoded == null
+                ? null : decoded.lastStableKey();
         List<WithdrawalView> items = jdbc.query("""
                 SELECT w.*, t.channel_state, t.terminal_classification,
                        t.package_info,
@@ -1638,12 +1753,33 @@ public class WithdrawalApplicationService {
                 WHERE w.tenant_id = ? AND w.organization_id = ?
                   AND (? IS NULL OR w.organization_user_id = ?)
                   AND (? IS NULL OR w.business_state = ?)
+                  AND w.id <= ?
+                  AND (? IS NULL OR w.created_at < ?
+                       OR (w.created_at = ?
+                           AND w.withdrawal_order_no < ?))
                 ORDER BY w.created_at DESC, w.withdrawal_order_no DESC
                 LIMIT ?
                 """, (rs, ignored) -> view(row(rs)), tenantId, organizationId,
-                userId, userId, state, state, limit);
+                userId, userId, state, state, highWatermark,
+                anchor, anchor, anchor, anchorNo, limit + 1);
+        boolean hasMore = items.size() > limit;
+        List<WithdrawalView> included = hasMore
+                ? items.subList(0, limit) : items;
+        String nextCursor = null;
+        if (hasMore) {
+            WithdrawalView last = included.getLast();
+            nextCursor = cursorCodec.encode(
+                    "WITHDRAWAL", fingerprint, asOf, highWatermark,
+                    databaseTime(last.createdAt()), last.withdrawalNo(),
+                    requiredLong("""
+                            SELECT id FROM fund_withdrawal_order
+                            WHERE tenant_id = ? AND organization_id = ?
+                              AND withdrawal_order_no = ?
+                            """, tenantId, organizationId,
+                            last.withdrawalNo()));
+        }
         return new WithdrawalPage(
-                items, Instant.now().truncatedTo(ChronoUnit.MILLIS), null);
+                included, asOf, nextCursor);
     }
 
     private WithdrawalRow requiredWithdrawal(
@@ -2459,22 +2595,28 @@ public class WithdrawalApplicationService {
     private record TransferPreparation(
             TransferSnapshot transfer,
             UUID gateWaitEventUid,
-            boolean newlyCreated) {
+            boolean newlyCreated,
+            String blockedReason) {
 
         static TransferPreparation created(TransferSnapshot transfer) {
-            return new TransferPreparation(transfer, null, true);
+            return new TransferPreparation(transfer, null, true, null);
         }
 
         static TransferPreparation existing(TransferSnapshot transfer) {
-            return new TransferPreparation(transfer, null, false);
+            return new TransferPreparation(transfer, null, false, null);
         }
 
         static TransferPreparation waiting(UUID gateWaitEventUid) {
-            return new TransferPreparation(null, gateWaitEventUid, false);
+            return new TransferPreparation(
+                    null, gateWaitEventUid, false, null);
         }
 
         static TransferPreparation localWait() {
-            return new TransferPreparation(null, null, false);
+            return new TransferPreparation(null, null, false, null);
+        }
+
+        static TransferPreparation blocked(String reason) {
+            return new TransferPreparation(null, null, false, reason);
         }
     }
 

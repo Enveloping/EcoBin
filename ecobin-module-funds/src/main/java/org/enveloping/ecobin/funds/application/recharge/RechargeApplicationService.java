@@ -17,6 +17,7 @@ import org.enveloping.ecobin.funds.application.access.FundsAccessService;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService.WebScope;
 import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy;
 import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy.Validation;
+import org.enveloping.ecobin.funds.application.pagination.FundsListCursorCodec;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutAccountView;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutEntryPage;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutEntryView;
@@ -58,6 +59,7 @@ public class RechargeApplicationService {
     private final FundsOperationalControlPort operationalControl;
     private final ReliableFundsAttemptBoundaryPort attemptBoundary;
     private final TransactionTemplate transactions;
+    private final FundsListCursorCodec cursorCodec;
     private final String notifyBaseUrl;
 
     public RechargeApplicationService(
@@ -68,6 +70,7 @@ public class RechargeApplicationService {
             FundsOperationalControlPort operationalControl,
             ReliableFundsAttemptBoundaryPort attemptBoundary,
             TransactionTemplate transactions,
+            FundsListCursorCodec cursorCodec,
             @Value("${ecobin.funds.wechat-pay.notify-base-url:https://fake.invalid}")
             String notifyBaseUrl) {
         this.jdbc = jdbc;
@@ -77,6 +80,7 @@ public class RechargeApplicationService {
         this.operationalControl = operationalControl;
         this.attemptBoundary = attemptBoundary;
         this.transactions = transactions;
+        this.cursorCodec = cursorCodec;
         this.notifyBaseUrl = stripTrailingSlash(notifyBaseUrl);
     }
 
@@ -184,6 +188,7 @@ public class RechargeApplicationService {
             String tenantCode,
             String organizationCode,
             String status,
+            String cursor,
             Integer limit,
             String statusBase) {
         WebScope scope = access.webScope(
@@ -191,6 +196,28 @@ public class RechargeApplicationService {
                 "fund.read", false);
         int pageSize = normalizeLimit(limit);
         String normalized = normalizeStatus(status);
+        String fingerprint = FundsListCursorCodec.fingerprint(
+                "RECHARGE", scope.tenantId(), scope.organizationId(),
+                normalized, pageSize);
+        FundsListCursorCodec.Decoded decoded =
+                cursor == null || cursor.isBlank()
+                        ? null
+                        : cursorCodec.decode(
+                                cursor, "RECHARGE", fingerprint);
+        long highWatermark = decoded == null
+                ? jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(id), 0)
+                        FROM fund_recharge_order
+                        WHERE tenant_id = ? AND organization_id = ?
+                        """, Long.class, scope.tenantId(),
+                        scope.organizationId())
+                : decoded.highWatermark();
+        Instant asOf = decoded == null
+                ? instant(databaseNow()) : decoded.asOf();
+        LocalDateTime anchor = decoded == null
+                ? null : decoded.lastOccurredAt();
+        String anchorNo = decoded == null
+                ? null : decoded.lastStableKey();
         List<RechargeRow> rows = jdbc.query("""
                 SELECT r.*, p.code_url, p.channel_state,
                        p.last_api_error_code, p.payment_uid
@@ -198,13 +225,30 @@ public class RechargeApplicationService {
                 JOIN fund_wechat_payment p ON p.recharge_order_id = r.id
                 WHERE r.tenant_id = ? AND r.organization_id = ?
                   AND (? IS NULL OR r.business_state = ?)
+                  AND r.id <= ?
+                  AND (? IS NULL OR r.created_at < ?
+                       OR (r.created_at = ?
+                           AND r.recharge_order_no < ?))
                 ORDER BY r.created_at DESC, r.recharge_order_no DESC
                 LIMIT ?
                 """, (rs, ignored) -> row(rs), scope.tenantId(),
-                scope.organizationId(), normalized, normalized, pageSize);
+                scope.organizationId(), normalized, normalized,
+                highWatermark, anchor, anchor, anchor, anchorNo,
+                pageSize + 1);
+        boolean hasMore = rows.size() > pageSize;
+        List<RechargeRow> included = hasMore
+                ? rows.subList(0, pageSize) : rows;
+        String nextCursor = null;
+        if (hasMore) {
+            RechargeRow last = included.getLast();
+            nextCursor = cursorCodec.encode(
+                    "RECHARGE", fingerprint, asOf, highWatermark,
+                    last.createdAt(), last.rechargeNo(), last.id());
+        }
         return new RechargePage(
-                rows.stream().map(row -> view(row, statusBase)).toList(),
-                Instant.now().truncatedTo(ChronoUnit.MILLIS), null);
+                included.stream()
+                        .map(row -> view(row, statusBase)).toList(),
+                asOf, nextCursor);
     }
 
     @Transactional(readOnly = true)
@@ -260,13 +304,38 @@ public class RechargeApplicationService {
             String organizationCode,
             String entryType,
             String sourceNo,
+            String cursor,
             Integer limit) {
         WebScope scope = access.webScope(
                 platformPath, tenantCode, organizationCode,
                 "fund.read", false);
         int pageSize = normalizeLimit(limit);
-        List<PayoutEntryView> rows = jdbc.query("""
-                SELECT e.entry_uid, e.event_type, e.available_delta_cent,
+        String normalizedEntryType = blankToNull(entryType);
+        String normalizedSourceNo = blankToNull(sourceNo);
+        String fingerprint = FundsListCursorCodec.fingerprint(
+                "PAYOUT_ENTRY", scope.tenantId(), scope.organizationId(),
+                normalizedEntryType, normalizedSourceNo, pageSize);
+        FundsListCursorCodec.Decoded decoded =
+                cursor == null || cursor.isBlank()
+                        ? null
+                        : cursorCodec.decode(
+                                cursor, "PAYOUT_ENTRY", fingerprint);
+        long highWatermark = decoded == null
+                ? jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(id), 0)
+                        FROM fund_organization_payout_entry
+                        WHERE tenant_id = ? AND organization_id = ?
+                        """, Long.class, scope.tenantId(),
+                        scope.organizationId())
+                : decoded.highWatermark();
+        Instant asOf = decoded == null
+                ? instant(databaseNow()) : decoded.asOf();
+        LocalDateTime anchor = decoded == null
+                ? null : decoded.lastOccurredAt();
+        Long anchorId = decoded == null ? null : decoded.lastId();
+        List<PayoutEntryRow> rows = jdbc.query("""
+                SELECT e.id, e.entry_uid, e.event_type,
+                       e.available_delta_cent,
                        e.available_after_cent, e.frozen_delta_cent,
                        e.frozen_after_cent, e.occurred_at,
                        COALESCE(r.recharge_order_no,
@@ -278,21 +347,43 @@ public class RechargeApplicationService {
                   AND (? IS NULL OR e.event_type = ?)
                   AND (? IS NULL OR COALESCE(r.recharge_order_no,
                                              w.withdrawal_order_no) = ?)
+                  AND e.id <= ?
+                  AND (? IS NULL OR e.occurred_at < ?
+                       OR (e.occurred_at = ? AND e.id < ?))
                 ORDER BY e.occurred_at DESC, e.id DESC
                 LIMIT ?
-                """, (rs, ignored) -> new PayoutEntryView(
-                        rs.getString("entry_uid"), rs.getString("event_type"),
-                        money(rs.getLong("available_delta_cent")),
-                        money(rs.getLong("frozen_delta_cent")),
-                        money(rs.getLong("available_after_cent")),
-                        money(rs.getLong("frozen_after_cent")),
-                        rs.getString("source_no"),
-                        instant(rs.getObject("occurred_at", LocalDateTime.class))),
+                """, (rs, ignored) -> {
+                    LocalDateTime occurredAt = rs.getObject(
+                            "occurred_at", LocalDateTime.class);
+                    return new PayoutEntryRow(
+                            rs.getLong("id"), rs.getString("entry_uid"),
+                            occurredAt, new PayoutEntryView(
+                            rs.getString("entry_uid"),
+                            rs.getString("event_type"),
+                            money(rs.getLong("available_delta_cent")),
+                            money(rs.getLong("frozen_delta_cent")),
+                            money(rs.getLong("available_after_cent")),
+                            money(rs.getLong("frozen_after_cent")),
+                            rs.getString("source_no"), instant(occurredAt)));
+                },
                 scope.tenantId(), scope.organizationId(),
-                blankToNull(entryType), blankToNull(entryType),
-                blankToNull(sourceNo), blankToNull(sourceNo), pageSize);
+                normalizedEntryType, normalizedEntryType,
+                normalizedSourceNo, normalizedSourceNo,
+                highWatermark, anchor, anchor, anchor, anchorId,
+                pageSize + 1);
+        boolean hasMore = rows.size() > pageSize;
+        List<PayoutEntryRow> included = hasMore
+                ? rows.subList(0, pageSize) : rows;
+        String nextCursor = null;
+        if (hasMore) {
+            PayoutEntryRow last = included.getLast();
+            nextCursor = cursorCodec.encode(
+                    "PAYOUT_ENTRY", fingerprint, asOf, highWatermark,
+                    last.occurredAt(), last.entryUid(), last.id());
+        }
         return new PayoutEntryPage(
-                rows, Instant.now().truncatedTo(ChronoUnit.MILLIS), null);
+                included.stream().map(PayoutEntryRow::view).toList(),
+                asOf, nextCursor);
     }
 
     public Result executeTask(Command command) {
@@ -309,6 +400,7 @@ public class RechargeApplicationService {
 
     public boolean applyTrustedNotification(
             long sourceInboxId,
+            long sourceTaskAttemptId,
             long trustedTenantId,
             long trustedOrganizationId,
             JsonNode payload) {
@@ -348,10 +440,11 @@ public class RechargeApplicationService {
                     total_amount_cent, payer_total_cent, payer_openid,
                     channel_occurred_at, content_sha256, observed_at, created_at
                 ) VALUES (?, ?, ?, ?, 'CALLBACK', 'INBOX', 'ORGANIZATION',
-                          ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+                          ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID().toString(), trustedTenantId,
                 trustedOrganizationId, current.paymentId(), sourceInboxId,
-                state, transactionId, total, payerTotal, payerOpenid,
+                sourceTaskAttemptId, state, transactionId, total,
+                payerTotal, payerOpenid,
                 databaseTime(parseInstant(requiredText(payload, "success_time"))),
                 sha256(payload.toString()), now, now);
         String existingTransaction = jdbc.queryForObject("""
@@ -384,6 +477,23 @@ public class RechargeApplicationService {
                     current.rechargeNo(),
                     "{\"rechargeNo\":\"" + current.rechargeNo() + "\"}",
                     now);
+        } else if (List.of("CLOSED", "EXPIRED")
+                .contains(current.businessState())) {
+            String evidence = "CALLBACK_TERMINAL_CONFLICT|"
+                    + current.outTradeNo() + "|"
+                    + current.businessState() + "|SUCCESS|"
+                    + transactionId;
+            operationalControl.observeReconciliationIssue(
+                    new ReconciliationIssue(
+                            current.tenantId(), current.organizationId(),
+                            sourceTaskAttemptId,
+                            "FUNDS.NATIVE_PAYMENT_TERMINAL_CONFLICT",
+                            "CRITICAL", "WECHAT_PAYMENT",
+                            current.outTradeNo(), sha256(evidence),
+                             "localState=" + current.businessState()
+                                     + "; trustedChannelState=SUCCESS",
+                             now));
+            return true;
         }
         return advanced == 1;
     }
@@ -587,12 +697,20 @@ public class RechargeApplicationService {
                 return new Result(Result.Outcome.DONE,
                         "close accepted; final channel query scheduled");
             }
-            return result.outcome()
-                    == NativePaymentResult.Outcome.PERMANENT_FAILURE
-                    ? new Result(Result.Outcome.BLOCKED,
-                    "payment close was permanently rejected")
-                    : new Result(Result.Outcome.WAITING,
-                    "payment close remains uncertain");
+            if (result.outcome()
+                    == NativePaymentResult.Outcome.PERMANENT_FAILURE) {
+                return new Result(Result.Outcome.BLOCKED,
+                        "payment close was permanently rejected");
+            }
+            if (result.outcome()
+                    == NativePaymentResult.Outcome.RETRYABLE_FAILURE) {
+                return new Result(Result.Outcome.RETRY,
+                        "temporary payment close channel error",
+                        Duration.ofSeconds(30));
+            }
+            return new Result(Result.Outcome.WAITING,
+                    "payment close remains uncertain",
+                    Duration.ofSeconds(30));
         }
         if (attemptKind == PaymentAttemptKind.QUERY
                 && "CLOSE_ACCEPTED".equals(current.channelState())
@@ -674,10 +792,15 @@ public class RechargeApplicationService {
                         """, businessState, now, now, current.rechargeId());
                 yield new Result(Result.Outcome.DONE, "payment closed");
             }
-            case ACCEPTED, NOT_FOUND, RETRYABLE_FAILURE -> new Result(
-                    Result.Outcome.WAITING, "payment remains non-terminal",
+            case RETRYABLE_FAILURE -> new Result(
                     attemptKind == PaymentAttemptKind.QUERY
-                            ? Duration.ofSeconds(30) : null);
+                            ? Result.Outcome.WAITING
+                            : Result.Outcome.RETRY,
+                    "temporary native payment channel error",
+                    Duration.ofSeconds(30));
+            case ACCEPTED, NOT_FOUND -> new Result(
+                    Result.Outcome.WAITING, "payment remains non-terminal",
+                    Duration.ofSeconds(30));
             case PERMANENT_FAILURE, UNKNOWN_STATE ->
                     throw new IllegalStateException("handled above");
             case SUCCEEDED, REFUNDED, ORDER_ALREADY_EXISTS ->
@@ -976,7 +1099,7 @@ public class RechargeApplicationService {
     private RechargeRow row(java.sql.ResultSet rs)
             throws java.sql.SQLException {
         return new RechargeRow(
-                rs.getString("recharge_order_no"),
+                rs.getLong("id"), rs.getString("recharge_order_no"),
                 rs.getString("payment_uid"),
                 rs.getLong("gross_amount_cent"),
                 rs.getLong("fee_amount_cent"),
@@ -1200,11 +1323,18 @@ public class RechargeApplicationService {
     }
 
     private record RechargeRow(
-            String rechargeNo, String paymentUid, long grossCent,
+            long id, String rechargeNo, String paymentUid, long grossCent,
             long feeCent, long netCent, String state, long version,
             LocalDateTime expiresAt, LocalDateTime createdAt,
             LocalDateTime paidAt, LocalDateTime postedAt,
             String codeUrl, String channelState, String errorCode) {
+    }
+
+    private record PayoutEntryRow(
+            long id,
+            String entryUid,
+            LocalDateTime occurredAt,
+            PayoutEntryView view) {
     }
 
     private static final class PaymentSnapshot {

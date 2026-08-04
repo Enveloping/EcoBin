@@ -5,6 +5,7 @@ import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.AuthorizedWebIdentity;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.CurrentMiniappIdentity;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.AuthorizedPlatformIdentity;
+import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.WithdrawalTransferIdentity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -76,6 +77,20 @@ public class FundsAccessService {
         return new PlatformScope(
                 actor.principalId(), actor.principalUid(),
                 actor.sessionUid(), actor.displayName());
+    }
+
+    public boolean lockWithdrawalTransferIdentity(
+            long tenantId,
+            long organizationId,
+            long organizationMiniappId,
+            String appid,
+            long organizationUserId,
+            String openid) {
+        return identity.lockWithdrawalTransferIdentity(
+                new WithdrawalTransferIdentity(
+                        tenantId, organizationId,
+                        organizationMiniappId, appid,
+                        organizationUserId, openid));
     }
 
     private static TargetApiException notFound() {

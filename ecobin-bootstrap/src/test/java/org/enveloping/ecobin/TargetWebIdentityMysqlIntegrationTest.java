@@ -23,16 +23,19 @@ import org.enveloping.ecobin.funds.api.port.ReliableFundsAttemptBoundaryPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskExecutorPort;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService;
 import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
+import org.enveloping.ecobin.funds.application.pagination.FundsListCursorCodec;
 import org.enveloping.ecobin.funds.application.withdrawal.WithdrawalApplicationService;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.CreateWithdrawalRequest;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.PayoutGateView;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.RestorePayoutGateRequest;
+import org.enveloping.ecobin.funds.web.v1.FundsModels.VersionedWithdrawalRequest;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.AuthorizedPlatformIdentity;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.AuthorizedWebIdentity;
 import org.enveloping.ecobin.identity.api.port.FundsIdentityAccessPort.CurrentMiniappIdentity;
+import org.enveloping.ecobin.identity.application.security.FundsIdentityAccessService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -40,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -102,6 +106,9 @@ class TargetWebIdentityMysqlIntegrationTest {
 
     @Autowired
     private FundsOperationalControlPort fundsOperationalControl;
+
+    @Autowired
+    private FundsListCursorCodec fundsListCursorCodec;
 
     private String run;
     private String platformLogin;
@@ -545,6 +552,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                 "lock-order-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         WithdrawalApplicationService service =
@@ -554,7 +563,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(ReliableFundsAttemptBoundaryPort.class),
                         mock(MerchantTransferChannelPort.class),
                         new TransactionTemplate(transactionManager), audit,
-                        fundsOperationalControl, "https://fake.invalid");
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
 
         CountDownLatch configLocked = new CountDownLatch(1);
         CountDownLatch tryBinding = new CountDownLatch(1);
@@ -650,6 +660,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                 "transfer-retry-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         ScriptedMerchantTransferChannel channel =
@@ -660,7 +672,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                         reliableFundsTasks,
                         mock(ReliableFundsAttemptBoundaryPort.class), channel,
                         new TransactionTemplate(transactionManager), audit,
-                        fundsOperationalControl, "https://fake.invalid");
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
 
         UUID createOperationUid = UUID.randomUUID();
         service.create(createOperationUid, new CreateWithdrawalRequest("0.10"));
@@ -771,6 +784,330 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void frozenRecipientBlocksInitialWechatTransferSubmission()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("ti");
+        String organizationCode = code("oi");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Transfer identity recheck");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "identity-recheck-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        FundsIdentityAccessService identityVerifier =
+                new FundsIdentityAccessService(jdbc);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenAnswer(invocation -> identityVerifier
+                        .lockWithdrawalTransferIdentity(
+                                invocation.getArgument(0)));
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        ScriptedMerchantTransferChannel channel =
+                new ScriptedMerchantTransferChannel();
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class), channel,
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
+
+        UUID createUid = UUID.randomUUID();
+        service.create(createUid, new CreateWithdrawalRequest("0.10"));
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "WD", createUid);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        jdbc.update("""
+                UPDATE fund_withdrawal_order
+                SET business_state = 'READY_TO_SUBMIT', reviewed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE withdrawal_order_no = ?
+                """, now, now, withdrawalNo);
+        String snapshot = "{\"withdrawalNo\":\""
+                + withdrawalNo + "\"}";
+        UUID taskUid = new TransactionTemplate(transactionManager).execute(
+                status -> reliableFundsTasks.register(
+                        new ReliableFundsTaskRegistrationPort
+                                .ReliableFundsTaskRegistration(
+                                fixture.tenantId(), fixture.organizationId(),
+                                "SUBMIT_MERCHANT_TRANSFER",
+                                "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                                "WITHDRAWAL_ORDER", withdrawalNo, 1, snapshot,
+                                RechargeApplicationService.sha256(snapshot),
+                                500, null)));
+        assertNotNull(taskUid);
+        long taskId = jdbc.queryForObject("""
+                SELECT id FROM ops_reliable_task WHERE task_uid = ?
+                """, Long.class, taskUid.toString());
+        jdbc.update("""
+                UPDATE iam_organization_user
+                SET status = 'FROZEN', frozen_at = ?,
+                    auth_version = auth_version + 1,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE id = ?
+                """, now, now, fixture.userId());
+
+        ReliableFundsTaskExecutorPort.Result result = service.executeTask(
+                fundsCommand(taskUid, taskId, 1, fixture, withdrawalNo));
+
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                result.outcome());
+        assertEquals(0, channel.submitCount);
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, Integer.class, withdrawalNo));
+        assertEquals("READY_TO_SUBMIT|990|10|990|10|1",
+                withdrawalFundsState(withdrawalNo));
+    }
+
+    @Test
+    void oppositeTrustedTransferCallbackCreatesReconciliationIssue()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tc");
+        String organizationCode = code("oc");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Transfer callback terminal conflict");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "callback-conflict-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        FailingMerchantTransferChannel channel =
+                new FailingMerchantTransferChannel();
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class), channel,
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
+
+        UUID createUid = UUID.randomUUID();
+        service.create(createUid, new CreateWithdrawalRequest("0.10"));
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "WD", createUid);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        jdbc.update("""
+                UPDATE fund_withdrawal_order
+                SET business_state = 'READY_TO_SUBMIT', reviewed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE withdrawal_order_no = ?
+                """, now, now, withdrawalNo);
+        String snapshot = "{\"withdrawalNo\":\""
+                + withdrawalNo + "\"}";
+        UUID taskUid = new TransactionTemplate(transactionManager).execute(
+                status -> reliableFundsTasks.register(
+                        new ReliableFundsTaskRegistrationPort
+                                .ReliableFundsTaskRegistration(
+                                fixture.tenantId(), fixture.organizationId(),
+                                "SUBMIT_MERCHANT_TRANSFER",
+                                "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                                "WITHDRAWAL_ORDER", withdrawalNo, 1, snapshot,
+                                RechargeApplicationService.sha256(snapshot),
+                                500, null)));
+        assertNotNull(taskUid);
+        long taskId = jdbc.queryForObject("""
+                SELECT id FROM ops_reliable_task WHERE task_uid = ?
+                """, Long.class, taskUid.toString());
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                service.executeTask(fundsCommand(
+                        taskUid, taskId, 1, fixture, withdrawalNo)).outcome());
+        assertEquals("CHANNEL_FAILED|1000|0|1000|0|0",
+                withdrawalFundsState(withdrawalNo));
+
+        JsonNode lateSuccess = objectMapper.valueToTree(Map.of(
+                "out_bill_no", channel.request.outBillNo(),
+                "state", "SUCCESS",
+                "mch_id", channel.request.mchid(),
+                "transfer_bill_no", channel.transferBillNo(),
+                "openid", channel.request.openid(),
+                "transfer_amount", channel.request.amountCent(),
+                "update_time", Instant.now().toString()));
+        long sourceInboxId = insertSyntheticWechatInbox(
+                fixture, "WECHAT_TRANSFER_NOTIFICATION",
+                lateSuccess.toString());
+        ReliableFundsTaskExecutorPort.Command callbackSource = fundsCommand(
+                taskUid, taskId, 2, fixture, withdrawalNo);
+        Boolean applied = new TransactionTemplate(transactionManager).execute(
+                status -> service.applyTrustedNotification(
+                        sourceInboxId,
+                        callbackSource.sourceTaskAttemptId(),
+                        fixture.tenantId(), fixture.organizationId(),
+                        lateSuccess));
+
+        assertTrue(Boolean.TRUE.equals(applied));
+        assertEquals("CHANNEL_FAILED|1000|0|1000|0|0",
+                withdrawalFundsState(withdrawalNo));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT state_conflict FROM fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, Integer.class, withdrawalNo));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code =
+                      'FUNDS.MERCHANT_TRANSFER_TERMINAL_CONFLICT'
+                  AND subject_type = 'WECHAT_TRANSFER'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, Integer.class, channel.request.outBillNo()));
+        assertEquals(2, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM fund_user_wallet_entry entry_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = entry_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, Integer.class, withdrawalNo));
+    }
+
+    @Test
+    void manualNotFoundQueryReopensExactBlockedSubmitTask()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tq");
+        String organizationCode = code("oq");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Manual transfer query recovery");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "manual-query-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        when(identity.authorizeWeb(
+                false, organizationCode, "withdrawal.handle", false))
+                .thenReturn(new AuthorizedWebIdentity(
+                        false, tenantCode, fixture.userId(),
+                        UUID.randomUUID(), UUID.randomUUID(),
+                        "manual-query-staff"));
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        ScriptedMerchantTransferChannel channel =
+                new ScriptedMerchantTransferChannel();
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class), channel,
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
+
+        UUID createUid = UUID.randomUUID();
+        service.create(createUid, new CreateWithdrawalRequest("0.10"));
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "WD", createUid);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        jdbc.update("""
+                UPDATE fund_withdrawal_order
+                SET business_state = 'READY_TO_SUBMIT', reviewed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE withdrawal_order_no = ?
+                """, now, now, withdrawalNo);
+        String snapshot = "{\"withdrawalNo\":\""
+                + withdrawalNo + "\"}";
+        UUID submitTaskUid = new TransactionTemplate(transactionManager)
+                .execute(status -> reliableFundsTasks.register(
+                        new ReliableFundsTaskRegistrationPort
+                                .ReliableFundsTaskRegistration(
+                                fixture.tenantId(), fixture.organizationId(),
+                                "SUBMIT_MERCHANT_TRANSFER",
+                                "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                                "WITHDRAWAL_ORDER", withdrawalNo, 1, snapshot,
+                                RechargeApplicationService.sha256(snapshot),
+                                500, null)));
+        assertNotNull(submitTaskUid);
+        long submitTaskId = jdbc.queryForObject("""
+                SELECT id FROM ops_reliable_task WHERE task_uid = ?
+                """, Long.class, submitTaskUid.toString());
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
+                service.executeTask(fundsCommand(
+                        submitTaskUid, submitTaskId, 1,
+                        fixture, withdrawalNo)).outcome());
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    completed_at = ?, blocked_reason_code = 'DATA_ERROR',
+                    blocked_diagnostic = 'manual recovery fixture',
+                    handled_wake_version = wake_version,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE id = ?
+                """, now, now, submitTaskId);
+        long withdrawalVersion = jdbc.queryForObject("""
+                SELECT lock_version FROM fund_withdrawal_order
+                WHERE withdrawal_order_no = ?
+                """, Long.class, withdrawalNo);
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> service.requestChannelAction(
+                        false, null, organizationCode, withdrawalNo,
+                        UUID.randomUUID(),
+                        new VersionedWithdrawalRequest(withdrawalVersion)));
+        FundsTaskRef queryTask = fundsTask(
+                "QUERY_MERCHANT_TRANSFER", withdrawalNo);
+
+        ReliableFundsTaskExecutorPort.Result observed = service.executeTask(
+                fundsCommand(
+                        queryTask.taskUid(), queryTask.taskId(), 1,
+                        fixture, "QUERY_MERCHANT_TRANSFER", withdrawalNo));
+
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                observed.outcome());
+        assertEquals("PENDING|NULL|NULL", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              COALESCE(completed_at, 'NULL'), '|',
+                              COALESCE(blocked_reason_code, 'NULL'))
+                FROM ops_reliable_task WHERE id = ?
+                """, String.class, submitTaskId));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reliable_task
+                WHERE task_type = 'QUERY_MERCHANT_TRANSFER'
+                  AND target_type = 'WITHDRAWAL_ORDER'
+                  AND target_stable_key = ?
+                """, Integer.class, withdrawalNo));
+    }
+
+    @Test
     void nativeRechargeRejectsAmountMismatchBeforeTrustedNetPosting()
             throws Exception {
         BrowserClient platform = platformClient();
@@ -797,6 +1134,11 @@ class TargetWebIdentityMysqlIntegrationTest {
                 .thenReturn(new AuthorizedWebIdentity(
                         false, tenantCode, staffId, UUID.randomUUID(),
                         UUID.randomUUID(), "recharge-test-staff"));
+        when(identity.authorizeWeb(
+                false, organizationCode, "fund.read", false))
+                .thenReturn(new AuthorizedWebIdentity(
+                        false, tenantCode, staffId, UUID.randomUUID(),
+                        UUID.randomUUID(), "recharge-test-staff"));
         ScriptedNativePaymentChannel channel =
                 new ScriptedNativePaymentChannel();
         RechargeApplicationService creator = new RechargeApplicationService(
@@ -804,6 +1146,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 reliableFundsTasks, channel, fundsOperationalControl,
                 mock(ReliableFundsAttemptBoundaryPort.class),
                 new TransactionTemplate(transactionManager),
+                fundsListCursorCodec,
                 "https://original.example");
 
         UUID operationUid = UUID.randomUUID();
@@ -811,11 +1154,104 @@ class TargetWebIdentityMysqlIntegrationTest {
                 status -> creator.create(
                         false, null, organizationCode, operationUid,
                         "1.00", "/api/v1/web/recharges"));
+        UUID secondOperationUid = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> creator.create(
+                        false, null, organizationCode, secondOperationUid,
+                        "2.00", "/api/v1/web/recharges"));
+        var firstPage = creator.list(
+                false, null, organizationCode, null, null, 1,
+                "/api/v1/web/recharges");
+        assertEquals(1, firstPage.items().size());
+        assertNotNull(firstPage.nextCursor());
+        var secondPage = creator.list(
+                false, null, organizationCode, null,
+                firstPage.nextCursor(), 1,
+                "/api/v1/web/recharges");
+        assertEquals(1, secondPage.items().size());
+        assertFalse(firstPage.items().getFirst().rechargeNo().equals(
+                secondPage.items().getFirst().rechargeNo()));
+        assertEquals(null, secondPage.nextCursor());
+        TargetApiException cursorMismatch = assertThrows(
+                TargetApiException.class,
+                () -> creator.list(
+                        false, null, organizationCode,
+                        "PENDING_PAYMENT", firstPage.nextCursor(), 1,
+                        "/api/v1/web/recharges"));
+        assertEquals("COMMON.INVALID_CURSOR", cursorMismatch.code());
+
+        String secondRechargeNo = RechargeApplicationService.stableNo(
+                "RC", secondOperationUid);
+        PaymentNotificationFixture callback = jdbc.queryForObject("""
+                SELECT payment.mchid_snapshot, payment.appid_snapshot,
+                       payment.out_trade_no, payment.request_amount_cent
+                FROM fund_wechat_payment payment
+                JOIN fund_recharge_order recharge
+                  ON recharge.id = payment.recharge_order_id
+                WHERE recharge.recharge_order_no = ?
+                """, (rs, ignored) -> new PaymentNotificationFixture(
+                        rs.getString("mchid_snapshot"),
+                        rs.getString("appid_snapshot"),
+                        rs.getString("out_trade_no"),
+                        rs.getLong("request_amount_cent")),
+                secondRechargeNo);
+        LocalDateTime callbackNow = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        jdbc.update("""
+                UPDATE fund_recharge_order
+                SET business_state = 'EXPIRED', closed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE recharge_order_no = ?
+                """, callbackNow, callbackNow, secondRechargeNo);
+        JsonNode lateSuccess = objectMapper.valueToTree(Map.of(
+                "mchid", callback.mchid(),
+                "appid", callback.appid(),
+                "out_trade_no", callback.outTradeNo(),
+                "trade_state", "SUCCESS",
+                "transaction_id", "WXLATE" + callback.outTradeNo(),
+                "success_time", Instant.now().toString(),
+                "amount", Map.of(
+                        "total", callback.amountCent(),
+                        "payer_total", callback.amountCent()),
+                "payer", Map.of("openid", "late-payer-" + run)));
+        long sourceInboxId = insertSyntheticWechatInbox(
+                fixture, "WECHAT_PAYMENT_NOTIFICATION",
+                lateSuccess.toString());
+        FundsTaskRef secondCreateTask = fundsTask(
+                "CREATE_NATIVE_PAYMENT", secondRechargeNo);
+        ReliableFundsTaskExecutorPort.Command callbackSource = fundsCommand(
+                secondCreateTask.taskUid(), secondCreateTask.taskId(), 1,
+                fixture, "CREATE_NATIVE_PAYMENT", secondRechargeNo);
+        Boolean callbackApplied = new TransactionTemplate(transactionManager)
+                .execute(status -> creator.applyTrustedNotification(
+                        sourceInboxId,
+                        callbackSource.sourceTaskAttemptId(),
+                        fixture.tenantId(), fixture.organizationId(),
+                        lateSuccess));
+        assertTrue(Boolean.TRUE.equals(callbackApplied));
+        assertEquals("EXPIRED|1000", jdbc.queryForObject("""
+                SELECT CONCAT(recharge.business_state, '|',
+                              account.available_payout_cent)
+                FROM fund_recharge_order recharge
+                JOIN fund_organization_payout_account account
+                  ON account.tenant_id = recharge.tenant_id
+                 AND account.organization_id = recharge.organization_id
+                WHERE recharge.recharge_order_no = ?
+                """, String.class, secondRechargeNo));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code =
+                      'FUNDS.NATIVE_PAYMENT_TERMINAL_CONFLICT'
+                  AND subject_type = 'WECHAT_PAYMENT'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, Integer.class, callback.outTradeNo()));
         RechargeApplicationService service = new RechargeApplicationService(
                 jdbc, new FundsAccessService(jdbc, identity),
                 reliableFundsTasks, channel, fundsOperationalControl,
                 mock(ReliableFundsAttemptBoundaryPort.class),
                 new TransactionTemplate(transactionManager),
+                fundsListCursorCodec,
                 "https://changed.example");
         String rechargeNo = RechargeApplicationService.stableNo(
                 "RC", operationUid);
@@ -1078,7 +1514,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(ReliableFundsAttemptBoundaryPort.class),
                         mock(MerchantTransferChannelPort.class),
                         new TransactionTemplate(transactionManager), audit,
-                        fundsOperationalControl, "https://fake.invalid");
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
 
         UUID createUid = UUID.randomUUID();
         withdrawalService.create(
@@ -1338,6 +1775,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 reliableFundsTasks, channel, fundsOperationalControl,
                 mock(ReliableFundsAttemptBoundaryPort.class),
                 new TransactionTemplate(transactionManager),
+                fundsListCursorCodec,
                 "https://native.example");
 
         UUID operationUid = UUID.randomUUID();
@@ -1414,6 +1852,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 reliableFundsTasks, channel, fundsOperationalControl,
                 mock(ReliableFundsAttemptBoundaryPort.class),
                 new TransactionTemplate(transactionManager),
+                fundsListCursorCodec,
                 "https://native-close.example");
 
         UUID operationUid = UUID.randomUUID();
@@ -1425,10 +1864,18 @@ class TargetWebIdentityMysqlIntegrationTest {
                 "RC", operationUid);
         FundsTaskRef createTask = fundsTask(
                 "CREATE_NATIVE_PAYMENT", rechargeNo);
+        ReliableFundsTaskExecutorPort.Result createRetry =
+                service.executeTask(fundsCommand(
+                        createTask.taskUid(), createTask.taskId(), 1,
+                        fixture, "CREATE_NATIVE_PAYMENT", rechargeNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
+                createRetry.outcome());
+        assertEquals(Duration.ofSeconds(30), createRetry.retryAfter());
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 service.executeTask(fundsCommand(
-                        createTask.taskUid(), createTask.taskId(), 1,
+                        createTask.taskUid(), createTask.taskId(), 2,
                         fixture, "CREATE_NATIVE_PAYMENT", rechargeNo))
                         .outcome());
         FundsTaskRef queryTask = fundsTask(
@@ -1451,10 +1898,18 @@ class TargetWebIdentityMysqlIntegrationTest {
                 expiredQuery.outcome());
         FundsTaskRef closeTask = fundsTask(
                 "CLOSE_NATIVE_PAYMENT", rechargeNo);
+        ReliableFundsTaskExecutorPort.Result closeRetry =
+                service.executeTask(fundsCommand(
+                        closeTask.taskUid(), closeTask.taskId(), 1,
+                        fixture, "CLOSE_NATIVE_PAYMENT", rechargeNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
+                closeRetry.outcome());
+        assertEquals(Duration.ofSeconds(30), closeRetry.retryAfter());
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 service.executeTask(fundsCommand(
-                        closeTask.taskUid(), closeTask.taskId(), 1,
+                        closeTask.taskUid(), closeTask.taskId(), 2,
                         fixture, "CLOSE_NATIVE_PAYMENT", rechargeNo))
                         .outcome());
 
@@ -1552,6 +2007,44 @@ class TargetWebIdentityMysqlIntegrationTest {
         return new ReliableFundsTaskExecutorPort.Command(
                 taskUid, attemptUid, attemptId,
                 taskType, targetStableKey);
+    }
+
+    private long insertSyntheticWechatInbox(
+            WithdrawalCreationFixture fixture,
+            String messageKind,
+            String normalizedPayload) {
+        UUID inboxUid = UUID.randomUUID();
+        String externalMessageId = UUID.randomUUID().toString();
+        byte[] raw = normalizedPayload.getBytes(StandardCharsets.UTF_8);
+        byte[] contentHash = RechargeApplicationService.sha256(
+                normalizedPayload);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        jdbc.update("""
+                INSERT INTO ops_inbox_message (
+                    inbox_uid, scope_kind, tenant_id, organization_id,
+                    source_namespace, source_principal_key,
+                    external_message_id, message_kind,
+                    normalized_schema_version, raw_transport_body,
+                    raw_transport_sha256, normalized_payload,
+                    normalized_content_sha256, authentication_method,
+                    authentication_principal_ref, correlation_uid,
+                    causation_uid, processing_state, first_received_at,
+                    last_received_at, delivery_count, processed_at,
+                    lock_version, created_at, updated_at
+                ) VALUES (
+                    ?, 'ORGANIZATION', ?, ?, 'wechat_pay_test', ?, ?, ?,
+                    1, ?, ?, CAST(? AS JSON), ?, 'WECHATPAY_SIGNATURE',
+                    'synthetic-platform-certificate', NULL, NULL, 'RECEIVED',
+                    ?, ?, 1, NULL, 0, ?, ?
+                )
+                """, inboxUid.toString(), fixture.tenantId(),
+                fixture.organizationId(), "merchant-" + run,
+                externalMessageId, messageKind, raw, contentHash,
+                normalizedPayload, contentHash, now, now, now, now);
+        return jdbc.queryForObject("""
+                SELECT id FROM ops_inbox_message WHERE inbox_uid = ?
+                """, Long.class, inboxUid.toString());
     }
 
     private FundsTaskRef fundsTask(String taskType, String targetStableKey) {
@@ -2985,7 +3478,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                             mock(ReliableFundsAttemptBoundaryPort.class),
                             mock(MerchantTransferChannelPort.class),
                             new TransactionTemplate(transactionManager), audit,
-                            fundsOperationalControl,
+                            fundsOperationalControl, fundsListCursorCodec,
                             "https://fake.invalid");
             UUID restoreOperationUid = UUID.randomUUID();
             RestorePayoutGateRequest restoreRequest =
@@ -3073,6 +3566,13 @@ class TargetWebIdentityMysqlIntegrationTest {
     private record FundsTaskRef(long taskId, UUID taskUid) {
     }
 
+    private record PaymentNotificationFixture(
+            String mchid,
+            String appid,
+            String outTradeNo,
+            long amountCent) {
+    }
+
     private static final class ScriptedNativePaymentChannel
             implements NativePaymentChannelPort {
 
@@ -3152,10 +3652,19 @@ class TargetWebIdentityMysqlIntegrationTest {
             implements NativePaymentChannelPort {
 
         private NativePaymentRequest request;
+        private int createCount;
+        private int closeCount;
 
         @Override
         public NativePaymentResult create(NativePaymentRequest request) {
+            createCount++;
             this.request = request;
+            if (createCount == 1) {
+                return new NativePaymentResult(
+                        NativePaymentResult.Outcome.RETRYABLE_FAILURE,
+                        "API_ERROR", null, null, "SYSTEM_ERROR",
+                        "temporary create failure", Instant.now());
+            }
             return new NativePaymentResult(
                     NativePaymentResult.Outcome.ACCEPTED,
                     "NOTPAY", "weixin://wxpay/bizpayurl?pr=CLOSETEST",
@@ -3173,9 +3682,43 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         @Override
         public NativePaymentResult close(NativePaymentQuery query) {
+            closeCount++;
+            if (closeCount == 1) {
+                return new NativePaymentResult(
+                        NativePaymentResult.Outcome.RETRYABLE_FAILURE,
+                        "API_ERROR", null, null, "SYSTEM_ERROR",
+                        "temporary close failure", Instant.now());
+            }
             return new NativePaymentResult(
                     NativePaymentResult.Outcome.CLOSED,
                     "CLOSED", null, null, null, null, Instant.now());
+        }
+    }
+
+    private static final class FailingMerchantTransferChannel
+            implements MerchantTransferChannelPort {
+
+        private MerchantTransferRequest request;
+
+        @Override
+        public MerchantTransferResult submit(MerchantTransferRequest request) {
+            this.request = request;
+            return new MerchantTransferResult(
+                    MerchantTransferResult.Outcome.FAIL,
+                    "FAIL", transferBillNo(), null, null,
+                    "RECIPIENT_ACCOUNT_ABNORMAL", "synthetic terminal fail",
+                    Instant.now(), request.mchid(), request.outBillNo(),
+                    request.appid(), request.amountCent(), request.openid());
+        }
+
+        @Override
+        public MerchantTransferResult query(MerchantTransferQuery query) {
+            throw new UnsupportedOperationException(
+                    "query is outside the terminal callback fixture");
+        }
+
+        private String transferBillNo() {
+            return "WXFAIL" + request.outBillNo();
         }
     }
 

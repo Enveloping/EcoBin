@@ -100,6 +100,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                 7L,
                 8L,
                 UUID.randomUUID(),
+                42L,
                 UUID.randomUUID(),
                 0L,
                 "ORANGE_PI_RUNTIME_SNAPSHOT",

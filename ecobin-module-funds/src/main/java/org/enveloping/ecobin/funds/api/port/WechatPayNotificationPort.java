@@ -15,6 +15,7 @@ public interface WechatPayNotificationPort {
 
     boolean apply(
             TrustedOrganizationInboxRef sourceInbox,
+            long sourceTaskAttemptId,
             String messageKind,
             int schemaVersion,
             String normalizedPayload);

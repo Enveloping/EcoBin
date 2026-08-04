@@ -39,6 +39,7 @@ public class ReliableFundsInboxWorkerService
                             inboxRefFactory.issue(
                                     task.inboxId(), task.tenantId(),
                                     task.organizationId()),
+                            task.sourceTaskAttemptId(),
                             task.messageKind(),
                             task.normalizedSchemaVersion(),
                             task.normalizedPayload());

@@ -20,6 +20,12 @@ public interface FundsIdentityAccessPort {
 
     AuthorizedPlatformIdentity authorizePlatform();
 
+    /**
+     * 按固定身份锁序复核一次尚未越过微信渠道边界的提现收款身份。
+     */
+    boolean lockWithdrawalTransferIdentity(
+            WithdrawalTransferIdentity identity);
+
     record AuthorizedWebIdentity(
             boolean platform,
             String tenantCode,
@@ -47,5 +53,14 @@ public interface FundsIdentityAccessPort {
             UUID principalUid,
             UUID sessionUid,
             String displayName) {
+    }
+
+    record WithdrawalTransferIdentity(
+            long tenantId,
+            long organizationId,
+            long organizationMiniappId,
+            String appid,
+            long organizationUserId,
+            String openid) {
     }
 }

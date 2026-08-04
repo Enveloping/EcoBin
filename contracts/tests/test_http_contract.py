@@ -97,6 +97,90 @@ class HttpContractTests(unittest.TestCase):
         ):
             validate_openapi_document(changed)
 
+    def test_funds_controller_surface_and_cursor_queries_are_published(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        organization = "/api/v1/web/organizations/{organizationCode}"
+        platform = (
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}"
+        )
+        expected_operations = {
+            (organization + "/payout-account", "get"),
+            (organization + "/payout-account/entries", "get"),
+            (organization + "/recharge-orders", "get"),
+            (organization + "/recharge-orders", "post"),
+            (organization + "/recharge-orders/{rechargeNo}", "get"),
+            (organization + "/withdrawal-configuration", "get"),
+            (organization + "/withdrawal-configuration-releases", "post"),
+            (organization + "/withdrawals", "get"),
+            (organization + "/withdrawals/{withdrawalNo}", "get"),
+            (organization + "/withdrawals/{withdrawalNo}/reviews", "post"),
+            (
+                organization
+                + "/withdrawals/{withdrawalNo}/pre-channel-terminations",
+                "post",
+            ),
+            (
+                organization + "/withdrawals/{withdrawalNo}/channel-queries",
+                "post",
+            ),
+            (platform + "/payout-account", "get"),
+            (platform + "/payout-account/entries", "get"),
+            (platform + "/recharge-orders", "get"),
+            (platform + "/recharge-orders/{rechargeNo}", "get"),
+            (platform + "/withdrawal-configuration", "get"),
+            (platform + "/withdrawals", "get"),
+            (platform + "/withdrawals/{withdrawalNo}", "get"),
+            (platform + "/withdrawals/{withdrawalNo}/reviews", "post"),
+            (
+                platform
+                + "/withdrawals/{withdrawalNo}/pre-channel-terminations",
+                "post",
+            ),
+            (
+                platform + "/withdrawals/{withdrawalNo}/channel-queries",
+                "post",
+            ),
+        }
+        missing = {
+            (path, method)
+            for path, method in expected_operations
+            if path not in paths or method not in paths[path]
+        }
+        self.assertEqual(
+            set(),
+            missing,
+            f"funds operations missing from OpenAPI: {sorted(missing)}",
+        )
+
+        cursor_collections = {
+            organization + "/payout-account/entries",
+            organization + "/recharge-orders",
+            organization + "/withdrawals",
+            platform + "/payout-account/entries",
+            platform + "/recharge-orders",
+            platform + "/withdrawals",
+            "/api/v1/miniapp/me/withdrawals",
+        }
+        for path in cursor_collections:
+            parameters = paths[path]["get"].get("parameters", [])
+            names = {
+                parameter.get("name")
+                for parameter in parameters
+                if "$ref" not in parameter
+            }
+            refs = {parameter.get("$ref") for parameter in parameters}
+            self.assertTrue(
+                "cursor" in names
+                or "#/components/parameters/Cursor" in refs,
+                f"funds collection lacks cursor: {path}",
+            )
+
+        schemas = document["components"]["schemas"]
+        self.assertIn("PayoutEntryPage", schemas)
+        self.assertIn("PayoutEntryPageEnvelope", schemas)
+
     def test_device_ownership_and_operation_roles_are_explicit(self) -> None:
         document = load_openapi()
         paths = document["paths"]

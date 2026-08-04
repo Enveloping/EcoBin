@@ -72,6 +72,7 @@ public class TrustedWechatPayNotificationService
     @Override
     public boolean apply(
             TrustedOrganizationInboxRef sourceInbox,
+            long sourceTaskAttemptId,
             String messageKind,
             int schemaVersion,
             String normalizedPayload) {
@@ -89,9 +90,11 @@ public class TrustedWechatPayNotificationService
         return sourceInbox.use((inboxId, tenantId, organizationId) ->
                 switch (messageKind) {
                     case PAYMENT_KIND -> recharge.applyTrustedNotification(
-                            inboxId, tenantId, organizationId, payload);
+                            inboxId, sourceTaskAttemptId,
+                            tenantId, organizationId, payload);
                     case TRANSFER_KIND -> withdrawal.applyTrustedNotification(
-                            inboxId, tenantId, organizationId, payload);
+                            inboxId, sourceTaskAttemptId,
+                            tenantId, organizationId, payload);
                     default -> throw new IllegalArgumentException(
                             "unsupported WeChat Pay notification kind");
                 });

@@ -729,6 +729,13 @@ public class ReliableOperationsJdbcRepository {
                 now,
                 leaseUntil,
                 now);
+        Long attemptId = jdbcTemplate.queryForObject(
+                "SELECT id FROM ops_task_attempt WHERE attempt_uid = ?",
+                Long.class, attemptUid.toString());
+        if (attemptId == null || attemptId <= 0) {
+            throw new IllegalStateException(
+                    "claimed inbox attempt has no positive database identity");
+        }
         return new ClaimedInboxTask(
                 candidate.taskUid(),
                 inbox.inboxUid(),
@@ -737,6 +744,7 @@ public class ReliableOperationsJdbcRepository {
                 inbox.tenantId(),
                 inbox.organizationId(),
                 attemptUid,
+                attemptId,
                 leaseToken,
                 candidate.wakeVersion(),
                 inbox.messageKind(),

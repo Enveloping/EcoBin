@@ -6,6 +6,7 @@ import request from './request';
 type Schemas = components['schemas'];
 
 export type PayoutAccount = Schemas['PayoutAccountView'];
+export type PayoutEntryPage = Schemas['PayoutEntryPage'];
 export type PayoutGate = Schemas['PayoutGateView'];
 export type RestorePayoutGateRequest = Schemas['RestorePayoutGateRequest'];
 export type RechargeOrder = Schemas['RechargeView'];
@@ -14,6 +15,8 @@ export type CreateRechargeRequest = Schemas['CreateRechargeRequest'];
 export type WithdrawalOrder = Schemas['WithdrawalView'];
 export type WithdrawalPage = Schemas['WithdrawalPage'];
 export type ReviewWithdrawalRequest = Schemas['ReviewWithdrawalRequest'];
+export type VersionedWithdrawalRequest =
+  Schemas['VersionedWithdrawalRequest'];
 export type WithdrawalConfiguration =
   Schemas['WithdrawalConfigurationView'];
 export type MerchantBinding = Schemas['MerchantBindingView'];
@@ -49,6 +52,24 @@ export function getPayoutAccount(
   return request<PayoutAccount>({
     url: `${organizationBase(context, organizationCode)}/payout-account`,
     method: 'GET',
+    noStore: true,
+  });
+}
+
+export function listPayoutEntries(
+  context: DirectoryContext,
+  organizationCode: string,
+  params: {
+    entryType?: string;
+    sourceNo?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
+) {
+  return request<PayoutEntryPage>({
+    url: `${organizationBase(context, organizationCode)}/payout-account/entries`,
+    method: 'GET',
+    params,
     noStore: true,
   });
 }
@@ -107,7 +128,7 @@ export function restorePayoutGate(
 export function listRechargeOrders(
   context: DirectoryContext,
   organizationCode: string,
-  params: { status?: string; limit?: number } = {},
+  params: { status?: string; cursor?: string; limit?: number } = {},
 ) {
   return request<RechargePage>({
     url: `${organizationBase(context, organizationCode)}/recharge-orders`,
@@ -136,7 +157,7 @@ export function createRechargeOrder(
 export function listWithdrawals(
   context: DirectoryContext,
   organizationCode: string,
-  params: { status?: string; limit?: number } = {},
+  params: { status?: string; cursor?: string; limit?: number } = {},
 ) {
   return request<WithdrawalPage>({
     url: `${organizationBase(context, organizationCode)}/withdrawals`,
@@ -157,6 +178,38 @@ export function reviewWithdrawal(
     url:
       `${organizationBase(context, organizationCode)}/withdrawals/`
       + `${encodeURIComponent(withdrawalNo)}/reviews`,
+    method: 'POST',
+    data,
+  });
+}
+
+export function terminateWithdrawalBeforeChannel(
+  context: DirectoryContext,
+  organizationCode: string,
+  withdrawalNo: string,
+  data: VersionedWithdrawalRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<WithdrawalOrder, VersionedWithdrawalRequest>({
+    url:
+      `${organizationBase(context, organizationCode)}/withdrawals/`
+      + `${encodeURIComponent(withdrawalNo)}/pre-channel-terminations`,
+    method: 'POST',
+    data,
+  });
+}
+
+export function queryWithdrawalChannel(
+  context: DirectoryContext,
+  organizationCode: string,
+  withdrawalNo: string,
+  data: VersionedWithdrawalRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<WithdrawalOrder, VersionedWithdrawalRequest>({
+    url:
+      `${organizationBase(context, organizationCode)}/withdrawals/`
+      + `${encodeURIComponent(withdrawalNo)}/channel-queries`,
     method: 'POST',
     data,
   });

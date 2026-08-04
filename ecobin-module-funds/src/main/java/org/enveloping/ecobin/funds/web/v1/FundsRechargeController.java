@@ -43,11 +43,12 @@ public class FundsRechargeController {
     public ResponseEntity<TargetApiEnvelope<RechargePage>> listStaff(
             @PathVariable String organizationCode,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         String base = "/api/v1/web/organizations/" + organizationCode;
         return ok(service.list(false, null, organizationCode,
-                status, limit, base), request);
+                status, cursor, limit, base), request);
     }
 
     @GetMapping("/api/v1/web/organizations/{organizationCode}/recharge-orders/{rechargeNo}")
@@ -72,10 +73,11 @@ public class FundsRechargeController {
             @PathVariable String organizationCode,
             @RequestParam(required = false) String entryType,
             @RequestParam(required = false) String sourceNo,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         return ok(service.payoutEntries(false, null, organizationCode,
-                entryType, sourceNo, limit), request);
+                entryType, sourceNo, cursor, limit), request);
     }
 
     @GetMapping("/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/recharge-orders")
@@ -83,12 +85,13 @@ public class FundsRechargeController {
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         String base = "/api/v1/web/platform/tenants/" + tenantCode
                 + "/organizations/" + organizationCode;
         return ok(service.list(true, tenantCode, organizationCode,
-                status, limit, base), request);
+                status, cursor, limit, base), request);
     }
 
     @GetMapping("/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/recharge-orders/{rechargeNo}")
@@ -118,10 +121,11 @@ public class FundsRechargeController {
             @PathVariable String organizationCode,
             @RequestParam(required = false) String entryType,
             @RequestParam(required = false) String sourceNo,
+            @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         return ok(service.payoutEntries(true, tenantCode, organizationCode,
-                entryType, sourceNo, limit), request);
+                entryType, sourceNo, cursor, limit), request);
     }
 
     private static ResponseEntity<TargetApiEnvelope<RechargeView>> accepted(

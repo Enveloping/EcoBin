@@ -36,6 +36,19 @@ public interface FundsOperationalControlPort {
             String withdrawalNo,
             LocalDateTime wakeAt);
 
+    WithdrawalSubmitTaskWakeResult scheduleWithdrawalChannelQuery(
+            long tenantId,
+            long organizationId,
+            String withdrawalNo,
+            LocalDateTime wakeAt);
+
+    WithdrawalSubmitTaskWakeResult
+    recoverWithdrawalSubmitAfterConfirmedNotFound(
+            long tenantId,
+            long organizationId,
+            String withdrawalNo,
+            LocalDateTime wakeAt);
+
     void observeReconciliationIssue(ReconciliationIssue issue);
 
     enum WithdrawalSubmitTaskWakeResult {
@@ -43,7 +56,7 @@ public interface FundsOperationalControlPort {
         WOKEN,
         /** 任务仍在等待出款闸门等其他独立条件，本次不能立即派发。 */
         WAITING_ON_ANOTHER_CONDITION,
-        /** 精确任务缺失、已经阻断或已经终结，不允许通用唤醒。 */
+        /** 精确任务缺失，或其当前状态不满足本次受控恢复条件。 */
         NOT_WAKEABLE
     }
 
