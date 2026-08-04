@@ -638,7 +638,7 @@ public class WithdrawalApplicationService {
         if (!"NON_TERMINAL".equals(known.terminalClassification())) {
             TransferSnapshot locked = transferByOutBillNo(outBillNo, true);
             appendTransferInboxObservation(
-                    sourceInboxId, sourceTaskAttemptId, locked, payload,
+                    sourceInboxId, locked, payload,
                     state, transferBillNo, amount, openid, now);
             boolean conflicted = markTerminalConflictIfNeeded(
                     locked, classification, now);
@@ -657,7 +657,7 @@ public class WithdrawalApplicationService {
         if (!activeWithdrawalExists(initial.walletId(), true)) {
             TransferSnapshot locked = transferByOutBillNo(outBillNo, true);
             appendTransferInboxObservation(
-                    sourceInboxId, sourceTaskAttemptId, locked, payload,
+                    sourceInboxId, locked, payload,
                     state, transferBillNo, amount, openid, now);
             if (!"NON_TERMINAL".equals(locked.terminalClassification())) {
                 boolean conflicted = markTerminalConflictIfNeeded(
@@ -678,7 +678,7 @@ public class WithdrawalApplicationService {
         AccountRow account = requiredAccountById(order, true);
         TransferSnapshot locked = transferByOutBillNo(outBillNo, true);
         appendTransferInboxObservation(
-                sourceInboxId, sourceTaskAttemptId, locked, payload,
+                sourceInboxId, locked, payload,
                 state, transferBillNo, amount, openid, now);
         if (!"NON_TERMINAL".equals(locked.terminalClassification())) {
             boolean conflicted = markTerminalConflictIfNeeded(
@@ -719,7 +719,6 @@ public class WithdrawalApplicationService {
 
     private void appendTransferInboxObservation(
             long sourceInboxId,
-            long sourceTaskAttemptId,
             TransferSnapshot transfer,
             JsonNode payload,
             String state,
@@ -737,10 +736,10 @@ public class WithdrawalApplicationService {
                     openid, channel_occurred_at, content_sha256,
                     observed_at, created_at
                 ) VALUES (?, ?, ?, ?, 'CALLBACK', 'INBOX', 'ORGANIZATION',
-                          ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                          ?, NULL, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID().toString(), transfer.tenantId(),
                 transfer.organizationId(), transfer.transferId(),
-                sourceInboxId, sourceTaskAttemptId, state,
+                sourceInboxId, state,
                 trimTo(text(payload, "fail_reason"), 255),
                 transfer.outBillNo(), transferBillNo, amount, openid,
                 databaseTime(parseInstant(requiredText(payload, "update_time"))),

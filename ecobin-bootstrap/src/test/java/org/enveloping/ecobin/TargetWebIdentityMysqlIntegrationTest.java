@@ -939,9 +939,13 @@ class TargetWebIdentityMysqlIntegrationTest {
                 SELECT id FROM ops_reliable_task WHERE task_uid = ?
                 """, Long.class, taskUid.toString());
         assertEquals(
-                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 service.executeTask(fundsCommand(
                         taskUid, taskId, 1, fixture, withdrawalNo)).outcome());
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                service.executeTask(fundsCommand(
+                        taskUid, taskId, 2, fixture, withdrawalNo)).outcome());
         assertEquals("CHANNEL_FAILED|1000|0|1000|0|0",
                 withdrawalFundsState(withdrawalNo));
 
@@ -957,7 +961,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 fixture, "WECHAT_TRANSFER_NOTIFICATION",
                 lateSuccess.toString());
         ReliableFundsTaskExecutorPort.Command callbackSource = fundsCommand(
-                taskUid, taskId, 2, fixture, withdrawalNo);
+                taskUid, taskId, 3, fixture, withdrawalNo);
         Boolean applied = new TransactionTemplate(transactionManager).execute(
                 status -> service.applyTrustedNotification(
                         sourceInboxId,
@@ -1064,6 +1068,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                 service.executeTask(fundsCommand(
                         submitTaskUid, submitTaskId, 1,
                         fixture, withdrawalNo)).outcome());
+        LocalDateTime blockedAt = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
         jdbc.update("""
                 UPDATE ops_reliable_task
                 SET state = 'BLOCKED', next_run_at = NULL,
@@ -1072,7 +1078,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                     handled_wake_version = wake_version,
                     lock_version = lock_version + 1, updated_at = ?
                 WHERE id = ?
-                """, now, now, submitTaskId);
+                """, blockedAt, blockedAt, submitTaskId);
         long withdrawalVersion = jdbc.queryForObject("""
                 SELECT lock_version FROM fund_withdrawal_order
                 WHERE withdrawal_order_no = ?
@@ -3704,17 +3710,23 @@ class TargetWebIdentityMysqlIntegrationTest {
         public MerchantTransferResult submit(MerchantTransferRequest request) {
             this.request = request;
             return new MerchantTransferResult(
-                    MerchantTransferResult.Outcome.FAIL,
-                    "FAIL", transferBillNo(), null, null,
-                    "RECIPIENT_ACCOUNT_ABNORMAL", "synthetic terminal fail",
+                    MerchantTransferResult.Outcome.WAIT_USER_CONFIRM,
+                    "WAIT_USER_CONFIRM", transferBillNo(), "package-info",
+                    null, null, null,
                     Instant.now(), request.mchid(), request.outBillNo(),
                     request.appid(), request.amountCent(), request.openid());
         }
 
         @Override
         public MerchantTransferResult query(MerchantTransferQuery query) {
-            throw new UnsupportedOperationException(
-                    "query is outside the terminal callback fixture");
+            assertEquals(request.mchid(), query.mchid());
+            assertEquals(request.outBillNo(), query.outBillNo());
+            return new MerchantTransferResult(
+                    MerchantTransferResult.Outcome.FAIL,
+                    "FAIL", transferBillNo(), null, null,
+                    "RECIPIENT_ACCOUNT_ABNORMAL", "synthetic terminal fail",
+                    Instant.now(), request.mchid(), request.outBillNo(),
+                    request.appid(), request.amountCent(), request.openid());
         }
 
         private String transferBillNo() {

@@ -440,11 +440,10 @@ public class RechargeApplicationService {
                     total_amount_cent, payer_total_cent, payer_openid,
                     channel_occurred_at, content_sha256, observed_at, created_at
                 ) VALUES (?, ?, ?, ?, 'CALLBACK', 'INBOX', 'ORGANIZATION',
-                          ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+                          ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID().toString(), trustedTenantId,
                 trustedOrganizationId, current.paymentId(), sourceInboxId,
-                sourceTaskAttemptId, state, transactionId, total,
-                payerTotal, payerOpenid,
+                state, transactionId, total, payerTotal, payerOpenid,
                 databaseTime(parseInstant(requiredText(payload, "success_time"))),
                 sha256(payload.toString()), now, now);
         String existingTransaction = jdbc.queryForObject("""
