@@ -1,14 +1,143 @@
 <view class="operation-page">
-  <view class="operation-card">
-    <view class="operation-icon">
-      <t-icon name="scan" size="58rpx" color="#119b2c" />
+  <view wx:if="{{stage === 'loading'}}" class="state-card">
+    <view class="spinner"></view>
+    <view class="state-title">正在读取清运选项</view>
+    <view class="state-copy">系统正在核对设备、投口与现场安全状态</view>
+  </view>
+
+  <view wx:elif="{{stage === 'unavailable'}}" class="state-card">
+    <view class="state-icon"><t-icon name="info-circle" size="56rpx" color="#829487" /></view>
+    <view class="state-title">清运服务暂未启用</view>
+    <view class="state-copy">当前版本不会发起清运请求</view>
+  </view>
+
+  <view wx:elif="{{stage === 'preview' || stage === 'blocked'}}" class="state-card">
+    <view class="state-icon state-icon--warning"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
+    <view class="state-title">当前不能开始清运</view>
+    <view class="state-copy">{{errorMessage}}</view>
+    <view wx:if="{{operationUid}}" class="operation-code">操作：{{operationUid}}</view>
+    <view class="secondary-action" bindtap="onBackHome">返回清运首页</view>
+  </view>
+
+  <view wx:elif="{{stage === 'error'}}" class="state-card">
+    <view class="state-icon state-icon--warning"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
+    <view class="state-title">清运选项加载失败</view>
+    <view class="state-copy">{{errorMessage}}</view>
+    <view class="primary-action" bindtap="onRetryOptions">重新加载</view>
+  </view>
+
+  <block wx:elif="{{stage === 'options'}}">
+    <view class="device-card">
+      <view class="device-head">
+        <view class="device-icon"><t-icon name="shop" size="44rpx" color="#139a2d" /></view>
+        <view class="device-copy">
+          <view class="device-name">{{deviceName}}</view>
+          <view class="device-code">{{deploymentCode}}</view>
+        </view>
+      </view>
+      <view class="device-address">{{address}}</view>
     </view>
-    <view class="operation-title">{{deploymentCode ? '设备已识别' : '等待识别设备'}}</view>
-    <view wx:if="{{deploymentCode}}" class="deployment-code">{{deploymentCode}}</view>
-    <view class="operation-description">
-      {{previewOnly
-        ? '当前为界面预览，登录账号权限未改变。'
-        : '清运作业接口正在接入，本页暂不发起开门或清运操作。'}}
+
+    <view wx:if="{{recoverableCount > 0}}" class="notice notice--warning">
+      当前设备有 {{recoverableCount}} 笔属于你的待恢复操作。本次不提供恢复按钮，请联系管理员。
+    </view>
+    <view wx:elif="{{deviceBusy}}" class="notice notice--warning">
+      设备正在执行其他作业，请等待现场作业结束后重新加载。
+    </view>
+
+    <view class="section-title">选择清运投口</view>
+    <view class="section-hint">只有一个可用投口时会自动选中，但不会自动开门。</view>
+    <view
+      wx:for="{{ports}}"
+      wx:key="portNo"
+      class="port-card {{selectedPortNo === item.portNo ? 'port-card--selected' : ''}} {{!item.cleaningAllowed ? 'port-card--blocked' : ''}}"
+      data-port-no="{{item.portNo}}"
+      bindtap="onSelectPort"
+    >
+      <view class="port-head">
+        <view>
+          <view class="port-title">{{item.title}}</view>
+          <view class="port-number">{{item.portNo}} 号投口</view>
+        </view>
+        <view wx:if="{{selectedPortNo === item.portNo}}" class="selected-tag">已选择</view>
+        <view wx:elif="{{!item.cleaningAllowed}}" class="blocked-tag">不可清运</view>
+      </view>
+      <view class="port-row"><text>当前袋</text><text>{{item.currentBagText}}</text></view>
+      <view class="port-row"><text>满溢状态</text><text>{{item.fullnessText}}</text></view>
+      <view wx:if="{{item.blockerText}}" class="blocker-copy">{{item.blockerText}}</view>
+    </view>
+
+    <button
+      class="main-button"
+      disabled="{{!selectedPortNo}}"
+      bindtap="onScanBag"
+    >扫描换入袋</button>
+  </block>
+
+  <block wx:elif="{{stage === 'confirm'}}">
+    <view class="confirm-card">
+      <view class="confirm-icon"><t-icon name="check-circle" size="58rpx" color="#119b2c" /></view>
+      <view class="confirm-title">确认清运信息</view>
+      <view class="confirm-hint">确认后后台才会建立清运操作并通知设备，扫码本身不会开门。</view>
+      <view class="fact-row"><text>设备</text><text>{{deviceName || deploymentCode}}</text></view>
+      <view class="fact-row"><text>投口</text><text>{{selectedPortTitle}}</text></view>
+      <view class="fact-row"><text>当前袋</text><text>{{removedBagQr || '未绑定'}}</text></view>
+      <view class="fact-row fact-row--important"><text>换入袋</text><text>{{installedBagQr}}</text></view>
+      <view wx:if="{{errorMessage}}" class="inline-error">{{errorMessage}}</view>
+    </view>
+    <view class="button-row">
+      <button class="secondary-button" bindtap="onRescanBag">重新扫描</button>
+      <button class="main-button button-row-main" bindtap="onConfirmStart">确认开始清运</button>
+    </view>
+  </block>
+
+  <view
+    wx:elif="{{stage === 'submitting' || stage === 'submit-uncertain' || stage === 'polling' || stage === 'poll-paused' || stage === 'recovery' || stage === 'completed' || stage === 'ended'}}"
+    class="status-card"
+  >
+    <view class="status-icon {{stage === 'completed' ? 'status-icon--success' : ''}} {{stage === 'recovery' || stage === 'poll-paused' || stage === 'submit-uncertain' ? 'status-icon--warning' : ''}}">
+      <t-icon
+        name="{{stage === 'completed' ? 'check-circle' : (stage === 'recovery' || stage === 'poll-paused' || stage === 'submit-uncertain' ? 'info-circle' : 'time')}}"
+        size="64rpx"
+        color="{{stage === 'completed' ? '#109d2b' : (stage === 'recovery' || stage === 'poll-paused' || stage === 'submit-uncertain' ? '#c27a1a' : '#159b32')}}"
+      />
+    </view>
+    <view class="status-title">{{statusTitle}}</view>
+    <view class="status-description">{{statusDescription}}</view>
+    <view class="status-facts">
+      <view class="fact-row"><text>设备</text><text>{{deploymentCode}}</text></view>
+      <view class="fact-row"><text>投口</text><text>{{selectedPortNo}} 号投口</text></view>
+      <view class="fact-row"><text>换入袋</text><text>{{installedBagQr}}</text></view>
+      <view wx:if="{{operationUid}}" class="fact-row"><text>操作编号</text><text class="break-value">{{operationUid}}</text></view>
+      <view wx:if="{{cleanRecordNo}}" class="fact-row"><text>记录编号</text><text>{{cleanRecordNo}}</text></view>
+    </view>
+    <view wx:if="{{stage === 'polling' || stage === 'submitting'}}" class="polling-copy">页面可暂时切到后台，返回后会继续查询；现场操作以设备屏幕为准。</view>
+    <view
+      wx:if="{{stage === 'submit-uncertain' || stage === 'poll-paused'}}"
+      class="primary-action"
+      bindtap="onContinueOperation"
+    >{{stage === 'submit-uncertain' ? '复用原请求继续' : '继续查询状态'}}</view>
+    <view wx:if="{{stage === 'completed' || stage === 'ended' || stage === 'recovery'}}" class="primary-action" bindtap="onBackHome">返回清运首页</view>
+  </view>
+
+  <view
+    wx:if="{{showPhoneGrant}}"
+    class="phone-sheet-mask"
+    catchtap="onPhoneSheetMaskTap"
+  >
+    <view class="phone-sheet" catchtap="onPhoneSheetPanelTap">
+      <view class="phone-sheet-handle"></view>
+      <view class="phone-sheet-icon"><t-icon name="mobile" size="52rpx" color="#10a625" /></view>
+      <view class="phone-sheet-title">验证手机号后继续扫码</view>
+      <view class="phone-sheet-description">清运作业需要先确认当前微信手机号。取消后会停留在投口页面，不会扫码，也不会发起清运请求。</view>
+      <button
+        class="phone-grant-button"
+        open-type="getPhoneNumber"
+        loading="{{phoneGrantSubmitting}}"
+        disabled="{{phoneGrantSubmitting}}"
+        bindgetphonenumber="onGetPhoneNumber"
+      >{{phoneGrantSubmitting ? '正在验证…' : '继续获取手机号'}}</button>
+      <view class="phone-sheet-cancel" bindtap="onPhoneGrantCancel">暂不验证</view>
     </view>
   </view>
 </view>

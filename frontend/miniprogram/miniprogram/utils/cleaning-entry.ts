@@ -1,20 +1,5 @@
 import { getEntryMode } from './auth'
-
-function parseDeploymentCode(raw: string): string {
-  const value = raw.trim()
-  if (!value) return ''
-
-  const queryMatch = value.match(/[?&]deploymentCode=([^&#]+)/)
-  if (queryMatch) {
-    try {
-      return decodeURIComponent(queryMatch[1]).trim()
-    } catch {
-      return ''
-    }
-  }
-
-  return /^Dp_[A-Za-z0-9_-]{6,61}$/.test(value) ? value : ''
-}
+import { parseCleaningDeploymentCode } from './clean-operation-intent'
 
 export function startCleaningEntry(): void {
   if (getEntryMode() !== 'CLEANING') {
@@ -28,7 +13,7 @@ export function startCleaningEntry(): void {
   wx.scanCode({
     scanType: ['qrCode'],
     success: ({ result }) => {
-      const deploymentCode = parseDeploymentCode(result)
+      const deploymentCode = parseCleaningDeploymentCode(result)
       if (!deploymentCode) {
         wx.showToast({ title: '未识别到设备二维码', icon: 'none' })
         return

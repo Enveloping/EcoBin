@@ -16,6 +16,7 @@ test('clean workbench routes and its two native tab roots are registered', () =>
     'pages/clean-operation/clean-operation',
     'pages/clean-devices/clean-devices',
     'pages/clean-records/clean-records',
+    'pages/clean-record-detail/clean-record-detail',
   ];
 
   for (const page of expectedPages) {

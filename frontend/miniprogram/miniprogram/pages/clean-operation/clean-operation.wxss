@@ -1,52 +1,296 @@
 .operation-page {
   min-height: 100vh;
-  padding: 32rpx 28rpx;
+  padding: 28rpx 28rpx calc(52rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
-  background: #f5f7f4;
+  background: #f4f7f3;
 }
 
-.operation-card {
-  padding: 68rpx 38rpx;
-  text-align: center;
+.device-card,
+.port-card,
+.confirm-card,
+.status-card,
+.state-card {
   background: #fff;
   border: 1rpx solid #e5ebe5;
   border-radius: 28rpx;
   box-shadow: 0 10rpx 28rpx rgba(40, 67, 43, .06);
 }
 
-.operation-icon {
+.device-card { padding: 30rpx; }
+.device-head,
+.port-head,
+.port-row,
+.fact-row,
+.button-row {
   display: flex;
-  width: 104rpx;
-  height: 104rpx;
-  margin: 0 auto;
+  align-items: center;
+}
+
+.device-icon,
+.state-icon,
+.confirm-icon,
+.status-icon,
+.phone-sheet-icon {
+  display: flex;
   align-items: center;
   justify-content: center;
   background: #edf8ef;
-  border-radius: 30rpx;
 }
 
-.operation-title {
-  margin-top: 28rpx;
-  color: #1d2b20;
+.device-icon {
+  width: 82rpx;
+  height: 82rpx;
+  flex: 0 0 auto;
+  border-radius: 25rpx;
+}
+
+.device-copy {
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.device-name {
+  color: #17231a;
   font-size: 32rpx;
+  font-weight: 720;
+}
+
+.device-code,
+.operation-code {
+  margin-top: 7rpx;
+  color: #829087;
+  font-family: monospace;
+  font-size: 21rpx;
+  word-break: break-all;
+}
+
+.device-address {
+  margin-top: 22rpx;
+  padding-top: 20rpx;
+  color: #6f7b72;
+  font-size: 23rpx;
+  border-top: 1rpx solid #edf0ed;
+}
+
+.notice {
+  margin-top: 20rpx;
+  padding: 22rpx 24rpx;
+  color: #9b6210;
+  font-size: 22rpx;
+  line-height: 1.6;
+  background: #fff4e2;
+  border-radius: 20rpx;
+}
+
+.section-title {
+  margin-top: 34rpx;
+  color: #17231a;
+  font-size: 30rpx;
   font-weight: 700;
 }
 
-.deployment-code {
-  display: inline-block;
-  margin-top: 18rpx;
-  padding: 12rpx 20rpx;
-  color: #13772a;
-  font-family: monospace;
-  font-size: 22rpx;
-  background: #edf8ef;
-  border-radius: 12rpx;
+.section-hint {
+  margin: 8rpx 0 20rpx;
+  color: #8c958e;
+  font-size: 21rpx;
 }
 
-.operation-description {
-  max-width: 540rpx;
-  margin: 22rpx auto 0;
-  color: #7f8981;
+.port-card {
+  margin-bottom: 18rpx;
+  padding: 26rpx;
+  transition: opacity .18s ease, border-color .18s ease;
+}
+
+.port-card--selected {
+  border: 3rpx solid #18a434;
+  background: #f9fdf9;
+}
+
+.port-card--blocked { opacity: .68; }
+.port-head { justify-content: space-between; }
+.port-title { font-size: 28rpx; font-weight: 700; }
+.port-number { margin-top: 5rpx; color: #919991; font-size: 20rpx; }
+
+.selected-tag,
+.blocked-tag {
+  padding: 8rpx 15rpx;
+  font-size: 20rpx;
+  font-weight: 650;
+  border-radius: 999rpx;
+}
+
+.selected-tag { color: #0c9225; background: #e8f7eb; }
+.blocked-tag { color: #9b6210; background: #fff1dc; }
+
+.port-row {
+  justify-content: space-between;
+  gap: 24rpx;
+  margin-top: 19rpx;
+  color: #7d877f;
+  font-size: 22rpx;
+}
+
+.port-row text:last-child {
+  max-width: 450rpx;
+  color: #303b32;
+  text-align: right;
+  word-break: break-all;
+}
+
+.blocker-copy,
+.inline-error {
+  margin-top: 20rpx;
+  padding: 16rpx 18rpx;
+  color: #a66a16;
+  font-size: 21rpx;
+  line-height: 1.5;
+  background: #fff5e6;
+  border-radius: 14rpx;
+}
+
+.main-button,
+.secondary-button {
+  height: 88rpx;
+  margin: 28rpx 0 0;
+  padding: 0 28rpx;
+  color: #fff;
+  font-size: 27rpx;
+  font-weight: 680;
+  line-height: 88rpx;
+  background: #12a52d;
+  border-radius: 44rpx;
+}
+
+.main-button::after,
+.secondary-button::after { border: 0; }
+.main-button[disabled] { color: #fff; background: #a8c9ae; }
+.secondary-button { color: #128b29; background: #e9f7ec; }
+
+.confirm-card,
+.status-card { padding: 36rpx 30rpx; }
+.confirm-icon,
+.status-icon,
+.state-icon,
+.phone-sheet-icon {
+  width: 104rpx;
+  height: 104rpx;
+  margin: 0 auto;
+  border-radius: 34rpx;
+}
+
+.confirm-title,
+.status-title,
+.state-title {
+  margin-top: 23rpx;
+  color: #1b271e;
+  text-align: center;
+  font-size: 30rpx;
+  font-weight: 720;
+}
+
+.confirm-hint,
+.status-description,
+.state-copy {
+  margin: 10rpx auto 24rpx;
+  color: #818b83;
+  text-align: center;
+  font-size: 22rpx;
+  line-height: 1.65;
+}
+
+.fact-row {
+  min-height: 76rpx;
+  justify-content: space-between;
+  gap: 24rpx;
+  color: #7b857d;
+  font-size: 23rpx;
+  border-bottom: 1rpx solid #edf0ed;
+}
+
+.fact-row text:last-child {
+  max-width: 430rpx;
+  color: #29342c;
+  text-align: right;
+  word-break: break-all;
+}
+
+.fact-row--important text:last-child { color: #0d9225; font-weight: 700; }
+.button-row { gap: 18rpx; }
+.button-row .secondary-button { width: 220rpx; flex: 0 0 auto; }
+.button-row-main { flex: 1; }
+
+.status-icon--success { background: #e8f7eb; }
+.status-icon--warning,
+.state-icon--warning { background: #fff4e2; }
+.status-facts { margin-top: 28rpx; }
+.break-value { font-size: 19rpx; }
+.polling-copy {
+  margin-top: 24rpx;
+  color: #89928b;
+  text-align: center;
+  font-size: 20rpx;
+  line-height: 1.6;
+}
+
+.state-card {
+  display: flex;
+  min-height: 420rpx;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 50rpx 34rpx;
+  box-sizing: border-box;
+}
+
+.primary-action,
+.secondary-action {
+  display: flex;
+  min-width: 230rpx;
+  height: 74rpx;
+  align-items: center;
+  justify-content: center;
+  margin: 28rpx auto 0;
+  color: #fff;
   font-size: 24rpx;
-  line-height: 1.7;
+  font-weight: 650;
+  background: #12a52d;
+  border-radius: 38rpx;
+}
+
+.secondary-action { color: #128b29; background: #e9f7ec; }
+
+.spinner {
+  width: 56rpx;
+  height: 56rpx;
+  border: 6rpx solid #dcebdd;
+  border-top-color: #10a625;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+.phone-sheet-title {
+  margin-top: 22rpx;
+  color: #1c281f;
+  text-align: center;
+  font-size: 31rpx;
+  font-weight: 720;
+}
+
+.phone-sheet-description {
+  margin: 12rpx 0 28rpx;
+  color: #808981;
+  text-align: center;
+  font-size: 22rpx;
+  line-height: 1.65;
+}
+
+.phone-sheet-cancel {
+  margin-top: 24rpx;
+  color: #7f8981;
+  text-align: center;
+  font-size: 23rpx;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

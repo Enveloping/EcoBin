@@ -20,7 +20,7 @@ export const FEATURES: Readonly<{
   targetWalletApi: true,
   // 目标提现申请、明细与记录合同尚未落地。
   targetWithdrawalApi: false,
-  targetCleaningDataApi: false,
+  targetCleaningDataApi: true,
   entryPreview: true,
 }
 

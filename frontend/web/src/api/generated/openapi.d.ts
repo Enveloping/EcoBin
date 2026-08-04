@@ -5568,40 +5568,57 @@ export interface components {
             data: components["schemas"]["DeviceDeploymentAcceptance"][];
             requestId: string;
         };
+        /** @description Trimmed raw bag QR value. Clients must not parse a URL or accept manual entry. */
+        BagQr: string;
+        CleanRecordNo: string;
+        /** @description Exact clean weight in kilograms converted from integer grams; never decode to an IEEE-754 number. */
+        CleanWeightKg: string;
+        /** @enum {string} */
+        CleanFullnessStatus: "UNKNOWN" | "CHECKING" | "NOT_FULL" | "SUSPECTED_FULL" | "FULL" | "SOURCE_FAILED";
+        /** @enum {string} */
+        CleanOptionBlocker: "DEVICE_BUSY" | "CLEAN_OPERATION_ACTIVE" | "CLEAN_LOCK_NOT_SAFE" | "CLEAN_SOLENOID_UNAVAILABLE" | "WEIGHT_UNAVAILABLE" | "SAFETY_UNAVAILABLE" | "DEVICE_FAULT_ACTIVE";
+        /** @enum {string} */
+        CleanOperationStatus: "PREPARED" | "EDGE_SAVED" | "IN_PROGRESS" | "RECOVERY_REQUIRED" | "PRE_OPEN_ENDED" | "COMPLETED";
+        /** @enum {string} */
+        CleanResultKind: "NORMAL" | "SYSTEM_ANOMALY";
+        /** @enum {string} */
+        CleanPhotoCompleteness: "COMPLETE" | "INCOMPLETE";
         StartCleanOperationRequest: {
-            installedBagQr: string;
+            installedBagQr: components["schemas"]["BagQr"];
         };
         CleanOperationAccepted: {
             operationId: components["schemas"]["UuidV4"];
             resourceId: components["schemas"]["UuidV4"];
             operationUid: components["schemas"]["UuidV4"];
-            status: string;
+            /** @constant */
+            status: "PREPARED";
             version: components["schemas"]["ExpectedVersion"];
             portNo: number;
-            installedBagQr: string;
+            installedBagQr: components["schemas"]["BagQr"];
             startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
             statusUrl: components["schemas"]["StatusUrl"];
             recommendedPollAfterMs: number;
-            nextActions: string[];
+            nextActions: "WAIT"[];
         };
         RecoverableCleanOperation: {
             operationUid: components["schemas"]["UuidV4"];
             portNo: number;
-            status: string;
+            /** @constant */
+            status: "RECOVERY_REQUIRED";
             statusUrl: components["schemas"]["StatusUrl"];
         };
         CleanPortOption: {
             portNo: number;
-            displayName: string;
-            currentBagQr: string | null;
-            fullnessStatus: string;
-            fullnessPercent: string | null;
+            displayName: string | null;
+            currentBagQr: components["schemas"]["BagQr"] | null;
+            fullnessStatus: components["schemas"]["CleanFullnessStatus"];
+            fullnessPercent: components["schemas"]["FullnessPercent"] | null;
             cleaningAllowed: boolean;
-            blockers: string[];
+            blockers: components["schemas"]["CleanOptionBlocker"][];
         };
         CleanOptions: {
             deploymentCode: components["schemas"]["DeploymentCode"];
-            displayName: string;
+            displayName: string | null;
             address: string | null;
             deviceBusy: boolean;
             recoverableOperations: components["schemas"]["RecoverableCleanOperation"][];
@@ -5610,45 +5627,47 @@ export interface components {
         };
         CleanOperation: {
             operationUid: components["schemas"]["UuidV4"];
-            status: string;
+            status: components["schemas"]["CleanOperationStatus"];
             version: components["schemas"]["ExpectedVersion"];
             deploymentCode: components["schemas"]["DeploymentCode"];
             portNo: number;
-            removedBagQr: string | null;
-            installedBagQr: string;
+            removedBagQr: components["schemas"]["BagQr"] | null;
+            installedBagQr: components["schemas"]["BagQr"];
             firstUnlockMayHaveExecuted: boolean;
             cleanLockDeenergizedConfirmed: boolean;
             cleanerPhysicalCloseConfirmed: boolean;
             startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
-            executionDeadlineAt: components["schemas"]["UtcTimestamp"];
+            executionDeadlineAt: components["schemas"]["UtcTimestamp"] | null;
             completedAt: components["schemas"]["UtcTimestamp"] | null;
-            cleanRecordNo: string | null;
+            cleanRecordNo: components["schemas"]["CleanRecordNo"] | null;
             recommendedPollAfterMs: number | null;
             nextActions: string[];
         };
         CleanRecordItem: {
-            cleanRecordNo: string;
+            cleanRecordNo: components["schemas"]["CleanRecordNo"];
             operationUid: components["schemas"]["UuidV4"];
             cleanerUserUid: components["schemas"]["PublicUid"];
             deploymentCode: components["schemas"]["DeploymentCode"];
             portNo: number;
-            removedBagQr: string | null;
-            installedBagQr: string;
-            deviceCompletedAt: components["schemas"]["UtcTimestamp"];
-            originalRecalculatedRemovedNetWeightKg: string | null;
-            effectiveRemovedNetWeightKg: string | null;
-            effectiveWeightSource: string;
-            weightReliability: string;
-            resultKind: string;
+            removedBagQr: components["schemas"]["BagQr"] | null;
+            installedBagQr: components["schemas"]["BagQr"];
+            deviceCompletedAt: components["schemas"]["UtcTimestamp"] | null;
+            originalRecalculatedRemovedNetWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            effectiveRemovedNetWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            /** @enum {string} */
+            effectiveWeightSource: "DEVICE_RECALCULATED" | "MANUAL_SET" | "MANUAL_CLEARED";
+            /** @enum {string} */
+            weightReliability: "RELIABLE" | "UNAVAILABLE" | "INVALID";
+            resultKind: components["schemas"]["CleanResultKind"];
             anomalyCodes: string[];
-            photoCompleteness: string;
+            photoCompleteness: components["schemas"]["CleanPhotoCompleteness"];
             recordRemark: string | null;
             version: components["schemas"]["ExpectedVersion"];
         };
         CleanRecordCursorPage: {
             items: components["schemas"]["CleanRecordItem"][];
             asOf: components["schemas"]["UtcTimestamp"];
-            nextCursor: string | null;
+            nextCursor: components["schemas"]["Cursor"] | null;
         };
         CleanRecordSource: {
             operationUid: components["schemas"]["UuidV4"];
@@ -5658,38 +5677,44 @@ export interface components {
             portNo: number;
             cleanerUserUid: components["schemas"]["PublicUid"];
             cleanConfigVersionNo: number;
-            deviceCompletedAt: components["schemas"]["UtcTimestamp"];
+            deviceCompletedAt: components["schemas"]["UtcTimestamp"] | null;
             backendReceivedAt: components["schemas"]["UtcTimestamp"];
             completedAt: components["schemas"]["UtcTimestamp"];
         };
         CleanBagFacts: {
-            removedBagBindingState: string;
-            removedBagQr: string | null;
-            installedBagQr: string;
+            /** @enum {string} */
+            removedBagBindingState: "BOUND" | "MISSING";
+            removedBagQr: components["schemas"]["BagQr"] | null;
+            installedBagQr: components["schemas"]["BagQr"];
         };
         CleanWeightFacts: {
-            preUnlockStatus?: string | null;
-            preUnlockWeightKg?: string | null;
-            oldBaselineState?: string | null;
-            oldBaselineWeightKg?: string | null;
-            deviceRemovedNetWeightStatus?: string | null;
-            deviceRemovedNetWeightKg?: string | null;
-            recalculatedRemovedNetWeightStatus?: string | null;
-            recalculatedRemovedNetWeightKg?: string | null;
-            finalTotalWeightStatus?: string | null;
-            finalTotalWeightKg?: string | null;
-            candidateNewBaselineWeightKg?: string | null;
+            /** @enum {string} */
+            preUnlockStatus: "RELIABLE" | "FAILED";
+            preUnlockWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            /** @enum {string} */
+            oldBaselineState: "TRUSTED" | "UNTRUSTED" | "MISSING";
+            oldBaselineWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            /** @enum {string} */
+            deviceRemovedNetWeightStatus: "RELIABLE" | "FAILED";
+            deviceRemovedNetWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            /** @enum {string} */
+            recalculatedRemovedNetWeightStatus: "RELIABLE" | "UNAVAILABLE" | "INVALID";
+            recalculatedRemovedNetWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            /** @enum {string} */
+            finalTotalWeightStatus: "RELIABLE" | "INVALID" | "FAILED";
+            finalTotalWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            candidateNewBaselineWeightKg: components["schemas"]["CleanWeightKg"] | null;
         };
         CleanBaselineSummary: {
             established: boolean;
             versionNo: number | null;
-            installedBagQr: string | null;
-            baselineWeightKg: string | null;
+            installedBagQr: components["schemas"]["BagQr"];
+            baselineWeightKg: components["schemas"]["CleanWeightKg"] | null;
             establishedAt: components["schemas"]["UtcTimestamp"] | null;
         };
         CleanDetectionSummary: {
-            detectionUid: components["schemas"]["UuidV4"] | null;
-            status: string | null;
+            detectionUid: components["schemas"]["UuidV4"];
+            status: string;
             finalResult: string | null;
             failureCode: string | null;
             completedAt: components["schemas"]["UtcTimestamp"] | null;
@@ -5706,15 +5731,19 @@ export interface components {
             };
         };
         CleanPhoto: {
-            position: string;
-            status: string;
+            /** @enum {string} */
+            position: "BEFORE_INNER" | "BEFORE_OUTER" | "AFTER_INNER" | "AFTER_OUTER";
+            /** @enum {string} */
+            status: "UPLOAD_PENDING" | "AVAILABLE" | "PERMANENTLY_MISSING";
+            /** Format: uri */
             url: string | null;
             capturedAt: components["schemas"]["UtcTimestamp"] | null;
             missingReason: string | null;
         };
         CleanEffectiveValue: {
-            removedNetWeightKg: string | null;
-            source: string;
+            removedNetWeightKg: components["schemas"]["CleanWeightKg"] | null;
+            /** @enum {string} */
+            source: "DEVICE_RECALCULATED" | "MANUAL_SET" | "MANUAL_CLEARED";
             includedInKnownWeightStatistics: boolean;
             recordRemark: string | null;
             version: components["schemas"]["ExpectedVersion"];
@@ -5744,13 +5773,13 @@ export interface components {
             nextCursor: string | null;
         };
         MiniappCleanRecordDetail: {
-            cleanRecordNo: string;
+            cleanRecordNo: components["schemas"]["CleanRecordNo"];
             source: components["schemas"]["CleanRecordSource"];
             bags: components["schemas"]["CleanBagFacts"];
             weights: components["schemas"]["CleanWeightFacts"];
             newBaseline: components["schemas"]["CleanBaselineSummary"];
-            postCleanDetection: components["schemas"]["CleanDetectionSummary"];
-            resultKind: string;
+            postCleanDetection: components["schemas"]["CleanDetectionSummary"] | null;
+            resultKind: components["schemas"]["CleanResultKind"];
             photos: components["schemas"]["CleanPhoto"][];
             effective: components["schemas"]["CleanEffectiveValue"];
             anomalies: components["schemas"]["MiniappCleanAnomaly"][];

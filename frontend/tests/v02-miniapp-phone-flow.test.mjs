@@ -83,7 +83,7 @@ test('phone authorization is shown once and required operations stop when it is 
     '../miniprogram/miniprogram/pages/home/home.wxml',
   );
   const cleanMarkup = source(
-    '../miniprogram/miniprogram/pages/clean-legacy/clean-legacy.wxml',
+    '../miniprogram/miniprogram/pages/clean-operation/clean-operation.wxml',
   );
   const profileMarkup = source(
     '../miniprogram/miniprogram/pages/profile/profile.wxml',
@@ -95,7 +95,7 @@ test('phone authorization is shown once and required operations stop when it is 
     '../miniprogram/miniprogram/pages/home/home.ts',
   );
   const cleanSource = source(
-    '../miniprogram/miniprogram/pages/clean-legacy/clean-legacy.ts',
+    '../miniprogram/miniprogram/pages/clean-operation/clean-operation.ts',
   );
   const profileSource = source(
     '../miniprogram/miniprogram/pages/profile/profile.ts',

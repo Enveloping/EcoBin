@@ -20,5 +20,14 @@
     <button class="preview-button" bindtap="onEntryPreview">切换端</button>
   </view>
 
+  <view class="menu-card" bindtap="onCleanRecords" hover-class="menu-card--pressed">
+    <view class="menu-icon"><t-icon name="root-list" size="40rpx" color="#109d2b" /></view>
+    <view class="menu-copy">
+      <view class="menu-title">清运记录</view>
+      <view class="menu-description">查看本人已完成的换袋作业</view>
+    </view>
+    <t-icon name="chevron-right" size="34rpx" color="#a0aaa2" />
+  </view>
+
   <view class="logout" bindtap="onLogout" hover-class="logout--pressed">退出登录</view>
 </view>

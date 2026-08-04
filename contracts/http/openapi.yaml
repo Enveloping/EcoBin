@@ -11347,11 +11347,73 @@
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },
+      "BagQr": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9_-]{8,64}$",
+        "description": "Trimmed raw bag QR value. Clients must not parse a URL or accept manual entry."
+      },
+      "CleanRecordNo": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9_-]{8,64}$"
+      },
+      "CleanWeightKg": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{2,3})$",
+        "description": "Exact clean weight in kilograms converted from integer grams; never decode to an IEEE-754 number."
+      },
+      "CleanFullnessStatus": {
+        "type": "string",
+        "enum": [
+          "UNKNOWN",
+          "CHECKING",
+          "NOT_FULL",
+          "SUSPECTED_FULL",
+          "FULL",
+          "SOURCE_FAILED"
+        ]
+      },
+      "CleanOptionBlocker": {
+        "type": "string",
+        "enum": [
+          "DEVICE_BUSY",
+          "CLEAN_OPERATION_ACTIVE",
+          "CLEAN_LOCK_NOT_SAFE",
+          "CLEAN_SOLENOID_UNAVAILABLE",
+          "WEIGHT_UNAVAILABLE",
+          "SAFETY_UNAVAILABLE",
+          "DEVICE_FAULT_ACTIVE"
+        ]
+      },
+      "CleanOperationStatus": {
+        "type": "string",
+        "enum": [
+          "PREPARED",
+          "EDGE_SAVED",
+          "IN_PROGRESS",
+          "RECOVERY_REQUIRED",
+          "PRE_OPEN_ENDED",
+          "COMPLETED"
+        ]
+      },
+      "CleanResultKind": {
+        "type": "string",
+        "enum": ["NORMAL", "SYSTEM_ANOMALY"]
+      },
+      "CleanPhotoCompleteness": {
+        "type": "string",
+        "enum": ["COMPLETE", "INCOMPLETE"]
+      },
       "StartCleanOperationRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": ["installedBagQr"],
-        "properties": {"installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64}}
+        "properties": {
+          "installedBagQr": {"$ref": "#/components/schemas/BagQr"}
+        }
       },
       "CleanOperationAccepted": {
         "type": "object",
@@ -11373,14 +11435,18 @@
           "operationId": {"$ref": "#/components/schemas/UuidV4"},
           "resourceId": {"$ref": "#/components/schemas/UuidV4"},
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"type": "string", "const": "PREPARED"},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
-          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "installedBagQr": {"$ref": "#/components/schemas/BagQr"},
           "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
           "statusUrl": {"$ref": "#/components/schemas/StatusUrl"},
-          "recommendedPollAfterMs": {"type": "integer", "minimum": 1},
-          "nextActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+          "recommendedPollAfterMs": {"type": "integer", "minimum": 250, "maximum": 60000},
+          "nextActions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "enum": ["WAIT"]}
+          }
         }
       },
       "RecoverableCleanOperation": {
@@ -11390,7 +11456,7 @@
         "properties": {
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"type": "string", "const": "RECOVERY_REQUIRED"},
           "statusUrl": {"$ref": "#/components/schemas/StatusUrl"}
         }
       },
@@ -11400,12 +11466,26 @@
         "required": ["portNo", "displayName", "currentBagQr", "fullnessStatus", "fullnessPercent", "cleaningAllowed", "blockers"],
         "properties": {
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
-          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
-          "currentBagQr": {"type": ["string", "null"], "maxLength": 64},
-          "fullnessStatus": {"type": "string", "minLength": 1, "maxLength": 32},
-          "fullnessPercent": {"type": ["string", "null"], "maxLength": 16},
+          "displayName": {"type": ["string", "null"], "maxLength": 100},
+          "currentBagQr": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/BagQr"},
+              {"type": "null"}
+            ]
+          },
+          "fullnessStatus": {"$ref": "#/components/schemas/CleanFullnessStatus"},
+          "fullnessPercent": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/FullnessPercent"},
+              {"type": "null"}
+            ]
+          },
           "cleaningAllowed": {"type": "boolean"},
-          "blockers": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+          "blockers": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/CleanOptionBlocker"}
+          }
         }
       },
       "CleanOptions": {
@@ -11414,12 +11494,16 @@
         "required": ["deploymentCode", "displayName", "address", "deviceBusy", "recoverableOperations", "asOf", "ports"],
         "properties": {
           "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
-          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "displayName": {"type": ["string", "null"], "maxLength": 100},
           "address": {"type": ["string", "null"], "maxLength": 500},
           "deviceBusy": {"type": "boolean"},
           "recoverableOperations": {"type": "array", "items": {"$ref": "#/components/schemas/RecoverableCleanOperation"}},
           "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
-          "ports": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPortOption"}}
+          "ports": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"$ref": "#/components/schemas/CleanPortOption"}
+          }
         }
       },
       "CleanOperation": {
@@ -11445,20 +11529,39 @@
         ],
         "properties": {
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"$ref": "#/components/schemas/CleanOperationStatus"},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
           "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
-          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
-          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "removedBagQr": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/BagQr"},
+              {"type": "null"}
+            ]
+          },
+          "installedBagQr": {"$ref": "#/components/schemas/BagQr"},
           "firstUnlockMayHaveExecuted": {"type": "boolean"},
           "cleanLockDeenergizedConfirmed": {"type": "boolean"},
           "cleanerPhysicalCloseConfirmed": {"type": "boolean"},
           "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
-          "executionDeadlineAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "executionDeadlineAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
           "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
-          "cleanRecordNo": {"type": ["string", "null"], "maxLength": 64},
-          "recommendedPollAfterMs": {"type": ["integer", "null"], "minimum": 1},
+          "cleanRecordNo": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanRecordNo"},
+              {"type": "null"}
+            ]
+          },
+          "recommendedPollAfterMs": {
+            "type": ["integer", "null"],
+            "minimum": 250,
+            "maximum": 60000
+          },
           "nextActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
         }
       },
@@ -11485,21 +11588,47 @@
           "version"
         ],
         "properties": {
-          "cleanRecordNo": {"type": "string", "minLength": 1, "maxLength": 64},
+          "cleanRecordNo": {"$ref": "#/components/schemas/CleanRecordNo"},
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
           "cleanerUserUid": {"$ref": "#/components/schemas/PublicUid"},
           "deploymentCode": {"$ref": "#/components/schemas/DeploymentCode"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
-          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
-          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
-          "deviceCompletedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
-          "originalRecalculatedRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "effectiveRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "effectiveWeightSource": {"type": "string", "minLength": 1, "maxLength": 32},
-          "weightReliability": {"type": "string", "minLength": 1, "maxLength": 32},
-          "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
+          "removedBagQr": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/BagQr"},
+              {"type": "null"}
+            ]
+          },
+          "installedBagQr": {"$ref": "#/components/schemas/BagQr"},
+          "deviceCompletedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "originalRecalculatedRemovedNetWeightKg": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanWeightKg"},
+              {"type": "null"}
+            ]
+          },
+          "effectiveRemovedNetWeightKg": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanWeightKg"},
+              {"type": "null"}
+            ]
+          },
+          "effectiveWeightSource": {
+            "type": "string",
+            "enum": ["DEVICE_RECALCULATED", "MANUAL_SET", "MANUAL_CLEARED"]
+          },
+          "weightReliability": {
+            "type": "string",
+            "enum": ["RELIABLE", "UNAVAILABLE", "INVALID"]
+          },
+          "resultKind": {"$ref": "#/components/schemas/CleanResultKind"},
           "anomalyCodes": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 64}},
-          "photoCompleteness": {"type": "string", "minLength": 1, "maxLength": 32},
+          "photoCompleteness": {"$ref": "#/components/schemas/CleanPhotoCompleteness"},
           "recordRemark": {"type": ["string", "null"], "maxLength": 500},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"}
         }
@@ -11509,9 +11638,18 @@
         "additionalProperties": false,
         "required": ["items", "asOf", "nextCursor"],
         "properties": {
-          "items": {"type": "array", "items": {"$ref": "#/components/schemas/CleanRecordItem"}},
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {"$ref": "#/components/schemas/CleanRecordItem"}
+          },
           "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
-          "nextCursor": {"type": ["string", "null"], "maxLength": 4096}
+          "nextCursor": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/Cursor"},
+              {"type": "null"}
+            ]
+          }
         }
       },
       "CleanRecordSource": {
@@ -11537,7 +11675,12 @@
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
           "cleanerUserUid": {"$ref": "#/components/schemas/PublicUid"},
           "cleanConfigVersionNo": {"type": "integer", "minimum": 1},
-          "deviceCompletedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "deviceCompletedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
           "backendReceivedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
           "completedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
         }
@@ -11547,27 +11690,44 @@
         "additionalProperties": false,
         "required": ["removedBagBindingState", "removedBagQr", "installedBagQr"],
         "properties": {
-          "removedBagBindingState": {"type": "string", "minLength": 1, "maxLength": 32},
-          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
-          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64}
+          "removedBagBindingState": {"type": "string", "enum": ["BOUND", "MISSING"]},
+          "removedBagQr": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/BagQr"},
+              {"type": "null"}
+            ]
+          },
+          "installedBagQr": {"$ref": "#/components/schemas/BagQr"}
         }
       },
       "CleanWeightFacts": {
         "type": "object",
         "additionalProperties": false,
-        "required": [],
+        "required": [
+          "preUnlockStatus",
+          "preUnlockWeightKg",
+          "oldBaselineState",
+          "oldBaselineWeightKg",
+          "deviceRemovedNetWeightStatus",
+          "deviceRemovedNetWeightKg",
+          "recalculatedRemovedNetWeightStatus",
+          "recalculatedRemovedNetWeightKg",
+          "finalTotalWeightStatus",
+          "finalTotalWeightKg",
+          "candidateNewBaselineWeightKg"
+        ],
         "properties": {
-          "preUnlockStatus": {"type": ["string", "null"], "maxLength": 32},
-          "preUnlockWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "oldBaselineState": {"type": ["string", "null"], "maxLength": 32},
-          "oldBaselineWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "deviceRemovedNetWeightStatus": {"type": ["string", "null"], "maxLength": 32},
-          "deviceRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "recalculatedRemovedNetWeightStatus": {"type": ["string", "null"], "maxLength": 32},
-          "recalculatedRemovedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "finalTotalWeightStatus": {"type": ["string", "null"], "maxLength": 32},
-          "finalTotalWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "candidateNewBaselineWeightKg": {"type": ["string", "null"], "maxLength": 32}
+          "preUnlockStatus": {"type": "string", "enum": ["RELIABLE", "FAILED"]},
+          "preUnlockWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]},
+          "oldBaselineState": {"type": "string", "enum": ["TRUSTED", "UNTRUSTED", "MISSING"]},
+          "oldBaselineWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]},
+          "deviceRemovedNetWeightStatus": {"type": "string", "enum": ["RELIABLE", "FAILED"]},
+          "deviceRemovedNetWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]},
+          "recalculatedRemovedNetWeightStatus": {"type": "string", "enum": ["RELIABLE", "UNAVAILABLE", "INVALID"]},
+          "recalculatedRemovedNetWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]},
+          "finalTotalWeightStatus": {"type": "string", "enum": ["RELIABLE", "INVALID", "FAILED"]},
+          "finalTotalWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]},
+          "candidateNewBaselineWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]}
         }
       },
       "CleanBaselineSummary": {
@@ -11577,8 +11737,8 @@
         "properties": {
           "established": {"type": "boolean"},
           "versionNo": {"type": ["integer", "null"], "minimum": 1},
-          "installedBagQr": {"type": ["string", "null"], "maxLength": 64},
-          "baselineWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "installedBagQr": {"$ref": "#/components/schemas/BagQr"},
+          "baselineWeightKg": {"oneOf": [{"$ref": "#/components/schemas/CleanWeightKg"}, {"type": "null"}]},
           "establishedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
         }
       },
@@ -11587,8 +11747,8 @@
         "additionalProperties": false,
         "required": ["detectionUid", "status", "finalResult", "failureCode", "completedAt"],
         "properties": {
-          "detectionUid": {"oneOf": [{"$ref": "#/components/schemas/UuidV4"}, {"type": "null"}]},
-          "status": {"type": ["string", "null"], "maxLength": 32},
+          "detectionUid": {"$ref": "#/components/schemas/UuidV4"},
+          "status": {"type": "string", "minLength": 1, "maxLength": 32},
           "finalResult": {"type": ["string", "null"], "maxLength": 32},
           "failureCode": {"type": ["string", "null"], "maxLength": 64},
           "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
@@ -11618,9 +11778,15 @@
         "additionalProperties": false,
         "required": ["position", "status", "url", "capturedAt", "missingReason"],
         "properties": {
-          "position": {"type": "string", "minLength": 1, "maxLength": 32},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
-          "url": {"type": ["string", "null"], "maxLength": 2048},
+          "position": {
+            "type": "string",
+            "enum": ["BEFORE_INNER", "BEFORE_OUTER", "AFTER_INNER", "AFTER_OUTER"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["UPLOAD_PENDING", "AVAILABLE", "PERMANENTLY_MISSING"]
+          },
+          "url": {"type": ["string", "null"], "format": "uri"},
           "capturedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
           "missingReason": {"type": ["string", "null"], "maxLength": 100}
         }
@@ -11630,8 +11796,16 @@
         "additionalProperties": false,
         "required": ["removedNetWeightKg", "source", "includedInKnownWeightStatistics", "recordRemark", "version"],
         "properties": {
-          "removedNetWeightKg": {"type": ["string", "null"], "maxLength": 32},
-          "source": {"type": "string", "minLength": 1, "maxLength": 32},
+          "removedNetWeightKg": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanWeightKg"},
+              {"type": "null"}
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": ["DEVICE_RECALCULATED", "MANUAL_SET", "MANUAL_CLEARED"]
+          },
           "includedInKnownWeightStatistics": {"type": "boolean"},
           "recordRemark": {"type": ["string", "null"], "maxLength": 500},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"}
@@ -11705,14 +11879,24 @@
           "anomalies"
         ],
         "properties": {
-          "cleanRecordNo": {"type": "string", "minLength": 1, "maxLength": 64},
+          "cleanRecordNo": {"$ref": "#/components/schemas/CleanRecordNo"},
           "source": {"$ref": "#/components/schemas/CleanRecordSource"},
           "bags": {"$ref": "#/components/schemas/CleanBagFacts"},
           "weights": {"$ref": "#/components/schemas/CleanWeightFacts"},
           "newBaseline": {"$ref": "#/components/schemas/CleanBaselineSummary"},
-          "postCleanDetection": {"$ref": "#/components/schemas/CleanDetectionSummary"},
-          "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
-          "photos": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPhoto"}},
+          "postCleanDetection": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanDetectionSummary"},
+              {"type": "null"}
+            ]
+          },
+          "resultKind": {"$ref": "#/components/schemas/CleanResultKind"},
+          "photos": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"$ref": "#/components/schemas/CleanPhoto"}
+          },
           "effective": {"$ref": "#/components/schemas/CleanEffectiveValue"},
           "anomalies": {"type": "array", "items": {"$ref": "#/components/schemas/MiniappCleanAnomaly"}}
         }

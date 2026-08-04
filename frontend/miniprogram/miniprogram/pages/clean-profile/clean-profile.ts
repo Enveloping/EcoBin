@@ -37,6 +37,10 @@ Page({
     showEntryPreviewSwitcher()
   },
 
+  onCleanRecords() {
+    wx.navigateTo({ url: '/pages/clean-records/clean-records' })
+  },
+
   onLogout() {
     wx.showModal({
       title: '提示',

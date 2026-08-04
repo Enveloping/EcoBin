@@ -319,37 +319,202 @@ export interface MiniappDeliveryOrderDetail {
   photos: MiniappDeliveryPhoto[]
 }
 
-/** 清运订单：org.enveloping.ecobin.business.entity.CleanOrder */
-export interface CleanOrder {
-  id: number
-  tenantId: number
-  createTime: string
-  updateTime?: string
-  orderSn?: string
-  deviceId: number
-  doorId?: number
-  /** 本次清运清走的垃圾袋编号 */
-  bagQr?: string
-  userId: number
-  wasteType1?: number
-  wasteType2?: number
-  /** 实际清运量（kg），等同 netWeight，兼容旧字段 */
-  weight?: string
-  /** 清运毛重（kg，设备上报的满袋重量） */
-  grossWeight?: string
-  /** 去皮重量（kg，该投口当前垃圾袋去皮） */
-  tareWeight?: string
-  /** 实际清运量（kg）= 毛重 - 去皮 */
-  netWeight?: string
-  /** @deprecated 审核流程已废弃 */
-  auditStatus?: number
-  status?: number
+export type CleanFullnessStatus =
+  | 'UNKNOWN'
+  | 'CHECKING'
+  | 'NOT_FULL'
+  | 'SUSPECTED_FULL'
+  | 'FULL'
+  | 'SOURCE_FAILED'
+
+export type CleanOptionBlocker =
+  | 'DEVICE_BUSY'
+  | 'CLEAN_OPERATION_ACTIVE'
+  | 'CLEAN_LOCK_NOT_SAFE'
+  | 'CLEAN_SOLENOID_UNAVAILABLE'
+  | 'WEIGHT_UNAVAILABLE'
+  | 'SAFETY_UNAVAILABLE'
+  | 'DEVICE_FAULT_ACTIVE'
+
+export interface RecoverableCleanOperation {
+  operationUid: string
+  portNo: number
+  status: 'RECOVERY_REQUIRED'
+  statusUrl: string
 }
 
-/** 开清运门请求：org.enveloping.ecobin.business.dto.CleanOpenRequest */
-export interface CleanOpenRequest {
-  doorId: number
-  bagNo: string
+export interface CleanPortOption {
+  portNo: number
+  displayName: string | null
+  currentBagQr: string | null
+  fullnessStatus: CleanFullnessStatus
+  fullnessPercent: string | null
+  cleaningAllowed: boolean
+  blockers: CleanOptionBlocker[]
+}
+
+export interface CleanOptionsView {
+  deploymentCode: string
+  displayName: string | null
+  address: string | null
+  deviceBusy: boolean
+  recoverableOperations: RecoverableCleanOperation[]
+  asOf: string
+  ports: CleanPortOption[]
+}
+
+export type CleanOperationStatus =
+  | 'PREPARED'
+  | 'EDGE_SAVED'
+  | 'IN_PROGRESS'
+  | 'RECOVERY_REQUIRED'
+  | 'PRE_OPEN_ENDED'
+  | 'COMPLETED'
+
+export interface CleanOperationAccepted {
+  operationId: string
+  resourceId: string
+  operationUid: string
+  status: 'PREPARED'
+  version: number
+  portNo: number
+  installedBagQr: string
+  startAuthorizationExpiresAt: string
+  statusUrl: string
+  recommendedPollAfterMs: number
+  nextActions: ['WAIT']
+}
+
+export interface CleanOperationView {
+  operationUid: string
+  status: CleanOperationStatus
+  version: number
+  deploymentCode: string
+  portNo: number
+  removedBagQr: string | null
+  installedBagQr: string
+  firstUnlockMayHaveExecuted: boolean
+  cleanLockDeenergizedConfirmed: boolean
+  cleanerPhysicalCloseConfirmed: boolean
+  startAuthorizationExpiresAt: string
+  executionDeadlineAt: string | null
+  completedAt: string | null
+  cleanRecordNo: string | null
+  recommendedPollAfterMs: number | null
+  nextActions: string[]
+}
+
+export type CleanResultKind = 'NORMAL' | 'SYSTEM_ANOMALY'
+export type CleanPhotoCompleteness = 'COMPLETE' | 'INCOMPLETE'
+export type CleanEffectiveWeightSource =
+  | 'DEVICE_RECALCULATED'
+  | 'MANUAL_SET'
+  | 'MANUAL_CLEARED'
+
+export interface CleanRecordItem {
+  cleanRecordNo: string
+  operationUid: string
+  cleanerUserUid: string
+  deploymentCode: string
+  portNo: number
+  removedBagQr: string | null
+  installedBagQr: string
+  deviceCompletedAt: string | null
+  originalRecalculatedRemovedNetWeightKg: string | null
+  effectiveRemovedNetWeightKg: string | null
+  effectiveWeightSource: CleanEffectiveWeightSource
+  weightReliability: 'RELIABLE' | 'UNAVAILABLE' | 'INVALID'
+  resultKind: CleanResultKind
+  anomalyCodes: string[]
+  photoCompleteness: CleanPhotoCompleteness
+  recordRemark: string | null
+  version: number
+}
+
+export interface CleanRecordSource {
+  operationUid: string
+  eventUid: string
+  commandUid: string
+  deploymentCode: string
+  portNo: number
+  cleanerUserUid: string
+  cleanConfigVersionNo: number
+  deviceCompletedAt: string | null
+  backendReceivedAt: string
+  completedAt: string
+}
+
+export interface CleanBagFacts {
+  removedBagBindingState: 'BOUND' | 'MISSING'
+  removedBagQr: string | null
+  installedBagQr: string
+}
+
+export interface CleanWeightFacts {
+  preUnlockStatus: 'RELIABLE' | 'FAILED'
+  preUnlockWeightKg: string | null
+  oldBaselineState: 'TRUSTED' | 'UNTRUSTED' | 'MISSING'
+  oldBaselineWeightKg: string | null
+  deviceRemovedNetWeightStatus: 'RELIABLE' | 'FAILED'
+  deviceRemovedNetWeightKg: string | null
+  recalculatedRemovedNetWeightStatus:
+    | 'RELIABLE'
+    | 'UNAVAILABLE'
+    | 'INVALID'
+  recalculatedRemovedNetWeightKg: string | null
+  finalTotalWeightStatus: 'RELIABLE' | 'INVALID' | 'FAILED'
+  finalTotalWeightKg: string | null
+  candidateNewBaselineWeightKg: string | null
+}
+
+export interface CleanBaselineSummary {
+  established: boolean
+  versionNo: number | null
+  installedBagQr: string
+  baselineWeightKg: string | null
+  establishedAt: string | null
+}
+
+export interface CleanDetectionSummary {
+  detectionUid: string
+  status: string
+  finalResult: string | null
+  failureCode: string | null
+  completedAt: string | null
+}
+
+export interface MiniappCleanAnomaly {
+  code: string
+  detectedAt: string
+}
+
+export interface CleanPhoto {
+  position: DeliveryPhotoPosition
+  status: DeliveryPhotoStatus
+  url: string | null
+  capturedAt: string | null
+  missingReason: string | null
+}
+
+export interface CleanEffectiveValue {
+  removedNetWeightKg: string | null
+  source: CleanEffectiveWeightSource
+  includedInKnownWeightStatistics: boolean
+  recordRemark: string | null
+  version: number
+}
+
+export interface MiniappCleanRecordDetail {
+  cleanRecordNo: string
+  source: CleanRecordSource
+  bags: CleanBagFacts
+  weights: CleanWeightFacts
+  newBaseline: CleanBaselineSummary
+  postCleanDetection: CleanDetectionSummary | null
+  resultKind: CleanResultKind
+  anomalies: MiniappCleanAnomaly[]
+  photos: CleanPhoto[]
+  effective: CleanEffectiveValue
 }
 
 /** 设备：org.enveloping.ecobin.device.entity.Device */

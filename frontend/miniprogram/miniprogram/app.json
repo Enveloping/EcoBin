@@ -8,6 +8,7 @@
     "pages/clean-operation/clean-operation",
     "pages/clean-devices/clean-devices",
     "pages/clean-records/clean-records",
+    "pages/clean-record-detail/clean-record-detail",
     "pages/management/management",
     "pages/profile/profile",
     "pages/wallet/wallet",

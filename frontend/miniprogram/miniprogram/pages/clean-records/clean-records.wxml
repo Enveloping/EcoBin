@@ -1,9 +1,66 @@
 <view class="records-page">
-  <view class="empty-card">
-    <view class="empty-icon">
-      <t-icon name="root-list" size="56rpx" color="#247a46" />
-    </view>
-    <view class="empty-title">暂无可展示的记录</view>
-    <view class="empty-description">{{description}}</view>
+  <view wx:if="{{previewOnly || serviceUnavailable}}" class="state-card">
+    <view class="state-icon"><t-icon name="root-list" size="56rpx" color="#7e9a84" /></view>
+    <view class="state-title">暂无可展示的清运记录</view>
+    <view class="state-copy">{{previewOnly ? '当前仅预览清运端，登录账号权限未改变，因此不会请求清运记录。' : '清运记录服务暂未启用。'}}</view>
   </view>
+
+  <block wx:elif="{{initialLoading}}">
+    <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+      <view class="skeleton-line skeleton-line--wide"></view>
+      <view class="skeleton-line"></view>
+      <view class="skeleton-line skeleton-line--short"></view>
+    </view>
+  </block>
+
+  <view wx:elif="{{errorMessage}}" class="state-card">
+    <view class="state-icon state-icon--warning"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
+    <view class="state-title">{{errorMessage}}</view>
+    <view class="state-copy">请检查网络后重新加载</view>
+    <view class="state-action" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <view class="summary">已加载 {{records.length}} 笔清运记录</view>
+    <view
+      class="record-card"
+      wx:for="{{records}}"
+      wx:key="cleanRecordNo"
+      data-clean-record-no="{{item.cleanRecordNo}}"
+      bindtap="onRecordTap"
+      hover-class="record-card--pressed"
+    >
+      <view class="record-head">
+        <view>
+          <view class="device-title">设备 {{item.deploymentCode}}</view>
+          <view class="record-time">{{item.timeText}}</view>
+        </view>
+        <view class="result-tag result-tag--{{item.resultKind === 'NORMAL' ? 'normal' : 'warning'}}">{{item.resultText}}</view>
+      </view>
+      <view class="record-grid">
+        <view><text>投口</text><text>{{item.portNo}} 号</text></view>
+        <view><text>有效净重量</text><text>{{item.weightText}}</text></view>
+        <view><text>取走袋</text><text>{{item.removedBagText}}</text></view>
+        <view><text>换入袋</text><text>{{item.installedBagQr}}</text></view>
+      </view>
+      <view class="record-foot">
+        <text>{{item.photoText}}</text>
+        <view><text>{{item.cleanRecordNo}}</text><t-icon name="chevron-right" size="28rpx" color="#a0aaa2" /></view>
+      </view>
+    </view>
+
+    <view wx:if="{{records.length === 0}}" class="state-card">
+      <view class="state-icon"><t-icon name="root-list" size="56rpx" color="#7e9a84" /></view>
+      <view class="state-title">暂无清运记录</view>
+      <view class="state-copy">完成清运后，记录会显示在这里</view>
+    </view>
+
+    <view wx:if="{{loading}}" class="list-foot">正在加载…</view>
+    <view
+      wx:elif="{{!finished && records.length > 0}}"
+      class="list-foot list-foot--action"
+      bindtap="onContinueLoading"
+    >继续加载更多记录</view>
+    <view wx:elif="{{finished && records.length > 0}}" class="list-foot">没有更多了</view>
+  </block>
 </view>

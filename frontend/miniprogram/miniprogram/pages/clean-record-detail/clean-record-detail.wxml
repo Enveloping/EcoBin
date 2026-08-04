@@ -1,0 +1,93 @@
+<view class="detail-page">
+  <view wx:if="{{loading}}" class="state-card">
+    <view class="spinner"></view>
+    <view class="state-title">正在读取清运记录</view>
+  </view>
+
+  <view wx:elif="{{errorMessage}}" class="state-card">
+    <view class="state-icon"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
+    <view class="state-title">{{errorMessage}}</view>
+    <view wx:if="{{!previewOnly}}" class="state-action" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <view class="hero-card">
+      <view class="hero-head">
+        <view class="hero-icon"><t-icon name="delete" size="52rpx" color="#109d2b" /></view>
+        <view class="hero-copy">
+          <view class="hero-title">{{portText}}</view>
+          <view class="hero-number">{{recordNo}}</view>
+        </view>
+        <view class="result-tag result-tag--{{resultTone}}">{{resultText}}</view>
+      </view>
+      <view class="hero-time"><t-icon name="time" size="27rpx" color="#7e887f" /><text>{{completedAtText}}</text></view>
+    </view>
+
+    <view class="result-card">
+      <view class="result-label">当前有效取走净重量</view>
+      <view class="result-value">{{effectiveWeightText}}</view>
+      <view class="result-caption">{{effectiveSourceText}} · {{includedInStatisticsText}}已知重量统计</view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">来源</view>
+      <view class="info-row"><text>设备部署码</text><text>{{deploymentCode}}</text></view>
+      <view class="info-row"><text>设备完成时间</text><text>{{deviceCompletedAtText}}</text></view>
+      <view class="info-row"><text>后台接收时间</text><text>{{backendReceivedAtText}}</text></view>
+      <view class="info-row"><text>清运配置</text><text>{{configVersionText}}</text></view>
+      <view class="info-row"><text>操作编号</text><text class="small-value">{{operationUid}}</text></view>
+      <view class="info-row"><text>设备事件</text><text class="small-value">{{eventUid}}</text></view>
+      <view class="info-row"><text>开始命令</text><text class="small-value">{{commandUid}}</text></view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">袋关系</view>
+      <view class="info-row"><text>取走袋</text><text>{{removedBagQr}}</text></view>
+      <view class="info-row"><text>原袋状态</text><text>{{removedBagStateText}}</text></view>
+      <view class="info-row"><text>换入袋</text><text>{{installedBagQr}}</text></view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">重量事实</view>
+      <view class="info-row"><text>首次解锁前总重量</text><text>{{preUnlockText}}</text></view>
+      <view class="info-row"><text>原空袋基准</text><text>{{oldBaselineText}}</text></view>
+      <view class="info-row"><text>设备计算取走量</text><text>{{deviceRemovedText}}</text></view>
+      <view class="info-row"><text>后台重算取走量</text><text>{{recalculatedText}}</text></view>
+      <view class="info-row"><text>清运后总重量</text><text>{{finalTotalText}}</text></view>
+      <view class="info-row"><text>候选新基准</text><text>{{candidateBaselineText}}</text></view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">清运后状态</view>
+      <view class="info-row"><text>新袋重量基准</text><text>{{newBaselineText}}</text></view>
+      <view class="info-row"><text>清运后满溢检测</text><text>{{detectionText}}</text></view>
+      <view class="info-row"><text>当前备注</text><text>{{recordRemark}}</text></view>
+    </view>
+
+    <view wx:if="{{anomalies.length}}" class="info-card">
+      <view class="section-title">异常</view>
+      <view class="anomaly" wx:for="{{anomalies}}" wx:key="code">
+        <view class="anomaly-mark">!</view>
+        <view><text>{{item.code}}</text><text>{{item.timeText}}</text></view>
+      </view>
+    </view>
+
+    <view class="info-card">
+      <view class="section-title">现场照片</view>
+      <view class="photo-grid">
+        <view class="photo-item" wx:for="{{photos}}" wx:key="position">
+          <image
+            wx:if="{{item.status === 'AVAILABLE' && item.url}}"
+            class="photo"
+            src="{{item.url}}"
+            mode="aspectFill"
+            data-url="{{item.url}}"
+            bindtap="onPreviewPhoto"
+          />
+          <view wx:else class="photo photo--empty"><t-icon name="image" size="42rpx" color="#aeb6af" /><text>{{item.statusText}}</text></view>
+          <view class="photo-label">{{item.positionText}}</view>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>
