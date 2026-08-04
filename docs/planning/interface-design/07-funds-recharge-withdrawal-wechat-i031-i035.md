@@ -104,7 +104,7 @@ GET  {organizationBase}/wallet-adjustments/{adjustmentUid}
 1. 复核目标用户、机构、钱包、操作者作用域、实时能力和 `expectedWalletVersion`。
 2. 在钱包锁内计算调整前后余额；创建唯一 `fund_wallet_adjustment` 和 `MANUAL_ADJUSTMENT` 钱包明细，分配钱包内及机构可见序号并更新钱包投影。
 3. 调整后余额达到或低于当前阈值时，锁存 `MANUAL_RECOVERY_REQUIRED` 和本次阈值快照。已经锁存时，只有本次非零人工正向调整使余额严格高于锁存阈值，才在同一事务恢复 `OPEN`；普通返现和阈值变化不能代替人工恢复。
-4. 调整后实际余额 `< 0` 时，尚未越过微信调用边界的活动提现增加负余额暂停并保持双方冻结；已经越界的只增加风险标记。恢复到 `>= 0` 时自动解除渠道前暂停并唤醒原单，不创建新提现。
+4. 调整后实际余额 `< 0` 时，尚未越过微信调用边界的活动提现增加负余额暂停并保持双方冻结；已经越界的只增加风险标记。恢复到 `>= 0` 时自动解除渠道前暂停，并通过 operations 公开端口按租户、机构和提现单精确处理原提交任务，不创建新提现。只有空闲任务已立即排队或租约中任务已推进唤醒版本时才声明已经恢复；因出款闸门等其他条件继续等待，或任务已经阻断/终结/缺失时必须返回对应联动结果，不能通用解阻或冒充已唤醒。
 5. 写成功审计。原因可以为空，但调整前后金额、操作者和发生时间始终保存。
 
 任一步失败整体回滚，不得出现调整事实、钱包明细、余额、停投闸和活动提现只更新一部分。
@@ -125,7 +125,7 @@ GET  {organizationBase}/wallet-adjustments/{adjustmentUid}
 }
 ```
 
-`activeWithdrawalEffect` 固定为 `NONE/PAUSED_BEFORE_CHANNEL/RISK_MARKED_AFTER_CHANNEL/RESUMED_BEFORE_CHANNEL`。它只说明本次调整对既有提现的联动，不是新的提现终态。
+`activeWithdrawalEffect` 固定为 `NONE/PAUSED_BEFORE_CHANNEL/RISK_MARKED_AFTER_CHANNEL/RESUMED_BEFORE_CHANNEL/PAUSE_CLEARED_TASK_STILL_WAITING/PAUSE_CLEARED_TASK_NOT_WAKEABLE`。后两项分别表示负余额暂停已经按当前余额事实解除，但原提交任务仍在等待另一独立条件，或任务当前不允许自动唤醒。它只说明本次调整对既有提现的联动，不是新的提现终态。
 
 主要错误包括：
 

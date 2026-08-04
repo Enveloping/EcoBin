@@ -218,7 +218,7 @@ applyDeliveryRevisionDelta(
 - 差额非 0 时严格按 `wallet → organization wallet-entry counter → active withdrawal → withdrawal order` 取得涉及的锁，再追加明细并更新投影；
 - 新余额达到或低于当前停投阈值时锁存人工恢复闸和阈值快照；
 - 新余额小于 0 时同步处理进行中提现的暂停/风险标记；
-- 正向资金变化恢复到 `>=0` 时可解除提现负余额暂停，但不能自动清除投递人工恢复闸；
+- 正向资金变化恢复到 `>=0` 时可解除提现负余额暂停，但不能自动清除投递人工恢复闸；原提交任务只能经 `FundsOperationalControlPort` 由 operations 按提现单精确加锁处理，空闲任务立即排队、租约中任务只推进 `wake_version`，其他派发等待或阻断/终态不得被通用清除；
 - 事务任何一步失败时，订单修订和钱包变化全部回滚。
 
 人工调账由 recycling 外层协调：

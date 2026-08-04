@@ -21,6 +21,10 @@ import {
   storedLoginDomain,
   WEB_LOGIN_DOMAIN_KEY,
 } from '../web/src/security/loginDomain.ts';
+import {
+  LatestTargetRequestGuard,
+  walletPreviewTargetKey,
+} from '../web/src/utils/latestTargetRequest.ts';
 
 const webRoot = new URL('../web/', import.meta.url);
 const sourceRoot = fileURLToPath(new URL('../web/src/', import.meta.url));
@@ -287,4 +291,37 @@ test('data tables expose persisted column settings with safe defaults', () => {
   assert.match(pageStyle, /data-table-workbench/);
   assert.match(staffPage, /securityVersion:\s*\{\s*show:\s*false\s*\}/);
   assert.match(staffPage, /<StaffAccessPanel/);
+});
+
+test('wallet preview accepts only the latest organization-user request', () => {
+  const guard = new LatestTargetRequestGuard();
+  const userA = walletPreviewTargetKey(
+    'platform', 'tenant-a', 'organization-a', 'user-a',
+  );
+  const userB = walletPreviewTargetKey(
+    'platform', 'tenant-a', 'organization-a', 'user-b',
+  );
+  const requestA = guard.begin(userA);
+  const requestB = guard.begin(userB);
+
+  assert.equal(requestA.signal.aborted, true);
+  assert.equal(guard.accepts(requestA, userA), false);
+  assert.equal(guard.accepts(requestB, userB), true);
+  assert.equal(guard.accepts(requestB, userA), false);
+
+  guard.invalidate();
+  assert.equal(requestB.signal.aborted, true);
+  assert.equal(guard.accepts(requestB, userB), false);
+
+  const oldOrganization = guard.begin(walletPreviewTargetKey(
+    'platform', 'tenant-a', 'organization-a', 'user-b',
+  ));
+  const newOrganizationKey = walletPreviewTargetKey(
+    'platform', 'tenant-a', 'organization-b', 'user-b',
+  );
+  const newOrganization = guard.begin(newOrganizationKey);
+
+  assert.equal(oldOrganization.signal.aborted, true);
+  assert.equal(guard.accepts(oldOrganization, newOrganizationKey), false);
+  assert.equal(guard.accepts(newOrganization, newOrganizationKey), true);
 });

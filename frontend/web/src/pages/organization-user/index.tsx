@@ -47,6 +47,10 @@ import { useAuthStore } from '@/stores/authStore';
 import type { OrganizationUser } from '@/types';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import { directoryPath } from '@/router/directoryQuery';
+import {
+  LatestTargetRequestGuard,
+  walletPreviewTargetKey,
+} from '@/utils/latestTargetRequest';
 
 type UserMutation = 'freeze' | 'restore';
 
@@ -79,6 +83,9 @@ export default function OrganizationUserPage() {
   const view = searchParams.get('view') === 'disabled' ? 'disabled' : 'all';
   const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
+  const walletPreviewRequests = useRef(new LatestTargetRequestGuard());
+  const selectedWalletAdjustmentTarget = useRef<string | null>(null);
+  const walletPreviewOwner = useRef<string | null>(null);
   const executeCommand = useCommandExecutor();
   const canFreeze = useAuthStore((state) =>
     state.hasCapability('user.freeze'));
@@ -101,12 +108,30 @@ export default function OrganizationUserPage() {
   const [adjustReason, setAdjustReason] = useState('');
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
+  const walletAdjustmentScopeKey = scope.context && organizationCode
+    ? JSON.stringify([
+      scope.context.domain,
+      scope.context.tenantCode ?? null,
+      organizationCode,
+    ])
+    : '';
+  const currentWalletAdjustmentScope = useRef(walletAdjustmentScopeKey);
+  currentWalletAdjustmentScope.current = walletAdjustmentScopeKey;
 
   useEffect(() => {
     actionRef.current?.reload();
     setDetail(null);
+    walletPreviewRequests.current.invalidate();
+    selectedWalletAdjustmentTarget.current = null;
+    walletPreviewOwner.current = null;
     setAdjustingUser(null);
-  }, [organizationCode]);
+    setWalletPreview(null);
+    setAdjustLoading(false);
+  }, [walletAdjustmentScopeKey]);
+
+  useEffect(() => () => {
+    walletPreviewRequests.current.invalidate();
+  }, []);
 
   const openDetail = async (user: OrganizationUser) => {
     if (!scope.context || !organizationCode) return;
@@ -185,32 +210,103 @@ export default function OrganizationUserPage() {
   };
 
   const loadWalletPreview = async (user: OrganizationUser) => {
-    if (!scope.context || !organizationCode) return null;
-    return getOrganizationUserWallet(
-      scope.context,
-      organizationCode,
+    const context = scope.context;
+    const requestedOrganization = organizationCode;
+    const requestedScope = walletAdjustmentScopeKey;
+    if (!context || !requestedOrganization || !requestedScope) return null;
+    const targetKey = walletPreviewTargetKey(
+      context.domain,
+      context.tenantCode,
+      requestedOrganization,
       user.organizationUserUid,
     );
+    if (
+      currentWalletAdjustmentScope.current !== requestedScope
+      || selectedWalletAdjustmentTarget.current !== targetKey
+    ) return null;
+
+    const ticket = walletPreviewRequests.current.begin(targetKey);
+    walletPreviewOwner.current = null;
+    setWalletPreview(null);
+    setAdjustLoading(true);
+    try {
+      const preview = await getOrganizationUserWallet(
+        context,
+        requestedOrganization,
+        user.organizationUserUid,
+        ticket.signal,
+      );
+      if (
+        !walletPreviewRequests.current.accepts(ticket, targetKey)
+        || currentWalletAdjustmentScope.current !== requestedScope
+        || selectedWalletAdjustmentTarget.current !== targetKey
+      ) return null;
+      walletPreviewOwner.current = targetKey;
+      setWalletPreview(preview);
+      return preview;
+    } catch (error) {
+      if (
+        !walletPreviewRequests.current.accepts(ticket, targetKey)
+        || currentWalletAdjustmentScope.current !== requestedScope
+        || selectedWalletAdjustmentTarget.current !== targetKey
+      ) return null;
+      throw error;
+    } finally {
+      if (
+        walletPreviewRequests.current.accepts(ticket, targetKey)
+        && currentWalletAdjustmentScope.current === requestedScope
+        && selectedWalletAdjustmentTarget.current === targetKey
+      ) setAdjustLoading(false);
+    }
   };
 
   const openWalletAdjustment = async (user: OrganizationUser) => {
+    if (!scope.context || !organizationCode) return;
+    const targetKey = walletPreviewTargetKey(
+      scope.context.domain,
+      scope.context.tenantCode,
+      organizationCode,
+      user.organizationUserUid,
+    );
+    walletPreviewRequests.current.invalidate();
+    selectedWalletAdjustmentTarget.current = targetKey;
+    walletPreviewOwner.current = null;
     setAdjustingUser(user);
     setWalletPreview(null);
     setAdjustDeltaYuan('');
     setAdjustReason('');
-    setAdjustLoading(true);
     try {
-      setWalletPreview(await loadWalletPreview(user));
+      await loadWalletPreview(user);
     } catch {
-      setAdjustingUser(null);
-    } finally {
+      if (selectedWalletAdjustmentTarget.current === targetKey) {
+        walletPreviewRequests.current.invalidate();
+        selectedWalletAdjustmentTarget.current = null;
+        walletPreviewOwner.current = null;
+        setAdjustingUser(null);
+        setWalletPreview(null);
+      }
       setAdjustLoading(false);
     }
   };
 
   const submitWalletAdjustment = async () => {
-    if (!scope.context || !organizationCode
-      || !adjustingUser || !walletPreview) return;
+    const context = scope.context;
+    const requestedOrganization = organizationCode;
+    const user = adjustingUser;
+    if (!context || !requestedOrganization || !user || !walletPreview) return;
+    const targetKey = walletPreviewTargetKey(
+      context.domain,
+      context.tenantCode,
+      requestedOrganization,
+      user.organizationUserUid,
+    );
+    if (
+      selectedWalletAdjustmentTarget.current !== targetKey
+      || walletPreviewOwner.current !== targetKey
+    ) {
+      message.warning('余额预览已经失效，请重新打开后核对');
+      return;
+    }
     const deltaCent = parseMoneyCent(adjustDeltaYuan);
     if (deltaCent === null || deltaCent === 0n) {
       message.warning('请输入精确到分且不为 0 的调整差额');
@@ -224,11 +320,11 @@ export default function OrganizationUserPage() {
     setAdjustSubmitting(true);
     try {
       const result = await executeCommand(
-        commandKey('wallet-adjust', adjustingUser.organizationUserUid, data),
+        commandKey('wallet-adjust', user.organizationUserUid, data),
         (intent) => adjustOrganizationUserWallet(
-          scope.context!,
-          organizationCode,
-          adjustingUser.organizationUserUid,
+          context,
+          requestedOrganization,
+          user.organizationUserUid,
           data,
           intent,
         ),
@@ -236,12 +332,17 @@ export default function OrganizationUserPage() {
       message.success(
         `余额已由 ¥${result.availableBalanceBeforeYuan} 调整为 ¥${result.availableBalanceAfterYuan}`,
       );
+      walletPreviewRequests.current.invalidate();
+      selectedWalletAdjustmentTarget.current = null;
+      walletPreviewOwner.current = null;
       setAdjustingUser(null);
       setWalletPreview(null);
     } catch (error) {
       if (error instanceof ApiProblem && error.isVersionConflict) {
-        setWalletPreview(await loadWalletPreview(adjustingUser));
-        message.warning('钱包余额已经变化，已载入最新余额；请重新核对');
+        const latest = await loadWalletPreview(user);
+        if (latest) {
+          message.warning('钱包余额已经变化，已载入最新余额；请重新核对');
+        }
       }
     } finally {
       setAdjustSubmitting(false);
@@ -541,12 +642,21 @@ export default function OrganizationUserPage() {
         okButtonProps={{
           disabled: adjustLoading
             || !walletPreview
+            || walletPreviewOwner.current
+              !== selectedWalletAdjustmentTarget.current
             || parseMoneyCent(adjustDeltaYuan) === null
             || parseMoneyCent(adjustDeltaYuan) === 0n,
         }}
         onOk={submitWalletAdjustment}
         onCancel={() => {
-          if (!adjustSubmitting) setAdjustingUser(null);
+          if (!adjustSubmitting) {
+            walletPreviewRequests.current.invalidate();
+            selectedWalletAdjustmentTarget.current = null;
+            walletPreviewOwner.current = null;
+            setAdjustingUser(null);
+            setWalletPreview(null);
+            setAdjustLoading(false);
+          }
         }}
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>

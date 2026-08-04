@@ -115,7 +115,7 @@ fund_payout_gate（仅涉及创建、提交或 NOT_ENOUGH 时）
 | 充值净额入账第二段 | `recharge order → wechat payment → organization account`；复核成功事实和唯一明细缺失，追加 `RECHARGE_POSTED`、增加净额投影并推进 `POSTED`。 |
 
 - 平台出款闸门暂停与 D-024 的负余额暂停是两种不同条件：负余额暂停期间仍禁止审核通过；平台闸门暂停时拒绝创建新手动提现，也禁止任何尚未提交的提现调用微信，但暂停前已经存在且没有负余额暂停的 `PENDING_REVIEW` 提现仍可审核通过并进入 `READY_TO_SUBMIT`，可靠任务等待闸门恢复后再提交。审核驳回照常允许；用户端没有取消能力。
-- 任意余额恢复事务已经取得钱包锁时，只解除原负余额暂停并唤醒原任务，不能反向取得 gate；后续提交执行器必须重新从 gate 开始完整复核。
+- 任意余额恢复事务已经取得钱包锁时，只解除原负余额暂停，并在最后经 operations 公开端口精确锁定本提现的提交任务；空闲任务推进运行时间和唤醒版本，租约中任务只推进唤醒版本，其他派发等待保持原原因，阻断/终态任务保持原状态。funds 不得直接更新可靠任务表，也不能反向取得 gate；后续提交执行器必须重新从 gate 开始完整复核。
 - 人工钱包调整由外层受控协调用例按 `rec_organization_delivery_config_head → wallet → organization wallet-entry counter → active withdrawal → withdrawal order` 进入；先取得当前阈值受信快照，再调用 funds 原子调整。这样遵守 Maven 依赖方向，funds 不反向读取 recycling，且调整恢复后下一次投递仍会按新 head 再检查。
 - 提现配置发布只锁 `fund_organization_withdraw_config_head` 及新版本；创建提现从 gate 进入后锁同一 head，再进入钱包主链。提交微信使用提现已经固化的配置和收款快照，不反向读取或锁当前配置 head。配置发布与提现创建以 head 的提交顺序决定新单使用哪个版本，既有提现不受影响。
 - 充值创建先锁 `fund_miniapp_merchant_binding` 再建立充值/支付请求；绑定验证或禁用也从该行线性化。禁用先提交时新充值和新转账提交失败；已经可靠越过外部调用边界的原支付/转账继续按原身份归并，禁用不能把真实成功改写为失败。下单是否可能外调不明的既有充值继续原单查单，只有证明从未外调时才允许本地关闭。

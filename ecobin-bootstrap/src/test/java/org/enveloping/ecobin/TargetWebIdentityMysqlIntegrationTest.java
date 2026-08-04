@@ -1172,6 +1172,138 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND next_run_at <= UTC_TIMESTAMP(3)
                         + INTERVAL 2 SECOND
                 """, Integer.class, taskUid.toString()));
+
+        JsonNode pausedBeforeBlockedTask = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "-0.01",
+                        "expectedWalletVersion", 3,
+                        "reason", "再次验证阻断任务恢复边界"),
+                201));
+        assertEquals("PAUSED_BEFORE_CHANNEL",
+                pausedBeforeBlockedTask.path(
+                        "activeWithdrawalEffect").asText());
+        assertEquals(1, jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    lease_token = NULL, lease_worker = NULL,
+                    lease_until = NULL,
+                    completed_at = UTC_TIMESTAMP(3),
+                    blocked_reason_code = 'DATA_ERROR',
+                    blocked_diagnostic = 'requires precise recovery',
+                    handled_wake_version = wake_version,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ? AND state = 'PENDING'
+                """, taskUid.toString()));
+        JsonNode recoveredWithBlockedTask = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "0.01",
+                        "expectedWalletVersion", 4,
+                        "reason", "余额恢复但任务仍需精确处置"),
+                201));
+        assertEquals("PAUSE_CLEARED_TASK_NOT_WAKEABLE",
+                recoveredWithBlockedTask.path(
+                        "activeWithdrawalEffect").asText());
+        assertEquals("0|BLOCKED|1|DATA_ERROR",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            withdrawal.negative_balance_pause, '|',
+                            task.state, '|', task.wake_version, '|',
+                            task.blocked_reason_code)
+                        FROM fund_withdrawal_order withdrawal
+                        JOIN ops_reliable_task task
+                          ON task.target_type = 'WITHDRAWAL_ORDER'
+                         AND task.target_stable_key =
+                             withdrawal.withdrawal_order_no
+                        WHERE withdrawal.withdrawal_order_no = ?
+                        """, String.class, withdrawalNo));
+
+        String otherWaitReason = "PAYOUT_NOT_ENOUGH:"
+                + UUID.randomUUID();
+        assertEquals(1, jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'PENDING',
+                    next_run_at = UTC_TIMESTAMP(3) + INTERVAL 1 DAY,
+                    completed_at = NULL,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    dispatch_wait_reason = ?,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ? AND state = 'BLOCKED'
+                """, otherWaitReason, taskUid.toString()));
+        data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "-0.01",
+                        "expectedWalletVersion", 5,
+                        "reason", "验证其他派发等待条件"),
+                201));
+        JsonNode recoveredStillWaiting = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "0.01",
+                        "expectedWalletVersion", 6,
+                        "reason", "余额恢复但保留出款闸等待"),
+                201));
+        assertEquals("PAUSE_CLEARED_TASK_STILL_WAITING",
+                recoveredStillWaiting.path(
+                        "activeWithdrawalEffect").asText());
+        assertEquals("PENDING|1|" + otherWaitReason,
+                jdbc.queryForObject("""
+                        SELECT CONCAT(state, '|', wake_version, '|',
+                                      dispatch_wait_reason)
+                        FROM ops_reliable_task WHERE task_uid = ?
+                        """, String.class, taskUid.toString()));
+
+        UUID leaseToken = UUID.randomUUID();
+        assertEquals(1, jdbc.update("""
+                UPDATE ops_reliable_task
+                SET dispatch_wait_reason = NULL,
+                    next_run_at = UTC_TIMESTAMP(3) + INTERVAL 1 DAY,
+                    lease_token = ?, lease_worker = 'wallet-adjust-test',
+                    lease_until = UTC_TIMESTAMP(3) + INTERVAL 1 HOUR,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ? AND state = 'PENDING'
+                """, leaseToken.toString(), taskUid.toString()));
+        data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "-0.01",
+                        "expectedWalletVersion", 7,
+                        "reason", "验证租约中任务的唤醒"),
+                201));
+        JsonNode recoveredDuringLease = data(write(
+                platform,
+                post(base + "/wallet-adjustments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "deltaYuan", "0.01",
+                        "expectedWalletVersion", 8,
+                        "reason", "租约执行期间恢复余额"),
+                201));
+        assertEquals("RESUMED_BEFORE_CHANNEL",
+                recoveredDuringLease.path(
+                        "activeWithdrawalEffect").asText());
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reliable_task
+                WHERE task_uid = ? AND state = 'PENDING'
+                  AND wake_version = 2
+                  AND lease_token = ?
+                  AND next_run_at >= UTC_TIMESTAMP(3)
+                        + INTERVAL 12 HOUR
+                """, Integer.class,
+                taskUid.toString(), leaseToken.toString()));
     }
 
     @Test

@@ -5042,7 +5042,7 @@ export interface components {
             /** @enum {string} */
             deliveryGate: "OPEN" | "MANUAL_RECOVERY_REQUIRED";
             /** @enum {string} */
-            activeWithdrawalEffect: "NONE" | "PAUSED_BEFORE_CHANNEL" | "RISK_MARKED_AFTER_CHANNEL" | "RESUMED_BEFORE_CHANNEL";
+            activeWithdrawalEffect: "NONE" | "PAUSED_BEFORE_CHANNEL" | "RISK_MARKED_AFTER_CHANNEL" | "RESUMED_BEFORE_CHANNEL" | "PAUSE_CLEARED_TASK_STILL_WAITING" | "PAUSE_CLEARED_TASK_NOT_WAKEABLE";
             occurredAt: components["schemas"]["UtcTimestamp"];
         };
         WalletAdjustmentEnvelope: {

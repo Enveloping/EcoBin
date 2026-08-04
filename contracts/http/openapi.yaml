@@ -10686,7 +10686,7 @@
           },
           "activeWithdrawalEffect": {
             "type": "string",
-            "enum": ["NONE", "PAUSED_BEFORE_CHANNEL", "RISK_MARKED_AFTER_CHANNEL", "RESUMED_BEFORE_CHANNEL"]
+            "enum": ["NONE", "PAUSED_BEFORE_CHANNEL", "RISK_MARKED_AFTER_CHANNEL", "RESUMED_BEFORE_CHANNEL", "PAUSE_CLEARED_TASK_STILL_WAITING", "PAUSE_CLEARED_TASK_NOT_WAKEABLE"]
           },
           "occurredAt": {"$ref": "#/components/schemas/UtcTimestamp"}
         }

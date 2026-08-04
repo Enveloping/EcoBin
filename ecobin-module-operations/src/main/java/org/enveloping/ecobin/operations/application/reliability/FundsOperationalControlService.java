@@ -10,6 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -138,6 +140,88 @@ public class FundsOperationalControlService
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public WithdrawalSubmitTaskWakeResult wakeWithdrawalSubmitTask(
+            long tenantId,
+            long organizationId,
+            String withdrawalNo,
+            LocalDateTime wakeAt) {
+        if (tenantId <= 0 || organizationId <= 0) {
+            throw new IllegalArgumentException(
+                    "withdrawal task scope must be positive");
+        }
+        if (withdrawalNo == null || withdrawalNo.isBlank()) {
+            throw new IllegalArgumentException(
+                    "withdrawalNo must not be blank");
+        }
+        Objects.requireNonNull(wakeAt, "wakeAt");
+        List<WithdrawalSubmitTask> tasks = jdbc.query("""
+                SELECT id, state, lease_token, dispatch_wait_reason,
+                       wake_version
+                FROM ops_reliable_task
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND execution_lane = 'FUNDS'
+                  AND task_type = 'SUBMIT_MERCHANT_TRANSFER'
+                  AND target_type = 'WITHDRAWAL_ORDER'
+                  AND target_stable_key = ?
+                FOR UPDATE
+                """,
+                (resultSet, ignored) -> new WithdrawalSubmitTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("state"),
+                        resultSet.getString("lease_token"),
+                        resultSet.getString("dispatch_wait_reason"),
+                        resultSet.getLong("wake_version")),
+                tenantId, organizationId, withdrawalNo);
+        if (tasks.size() != 1) {
+            return WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE;
+        }
+        WithdrawalSubmitTask task = tasks.getFirst();
+        if (!"PENDING".equals(task.state())) {
+            return WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE;
+        }
+        if (task.dispatchWaitReason() != null) {
+            return WithdrawalSubmitTaskWakeResult
+                    .WAITING_ON_ANOTHER_CONDITION;
+        }
+        if (task.wakeVersion() >= 9_007_199_254_740_991L) {
+            return WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE;
+        }
+        long nextWakeVersion = task.wakeVersion() + 1;
+        int updated;
+        if (task.leaseToken() == null) {
+            updated = jdbc.update("""
+                    UPDATE ops_reliable_task
+                    SET next_run_at = ?, wake_version = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ? AND state = 'PENDING'
+                      AND lease_token IS NULL
+                      AND dispatch_wait_reason IS NULL
+                      AND wake_version = ?
+                    """, wakeAt, nextWakeVersion, wakeAt,
+                    task.id(), task.wakeVersion());
+        } else {
+            updated = jdbc.update("""
+                    UPDATE ops_reliable_task
+                    SET wake_version = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ? AND state = 'PENDING'
+                      AND lease_token = ?
+                      AND dispatch_wait_reason IS NULL
+                      AND wake_version = ?
+                    """, nextWakeVersion, wakeAt, task.id(),
+                    task.leaseToken(), task.wakeVersion());
+        }
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "precise withdrawal submit wake updated "
+                            + updated + " rows");
+        }
+        return WithdrawalSubmitTaskWakeResult.WOKEN;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void observeReconciliationIssue(ReconciliationIssue issue) {
         byte[] dedupe = sha256(issue.issueCode() + "|"
                 + issue.subjectType() + "|" + issue.subjectStableKey());
@@ -199,5 +283,13 @@ public class FundsOperationalControlService
         } catch (Exception failure) {
             throw new IllegalStateException("SHA-256 unavailable", failure);
         }
+    }
+
+    private record WithdrawalSubmitTask(
+            long id,
+            String state,
+            String leaseToken,
+            String dispatchWaitReason,
+            long wakeVersion) {
     }
 }

@@ -7,6 +7,7 @@ import org.enveloping.ecobin.framework.audit.AuditScopeKind;
 import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.api.command.AdjustWalletCommand;
+import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort;
 import org.enveloping.ecobin.funds.api.port.WalletAdjustmentPort;
 import org.enveloping.ecobin.funds.api.result.WalletAdjustmentResult;
 import org.enveloping.ecobin.funds.api.result.WalletAdjustmentWithdrawalEffect;
@@ -51,14 +52,17 @@ public class WalletAdjustmentService implements WalletAdjustmentPort {
     private final JdbcTemplate jdbc;
     private final AuditPort audit;
     private final ObjectMapper objectMapper;
+    private final FundsOperationalControlPort operationalControl;
 
     public WalletAdjustmentService(
             JdbcTemplate jdbc,
             AuditPort audit,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            FundsOperationalControlPort operationalControl) {
         this.jdbc = jdbc;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.operationalControl = operationalControl;
     }
 
     @Override
@@ -133,6 +137,9 @@ public class WalletAdjustmentService implements WalletAdjustmentPort {
                 command.currentStopThresholdCent(),
                 occurredAt);
         WithdrawalPlan withdrawalPlan = withdrawalPlan(withdrawal, after);
+        WalletAdjustmentWithdrawalEffect withdrawalEffect =
+                resolveWithdrawalEffect(
+                        target, withdrawalPlan, occurredAt);
         WalletAdjustmentResult response = new WalletAdjustmentResult(
                 command.operationUid(),
                 entryUid,
@@ -141,7 +148,7 @@ public class WalletAdjustmentService implements WalletAdjustmentPort {
                 after,
                 next(wallet.lockVersion(), "wallet lock version"),
                 gate.state(),
-                withdrawalPlan.effect(),
+                withdrawalEffect,
                 command.occurredAt().truncatedTo(ChronoUnit.MILLIS));
 
         long auditId = appendAudit(
@@ -162,11 +169,6 @@ public class WalletAdjustmentService implements WalletAdjustmentPort {
                 entryId, occurredAt);
         withdrawalPlan.update().ifPresent(update -> {
             updateWithdrawal(target, wallet.id(), update, occurredAt);
-            if (withdrawalPlan.effect()
-                    == WalletAdjustmentWithdrawalEffect
-                    .RESUMED_BEFORE_CHANNEL) {
-                wakeSubmitTask(update.withdrawalNo(), occurredAt);
-            }
         });
         return response;
     }
@@ -487,24 +489,6 @@ public class WalletAdjustmentService implements WalletAdjustmentPort {
                 "update active withdrawal balance flags");
     }
 
-    private void wakeSubmitTask(
-            String withdrawalNo,
-            LocalDateTime now) {
-        jdbc.update("""
-                UPDATE ops_reliable_task
-                SET next_run_at = ?,
-                    wake_version = wake_version + 1,
-                    lock_version = lock_version + 1,
-                    updated_at = ?
-                WHERE execution_lane = 'FUNDS'
-                  AND task_type = 'SUBMIT_MERCHANT_TRANSFER'
-                  AND target_type = 'WITHDRAWAL_ORDER'
-                  AND target_stable_key = ?
-                  AND state = 'PENDING'
-                  AND dispatch_wait_reason IS NULL
-                """, now, now, withdrawalNo);
-    }
-
     private WalletAdjustmentResult replay(
             SuccessfulAudit previous,
             AdjustWalletCommand command,
@@ -637,6 +621,32 @@ public class WalletAdjustmentService implements WalletAdjustmentPort {
                             .RESUMED_BEFORE_CHANNEL);
         }
         return unchangedWithdrawal();
+    }
+
+    private WalletAdjustmentWithdrawalEffect resolveWithdrawalEffect(
+            Target target,
+            WithdrawalPlan plan,
+            LocalDateTime occurredAt) {
+        if (plan.effect()
+                != WalletAdjustmentWithdrawalEffect.RESUMED_BEFORE_CHANNEL) {
+            return plan.effect();
+        }
+        WithdrawalUpdate update = plan.update().orElseThrow(
+                () -> invariant(
+                        "withdrawal resume effect lacks an update"));
+        return switch (operationalControl.wakeWithdrawalSubmitTask(
+                target.tenantId(),
+                target.organizationId(),
+                update.withdrawalNo(),
+                occurredAt)) {
+            case WOKEN -> WalletAdjustmentWithdrawalEffect
+                    .RESUMED_BEFORE_CHANNEL;
+            case WAITING_ON_ANOTHER_CONDITION ->
+                    WalletAdjustmentWithdrawalEffect
+                            .PAUSE_CLEARED_TASK_STILL_WAITING;
+            case NOT_WAKEABLE -> WalletAdjustmentWithdrawalEffect
+                    .PAUSE_CLEARED_TASK_NOT_WAKEABLE;
+        };
     }
 
     private static WithdrawalPlan unchangedWithdrawal() {

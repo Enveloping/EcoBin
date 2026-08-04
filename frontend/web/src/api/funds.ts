@@ -57,6 +57,7 @@ export function getOrganizationUserWallet(
   context: DirectoryContext,
   organizationCode: string,
   organizationUserUid: string,
+  signal?: AbortSignal,
 ) {
   return request<WalletSummary>({
     url:
@@ -64,6 +65,7 @@ export function getOrganizationUserWallet(
       + `${encodeURIComponent(organizationUserUid)}/wallet`,
     method: 'GET',
     noStore: true,
+    signal,
   });
 }
 
