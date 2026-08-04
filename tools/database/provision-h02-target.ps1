@@ -609,6 +609,12 @@ function Start-RemoteDatabaseTunnel {
         return $null
     }
 
+    # A pre-existing listener can make the readiness probe connect through a
+    # stale tunnel before the newly started ssh process reports its bind
+    # failure. Refuse that ambiguous state instead of risking migration of a
+    # different MySQL endpoint.
+    Assert-HostPortAvailable
+
     $ipOutput = @(
         Invoke-Docker -Arguments @(
             "container", "inspect",
@@ -915,6 +921,9 @@ WHERE table_schema = '$DatabaseName'
             )
         }
         if ($existingMaxVersion -eq 31) {
+            # Check before changing the owner account so a stale local tunnel
+            # fails without opening a database mutation window.
+            Assert-HostPortAvailable
             # Mark the account as potentially unlocked before the remote call.
             # MySQL may commit ALTER USER even if the SSH acknowledgement is
             # lost, so the failure path must not depend on receiving success.
