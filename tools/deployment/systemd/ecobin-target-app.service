@@ -1,0 +1,21 @@
+[Unit]
+Description=EcoBin target Web and backend Compose stack
+Requires=docker.service ecobin-stage-runtime-secrets.service
+After=docker.service ecobin-stage-runtime-secrets.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/ecobin/compose/docker-compose.target-app.yml
+ConditionPathExists=/etc/ecobin/deployment.env
+ConditionPathExists=/etc/ecobin/runtime.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/local/sbin/ecobin-production-preflight
+ExecStart=/usr/bin/docker compose --env-file /etc/ecobin/deployment.env --file /etc/ecobin/compose/docker-compose.target-app.yml up --detach --no-build --wait --wait-timeout 180
+ExecReload=/usr/bin/docker compose --env-file /etc/ecobin/deployment.env --file /etc/ecobin/compose/docker-compose.target-app.yml up --detach --no-build --wait --wait-timeout 180
+ExecStop=/usr/bin/docker compose --env-file /etc/ecobin/deployment.env --file /etc/ecobin/compose/docker-compose.target-app.yml stop --timeout 60
+TimeoutStartSec=300
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

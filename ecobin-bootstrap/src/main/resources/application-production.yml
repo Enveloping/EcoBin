@@ -1,0 +1,22 @@
+# Production is a safety profile, not a shortcut for enabling real external
+# channels. externalMode still selects Fake or Real explicitly in runtime.env.
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  forward-headers-strategy: native
+  shutdown: graceful
+
+ecobin:
+  development:
+    default-platform-admin:
+      enabled: false
+  observability:
+    http-request-logging:
+      include-request-body: false
+    diagnostic-logging:
+      one-net:
+        enabled: false
+      sql:
+        enabled: false

@@ -27,6 +27,8 @@ param(
         "/etc/ecobin/secrets/db-app-password",
     [string]$RemoteBackupPasswordPath =
         "/etc/ecobin/secrets/db-backup-password",
+    [ValidateRange(1, 10)]
+    [int]$TransientSshAttempts = 1,
     [switch]$ResumeExistingEmptyEnvironment,
     [switch]$ResumeExistingMigratedEnvironment
 )
@@ -107,16 +109,39 @@ function Invoke-RemoteCommand {
     $sshArguments = @(
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
+        "-o", "ConnectionAttempts=3",
+        "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=3",
         $RemoteHost,
         $Command
     )
-    if ($PSBoundParameters.ContainsKey("InputText")) {
-        $output = $InputText | & ssh @sshArguments 2>&1
+
+    $output = @()
+    $exitCode = 0
+    for ($attempt = 1; $attempt -le $TransientSshAttempts; $attempt++) {
+        if ($PSBoundParameters.ContainsKey("InputText")) {
+            $output = $InputText | & ssh @sshArguments 2>&1
+        }
+        else {
+            $output = & ssh @sshArguments 2>&1
+        }
+        $exitCode = $LASTEXITCODE
+        $outputText = @($output) -join "`n"
+        $transientConnectionFailure =
+            $exitCode -eq 255 -and
+            $outputText -match (
+                "(?i)connection (closed|reset|timed out|refused)|" +
+                "kex_exchange_identification|ssh_exchange_identification|" +
+                "banner exchange|broken pipe"
+            )
+        if (
+            -not $transientConnectionFailure -or
+            $attempt -eq $TransientSshAttempts
+        ) {
+            break
+        }
+        Start-Sleep -Milliseconds ([Math]::Min(1000 * $attempt, 5000))
     }
-    else {
-        $output = & ssh @sshArguments 2>&1
-    }
-    $exitCode = $LASTEXITCODE
     if (-not $AllowFailure -and $exitCode -ne 0) {
         $tail = (@($output) | Select-Object -Last 30) -join "`n"
         throw "Remote command failed with exit code $exitCode`n$tail"
@@ -325,6 +350,10 @@ function Invoke-ClientSql {
         $exitCode = $LASTEXITCODE
     }
     if ($ExpectFailure) {
+        if ($RemoteHost.Length -gt 0 -and $exitCode -eq 255) {
+            $tail = (@($output) | Select-Object -Last 30) -join "`n"
+            throw "$User permission probe lost its SSH transport`n$tail"
+        }
         if ($exitCode -eq 0) {
             throw "$User unexpectedly executed a forbidden SQL statement"
         }
@@ -646,6 +675,15 @@ if (
     $ResumeExistingMigratedEnvironment
 ) {
     throw "Select only one H-02 resume mode"
+}
+if (
+    $TransientSshAttempts -gt 1 -and
+    -not $ResumeExistingMigratedEnvironment
+) {
+    throw (
+        "Transient SSH retries are only safe for the idempotent " +
+        "migrated-environment resume mode"
+    )
 }
 if ($UseExistingProductionSecrets) {
     foreach ($requiredSecret in @(

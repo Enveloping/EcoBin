@@ -5,7 +5,10 @@ container_name="ecobin-target-mysql84"
 volume_name="ecobin-target-mysql84-data"
 network_name="ecobin-target-db"
 database_name="ecobin"
-backup_path="/var/backups/ecobin/h02/20260727T075001Z/ecobin-h02-permission-catalog-20260727T075001Z.sql.gz.cms"
+expected_migrations="${H02_EXPECTED_MIGRATIONS:-31}"
+expected_tables="${H02_EXPECTED_TABLES:-96}"
+expected_permissions="${H02_EXPECTED_PERMISSIONS:-77}"
+backup_path="${H02_BACKUP_PATH:-/var/backups/ecobin/h02/20260727T075001Z/ecobin-h02-permission-catalog-20260727T075001Z.sql.gz.cms}"
 
 if [[ "$(id -u)" != "0" ]]; then
     echo "must run as root" >&2
@@ -96,7 +99,7 @@ pids_limit="$(
     docker container inspect --format '{{.HostConfig.PidsLimit}}' "${container_name}"
 )"
 published_ports="$(
-    docker container inspect --format '{{json .NetworkSettings.Ports}}' "${container_name}"
+    docker container inspect --format '{{json .HostConfig.PortBindings}}' "${container_name}"
 )"
 mounted_volume="$(
     docker container inspect \
@@ -117,15 +120,15 @@ if [[ "${mysql_version}" != "8.4.10" ]]; then
     echo "unexpected MySQL version" >&2
     exit 1
 fi
-if [[ "${migration_count}" != "10" ]]; then
+if [[ "${migration_count}" != "${expected_migrations}" ]]; then
     echo "unexpected migration count" >&2
     exit 1
 fi
-if [[ "${table_count}" != "83" ]]; then
+if [[ "${table_count}" != "${expected_tables}" ]]; then
     echo "unexpected table count" >&2
     exit 1
 fi
-if [[ "${permission_count}" != "71" ]]; then
+if [[ "${permission_count}" != "${expected_permissions}" ]]; then
     echo "unexpected permission count" >&2
     exit 1
 fi

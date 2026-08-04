@@ -1,5 +1,9 @@
 # EcoBin 前端管理后台 Docker 部署指南
 
+> 2026-08 更新：本文是早期 Compose 教学稿。当前服务器采用“宿主机 Nginx TLS →
+> `127.0.0.1:18080` Web 容器 → 私网 backend”的目标拓扑，实际操作以
+> [`target-single-host-deployment.md`](target-single-host-deployment.md) 为准。
+
 > 配套后端部署见 `docs/deployment/deploy-docker.md`。本文讲「前端 web 后台」怎么用 Docker 部署到同一台服务器，
 > 并解决小程序登录报「未找到该小程序对应的租户」的问题。
 

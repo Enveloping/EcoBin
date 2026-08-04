@@ -5,7 +5,8 @@
 > 操作人：`enveloping`
 >
 > 当前用途：Windows 本地开发演练与服务器阶段 3 供应手册；两处均已验证独立
-> MySQL 8.4.10 容器/卷、五类身份、V1～V10 和脱敏权限探针。服务器阶段 3 结果另见
+> MySQL 8.4.10 容器/卷、五类身份、V1～V31 和脱敏权限探针。服务器目标空库已于
+> 2026-08-04 重建到 V31；服务器执行结果另见
 > [单机试验期生产整改计划](single-host-production-remediation-plan.md)。
 
 ## 1. 本手册不会做什么
@@ -79,7 +80,7 @@ Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner �
 2. 创建目标数据库和五类身份；
 3. schema owner 安装 V1～V8；
 4. 为锁定 trigger definer 授予两个触发器需要的精确读取权限；
-5. schema owner 安装 V9～V10；
+5. schema owner 安装 V9～V31；
 6. 锁定 schema owner；
 7. 应用当前已冻结的表级/列级运行权限；
 8. 执行正向 DML 和 DDL/GRANT/TRIGGER/事实删除/系统库访问负测；
@@ -100,27 +101,30 @@ Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner �
 恢复模式只接受目标数据库存在且表数为 0 的环境；它用 `docker compose down`
 重建容器和网络但不删除数据卷，重新生成一次性 schema owner 密码后继续首次迁移。
 
-若 V1～V10 已成功、owner 已锁定，只是后续权限验收脚本中断，则使用：
+若 V1～V31 已成功、owner 已锁定，只是后续权限验收脚本中断，则使用：
 
 ```powershell
 .\tools\database\provision-h02-target.ps1 `
-  -ResumeExistingMigratedEnvironment
+  -ResumeExistingMigratedEnvironment `
+  -TransientSshAttempts 8
 ```
 
-该模式要求 83 张领域表和 10 条成功迁移完整存在，不解锁 owner、不重复迁移。
+该模式要求 96 张领域表和 31 条成功迁移完整存在，不解锁 owner、不重复迁移。
+`TransientSshAttempts` 只允许在这个已迁移、操作均幂等的续跑模式使用；它只重试
+SSH 连接层错误。SQL 或权限错误不会被重试为成功，SSH 255 也不能冒充权限负测通过。
 
 ## 5. 列级权限完成门
 
 H-02 实施审查发现 F-04/F-05 原矩阵只有表和写类，没有把 identity/device/recycling
-34 张 P/O 表落到精确更新列。本 worktree 已按冻结状态机、不可变边界和实际 DDL 将其
-补入 F-04/F-05 矩阵，并与 F-06 合成完整 grants 目录。
+等持久化对象落到精确更新列。当前 grants 目录已按冻结状态机、不可变边界和 V31 DDL
+补齐。
 
 脚本只生成：
 
-- 83 张领域表显式 `SELECT`；
+- 96 张领域表显式 `SELECT`；
 - 除权限目录外显式 `INSERT`；
-- 四张当前槽位表显式 `DELETE`；
-- 对 52 张 P/O 表只授予矩阵明确列出的列级 `UPDATE`。
+- 六张当前槽位表显式 `DELETE`；
+- 对 56 张 P/O 表只授予矩阵明确列出的列级 `UPDATE`。
 
 验收对每张 P/O 表执行一条获准列空集更新正测，并选择该表首个未授权列执行负测；
 四张槽位表逐表验证 `DELETE`，备份身份以 `single-transaction` 数据读取探针验证。
@@ -149,7 +153,7 @@ docker compose `
 
 ## 7. 服务器阶段 3 固定对象
 
-2026-07-27 供应并验证的服务器对象为：
+2026-07-27 首次供应、2026-08-04 按相同隔离边界重建到 V31 并验证的服务器对象为：
 
 | 对象 | 固定值 |
 |---|---|
@@ -178,3 +182,20 @@ sudo docker compose \
 不要为方便管理临时发布 3306/13306；需要执行受控迁移时使用一次性 SSH 隧道并在操作
 结束后验证宿主机没有监听。停止目标 MySQL 不会自动授权启动旧栈，阶段 4 应继续等待
 单独授权。
+
+2026-08-04 V31 供应摘要位于操作机仓库外：
+
+```text
+C:\Users\24217\.ecobin\production\115.159.67.35\evidence\h02-v31\20260804T091716Z\summary.json
+```
+
+服务器最终审计和加密备份证据位于：
+
+```text
+/var/lib/ecobin/evidence/h02-post-v31/20260804T092236Z/
+/var/backups/ecobin/h02/20260804T092236Z/
+```
+
+最终结果为 31 条成功迁移、96 张领域表、77 条权限定义、其余业务数据 0；owner 和
+trigger definer 均锁定，运行账号最小权限矩阵完整，目标容器重启后健康，宿主机没有
+3306/13306 监听。旧三容器继续停止，旧数据卷未修改；未执行 seed、应用部署或入口切换。

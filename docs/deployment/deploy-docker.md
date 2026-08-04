@@ -1,5 +1,10 @@
 # EcoBin 后端 Docker 部署说明
 
+> 2026-08 更新：本文保留 F-07/V10 的历史安全边界说明；当前目标数据库和应用门已推进
+> 到 V31。服务器实际部署请以
+> [`target-single-host-deployment.md`](target-single-host-deployment.md) 为准，不再照本文
+> 的 V10 数量或旧启动示例执行。
+
 > 当前适用阶段：F-07 目标 V10 空业务库 Fake bootstrap。
 >
 > 本文替代 F-07 之前“应用用 root 启动并自动建库/迁移”的开发说明。当前运行制品不含

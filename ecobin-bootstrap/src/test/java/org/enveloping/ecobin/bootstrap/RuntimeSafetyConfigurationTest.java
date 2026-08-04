@@ -41,7 +41,13 @@ class RuntimeSafetyConfigurationTest {
             "V22__device_tenant_allocation.sql",
             "V23__device_acceptance_reclaim_credentials.sql",
             "V24__device_transport_presence_and_dispatch_gates.sql",
-            "V25__edge_reported_current_bag_fullness.sql"
+            "V25__edge_reported_current_bag_fullness.sql",
+            "V26__event_driven_device_presence_and_evidence.sql",
+            "V27__edge_restart_abort_semantics.sql",
+            "V28__organization_payout_account_bootstrap.sql",
+            "V29__organization_withdrawal_defaults.sql",
+            "V30__funds_channel_evidence_and_recovery.sql",
+            "V31__native_request_freeze_and_wallet_adjustment.sql"
     };
 
     @Test
@@ -180,6 +186,47 @@ class RuntimeSafetyConfigurationTest {
         assertEquals(
                 "${ecobinLogPath:./logs}",
                 property(realSources, "logging.file.path"));
+    }
+
+    @Test
+    void productionProfileKeepsDiagnosticsClosedAndDisablesWeakBootstrap()
+            throws IOException {
+        List<PropertySource<?>> productionSources =
+                new YamlPropertySourceLoader().load(
+                        "production",
+                        new ClassPathResource(
+                                "application-production.yml"));
+
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.development.default-platform-admin.enabled"));
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.observability.http-request-logging.include-request-body"));
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.observability.diagnostic-logging.one-net.enabled"));
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.observability.diagnostic-logging.sql.enabled"));
+        assertEquals(
+                "native",
+                property(
+                        productionSources,
+                        "server.forward-headers-strategy"));
+        assertEquals(
+                "graceful",
+                property(productionSources, "server.shutdown"));
+        assertNull(property(productionSources, "logging.file.path"));
+        assertNull(property(productionSources, "ecobin.external.mode"));
     }
 
     @Test

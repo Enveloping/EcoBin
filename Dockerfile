@@ -19,10 +19,13 @@ FROM eclipse-temurin:21-jre AS runtime
 WORKDIR /app
 
 COPY --from=build /build/ecobin-bootstrap/target/ecobin-bootstrap-*.jar /app/app.jar
+COPY deploy/production/backend-healthcheck.sh \
+    /usr/local/bin/ecobin-backend-healthcheck
 
 RUN groupadd --gid 10001 ecobin \
     && useradd --uid 10001 --gid 10001 --no-create-home \
-        --home-dir /nonexistent --shell /usr/sbin/nologin ecobin
+        --home-dir /nonexistent --shell /usr/sbin/nologin ecobin \
+    && chmod 0555 /usr/local/bin/ecobin-backend-healthcheck
 
 EXPOSE 8080
 
