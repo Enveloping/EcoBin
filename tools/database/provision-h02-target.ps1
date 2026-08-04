@@ -85,6 +85,8 @@ $rootPasswordPath = Join-Path $SecretDirectory $rootPasswordName
 $appPasswordPath = Join-Path $SecretDirectory $appPasswordName
 $backupPasswordPath = Join-Path $SecretDirectory $backupPasswordName
 $migrationCompleted = $false
+$upgradeExistingMigratedEnvironment = $false
+$resumeSchemaOwnerUnlocked = $false
 $sshTunnelProcess = $null
 
 function New-RandomSecret {
@@ -877,6 +879,7 @@ WHERE table_schema = '$DatabaseName';
         if ($existingDatabaseCount -ne 1 -or $existingTableCount -ne 0) {
             throw "Resume is only allowed for the preserved empty target database"
         }
+        $resumeSchemaOwnerUnlocked = $true
         Invoke-RootSql -Sql @"
 ALTER USER 'ecobin_schema_owner'@'%'
     IDENTIFIED BY '$ownerPassword' ACCOUNT UNLOCK;
@@ -891,14 +894,41 @@ WHERE table_schema = '$DatabaseName'
         $existingHistoryCount = [int](Invoke-RootSql `
             -Database $DatabaseName `
             -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1;")
+        $existingMaxVersion = [int](Invoke-RootSql `
+            -Database $DatabaseName `
+            -Sql (
+                "SELECT MAX(CAST(version AS UNSIGNED)) " +
+                "FROM flyway_schema_history WHERE success=1;"
+            ))
         if (
             $existingDomainTableCount -ne 96 -or
-            $existingHistoryCount -ne 31
+            -not (
+                ($existingHistoryCount -eq 31 -and
+                    $existingMaxVersion -eq 31) -or
+                ($existingHistoryCount -eq 32 -and
+                    $existingMaxVersion -eq 32)
+            )
         ) {
-            throw "Migrated resume requires the complete V31 target database"
+            throw (
+                "Migrated resume requires a complete V31 or V32 " +
+                "target database"
+            )
         }
-        $migrationCompleted = $true
-        $skipMigration = $true
+        if ($existingMaxVersion -eq 31) {
+            # Mark the account as potentially unlocked before the remote call.
+            # MySQL may commit ALTER USER even if the SSH acknowledgement is
+            # lost, so the failure path must not depend on receiving success.
+            $upgradeExistingMigratedEnvironment = $true
+            $resumeSchemaOwnerUnlocked = $true
+            Invoke-RootSql -Sql @"
+ALTER USER 'ecobin_schema_owner'@'%'
+    IDENTIFIED BY '$ownerPassword' ACCOUNT UNLOCK;
+"@ | Out-Null
+        }
+        else {
+            $migrationCompleted = $true
+            $skipMigration = $true
+        }
     }
     else {
         Invoke-RootSql -Sql @"
@@ -920,9 +950,10 @@ GRANT SET_ANY_DEFINER ON *.*
 
     if (-not $skipMigration) {
         $sshTunnelProcess = Start-RemoteDatabaseTunnel
-        Invoke-FlywayMigration -Target 8 -OwnerPassword $ownerPassword
+        if (-not $upgradeExistingMigratedEnvironment) {
+            Invoke-FlywayMigration -Target 8 -OwnerPassword $ownerPassword
 
-        Invoke-RootSql -Sql @"
+            Invoke-RootSql -Sql @"
 GRANT TRIGGER ON $database.*
     TO 'ecobin_trigger_definer'@'%';
 GRANT SELECT (
@@ -935,13 +966,15 @@ GRANT SELECT (
 ) ON $database.iam_organization_user
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
+        }
 
-        Invoke-FlywayMigration -Target 31 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 32 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
+        $resumeSchemaOwnerUnlocked = $false
     }
 
     $tableSql =
@@ -994,8 +1027,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 31) {
-        throw "Expected thirty-one successful Flyway migrations"
+    if ($historyCount -ne 32) {
+        throw "Expected thirty-two successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1257,16 +1290,49 @@ WHERE user = 'ecobin_trigger_definer' AND host = '%';
     }
 }
 catch {
-    Write-Error $_
-    if (-not $migrationCompleted) {
-        Write-Warning (
-            "The target may be a failed first-install database. " +
-            "It was intentionally preserved. Do not repair it or remove " +
-            "container/volume without explicit destructive approval. " +
-            "Container=$ContainerName Volume=$VolumeName"
-        )
+    $failure = $_
+    if ($resumeSchemaOwnerUnlocked) {
+        try {
+            Invoke-RootSql -Sql @"
+ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
+"@ | Out-Null
+            $ownerLockState = Invoke-RootSql -Sql @"
+SELECT account_locked FROM mysql.user
+WHERE user = 'ecobin_schema_owner' AND host = '%';
+"@
+            if ($ownerLockState -ne "Y") {
+                throw "ecobin_schema_owner did not return to ACCOUNT LOCK"
+            }
+            $resumeSchemaOwnerUnlocked = $false
+        }
+        catch {
+            Write-Warning (
+                "Failed to re-lock ecobin_schema_owner after the " +
+                "migration failure; lock it manually before " +
+                "any further diagnosis"
+            )
+        }
     }
-    throw
+    Write-Error -ErrorRecord $failure -ErrorAction Continue
+    if (-not $migrationCompleted) {
+        if ($upgradeExistingMigratedEnvironment) {
+            Write-Warning (
+                "The target may contain a failed V32 forward migration. " +
+                "It was intentionally preserved. Restore from the " +
+                "pre-migration backup; do not run Flyway repair. " +
+                "Container=$ContainerName Volume=$VolumeName"
+            )
+        }
+        else {
+            Write-Warning (
+                "The target may be a failed first-install database. " +
+                "It was intentionally preserved. Do not repair it or " +
+                "remove container/volume without explicit destructive " +
+                "approval. Container=$ContainerName Volume=$VolumeName"
+            )
+        }
+    }
+    throw $failure
 }
 finally {
     if ($null -ne $sshTunnelProcess -and -not $sshTunnelProcess.HasExited) {

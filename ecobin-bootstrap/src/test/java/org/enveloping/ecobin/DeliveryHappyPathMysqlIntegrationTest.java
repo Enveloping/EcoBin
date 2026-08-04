@@ -3136,12 +3136,12 @@ class DeliveryHappyPathMysqlIntegrationTest {
         jdbc.update("""
                         INSERT INTO iam_organization_miniapp (
                             tenant_id, organization_id, appid,
-                            display_name, login_enabled, secret_ref,
+                            display_name, login_enabled, app_secret,
                             activated_at, lock_version,
                             configured_at, created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, 'Delivery miniapp',
-                            1, 'fake:credential',
+                            1, 'test-app-secret',
                             UTC_TIMESTAMP(3), 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3)

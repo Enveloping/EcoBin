@@ -31,9 +31,9 @@ public class TargetMiniappLoginService {
                 transactions.readEnabledConfiguration(request.appId());
         WechatSession wechatSession;
         try {
-            wechatSession = wechatSessionPort.exchangeByCredentialReference(
+            wechatSession = wechatSessionPort.exchange(
                     configuration.appId(),
-                    configuration.secretReference(),
+                    configuration.appSecret(),
                     request.wxLoginCode());
         } catch (WechatExchangeException exception) {
             if (exception.reason()
@@ -61,6 +61,6 @@ public class TargetMiniappLoginService {
 
     public record MiniappConfiguration(
             String appId,
-            String secretReference) {
+            String appSecret) {
     }
 }

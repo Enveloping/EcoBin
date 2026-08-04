@@ -92,7 +92,7 @@ D-035 使用 `SELECT/INSERT/DELETE`；A/R 表没有 `UPDATE/DELETE`。
 | `iam_platform_admin` / P | `password_hash, display_name, enabled, failed_login_count, locked_until, auth_version, password_changed_at, lock_version, updated_at` |
 | `iam_tenant` / P | `enterprise_name, status, contact_name, contact_phone, contact_address, lock_version, updated_at` |
 | `iam_organization` / P | `organization_name, status, contact_phone, contact_address, lock_version, updated_at` |
-| `iam_organization_miniapp` / P | `appid, display_name, login_enabled, secret_ref, activated_at, lock_version, configured_at, updated_at`；V9 继续阻断激活后 AppID/作用域/激活时间变化 |
+| `iam_organization_miniapp` / P | V1～V31 历史列为 `appid, display_name, login_enabled, secret_ref, activated_at, lock_version, configured_at, updated_at`；V9 继续阻断激活后 AppID/作用域/激活时间变化。V32 以 `app_secret` 替换 `secret_ref`，当前 H-02 运行授权矩阵以 `tools/database/h02-runtime-grants.psd1` 为准。 |
 | `iam_staff_account` / P | `password_hash, display_name, contact_phone, enabled, failed_login_count, locked_until, auth_version, password_changed_at, lock_version, updated_at` |
 | `iam_organization_staff_membership` / P | `is_manager, enabled, lock_version, updated_at` |
 | `iam_staff_permission_grant` / O | `revoked_at` |

@@ -235,8 +235,10 @@ curl -s -o /dev/null -w "api=%{http_code}\n" -X POST http://localhost/api/system
    - 设好该租户的登录用户名/密码、名称等。
 3. 保存后，再用小程序登录 →「未找到该小程序对应的租户」就消失了，登录这一环打通。
 
-> 说明：后端登录走的是**租户表里存的** `miniappAppid` / `miniappSecret`（Secret 在库里 AES 加密存储），
-> 和后端 `.env` 里的全局 `wechatAppid/wechatSecret` 不是一回事。所以每个要接入的小程序都要建一条对应租户。
+> 当前目标实现中，小程序配置属于**机构**而不是全局环境变量：每个机构的 AppID 和
+> AppSecret 都保存在 `iam_organization_miniapp`，AppSecret 为数据库明文但只允许授权
+> 配置接口读取，日志和审计必须脱敏。后端不存在全局 `wechatAppid/wechatSecret`，
+> 所以每个要接入的小程序都必须在对应机构下单独配置。
 
 ---
 

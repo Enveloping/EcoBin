@@ -2,7 +2,7 @@
 
 > 适用主机：`115.159.67.35`（Ubuntu 22.04）
 > 当前公网入口：`https://www.jinshoubao.com`
-> 目标数据库纪元：V31
+> 目标数据库纪元：V32
 > 本文只描述目标栈。旧 `ecobin-web`、`ecobin-backend`、`ecobin-mysql`
 > 容器和旧数据卷必须继续保留，不能与目标栈交叉连接。
 
@@ -66,15 +66,16 @@ ecobin-target-mysql84:3306
 │   └── ...                                 Real 模式渠道秘密
 └── wechatpay/                              root:root 0755
     ├── apiclient_cert.pem                  root:root 0644
-    └── wechatpay_platform_cert.pem         root:root 0644
+    └── pub_key.pem                         root:root 0644
 
 /run/ecobin-secrets/backend/                root:10001 0750；每次启动重新生成
-/var/lib/ecobin/miniapp-secrets/             10001:10001 0700；持久化
 ```
 
-`/var/lib/ecobin/miniapp-secrets` 保存机构小程序 AppSecret 的文件原件。数据库只保存
-引用和摘要，因此它是业务持久数据，不是可随容器删除的缓存。创建或修改机构小程序
-配置时由后端 UID 10001 写入，必须和数据库纳入同一备份、恢复和对账流程。
+每个机构的小程序 AppID/AppSecret 都保存在目标数据库
+`iam_organization_miniapp` 中，由具备 `miniapp.manage` 权限的人员配置。不存在全局
+小程序 AppID/AppSecret 文件，也不再维护机构密钥文件目录。数据库备份因此包含
+AppSecret 明文，备份的访问控制、加密和恢复验收必须按秘密数据处理；应用日志和审计
+不得记录完整值。
 
 ## 3. 镜像门禁
 
@@ -89,10 +90,8 @@ ECOBIN_WEB_IMAGE=<registry>/<web>@sha256:<64 位十六进制>
 禁止使用单独的 `latest`、分支标签或提交标签启动生产容器。预检会拒绝没有 digest、
 示例全零 digest、镜像本机不存在等情况。
 
-后端镜像固定以 `10001:10001` 运行，根文件系统只读，只允许写：
-
-- `/tmp` 的 64 MiB 临时文件系统；
-- `/var/lib/ecobin/miniapp-secrets` 持久目录。
+后端镜像固定以 `10001:10001` 运行，根文件系统只读，只允许写 `/tmp` 的 64 MiB
+临时文件系统。
 
 Web 根文件系统同样只读，只给 Nginx 缓存、PID 和临时文件配置小型 tmpfs。
 
@@ -124,8 +123,9 @@ MySQL root 和备份密码虽然由启动脚本检查持久源存在，但绝不
 
 ## 5. Real 模式完整配置
 
-Real 必须一次性满足微信小程序、OneNet 上下行、COS 和微信支付配置。缺少任何一项时
-启动失败，不能以“先启动再补配置”绕过。
+Real 必须一次性满足 OneNet 上下行、COS 和微信支付平台级配置。缺少任何一项时启动
+失败，不能以“先启动再补配置”绕过。机构小程序凭证是数据库中的机构级业务配置：
+未配置只阻止该机构激活或启用小程序登录，不属于全局启动参数。
 
 ### 5.1 非秘密参数
 
@@ -134,7 +134,6 @@ Real 必须一次性满足微信小程序、OneNet 上下行、COS 和微信支�
 | 键 | 示例或要求 |
 |---|---|
 | `externalMode` | `real` |
-| `wechatAppid` | 微信小程序 AppID |
 | `iotSubscriptionName` | OneNet 服务端订阅名称 |
 | `onenetSubscriptionEnabled` | `true` |
 | `onenetProductId` | OneNet 产品 ID |
@@ -145,7 +144,8 @@ Real 必须一次性满足微信小程序、OneNet 上下行、COS 和微信支�
 | `wechatPayMchid` | 普通商户号 |
 | `wechatPayMerchantSerialNumber` | `apiclient_cert.pem` 的证书序列号 |
 | `wechatPayMerchantPrivateKeyPath` | 固定 `/run/secrets/wechatpay/apiclient_key.pem` |
-| `wechatPayPlatformCertificatePath` | 固定 `/run/secrets/wechatpay/wechatpay_platform_cert.pem` |
+| `wechatPayPublicKeyId` | 微信支付公钥 ID，格式 `PUB_KEY_ID_...` |
+| `wechatPayPublicKeyPath` | 固定 `/run/secrets/wechatpay/pub_key.pem` |
 | `wechatPayNotifyBaseUrl` | `https://www.jinshoubao.com` |
 | `wechatPayTransferSceneId` | 当前设计为 `1010`，变更前需核对商户产品配置 |
 
@@ -164,7 +164,6 @@ Real 必须一次性满足微信小程序、OneNet 上下行、COS 和微信支�
 
 | 持久文件名 | 暂存后的 Config Tree/文件 |
 |---|---|
-| `wechat-miniapp-secret` | `/run/secrets/wechatSecret` |
 | `onenet-subscription-access-id` | `/run/secrets/iotAccessId` |
 | `onenet-subscription-secret-key` | `/run/secrets/iotSecretKey` |
 | `onenet-access-key` | `/run/secrets/onenetAccessKey` |
@@ -176,23 +175,34 @@ Real 必须一次性满足微信小程序、OneNet 上下行、COS 和微信支�
 APIv3 密钥文件必须正好 32 个 UTF-8 字节，不能附带换行。商户私钥必须是未加密、可由
 无人值守进程读取的 PEM；其目录和文件权限承担静态保护职责。
 
-### 5.3 微信支付证书
+### 5.3 微信支付商户证书与公钥
 
 证书放在 `/etc/ecobin/wechatpay`：
 
-- `apiclient_cert.pem`：商户 API 证书，只用于部署时核对私钥和配置序列号；
-- `wechatpay_platform_cert.pem`：微信支付平台证书，复制给后端用于验签。
+- `apiclient_cert.pem`：商户 API 证书，只用于部署时核对商户私钥和配置序列号，不会
+  复制给后端；
+- `pub_key.pem`：微信支付公钥，复制给后端并与 `wechatPayPublicKeyId` 配对，用于
+  API 响应和回调验签。
 
 暂存脚本在接触渠道前验证：
 
-- 两张证书均可解析且至少 7 天内不过期；
+- 商户 API 证书可解析且至少 7 天内不过期，微信支付公钥可解析；
 - 商户私钥公钥与 `apiclient_cert.pem` 一致；
 - `wechatPayMerchantSerialNumber` 与商户证书序列号一致；
+- `wechatPayPublicKeyId` 满足 `PUB_KEY_ID_...` 格式；
 - APIv3 密钥字节长度为 32；
-- 后端只得到商户私钥和平台证书，不得到商户证书、数据库 root 或备份凭证。
+- 后端只得到商户私钥和微信支付公钥，不得到商户证书、数据库 root 或备份凭证。
 
-平台证书会轮换。正式运行后必须在旧证书过期前建立受控更新流程；当前单证书实现不应
-被误写成已经支持多平台证书无缝轮换。
+当前实现固定使用微信支付公钥模式，不下载或依赖平台证书。更换微信支付公钥时，必须
+把新的 `pub_key.pem` 与对应公钥 ID 作为同一次受控配置变更发布；二者不一致时后端会
+拒绝启动或拒绝验签，不能只替换其中一个。
+
+本项目的普通商户号从未使用微信支付平台证书，首次 APIv3 真实接入即使用
+`pub_key.pem + PUB_KEY_ID_...`。因此这不是“平台证书迁移到公钥”的灰度切换，
+后端会有意拒绝任何非当前公钥 ID 的响应或回调签名。如果未来改用曾经接入
+平台证书的其他商户号，必须先在微信商户平台完成公钥切换，再把该商户号交给
+本部署使用；本系统不提供平台证书与公钥并行的过渡模式。微信支付公钥的用途和配置见
+[微信支付公钥介绍](https://pay.weixin.qq.com/doc/v3/merchant/4012153196.md)。
 
 ## 6. 安装脚本和 systemd 单元
 
@@ -232,7 +242,7 @@ sudo systemctl daemon-reload
 
 顺序如下：
 
-1. 确认目标 MySQL 已是完整 V31、96 张领域表、77 条权限定义且业务数据为空；
+1. 确认目标 MySQL 已是完整 V32、96 张领域表、77 条权限定义且业务数据为空；
 2. 把已验收的固定 digest 镜像拉取或导入服务器；
 3. 写入 `deployment.env`、`runtime.env` 和本模式需要的秘密；
 4. 执行秘密暂存；

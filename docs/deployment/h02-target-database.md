@@ -5,8 +5,9 @@
 > 操作人：`enveloping`
 >
 > 当前用途：Windows 本地开发演练与服务器阶段 3 供应手册；两处均已验证独立
-> MySQL 8.4.10 容器/卷、五类身份、V1～V31 和脱敏权限探针。服务器目标空库已于
-> 2026-08-04 重建到 V31；服务器执行结果另见
+> MySQL 8.4.10 容器/卷、五类身份、V1～V31 和脱敏权限探针。当前脚本目标已推进到
+> V32；服务器目标空库已于 2026-08-04 重建到 V31，应用部署前需用续跑模式升级；
+> 服务器既有执行结果另见
 > [单机试验期生产整改计划](single-host-production-remediation-plan.md)。
 
 ## 1. 本手册不会做什么
@@ -80,7 +81,7 @@ Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner �
 2. 创建目标数据库和五类身份；
 3. schema owner 安装 V1～V8；
 4. 为锁定 trigger definer 授予两个触发器需要的精确读取权限；
-5. schema owner 安装 V9～V31；
+5. schema owner 安装 V9～V32；
 6. 锁定 schema owner；
 7. 应用当前已冻结的表级/列级运行权限；
 8. 执行正向 DML 和 DDL/GRANT/TRIGGER/事实删除/系统库访问负测；
@@ -101,7 +102,7 @@ Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner �
 恢复模式只接受目标数据库存在且表数为 0 的环境；它用 `docker compose down`
 重建容器和网络但不删除数据卷，重新生成一次性 schema owner 密码后继续首次迁移。
 
-若 V1～V31 已成功、owner 已锁定，只是后续权限验收脚本中断，则使用：
+若现有数据库已完整到 V31 或 V32、owner 已锁定，使用：
 
 ```powershell
 .\tools\database\provision-h02-target.ps1 `
@@ -109,14 +110,15 @@ Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner �
   -TransientSshAttempts 8
 ```
 
-该模式要求 96 张领域表和 31 条成功迁移完整存在，不解锁 owner、不重复迁移。
+该模式要求 96 张领域表，并且迁移历史精确停在 V31 或 V32。V31 会用一次性新密码
+解锁 schema owner，只执行 V32，完成后立即重新锁定；V32 不解锁 owner、不重复迁移。
 `TransientSshAttempts` 只允许在这个已迁移、操作均幂等的续跑模式使用；它只重试
 SSH 连接层错误。SQL 或权限错误不会被重试为成功，SSH 255 也不能冒充权限负测通过。
 
 ## 5. 列级权限完成门
 
 H-02 实施审查发现 F-04/F-05 原矩阵只有表和写类，没有把 identity/device/recycling
-等持久化对象落到精确更新列。当前 grants 目录已按冻结状态机、不可变边界和 V31 DDL
+等持久化对象落到精确更新列。当前 grants 目录已按冻结状态机、不可变边界和 V32 DDL
 补齐。
 
 脚本只生成：

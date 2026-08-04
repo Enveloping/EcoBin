@@ -2041,7 +2041,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 ) VALUES (
                     ?, 'ORGANIZATION', ?, ?, 'wechat_pay_test', ?, ?, ?,
                     1, ?, ?, CAST(? AS JSON), ?, 'WECHATPAY_SIGNATURE',
-                    'synthetic-platform-certificate', NULL, NULL, 'RECEIVED',
+                    'synthetic-wechatpay-public-key', NULL, NULL, 'RECEIVED',
                     ?, ?, 1, NULL, 0, ?, ?
                 )
                 """, inboxUid.toString(), fixture.tenantId(),
@@ -2929,12 +2929,12 @@ class TargetWebIdentityMysqlIntegrationTest {
         jdbc.update("""
                 INSERT INTO iam_organization_miniapp (
                     tenant_id, organization_id, appid, display_name,
-                    login_enabled, secret_ref, activated_at, lock_version,
+                    login_enabled, app_secret, activated_at, lock_version,
                     configured_at, created_at, updated_at
                 ) VALUES (?, ?, ?, 'Lock order miniapp', 1, ?, ?, 0,
                           ?, ?, ?)
                 """, scope[0], scope[1], appid,
-                "test-ref://lock-order/" + run, now, now, now, now);
+                "test-app-secret-" + run, now, now, now, now);
         long miniappId = jdbc.queryForObject(
                 "SELECT id FROM iam_organization_miniapp WHERE appid = ?",
                 Long.class, appid);
@@ -3212,12 +3212,12 @@ class TargetWebIdentityMysqlIntegrationTest {
             jdbc.update("""
                     INSERT INTO iam_organization_miniapp (
                         tenant_id, organization_id, appid, display_name,
-                        login_enabled, secret_ref, activated_at, lock_version,
+                        login_enabled, app_secret, activated_at, lock_version,
                         configured_at, created_at, updated_at
                     ) VALUES (?, ?, ?, 'Payout wake test', 1, ?, ?, 0,
                               ?, ?, ?)
                     """, fixture.tenantId(), fixture.organizationId(), appid,
-                    "test://payout-wake/" + run, now, now, now, now);
+                    "test-app-secret-" + run, now, now, now, now);
             long miniappId = jdbc.queryForObject(
                     "SELECT id FROM iam_organization_miniapp WHERE appid = ?",
                     Long.class, appid);

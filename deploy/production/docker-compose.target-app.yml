@@ -14,17 +14,11 @@ services:
         -Xms256m -Xmx640m
         -XX:+ExitOnOutOfMemoryError
         -Djava.io.tmpdir=/tmp
-      miniappSecretStoreDirectory: /var/lib/ecobin/miniapp-secrets
     volumes:
       - type: bind
         source: /run/ecobin-secrets/backend
         target: /run/secrets
         read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: /var/lib/ecobin/miniapp-secrets
-        target: /var/lib/ecobin/miniapp-secrets
         bind:
           create_host_path: false
     networks:

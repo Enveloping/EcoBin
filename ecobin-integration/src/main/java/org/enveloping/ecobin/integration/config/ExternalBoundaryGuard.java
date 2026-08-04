@@ -3,7 +3,6 @@ package org.enveloping.ecobin.integration.config;
 import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetSubscriptionProperties;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
-import org.enveloping.ecobin.integration.wechat.WechatConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -25,18 +24,15 @@ public final class ExternalBoundaryGuard
     private final OneNetSubscriptionProperties subscriptionProperties;
     private final OneNetProperties oneNetProperties;
     private final CosProperties cosProperties;
-    private final WechatConfig wechatConfig;
     public ExternalBoundaryGuard(
             ExternalAdapterModeProperties modeProperties,
             OneNetSubscriptionProperties subscriptionProperties,
             OneNetProperties oneNetProperties,
-            CosProperties cosProperties,
-            WechatConfig wechatConfig) {
+            CosProperties cosProperties) {
         this.modeProperties = modeProperties;
         this.subscriptionProperties = subscriptionProperties;
         this.oneNetProperties = oneNetProperties;
         this.cosProperties = cosProperties;
-        this.wechatConfig = wechatConfig;
     }
 
     @Override
@@ -89,12 +85,7 @@ public final class ExternalBoundaryGuard
                                 cosProperties.getBucketName(),
                                 cosProperties.getBaseUrl())
                         : cosProperties.isConfigured()
-                                && hasText(cosProperties.getBaseUrl()),
-                fakeMode
-                        ? hasAnyText(
-                                wechatConfig.getAppid(),
-                                wechatConfig.getSecret())
-                        : wechatConfig.isConfigured()));
+                                && hasText(cosProperties.getBaseUrl())));
     }
 
     private static boolean hasText(String value) {

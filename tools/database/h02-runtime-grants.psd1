@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 9
+    CatalogVersion = 10
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -48,7 +48,7 @@
             "appid"
             "display_name"
             "login_enabled"
-            "secret_ref"
+            "app_secret"
             "activated_at"
             "lock_version"
             "configured_at"

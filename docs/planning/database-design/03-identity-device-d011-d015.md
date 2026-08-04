@@ -82,7 +82,7 @@
 
 | 表 | P0 核心字段与约束 |
 |---|---|
-| `iam_organization_miniapp` | `id + tenant_id + organization_id`、全局唯一 `appid VARCHAR(32) ASCII BINARY`、展示名、登录启停、`secret_ref`、一次性 `activated_at`、锁版本及配置/更新时间；唯一 `(tenant_id, organization_id)`，每机构 P0 只有一个当前 AppID。AppSecret 明文、密文和临时 access token 均不存本表，只保存外部秘密来源引用。 |
+| `iam_organization_miniapp` | `id + tenant_id + organization_id`、全局唯一 `appid VARCHAR(32) ASCII BINARY`、展示名、登录启停、明文 `app_secret VARCHAR(256) ASCII BINARY`、一次性 `activated_at`、锁版本及配置/更新时间；唯一 `(tenant_id, organization_id)`，每机构 P0 只有一个当前 AppID。临时 access token 不持久化；完整 AppSecret 只允许授权配置接口读取，日志、审计和普通响应必须脱敏。 |
 | `iam_organization_user` | `id + tenant_id + organization_id + organization_miniapp_id`、全局唯一不可变 UUIDv4 `organization_user_uid`、`openid VARCHAR(64) ASCII BINARY`、可空规范化 `phone_e164` 及首次绑定时间、可空昵称/头像、`status=ACTIVE/FROZEN`、`auth_version`、锁版本及创建/冻结时间；新增不可变且非空的 `registered_at` 与可空但创建后不可变的 `registered_via_deployment_id`。唯一 `(organization_miniapp_id, openid)` 和 `(tenant_id, organization_id, phone_e164)`。不保存密码、余额、真实姓名或用于跨机构合并身份的 UnionID。 |
 | `iam_organization_user_capability` | 用户、稳定能力码、启用/授予/撤销时间；唯一 `(tenant_id, organization_id, organization_user_id, capability_code)`，P0 预置 `CLEAN_OPERATION`。清运能力不把用户转换为工作人员，也不改变其普通用户历史；操作者由分型审计字段留痕。 |
 
@@ -95,7 +95,7 @@
 - 该归因只提供地推成果统计事实，不能单独证明现场到访；P0 不根据它自动生成应付款或资金结算。若以后要自动结算，必须另行设计活动、推广人员归属、反作弊和人工核验规则。
 - `iam_organization_user` 的 `organization_miniapp_id + openid` 创建后不可修改；未来如需微信身份恢复或换绑，必须先撤销其工作人员绑定和相关管理会话，再通过显式流程建立新机构用户或重新绑定，不能通过更新原行把管理身份静默转移给另一个 OpenID。
 - AppID 在允许登录、绑定支付或建立首个用户前执行一次不可逆激活；激活事务写入 `activated_at`。数据库 `BEFORE UPDATE` 触发器使用 NULL-safe 比较，只允许 `activated_at` 从 `NULL` 变化为一次非空值；激活后该时间以及 `appid/tenant_id/organization_id` 永远不可再变化。未激活的配置错误才允许纠正并记录审计。确需更换已使用 AppID 时必须先设计用户身份和钱包迁移，作为后续前向迁移处理，P0 不猜测合并。
-- **接口设计落实补充（I-012）**：完整 AppSecret 继续只保存在 `secret_ref` 指向的外部秘密设施，不因允许授权 Web 回显而进入业务表。有当前机构 `miniapp.manage` 能力的人员可通过配置详情接口从秘密设施读取完整值；业务数据库只保存引用和配置事实，日志与审计只保存脱敏值，不保存回显正文。
+- **接口设计落实补充（I-012，V32 修订）**：完整 AppSecret 直接保存在机构小程序配置表，避免项目迁移还依赖外部文件密钥库。具有当前机构 `miniapp.manage` 能力的人员可通过禁止缓存的配置详情接口读取完整值；AppID、AppSecret 和版本在一个短数据库事务中提交。数据库备份按秘密数据保护，日志、审计和普通变更响应不保存或回显正文。
 - **接口设计落实补充（I-014）**：机构任职增加 `lock_version` 承接负责人、启停和机构权限完整集合替换的 `expectedVersion`；租户级权限集合继续以工作人员 `auth_version` 作为并发版本。任职和授权使用 `organization_code + staff_account_uid` 公开复合路径，不新增任职或授权公开 UUID。
 - **接口设计权限目录补充（I-014）**：V10 权限参考数据写入本章已冻结的身份目录能力，其中 `organization-manager.manage` 只存在 `TENANT` 作用域，明确代表可任命/撤销机构天然全权负责人；普通 `permission.manage` 不能隐含取得该权力。其余允许双作用域的能力分别建立 `TENANT/ORGANIZATION` 定义，不用运行时自创权限码。
 - 三张登录会话表共同保存唯一 `session_uid`（同时作为 JWT `jti`）、强类型主体复合外键、签发/过期/撤销时间、撤销原因、登录 IP 二进制值、User-Agent 摘要和 `auth_version` 快照；JWT 以不同 `aud` 选择对应会话表，不保存 JWT、Cookie、微信 code、access token 或 refresh token 明文。平台、工作人员和机构用户会话分别带其真实作用域。工作人员会话以 `CHECK` 区分客户端：`WEB` 时绑定/AppID/当前机构均为空；`MINIAPP_MANAGEMENT` 时三者均非空，并由包含租户、工作人员、机构和 AppID 的复合外键保证会话与绑定属于同一作用域。

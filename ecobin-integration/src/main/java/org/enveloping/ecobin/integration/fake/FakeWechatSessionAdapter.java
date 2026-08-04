@@ -29,17 +29,9 @@ public final class FakeWechatSessionAdapter
     }
 
     @Override
-    public WechatSession exchangeByCredentialReference(
+    public WechatPhoneNumber exchangePhoneNumber(
             String appid,
-            String secretReference,
-            String code) {
-        return exchange(appid, "", code);
-    }
-
-    @Override
-    public WechatPhoneNumber exchangePhoneNumberByCredentialReference(
-            String appid,
-            String secretReference,
+            String appSecret,
             String phoneCode) {
         if (phoneCode == null || !phoneCode.startsWith("fake-phone:")) {
             throw new WechatExchangeException(

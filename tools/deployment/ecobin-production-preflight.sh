@@ -55,6 +55,9 @@ require_root_controlled_file "${runtime_env}"
 if grep -Eq '^(dbPassword|jwtSecret|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
     fail "runtime.env contains a secret value; use /run/secrets instead"
 fi
+if grep -Eq '^(wechatAppid|miniappSecretStoreDirectory)=' "${runtime_env}"; then
+    fail "runtime.env contains a removed global mini-program setting"
+fi
 
 backend_image="$(env_value "${deployment_env}" ECOBIN_BACKEND_IMAGE)"
 web_image="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE)"
@@ -92,7 +95,6 @@ external_mode="$(env_value "${runtime_env}" externalMode \
     || fail "externalMode must be fake or real"
 
 external_non_secret_keys=(
-    wechatAppid
     iotSubscriptionName
     onenetProductId
     cosRegion
@@ -101,7 +103,8 @@ external_non_secret_keys=(
     wechatPayMchid
     wechatPayMerchantSerialNumber
     wechatPayMerchantPrivateKeyPath
-    wechatPayPlatformCertificatePath
+    wechatPayPublicKeyId
+    wechatPayPublicKeyPath
     wechatPayNotifyBaseUrl
 )
 if [[ "${external_mode}" = fake ]]; then
@@ -120,9 +123,12 @@ else
     [[ "$(env_value "${runtime_env}" wechatPayMerchantPrivateKeyPath)" \
         = /run/secrets/wechatpay/apiclient_key.pem ]] \
         || fail "unexpected merchant private key path"
-    [[ "$(env_value "${runtime_env}" wechatPayPlatformCertificatePath)" \
-        = /run/secrets/wechatpay/wechatpay_platform_cert.pem ]] \
-        || fail "unexpected platform certificate path"
+    [[ "$(env_value "${runtime_env}" wechatPayPublicKeyPath)" \
+        = /run/secrets/wechatpay/pub_key.pem ]] \
+        || fail "unexpected WeChat Pay public key path"
+    [[ "$(env_value "${runtime_env}" wechatPayPublicKeyId)" \
+        =~ ^PUB_KEY_ID_[0-9A-Za-z]+$ ]] \
+        || fail "invalid WeChat Pay public key ID"
     [[ "$(env_value "${runtime_env}" wechatPayNotifyBaseUrl)" \
         = "${public_origin}" ]] \
         || fail "WeChat Pay notify origin must match the public origin"
@@ -130,9 +136,6 @@ fi
 
 [[ "$(stat -c '%u:%g:%a' /run/ecobin-secrets/backend)" = 0:10001:750 ]] \
     || fail "backend runtime secret directory metadata is invalid"
-[[ "$(stat -c '%u:%g:%a' /var/lib/ecobin/miniapp-secrets)" \
-    = 10001:10001:700 ]] \
-    || fail "miniapp secret vault directory metadata is invalid"
 [[ "$(docker network inspect ecobin-target-db \
     --format '{{.Internal}}')" = true ]] \
     || fail "ecobin-target-db is missing or is not internal"

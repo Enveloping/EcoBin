@@ -401,7 +401,7 @@ export interface paths {
         get: operations["getPlatformOrganizationMiniappConfiguration"];
         /**
          * Create or update the organization mini-program configuration
-         * @description The secret is versioned in an external vault before the IAM transaction and is never stored in the business database or returned by this mutation.
+         * @description The AppID, AppSecret and configuration version are committed in one IAM database transaction. The mutation response only returns a masked secret.
          */
         put: operations["putPlatformOrganizationMiniappConfiguration"];
         post?: never;
@@ -4611,11 +4611,10 @@ export interface components {
         MiniappConfiguration: {
             appId: string;
             displayName: string;
-            /** @description Full secret returned only by the authorized no-store GET endpoint. */
-            readonly appSecret: string;
-            /** @constant */
-            appSecretConfigured: true;
-            maskedAppSecret: string;
+            /** @description Full secret returned only by the authorized no-store GET endpoint. Null means a migrated legacy test credential was invalidated and must be configured again. */
+            readonly appSecret: string | null;
+            appSecretConfigured: boolean;
+            maskedAppSecret: string | null;
             activated: boolean;
             loginEnabled: boolean;
             version: components["schemas"]["ExpectedVersion"];
@@ -4626,9 +4625,8 @@ export interface components {
         MiniappConfigurationMutation: {
             appId: string;
             displayName: string;
-            /** @constant */
-            appSecretConfigured: true;
-            maskedAppSecret: string;
+            appSecretConfigured: boolean;
+            maskedAppSecret: string | null;
             activated: boolean;
             loginEnabled: boolean;
             version: components["schemas"]["ExpectedVersion"];

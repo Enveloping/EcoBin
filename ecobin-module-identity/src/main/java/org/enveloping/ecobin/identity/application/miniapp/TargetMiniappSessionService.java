@@ -105,7 +105,7 @@ public class TargetMiniappSessionService {
                                o.organization_code,
                                o.organization_name,
                                o.status AS organization_status,
-                               m.id AS miniapp_id, m.appid, m.secret_ref,
+                               m.id AS miniapp_id, m.appid,
                                m.login_enabled, m.activated_at
                         FROM iam_organization_user_session s
                         JOIN iam_organization_user u
@@ -156,7 +156,6 @@ public class TargetMiniappSessionService {
                 row.organizationName(),
                 row.miniappId(),
                 row.appId(),
-                row.secretReference(),
                 row.userId(),
                 null,
                 row.sessionUid(),
@@ -190,7 +189,7 @@ public class TargetMiniappSessionService {
                                o.organization_code,
                                o.organization_name,
                                o.status AS organization_status,
-                               m.id AS miniapp_id, m.appid, m.secret_ref,
+                               m.id AS miniapp_id, m.appid,
                                m.login_enabled, m.activated_at
                         FROM iam_staff_login_session s
                         JOIN iam_staff_account staff
@@ -267,7 +266,6 @@ public class TargetMiniappSessionService {
                 row.organizationName(),
                 row.miniappId(),
                 row.appId(),
-                row.secretReference(),
                 row.userId(),
                 row.bindingId(),
                 row.sessionUid(),
@@ -391,7 +389,6 @@ public class TargetMiniappSessionService {
                 rs.getString("organization_status"),
                 rs.getLong("miniapp_id"),
                 rs.getString("appid"),
-                rs.getString("secret_ref"),
                 rs.getBoolean("login_enabled"),
                 nullableInstant(rs, "activated_at"));
     }
@@ -425,7 +422,6 @@ public class TargetMiniappSessionService {
                 rs.getString("organization_status"),
                 rs.getLong("miniapp_id"),
                 rs.getString("appid"),
-                rs.getString("secret_ref"),
                 rs.getBoolean("login_enabled"),
                 nullableInstant(rs, "activated_at"));
     }
@@ -489,7 +485,6 @@ public class TargetMiniappSessionService {
             String organizationStatus,
             long miniappId,
             String appId,
-            String secretReference,
             boolean loginEnabled,
             Instant activatedAt) {
     }
@@ -521,7 +516,6 @@ public class TargetMiniappSessionService {
             String organizationStatus,
             long miniappId,
             String appId,
-            String secretReference,
             boolean loginEnabled,
             Instant activatedAt) {
     }

@@ -7,7 +7,6 @@ runtime_root="${ECOBIN_RUNTIME_SECRET_DIR:-/run/ecobin-secrets}"
 backend_uid="${ECOBIN_BACKEND_UID:-10001}"
 backend_gid="${ECOBIN_BACKEND_GID:-10001}"
 backend_dir="${runtime_root}/backend"
-miniapp_secret_dir="${ECOBIN_MINIAPP_SECRET_DIR:-/var/lib/ecobin/miniapp-secrets}"
 external_mode="$(printf '%s' "${externalMode:-fake}" | tr '[:upper:]' '[:lower:]')"
 
 fail() {
@@ -63,7 +62,6 @@ done
 
 if [[ "${external_mode}" = real ]]; then
     for secret_name in \
-        wechat-miniapp-secret \
         onenet-subscription-access-id \
         onenet-subscription-secret-key \
         onenet-access-key \
@@ -82,11 +80,10 @@ if [[ "${external_mode}" = real ]]; then
         "${certificate_dir}/apiclient_cert.pem" 644 \
         "merchant API certificate"
     require_root_file \
-        "${certificate_dir}/wechatpay_platform_cert.pem" 644 \
-        "WeChat Pay platform certificate"
+        "${certificate_dir}/pub_key.pem" 644 \
+        "WeChat Pay public key"
 
     for setting_name in \
-        wechatAppid \
         iotSubscriptionName \
         onenetProductId \
         cosRegion \
@@ -94,6 +91,7 @@ if [[ "${external_mode}" = real ]]; then
         cosBaseUrl \
         wechatPayMchid \
         wechatPayMerchantSerialNumber \
+        wechatPayPublicKeyId \
         wechatPayNotifyBaseUrl
     do
         require_environment_value "${setting_name}"
@@ -103,9 +101,11 @@ if [[ "${external_mode}" = real ]]; then
     [[ "${wechatPayMerchantPrivateKeyPath:-}" \
         = /run/secrets/wechatpay/apiclient_key.pem ]] \
         || fail "unexpected merchant private key runtime path"
-    [[ "${wechatPayPlatformCertificatePath:-}" \
-        = /run/secrets/wechatpay/wechatpay_platform_cert.pem ]] \
-        || fail "unexpected platform certificate runtime path"
+    [[ "${wechatPayPublicKeyPath:-}" \
+        = /run/secrets/wechatpay/pub_key.pem ]] \
+        || fail "unexpected WeChat Pay public key runtime path"
+    [[ "${wechatPayPublicKeyId}" =~ ^PUB_KEY_ID_[0-9A-Za-z]+$ ]] \
+        || fail "invalid WeChat Pay public key ID"
 
     api_v3_bytes="$(wc -c < "${source_dir}/wechatpay-api-v3-key")"
     [[ "${api_v3_bytes}" = 32 ]] \
@@ -119,10 +119,10 @@ if [[ "${external_mode}" = real ]]; then
         -in "${certificate_dir}/apiclient_cert.pem" \
         -checkend 604800 -noout >/dev/null 2>&1 \
         || fail "merchant API certificate is invalid or expires within 7 days"
-    openssl x509 \
-        -in "${certificate_dir}/wechatpay_platform_cert.pem" \
-        -checkend 604800 -noout >/dev/null 2>&1 \
-        || fail "platform certificate is invalid or expires within 7 days"
+    openssl pkey -pubin \
+        -in "${certificate_dir}/pub_key.pem" \
+        -noout >/dev/null 2>&1 \
+        || fail "WeChat Pay public key is invalid"
 
     private_key_fingerprint="$({
         openssl pkey \
@@ -156,8 +156,6 @@ fi
 
 install -d -o root -g root -m 0700 "${runtime_root}"
 install -d -o root -g "${backend_gid}" -m 0750 "${backend_dir}"
-install -d -o "${backend_uid}" -g "${backend_gid}" -m 0700 \
-    "${miniapp_secret_dir}"
 
 install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/db-app-password" "${backend_dir}/dbPassword"
@@ -165,7 +163,6 @@ install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/jwt-secret" "${backend_dir}/jwtSecret"
 
 real_runtime_files=(
-    wechatSecret
     iotAccessId
     iotSecretKey
     onenetAccessKey
@@ -175,9 +172,6 @@ real_runtime_files=(
 )
 
 if [[ "${external_mode}" = real ]]; then
-    install -o root -g "${backend_gid}" -m 0440 \
-        "${source_dir}/wechat-miniapp-secret" \
-        "${backend_dir}/wechatSecret"
     install -o root -g "${backend_gid}" -m 0440 \
         "${source_dir}/onenet-subscription-access-id" \
         "${backend_dir}/iotAccessId"
@@ -202,8 +196,8 @@ if [[ "${external_mode}" = real ]]; then
         "${source_dir}/wechatpay-merchant-private-key.pem" \
         "${backend_dir}/wechatpay/apiclient_key.pem"
     install -o root -g "${backend_gid}" -m 0440 \
-        "${certificate_dir}/wechatpay_platform_cert.pem" \
-        "${backend_dir}/wechatpay/wechatpay_platform_cert.pem"
+        "${certificate_dir}/pub_key.pem" \
+        "${backend_dir}/wechatpay/pub_key.pem"
 else
     for runtime_file in "${real_runtime_files[@]}"; do
         rm -f -- "${backend_dir}/${runtime_file}"
@@ -213,6 +207,7 @@ fi
 
 # These identities and legacy names are never available to the backend.
 rm -f -- \
+    "${backend_dir}/wechatSecret" \
     "${backend_dir}/appAesKey" \
     "${backend_dir}/mysql-root-password" \
     "${backend_dir}/db-backup-password" \
@@ -231,9 +226,5 @@ done
 [[ "$(stat -c '%u:%g:%a' "${backend_dir}")" \
     = "0:${backend_gid}:750" ]] \
     || fail "invalid backend runtime secret directory metadata"
-[[ "$(stat -c '%u:%g:%a' "${miniapp_secret_dir}")" \
-    = "${backend_uid}:${backend_gid}:700" ]] \
-    || fail "invalid miniapp secret directory metadata"
-
 printf 'runtime secrets staged mode=%s backend_uid=%s backend_gid=%s\n' \
     "${external_mode}" "${backend_uid}" "${backend_gid}"

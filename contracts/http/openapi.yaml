@@ -626,7 +626,7 @@
         "operationId": "putPlatformOrganizationMiniappConfiguration",
         "tags": ["Identity directory"],
         "summary": "Create or update the organization mini-program configuration",
-        "description": "The secret is versioned in an external vault before the IAM transaction and is never stored in the business database or returned by this mutation.",
+        "description": "The AppID, AppSecret and configuration version are committed in one IAM database transaction. The mutation response only returns a masked secret.",
         "security": [{"webSessionCookie": [], "webCsrfToken": []}],
         "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {
@@ -8214,17 +8214,27 @@
             "maxLength": 100
           },
           "appSecret": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              {"type": "null"}
+            ],
             "readOnly": true,
-            "description": "Full secret returned only by the authorized no-store GET endpoint."
+            "description": "Full secret returned only by the authorized no-store GET endpoint. Null means a migrated legacy test credential was invalidated and must be configured again."
           },
-          "appSecretConfigured": {"type": "boolean", "const": true},
+          "appSecretConfigured": {"type": "boolean"},
           "maskedAppSecret": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 24
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              },
+              {"type": "null"}
+            ]
           },
           "activated": {"type": "boolean"},
           "loginEnabled": {"type": "boolean"},
@@ -8266,11 +8276,16 @@
             "minLength": 1,
             "maxLength": 100
           },
-          "appSecretConfigured": {"type": "boolean", "const": true},
+          "appSecretConfigured": {"type": "boolean"},
           "maskedAppSecret": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 24
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              },
+              {"type": "null"}
+            ]
           },
           "activated": {"type": "boolean"},
           "loginEnabled": {"type": "boolean"},

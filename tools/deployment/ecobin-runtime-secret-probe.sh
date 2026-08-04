@@ -53,9 +53,6 @@ fi
     --format '{{range .Mounts}}{{if eq .Destination "/run/secrets"}}{{.RW}}{{end}}{{end}}')" \
     = false ]] || fail "/run/secrets is not a read-only bind mount"
 [[ "$(docker inspect "${backend_container}" \
-    --format '{{range .Mounts}}{{if eq .Destination "/var/lib/ecobin/miniapp-secrets"}}{{.RW}}{{end}}{{end}}')" \
-    = true ]] || fail "miniapp secret vault is not a writable bind mount"
-[[ "$(docker inspect "${backend_container}" \
     --format '{{.HostConfig.RestartPolicy.Name}}')" = unless-stopped ]] \
     || fail "backend restart policy is not unless-stopped"
 [[ "$(docker inspect "${backend_container}" \
@@ -99,8 +96,6 @@ docker run \
     --env "ECOBIN_PROBE_MODE=${external_mode}" \
     --mount \
         type=bind,src=/run/ecobin-secrets/backend,dst=/run/secrets,readonly \
-    --mount \
-        type=bind,src=/var/lib/ecobin/miniapp-secrets,dst=/var/lib/ecobin/miniapp-secrets \
     --entrypoint /bin/sh \
     "${image_name}" \
     -eu -c '
@@ -112,6 +107,7 @@ docker run \
         for file_name in \
             mysql-root-password \
             db-backup-password \
+            wechatSecret \
             appAesKey \
             schema-owner-password
         do
@@ -120,7 +116,6 @@ docker run \
 
         if [ "${ECOBIN_PROBE_MODE}" = real ]; then
             for file_name in \
-                wechatSecret \
                 iotAccessId \
                 iotSecretKey \
                 onenetAccessKey \
@@ -131,13 +126,12 @@ docker run \
                 test -r "/run/secrets/${file_name}"
                 test ! -w "/run/secrets/${file_name}"
             done
-            for file_name in apiclient_key.pem wechatpay_platform_cert.pem; do
+            for file_name in apiclient_key.pem pub_key.pem; do
                 test -r "/run/secrets/wechatpay/${file_name}"
                 test ! -w "/run/secrets/wechatpay/${file_name}"
             done
         else
             for file_name in \
-                wechatSecret \
                 iotAccessId \
                 iotSecretKey \
                 onenetAccessKey \
@@ -150,11 +144,6 @@ docker run \
             done
         fi
 
-        probe_file="/var/lib/ecobin/miniapp-secrets/.permission-probe-$$"
-        trap '"'"'rm -f -- "${probe_file}"'"'"' EXIT
-        umask 077
-        : > "${probe_file}"
-        test -w "${probe_file}"
     '
 
 printf 'runtime-security-probe=PASS mode=%s backend=%s web=%s\n' \

@@ -1,26 +1,16 @@
-package org.enveloping.ecobin.integration.wechat;
+package org.enveloping.ecobin.integration.config;
 
-import lombok.Data;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 /**
- * 微信小程序配置
+ * 真实外联适配器共用的有界 HTTP 客户端。
  */
-@Data
 @Configuration
-@ConfigurationProperties(prefix = "wechat.miniapp")
-public class WechatConfig {
-
-    /** 小程序 AppID */
-    private String appid;
-
-    /** 小程序 AppSecret */
-    private String secret;
+public class ExternalHttpClientConfiguration {
 
     @Bean
     @ConditionalOnProperty(
@@ -28,14 +18,10 @@ public class WechatConfig {
             name = "mode",
             havingValue = "real")
     public RestTemplate restTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        SimpleClientHttpRequestFactory factory =
+                new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(5000);
         return new RestTemplate(factory);
-    }
-
-    public boolean isConfigured() {
-        return appid != null && !appid.isBlank()
-                && secret != null && !secret.isBlank();
     }
 }

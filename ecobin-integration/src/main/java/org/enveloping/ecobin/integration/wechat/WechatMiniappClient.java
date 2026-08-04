@@ -18,7 +18,11 @@ import org.springframework.web.client.HttpStatusCodeException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.JsonNode;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 /**
@@ -34,9 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WechatMiniappClient
         implements WechatSessionPort, WechatPhoneNumberPort {
 
-    private final WechatConfig wechatConfig;
     private final RestTemplate restTemplate;
-    private final MiniappSecretResolver secretResolver;
 
     /**
      * Spring 注入的 Jackson 3 ObjectMapper，用于手动解析微信 code2session 响应。
@@ -57,29 +59,26 @@ public class WechatMiniappClient
             new ConcurrentHashMap<>();
 
     /**
-     * 用临时 code 换取 session_key 和 openid（使用全局默认 appid/secret）。
-     *
-     * @param code 前端 wx.login() 获取的临时凭证
-     * @return 微信会话响应
-     */
-    public WechatSession code2session(String code) {
-        return exchange(wechatConfig.getAppid(), wechatConfig.getSecret(), code);
-    }
-
-    /**
      * 用临时 code 换取 session_key 和 openid（多租户：使用指定租户的 appid/secret）。
      *
      * @param appid  租户小程序 AppID
-     * @param secret 租户小程序 Secret（已解密的明文）
+     * @param appSecret 机构小程序 AppSecret（来自业务数据库）
      * @param code   前端 wx.login() 获取的临时凭证
      * @return 微信会话响应
      */
     @Override
-    public WechatSession exchange(String appid, String secret, String code) {
+    public WechatSession exchange(
+            String appid,
+            String appSecret,
+            String code) {
         String body;
         try {
             body = restTemplate.getForObject(
-                    CODE2SESSION_URL, String.class, appid, secret, code);
+                    CODE2SESSION_URL,
+                    String.class,
+                    appid,
+                    appSecret,
+                    code);
         } catch (RestClientException exception) {
             throw unavailable("微信登录服务暂不可用", exception);
         }
@@ -110,45 +109,16 @@ public class WechatMiniappClient
     }
 
     @Override
-    public WechatSession exchangeByCredentialReference(
+    public WechatPhoneNumber exchangePhoneNumber(
             String appid,
-            String secretReference,
-            String code) {
-        return exchange(appid, secretResolver.resolve(secretReference), code);
-    }
-
-    @Override
-    public WechatPhoneNumber exchangePhoneNumberByCredentialReference(
-            String appid,
-            String secretReference,
+            String appSecret,
             String phoneCode) {
         long exchangeStarted = System.nanoTime();
         log.info(
                 "WECHAT_MINIAPP_DIAGNOSTIC stage=PHONE_BINDING "
                         + "outcome=STARTED appId={}",
                 appid);
-        long secretStarted = System.nanoTime();
-        final String secret;
-        try {
-            secret = secretResolver.resolve(secretReference);
-        } catch (WechatExchangeException exception) {
-            log.warn(
-                    "WECHAT_MINIAPP_DIAGNOSTIC stage=SECRET_RESOLUTION "
-                            + "outcome=FAILED appId={} reason={} "
-                            + "durationMs={} exception={}",
-                    appid,
-                    exception.reason(),
-                    elapsedMillis(secretStarted),
-                    exceptionType(exception));
-            throw exception;
-        }
-        log.info(
-                "WECHAT_MINIAPP_DIAGNOSTIC stage=SECRET_RESOLUTION "
-                        + "outcome=SUCCESS appId={} durationMs={}",
-                appid,
-                elapsedMillis(secretStarted));
-
-        AccessToken token = accessToken(appid, secretReference, secret, false);
+        AccessToken token = accessToken(appid, appSecret, false);
         JsonNode response = requestPhoneNumber(
                 appid,
                 token.value(),
@@ -162,8 +132,8 @@ public class WechatMiniappClient
                             + "errcode={}",
                     appid,
                     errorCode);
-            accessTokens.remove(tokenKey(appid, secretReference));
-            token = accessToken(appid, secretReference, secret, true);
+            accessTokens.remove(tokenKey(appid, appSecret));
+            token = accessToken(appid, appSecret, true);
             response = requestPhoneNumber(
                     appid,
                     token.value(),
@@ -209,10 +179,9 @@ public class WechatMiniappClient
 
     private AccessToken accessToken(
             String appid,
-            String secretReference,
-            String secret,
+            String appSecret,
             boolean forceRefresh) {
-        String key = tokenKey(appid, secretReference);
+        String key = tokenKey(appid, appSecret);
         AccessToken cached = accessTokens.get(key);
         if (!forceRefresh && cached != null && cached.usable()) {
             log.info(
@@ -241,13 +210,13 @@ public class WechatMiniappClient
                     fixedLengthJson(Map.of(
                             "grant_type", "client_credential",
                             "appid", appid,
-                            "secret", secret,
+                            "secret", appSecret,
                             "force_refresh", forceRefresh)),
                     String.class);
         } catch (HttpStatusCodeException exception) {
             HttpRejection rejection = httpRejection(
                     exception,
-                    secret);
+                    appSecret);
             log.warn(
                     "WECHAT_MINIAPP_DIAGNOSTIC stage=ACCESS_TOKEN_HTTP "
                             + "outcome=HTTP_REJECTED appId={} "
@@ -295,7 +264,7 @@ public class WechatMiniappClient
                     appid,
                     forceRefresh,
                     errorCode,
-                    safeWechatMessage(response, secret),
+                    safeWechatMessage(response, appSecret),
                     value != null && !value.isBlank(),
                     expiresIn,
                     elapsedMillis(started));
@@ -527,8 +496,15 @@ public class WechatMiniappClient
 
     private static String tokenKey(
             String appid,
-            String secretReference) {
-        return appid + "\0" + secretReference;
+            String appSecret) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(
+                    appSecret.getBytes(StandardCharsets.UTF_8));
+            return appid + "\0" + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(
+                    "SHA-256 is unavailable", exception);
+        }
     }
 
     private static WechatExchangeException unavailable(
