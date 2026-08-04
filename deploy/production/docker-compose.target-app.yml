@@ -2,7 +2,8 @@ name: ${ECOBIN_COMPOSE_PROJECT_NAME:-ecobin-target}
 
 services:
   backend:
-    image: ${ECOBIN_BACKEND_IMAGE:?set ECOBIN_BACKEND_IMAGE to an immutable image digest}
+    image: ${ECOBIN_BACKEND_IMAGE:?install and activate a local backend release}
+    pull_policy: never
     container_name: ${ECOBIN_BACKEND_CONTAINER_NAME:-ecobin-target-backend}
     user: "10001:10001"
     init: true
@@ -54,7 +55,8 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${ECOBIN_WEB_IMAGE:?set ECOBIN_WEB_IMAGE to an immutable image digest}
+    image: ${ECOBIN_WEB_IMAGE:?install and activate a local Web release}
+    pull_policy: never
     container_name: ${ECOBIN_WEB_CONTAINER_NAME:-ecobin-target-web}
     depends_on:
       backend:

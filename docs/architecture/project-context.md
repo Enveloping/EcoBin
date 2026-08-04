@@ -192,6 +192,24 @@ DD-004 保留内部 `BIGINT` 复合外键，只允许点名同步端口在同线
 5. 本文：跨会话决策、旧新差距和工作方式。
 6. `~/.claude/projects/C--D-004-Project-002-Java-EcoBin/*.jsonl`：只有在上述资料无法回答时才回溯的原始会话证据。
 
+### 7.1 应用部署与重新发布索引
+
+- 后端、Web 或运行时镜像相关代码修改后，日常重新部署统一从
+  [`应用修改后重新部署操作手册`](../deployment/application-redeployment-runbook.md) 开始。
+  该文档负责判断是否需要打包、是否先升级数据库、哪些服务器控制脚本需要单独同步，
+  并给出构建、上传、安装、预检、激活、验证和回退的完整顺序。
+- 新服务器第一次部署、目标网络/目录、systemd、Nginx 和 Fake 首启使用
+  [`目标单机部署手册`](../deployment/target-single-host-deployment.md)。
+- `/etc/ecobin` 配置、秘密文件、微信支付公钥/商户证书和机构小程序配置使用
+  [`生产部署配置、密钥与证书清单`](../deployment/production-configuration-secrets-certificates.md)。
+- 目标数据库首次供应或新增迁移使用
+  [`H-02 目标数据库手册`](../deployment/h02-target-database.md)；运行 JAR 不携带迁移器，
+  数据库必须先到达新后端要求的 epoch 才能激活应用。
+- 发布脚本的机器入口分别是
+  [`New-EcobinLocalRelease.ps1`](../../tools/deployment/New-EcobinLocalRelease.ps1)、
+  [`ecobin-install-local-release.sh`](../../tools/deployment/ecobin-install-local-release.sh) 和
+  [`ecobin-production-preflight.sh`](../../tools/deployment/ecobin-production-preflight.sh)。
+
 ## 8. 建议的续作入口
 
 DD-004、修订后的 PDD-001、29 项任务粒度/依赖、`status/executor` 分类和

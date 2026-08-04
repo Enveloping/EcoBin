@@ -4,6 +4,8 @@ set -euo pipefail
 compose_file="${ECOBIN_APP_COMPOSE_FILE:-/etc/ecobin/compose/docker-compose.target-app.yml}"
 deployment_env="${ECOBIN_DEPLOYMENT_ENV_FILE:-/etc/ecobin/deployment.env}"
 runtime_env="${ECOBIN_RUNTIME_ENV_FILE:-/etc/ecobin/runtime.env}"
+release_store="${ECOBIN_RELEASE_STORE:-/var/lib/ecobin/releases}"
+runtime_secret_root="${ECOBIN_RUNTIME_SECRET_DIR:-/run/ecobin-secrets}"
 
 fail() {
     printf '%s\n' "$1" >&2
@@ -59,16 +61,76 @@ if grep -Eq '^(wechatAppid|miniappSecretStoreDirectory)=' "${runtime_env}"; then
     fail "runtime.env contains a removed global mini-program setting"
 fi
 
+image_mode="$(env_value "${deployment_env}" ECOBIN_IMAGE_MODE)"
+release_id="$(env_value "${deployment_env}" ECOBIN_RELEASE_ID)"
 backend_image="$(env_value "${deployment_env}" ECOBIN_BACKEND_IMAGE)"
+backend_image_id="$(env_value "${deployment_env}" ECOBIN_BACKEND_IMAGE_ID)"
 web_image="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE)"
-for image in "${backend_image}" "${web_image}"; do
-    [[ "${image}" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]] \
-        || fail "production images must be pinned by sha256 digest"
-    [[ "${image##*@sha256:}" != \
-        0000000000000000000000000000000000000000000000000000000000000000 ]] \
-        || fail "placeholder image digest is not deployable"
-    docker image inspect "${image}" >/dev/null 2>&1 \
-        || fail "required production image is not present: ${image%%@*}"
+web_image_id="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE_ID)"
+
+[[ "${image_mode}" = local ]] \
+    || fail "ECOBIN_IMAGE_MODE must be local"
+[[ "${release_id}" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] \
+    || fail "invalid local release ID"
+[[ "${backend_image}" = "ecobin-local/backend:${release_id}" ]] \
+    || fail "backend image tag does not match the local release ID"
+[[ "${web_image}" = "ecobin-local/web:${release_id}" ]] \
+    || fail "Web image tag does not match the local release ID"
+
+zero_image_id="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+for expected_image_id in "${backend_image_id}" "${web_image_id}"; do
+    [[ "${expected_image_id}" =~ ^sha256:[0-9a-f]{64}$ \
+        && "${expected_image_id}" != "${zero_image_id}" ]] \
+        || fail "invalid or placeholder local image ID"
+done
+
+release_record="${release_store}/${release_id}/images.env"
+require_root_controlled_file "${release_record}"
+[[ "$(env_value "${release_record}" ECOBIN_IMAGE_MODE)" = local ]] \
+    || fail "stored release image mode mismatch"
+[[ "$(env_value "${release_record}" ECOBIN_RELEASE_ID)" = \
+    "${release_id}" ]] || fail "stored release ID mismatch"
+release_git_commit="$(env_value "${release_record}" \
+    ECOBIN_RELEASE_GIT_COMMIT)"
+[[ "${release_git_commit}" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "stored release Git commit is invalid"
+
+for component in backend web; do
+    if [[ "${component}" = backend ]]; then
+        image="${backend_image}"
+        expected_image_id="${backend_image_id}"
+        record_image_key=ECOBIN_BACKEND_IMAGE
+        record_id_key=ECOBIN_BACKEND_IMAGE_ID
+    else
+        image="${web_image}"
+        expected_image_id="${web_image_id}"
+        record_image_key=ECOBIN_WEB_IMAGE
+        record_id_key=ECOBIN_WEB_IMAGE_ID
+    fi
+
+    [[ "$(env_value "${release_record}" "${record_image_key}")" = \
+        "${image}" ]] || fail "stored ${component} image tag mismatch"
+    [[ "$(env_value "${release_record}" "${record_id_key}")" = \
+        "${expected_image_id}" ]] \
+        || fail "stored ${component} image ID mismatch"
+    actual_image_id="$(docker image inspect --format '{{.Id}}' \
+        "${image}" 2>/dev/null)" \
+        || fail "required local ${component} image is not present"
+    [[ "${actual_image_id}" = "${expected_image_id}" ]] \
+        || fail "local ${component} image tag no longer points to the approved ID"
+    [[ "$(docker image inspect --format \
+        '{{ index .Config.Labels "org.opencontainers.image.version" }}' \
+        "${image}")" = "${release_id}" ]] \
+        || fail "local ${component} image release label mismatch"
+    [[ "$(docker image inspect --format \
+        '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+        "${image}")" = "${release_git_commit}" ]] \
+        || fail "local ${component} image revision label mismatch"
+    artifact_sha="$(docker image inspect --format \
+        '{{ index .Config.Labels "org.ecobin.artifact.sha256" }}' \
+        "${image}")"
+    [[ "${artifact_sha}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "local ${component} image artifact label is invalid"
 done
 
 public_origin="$(env_value "${deployment_env}" ECOBIN_PUBLIC_ORIGIN)"
@@ -134,11 +196,13 @@ else
         || fail "WeChat Pay notify origin must match the public origin"
 fi
 
-[[ "$(stat -c '%u:%g:%a' /run/ecobin-secrets/backend)" = 0:10001:750 ]] \
+[[ "$(stat -c '%u:%g:%a' "${runtime_secret_root}/backend")" = \
+    0:10001:750 ]] \
     || fail "backend runtime secret directory metadata is invalid"
-[[ "$(docker network inspect ecobin-target-db \
+db_network_name="$(env_value "${deployment_env}" ECOBIN_DB_NETWORK_NAME)"
+[[ "$(docker network inspect "${db_network_name}" \
     --format '{{.Internal}}')" = true ]] \
-    || fail "ecobin-target-db is missing or is not internal"
+    || fail "${db_network_name} is missing or is not internal"
 
 docker compose \
     --env-file "${deployment_env}" \

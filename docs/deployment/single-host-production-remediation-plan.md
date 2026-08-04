@@ -223,8 +223,9 @@ Compose 必须使用实际对单机 Compose 生效的 `mem_limit`、`cpus` 和 `
 不能只写不会生效的集群声明。CPU 上限在一次轻量压测后确定，避免 2 核同时被构建、
 MySQL 和 Java 用满。
 
-生产服务器不执行 Maven/npm 全量构建；镜像在开发机或 CI 构建并固定 digest，服务器
-只拉取/导入审核后的镜像。这样避免构建阶段与数据库竞争内存和磁盘。
+生产服务器不执行 Maven/npm 全量构建。JAR 和 Web `dist` 在开发机生成并通过校验包上传，
+服务器只顺序构建不含编译工具的后端/Web 运行时镜像，并记录不可变 Docker image ID。
+这样既不依赖镜像仓库，也避免 Maven、Node 构建与数据库竞争内存和磁盘。
 
 ### 5.2 Swap 和告警
 
@@ -524,7 +525,8 @@ MySQL 和 Java 用满。
 
 动作：
 
-1. 使用固定 digest 的 Web/后端镜像，不在生产机现场构建；
+1. 安装开发机生成的已校验 JAR/`dist` 发布包，在生产机顺序构建运行时镜像，并固定
+   本机 Docker image ID；
 2. 后端仅加入 app/db 网络，MySQL 仅加入 db internal 网络；
 3. Web 同源反代 `/api`，后端不发布 8080；
 4. 后端只注入 `ecobin_app` 和本环境允许的外部配置；

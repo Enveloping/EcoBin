@@ -196,6 +196,9 @@
 - H2 只用于不依赖方言的轻量测试；目标迁移、外键/唯一约束、锁、事务、租户/机构隔离和资金并发以 MySQL 8.x 为权威验证层。
 - Spring Boot 4 使用 Jackson 3 包 `tools.jackson.databind`；不要在新代码中误用旧 `com.fasterxml.jackson.databind`。
 - 香橙派代码和工具必须兼容 Python 3.11，并使用真实 SQLite 验证断电恢复语义。
+- 后端、Web 或运行时镜像修改并提交后，按
+  [`应用修改后重新部署操作手册`](docs/deployment/application-redeployment-runbook.md)
+  在开发机生成 JAR/dist 发布包，再由服务器构建运行时镜像；不要把仓库复制到服务器执行 Maven/npm 构建。
 
 ## 8. 工作区、安全与变更约束
 
@@ -215,6 +218,8 @@
 
 - [文档中心](docs/README.md)
 - [项目上下文与历史差距](docs/architecture/project-context.md)
+- [应用修改后重新部署操作手册](docs/deployment/application-redeployment-runbook.md)
+- [目标单机首次部署手册](docs/deployment/target-single-host-deployment.md)
 - [系统架构基线](docs/planning/system-architecture-draft.md)
 - [目标数据库设计基线](docs/planning/database-design-draft.md)
 - [目标接口设计基线](docs/planning/interface-design-draft.md)

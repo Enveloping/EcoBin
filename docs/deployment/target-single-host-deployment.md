@@ -35,10 +35,15 @@ ecobin-target-mysql84:3306
 - 后端同时加入应用网络和数据库网络；
 - 真实客户端地址、原始 HTTPS 协议和主机名由两层 Nginx 连续传递，公网边界会丢弃
   客户端伪造的 `X-Forwarded-For`；
-- 宿主机不构建 Maven/npm 制品，只运行固定 SHA-256 digest 的镜像。
+- JAR 和 Web `dist` 只在开发机编译；宿主机只把已校验制品封装为运行时镜像，不安装
+  Maven、Node 或项目源码。
 
 相关文件：
 
+- 应用代码修改后的日常重新部署：
+  [`application-redeployment-runbook.md`](application-redeployment-runbook.md)
+- 配置、密钥与证书总清单：
+  [`production-configuration-secrets-certificates.md`](production-configuration-secrets-certificates.md)
 - 应用 Compose：
   [`deploy/production/docker-compose.target-app.yml`](../../deploy/production/docker-compose.target-app.yml)
 - Compose 非秘密变量模板：
@@ -47,6 +52,10 @@ ecobin-target-mysql84:3306
   [`deploy/production/runtime.env.example`](../../deploy/production/runtime.env.example)
 - 宿主机 Nginx 站点：
   [`deploy/production/nginx/jinshoubao.com.conf`](../../deploy/production/nginx/jinshoubao.com.conf)
+- 本地发布包脚本：
+  [`tools/deployment/New-EcobinLocalRelease.ps1`](../../tools/deployment/New-EcobinLocalRelease.ps1)
+- 服务器发布安装脚本：
+  [`tools/deployment/ecobin-install-local-release.sh`](../../tools/deployment/ecobin-install-local-release.sh)
 
 ## 2. 服务器目录和权限
 
@@ -69,6 +78,7 @@ ecobin-target-mysql84:3306
     └── pub_key.pem                         root:root 0644
 
 /run/ecobin-secrets/backend/                root:10001 0750；每次启动重新生成
+/var/lib/ecobin/releases/<release-id>/      root:root 0750；发布制品和镜像身份记录
 ```
 
 每个机构的小程序 AppID/AppSecret 都保存在目标数据库
@@ -77,18 +87,82 @@ ecobin-target-mysql84:3306
 AppSecret 明文，备份的访问控制、加密和恢复验收必须按秘密数据处理；应用日志和审计
 不得记录完整值。
 
-## 3. 镜像门禁
+## 3. 本地制品和镜像门禁
 
-后端和 Web 镜像在开发机或 CI 构建、测试并推送，然后把仓库返回的不可变 digest 写入
-`/etc/ecobin/deployment.env`：
+当前单机部署不依赖镜像仓库。开发机负责编译，服务器只从精确白名单文件构建运行时
+镜像：
 
 ```text
-ECOBIN_BACKEND_IMAGE=<registry>/<backend>@sha256:<64 位十六进制>
-ECOBIN_WEB_IMAGE=<registry>/<web>@sha256:<64 位十六进制>
+Git 工作区（开发机）
+  ├─ Java 21 + Maven Wrapper → ecobin-bootstrap 可运行 JAR
+  └─ Node 20+ + npm lock     → frontend/web/dist
+                 |
+                 v
+      ecobin-release-<release-id>.tar.gz
+                 |
+                 v
+服务器校验 SHA256SUMS → 保存 /var/lib/ecobin/releases/<release-id>
+                      → 构建两张运行时镜像
+                      → 记录标签 + 不可变 Docker image ID
 ```
 
-禁止使用单独的 `latest`、分支标签或提交标签启动生产容器。预检会拒绝没有 digest、
-示例全零 digest、镜像本机不存在等情况。
+### 3.1 在开发机生成发布包
+
+正式包要求 Git 工作区干净。脚本默认运行后端测试、`npm ci` 和 Web 构建：
+
+```powershell
+pwsh -File .\tools\deployment\New-EcobinLocalRelease.ps1
+```
+
+输出位于仓库外发范围的 `release-output/`，包含发布目录、`.tar.gz` 和归档校验文件。
+发布包只收集下列白名单内容，不复制源码或密钥：
+
+- `backend/app.jar`、后端运行时 Dockerfile、健康检查脚本；
+- `web/dist/`、Web 运行时 Dockerfile、容器内 Nginx 配置；
+- Git 提交、工作区干净标记和逐文件 `SHA256SUMS`。
+
+`-SkipTests` 只允许用于已经单独完成同一提交完整测试的发布；`-AllowDirty` 生成的包默认
+会被服务器拒绝，只能用于显式允许的非生产排查。
+
+### 3.2 上传并安装发布包
+
+只上传生成的归档及其校验文件，不上传仓库或 Desktop 密钥目录：
+
+```powershell
+scp .\release-output\ecobin-release-<release-id>.tar.gz `
+    .\release-output\ecobin-release-<release-id>.tar.gz.sha256 `
+    ubuntu@115.159.67.35:/tmp/
+```
+
+在服务器先验证归档，再解压到独立临时目录：
+
+```bash
+cd /tmp
+sha256sum --check ecobin-release-<release-id>.tar.gz.sha256
+tar -xzf ecobin-release-<release-id>.tar.gz
+sudo /usr/local/sbin/ecobin-install-local-release \
+  /tmp/ecobin-release-<release-id>
+```
+
+安装脚本会再次校验包内每个文件，顺序构建后端/Web 镜像，并原子更新
+`/etc/ecobin/deployment.env` 的以下字段：
+
+```text
+ECOBIN_IMAGE_MODE=local
+ECOBIN_RELEASE_ID=<release-id>
+ECOBIN_BACKEND_IMAGE=ecobin-local/backend:<release-id>
+ECOBIN_BACKEND_IMAGE_ID=sha256:<本机不可变镜像ID>
+ECOBIN_WEB_IMAGE=ecobin-local/web:<release-id>
+ECOBIN_WEB_IMAGE_ID=sha256:<本机不可变镜像ID>
+```
+
+标签只是方便辨认，不能独立作为信任依据。预检还会要求：标签当前指向的 image ID、
+镜像内 Git/制品标签、`/var/lib/ecobin/releases/<release-id>/images.env` 和
+`deployment.env` 四方一致。Compose 设置 `pull_policy: never`，不会到公网拉取同名镜像。
+
+服务器首次构建仍需取得 `eclipse-temurin:21-jre` 和 `nginx:alpine` 两个运行时基础
+镜像。已经受控导入基础镜像而外网暂时不可用时，可在执行安装脚本前设置
+`ECOBIN_PULL_RUNTIME_BASE_IMAGES=false`；这不允许省略最终 image ID 校验。
 
 后端镜像固定以 `10001:10001` 运行，根文件系统只读，只允许写 `/tmp` 的 64 MiB
 临时文件系统。
@@ -222,6 +296,9 @@ sudo install -o root -g root -m 0755 \
 sudo install -o root -g root -m 0755 \
   tools/deployment/ecobin-runtime-secret-probe.sh \
   /usr/local/sbin/ecobin-runtime-secret-probe
+sudo install -o root -g root -m 0755 \
+  tools/deployment/ecobin-install-local-release.sh \
+  /usr/local/sbin/ecobin-install-local-release
 sudo install -o root -g root -m 0644 \
   tools/deployment/systemd/ecobin-stage-runtime-secrets.service \
   /etc/systemd/system/ecobin-stage-runtime-secrets.service
@@ -243,8 +320,8 @@ sudo systemctl daemon-reload
 顺序如下：
 
 1. 确认目标 MySQL 已是完整 V32、96 张领域表、77 条权限定义且业务数据为空；
-2. 把已验收的固定 digest 镜像拉取或导入服务器；
-3. 写入 `deployment.env`、`runtime.env` 和本模式需要的秘密；
+2. 上传、校验并安装同一干净 Git 提交生成的本地发布包；
+3. 确认安装脚本已写入本地标签和对应 image ID，再写入其余运行配置和秘密；
 4. 执行秘密暂存；
 5. 执行预检；
 6. 启动目标应用；
@@ -303,8 +380,11 @@ sudo systemctl reload nginx
 
 1. 恢复先前的宿主机 Nginx 站点并执行 `nginx -t`、reload；
 2. `systemctl stop ecobin-target-app.service`；
-3. 保留目标 MySQL、机构小程序秘密库、容器日志和脱敏证据；
-4. 诊断并前滚。目标库一旦产生权威业务写入，不得直接切旧库继续写。
+3. 如需回到上一应用版本，使用安装脚本在每次切换前原子保存的
+   `/etc/ecobin/deployment.env.previous` 恢复部署参数，重新执行预检后再启动；不得回滚
+   数据库纪元或删除新业务数据；
+4. 保留目标 MySQL、发布目录、机构小程序秘密库、容器日志和脱敏证据；
+5. 诊断并前滚。目标库一旦产生权威业务写入，不得直接切旧库继续写。
 
 始终禁止：
 
@@ -313,4 +393,5 @@ sudo systemctl reload nginx
 - 向后端注入 root、schema owner 或 backup 密码；
 - 为调试发布 8080/3306；
 - 把 Desktop 密钥文件、`.env`、PEM、证书私钥或任何值提交 Git；
+- 使用 `latest`、仅凭本地标签启动，或删除仍可能用于回退的发布目录和镜像；
 - 在没有正式 seed 的情况下手工插入管理员或机构数据。
