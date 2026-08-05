@@ -3,7 +3,9 @@ package org.enveloping.ecobin.identity.api.persistence;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.IdentityHashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * identity 发行的当前事务关系引用所共享的生命周期守卫。
@@ -14,6 +16,7 @@ final class TransactionBoundReferenceGuard {
     private final Map<Object, Object> transactionResources;
     private final boolean readOnlyRequired;
     private boolean consumed;
+    private final Set<Object> consumedPurposes = new HashSet<>();
     private boolean transactionCompleted;
 
     TransactionBoundReferenceGuard(Map<Object, Object> transactionResources) {
@@ -34,6 +37,26 @@ final class TransactionBoundReferenceGuard {
     }
 
     synchronized void claimOnce() {
+        validate();
+        if (consumed || !consumedPurposes.isEmpty()) {
+            throw new IllegalStateException(
+                    "persistence reference was already consumed");
+        }
+        consumed = true;
+    }
+
+    synchronized void claimOnce(Object purpose) {
+        if (purpose == null) {
+            throw new IllegalArgumentException("purpose is required");
+        }
+        validate();
+        if (consumed || !consumedPurposes.add(purpose)) {
+            throw new IllegalStateException(
+                    "persistence reference purpose was already consumed");
+        }
+    }
+
+    private void validate() {
         if (Thread.currentThread().threadId() != ownerThreadId) {
             throw new IllegalStateException(
                     "persistence reference cannot cross threads");
@@ -59,11 +82,6 @@ final class TransactionBoundReferenceGuard {
             throw new IllegalStateException(
                     "persistence reference cannot cross transactions");
         }
-        if (consumed) {
-            throw new IllegalStateException(
-                    "persistence reference was already consumed");
-        }
-        consumed = true;
     }
 
     synchronized void markTransactionCompleted() {

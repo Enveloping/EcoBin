@@ -5,13 +5,26 @@ import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionOutcome;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionPort;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.device.api.result.DeviceFaultAlertFact;
+import org.enveloping.ecobin.device.api.persistence.DeviceOwnedFaultAlertScopeRefFactory;
+import org.enveloping.ecobin.device.application.target.DeviceOperationalOverviewQueryService;
+import org.enveloping.ecobin.funds.application.withdrawal.FundsOperationalOverviewQueryService;
+import org.enveloping.ecobin.identity.application.security.IdentityOperationalOverviewQueryService;
+import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedManagementScopePersistenceRefFactory;
+import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedRegistrationDeploymentAttributionRefFactory;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceipt;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceiptState;
+import org.enveloping.ecobin.operations.application.governance.OperationalAlertProjectionService;
+import org.enveloping.ecobin.operations.application.governance.GovernanceIdempotencyService;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
+import org.enveloping.ecobin.recycling.api.result.PortFullnessAlertFact;
+import org.enveloping.ecobin.recycling.api.persistence.RecyclingOwnedPortFullnessAlertScopeRefFactory;
+import org.enveloping.ecobin.recycling.application.deliveryorder.RecyclingOperationalOverviewQueryService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +51,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
@@ -108,6 +122,8 @@ class ReliableInboxMysqlIntegrationTest {
                     PRIMARY KEY (event_key)
                 ) ENGINE=InnoDB
                 """);
+        jdbc.update("DELETE FROM ops_alert");
+        jdbc.update("DELETE FROM ops_governance_idempotency");
         jdbc.update("DELETE FROM ops_task_attempt");
         jdbc.update("DELETE FROM ops_reliable_task");
         jdbc.update("DELETE FROM ops_message_quarantine");
@@ -228,15 +244,13 @@ class ReliableInboxMysqlIntegrationTest {
         try {
             Future<ClaimedInboxTask> first = executor.submit(() -> {
                 start.await();
-                return claimService.claimNext(
-                        ReliableTaskChannel.IOT_DEVICE, "device-worker-a")
-                        .orElseThrow();
+                return claimEventually(
+                        ReliableTaskChannel.IOT_DEVICE, "device-worker-a");
             });
             Future<ClaimedInboxTask> second = executor.submit(() -> {
                 start.await();
-                return claimService.claimNext(
-                        ReliableTaskChannel.IOT_DEVICE, "device-worker-b")
-                        .orElseThrow();
+                return claimEventually(
+                        ReliableTaskChannel.IOT_DEVICE, "device-worker-b");
             });
             start.countDown();
             ClaimedInboxTask firstClaim = first.get();
@@ -483,6 +497,247 @@ class ReliableInboxMysqlIntegrationTest {
         }
     }
 
+    @Test
+    void blockedTaskAlertProjectionIsIdempotentAndResolvesAtTerminalState() {
+        TrustedInboxReceipt receipt = inboxPort.receive(message(
+                "blocked-alert", "{\"blocked\":true}", "blocked alert",
+                TrustedInboxExecutionLane.DEVICE));
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    completed_at = UTC_TIMESTAMP(3),
+                    blocked_reason_code = 'TEST_BLOCK',
+                    blocked_diagnostic = 'fixture',
+                    handled_wake_version = wake_version,
+                    lease_token = NULL, lease_worker = NULL, lease_until = NULL,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ?
+                """, receipt.taskUid().toString());
+        jdbc.update("""
+                INSERT INTO iam_tenant (
+                    tenant_code, enterprise_name, status,
+                    lock_version, created_at, updated_at
+                ) VALUES (
+                    'f08-alert-tenant', 'F08 alert tenant', 'ENABLED',
+                    0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                )
+                """);
+        long tenantId = jdbc.queryForObject("""
+                SELECT id FROM iam_tenant
+                WHERE tenant_code = 'f08-alert-tenant'
+                """, Long.class);
+        jdbc.update("""
+                INSERT INTO iam_organization (
+                    tenant_id, organization_code, organization_name, status,
+                    lock_version, created_at, updated_at
+                ) VALUES (?, 'f08-alert-org', 'F08 alert organization',
+                    'ENABLED', 0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, tenantId);
+        long organizationId = jdbc.queryForObject("""
+                SELECT id FROM iam_organization
+                WHERE tenant_id = ? AND organization_code = 'f08-alert-org'
+                """, Long.class, tenantId);
+        UUID faultUid = UUID.randomUUID();
+        UUID fullnessUid = UUID.randomUUID();
+        Instant firstObserved = Instant.now().minusSeconds(120);
+        Instant lastObserved = Instant.now().minusSeconds(60);
+        AtomicReference<String> faultState = new AtomicReference<>("OPEN");
+        AtomicReference<String> fullnessState = new AtomicReference<>("FULL");
+        AtomicReference<Instant> recoveredAtRef = new AtomicReference<>();
+        var faultScopes = new DeviceOwnedFaultAlertScopeRefFactory();
+        var fullnessScopes =
+                new RecyclingOwnedPortFullnessAlertScopeRefFactory();
+        OperationalAlertProjectionService projection =
+                new OperationalAlertProjectionService(
+                        jdbc,
+                        currentlyOpen -> java.util.List.of(
+                                new DeviceFaultAlertFact(
+                                        faultScopes.issue(
+                                                tenantId, organizationId),
+                                        faultUid, "f08-deployment", 1,
+                                        "SCALE", "OFFLINE",
+                                        "BUSINESS_BLOCKING", faultState.get(),
+                                        firstObserved, lastObserved,
+                                        recoveredAtRef.get())),
+                        () -> java.util.List.of(
+                                new PortFullnessAlertFact(
+                                        fullnessScopes.issue(
+                                                tenantId, organizationId),
+                                        "f08-deployment", 1,
+                                        fullnessState.get(), fullnessUid,
+                                        recoveredAtRef.get() == null
+                                                ? lastObserved
+                                                : recoveredAtRef.get())),
+                        context.getBean(ObjectMapper.class));
+
+        transactionTemplate.executeWithoutResult(ignored -> projection.project());
+        transactionTemplate.executeWithoutResult(ignored -> projection.project());
+
+        assertEquals(3, count("ops_alert"));
+        assertEquals("OPEN|1", jdbc.queryForObject("""
+                SELECT CONCAT(status, '|', discovery_count)
+                FROM ops_alert
+                WHERE source_type = 'RELIABLE_TASK'
+                """, String.class));
+        assertEquals(2L, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_alert
+                WHERE source_kind = 'DOMAIN_FACT'
+                  AND status = 'OPEN' AND discovery_count = 1
+                """, Long.class));
+
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'DONE', blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL, updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ?
+                """, receipt.taskUid().toString());
+        Instant recoveredAt = Instant.now();
+        faultState.set("RECOVERED");
+        fullnessState.set("NOT_FULL");
+        recoveredAtRef.set(recoveredAt);
+        transactionTemplate.executeWithoutResult(ignored -> projection.project());
+
+        assertEquals(3L, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_alert
+                WHERE status = 'RESOLVED'
+                """, Long.class));
+    }
+
+    @Test
+    void operationalOverviewPortsReturnZeroMetricsWithoutCrossModuleJoins() {
+        jdbc.update("""
+                INSERT INTO iam_tenant (
+                    tenant_code, enterprise_name, status,
+                    lock_version, created_at, updated_at
+                ) VALUES (
+                    'f08-overview-tenant', 'F08 overview tenant', 'ENABLED',
+                    0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                )
+                """);
+        long tenantId = jdbc.queryForObject("""
+                SELECT id FROM iam_tenant
+                WHERE tenant_code = 'f08-overview-tenant'
+                """, Long.class);
+        jdbc.update("""
+                INSERT INTO iam_organization (
+                    tenant_id, organization_code, organization_name, status,
+                    lock_version, created_at, updated_at
+                ) VALUES (?, 'f08-overview-org', 'F08 overview organization',
+                    'ENABLED', 0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, tenantId);
+        long organizationId = jdbc.queryForObject("""
+                SELECT id FROM iam_organization
+                WHERE tenant_id = ?
+                  AND organization_code = 'f08-overview-org'
+                """, Long.class, tenantId);
+        Instant from = Instant.now().minusSeconds(3600);
+        Instant to = Instant.now().plusSeconds(1);
+
+        var scopeRefs = new IdentityOwnedManagementScopePersistenceRefFactory();
+        var attributionRefs =
+                new IdentityOwnedRegistrationDeploymentAttributionRefFactory();
+        var identityService = new IdentityOperationalOverviewQueryService(
+                jdbc, attributionRefs);
+        var deviceService = new DeviceOperationalOverviewQueryService(jdbc);
+        var recyclingService =
+                new RecyclingOperationalOverviewQueryService(jdbc);
+        var fundsService = new FundsOperationalOverviewQueryService(jdbc);
+        AtomicReference<org.enveloping.ecobin.identity.api.result
+                .IdentityOperationalOverview> identityRef =
+                new AtomicReference<>();
+        AtomicReference<org.enveloping.ecobin.device.api.result
+                .DeviceOperationalOverview> deviceRef =
+                new AtomicReference<>();
+        AtomicReference<org.enveloping.ecobin.recycling.api.result
+                .RecyclingOperationalOverview> recyclingRef =
+                new AtomicReference<>();
+        AtomicReference<org.enveloping.ecobin.funds.api.result
+                .FundsOperationalOverview> fundsRef =
+                new AtomicReference<>();
+        TransactionTemplate read = new TransactionTemplate(
+                context.getBean(PlatformTransactionManager.class));
+        read.setReadOnly(true);
+        read.executeWithoutResult(ignored -> {
+            var scope = scopeRefs.issue(
+                    tenantId, java.util.List.of(organizationId),
+                    java.util.List.of("f08-overview-org"), null, null);
+            var identity = identityService.query(scope, from, to);
+            identityRef.set(identity);
+            deviceRef.set(deviceService.query(scope, identity.organizations()));
+            recyclingRef.set(recyclingService.query(scope, from, to));
+            fundsRef.set(fundsService.query(scope, from, to));
+        });
+        var identity = identityRef.get();
+        var device = deviceRef.get();
+        var recycling = recyclingRef.get();
+        var funds = fundsRef.get();
+
+        assertEquals(1, identity.organizations().size());
+        assertEquals(0, identity.organizations().getFirst()
+                .registeredUserCount());
+        assertTrue(device.onlineByOrganization().isEmpty());
+        assertTrue(device.registrationAttributions()
+                .get("f08-overview-org").isEmpty());
+        assertEquals(0, recycling.byOrganization().get("f08-overview-org")
+                .createdOrderCount());
+        assertEquals(0, funds.byOrganization().get("f08-overview-org")
+                .succeededWithdrawalCent());
+    }
+
+    @Test
+    void governanceIdempotencyLinearizesConcurrentSameKeyRequests()
+            throws Exception {
+        GovernanceIdempotencyService service =
+                new GovernanceIdempotencyService(jdbc);
+        UUID operationUid = UUID.randomUUID();
+        UUID actorUid = UUID.randomUUID();
+        UUID resourceUid = UUID.randomUUID();
+        var request = new GovernanceIdempotencyService.Request(
+                operationUid, "PLATFORM_ADMIN", actorUid,
+                "11".repeat(32), "operations.test.resume",
+                "RELIABLE_TASK", UUID.randomUUID().toString(),
+                "22".repeat(32));
+        CountDownLatch firstClaimed = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<GovernanceIdempotencyService.Claim> first =
+                    executor.submit(() -> transactionTemplate.execute(status -> {
+                        var claim = service.claim(request);
+                        assertFalse(claim.replay());
+                        firstClaimed.countDown();
+                        awaitUnchecked(allowFirstCommit);
+                        service.succeed(operationUid,
+                                new GovernanceIdempotencyService.Result(
+                                        resourceUid, "PENDING", 7));
+                        return claim;
+                    }));
+            assertTrue(firstClaimed.await(5, TimeUnit.SECONDS));
+            Future<GovernanceIdempotencyService.Claim> replay =
+                    executor.submit(() -> transactionTemplate.execute(
+                            status -> service.claim(request)));
+            allowFirstCommit.countDown();
+            assertFalse(first.get(5, TimeUnit.SECONDS).replay());
+            var replayed = replay.get(5, TimeUnit.SECONDS);
+            assertTrue(replayed.replay());
+            assertEquals(resourceUid, replayed.result().resourceUid());
+            assertEquals(7, replayed.result().version());
+            assertEquals(1, count("ops_governance_idempotency"));
+
+            var conflict = new GovernanceIdempotencyService.Request(
+                    operationUid, "PLATFORM_ADMIN", actorUid,
+                    "11".repeat(32), "operations.test.resume",
+                    "RELIABLE_TASK", request.targetStableKey(),
+                    "33".repeat(32));
+            assertThrows(TargetApiException.class, () ->
+                    transactionTemplate.execute(status ->
+                            service.claim(conflict)));
+        } finally {
+            allowFirstCommit.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     private void assertTaskLockIsNotHeldAfterClaim(UUID taskUid) throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -549,6 +804,19 @@ class ReliableInboxMysqlIntegrationTest {
                 SET next_run_at = UTC_TIMESTAMP(3)
                 WHERE task_uid = ?
                 """, taskUid.toString());
+    }
+
+    private ClaimedInboxTask claimEventually(
+            ReliableTaskChannel channel, String workerId) {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            var claimed = claimService.claimNext(channel, workerId);
+            if (claimed.isPresent()) {
+                return claimed.orElseThrow();
+            }
+            sleepUnchecked(Duration.ofMillis(10));
+        }
+        throw new IllegalStateException(
+                "claim did not converge after transient SKIP LOCKED reads");
     }
 
     private void restoreIotTestPolicy() {

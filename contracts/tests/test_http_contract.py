@@ -181,6 +181,135 @@ class HttpContractTests(unittest.TestCase):
         self.assertIn("PayoutEntryPage", schemas)
         self.assertIn("PayoutEntryPageEnvelope", schemas)
 
+    def test_operations_trace_fullness_and_staff_surfaces_are_published(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        expected_operations = {
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}",
+                "get",
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}/occupancy-events",
+                "get",
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}/clean-records",
+                "get",
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}/delivery-orders",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}"
+                "/occupancy-events",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}"
+                "/clean-records",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}"
+                "/delivery-orders",
+                "get",
+            ),
+            ("/api/v1/miniapp/bags/{bagQr}/use-cycles", "get"),
+            (
+                "/api/v1/miniapp/bags/{bagQr}/use-cycles/{cycleUid}"
+                "/delivery-orders",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp/bags/{bagQr}/use-cycles/{cycleUid}"
+                "/delivery-orders/{deliveryOrderNo}",
+                "get",
+            ),
+            ("/api/v1/miniapp-staff/device-deployments", "get"),
+            (
+                "/api/v1/miniapp-staff/device-deployments/{deploymentCode}",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp-staff/device-deployments/{deploymentCode}"
+                "/ports/{portNo}/capacity",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp-staff/device-deployments/{deploymentCode}"
+                "/ports/{portNo}/fullness-state/current",
+                "get",
+            ),
+            ("/api/v1/web/platform/operations/reliable-tasks", "get"),
+            (
+                "/api/v1/web/platform/operations/reliable-tasks/{taskUid}",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/operations/reliable-tasks/{taskUid}"
+                "/attempts",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/operations/reliable-tasks/{taskUid}"
+                "/resumptions",
+                "post",
+            ),
+            (
+                "/api/v1/web/platform/operations/message-quarantines",
+                "get",
+            ),
+            ("/api/v1/web/audit-logs", "get"),
+            ("/api/v1/web/platform/audit-logs", "get"),
+            ("/api/v1/web/alerts", "get"),
+            ("/api/v1/web/alerts/{alertUid}/acknowledgements", "post"),
+            ("/api/v1/web/platform/alerts", "get"),
+            ("/api/v1/miniapp-staff/alerts", "get"),
+            ("/api/v1/web/statistics/operational-overview", "get"),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/statistics/operational-overview",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp-staff/statistics/operational-overview",
+                "get",
+            ),
+        }
+        missing = {
+            (path, method)
+            for path, method in expected_operations
+            if path not in paths or method not in paths[path]
+        }
+        self.assertEqual(
+            set(),
+            missing,
+            f"operations surfaces missing from OpenAPI: {sorted(missing)}",
+        )
+
+        reconciliation_paths = {
+            path for path in paths if "reconciliation-" in path
+        }
+        self.assertEqual(
+            set(),
+            reconciliation_paths,
+            "I-039 is intentionally deferred and must not be published",
+        )
+
     def test_device_ownership_and_operation_roles_are_explicit(self) -> None:
         document = load_openapi()
         paths = document["paths"]

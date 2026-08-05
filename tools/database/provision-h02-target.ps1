@@ -906,24 +906,29 @@ WHERE table_schema = '$DatabaseName'
                 "SELECT MAX(CAST(version AS UNSIGNED)) " +
                 "FROM flyway_schema_history WHERE success=1;"
             ))
-        if (
-            $existingDomainTableCount -ne 96 -or
-            -not (
-                ($existingHistoryCount -eq 31 -and
-                    $existingMaxVersion -eq 31) -or
-                ($existingHistoryCount -eq 32 -and
-                    $existingMaxVersion -eq 32)
-            )
-        ) {
+        $resumeLayoutValid = (
+            ($existingDomainTableCount -eq 96 -and
+                $existingHistoryCount -eq 31 -and
+                $existingMaxVersion -eq 31) -or
+            ($existingDomainTableCount -eq 96 -and
+                $existingHistoryCount -eq 32 -and
+                $existingMaxVersion -eq 32) -or
+            ($existingDomainTableCount -eq 97 -and
+                $existingHistoryCount -eq 33 -and
+                $existingMaxVersion -eq 33)
+        )
+        if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V31 or V32 " +
+                "Migrated resume requires a complete V31, V32 or V33 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -eq 31) {
+        if ($existingMaxVersion -lt 33) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
-            Assert-HostPortAvailable
+            if ($RemoteHost.Length -gt 0) {
+                Assert-HostPortAvailable
+            }
             # Mark the account as potentially unlocked before the remote call.
             # MySQL may commit ALTER USER even if the SSH acknowledgement is
             # lost, so the failure path must not depend on receiving success.
@@ -977,7 +982,7 @@ GRANT SELECT (
 "@ | Out-Null
         }
 
-        Invoke-FlywayMigration -Target 32 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 33 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -996,8 +1001,8 @@ ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 96) {
-        throw "Expected 96 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 97) {
+        throw "Expected 97 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -1036,8 +1041,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 32) {
-        throw "Expected thirty-two successful Flyway migrations"
+    if ($historyCount -ne 33) {
+        throw "Expected thirty-three successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1326,7 +1331,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V32 forward migration. " +
+                "The target may contain a failed V33 forward migration. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

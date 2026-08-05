@@ -3957,6 +3957,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/bags/{bagQr}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** Read one bag identity and its current occupancy */
+        get: operations["getOrganizationBagTrace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/bags/{bagQr}/occupancy-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List append-only bag occupancy events */
+        get: operations["listOrganizationBagOccupancyEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/bags/{bagQr}/clean-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List clean records in which the bag was removed or installed */
+        get: operations["listOrganizationBagCleanRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/bags/{bagQr}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List delivery orders by their frozen bag snapshot */
+        get: operations["listOrganizationBagDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/bags/{bagQr}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** Read one organization bag identity and its current occupancy */
+        get: operations["getPlatformOrganizationBagTrace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/bags/{bagQr}/occupancy-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List organization bag occupancy events */
+        get: operations["listPlatformOrganizationBagOccupancyEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/bags/{bagQr}/clean-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List organization clean records related to the bag */
+        get: operations["listPlatformOrganizationBagCleanRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/bags/{bagQr}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List organization delivery orders by frozen bag snapshot */
+        get: operations["listPlatformOrganizationBagDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp/me/withdrawals": {
         parameters: {
             query?: never;
@@ -4005,6 +4169,657 @@ export interface paths {
         };
         /** Read package only while WeChat requires user confirmation */
         get: operations["getMyMerchantTransferConfirmation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/bags/{bagQr}/use-cycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        /** List installation cycles for a bag in the current cleaner organization */
+        get: operations["listBagUseCycles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/bags/{bagQr}/use-cycles/{cycleUid}/delivery-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bagQr: string;
+                cycleUid: string;
+            };
+            cookie?: never;
+        };
+        /** List delivery orders assigned by frozen bag, port and backend session time */
+        get: operations["listBagCycleDeliveryOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/bags/{bagQr}/use-cycles/{cycleUid}/delivery-orders/{deliveryOrderNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bagQr: string;
+                cycleUid: string;
+                deliveryOrderNo: string;
+            };
+            cookie?: never;
+        };
+        /** Read masked delivery evidence in one bag cycle */
+        get: operations["getBagCycleDeliveryOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/device-deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List current-organization device summaries */
+        get: operations["listMiniappStaffDeviceDeployments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/device-deployments/{deploymentCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: string;
+            };
+            cookie?: never;
+        };
+        /** Read one current-organization device and its ports */
+        get: operations["getMiniappStaffDeviceDeployment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/device-deployments/{deploymentCode}/ports/{portNo}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        /** Read current capacity and evidence basis */
+        get: operations["getMiniappStaffPortCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/device-deployments/{deploymentCode}/ports/{portNo}/fullness-state/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        /** Read current fullness without history */
+        get: operations["getMiniappStaffCurrentFullness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        get: operations["getOrganizationPortCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/fullness-state-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        get: operations["listOrganizationFullnessStateChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/fullness-state-changes/{stateChangeUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+                stateChangeUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getOrganizationFullnessStateChange"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        get: operations["getPlatformOrganizationPortCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/fullness-state-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        get: operations["listPlatformOrganizationFullnessStateChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/device-deployments/{deploymentCode}/ports/{portNo}/fullness-state-changes/{stateChangeUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+                stateChangeUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getPlatformOrganizationFullnessStateChange"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/reliable-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listReliableTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/reliable-tasks/{taskUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getReliableTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/reliable-tasks/{taskUid}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["listReliableTaskAttempts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/reliable-tasks/{taskUid}/resumptions": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                taskUid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resumeReliableTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/message-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMessageQuarantines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/message-quarantines/{quarantineUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quarantineUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getMessageQuarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/operations/message-quarantines/{quarantineUid}/acknowledgements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                quarantineUid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acknowledgeMessageQuarantine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAuditLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/audit-logs/{auditUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                auditUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformAuditLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/audit-logs/{auditUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                auditUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getPlatformAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/alerts/{alertUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getAlert"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/alerts/{alertUid}/acknowledgements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acknowledgeAlert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPlatformAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/alerts/{alertUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getPlatformAlert"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/alerts/{alertUid}/acknowledgements": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acknowledgePlatformAlert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMiniappStaffAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/alerts/{alertUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getMiniappStaffAlert"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/statistics/operational-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getOperationalOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/statistics/operational-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+            };
+            cookie?: never;
+        };
+        get: operations["getPlatformOperationalOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/statistics/operational-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMiniappStaffOperationalOverview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6203,6 +7018,673 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["MerchantTransferConfirmationView"];
+            requestId: string;
+        };
+        BagUseCyclePageEnvelope: components["schemas"]["BagUseCyclePageEnvelopeShape"];
+        BagUseCyclePageEnvelopeShape: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BagUseCyclePage"];
+            requestId: string;
+        };
+        BagUseCyclePage: {
+            bagQr: string;
+            /** @constant */
+            codeAuthKind: "OPAQUE_V1";
+            unassignedLegacyDeliveryCount: number;
+            items: components["schemas"]["BagUseCycleItem"][];
+            /** Format: date-time */
+            asOf: string;
+            nextCursor: string | null;
+        };
+        BagUseCycleItem: {
+            /** Format: uuid */
+            cycleUid: string;
+            /** @enum {string} */
+            status: "ACTIVE" | "CLOSED";
+            /** @enum {string} */
+            startBasis: "INITIAL_INSTALLED" | "INSTALLED_BY_CLEAN";
+            deploymentCode: string;
+            portNo: number;
+            /** Format: date-time */
+            installedAt: string;
+            /** Format: date-time */
+            removedAt: string | null;
+            deliveryOrderCount: number;
+        };
+        BagTraceUser: {
+            /** Format: uuid */
+            organizationUserUid: string;
+            nickname: string;
+            maskedPhoneNumber: string | null;
+        };
+        BagTraceOrder: {
+            deliveryOrderNo: string;
+            user: components["schemas"]["BagTraceUser"];
+            /** Format: date-time */
+            deviceOccurredAt?: string | null;
+            /** Format: date-time */
+            receivedAt: string;
+            rawWeightKg?: string | null;
+            rawAmountYuan?: string | null;
+            finalWeightKg?: string | null;
+            finalAmountYuan?: string | null;
+            /** @enum {string} */
+            reviewStatus: "PENDING" | "APPROVED";
+            reason?: string | null;
+            /** @enum {string} */
+            photoCompleteness: "COMPLETE" | "INCOMPLETE";
+        };
+        BagTraceOrderPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: {
+                bagQr: string;
+                /** Format: uuid */
+                cycleUid: string;
+                items: components["schemas"]["BagTraceOrder"][];
+                /** Format: date-time */
+                asOf: string;
+                nextCursor: string | null;
+            };
+            requestId: string;
+        };
+        BagTraceOrderDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: {
+                bagQr: string;
+                /** Format: uuid */
+                cycleUid: string;
+                order: components["schemas"]["BagTraceOrder"];
+                photos: {
+                    position?: string;
+                    status?: string;
+                    url?: string | null;
+                    /** Format: date-time */
+                    capturedAt?: string | null;
+                    missingReason?: string | null;
+                }[];
+            };
+            requestId: string;
+        };
+        BagCurrentOccupancy: {
+            /** @enum {string} */
+            kind: "NONE" | "PORT_BOUND" | "CLEAN_RESERVED";
+            deploymentCode: string | null;
+            portNo: number | null;
+            /** Format: uuid */
+            cleanOperationUid: string | null;
+            /** Format: date-time */
+            since: string | null;
+        };
+        WebBagDetail: {
+            bagQr: string;
+            /** Format: date-time */
+            registeredAt: string;
+            currentOccupancy: components["schemas"]["BagCurrentOccupancy"];
+            /** Format: date-time */
+            lastRelationChangedAt: string | null;
+        };
+        WebBagDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WebBagDetail"];
+            requestId: string;
+        };
+        BagOccupancyEvent: {
+            /** Format: uuid */
+            eventUid: string;
+            /** @enum {string} */
+            eventType: "INITIAL_INSTALLED" | "RESERVED_FOR_CLEAN" | "RESERVATION_RELEASED" | "REMOVED_BY_CLEAN" | "INSTALLED_BY_CLEAN";
+            deploymentCode: string;
+            portNo: number;
+            /** Format: uuid */
+            cleanOperationUid: string | null;
+            /** Format: date-time */
+            occurredAt: string;
+            /** @enum {string} */
+            sourceType: "BAG_REGISTRATION" | "CLEAN_OPERATION";
+            sourceReference: string;
+        };
+        BagOccupancyEventPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: {
+                bagQr: string;
+                items: components["schemas"]["BagOccupancyEvent"][];
+                /** Format: date-time */
+                asOf: string;
+                nextCursor: string | null;
+            };
+            requestId: string;
+        };
+        BagCleanRecord: {
+            cleanRecordNo: string;
+            /** Format: uuid */
+            operationUid: string;
+            /** Format: uuid */
+            cleanerUserUid: string;
+            deploymentCode: string;
+            portNo: number;
+            /** @enum {string} */
+            relationRole: "REMOVED" | "INSTALLED";
+            removedBagQr: string | null;
+            installedBagQr: string;
+            /** Format: date-time */
+            deviceCompletedAt: string;
+            originalRecalculatedRemovedNetWeightKg: string | null;
+            effectiveRemovedNetWeightKg: string | null;
+            effectiveWeightSource: string;
+            weightReliability: string;
+            resultKind: string;
+            /** @enum {string} */
+            photoCompleteness: "COMPLETE" | "INCOMPLETE";
+            recordRemark: string | null;
+            /** Format: int64 */
+            version: number;
+        };
+        BagCleanRecordPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: {
+                bagQr: string;
+                items: components["schemas"]["BagCleanRecord"][];
+                /** Format: date-time */
+                asOf: string;
+                nextCursor: string | null;
+            };
+            requestId: string;
+        };
+        WebBagDeliveryOrderPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: {
+                bagQr: string;
+                items: components["schemas"]["BagTraceOrder"][];
+                /** Format: date-time */
+                asOf: string;
+                nextCursor: string | null;
+            };
+            requestId: string;
+        };
+        PortCapacityView: {
+            deploymentCode: string;
+            portNo: number;
+            currentBagQr?: string | null;
+            baselineState: string;
+            baselineWeightKg?: string | null;
+            latestStableTotalWeightKg?: string | null;
+            rawNetWeightKg?: string | null;
+            displayedFullnessPercent?: string | null;
+            detectionGate: string;
+            /** @enum {string} */
+            confirmedFullnessState: "UNKNOWN" | "NOT_FULL" | "FULL";
+            /** @enum {string} */
+            stateEvidence: "NO_DEVICE_REPORT" | "DEVICE_REPORTED";
+            /** Format: uuid */
+            currentStateChangeUid?: string | null;
+            /** Format: date-time */
+            lastReportedAt?: string | null;
+            version: number;
+            /** Format: date-time */
+            asOf: string;
+        };
+        PortCapacityEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["PortCapacityView"];
+            requestId: string;
+        };
+        FullnessMeasurementSummary: {
+            mode: string;
+            sensorKind: string;
+            sensorValue: string;
+            totalWeightKg: string | null;
+            baselineWeightKg: string | null;
+            configuredFullWeightKg: string;
+            fullnessPercent: string | null;
+            /** Format: int64 */
+            sampleCount: number;
+            /** Format: int64 */
+            elapsedMs: number;
+            confirmationBasis: string;
+        };
+        FullnessStateChange: {
+            /** Format: uuid */
+            stateChangeUid: string;
+            /** @enum {string} */
+            reportedState: "FULL" | "NOT_FULL";
+            /** @enum {string} */
+            disposition: "APPLIED" | "NO_STATE_CHANGE" | "STALE_BAG" | "STALE_SEQUENCE";
+            bagQr: string;
+            sourceWorkType: string;
+            /** Format: uuid */
+            sourceWorkUid: string;
+            /** Format: int64 */
+            edgeEventSequence: number;
+            measurement: components["schemas"]["FullnessMeasurementSummary"];
+            /** Format: date-time */
+            deviceOccurredAt: string;
+            /** Format: date-time */
+            backendReceivedAt: string;
+        };
+        FullnessStateChangeEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FullnessStateChange"];
+            requestId: string;
+        };
+        FullnessStateChangePageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: {
+                items: components["schemas"]["FullnessStateChange"][];
+                nextCursor: string | null;
+                /** Format: date-time */
+                asOf: string;
+            };
+            requestId: string;
+        };
+        StaffDeploymentSummary: {
+            deploymentCode: string;
+            displayName: string;
+            address: string | null;
+            lifecycleStatus: string;
+            businessEnabled: boolean;
+            edgeConnectionStatus: string;
+            mcuLinkStatus: string;
+            safetyStatus: string;
+            portCount: number;
+            /** Format: date-time */
+            lastHeartbeatAt: string | null;
+        };
+        StaffPortSummary: {
+            portNo: number;
+            displayName: string;
+            businessEnabled: boolean;
+            deliveryDoorState: string;
+            weightSensorHealth: string;
+            infraredSensorHealth: string;
+            smokeState: string;
+            safetyStatus: string;
+            /** Format: date-time */
+            lastObservedAt: string | null;
+        };
+        StaffDeploymentDetail: {
+            deployment: components["schemas"]["StaffDeploymentSummary"];
+            ports: components["schemas"]["StaffPortSummary"][];
+            /** Format: date-time */
+            asOf: string;
+        };
+        StaffDeploymentListEnvelope: {
+            /** @constant */
+            code?: "OK";
+            data?: components["schemas"]["StaffDeploymentSummary"][];
+            requestId?: string;
+        };
+        StaffDeploymentDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["StaffDeploymentDetail"];
+            requestId: string;
+        };
+        ResumeTaskRequest: {
+            expectedVersion: number;
+            /** @constant */
+            causeFixedConfirmed: true;
+            reason?: string | null;
+        };
+        VersionedReasonRequest: {
+            expectedVersion: number;
+            reason?: string | null;
+        };
+        ReliableTask: {
+            /** Format: uuid */
+            taskUid: string;
+            taskType: string;
+            taskKind: string;
+            /** @enum {string} */
+            executionLane: "DEVICE" | "FUNDS";
+            /** @enum {string} */
+            state: "PENDING" | "DONE" | "CANCELLED" | "BLOCKED";
+            /** Format: int64 */
+            version: number;
+            /** @enum {string} */
+            scopeKind: "PLATFORM" | "TENANT" | "ORGANIZATION" | "UNRESOLVED";
+            targetType: string | null;
+            targetKey: string | null;
+            /** Format: date-time */
+            nextRunAt: string | null;
+            leased: boolean;
+            /** Format: date-time */
+            leaseUntil: string | null;
+            maxAutoAttempts: number;
+            /** Format: int64 */
+            attemptCount: number;
+            consecutiveFailureCount: number;
+            /** Format: int64 */
+            wakeVersion: number;
+            /** Format: int64 */
+            handledWakeVersion: number;
+            blockedReasonCode: string | null;
+            blockedDiagnostic: string | null;
+            /** Format: uuid */
+            correlationId: string | null;
+            /** Format: uuid */
+            causationId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            nextActions: string[];
+        };
+        ReliableTaskPage: {
+            items: components["schemas"]["ReliableTask"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        TaskAttempt: {
+            /** Format: uuid */
+            attemptUid: string;
+            /** Format: int64 */
+            attemptNo: number;
+            actionKind: string;
+            technicalResult: string | null;
+            /** Format: date-time */
+            claimedAt: string;
+            /** Format: date-time */
+            externalCallMayHaveStartedAt: string | null;
+            /** Format: date-time */
+            resultRecordedAt: string | null;
+            httpStatus: number | null;
+            externalApiErrorCode: string | null;
+            /** Format: int64 */
+            durationMs: number | null;
+            diagnostic: string | null;
+        };
+        TaskAttemptCursorPage: {
+            items: components["schemas"]["TaskAttempt"][];
+            nextCursor: string | null;
+        };
+        ReliableTaskResumption: {
+            /** Format: uuid */
+            operationId: string;
+            /** Format: uuid */
+            resourceId: string;
+            /** Format: uuid */
+            taskUid: string;
+            /** @constant */
+            state: "PENDING";
+            /** Format: int64 */
+            version: number;
+            statusUrl: string;
+            recommendedPollAfterMs: number;
+        };
+        Quarantine: {
+            /** Format: uuid */
+            quarantineUid: string;
+            /** @enum {string} */
+            state: "OPEN" | "ACKNOWLEDGED";
+            /** Format: int64 */
+            version: number;
+            scopeKind: string;
+            reasonCode: string;
+            sourceNamespace: string;
+            sourcePrincipalSummary: string;
+            externalMessageSummary: string;
+            rawTransportSha256: string;
+            normalizedContentSha256: string;
+            diagnostic: string;
+            /** Format: date-time */
+            firstDetectedAt: string;
+            /** Format: date-time */
+            lastDetectedAt: string;
+            /** Format: int64 */
+            discoveryCount: number;
+            /** Format: date-time */
+            acknowledgedAt: string | null;
+        };
+        QuarantinePage: {
+            items: components["schemas"]["Quarantine"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        VersionedOperation: {
+            /** Format: uuid */
+            operationId: string;
+            /** Format: uuid */
+            resourceId: string;
+            state: string;
+            /** Format: int64 */
+            version: number;
+        };
+        AuditLog: {
+            /** Format: uuid */
+            auditUid: string;
+            /** Format: uuid */
+            requestUid: string;
+            /** Format: uuid */
+            operationUid: string | null;
+            scopeKind: string;
+            tenantCode: string | null;
+            organizationCode: string | null;
+            actorKind: string;
+            /** Format: uuid */
+            actorUid: string | null;
+            actorDisplayName: string | null;
+            actionCode: string;
+            targetType: string;
+            targetKey: string;
+            entryChannel: string;
+            /** @enum {string} */
+            result: "SUCCEEDED" | "DENIED" | "FAILED";
+            reason: string | null;
+            safeChangeSummary: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            correlationId: string | null;
+            /** Format: uuid */
+            causationId: string | null;
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        AuditLogCursorPage: {
+            items: components["schemas"]["AuditLog"][];
+            nextCursor: string | null;
+        };
+        OperationalAlert: {
+            /** Format: uuid */
+            alertUid: string;
+            /** @enum {string} */
+            state: "OPEN" | "RESOLVED";
+            /** Format: int64 */
+            version: number;
+            /** @enum {string} */
+            category: "DEVICE" | "FULLNESS" | "FUNDS" | "RECONCILIATION" | "RELIABLE_EXECUTION" | "SECURITY";
+            alertCode: string;
+            /** @enum {string} */
+            currentSeverity: "INFO" | "WARNING" | "CRITICAL";
+            /** @enum {string} */
+            highestSeverity: "INFO" | "WARNING" | "CRITICAL";
+            scopeKind: string;
+            tenantCode: string | null;
+            organizationCode: string | null;
+            /** @enum {string|null} */
+            sourceKind: "DOMAIN_FACT" | "TECHNICAL_CONDITION" | null;
+            sourceType: string;
+            sourceKey: string | null;
+            /** Format: date-time */
+            firstDetectedAt: string;
+            /** Format: date-time */
+            lastDetectedAt: string;
+            /** Format: int64 */
+            discoveryCount: number;
+            acknowledged: boolean;
+            acknowledgedBy: string | null;
+            /** Format: date-time */
+            acknowledgedAt: string | null;
+            /** Format: date-time */
+            resolvedAt: string | null;
+            displayParameters: {
+                [key: string]: unknown;
+            };
+            nextActions: string[];
+        };
+        AlertPage: {
+            items: components["schemas"]["OperationalAlert"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        OperationalOverviewMetrics: {
+            registrations: {
+                /** Format: int64 */
+                registeredUserCount: number;
+                /** Format: int64 */
+                directEntryCount: number;
+                /** Format: int64 */
+                deviceAttributedCount: number;
+            };
+            delivery: {
+                /** Format: int64 */
+                createdOrderCount: number;
+                /** Format: int64 */
+                recognizedOrderCount: number;
+                recognizedWeightKg: string;
+                recognizedCashbackYuan: string;
+                /** Format: int64 */
+                currentPendingReviewCount: number;
+            };
+            cleaning: {
+                /** Format: int64 */
+                createdRecordCount: number;
+                /** Format: int64 */
+                anomalousRecordCount: number;
+            };
+            operations: {
+                /** Format: int64 */
+                currentOnlineDeploymentCount: number;
+                /** Format: int64 */
+                currentFullPortCount: number;
+                /** Format: int64 */
+                currentOpenAlertCount: number;
+            };
+            funds: {
+                succeededWithdrawalYuan: string;
+                currentProcessingWithdrawalYuan: string;
+                currentAvailablePayoutYuan: string;
+            };
+        };
+        OperationalOverview: {
+            period: {
+                /** @constant */
+                timeZone: "Asia/Shanghai";
+                /** Format: date */
+                businessDateFrom: string;
+                /** Format: date */
+                businessDateToExclusive: string;
+            };
+            /** Format: date-time */
+            asOf: string;
+            scope: {
+                tenantCode: string;
+                organizationCode: string | null;
+                organizationCount: number;
+            };
+            totals: components["schemas"]["OperationalOverviewMetrics"];
+            organizations: {
+                organizationCode: string;
+                organizationName: string;
+                metrics: components["schemas"]["OperationalOverviewMetrics"];
+                registrationAttribution: {
+                    /** Format: int64 */
+                    directEntryCount: number;
+                    byDeployment: {
+                        deploymentCode: string;
+                        deploymentName: string | null;
+                        /** Format: int64 */
+                        registeredUserCount: number;
+                    }[];
+                };
+            }[];
+        };
+        ReliableTaskEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["ReliableTask"];
+            requestId: string;
+        };
+        ReliableTaskPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["ReliableTaskPage"];
+            requestId: string;
+        };
+        TaskAttemptPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["TaskAttemptCursorPage"];
+            requestId: string;
+        };
+        ReliableTaskResumptionEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["ReliableTaskResumption"];
+            requestId: string;
+        };
+        QuarantineEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["Quarantine"];
+            requestId: string;
+        };
+        QuarantinePageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["QuarantinePage"];
+            requestId: string;
+        };
+        VersionedOperationEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["VersionedOperation"];
+            requestId: string;
+        };
+        AuditLogEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["AuditLog"];
+            requestId: string;
+        };
+        AuditLogPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["AuditLogCursorPage"];
+            requestId: string;
+        };
+        AlertEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["OperationalAlert"];
+            requestId: string;
+        };
+        AlertPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["AlertPage"];
+            requestId: string;
+        };
+        OperationalOverviewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["OperationalOverview"];
             requestId: string;
         };
         CleanRecordChangePageEnvelope: {
@@ -12141,6 +13623,222 @@ export interface operations {
             409: components["responses"]["ConflictProblem"];
         };
     };
+    getOrganizationBagTrace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag trace detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebBagDetailEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationBagOccupancyEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag occupancy events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagOccupancyEventPageEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationBagCleanRecords: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag clean records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagCleanRecordPageEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listOrganizationBagDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag delivery orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebBagDeliveryOrderPageEnvelope"];
+                };
+            };
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformOrganizationBagTrace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag trace detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebBagDetailEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listPlatformOrganizationBagOccupancyEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag occupancy events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagOccupancyEventPageEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listPlatformOrganizationBagCleanRecords: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag clean records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagCleanRecordPageEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listPlatformOrganizationBagDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag delivery orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebBagDeliveryOrderPageEnvelope"];
+                };
+            };
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
     listMyWithdrawals: {
         parameters: {
             query?: {
@@ -12239,6 +13937,917 @@ export interface operations {
                 };
             };
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listBagUseCycles: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                bagQr: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag use cycles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagUseCyclePageEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listBagCycleDeliveryOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                bagQr: string;
+                cycleUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag cycle orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagTraceOrderPageEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getBagCycleDeliveryOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bagQr: string;
+                cycleUid: string;
+                deliveryOrderNo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag trace order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagTraceOrderDetailEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listMiniappStaffDeviceDeployments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffDeploymentListEnvelope"];
+                };
+            };
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    getMiniappStaffDeviceDeployment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffDeploymentDetailEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getMiniappStaffPortCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Port capacity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortCapacityEnvelope"];
+                };
+            };
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getMiniappStaffCurrentFullness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current fullness */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortCapacityEnvelope"];
+                };
+            };
+        };
+    };
+    getOrganizationPortCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Port capacity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortCapacityEnvelope"];
+                };
+            };
+        };
+    };
+    listOrganizationFullnessStateChanges: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fullness history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullnessStateChangePageEnvelope"];
+                };
+            };
+        };
+    };
+    getOrganizationFullnessStateChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+                stateChangeUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fullness observation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullnessStateChangeEnvelope"];
+                };
+            };
+        };
+    };
+    getPlatformOrganizationPortCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Port capacity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortCapacityEnvelope"];
+                };
+            };
+        };
+    };
+    listPlatformOrganizationFullnessStateChanges: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fullness history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullnessStateChangePageEnvelope"];
+                };
+            };
+        };
+    };
+    getPlatformOrganizationFullnessStateChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                deploymentCode: string;
+                portNo: number;
+                stateChangeUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fullness observation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullnessStateChangeEnvelope"];
+                };
+            };
+        };
+    };
+    listReliableTasks: {
+        parameters: {
+            query?: {
+                state?: "PENDING" | "DONE" | "CANCELLED" | "BLOCKED";
+                executionLane?: "DEVICE" | "FUNDS";
+                taskKind?: string;
+                taskType?: string;
+                targetType?: string;
+                targetKey?: string;
+                createdFrom?: string;
+                createdTo?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reliable tasks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReliableTaskPageEnvelope"];
+                };
+            };
+        };
+    };
+    getReliableTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reliable task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReliableTaskEnvelope"];
+                };
+            };
+        };
+    };
+    listReliableTaskAttempts: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                taskUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task attempts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskAttemptPageEnvelope"];
+                };
+            };
+        };
+    };
+    resumeReliableTask: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                taskUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Original task resumed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReliableTaskResumptionEnvelope"];
+                };
+            };
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    listMessageQuarantines: {
+        parameters: {
+            query?: {
+                state?: "OPEN" | "ACKNOWLEDGED";
+                reasonCode?: string;
+                sourceNamespace?: string;
+                firstDetectedFrom?: string;
+                firstDetectedTo?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quarantines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantinePageEnvelope"];
+                };
+            };
+        };
+    };
+    getMessageQuarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quarantineUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quarantine */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineEnvelope"];
+                };
+            };
+        };
+    };
+    acknowledgeMessageQuarantine: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                quarantineUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionedReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Quarantine acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionedOperationEnvelope"];
+                };
+            };
+        };
+    };
+    listAuditLogs: {
+        parameters: {
+            query?: {
+                scopeKind?: string;
+                organizationCode?: string;
+                actorKind?: string;
+                actorUid?: string;
+                actionCode?: string;
+                result?: "SUCCEEDED" | "DENIED" | "FAILED";
+                targetType?: string;
+                targetKey?: string;
+                requestUid?: string;
+                operationUid?: string;
+                occurredFrom?: string;
+                occurredTo?: string;
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit logs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogPageEnvelope"];
+                };
+            };
+        };
+    };
+    getAuditLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                auditUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit log */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogEnvelope"];
+                };
+            };
+        };
+    };
+    listPlatformAuditLogs: {
+        parameters: {
+            query?: {
+                scopeKind?: string;
+                organizationCode?: string;
+                actorKind?: string;
+                actorUid?: string;
+                actionCode?: string;
+                result?: "SUCCEEDED" | "DENIED" | "FAILED";
+                targetType?: string;
+                targetKey?: string;
+                requestUid?: string;
+                operationUid?: string;
+                occurredFrom?: string;
+                occurredTo?: string;
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform audit logs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogPageEnvelope"];
+                };
+            };
+        };
+    };
+    getPlatformAuditLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                auditUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform audit log */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogEnvelope"];
+                };
+            };
+        };
+    };
+    listAlerts: {
+        parameters: {
+            query?: {
+                state?: "OPEN" | "RESOLVED";
+                acknowledgementState?: "UNACKNOWLEDGED" | "ACKNOWLEDGED";
+                severity?: "INFO" | "WARNING" | "CRITICAL";
+                category?: string;
+                alertCode?: string;
+                organizationCode?: string;
+                firstDetectedFrom?: string;
+                firstDetectedTo?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alerts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPageEnvelope"];
+                };
+            };
+        };
+    };
+    getAlert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alert */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEnvelope"];
+                };
+            };
+        };
+    };
+    acknowledgeAlert: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionedReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Alert acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionedOperationEnvelope"];
+                };
+            };
+        };
+    };
+    listPlatformAlerts: {
+        parameters: {
+            query?: {
+                state?: "OPEN" | "RESOLVED";
+                acknowledgementState?: "UNACKNOWLEDGED" | "ACKNOWLEDGED";
+                severity?: "INFO" | "WARNING" | "CRITICAL";
+                category?: string;
+                alertCode?: string;
+                organizationCode?: string;
+                firstDetectedFrom?: string;
+                firstDetectedTo?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform alerts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPageEnvelope"];
+                };
+            };
+        };
+    };
+    getPlatformAlert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform alert */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEnvelope"];
+                };
+            };
+        };
+    };
+    acknowledgePlatformAlert: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionedReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Alert acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionedOperationEnvelope"];
+                };
+            };
+        };
+    };
+    listMiniappStaffAlerts: {
+        parameters: {
+            query?: {
+                state?: "OPEN" | "RESOLVED";
+                severity?: "INFO" | "WARNING" | "CRITICAL";
+                category?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current organization alerts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPageEnvelope"];
+                };
+            };
+        };
+    };
+    getMiniappStaffAlert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alertUid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current organization alert */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEnvelope"];
+                };
+            };
+        };
+    };
+    getOperationalOverview: {
+        parameters: {
+            query: {
+                businessDateFrom: string;
+                businessDateToExclusive: string;
+                organizationCode?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operational overview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationalOverviewEnvelope"];
+                };
+            };
+        };
+    };
+    getPlatformOperationalOverview: {
+        parameters: {
+            query: {
+                businessDateFrom: string;
+                businessDateToExclusive: string;
+                organizationCode?: string;
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operational overview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationalOverviewEnvelope"];
+                };
+            };
+        };
+    };
+    getMiniappStaffOperationalOverview: {
+        parameters: {
+            query: {
+                businessDateFrom: string;
+                businessDateToExclusive: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current organization overview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationalOverviewEnvelope"];
+                };
+            };
         };
     };
 }

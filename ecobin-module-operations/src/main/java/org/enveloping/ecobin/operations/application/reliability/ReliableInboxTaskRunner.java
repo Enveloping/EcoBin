@@ -13,7 +13,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.List;
 
 @Service
 public class ReliableInboxTaskRunner {
@@ -50,14 +49,18 @@ public class ReliableInboxTaskRunner {
         int claimed = 0;
         int completed = 0;
         int failed = 0;
-        List<ClaimedInboxTask> batch =
-                claimService.claimInboxBatch(channel, workerId);
-        for (ClaimedInboxTask task : batch) {
+        int batchBudget = claimService.batchBudget(channel);
+        for (int index = 0; index < batchBudget; index++) {
             if (!inFlightLimiter.tryAcquire(channel)) {
-                throw new ReliableTaskInvariantException(
-                        "claimed inbox task exceeds in-flight capacity");
+                break;
             }
             try {
+                Optional<ClaimedInboxTask> next =
+                        claimService.claimNext(channel, workerId);
+                if (next.isEmpty()) {
+                    break;
+                }
+                ClaimedInboxTask task = next.get();
                 claimed++;
                 if (process(task, channel, handler)) {
                     completed++;

@@ -51,7 +51,8 @@ class RuntimeSafetyConfigurationTest {
             "V29__organization_withdrawal_defaults.sql",
             "V30__funds_channel_evidence_and_recovery.sql",
             "V31__native_request_freeze_and_wallet_adjustment.sql",
-            "V32__organization_miniapp_database_secret.sql"
+            "V32__organization_miniapp_database_secret.sql",
+            "V33__operations_governance_idempotency.sql"
     };
 
     @Test

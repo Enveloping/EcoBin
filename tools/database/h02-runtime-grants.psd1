@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 10
+    CatalogVersion = 11
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -586,6 +586,14 @@
             "status"
             "resolved_at"
             "lock_version"
+            "updated_at"
+        )
+        ops_governance_idempotency = @(
+            "status"
+            "result_resource_uid"
+            "result_state"
+            "result_version"
+            "completed_at"
             "updated_at"
         )
         ops_reconciliation_run = @(
