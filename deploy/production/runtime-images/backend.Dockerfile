@@ -24,6 +24,9 @@ RUN test -n "${ECOBIN_RELEASE_ID}" \
     && groupadd --gid 10001 ecobin \
     && useradd --uid 10001 --gid 10001 --no-create-home \
         --home-dir /nonexistent --shell /usr/sbin/nologin ecobin \
+    && chown root:ecobin /app/app.jar \
+    && chmod 0440 /app/app.jar \
+    && test "$(stat -c '%u:%g:%a' /app/app.jar)" = "0:10001:440" \
     && chmod 0555 /usr/local/bin/ecobin-backend-healthcheck
 
 EXPOSE 8080
