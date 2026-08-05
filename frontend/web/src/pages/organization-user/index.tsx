@@ -4,6 +4,7 @@ import {
   EyeOutlined,
   StopOutlined,
   UndoOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import {
   PageContainer,
@@ -51,6 +52,8 @@ import {
   LatestTargetRequestGuard,
   walletPreviewTargetKey,
 } from '@/utils/latestTargetRequest';
+import OrganizationUserWalletDrawer from
+  '@/pages/wallet-entries/OrganizationUserWalletDrawer';
 
 type UserMutation = 'freeze' | 'restore';
 
@@ -94,11 +97,16 @@ export default function OrganizationUserPage() {
   const canReadDelivery = useAuthStore((state) =>
     state.hasCapability('delivery.read')
     || state.hasCapability('review.execute'));
+  const canReadWalletDelivery = useAuthStore((state) =>
+    state.hasCapability('delivery.read'));
   const canReadWithdrawal = useAuthStore((state) =>
     state.hasCapability('withdrawal.read')
     || state.hasCapability('review.execute'));
+  const canReadWallet = useAuthStore((state) =>
+    state.hasCapability('wallet.read'));
   const organizationCode = organizationScope.organizationCode;
   const [detail, setDetail] = useState<OrganizationUser | null>(null);
+  const [walletUser, setWalletUser] = useState<OrganizationUser | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [mutating, setMutating] = useState<UserMutation | null>(null);
   const [adjustingUser, setAdjustingUser] =
@@ -121,6 +129,7 @@ export default function OrganizationUserPage() {
   useEffect(() => {
     actionRef.current?.reload();
     setDetail(null);
+    setWalletUser(null);
     walletPreviewRequests.current.invalidate();
     selectedWalletAdjustmentTarget.current = null;
     walletPreviewOwner.current = null;
@@ -493,7 +502,18 @@ export default function OrganizationUserPage() {
               提现
             </Link>
           )}
-          {!canReadDelivery && !canReadWithdrawal && (
+          {canReadWallet && (
+            <Button
+              type="link"
+              size="small"
+              icon={<WalletOutlined />}
+              style={{ paddingInline: 0 }}
+              onClick={() => setWalletUser(user)}
+            >
+              钱包
+            </Button>
+          )}
+          {!canReadDelivery && !canReadWithdrawal && !canReadWallet && (
             <Typography.Text type="secondary">无读取权限</Typography.Text>
           )}
         </Space>
@@ -598,7 +618,20 @@ export default function OrganizationUserPage() {
         open={!!detail}
         loading={detailLoading}
         onClose={() => setDetail(null)}
-        extra={detail ? <Space>{actionButtons(detail).slice(1)}</Space> : null}
+        extra={detail ? (
+          <Space>
+            {canReadWallet && (
+              <Button
+                type="link"
+                icon={<WalletOutlined />}
+                onClick={() => setWalletUser(detail)}
+              >
+                钱包
+              </Button>
+            )}
+            {actionButtons(detail).slice(1)}
+          </Space>
+        ) : null}
       >
         {detail && (
           <ProDescriptions<OrganizationUser>
@@ -702,6 +735,15 @@ export default function OrganizationUserPage() {
           </Typography.Text>
         </Space>
       </Modal>
+
+      <OrganizationUserWalletDrawer
+        open={!!walletUser}
+        context={scope.context}
+        organizationCode={organizationCode}
+        user={walletUser}
+        canReadDelivery={canReadWalletDelivery}
+        onClose={() => setWalletUser(null)}
+      />
     </PageContainer>
   );
 }

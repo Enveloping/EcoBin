@@ -161,11 +161,11 @@ class TargetMiniappV02MysqlIntegrationTest {
         jdbc.update("""
                         INSERT INTO iam_organization_miniapp (
                             tenant_id, organization_id, appid,
-                            display_name, login_enabled, secret_ref,
+                            display_name, login_enabled, app_secret,
                             activated_at, lock_version,
                             configured_at, created_at, updated_at
                         ) VALUES (
-                            ?, ?, ?, 'V02 miniapp', 1, 'fake:credential',
+                            ?, ?, ?, 'V02 miniapp', 1, 'test-app-secret',
                             UTC_TIMESTAMP(3), 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3)
@@ -210,20 +210,60 @@ class TargetMiniappV02MysqlIntegrationTest {
         long assetId = jdbc.queryForObject("""
                         SELECT id FROM dev_device_asset WHERE hardware_sn = ?
                         """, Long.class, "V02-SN-" + run);
+        String allocationUid = UUID.randomUUID().toString();
+        jdbc.update("""
+                        INSERT INTO dev_asset_tenant_allocation (
+                            allocation_uid, tenant_id, asset_id,
+                            allocation_source, status,
+                            allocated_by_platform_admin_id, allocated_at,
+                            ended_by_platform_admin_id, ended_at,
+                            end_mode, end_reason, legacy_deployment_id,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, 'PLATFORM_ASSIGNMENT', 'ACTIVE',
+                            ?, UTC_TIMESTAMP(3), NULL, NULL,
+                            NULL, NULL, NULL, 0,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                allocationUid,
+                tenantId,
+                assetId,
+                platformAdminId);
+        long allocationId = jdbc.queryForObject("""
+                        SELECT id FROM dev_asset_tenant_allocation
+                        WHERE allocation_uid = ?
+                        """, Long.class, allocationUid);
+        jdbc.update("""
+                        INSERT INTO dev_asset_active_tenant_allocation (
+                            asset_id, tenant_id, allocation_id, acquired_at
+                        ) VALUES (?, ?, ?, UTC_TIMESTAMP(3))
+                        """,
+                assetId,
+                tenantId,
+                allocationId);
         jdbc.update("""
                         INSERT INTO dev_device_deployment (
                             tenant_id, organization_id, asset_id,
+                            tenant_allocation_id,
+                            predecessor_deployment_id, readiness_mode,
                             public_code, lifecycle_status,
                             business_enabled, commissioned_at,
                             enabled_at, ended_at, end_method, end_reason,
                             lock_version, created_at, updated_at
                         ) VALUES (
-                            ?, ?, ?, ?, 'PENDING_INSTALL',
+                            ?, ?, ?, ?, NULL,
+                            'PLATFORM_ACCEPTANCE_REQUIRED',
+                            ?, 'PENDING_INSTALL',
                             0, NULL, NULL, NULL, NULL, NULL,
                             0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
                         )
                         """,
-                tenantId, organizationId, assetId, deploymentCode);
+                tenantId,
+                organizationId,
+                assetId,
+                allocationId,
+                deploymentCode);
         long deploymentId = jdbc.queryForObject("""
                         SELECT id FROM dev_device_deployment
                         WHERE public_code = ?
@@ -574,12 +614,12 @@ class TargetMiniappV02MysqlIntegrationTest {
         jdbc.update("""
                         INSERT INTO iam_organization_miniapp (
                             tenant_id, organization_id, appid,
-                            display_name, login_enabled, secret_ref,
+                            display_name, login_enabled, app_secret,
                             activated_at, lock_version,
                             configured_at, created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, 'V02 second miniapp', 1,
-                            'fake:credential', UTC_TIMESTAMP(3), 0,
+                            'test-app-secret', UTC_TIMESTAMP(3), 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3)
                         )

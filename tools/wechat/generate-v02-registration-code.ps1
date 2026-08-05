@@ -1,5 +1,12 @@
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory)]
+    [ValidatePattern('^wx[0-9A-Za-z]{16}$')]
+    [string]$AppId,
+
+    [Parameter(Mandatory)]
+    [Security.SecureString]$AppSecret,
+
     [string]$DeploymentCode = 'Dp_SGMqV11JX26yI5dQp7DvUA',
 
     [ValidateSet('develop', 'trial', 'release')]
@@ -99,23 +106,12 @@ if (
     throw 'OutputBaseName 只能是脚本同目录下的合法文件基础名'
 }
 
-$repositoryRoot = [IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot '..\..')
-)
-$localSecretsPath = Join-Path `
-    $repositoryRoot '.ecobin\application-local-secrets.yml'
-$readerPath = Join-Path `
-    $repositoryRoot 'tools\development\local-secrets.ps1'
-. $readerPath
-
-$localSecrets = Read-EcoBinLocalSecrets -Path $localSecretsPath
-$appId = [string]$localSecrets['wechatAppid']
-$appSecret = [string]$localSecrets['wechatSecret']
-if ([string]::IsNullOrWhiteSpace($appId)) {
-    throw '本地 secrets YAML 中缺少 wechatAppid'
-}
-if ([string]::IsNullOrWhiteSpace($appSecret)) {
-    throw '本地 secrets YAML 中缺少 wechatSecret'
+$appSecretPlain = [Net.NetworkCredential]::new(
+    '',
+    $AppSecret
+).Password
+if ([string]::IsNullOrWhiteSpace($appSecretPlain)) {
+    throw 'AppSecret 不能为空'
 }
 
 $handler = [Net.Http.HttpClientHandler]::new()
@@ -128,8 +124,8 @@ try {
         -Uri 'https://api.weixin.qq.com/cgi-bin/stable_token' `
         -Payload @{
             grant_type = 'client_credential'
-            appid = $appId
-            secret = $appSecret
+            appid = $AppId
+            secret = $appSecretPlain
             force_refresh = $false
         } `
         -Operation '获取微信 access_token'
@@ -226,6 +222,7 @@ try {
     Write-Host "scene：$DeploymentCode"
     Write-Host "版本：$EnvVersion"
 } finally {
+    $appSecretPlain = $null
     $client.Dispose()
     $handler.Dispose()
 }

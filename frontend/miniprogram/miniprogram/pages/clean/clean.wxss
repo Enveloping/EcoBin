@@ -77,3 +77,4 @@
 .tone-full { background: #eb5c62; }
 .tone-overdue { background: #dc4b58; }
 .tone-records { background: #efb83f; }
+.tone-trace { background: #6f63cf; }

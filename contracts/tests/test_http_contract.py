@@ -181,6 +181,160 @@ class HttpContractTests(unittest.TestCase):
         self.assertIn("PayoutEntryPage", schemas)
         self.assertIn("PayoutEntryPageEnvelope", schemas)
 
+    def test_operations_trace_fullness_and_staff_surfaces_are_published(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        expected_operations = {
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}",
+                "get",
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}/occupancy-events",
+                "get",
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}/clean-records",
+                "get",
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/bags/{bagQr}/delivery-orders",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}"
+                "/occupancy-events",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}"
+                "/clean-records",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}/bags/{bagQr}"
+                "/delivery-orders",
+                "get",
+            ),
+            ("/api/v1/miniapp/bags/{bagQr}/use-cycles", "get"),
+            (
+                "/api/v1/miniapp/bags/{bagQr}/use-cycles/{cycleUid}"
+                "/delivery-orders",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp/bags/{bagQr}/use-cycles/{cycleUid}"
+                "/delivery-orders/{deliveryOrderNo}",
+                "get",
+            ),
+            ("/api/v1/miniapp-staff/device-deployments", "get"),
+            (
+                "/api/v1/miniapp-staff/device-deployments/{deploymentCode}",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp-staff/device-deployments/{deploymentCode}"
+                "/ports/{portNo}/capacity",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp-staff/device-deployments/{deploymentCode}"
+                "/ports/{portNo}/fullness-state/current",
+                "get",
+            ),
+            ("/api/v1/web/platform/operations/reliable-tasks", "get"),
+            (
+                "/api/v1/web/platform/operations/reliable-tasks/{taskUid}",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/operations/reliable-tasks/{taskUid}"
+                "/attempts",
+                "get",
+            ),
+            (
+                "/api/v1/web/platform/operations/reliable-tasks/{taskUid}"
+                "/resumptions",
+                "post",
+            ),
+            (
+                "/api/v1/web/platform/operations/message-quarantines",
+                "get",
+            ),
+            ("/api/v1/web/audit-logs", "get"),
+            ("/api/v1/web/platform/audit-logs", "get"),
+            ("/api/v1/web/alerts", "get"),
+            ("/api/v1/web/alerts/{alertUid}/acknowledgements", "post"),
+            ("/api/v1/web/platform/alerts", "get"),
+            ("/api/v1/miniapp-staff/alerts", "get"),
+            ("/api/v1/web/statistics/operational-overview", "get"),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/statistics/operational-overview",
+                "get",
+            ),
+            (
+                "/api/v1/miniapp-staff/statistics/operational-overview",
+                "get",
+            ),
+        }
+        missing = {
+            (path, method)
+            for path, method in expected_operations
+            if path not in paths or method not in paths[path]
+        }
+        self.assertEqual(
+            set(),
+            missing,
+            f"operations surfaces missing from OpenAPI: {sorted(missing)}",
+        )
+
+        reconciliation_paths = {
+            path for path in paths if "reconciliation-" in path
+        }
+        self.assertEqual(
+            set(),
+            reconciliation_paths,
+            "I-039 is intentionally deferred and must not be published",
+        )
+
+    def test_new_read_models_require_every_serialized_record_field(self) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+        for schema_name in (
+            "BagTraceOrder",
+            "PortCapacityView",
+            "StaffDeploymentListEnvelope",
+        ):
+            schema = schemas[schema_name]
+            self.assertEqual(
+                set(schema["properties"]),
+                set(schema.get("required", [])),
+                f"{schema_name} must require every serialized field; "
+                "nullable fields stay required and allow null",
+            )
+
+        photo_item = schemas["BagTraceOrderDetailEnvelope"]["properties"][
+            "data"
+        ]["properties"]["photos"]["items"]
+        self.assertEqual(
+            set(photo_item["properties"]),
+            set(photo_item.get("required", [])),
+            "BagTracePhoto must require every serialized field",
+        )
+
     def test_device_ownership_and_operation_roles_are_explicit(self) -> None:
         document = load_openapi()
         paths = document["paths"]
@@ -196,6 +350,7 @@ class HttpContractTests(unittest.TestCase):
         self.assertNotIn("post", paths[platform_collection])
 
         required = {
+            "/api/v1/web/platform/device-assets/{hardwareSn}",
             "/api/v1/web/device-asset-allocations",
             "/api/v1/web/platform/device-asset-allocations",
             (
@@ -207,6 +362,18 @@ class HttpContractTests(unittest.TestCase):
                 + "/{deploymentCode}/returns-to-tenant-pool"
             ),
             (
+                "/api/v1/web/platform/device-asset-allocations"
+                "/{allocationUid}/reclaims"
+            ),
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/onenet-credential-rotation-confirmations"
+            ),
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/maintenance-clearances"
+            ),
+            (
                 platform_collection
                 + "/{deploymentCode}/acceptance-readiness"
             ),
@@ -214,6 +381,14 @@ class HttpContractTests(unittest.TestCase):
             platform_collection + "/{deploymentCode}/technical-suspensions",
         }
         self.assertEqual(set(), required - set(paths))
+
+        self.assertIn("post", paths[organization_collection])
+        self.assertNotIn("post", paths[platform_collection])
+        self.assertEqual(
+            paths[organization_collection]["post"]["requestBody"]
+            ["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/CreateAllocatedDeviceDeploymentRequest",
+        )
 
         stale = {
             organization_collection + "/{deploymentCode}/activations",
@@ -266,6 +441,107 @@ class HttpContractTests(unittest.TestCase):
                 if parameter.get("in") == "query"
             }
             self.assertIn("oneNetConnectionStatus", query_names)
+    def test_device_lifecycle_commands_keep_versions_and_blocker_examples(
+        self,
+    ) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+        required_fields = {
+            "CreateDeviceTenantAllocationRequest": {
+                "hardwareSn",
+                "expectedAssetVersion",
+            },
+            "CreateAllocatedDeviceDeploymentRequest": {
+                "allocationUid",
+                "expectedAllocationVersion",
+            },
+            "ReturnDeviceDeploymentToTenantPoolRequest": {
+                "expectedDeploymentVersion",
+                "expectedAllocationVersion",
+                "reason",
+            },
+            "ReclaimDeviceTenantAllocationRequest": {
+                "expectedAllocationVersion",
+                "expectedAssetVersion",
+                "mode",
+                "physicalPossessionConfirmed",
+                "reason",
+            },
+            "ConfirmOneNetCredentialRotationRequest": {
+                "expectedAssetVersion",
+                "reason",
+            },
+            "ClearDeviceMaintenanceRequest": {
+                "expectedAssetVersion",
+                "physicalPossessionConfirmed",
+                "inspectionConfirmed",
+                "reason",
+            },
+            "AcceptDeviceDeploymentRequest": {
+                "expectedDeploymentVersion",
+                "expectedConfigurationVersion",
+                "deliveryDoorObservedNormal",
+                "camerasObservedNormal",
+                "cleanDoorInstallationObservedNormal",
+            },
+        }
+        for name, expected in required_fields.items():
+            self.assertEqual(expected, set(schemas[name]["required"]), name)
+            self.assertIn("example", schemas[name], name)
+
+        paths = document["paths"]
+        mutation_paths = {
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/device-asset-allocations"
+            ),
+            (
+                "/api/v1/web/platform/device-asset-allocations"
+                "/{allocationUid}/reclaims"
+            ),
+            (
+                "/api/v1/web/organizations/{organizationCode}"
+                "/device-deployments/{deploymentCode}"
+                "/returns-to-tenant-pool"
+            ),
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/onenet-credential-rotation-confirmations"
+            ),
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/maintenance-clearances"
+            ),
+            (
+                "/api/v1/web/platform/tenants/{tenantCode}"
+                "/organizations/{organizationCode}"
+                "/device-deployments/{deploymentCode}/acceptances"
+            ),
+        }
+        for path in mutation_paths:
+            operation = paths[path]["post"]
+            self.assertIn(
+                {"$ref": "#/components/parameters/IdempotencyKey"},
+                operation["parameters"],
+                path,
+            )
+            self.assertEqual(
+                operation["responses"]["422"]["$ref"],
+                "#/components/responses/BusinessRuleProblem",
+                path,
+            )
+
+        examples = document["components"]["responses"][
+            "BusinessRuleProblem"
+        ]["content"]["application/problem+json"]["examples"]
+        self.assertEqual(
+            examples["credentialRotationRequired"]["value"]["code"],
+            "DEVICE.CREDENTIAL_ROTATION_REQUIRED",
+        )
+        for example in examples.values():
+            blockers = example["value"]["details"].get("blockers")
+            self.assertIsInstance(blockers, list)
+            self.assertTrue(blockers)
 
     def test_cleaning_controller_surface_is_in_authoritative_contract(
         self,
@@ -369,6 +645,26 @@ class HttpContractTests(unittest.TestCase):
         ] = {"type": "string"}
         with self.assertRaisesRegex(ContractError, "only submit"):
             validate_openapi_document(changed)
+
+    def test_web_session_organization_name_matches_runtime_view(self) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+        organization_ref = schemas["WebSession"]["properties"][
+            "organizations"
+        ]["items"]["$ref"]
+        self.assertEqual(
+            organization_ref,
+            "#/components/schemas/WebOrganizationSummary",
+        )
+        web_summary = schemas["WebOrganizationSummary"]
+        self.assertIn("organizationName", web_summary["required"])
+        self.assertNotIn("displayName", web_summary["properties"])
+        self.assertEqual(
+            schemas["MiniappSessionView"]["properties"]["organization"][
+                "$ref"
+            ],
+            "#/components/schemas/OrganizationSummary",
+        )
 
     def test_decimal_schema_rejects_json_number(self) -> None:
         document = load_openapi()

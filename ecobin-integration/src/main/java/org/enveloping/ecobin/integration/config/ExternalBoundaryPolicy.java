@@ -24,10 +24,9 @@ public final class ExternalBoundaryPolicy {
             if (snapshot.oneNetSubscriptionEnabled()
                     || snapshot.oneNetInboundConfigured()
                     || snapshot.oneNetOutboundConfigured()
-                    || snapshot.cosConfigured()
-                    || snapshot.wechatConfigured()) {
+                    || snapshot.cosConfigured()) {
                 throw new ExternalBoundaryException(
-                        "Fake mode rejects all real OneNet, COS and WeChat credentials");
+                        "Fake mode rejects all real OneNet and COS credentials");
             }
             return new Verification(FAKE, snapshot.blockFakeInbound());
         }
@@ -36,10 +35,9 @@ public final class ExternalBoundaryPolicy {
             if (!snapshot.oneNetSubscriptionEnabled()
                     || !snapshot.oneNetInboundConfigured()
                     || !snapshot.oneNetOutboundConfigured()
-                    || !snapshot.cosConfigured()
-                    || !snapshot.wechatConfigured()) {
+                    || !snapshot.cosConfigured()) {
                 throw new ExternalBoundaryException(
-                        "Real mode requires complete OneNet, COS and WeChat configuration");
+                        "Real mode requires complete OneNet and COS configuration");
             }
             return new Verification(REAL, false);
         }
@@ -53,8 +51,7 @@ public final class ExternalBoundaryPolicy {
             boolean oneNetSubscriptionEnabled,
             boolean oneNetInboundConfigured,
             boolean oneNetOutboundConfigured,
-            boolean cosConfigured,
-            boolean wechatConfigured) {
+            boolean cosConfigured) {
     }
 
     public record Verification(

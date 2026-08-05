@@ -17,6 +17,7 @@ import {
   Popconfirm,
   Space,
   Tag,
+  Tabs,
 } from 'antd';
 import { Link } from 'react-router-dom';
 import {
@@ -32,6 +33,8 @@ import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { directoryPath } from '@/router/directoryQuery';
+import OrganizationDeliveryConfiguration from './OrganizationDeliveryConfiguration';
+import OrganizationMiniappConfiguration from './OrganizationMiniappConfiguration';
 
 interface OrganizationForm {
   organizationCode: string;
@@ -46,8 +49,16 @@ export default function OrganizationPage() {
   const { message } = App.useApp();
   const canManage = useAuthStore((state) =>
     state.hasCapability('organization.manage'));
+  const canManageMiniapp = useAuthStore((state) =>
+    state.hasCapability('miniapp.manage'));
+  const canManageDeliveryConfiguration = useAuthStore((state) =>
+    state.hasCapability('delivery.configuration.manage'));
+  const canEdit = canManage
+    || canManageMiniapp
+    || canManageDeliveryConfiguration;
   const [editing, setEditing] = useState<IdentityOrganization | null>(null);
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('profile');
   const executeCommand = useCommandExecutor();
 
   useEffect(() => {
@@ -248,13 +259,14 @@ export default function OrganizationPage() {
       key: 'operation',
       valueType: 'option',
       width: 88,
-      hideInTable: !canManage,
+      hideInTable: !canEdit,
       hideInSetting: true,
       render: (_, organization) => [
         <a
           key="edit"
           onClick={() => {
             setEditing(organization);
+            setActiveTab('profile');
             setOpen(true);
           }}
         >
@@ -313,6 +325,7 @@ export default function OrganizationPage() {
                     icon={<PlusOutlined />}
                     onClick={() => {
                       setEditing(null);
+                      setActiveTab('profile');
                       setOpen(true);
                     }}
                   >
@@ -325,54 +338,135 @@ export default function OrganizationPage() {
       )}
 
       <ModalForm<OrganizationForm>
-        title={editing ? '编辑机构资料' : '创建机构'}
+        title={editing ? `编辑机构 · ${editing.organizationName}` : '创建机构'}
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setActiveTab('profile');
+        }}
         initialValues={editing ?? undefined}
-        modalProps={{ destroyOnClose: true, width: 640 }}
+        modalProps={{ destroyOnClose: true, width: editing ? 960 : 760 }}
+        submitter={
+          activeTab !== 'profile' || (editing && !canManage)
+            ? false
+            : {
+                searchConfig: {
+                  submitText: editing ? '保存机构资料' : '创建机构',
+                },
+              }
+        }
         onFinish={submit}
       >
-        <ProFormText
-          name="organizationCode"
-          label="机构编码"
-          disabled={!!editing}
-          rules={[
-            { required: true },
-            { pattern: /^[a-z0-9][a-z0-9-]*$/, message: '仅允许小写字母、数字和连字符' },
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          destroyInactiveTabPane={false}
+          items={[
+            {
+              key: 'profile',
+              label: '基础资料',
+              children: (
+                <>
+                  <ProFormText
+                    name="organizationCode"
+                    label="机构编码"
+                    disabled={!!editing || !canManage}
+                    rules={[
+                      { required: true },
+                      {
+                        pattern: /^[a-z0-9][a-z0-9-]*$/,
+                        message: '仅允许小写字母、数字和连字符',
+                      },
+                    ]}
+                  />
+                  <ProFormText
+                    name="organizationName"
+                    label="机构名称"
+                    disabled={!canManage}
+                    rules={[{ required: true }]}
+                  />
+                  <ProFormText
+                    name="contactPhone"
+                    label="联系电话"
+                    disabled={!canManage}
+                  />
+                  <ProFormText
+                    name="contactAddress"
+                    label="联系地址"
+                    disabled={!canManage}
+                  />
+                  {editing && (
+                    <>
+                      <Divider orientation="left">机构状态</Divider>
+                      <Space>
+                        <Tag
+                          color={
+                            editing.status === 'ENABLED' ? 'green' : 'default'
+                          }
+                        >
+                          {editing.status === 'ENABLED' ? '已启用' : '已停用'}
+                        </Tag>
+                        {canManage && (
+                          <Popconfirm
+                            title={
+                              editing.status === 'ENABLED'
+                                ? '停用后该机构会立即从工作人员实时授权中移除，确认继续？'
+                                : '确认启用该机构？'
+                            }
+                            onConfirm={() => toggle(editing)}
+                          >
+                            <Button
+                              danger={editing.status === 'ENABLED'}
+                              icon={<PoweroffOutlined />}
+                            >
+                              {editing.status === 'ENABLED'
+                                ? '停用机构'
+                                : '启用机构'}
+                            </Button>
+                          </Popconfirm>
+                        )}
+                      </Space>
+                    </>
+                  )}
+                </>
+              ),
+            },
+            ...(editing && canManageMiniapp && scope.context
+              ? [
+                  {
+                    key: 'miniapp',
+                    label: '小程序登录',
+                    children: (
+                      <OrganizationMiniappConfiguration
+                        active={open && activeTab === 'miniapp'}
+                        context={scope.context}
+                        organizationCode={editing.organizationCode}
+                      />
+                    ),
+                  },
+                ]
+              : []),
+            ...(editing
+              && canManageDeliveryConfiguration
+              && scope.context
+              ? [
+                  {
+                    key: 'delivery-configuration',
+                    label: '投递规则',
+                    children: (
+                      <OrganizationDeliveryConfiguration
+                        active={
+                          open && activeTab === 'delivery-configuration'
+                        }
+                        context={scope.context}
+                        organizationCode={editing.organizationCode}
+                      />
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
-        <ProFormText
-          name="organizationName"
-          label="机构名称"
-          rules={[{ required: true }]}
-        />
-        <ProFormText name="contactPhone" label="联系电话" />
-        <ProFormText name="contactAddress" label="联系地址" />
-        {editing && (
-          <>
-            <Divider orientation="left">机构状态</Divider>
-            <Space>
-              <Tag color={editing.status === 'ENABLED' ? 'green' : 'default'}>
-                {editing.status === 'ENABLED' ? '已启用' : '已停用'}
-              </Tag>
-              <Popconfirm
-                title={
-                  editing.status === 'ENABLED'
-                    ? '停用后该机构会立即从工作人员实时授权中移除，确认继续？'
-                    : '确认启用该机构？'
-                }
-                onConfirm={() => toggle(editing)}
-              >
-                <Button
-                  danger={editing.status === 'ENABLED'}
-                  icon={<PoweroffOutlined />}
-                >
-                  {editing.status === 'ENABLED' ? '停用机构' : '启用机构'}
-                </Button>
-              </Popconfirm>
-            </Space>
-          </>
-        )}
       </ModalForm>
     </PageContainer>
   );

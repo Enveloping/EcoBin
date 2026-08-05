@@ -55,7 +55,7 @@ textarea {
 }
 
 .workspace-main {
-  width: min(100%, 1440px);
+  width: min(100%, 1800px);
   min-width: 0;
   margin: 0 auto;
 }
@@ -153,6 +153,77 @@ textarea {
   font-size: 30px;
 }
 
+.wallet-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wallet-source .ant-typography,
+.wallet-source .table-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-money-delta {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-money-positive {
+  color: #15803d;
+}
+
+.wallet-money-negative {
+  color: #b91c1c;
+}
+
+.wallet-money-neutral {
+  color: #64748b;
+}
+
+.wallet-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.wallet-metric {
+  min-width: 0;
+  padding: 16px 18px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-inline-start: 3px solid #0f766e;
+  border-radius: 8px;
+}
+
+.wallet-metric-pending {
+  border-inline-start-color: #b45309;
+}
+
+.wallet-metric-negative {
+  border-inline-start-color: #b91c1c;
+}
+
+.wallet-metric-value {
+  margin-top: 6px;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-metric-negative .wallet-metric-value {
+  color: #b91c1c;
+}
+
 .ant-btn,
 .ant-menu-item,
 .ant-input,
@@ -177,5 +248,11 @@ textarea {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .wallet-metric-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -378,7 +378,7 @@ OneNet `code=0`、MQTT ACK、UART ACK、设备在线或旧单价帧均不能推�
 - 资产登记、部署建立/激活/停用；
 - 经营开关、配置发布和重同步。
 
-AppSecret 仍存放在 `secret_ref` 指向的外部秘密设施。具备 `miniapp.manage` 的有权限人员可以在配置详情中读取完整值，这是冻结的回显示例；业务数据库不保存明文，日志和审计只保存脱敏值。
+每个机构的 AppSecret 以明文保存在 `iam_organization_miniapp.app_secret`，并与 AppID、版本和登录开关在同一个数据库事务中修改。具备 `miniapp.manage` 权限的人员可以在禁止缓存的配置详情中读取完整值；其他响应只返回掩码，日志和审计只保存脱敏值。数据库备份包含 AppSecret，必须按秘密数据加密并限制访问。V32 会废弃历史假 `secret_ref`、停用对应机构的小程序登录，只有重新填写 AppSecret 后才能激活或启用登录。
 
 ## 13. 测试矩阵
 

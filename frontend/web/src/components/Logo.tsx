@@ -11,14 +11,14 @@ export default function EcoBinLogo({ collapsed = false }: { collapsed?: boolean 
         display: 'flex',
         alignItems: 'center',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        padding: collapsed ? '12px 0' : '12px 24px',
-        gap: collapsed ? 0 : 12,
+        padding: collapsed ? '9px 0' : '9px 22px',
+        gap: collapsed ? 0 : 11,
       }}
     >
       {/* Logo Icon - 回收符号简化版 */}
       <svg
-        width={collapsed ? 32 : 36}
-        height={collapsed ? 32 : 36}
+        width={collapsed ? 31 : 35}
+        height={collapsed ? 31 : 35}
         viewBox="0 0 48 48"
         fill="none"
         style={{ flexShrink: 0 }}

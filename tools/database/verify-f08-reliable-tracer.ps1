@@ -12,22 +12,23 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $migrationDir = Join-Path `
     $repoRoot "ecobin-bootstrap/src/main/resources/db/p0-migration"
 $migrationFiles = @(
-    "V1__p0_epoch_and_iam_core.sql",
-    "V2__device_inventory_and_configuration.sql",
-    "V3__organization_users_and_sessions.sql",
-    "V4__device_operations_and_evidence.sql",
-    "V5__recycling.sql",
-    "V6__funds.sql",
-    "V7__operations.sql",
-    "V8__cross_module_constraints.sql",
-    "V9__immutability_guards.sql",
-    "V10__permission_reference_data.sql"
+    Get-ChildItem -LiteralPath $migrationDir -Filter "V*__*.sql" |
+        Sort-Object {
+            [int]([regex]::Match($_.Name, '^V(\d+)__').Groups[1].Value)
+        } |
+        Select-Object -ExpandProperty Name
 )
 $containerName =
     "ecobin-f08-tracer-$PID-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $passwordBytes = New-Object byte[] 24
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($passwordBytes)
-$rootPassword = [Convert]::ToHexString($passwordBytes).ToLowerInvariant()
+$randomNumberGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+    $randomNumberGenerator.GetBytes($passwordBytes)
+}
+finally {
+    $randomNumberGenerator.Dispose()
+}
+$rootPassword = [BitConverter]::ToString($passwordBytes).Replace("-", "").ToLowerInvariant()
 $containerStarted = $false
 
 function Invoke-Docker {
@@ -56,6 +57,11 @@ function Invoke-MySql {
 }
 
 try {
+    for ($version = 1; $version -le $migrationFiles.Count; $version++) {
+        if ($migrationFiles[$version - 1] -notmatch "^V${version}__") {
+            throw "P0 migrations must be contiguous from V1; expected V$version"
+        }
+    }
     foreach ($file in $migrationFiles) {
         if (-not (Test-Path (Join-Path $migrationDir $file))) {
             throw "Missing P0 migration: $file"
@@ -86,16 +92,28 @@ try {
 
     $ready = $false
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
-        $mainProcess = & docker exec $containerName `
-            cat /proc/1/comm 2> $null
-        if ($LASTEXITCODE -eq 0 -and $mainProcess.Trim() -eq "mysqld") {
-            & docker exec -e "MYSQL_PWD=$rootPassword" $containerName `
-                mysql -uroot --batch --skip-column-names `
-                --execute "SELECT 1;" *> $null
-            if ($LASTEXITCODE -eq 0) {
+        $savedErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        try {
+            $mainProcess = & docker exec $containerName `
+                cat /proc/1/comm 2> $null
+            $mainProcessExitCode = $LASTEXITCODE
+            if ($mainProcessExitCode -eq 0 -and $mainProcess.Trim() -eq "mysqld") {
+                & docker exec -e "MYSQL_PWD=$rootPassword" $containerName `
+                    mysql -uroot --batch --skip-column-names `
+                    --execute "SELECT 1;" *> $null
+                $mysqlReadyExitCode = $LASTEXITCODE
+            }
+            else {
+                $mysqlReadyExitCode = 1
+            }
+        }
+        finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+        }
+        if ($mysqlReadyExitCode -eq 0) {
                 $ready = $true
                 break
-            }
         }
         Start-Sleep -Seconds 1
     }
@@ -166,7 +184,9 @@ GRANT TRIGGER ON ecobin_f08.* TO 'ecobin_trigger_definer'@'%';
             "business rollback with attempt retry",
             "wakeVersion reuse of the original task",
             "just-in-time claim prevents lease expiry while queued",
-            "maximum-in-flight is shared across concurrent runner calls"
+            "maximum-in-flight is shared across concurrent runner calls",
+            "reliable, device, and fullness alert projections converge",
+            "operational overview module ports return zero-safe metrics"
         )
         passed = $true
     } | ConvertTo-Json -Depth 3

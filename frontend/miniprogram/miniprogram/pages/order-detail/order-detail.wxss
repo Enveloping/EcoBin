@@ -159,6 +159,29 @@
   word-break: break-all;
 }
 
+.reason-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  padding-top: 22rpx;
+}
+
+.reason-label {
+  color: #7c857d;
+  font-size: 23rpx;
+}
+
+.reason-text {
+  padding: 20rpx;
+  color: #374239;
+  font-size: 23rpx;
+  line-height: 1.65;
+  background: #f4f7f3;
+  border-radius: 16rpx;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .anomaly {
   align-items: flex-start;
   gap: 16rpx;

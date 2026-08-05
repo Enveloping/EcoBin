@@ -17,7 +17,8 @@ public class WechatPayProperties {
     private String merchantSerialNumber;
     private String merchantPrivateKeyPath;
     private String apiV3Key;
-    private String platformCertificatePath;
+    private String publicKeyId;
+    private String publicKeyPath;
     private String notifyBaseUrl = "https://fake.invalid";
     private String transferSceneId = "1010";
     private int connectTimeoutMillis = 5000;
@@ -26,7 +27,8 @@ public class WechatPayProperties {
     public boolean isConfigured() {
         return text(baseUrl) && text(mchid) && text(merchantSerialNumber)
                 && text(merchantPrivateKeyPath) && text(apiV3Key)
-                && text(platformCertificatePath) && text(transferSceneId)
+                && validPublicKeyId(publicKeyId) && text(publicKeyPath)
+                && text(transferSceneId)
                 && validPublicNotifyBaseUrl(notifyBaseUrl)
                 && apiV3Key.getBytes(java.nio.charset.StandardCharsets.UTF_8).length == 32
                 && connectTimeoutMillis > 0 && requestTimeoutMillis > 0;
@@ -61,6 +63,12 @@ public class WechatPayProperties {
         } catch (IllegalArgumentException invalid) {
             return false;
         }
+    }
+
+    static boolean validPublicKeyId(String value) {
+        return value != null
+                && value.equals(value.trim())
+                && value.matches("^PUB_KEY_ID_[0-9A-Za-z]+$");
     }
 
     private static boolean privateOrReservedAddress(String host) {

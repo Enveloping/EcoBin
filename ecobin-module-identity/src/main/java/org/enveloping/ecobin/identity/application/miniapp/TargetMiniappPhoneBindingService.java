@@ -5,6 +5,7 @@ import org.enveloping.ecobin.identity.api.port.WechatPhoneNumberPort;
 import org.enveloping.ecobin.identity.api.result.WechatPhoneNumber;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.PhoneBindingResult;
+import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappLoginService.MiniappConfiguration;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -18,12 +19,15 @@ public class TargetMiniappPhoneBindingService {
 
     private final WechatPhoneNumberPort wechatPhoneNumberPort;
     private final TargetMiniappPhoneBindingTransactionService transactionService;
+    private final TargetMiniappLoginTransactionService loginTransactions;
 
     public TargetMiniappPhoneBindingService(
             WechatPhoneNumberPort wechatPhoneNumberPort,
-            TargetMiniappPhoneBindingTransactionService transactionService) {
+            TargetMiniappPhoneBindingTransactionService transactionService,
+            TargetMiniappLoginTransactionService loginTransactions) {
         this.wechatPhoneNumberPort = wechatPhoneNumberPort;
         this.transactionService = transactionService;
+        this.loginTransactions = loginTransactions;
     }
 
     public PhoneBindingResult bind(
@@ -32,10 +36,13 @@ public class TargetMiniappPhoneBindingService {
             String wechatPhoneCode) {
         WechatPhoneNumber phone;
         try {
+            MiniappConfiguration configuration =
+                    loginTransactions.readEnabledConfiguration(
+                            actor.appId());
             phone = wechatPhoneNumberPort
-                    .exchangePhoneNumberByCredentialReference(
-                            actor.appId(),
-                            actor.secretReference(),
+                    .exchangePhoneNumber(
+                            configuration.appId(),
+                            configuration.appSecret(),
                             wechatPhoneCode);
         } catch (WechatExchangeException exception) {
             if (exception.reason()

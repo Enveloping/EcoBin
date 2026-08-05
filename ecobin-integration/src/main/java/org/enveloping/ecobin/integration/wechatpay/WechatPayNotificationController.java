@@ -150,7 +150,7 @@ public class WechatPayNotificationController {
                 "wechat-pay", mchid, notification.id(), kind, 1,
                 rawBody.getBytes(StandardCharsets.UTF_8),
                 mapper.writeValueAsString(normalized),
-                "API_V3_SIGNATURE", "platform-certificate:" + serial,
+                "API_V3_SIGNATURE", "wechatpay-public-key:" + serial,
                 UUID.randomUUID(), null, TrustedInboxExecutionLane.FUNDS,
                 notificationPort.scopeResolver(
                         kind, mchid, externalOrderNo)));

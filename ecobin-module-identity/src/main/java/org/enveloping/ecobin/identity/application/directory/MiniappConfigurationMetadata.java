@@ -9,7 +9,7 @@ public record MiniappConfigurationMetadata(
         String appId,
         String displayName,
         boolean loginEnabled,
-        String secretReference,
+        String appSecret,
         Instant activatedAt,
         long version,
         Instant configuredAt,
@@ -17,5 +17,9 @@ public record MiniappConfigurationMetadata(
 
     public boolean activated() {
         return activatedAt != null;
+    }
+
+    public boolean appSecretConfigured() {
+        return appSecret != null && !appSecret.isBlank();
     }
 }

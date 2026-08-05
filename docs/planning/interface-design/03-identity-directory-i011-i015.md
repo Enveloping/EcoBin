@@ -131,22 +131,22 @@ POST /api/v1/web/platform/tenants/{tenantCode}/deactivations
 }
 ```
 
-- 首次配置必须提供 `appId + appSecret`；以后未轮换密钥时可以省略 `appSecret`。完整值写入外部秘密设施，数据库只保存 `secretRef`，响应不因为持久化方式而泄露内部秘密路径。
+- 首次配置必须提供 `appId + appSecret`；以后未轮换密钥时可以省略 `appSecret`。完整值以明文保存在 `iam_organization_miniapp.app_secret`，与 AppID、版本和登录开关共用数据库事务；日志、审计、普通响应和数据库运维输出必须脱敏。
 - 激活前允许修正 AppID、展示名和 AppSecret。激活端点只在本地校验当前配置完整并一次性写入 `activatedAt`，不在数据库事务中等待微信调用；激活后 AppID、租户和机构不可修改，仍允许使用相同 AppID 轮换 AppSecret 和修改展示名。真实凭据是否可用由后续登录调用及错误状态体现，不能把本地激活冒充微信验证成功。
 - 小程序登录只有在租户、机构、AppID 激活和登录开关都有效时才允许。关闭登录撤销该 AppID 下普通用户及工作人员小程序会话，但不删除用户、钱包和绑定；重新开启后客户端重新 `wx.login`。
 - `GET/PUT .../miniapp-configuration` 只允许当前机构 `miniapp.manage`，租户级该能力覆盖全部机构，机构负责人天然具备；不增加特殊角色、独立回显步骤或再次输入密码。`GET` 配置详情直接返回 AppID、当前完整 `appSecret`、展示名、激活/登录状态和版本。
 - `PUT` 成功响应只返回 AppID、展示名、激活/登录状态、新版本、`appSecretConfigured`、`maskedAppSecret` 和更新时间，不返回完整密钥。这样同一 `Idempotency-Key` 在后续再次轮换密钥后仍能重放首次非秘密结果；Web 保存后按需重新 `GET` 即可回显当前值。
-- `GET` 配置响应设置 `Cache-Control: no-store`。读取外部秘密设施失败时返回 `503 IDENTITY.MINIAPP_SECRET_UNAVAILABLE` 且 `retryable=true`，不能用空字符串冒充“尚未配置”。机构列表、普通机构详情、小程序登录和其他业务响应不返回 AppSecret。
+- `GET` 配置响应设置 `Cache-Control: no-store`。V32 迁移不会把历史假 `secretRef` 复制为真密钥；这类行的 `appSecret` 返回 `null`、登录保持停用，直到有权限人员重新填写。不能用空字符串冒充“尚未配置”。机构列表、普通机构详情、小程序登录和其他业务响应不返回 AppSecret。
 - 配置读取和修改都必须审计，但访问日志、应用日志和审计摘要只能记录固定脱敏值（例如前后少量字符加掩码）、AppID、操作者、目标机构和时间，不能记录完整 AppSecret。
 - AppSecret 可以在授权 Web 页面中显示；不得写入 URL、浏览器持久缓存、错误详情、导出文件或版本库。API 文档和测试样例只使用假值。
 - 这是项目负责人明确接受的 P0 风险边界：任何当前有效的 `miniapp.manage`（包括天然全权的机构负责人）都能从配置详情取得完整 AppSecret。实现不得自行增加独立秘密权限或强制重新认证；如果未来需要收紧，必须作为新的权限和兼容性变更另行确认。
 
-AppSecret 写入采用以下窄化的秘密持久化协议，不把密钥正文放入业务数据库或可靠任务：
+AppSecret 写入采用以下数据库事务协议：
 
-1. 服务端以 `operationUid` 派生不可变秘密版本引用，在开启业务数据库事务前向秘密设施写入或查询同一版本；幂等摘要包含密钥正文的不可逆摘要而不保存正文。
-2. 相同 `operationUid + 摘要` 重试复用同一秘密版本；相同操作号但正文不同按 I-004 返回幂等冲突。秘密设施结果不明确时仍以原操作号查询或重试，不能生成第二个引用。
-3. 秘密版本本身不产生小程序业务效果。只有随后数据库事务把 `secretRef` 切换为该版本时才成为当前配置；事务失败留下的未引用版本不会被读取，可由受控清理任务回收。
-4. 数据库提交后 `PUT` 返回不含完整密钥的幂等结果。此协议是 I-005 外部业务动作规则的窄化存储例外，不允许扩展到微信、OneNet、COS、资金或设备动作。
+1. 首次配置或轮换 AppSecret 时，服务端在同一个身份模块事务中写入 AppID、`app_secret`、配置版本和时间；任一写入失败则整体回滚。
+2. 后续修改未传 `appSecret` 时保留当前值；数据库中尚无有效值时不允许激活或开启登录。
+3. 幂等指纹使用完整请求的不可逆摘要，审计记录只保存摘要和脱敏快照；相同 `operationUid` 但请求不同时按 I-004 返回幂等冲突。
+4. 数据库提交后 `PUT` 只返回掩码和是否已配置，不返回完整密钥。数据库备份因包含 AppSecret，必须作为秘密数据加密保存并限制访问。这是本地数据持久化，不得扩展为绕过 I-005 的微信、OneNet、COS、资金或设备外部动作。
 
 主要错误包括 `IDENTITY.ORGANIZATION_CODE_ALREADY_USED`、`IDENTITY.ORGANIZATION_DISABLED`、`IDENTITY.MINIAPP_APPID_ALREADY_USED`、`IDENTITY.MINIAPP_ALREADY_ACTIVATED` 和 `IDENTITY.MINIAPP_CONFIGURATION_INVALID`。
 

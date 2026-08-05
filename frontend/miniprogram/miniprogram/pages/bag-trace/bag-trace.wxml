@@ -1,0 +1,52 @@
+<view class="page">
+  <view class="scan-card" bindtap="scanBag" hover-class="card--pressed">
+    <view class="scan-icon"><t-icon name="scan" size="52rpx" color="#ffffff" /></view>
+    <view class="scan-copy">
+      <text class="scan-title">扫描回收袋码</text>
+      <text class="scan-subtitle">查看这只袋子每次安放到清运的投递记录</text>
+    </view>
+    <t-icon name="chevron-right" size="34rpx" color="#79837b" />
+  </view>
+
+  <view wx:if="{{bagQrText}}" class="bag-card">
+    <text class="eyebrow">当前袋码</text>
+    <text class="bag-code">{{bagQrText}}</text>
+    <view class="bag-meta">
+      <text>{{authText}}</text>
+      <text wx:if="{{legacyHint}}">{{legacyHint}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{errorMessage}}" class="state-card">
+    <text class="state-title">{{errorMessage}}</text>
+    <view class="state-action" bindtap="scanBag">重新扫码</view>
+  </view>
+
+  <view wx:elif="{{cycles.length}}" class="cycle-list">
+    <view
+      class="cycle-card"
+      wx:for="{{cycles}}"
+      wx:key="cycleUid"
+      data-cycle-uid="{{item.cycleUid}}"
+      bindtap="onCycleTap"
+      hover-class="card--pressed"
+    >
+      <view class="cycle-head">
+        <text class="cycle-title">{{item.deploymentCode}} · {{item.portNo}} 号投口</text>
+        <text class="status status-{{item.status}}">{{item.statusText}}</text>
+      </view>
+      <text class="cycle-period">{{item.periodText}}</text>
+      <view class="cycle-foot">
+        <text>{{item.deliveryOrderCount}} 笔已完成投递</text>
+        <t-icon name="chevron-right" size="30rpx" color="#9aa19b" />
+      </view>
+    </view>
+  </view>
+
+  <view wx:elif="{{bagQrText && !loading}}" class="state-card">
+    <text class="state-title">这只袋子还没有可展示的使用周期</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="list-foot">正在查询…</view>
+  <view wx:elif="{{nextCursor}}" class="list-foot list-action" bindtap="loadMore">加载更早周期</view>
+</view>

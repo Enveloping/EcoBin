@@ -85,6 +85,7 @@ Page({
     unitPriceText: '',
     revisionText: '',
     approvedAtText: '',
+    reason: '',
     anomalies: [] as AnomalyView[],
     photos: [] as PhotoView[],
   },
@@ -162,6 +163,7 @@ Page({
           ? `第 ${detail.review.currentRevisionNo} 版`
           : '尚未审核',
         approvedAtText: formatLocalDateTime(detail.review.firstApprovedAt),
+        reason: detail.review.reason ?? '',
         anomalies: detail.anomalies.map((item) => ({
           ...item,
           timeText: formatLocalDateTime(item.detectedAt),

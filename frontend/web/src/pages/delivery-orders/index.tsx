@@ -71,6 +71,7 @@ interface PageSnapshot {
 
 const USER_UID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DELIVERY_ORDER_NO = /^[A-Z0-9][A-Z0-9-]{0,63}$/;
 
 const weightReliabilityLabels: Record<string, string> = {
   RELIABLE: '可靠',
@@ -133,7 +134,7 @@ function amountCell(order: DeliveryOrderItem) {
 export default function DeliveryOrdersPage() {
   const scope = useDirectoryScope();
   const organizationScope = useOrganizationScope(scope);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const cursorByPage = useRef<Map<number, string | undefined>>(
@@ -165,6 +166,12 @@ export default function DeliveryOrdersPage() {
     searchParams.get('organizationUserUid')?.trim() || undefined;
   const linkedDeploymentCode =
     searchParams.get('deploymentCode')?.trim() || undefined;
+  const requestedDeliveryOrderNo =
+    searchParams.get('deliveryOrderNo')?.trim() || undefined;
+  const linkedDeliveryOrderNo =
+    requestedDeliveryOrderNo && DELIVERY_ORDER_NO.test(requestedDeliveryOrderNo)
+      ? requestedDeliveryOrderNo
+      : undefined;
 
   const resetCursorNavigation = useCallback(() => {
     cursorByPage.current = new Map([[1, undefined]]);
@@ -228,22 +235,62 @@ export default function DeliveryOrdersPage() {
     [organizationCode, scope.context],
   );
 
-  const openDetail = async (order: DeliveryOrderItem) => {
-    selectedDetailOrderNo.current = order.deliveryOrderNo;
-    setDrawerOpen(true);
-    setDetail(null);
-    try {
-      await loadDetail(order.deliveryOrderNo);
-    } catch {
-      if (selectedDetailOrderNo.current === order.deliveryOrderNo) {
-        detailRequestSequence.current += 1;
-        selectedDetailOrderNo.current = null;
-        setDrawerOpen(false);
-        setDetail(null);
-        setDetailLoading(false);
+  const openDetailByNumber = useCallback(
+    async (deliveryOrderNo: string, fromDeepLink = false) => {
+      selectedDetailOrderNo.current = deliveryOrderNo;
+      setDrawerOpen(true);
+      setDetail(null);
+      try {
+        await loadDetail(deliveryOrderNo);
+      } catch {
+        if (selectedDetailOrderNo.current === deliveryOrderNo) {
+          detailRequestSequence.current += 1;
+          selectedDetailOrderNo.current = null;
+          setDrawerOpen(false);
+          setDetail(null);
+          setDetailLoading(false);
+          if (fromDeepLink) {
+            setSearchParams(
+              (current) => {
+                const next = new URLSearchParams(current);
+                if (next.get('deliveryOrderNo') === deliveryOrderNo) {
+                  next.delete('deliveryOrderNo');
+                }
+                return next;
+              },
+              { replace: true },
+            );
+          }
+        }
       }
-    }
+    },
+    [loadDetail, setSearchParams],
+  );
+
+  const openDetail = (order: DeliveryOrderItem) => {
+    void openDetailByNumber(order.deliveryOrderNo);
   };
+
+  useEffect(() => {
+    if (
+      !linkedDeliveryOrderNo
+      || !scope.context
+      || !organizationCode
+      || (
+        selectedDetailOrderNo.current === linkedDeliveryOrderNo
+        && drawerOpen
+      )
+    ) {
+      return;
+    }
+    void openDetailByNumber(linkedDeliveryOrderNo, true);
+  }, [
+    drawerOpen,
+    linkedDeliveryOrderNo,
+    openDetailByNumber,
+    organizationCode,
+    scope.context,
+  ]);
 
   const closeDetail = () => {
     detailRequestSequence.current += 1;
@@ -252,6 +299,16 @@ export default function DeliveryOrdersPage() {
     setDetail(null);
     setDetailLoading(false);
     setMutationKind(null);
+    if (searchParams.has('deliveryOrderNo')) {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.delete('deliveryOrderNo');
+          return next;
+        },
+        { replace: true },
+      );
+    }
   };
 
   const submitReview = async (

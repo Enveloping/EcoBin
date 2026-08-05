@@ -19,7 +19,6 @@ public record TargetMiniappActor(
         String organizationName,
         long organizationMiniappId,
         String appId,
-        String secretReference,
         long organizationUserId,
         Long staffMiniappBindingId,
         UUID sessionUid,

@@ -27,6 +27,8 @@ param(
         "/etc/ecobin/secrets/db-app-password",
     [string]$RemoteBackupPasswordPath =
         "/etc/ecobin/secrets/db-backup-password",
+    [ValidateRange(1, 10)]
+    [int]$TransientSshAttempts = 1,
     [switch]$ResumeExistingEmptyEnvironment,
     [switch]$ResumeExistingMigratedEnvironment
 )
@@ -83,6 +85,8 @@ $rootPasswordPath = Join-Path $SecretDirectory $rootPasswordName
 $appPasswordPath = Join-Path $SecretDirectory $appPasswordName
 $backupPasswordPath = Join-Path $SecretDirectory $backupPasswordName
 $migrationCompleted = $false
+$upgradeExistingMigratedEnvironment = $false
+$resumeSchemaOwnerUnlocked = $false
 $sshTunnelProcess = $null
 
 function New-RandomSecret {
@@ -107,16 +111,39 @@ function Invoke-RemoteCommand {
     $sshArguments = @(
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
+        "-o", "ConnectionAttempts=3",
+        "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=3",
         $RemoteHost,
         $Command
     )
-    if ($PSBoundParameters.ContainsKey("InputText")) {
-        $output = $InputText | & ssh @sshArguments 2>&1
+
+    $output = @()
+    $exitCode = 0
+    for ($attempt = 1; $attempt -le $TransientSshAttempts; $attempt++) {
+        if ($PSBoundParameters.ContainsKey("InputText")) {
+            $output = $InputText | & ssh @sshArguments 2>&1
+        }
+        else {
+            $output = & ssh @sshArguments 2>&1
+        }
+        $exitCode = $LASTEXITCODE
+        $outputText = @($output) -join "`n"
+        $transientConnectionFailure =
+            $exitCode -eq 255 -and
+            $outputText -match (
+                "(?i)connection (closed|reset|timed out|refused)|" +
+                "kex_exchange_identification|ssh_exchange_identification|" +
+                "banner exchange|broken pipe"
+            )
+        if (
+            -not $transientConnectionFailure -or
+            $attempt -eq $TransientSshAttempts
+        ) {
+            break
+        }
+        Start-Sleep -Milliseconds ([Math]::Min(1000 * $attempt, 5000))
     }
-    else {
-        $output = & ssh @sshArguments 2>&1
-    }
-    $exitCode = $LASTEXITCODE
     if (-not $AllowFailure -and $exitCode -ne 0) {
         $tail = (@($output) | Select-Object -Last 30) -join "`n"
         throw "Remote command failed with exit code $exitCode`n$tail"
@@ -325,6 +352,10 @@ function Invoke-ClientSql {
         $exitCode = $LASTEXITCODE
     }
     if ($ExpectFailure) {
+        if ($RemoteHost.Length -gt 0 -and $exitCode -eq 255) {
+            $tail = (@($output) | Select-Object -Last 30) -join "`n"
+            throw "$User permission probe lost its SSH transport`n$tail"
+        }
         if ($exitCode -eq 0) {
             throw "$User unexpectedly executed a forbidden SQL statement"
         }
@@ -578,6 +609,12 @@ function Start-RemoteDatabaseTunnel {
         return $null
     }
 
+    # A pre-existing listener can make the readiness probe connect through a
+    # stale tunnel before the newly started ssh process reports its bind
+    # failure. Refuse that ambiguous state instead of risking migration of a
+    # different MySQL endpoint.
+    Assert-HostPortAvailable
+
     $ipOutput = @(
         Invoke-Docker -Arguments @(
             "container", "inspect",
@@ -646,6 +683,15 @@ if (
     $ResumeExistingMigratedEnvironment
 ) {
     throw "Select only one H-02 resume mode"
+}
+if (
+    $TransientSshAttempts -gt 1 -and
+    -not $ResumeExistingMigratedEnvironment
+) {
+    throw (
+        "Transient SSH retries are only safe for the idempotent " +
+        "migrated-environment resume mode"
+    )
 }
 if ($UseExistingProductionSecrets) {
     foreach ($requiredSecret in @(
@@ -839,6 +885,7 @@ WHERE table_schema = '$DatabaseName';
         if ($existingDatabaseCount -ne 1 -or $existingTableCount -ne 0) {
             throw "Resume is only allowed for the preserved empty target database"
         }
+        $resumeSchemaOwnerUnlocked = $true
         Invoke-RootSql -Sql @"
 ALTER USER 'ecobin_schema_owner'@'%'
     IDENTIFIED BY '$ownerPassword' ACCOUNT UNLOCK;
@@ -853,14 +900,52 @@ WHERE table_schema = '$DatabaseName'
         $existingHistoryCount = [int](Invoke-RootSql `
             -Database $DatabaseName `
             -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success=1;")
-        if (
-            $existingDomainTableCount -ne 96 -or
-            $existingHistoryCount -ne 31
-        ) {
-            throw "Migrated resume requires the complete V31 target database"
+        $existingMaxVersion = [int](Invoke-RootSql `
+            -Database $DatabaseName `
+            -Sql (
+                "SELECT MAX(CAST(version AS UNSIGNED)) " +
+                "FROM flyway_schema_history WHERE success=1;"
+            ))
+        $resumeLayoutValid = (
+            ($existingDomainTableCount -eq 96 -and
+                $existingHistoryCount -eq 31 -and
+                $existingMaxVersion -eq 31) -or
+            ($existingDomainTableCount -eq 96 -and
+                $existingHistoryCount -eq 32 -and
+                $existingMaxVersion -eq 32) -or
+            ($existingDomainTableCount -eq 97 -and
+                $existingHistoryCount -eq 33 -and
+                $existingMaxVersion -eq 33) -or
+            ($existingDomainTableCount -eq 97 -and
+                $existingHistoryCount -eq 34 -and
+                $existingMaxVersion -eq 34)
+        )
+        if (-not $resumeLayoutValid) {
+            throw (
+                "Migrated resume requires a complete V31, V32, V33 or V34 " +
+                "target database"
+            )
         }
-        $migrationCompleted = $true
-        $skipMigration = $true
+        if ($existingMaxVersion -lt 34) {
+            # Check before changing the owner account so a stale local tunnel
+            # fails without opening a database mutation window.
+            if ($RemoteHost.Length -gt 0) {
+                Assert-HostPortAvailable
+            }
+            # Mark the account as potentially unlocked before the remote call.
+            # MySQL may commit ALTER USER even if the SSH acknowledgement is
+            # lost, so the failure path must not depend on receiving success.
+            $upgradeExistingMigratedEnvironment = $true
+            $resumeSchemaOwnerUnlocked = $true
+            Invoke-RootSql -Sql @"
+ALTER USER 'ecobin_schema_owner'@'%'
+    IDENTIFIED BY '$ownerPassword' ACCOUNT UNLOCK;
+"@ | Out-Null
+        }
+        else {
+            $migrationCompleted = $true
+            $skipMigration = $true
+        }
     }
     else {
         Invoke-RootSql -Sql @"
@@ -882,9 +967,10 @@ GRANT SET_ANY_DEFINER ON *.*
 
     if (-not $skipMigration) {
         $sshTunnelProcess = Start-RemoteDatabaseTunnel
-        Invoke-FlywayMigration -Target 8 -OwnerPassword $ownerPassword
+        if (-not $upgradeExistingMigratedEnvironment) {
+            Invoke-FlywayMigration -Target 8 -OwnerPassword $ownerPassword
 
-        Invoke-RootSql -Sql @"
+            Invoke-RootSql -Sql @"
 GRANT TRIGGER ON $database.*
     TO 'ecobin_trigger_definer'@'%';
 GRANT SELECT (
@@ -897,13 +983,15 @@ GRANT SELECT (
 ) ON $database.iam_organization_user
     TO 'ecobin_trigger_definer'@'%';
 "@ | Out-Null
+        }
 
-        Invoke-FlywayMigration -Target 31 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 34 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
 ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
 "@ | Out-Null
+        $resumeSchemaOwnerUnlocked = $false
     }
 
     $tableSql =
@@ -916,8 +1004,8 @@ ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 96) {
-        throw "Expected 96 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 97) {
+        throw "Expected 97 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -956,8 +1044,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 31) {
-        throw "Expected thirty-one successful Flyway migrations"
+    if ($historyCount -ne 34) {
+        throw "Expected thirty-four successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1042,11 +1130,18 @@ ROLLBACK;
 "@ | Out-Null
     foreach ($entry in $grantCatalog.UpdateColumns.GetEnumerator()) {
         $table = Quote-Identifier -Value $entry.Key
-        $allowedColumn = Quote-Identifier -Value (@($entry.Value)[0])
+        $allowedAssignments = @($entry.Value) |
+            ForEach-Object {
+                $column = Quote-Identifier -Value $_
+                "$column=$column"
+            }
         Invoke-ClientSql `
             -User "ecobin_app" `
             -PasswordFile $appPasswordPath `
-            -Sql "UPDATE $table SET $allowedColumn=$allowedColumn WHERE 1=0;" |
+            -Sql (
+                "UPDATE $table SET " +
+                "$($allowedAssignments -join ', ') WHERE 1=0;"
+            ) |
             Out-Null
 
         $immutableColumnSql =
@@ -1219,16 +1314,49 @@ WHERE user = 'ecobin_trigger_definer' AND host = '%';
     }
 }
 catch {
-    Write-Error $_
-    if (-not $migrationCompleted) {
-        Write-Warning (
-            "The target may be a failed first-install database. " +
-            "It was intentionally preserved. Do not repair it or remove " +
-            "container/volume without explicit destructive approval. " +
-            "Container=$ContainerName Volume=$VolumeName"
-        )
+    $failure = $_
+    if ($resumeSchemaOwnerUnlocked) {
+        try {
+            Invoke-RootSql -Sql @"
+ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
+"@ | Out-Null
+            $ownerLockState = Invoke-RootSql -Sql @"
+SELECT account_locked FROM mysql.user
+WHERE user = 'ecobin_schema_owner' AND host = '%';
+"@
+            if ($ownerLockState -ne "Y") {
+                throw "ecobin_schema_owner did not return to ACCOUNT LOCK"
+            }
+            $resumeSchemaOwnerUnlocked = $false
+        }
+        catch {
+            Write-Warning (
+                "Failed to re-lock ecobin_schema_owner after the " +
+                "migration failure; lock it manually before " +
+                "any further diagnosis"
+            )
+        }
     }
-    throw
+    Write-Error -ErrorRecord $failure -ErrorAction Continue
+    if (-not $migrationCompleted) {
+        if ($upgradeExistingMigratedEnvironment) {
+            Write-Warning (
+                "The target may contain a failed V34 forward migration. " +
+                "It was intentionally preserved. Restore from the " +
+                "pre-migration backup; do not run Flyway repair. " +
+                "Container=$ContainerName Volume=$VolumeName"
+            )
+        }
+        else {
+            Write-Warning (
+                "The target may be a failed first-install database. " +
+                "It was intentionally preserved. Do not repair it or " +
+                "remove container/volume without explicit destructive " +
+                "approval. Container=$ContainerName Volume=$VolumeName"
+            )
+        }
+    }
+    throw $failure
 }
 finally {
     if ($null -ne $sshTunnelProcess -and -not $sshTunnelProcess.HasExited) {

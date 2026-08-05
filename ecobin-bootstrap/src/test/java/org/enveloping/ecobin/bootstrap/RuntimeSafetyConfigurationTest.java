@@ -7,6 +7,9 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.ClassUtils;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,7 +44,16 @@ class RuntimeSafetyConfigurationTest {
             "V22__device_tenant_allocation.sql",
             "V23__device_acceptance_reclaim_credentials.sql",
             "V24__device_transport_presence_and_dispatch_gates.sql",
-            "V25__edge_reported_current_bag_fullness.sql"
+            "V25__edge_reported_current_bag_fullness.sql",
+            "V26__event_driven_device_presence_and_evidence.sql",
+            "V27__edge_restart_abort_semantics.sql",
+            "V28__organization_payout_account_bootstrap.sql",
+            "V29__organization_withdrawal_defaults.sql",
+            "V30__funds_channel_evidence_and_recovery.sql",
+            "V31__native_request_freeze_and_wallet_adjustment.sql",
+            "V32__organization_miniapp_database_secret.sql",
+            "V33__operations_governance_idempotency.sql",
+            "V34__operations_audit_organization_user_index.sql"
     };
 
     @Test
@@ -104,6 +116,9 @@ class RuntimeSafetyConfigurationTest {
         assertFalse(yaml.contains("dbUsername:root"));
         assertFalse(yaml.contains("StdOutImpl"));
         assertFalse(yaml.contains("optional:file:./.env"));
+        assertFalse(yaml.contains("wechatAppid"));
+        assertFalse(yaml.contains("wechatSecret"));
+        assertFalse(yaml.contains("miniappSecretStoreDirectory"));
     }
 
     @Test
@@ -141,9 +156,7 @@ class RuntimeSafetyConfigurationTest {
                 "cos.secret-key",
                 "cos.region",
                 "cos.bucket-name",
-                "cos.base-url",
-                "wechat.miniapp.appid",
-                "wechat.miniapp.secret")) {
+                "cos.base-url")) {
             assertEquals(
                     "",
                     property(fakeSources, property),
@@ -183,6 +196,47 @@ class RuntimeSafetyConfigurationTest {
     }
 
     @Test
+    void productionProfileKeepsDiagnosticsClosedAndDisablesWeakBootstrap()
+            throws IOException {
+        List<PropertySource<?>> productionSources =
+                new YamlPropertySourceLoader().load(
+                        "production",
+                        new ClassPathResource(
+                                "application-production.yml"));
+
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.development.default-platform-admin.enabled"));
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.observability.http-request-logging.include-request-body"));
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.observability.diagnostic-logging.one-net.enabled"));
+        assertEquals(
+                false,
+                property(
+                        productionSources,
+                        "ecobin.observability.diagnostic-logging.sql.enabled"));
+        assertEquals(
+                "native",
+                property(
+                        productionSources,
+                        "server.forward-headers-strategy"));
+        assertEquals(
+                "graceful",
+                property(productionSources, "server.shutdown"));
+        assertNull(property(productionSources, "logging.file.path"));
+        assertNull(property(productionSources, "ecobin.external.mode"));
+    }
+
+    @Test
     void runtimeClasspathCarriesNeitherFlywayEngineNorMigrationScripts() {
         ClassLoader classLoader = getClass().getClassLoader();
 
@@ -200,6 +254,42 @@ class RuntimeSafetyConfigurationTest {
                             "db/p0-migration/" + migration),
                     () -> "runtime classpath contains target migration " + migration);
         }
+    }
+
+    @Test
+    void v32RevokesLegacyMiniappSessionsBeforeDroppingSecretReferences()
+            throws IOException {
+        String migration = Files.readString(
+                moduleSource("src/main/resources/db/p0-migration/"
+                        + "V32__organization_miniapp_database_secret.sql"),
+                StandardCharsets.UTF_8);
+        int userSessionRevocation = migration.indexOf(
+                "UPDATE iam_organization_user_session");
+        int staffSessionRevocation = migration.indexOf(
+                "UPDATE iam_staff_login_session");
+        int secretReferenceDrop = migration.indexOf(
+                "DROP COLUMN secret_ref");
+
+        assertTrue(userSessionRevocation >= 0);
+        assertTrue(staffSessionRevocation >= 0);
+        assertTrue(secretReferenceDrop > userSessionRevocation);
+        assertTrue(secretReferenceDrop > staffSessionRevocation);
+        assertTrue(migration.contains(
+                "MINIAPP_CREDENTIAL_STORAGE_MIGRATED"));
+    }
+
+    private static Path moduleSource(String relativePath) {
+        Path workingDirectory = Path.of("").toAbsolutePath();
+        Path direct = workingDirectory.resolve(relativePath);
+        if (Files.isRegularFile(direct)) {
+            return direct;
+        }
+        Path nested = workingDirectory.resolve("ecobin-bootstrap")
+                .resolve(relativePath);
+        assertTrue(
+                Files.isRegularFile(nested),
+                () -> "missing source file " + nested);
+        return nested;
     }
 
     private static Object property(

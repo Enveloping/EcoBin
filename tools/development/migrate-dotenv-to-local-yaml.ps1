@@ -136,12 +136,6 @@ $settings = [ordered]@{
     jwtSecret = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('jwtSecret')
-    wechatAppid = Get-FirstConfiguredValue `
-        -Values $legacy `
-        -Names @('wechatAppid')
-    wechatSecret = Get-FirstConfiguredValue `
-        -Values $legacy `
-        -Names @('wechatSecret', 'ECOBIN_WECHAT_MINIAPP_SECRET')
     cosSecretId = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('cosSecretId')

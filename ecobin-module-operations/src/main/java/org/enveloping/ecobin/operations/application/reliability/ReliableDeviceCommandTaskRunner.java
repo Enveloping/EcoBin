@@ -7,7 +7,7 @@ import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResul
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.util.Optional;
 
 @Service
 public class ReliableDeviceCommandTaskRunner
@@ -37,15 +37,20 @@ public class ReliableDeviceCommandTaskRunner
         int claimed = 0;
         int completed = 0;
         int failed = 0;
-        List<ClaimedDeviceCommandTask> batch =
-                claimService.claimDeviceCommandBatch(workerId);
-        for (ClaimedDeviceCommandTask task : batch) {
+        int batchBudget = claimService.batchBudget(
+                ReliableTaskChannel.IOT_DEVICE);
+        for (int index = 0; index < batchBudget; index++) {
             if (!inFlightLimiter.tryAcquire(
                     ReliableTaskChannel.IOT_DEVICE)) {
-                throw new ReliableTaskInvariantException(
-                        "claimed device task exceeds in-flight capacity");
+                break;
             }
             try {
+                Optional<ClaimedDeviceCommandTask> next =
+                        claimService.claimNextDeviceCommand(workerId);
+                if (next.isEmpty()) {
+                    break;
+                }
+                ClaimedDeviceCommandTask task = next.get();
                 claimed++;
                 if (process(task)) {
                     completed++;

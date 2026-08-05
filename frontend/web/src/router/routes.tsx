@@ -12,6 +12,7 @@ import {
   TeamOutlined,
   TruckOutlined,
   UserOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import { Navigate } from 'react-router-dom';
 import type { LoginResponse, WebAccountType } from '@/types';
@@ -34,6 +35,9 @@ const DeliveryConfigurationPage = lazy(
 );
 const FundsPage = lazy(() => import('@/pages/funds'));
 const WithdrawalsPage = lazy(() => import('@/pages/withdrawals'));
+const WalletEntriesPage = lazy(
+  () => import('@/pages/wallet-entries'),
+);
 const BusinessContractPendingPage = lazy(
   () => import('@/pages/business/BusinessContractPending'),
 );
@@ -134,6 +138,13 @@ export const appRoutes: AppRoute[] = [
     icon: <SlidersOutlined />,
     element: <DeliveryConfigurationPage />,
     allOf: ['delivery.configuration.manage'],
+  },
+  {
+    path: '/wallet-entries',
+    name: '钱包流水',
+    icon: <WalletOutlined />,
+    element: <WalletEntriesPage />,
+    allOf: ['wallet.read'],
   },
   {
     path: '/clean-records',
@@ -258,6 +269,9 @@ export function menuRoutesFor(
       ],
     });
   }
+
+  const walletEntries = visibleRoute(session, '/wallet-entries');
+  if (walletEntries) menu.push(leaf(walletEntries));
 
   for (const path of ['/staff', '/user-bindings', '/devices'] as const) {
     const route = visibleRoute(session, path);

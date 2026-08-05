@@ -1,0 +1,26 @@
+.page { min-height: 100vh; padding: 28rpx 28rpx calc(52rpx + env(safe-area-inset-bottom)); box-sizing: border-box; background: #f2f7f3; }
+.scan-card, .bag-card, .cycle-card, .state-card { background: #fff; border-radius: 24rpx; box-shadow: 0 10rpx 28rpx rgba(34, 66, 40, .07); }
+.scan-card { display: flex; align-items: center; gap: 20rpx; padding: 26rpx; }
+.scan-icon { display: flex; width: 82rpx; height: 82rpx; align-items: center; justify-content: center; flex: 0 0 auto; background: #675ac7; border-radius: 23rpx; }
+.scan-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 8rpx; }
+.scan-title { color: #17221a; font-size: 29rpx; font-weight: 720; }
+.scan-subtitle { color: #7c857e; font-size: 21rpx; line-height: 1.45; }
+.bag-card { display: flex; flex-direction: column; gap: 10rpx; margin-top: 22rpx; padding: 26rpx; }
+.eyebrow { color: #778079; font-size: 20rpx; }
+.bag-code { color: #28332b; font-family: monospace; font-size: 22rpx; line-height: 1.5; word-break: break-all; }
+.bag-meta { display: flex; flex-direction: column; gap: 7rpx; color: #7b6fcf; font-size: 20rpx; }
+.cycle-list { display: flex; flex-direction: column; gap: 18rpx; margin-top: 22rpx; }
+.cycle-card { padding: 26rpx; }
+.cycle-head, .cycle-foot { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; }
+.cycle-title { color: #1b271e; font-size: 27rpx; font-weight: 690; }
+.status { flex: 0 0 auto; padding: 7rpx 13rpx; font-size: 19rpx; border-radius: 999rpx; }
+.status-ACTIVE { color: #138529; background: #e9f7ec; }
+.status-CLOSED { color: #6e756f; background: #eff1ef; }
+.cycle-period { display: block; margin-top: 15rpx; color: #778079; font-size: 21rpx; line-height: 1.5; }
+.cycle-foot { margin-top: 20rpx; padding-top: 18rpx; color: #526057; font-size: 22rpx; border-top: 1rpx solid #edf0ed; }
+.state-card { display: flex; align-items: center; flex-direction: column; gap: 24rpx; margin-top: 22rpx; padding: 62rpx 30rpx; }
+.state-title { color: #667068; font-size: 23rpx; line-height: 1.6; text-align: center; }
+.state-action { padding: 15rpx 28rpx; color: #fff; font-size: 22rpx; background: #10a625; border-radius: 999rpx; }
+.list-foot { padding: 28rpx 0 8rpx; color: #919991; font-size: 21rpx; text-align: center; }
+.list-action { color: #4f45aa; }
+.card--pressed { opacity: .76; }

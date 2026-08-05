@@ -18,14 +18,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.Signature;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.UUID;
 
 @Component
@@ -39,8 +38,8 @@ public class WechatPayApiV3Client {
     private final ObjectMapper mapper;
     private final HttpClient http;
     private final PrivateKey merchantPrivateKey;
-    private final X509Certificate platformCertificate;
-    private final String platformSerial;
+    private final PublicKey wechatPayPublicKey;
+    private final String wechatPayPublicKeyId;
 
     public WechatPayApiV3Client(
             WechatPayProperties properties,
@@ -53,10 +52,9 @@ public class WechatPayApiV3Client {
         this.mapper = mapper;
         this.merchantPrivateKey = readPrivateKey(
                 Path.of(properties.getMerchantPrivateKeyPath()));
-        this.platformCertificate = readCertificate(
-                Path.of(properties.getPlatformCertificatePath()));
-        this.platformSerial = normalizeSerial(
-                platformCertificate.getSerialNumber().toString(16));
+        this.wechatPayPublicKey = readPublicKey(
+                Path.of(properties.getPublicKeyPath()));
+        this.wechatPayPublicKeyId = properties.getPublicKeyId();
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(
                         properties.getConnectTimeoutMillis()))
@@ -90,6 +88,7 @@ public class WechatPayApiV3Client {
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
                     .header("Authorization", authorization)
+                    .header("Wechatpay-Serial", wechatPayPublicKeyId)
                     .header("User-Agent", "EcoBin-WeChatPay-APIv3/1.0");
             if ("GET".equals(method)) {
                 builder.GET();
@@ -191,9 +190,11 @@ public class WechatPayApiV3Client {
                 || signature.startsWith("WECHATPAY/SIGNTEST/")) {
             throw new SecurityException("WeChat Pay signature probe rejected");
         }
-        if (!platformSerial.equals(normalizeSerial(serial))) {
+        if (!wechatPayPublicKeyId.equals(serial == null
+                ? ""
+                : serial.trim())) {
             throw new SecurityException(
-                    "unknown WeChat Pay platform certificate serial");
+                    "unknown WeChat Pay public key ID");
         }
         long seconds;
         try {
@@ -209,7 +210,7 @@ public class WechatPayApiV3Client {
         String message = timestamp + "\n" + nonce + "\n" + body + "\n";
         try {
             Signature verifier = Signature.getInstance("SHA256withRSA");
-            verifier.initVerify(platformCertificate.getPublicKey());
+            verifier.initVerify(wechatPayPublicKey);
             verifier.update(message.getBytes(StandardCharsets.UTF_8));
             if (!verifier.verify(Base64.getDecoder().decode(signature))) {
                 throw new SecurityException("invalid WeChat Pay signature");
@@ -258,13 +259,17 @@ public class WechatPayApiV3Client {
         }
     }
 
-    private static X509Certificate readCertificate(Path path) {
-        try (var input = Files.newInputStream(path)) {
-            return (X509Certificate) CertificateFactory.getInstance("X.509")
-                    .generateCertificate(input);
+    private static PublicKey readPublicKey(Path path) {
+        try {
+            String pem = Files.readString(path, StandardCharsets.US_ASCII)
+                    .replace("-----BEGIN PUBLIC KEY-----", "")
+                    .replace("-----END PUBLIC KEY-----", "")
+                    .replaceAll("\\s", "");
+            return KeyFactory.getInstance("RSA").generatePublic(
+                    new X509EncodedKeySpec(Base64.getDecoder().decode(pem)));
         } catch (Exception failure) {
             throw new IllegalStateException(
-                    "cannot read WeChat Pay platform certificate", failure);
+                    "cannot read WeChat Pay public key", failure);
         }
     }
 
@@ -280,15 +285,6 @@ public class WechatPayApiV3Client {
                     "WeChat Pay payload lacks " + field);
         }
         return value;
-    }
-
-    private static String normalizeSerial(String serial) {
-        if (serial == null) return "";
-        String normalized = serial.trim().toUpperCase(Locale.ROOT);
-        int first = 0;
-        while (first < normalized.length() - 1
-                && normalized.charAt(first) == '0') first++;
-        return normalized.substring(first);
     }
 
     private static String stripTrailingSlash(String value) {

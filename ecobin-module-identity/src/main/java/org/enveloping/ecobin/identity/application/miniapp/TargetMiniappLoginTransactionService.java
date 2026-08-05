@@ -70,7 +70,7 @@ public class TargetMiniappLoginTransactionService {
     public MiniappConfiguration readEnabledConfiguration(String appId) {
         MiniappRow row = configurationByAppId(appId, false);
         requireEnabled(row);
-        return new MiniappConfiguration(row.appId(), row.secretReference());
+        return new MiniappConfiguration(row.appId(), row.appSecret());
     }
 
     @Transactional(
@@ -410,7 +410,7 @@ public class TargetMiniappLoginTransactionService {
             boolean forUpdate) {
         String normalized = appId == null ? "" : appId.trim();
         return jdbc.query("""
-                        SELECT m.id AS miniapp_id, m.appid, m.secret_ref,
+                        SELECT m.id AS miniapp_id, m.appid, m.app_secret,
                                m.login_enabled, m.activated_at,
                                t.id AS tenant_id, t.tenant_code,
                                t.status AS tenant_status,
@@ -458,6 +458,8 @@ public class TargetMiniappLoginTransactionService {
     private static void requireEnabled(MiniappRow row) {
         if (!"ENABLED".equals(row.tenantStatus())
                 || !"ENABLED".equals(row.organizationStatus())
+                || row.appSecret() == null
+                || row.appSecret().isBlank()
                 || !row.loginEnabled()
                 || row.activatedAt() == null) {
             throw new TargetApiException(
@@ -591,7 +593,7 @@ public class TargetMiniappLoginTransactionService {
         return new MiniappRow(
                 rs.getLong("miniapp_id"),
                 rs.getString("appid"),
-                rs.getString("secret_ref"),
+                rs.getString("app_secret"),
                 rs.getBoolean("login_enabled"),
                 nullableInstant(rs, "activated_at"),
                 rs.getLong("tenant_id"),
@@ -625,7 +627,7 @@ public class TargetMiniappLoginTransactionService {
     private record MiniappRow(
             long miniappId,
             String appId,
-            String secretReference,
+            String appSecret,
             boolean loginEnabled,
             Instant activatedAt,
             long tenantId,

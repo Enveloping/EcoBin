@@ -30,8 +30,6 @@ class WechatMiniappClientDiagnosticsTest {
     private static final String APP_ID = "wx1234567890abcdef";
     private static final String APP_SECRET =
             "app-secret-must-not-be-logged";
-    private static final String SECRET_REFERENCE =
-            "local-miniapp-secret:00000000-0000-4000-8000-000000000001";
     private static final String ACCESS_TOKEN =
             "access-token-must-not-be-logged";
     private static final String PHONE_CODE =
@@ -39,13 +37,9 @@ class WechatMiniappClientDiagnosticsTest {
 
     @Test
     void recordsWechatStageAndErrorWithoutCredentialValues() {
-        WechatConfig config = new WechatConfig();
         RestTemplate restTemplate = new DiagnosticRestTemplate();
-        MiniappSecretResolver secretResolver = reference -> APP_SECRET;
         WechatMiniappClient client = new WechatMiniappClient(
-                config,
                 restTemplate,
-                secretResolver,
                 new ObjectMapper());
 
         Logger logger = (Logger) LoggerFactory.getLogger(
@@ -56,9 +50,9 @@ class WechatMiniappClientDiagnosticsTest {
         try {
             assertThrows(
                     WechatExchangeException.class,
-                    () -> client.exchangePhoneNumberByCredentialReference(
+                    () -> client.exchangePhoneNumber(
                             APP_ID,
-                            SECRET_REFERENCE,
+                            APP_SECRET,
                             PHONE_CODE));
         } finally {
             logger.detachAppender(appender);
@@ -71,8 +65,6 @@ class WechatMiniappClientDiagnosticsTest {
         assertTrue(logs.contains(
                 "stage=PHONE_BINDING outcome=STARTED"));
         assertTrue(logs.contains(
-                "stage=SECRET_RESOLUTION outcome=SUCCESS"));
-        assertTrue(logs.contains(
                 "stage=ACCESS_TOKEN_CACHE outcome=MISS"));
         assertTrue(logs.contains(
                 "stage=ACCESS_TOKEN_RESPONSE outcome=SUCCESS"));
@@ -82,19 +74,14 @@ class WechatMiniappClientDiagnosticsTest {
         assertTrue(logs.contains("errcode=40013"));
         assertTrue(logs.contains("errmsg=invalid appid"));
         assertFalse(logs.contains(APP_SECRET));
-        assertFalse(logs.contains(SECRET_REFERENCE));
         assertFalse(logs.contains(ACCESS_TOKEN));
         assertFalse(logs.contains(PHONE_CODE));
     }
 
     @Test
     void recordsWechatHttpRejectionPayloadWithoutCredentialValues() {
-        WechatConfig config = new WechatConfig();
-        MiniappSecretResolver secretResolver = reference -> APP_SECRET;
         WechatMiniappClient client = new WechatMiniappClient(
-                config,
                 new RejectedAccessTokenRestTemplate(),
-                secretResolver,
                 new ObjectMapper());
 
         Logger logger = (Logger) LoggerFactory.getLogger(
@@ -105,9 +92,9 @@ class WechatMiniappClientDiagnosticsTest {
         try {
             assertThrows(
                     WechatExchangeException.class,
-                    () -> client.exchangePhoneNumberByCredentialReference(
+                    () -> client.exchangePhoneNumber(
                             APP_ID,
-                            SECRET_REFERENCE,
+                            APP_SECRET,
                             PHONE_CODE));
         } finally {
             logger.detachAppender(appender);
@@ -123,7 +110,6 @@ class WechatMiniappClientDiagnosticsTest {
         assertTrue(logs.contains("errcode=40164"));
         assertTrue(logs.contains("errmsg=invalid ip"));
         assertFalse(logs.contains(APP_SECRET));
-        assertFalse(logs.contains(SECRET_REFERENCE));
         assertFalse(logs.contains(PHONE_CODE));
     }
 
@@ -132,14 +118,12 @@ class WechatMiniappClientDiagnosticsTest {
         FixedLengthInspectingRestTemplate restTemplate =
                 new FixedLengthInspectingRestTemplate();
         WechatMiniappClient client = new WechatMiniappClient(
-                new WechatConfig(),
                 restTemplate,
-                reference -> APP_SECRET,
                 new ObjectMapper());
 
-        client.exchangePhoneNumberByCredentialReference(
+        client.exchangePhoneNumber(
                 APP_ID,
-                SECRET_REFERENCE,
+                APP_SECRET,
                 PHONE_CODE);
 
         assertEquals(2, restTemplate.requests.size());

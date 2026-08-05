@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 9
+    CatalogVersion = 12
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -48,7 +48,7 @@
             "appid"
             "display_name"
             "login_enabled"
-            "secret_ref"
+            "app_secret"
             "activated_at"
             "lock_version"
             "configured_at"
@@ -578,6 +578,7 @@
         ops_alert = @(
             "current_severity"
             "highest_severity"
+            "source_key"
             "last_seen_at"
             "discovery_count"
             "safe_display_parameters"
@@ -586,6 +587,14 @@
             "status"
             "resolved_at"
             "lock_version"
+            "updated_at"
+        )
+        ops_governance_idempotency = @(
+            "status"
+            "result_resource_uid"
+            "result_state"
+            "result_version"
+            "completed_at"
             "updated_at"
         )
         ops_reconciliation_run = @(

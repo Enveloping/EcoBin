@@ -723,17 +723,6 @@ public class TargetIdentityDirectoryService {
     }
 
     @Transactional(readOnly = true)
-    public void requireMiniappManagementAccess(
-            String tenantCode,
-            String organizationCode) {
-        TargetWebActor actor = TargetWebActorContext.required();
-        TenantRow tenant = tenantForRequest(actor, tenantCode, false);
-        OrganizationRow organization = organizationByCode(
-                tenant.id(), normalizeCode(organizationCode), false);
-        requireOrganizationCapability(actor, organization, "miniapp.manage");
-    }
-
-    @Transactional(readOnly = true)
     public MiniappConfigurationMetadata getMiniappConfiguration(
             String tenantCode,
             String organizationCode) {
@@ -752,7 +741,7 @@ public class TargetIdentityDirectoryService {
             String tenantCode,
             String organizationCode,
             PutMiniappConfigurationRequest request,
-            String newSecretReference) {
+            String newAppSecret) {
         TargetWebActor actor = TargetWebActorContext.required();
         String tenant = normalizeCode(tenantCode);
         String organization = normalizeCode(organizationCode);
@@ -780,7 +769,7 @@ public class TargetIdentityDirectoryService {
                         if (request.expectedVersion() != null) {
                             throw versionConflict(0);
                         }
-                        if (newSecretReference == null) {
+                        if (newAppSecret == null) {
                             throw unprocessable(
                                     "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
                                     "首次配置必须提供 AppSecret");
@@ -790,7 +779,7 @@ public class TargetIdentityDirectoryService {
                                             INSERT INTO iam_organization_miniapp (
                                                 tenant_id, organization_id,
                                                 appid, display_name,
-                                                login_enabled, secret_ref,
+                                                login_enabled, app_secret,
                                                 activated_at, lock_version,
                                                 configured_at, created_at,
                                                 updated_at
@@ -805,7 +794,7 @@ public class TargetIdentityDirectoryService {
                                     organizationRow.id(),
                                     appId,
                                     request.displayName().trim(),
-                                    newSecretReference);
+                                    newAppSecret);
                         } catch (DataIntegrityViolationException exception) {
                             throw conflict(
                                     "IDENTITY.MINIAPP_APPID_ALREADY_USED",
@@ -824,15 +813,20 @@ public class TargetIdentityDirectoryService {
                                     "IDENTITY.MINIAPP_ALREADY_ACTIVATED",
                                     "小程序激活后不能更换 AppID");
                         }
-                        String secretReference = newSecretReference == null
-                                ? current.secretReference()
-                                : newSecretReference;
+                        String appSecret = newAppSecret == null
+                                ? current.appSecret()
+                                : newAppSecret;
+                        if (appSecret == null) {
+                            throw unprocessable(
+                                    "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                                    "当前配置的 AppSecret 已失效，请重新填写");
+                        }
                         try {
                             jdbc.update("""
                                             UPDATE iam_organization_miniapp
                                             SET appid = ?,
                                                 display_name = ?,
-                                                secret_ref = ?,
+                                                app_secret = ?,
                                                 lock_version = lock_version + 1,
                                                 configured_at =
                                                     UTC_TIMESTAMP(3),
@@ -843,7 +837,7 @@ public class TargetIdentityDirectoryService {
                                             """,
                                     appId,
                                     request.displayName().trim(),
-                                    secretReference,
+                                    appSecret,
                                     tenantRow.id(),
                                     organizationRow.id(),
                                     current.id());
@@ -902,6 +896,11 @@ public class TargetIdentityDirectoryService {
                                     true);
                     requireVersion(
                             current.version(), request.expectedVersion());
+                    if (!current.appSecretConfigured()) {
+                        throw unprocessable(
+                                "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                                "请先重新填写 AppSecret");
+                    }
                     if (current.activated()) {
                         throw conflict(
                                 "IDENTITY.MINIAPP_ALREADY_ACTIVATED",
@@ -991,6 +990,11 @@ public class TargetIdentityDirectoryService {
                             throw unprocessable(
                                     "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
                                     "小程序配置激活后才能开启登录");
+                        }
+                        if (!current.appSecretConfigured()) {
+                            throw unprocessable(
+                                    "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                                    "请先重新填写 AppSecret");
                         }
                     }
                     jdbc.update("""
@@ -2409,7 +2413,7 @@ public class TargetIdentityDirectoryService {
             boolean required) {
         List<MiniappConfigurationMetadata> rows = jdbc.query("""
                         SELECT id, tenant_id, organization_id, appid,
-                               display_name, login_enabled, secret_ref,
+                               display_name, login_enabled, app_secret,
                                activated_at, lock_version, configured_at,
                                updated_at
                         FROM iam_organization_miniapp
@@ -2424,7 +2428,7 @@ public class TargetIdentityDirectoryService {
                         rs.getString("appid"),
                         rs.getString("display_name"),
                         rs.getBoolean("login_enabled"),
-                        rs.getString("secret_ref"),
+                        rs.getString("app_secret"),
                         nullableInstant(rs, "activated_at"),
                         rs.getLong("lock_version"),
                         instant(rs, "configured_at"),

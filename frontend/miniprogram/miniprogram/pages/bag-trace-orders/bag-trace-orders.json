@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "周期投递",
+  "navigationBarBackgroundColor": "#ffffff",
+  "navigationBarTextStyle": "black",
+  "enablePullDownRefresh": true
+}

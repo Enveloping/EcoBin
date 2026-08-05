@@ -1,4 +1,7 @@
-import request, { type ApiRequestConfig } from './request';
+import request, {
+  requestAccepted,
+  type ApiRequestConfig,
+} from './request';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -50,6 +53,9 @@ function fingerprint(config: ApiRequestConfig): string {
 export interface CommandIntent {
   readonly idempotencyKey: string;
   execute<T, D = unknown>(config: ApiRequestConfig<D>): Promise<T>;
+  executeAccepted<T extends { statusUrl: string }, D = unknown>(
+    config: ApiRequestConfig<D>,
+  ): Promise<T>;
 }
 
 /** Create once on the first click; reuse this object for every retry of that intent. */
@@ -60,15 +66,24 @@ export function createCommandIntent(
     throw new TypeError('idempotencyKey must be a UUIDv4');
   }
   let firstFingerprint: string | null = null;
+  const bind = (config: ApiRequestConfig): ApiRequestConfig => {
+    const current = fingerprint(config);
+    if (firstFingerprint !== null && firstFingerprint !== current) {
+      throw new ClientIntentConflictError();
+    }
+    firstFingerprint = current;
+    return { ...config, idempotencyKey };
+  };
   return {
     idempotencyKey,
     async execute<T, D = unknown>(config: ApiRequestConfig<D>): Promise<T> {
-      const current = fingerprint(config);
-      if (firstFingerprint !== null && firstFingerprint !== current) {
-        throw new ClientIntentConflictError();
-      }
-      firstFingerprint = current;
-      return request<T, D>({ ...config, idempotencyKey });
+      return request<T, D>(bind(config) as ApiRequestConfig<D>);
+    },
+    async executeAccepted<
+      T extends { statusUrl: string },
+      D = unknown,
+    >(config: ApiRequestConfig<D>): Promise<T> {
+      return requestAccepted<T, D>(bind(config) as ApiRequestConfig<D>);
     },
   };
 }

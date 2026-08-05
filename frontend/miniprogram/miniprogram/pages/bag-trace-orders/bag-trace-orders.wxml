@@ -1,0 +1,47 @@
+<view class="page">
+  <view class="intro">
+    <text class="intro-title">本次装袋期间的已完成投递</text>
+    <text class="intro-copy">点击订单查看投递前后照片；使用中的袋子也可以随时查询。</text>
+  </view>
+
+  <view wx:if="{{errorMessage}}" class="state-card">
+    <text>{{errorMessage}}</text>
+    <view class="action" bindtap="reload">重新加载</view>
+  </view>
+
+  <view wx:elif="{{orders.length}}" class="list">
+    <view
+      class="order-card"
+      wx:for="{{orders}}"
+      wx:key="deliveryOrderNo"
+      data-order-no="{{item.deliveryOrderNo}}"
+      bindtap="onOrderTap"
+      hover-class="card--pressed"
+    >
+      <view class="order-head">
+        <view class="user">
+          <text class="user-name">{{item.user.nickname}}</text>
+          <text class="user-phone">{{item.user.maskedPhoneNumber || '未绑定手机号'}}</text>
+        </view>
+        <text class="review review-{{item.reviewStatus}}">{{item.reviewText}}</text>
+      </view>
+      <view class="order-result">
+        <text class="weight">{{item.weightText}}</text>
+        <text>{{item.timeText}}</text>
+      </view>
+      <view wx:if="{{item.reason}}" class="reason">{{item.reason}}</view>
+      <view class="order-foot">
+        <text>{{item.photoCompleteness === 'COMPLETE' ? '照片完整' : '照片不完整'}}</text>
+        <text class="order-no">{{item.deliveryOrderNo}}</text>
+        <t-icon name="chevron-right" size="28rpx" color="#9aa19b" />
+      </view>
+    </view>
+  </view>
+
+  <view wx:elif="{{!loading}}" class="state-card">
+    <text>这个周期暂时没有已完成的投递订单</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="list-foot">正在加载…</view>
+  <view wx:elif="{{nextCursor}}" class="list-foot list-action" bindtap="loadMore">加载更多</view>
+</view>

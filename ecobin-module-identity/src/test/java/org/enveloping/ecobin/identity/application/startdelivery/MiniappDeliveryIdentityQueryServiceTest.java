@@ -129,7 +129,6 @@ class MiniappDeliveryIdentityQueryServiceTest {
                 "试点回收站",
                 33,
                 "wx-pilot-app",
-                "local:pilot-secret",
                 44,
                 null,
                 UUID.randomUUID(),

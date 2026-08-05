@@ -31,13 +31,27 @@ class WechatPayPropertiesTest {
         assertFalse(properties.isConfigured());
     }
 
+    @Test
+    void realConfigurationRequiresAWechatPayPublicKeyId() {
+        WechatPayProperties properties = completeProperties();
+        properties.setNotifyBaseUrl("https://pay-notify.ecobin.cn");
+
+        properties.setPublicKeyId("certificate-serial");
+        assertFalse(properties.isConfigured());
+        properties.setPublicKeyId(
+                "PUB_KEY_ID_0116571234562024052000123400000000");
+        assertTrue(properties.isConfigured());
+    }
+
     private static WechatPayProperties completeProperties() {
         WechatPayProperties properties = new WechatPayProperties();
         properties.setMchid("1900000109");
         properties.setMerchantSerialNumber("SERIAL");
         properties.setMerchantPrivateKeyPath("/run/secrets/apiclient_key.pem");
         properties.setApiV3Key("0123456789abcdef0123456789abcdef");
-        properties.setPlatformCertificatePath("/run/secrets/platform.pem");
+        properties.setPublicKeyId(
+                "PUB_KEY_ID_0116571234562024052000123400000000");
+        properties.setPublicKeyPath("/run/secrets/pub_key.pem");
         return properties;
     }
 }

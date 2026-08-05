@@ -1,18 +1,13 @@
 ---
 task_id: V-11
 title: 告警、审计、对账与一致概览
-status: blocked
+status: in_progress
 executor: agent
 owner: "unassigned — backend/operations vertical-slice owner"
 effort_range: "6-10 person-days"
 earliest_start: "after F-08, V-04, V-07, V-08 and V-10 are done, and explicit implementation authorization"
-blocked_by:
-  - F-08
-  - V-04
-  - V-07
-  - V-08
-  - V-10
-implementation_authorized: false
+blocked_by: []
+implementation_authorized: true
 ---
 
 # V-11｜告警、审计、对账与一致概览
@@ -48,14 +43,14 @@ implementation_authorized: false
 - [ ] 投递订单数按已形成订单的 session 计数，不把设备本地继续轮次当作订单或经营流量。
 - [ ] 没有累计统计表、余额缓存或 operations 私表形成第二套经营真相。
 
-## 阻塞与最早开始
+## 依赖与当前实施边界
 
 - [F-08](f-08-inbox-reliable-task-tracer.md) 提供可靠任务和 attempt 基础。
 - [V-04](v-04-real-delivery-pending-review.md)、[V-07](v-07-real-cleaning-bag-swap.md) 和
   [V-08](v-08-fullness-baseline-precise-recovery.md) 提供真实设备与回收异常来源。
 - [V-10](v-10-manual-withdrawal-software-loop.md) 提供完整资金状态、闸门和对账对象。
-- 全部依赖为 `done` 且获得明确实施授权后，任务才可开始。
-- 完成后为 H-06 提供治理、对账和概览证据。
+- 2026-08-05 已获得明确实施授权，当前不再因这些前置任务阻塞。
+- I-039 每日资金对账由产品决定暂缓；它以及客户端页面仍是 V-11 后续工作，当前后端子集为 H-06 提供治理和概览证据，但不能提供完整对账验收证据。
 
 ## 排除范围
 
@@ -77,3 +72,4 @@ implementation_authorized: false
 
 - 2026-07-23：正式任务发布；权威业务来源尚未完成，保持 `blocked`；尚未授权实施。
 - 2026-07-24：同步 session 订单统计口径；依赖及授权状态不变。
+- 2026-08-05：获得明确实施授权并完成本轮后端子集：可靠任务/attempt/隔离项查询与精确处置、审计查询、告警查询/确认及来源投影、最长 31 个北京时间业务日的跨模块概览、工作人员小程序只读入口、OpenAPI 与生成类型。I-039 每日资金对账由产品明确暂缓；Web/小程序页面和对账调度/查询/处置不在本轮，因此 V-11 仍保持 `in_progress`，不能标记为整体完成。

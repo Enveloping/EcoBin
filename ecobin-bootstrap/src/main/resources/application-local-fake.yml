@@ -25,7 +25,8 @@ ecobin:
       merchant-serial-number: ""
       merchant-private-key-path: ""
       api-v3-key: ""
-      platform-certificate-path: ""
+      public-key-id: ""
+      public-key-path: ""
 
 onenet:
   subscription:
@@ -42,8 +43,3 @@ cos:
   region: ""
   bucket-name: ""
   base-url: ""
-
-wechat:
-  miniapp:
-    appid: ""
-    secret: ""

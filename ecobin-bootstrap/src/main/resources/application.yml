@@ -23,12 +23,6 @@ spring:
 jwt:
   secret: ${jwtSecret}
 
-# 微信小程序配置（请替换为真实值）
-wechat:
-  miniapp:
-    appid: ${wechatAppid:}
-    secret: ${wechatSecret:}
-
 # 中国移动 OneNet 物联网平台
 onenet:
   # 上行（北向 MQ 服务端订阅消费）：凭证由本地 YAML 或生产 secret 注入
@@ -54,12 +48,6 @@ cos:
 
 # 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
 ecobin:
-  identity:
-    # 机构小程序 AppSecret 的本地版本库；数据库只保存版本引用。
-    # 生产可以用同一端口替换为托管秘密设施。
-    miniapp-secret-store:
-      directory: ${miniappSecretStoreDirectory:./.ecobin/miniapp-secrets}
-
   observability:
     # 所有环境记录请求到达、响应状态和耗时；生产默认不记录请求体。
     http-request-logging:
@@ -165,7 +153,8 @@ ecobin:
       merchant-serial-number: ${wechatPayMerchantSerialNumber:}
       merchant-private-key-path: ${wechatPayMerchantPrivateKeyPath:}
       api-v3-key: ${wechatPayApiV3Key:}
-      platform-certificate-path: ${wechatPayPlatformCertificatePath:}
+      public-key-id: ${wechatPayPublicKeyId:}
+      public-key-path: ${wechatPayPublicKeyPath:}
       notify-base-url: ${wechatPayNotifyBaseUrl:https://fake.invalid}
       transfer-scene-id: ${wechatPayTransferSceneId:1010}
       connect-timeout-millis: 5000

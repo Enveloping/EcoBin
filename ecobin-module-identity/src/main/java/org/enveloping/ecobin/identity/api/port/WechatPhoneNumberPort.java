@@ -4,8 +4,8 @@ import org.enveloping.ecobin.identity.api.result.WechatPhoneNumber;
 
 public interface WechatPhoneNumberPort {
 
-    WechatPhoneNumber exchangePhoneNumberByCredentialReference(
+    WechatPhoneNumber exchangePhoneNumber(
             String appid,
-            String secretReference,
+            String appSecret,
             String phoneCode);
 }

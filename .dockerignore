@@ -21,6 +21,7 @@ hardware/
 frontend/
 test_report/
 docs/
+release-output/
 
 # 杂项
 *.zip
