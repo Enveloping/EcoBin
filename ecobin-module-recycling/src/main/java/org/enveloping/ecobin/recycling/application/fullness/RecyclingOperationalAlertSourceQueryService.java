@@ -20,6 +20,23 @@ import java.util.UUID;
 public class RecyclingOperationalAlertSourceQueryService
         implements RecyclingOperationalAlertSourcePort {
 
+    static final String LOAD_PORT_FULLNESS_ALERT_FACTS_SQL = """
+            SELECT capacity.tenant_id, capacity.organization_id,
+                   capacity.port_id,
+                   capacity.confirmed_fullness_state,
+                   state_change.state_change_uid,
+                   COALESCE(capacity.last_fullness_reported_at,
+                            capacity.updated_at) AS effective_observed_at
+            FROM rec_port_capacity_state capacity
+            LEFT JOIN rec_fullness_state_change state_change
+              ON state_change.tenant_id = capacity.tenant_id
+             AND state_change.organization_id = capacity.organization_id
+             AND state_change.id =
+                 capacity.current_fullness_state_change_id
+            WHERE capacity.confirmed_fullness_state IN ('FULL', 'NOT_FULL')
+            ORDER BY capacity.port_id
+            """;
+
     private final JdbcTemplate jdbc;
     private final RecyclingOwnedPortFullnessAlertScopeRefFactory refs;
     private final RecyclingDeviceRelationQueryPort deviceFacts;
@@ -36,22 +53,8 @@ public class RecyclingOperationalAlertSourceQueryService
     @Override
     @Transactional(readOnly = true)
     public List<PortFullnessAlertFact> loadPortFullnessAlertFacts() {
-        List<Row> rows = jdbc.query("""
-                SELECT capacity.tenant_id, capacity.organization_id,
-                       capacity.port_id,
-                       capacity.confirmed_fullness_state,
-                       state_change.state_change_uid,
-                       COALESCE(capacity.last_fullness_reported_at,
-                                capacity.updated_at) AS effective_observed_at
-                FROM rec_port_capacity_state capacity
-                LEFT JOIN rec_fullness_state_change state_change
-                  ON state_change.tenant_id = capacity.tenant_id
-                 AND state_change.organization_id = capacity.organization_id
-                 AND state_change.id =
-                     capacity.current_fullness_state_change_id
-                WHERE capacity.confirmed_fullness_state IN ('FULL', 'NOT_FULL')
-                ORDER BY capacity.id
-                """, (rs, ignored) -> new Row(
+        List<Row> rows = jdbc.query(
+                LOAD_PORT_FULLNESS_ALERT_FACTS_SQL, (rs, ignored) -> new Row(
                 UUID.randomUUID(),
                 rs.getLong("tenant_id"),
                 rs.getLong("organization_id"),
