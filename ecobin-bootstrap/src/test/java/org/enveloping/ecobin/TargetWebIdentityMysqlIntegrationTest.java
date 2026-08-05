@@ -2585,6 +2585,166 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void merchantBindingWritesObjectAuditAndSupportsReverification()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("binding-t");
+        String organizationCode = code("binding-o");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform,
+                tenantCode,
+                organizationCode,
+                "Merchant binding organization");
+        String base = "/api/v1/web/platform/tenants/" + tenantCode
+                + "/organizations/" + organizationCode;
+        String appId = "wx" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 16);
+        write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                UUID.randomUUID(),
+                Map.of(
+                        "appId", appId,
+                        "displayName", "Binding miniapp",
+                        "appSecret", "fake-binding-app-secret-" + run),
+                200);
+        write(
+                platform,
+                post(base + "/miniapp-configuration/activations"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 0),
+                200);
+        write(
+                platform,
+                post(base + "/miniapp-login/enablements"),
+                UUID.randomUUID(),
+                Map.of("expectedVersion", 1),
+                200);
+
+        UUID nonVersionFourUid = UUID.fromString(
+                "00000000-0000-1000-8000-000000000000");
+        MvcResult invalidIdempotencyKey = write(
+                platform,
+                post(base + "/wechat-merchant-binding/verifications"),
+                nonVersionFourUid,
+                Map.of(
+                        "expectedMiniappVersion", 2,
+                        "note", "不应进入数据库约束"),
+                400);
+        assertEquals(
+                "COMMON.VALIDATION_FAILED",
+                json(invalidIdempotencyKey).path("code").asText());
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM fund_miniapp_merchant_binding b
+                JOIN iam_tenant t ON t.id = b.tenant_id
+                JOIN iam_organization o
+                  ON o.tenant_id = b.tenant_id
+                 AND o.id = b.organization_id
+                WHERE t.tenant_code = ?
+                  AND o.organization_code = ?
+                """, Integer.class, tenantCode, organizationCode));
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_audit_log
+                WHERE operation_uid = ?
+                """, Integer.class, nonVersionFourUid.toString()));
+
+        UUID verifyOperationUid = UUID.randomUUID();
+        Map<String, Object> verifyRequest = Map.of(
+                "expectedMiniappVersion", 2,
+                "note", "已在微信商户平台核查");
+        JsonNode verified = data(write(
+                platform,
+                post(base + "/wechat-merchant-binding/verifications"),
+                verifyOperationUid,
+                verifyRequest,
+                200));
+        assertEquals("VERIFIED", verified.path("status").asText());
+        assertEquals(0, verified.path("bindingVersion").asLong());
+        assertEquals(verified, data(write(
+                platform,
+                post(base + "/wechat-merchant-binding/verifications"),
+                verifyOperationUid,
+                verifyRequest,
+                200)));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_audit_log
+                WHERE succeeded_operation_uid = ?
+                """, Integer.class, verifyOperationUid.toString()));
+        MvcResult changedVerifyReplay = write(
+                platform,
+                post(base + "/wechat-merchant-binding/verifications"),
+                verifyOperationUid,
+                Map.of(
+                        "expectedMiniappVersion", 2,
+                        "note", "相同键但不同请求"),
+                409);
+        assertEquals(
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                json(changedVerifyReplay).path("code").asText());
+        assertObjectAuditSummary(
+                verifyOperationUid,
+                "wechat-merchant-binding.verify",
+                "VERIFIED");
+
+        Map<String, Object> immutableVerificationEvidence =
+                merchantBindingVerificationEvidence(
+                        tenantCode, organizationCode);
+        Thread.sleep(10L);
+
+        UUID reverifyOperationUid = UUID.randomUUID();
+        Map<String, Object> reverifyRequest = Map.of(
+                "expectedMiniappVersion", 2,
+                "expectedBindingVersion", 0,
+                "note", "再次核对外部绑定事实");
+        JsonNode reverified = data(write(
+                platform,
+                post(base + "/wechat-merchant-binding/verifications"),
+                reverifyOperationUid,
+                reverifyRequest,
+                200));
+        assertEquals("VERIFIED", reverified.path("status").asText());
+        assertEquals(1, reverified.path("bindingVersion").asLong());
+        assertEquals(immutableVerificationEvidence,
+                merchantBindingVerificationEvidence(
+                        tenantCode, organizationCode));
+        assertEquals(reverified, data(write(
+                platform,
+                post(base + "/wechat-merchant-binding/verifications"),
+                reverifyOperationUid,
+                reverifyRequest,
+                200)));
+        assertObjectAuditSummary(
+                reverifyOperationUid,
+                "wechat-merchant-binding.verify",
+                "VERIFIED");
+
+        UUID disableOperationUid = UUID.randomUUID();
+        Map<String, Object> disableRequest = Map.of(
+                "expectedBindingVersion", 1,
+                "reason", "回归测试禁用");
+        JsonNode disabled = data(write(
+                platform,
+                post(base + "/wechat-merchant-binding/disablements"),
+                disableOperationUid,
+                disableRequest,
+                200));
+        assertEquals("DISABLED", disabled.path("status").asText());
+        assertEquals(2, disabled.path("bindingVersion").asLong());
+        assertEquals(disabled, data(write(
+                platform,
+                post(base + "/wechat-merchant-binding/disablements"),
+                disableOperationUid,
+                disableRequest,
+                200)));
+        assertObjectAuditSummary(
+                disableOperationUid,
+                "wechat-merchant-binding.disable",
+                "DISABLED");
+    }
+
+    @Test
     void organizationMiniappConfigurationControlsAppIdAndLiveLoginSessions()
             throws Exception {
         BrowserClient platform = platformClient();
@@ -2774,6 +2934,50 @@ class TargetWebIdentityMysqlIntegrationTest {
                 PLATFORM_PASSWORD,
                 201);
         return platform;
+    }
+
+    private void assertObjectAuditSummary(
+            UUID operationUid,
+            String actionCode,
+            String bindingStatus) {
+        Map<String, Object> auditRow = jdbc.queryForMap("""
+                SELECT JSON_TYPE(safe_change_summary) AS summary_type,
+                       action_code,
+                       JSON_TYPE(JSON_EXTRACT(
+                           safe_change_summary, '$.response')) AS response_type,
+                       CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(
+                           safe_change_summary, '$.fingerprint'))) AS fingerprint_length,
+                       JSON_UNQUOTE(JSON_EXTRACT(
+                           safe_change_summary, '$.bindingStatus'))
+                           AS binding_status
+                FROM ops_audit_log
+                WHERE succeeded_operation_uid = ?
+                """, operationUid.toString());
+        assertEquals("OBJECT", auditRow.get("summary_type"));
+        assertEquals(actionCode, auditRow.get("action_code"));
+        assertEquals("OBJECT", auditRow.get("response_type"));
+        assertEquals(64L,
+                ((Number) auditRow.get("fingerprint_length")).longValue());
+        assertEquals(bindingStatus, auditRow.get("binding_status"));
+    }
+
+    private Map<String, Object> merchantBindingVerificationEvidence(
+            String tenantCode,
+            String organizationCode) {
+        return jdbc.queryForMap("""
+                SELECT b.organization_miniapp_id, b.appid,
+                       b.miniapp_lock_version_snapshot,
+                       b.merchant_profile_id,
+                       b.verified_by_platform_admin_id,
+                       b.verified_at, b.created_at
+                FROM fund_miniapp_merchant_binding b
+                JOIN iam_tenant t ON t.id = b.tenant_id
+                JOIN iam_organization o
+                  ON o.tenant_id = b.tenant_id
+                 AND o.id = b.organization_id
+                WHERE t.tenant_code = ?
+                  AND o.organization_code = ?
+                """, tenantCode, organizationCode);
     }
 
     private JsonNode createTenant(

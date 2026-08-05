@@ -4,6 +4,7 @@ import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
+import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService.WebScope;
@@ -14,27 +15,45 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class MerchantBindingApplicationService {
 
+    private static final String VERIFY_ACTION =
+            "wechat-merchant-binding.verify";
+    private static final String DISABLE_ACTION =
+            "wechat-merchant-binding.disable";
+    private static final String TARGET_TYPE =
+            "WECHAT_MERCHANT_BINDING";
+
     private final JdbcTemplate jdbc;
     private final FundsAccessService access;
     private final AuditPort audit;
+    private final ObjectMapper objectMapper;
 
     public MerchantBindingApplicationService(
             JdbcTemplate jdbc,
             FundsAccessService access,
-            AuditPort audit) {
+            AuditPort audit,
+            ObjectMapper objectMapper) {
         this.jdbc = jdbc;
         this.access = access;
         this.audit = audit;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
@@ -50,11 +69,19 @@ public class MerchantBindingApplicationService {
             String organizationCode,
             UUID operationUid,
             VerifyMerchantBindingRequest request) {
+        requireUuidV4(operationUid);
+        WebScope scope = scope(tenantCode, organizationCode);
+        Miniapp miniapp = requiredMiniapp(scope, true);
+        String fingerprint = verifyFingerprint(scope, request);
+        Optional<SuccessfulAudit> previous =
+                audit.findSuccessful(operationUid);
+        if (previous.isPresent()) {
+            return replay(previous.orElseThrow(), scope,
+                    VERIFY_ACTION, fingerprint);
+        }
         if (request == null || request.expectedMiniappVersion() == null) {
             throw validation("expectedMiniappVersion 必须提供");
         }
-        WebScope scope = scope(tenantCode, organizationCode);
-        Miniapp miniapp = requiredMiniapp(scope, true);
         if (miniapp.version() != request.expectedMiniappVersion()) {
             throw versionConflict("机构小程序配置已变化，请刷新后重新核查");
         }
@@ -88,23 +115,22 @@ public class MerchantBindingApplicationService {
                     miniapp.version(), merchant.id(), scope.platformAdminId(),
                     now, now, now);
         } else {
+            requireSameBindingIdentity(current, miniapp, merchant);
             int updated = jdbc.update("""
                     UPDATE fund_miniapp_merchant_binding
-                    SET organization_miniapp_id = ?, appid = ?,
-                        miniapp_lock_version_snapshot = ?,
-                        merchant_profile_id = ?, status = 'VERIFIED',
-                        verified_by_platform_admin_id = ?, verified_at = ?,
-                        disabled_at = NULL, lock_version = lock_version + 1,
+                    SET status = 'VERIFIED', disabled_at = NULL,
+                        lock_version = lock_version + 1,
                         updated_at = ?
                     WHERE id = ? AND lock_version = ?
-                    """, miniapp.id(), miniapp.appid(), miniapp.version(),
-                    merchant.id(), scope.platformAdminId(), now, now,
-                    current.id(), current.version());
+                    """, now, current.id(), current.version());
             if (updated != 1) throw versionConflict("商户绑定版本冲突");
         }
-        appendAudit(scope, operationUid, "wechat-merchant-binding.verify",
-                request.note(), "已核查机构 AppID 与系统微信商户号的外部绑定关系");
-        return view(miniapp, binding(scope, false));
+        MerchantBindingView response = view(
+                miniapp, binding(scope, false));
+        appendAudit(scope, operationUid, VERIFY_ACTION,
+                request.note(), fingerprint, response, "VERIFIED",
+                "已核查机构 AppID 与系统微信商户号的外部绑定关系");
+        return response;
     }
 
     @Transactional
@@ -113,11 +139,19 @@ public class MerchantBindingApplicationService {
             String organizationCode,
             UUID operationUid,
             DisableMerchantBindingRequest request) {
+        requireUuidV4(operationUid);
+        WebScope scope = scope(tenantCode, organizationCode);
+        Miniapp miniapp = requiredMiniapp(scope, true);
+        String fingerprint = disableFingerprint(scope, request);
+        Optional<SuccessfulAudit> previous =
+                audit.findSuccessful(operationUid);
+        if (previous.isPresent()) {
+            return replay(previous.orElseThrow(), scope,
+                    DISABLE_ACTION, fingerprint);
+        }
         if (request == null || request.expectedBindingVersion() == null) {
             throw validation("expectedBindingVersion 必须提供");
         }
-        WebScope scope = scope(tenantCode, organizationCode);
-        Miniapp miniapp = requiredMiniapp(scope, true);
         Binding current = binding(scope, true);
         if (current == null) throw notFound("机构尚未建立微信商户绑定");
         if (current.version() != request.expectedBindingVersion()) {
@@ -136,9 +170,12 @@ public class MerchantBindingApplicationService {
                 WHERE id = ? AND lock_version = ? AND status = 'VERIFIED'
                 """, now, now, current.id(), current.version());
         if (updated != 1) throw versionConflict("商户绑定版本冲突");
-        appendAudit(scope, operationUid, "wechat-merchant-binding.disable",
-                request.reason(), "已禁用机构 AppID 与系统微信商户号的本地就绪事实");
-        return view(miniapp, binding(scope, false));
+        MerchantBindingView response = view(
+                miniapp, binding(scope, false));
+        appendAudit(scope, operationUid, DISABLE_ACTION,
+                request.reason(), fingerprint, response, "DISABLED",
+                "已禁用机构 AppID 与系统微信商户号的本地就绪事实");
+        return response;
     }
 
     private WebScope scope(String tenantCode, String organizationCode) {
@@ -164,15 +201,20 @@ public class MerchantBindingApplicationService {
 
     private Binding binding(WebScope scope, boolean lock) {
         List<Binding> rows = jdbc.query("""
-                SELECT b.id, b.status, b.appid, b.miniapp_lock_version_snapshot,
-                       b.lock_version, b.verified_at, b.disabled_at, m.mchid
+                SELECT b.id, b.organization_miniapp_id,
+                       b.merchant_profile_id, b.status, b.appid,
+                       b.miniapp_lock_version_snapshot, b.lock_version,
+                       b.verified_at, b.disabled_at, m.mchid
                 FROM fund_miniapp_merchant_binding b
                 JOIN fund_wechat_merchant_profile m
                   ON m.id = b.merchant_profile_id
                 WHERE b.tenant_id = ? AND b.organization_id = ?
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new Binding(
-                        rs.getLong("id"), rs.getString("status"),
+                        rs.getLong("id"),
+                        rs.getLong("organization_miniapp_id"),
+                        rs.getLong("merchant_profile_id"),
+                        rs.getString("status"),
                         rs.getString("appid"),
                         rs.getLong("miniapp_lock_version_snapshot"),
                         rs.getLong("lock_version"), rs.getString("mchid"),
@@ -224,7 +266,10 @@ public class MerchantBindingApplicationService {
             UUID operationUid,
             String action,
             String reason,
-            String summary) {
+            String fingerprint,
+            MerchantBindingView response,
+            String bindingStatus,
+            String description) {
         try {
             audit.append(new AuditEntry(
                     UUID.randomUUID(), UUID.randomUUID(), operationUid,
@@ -233,13 +278,130 @@ public class MerchantBindingApplicationService {
                     AuditActorKind.PLATFORM_ADMIN,
                     scope.platformAdminId(), null, null, null,
                     scope.actorDisplayName(), action,
-                    "WECHAT_MERCHANT_BINDING", scope.organizationCode(),
+                    TARGET_TYPE, scope.organizationCode(),
                     "WEB", "SUCCEEDED", scope.sessionUid(), trim(reason, 255),
-                    summary, instant(databaseNow())));
+                    writeJson(new BindingAuditSummary(
+                            fingerprint, response,
+                            bindingStatus, description)),
+                    instant(databaseNow())));
         } catch (DuplicateKeyException duplicate) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private MerchantBindingView replay(
+            SuccessfulAudit previous,
+            WebScope scope,
+            String action,
+            String fingerprint) {
+        JsonNode summary = readJson(previous.safeChangeSummaryJson());
+        if (!operationMatches(previous, scope, action)
+                || !fingerprint.equals(
+                summary.path("fingerprint").asText())) {
+            throw idempotencyConflict();
+        }
+        try {
+            MerchantBindingView response = objectMapper.treeToValue(
+                    summary.path("response"), MerchantBindingView.class);
+            if (response == null || response.status() == null) {
+                throw idempotencyConflict();
+            }
+            return response;
+        } catch (TargetApiException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private static boolean operationMatches(
+            SuccessfulAudit previous,
+            WebScope scope,
+            String action) {
+        return previous.actorKind() == AuditActorKind.PLATFORM_ADMIN
+                && Objects.equals(previous.platformAdminId(),
+                scope.platformAdminId())
+                && previous.scopeKind() == AuditScopeKind.ORGANIZATION
+                && Objects.equals(previous.tenantId(), scope.tenantId())
+                && Objects.equals(
+                previous.organizationId(), scope.organizationId())
+                && action.equals(previous.actionCode())
+                && TARGET_TYPE.equals(previous.targetType())
+                && scope.organizationCode().equals(
+                previous.targetStableKey());
+    }
+
+    private String verifyFingerprint(
+            WebScope scope,
+            VerifyMerchantBindingRequest request) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("expectedMiniappVersion",
+                request == null ? null : request.expectedMiniappVersion());
+        fields.put("expectedBindingVersion",
+                request == null ? null : request.expectedBindingVersion());
+        fields.put("note", request == null ? null : request.note());
+        return fingerprint(scope, VERIFY_ACTION, fields);
+    }
+
+    private String disableFingerprint(
+            WebScope scope,
+            DisableMerchantBindingRequest request) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("expectedBindingVersion",
+                request == null ? null : request.expectedBindingVersion());
+        fields.put("reason", request == null ? null : request.reason());
+        return fingerprint(scope, DISABLE_ACTION, fields);
+    }
+
+    private String fingerprint(
+            WebScope scope,
+            String action,
+            Map<String, Object> fields) {
+        Map<String, Object> canonical = new LinkedHashMap<>();
+        canonical.put("principalUid", scope.actorUid());
+        canonical.put("tenantId", scope.tenantId());
+        canonical.put("organizationId", scope.organizationId());
+        canonical.put("action", action);
+        canonical.put("request", fields);
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256")
+                            .digest(objectMapper.writeValueAsBytes(canonical)));
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "merchant binding fingerprint cannot be encoded",
+                    exception);
+        }
+    }
+
+    private JsonNode readJson(String value) {
+        try {
+            return objectMapper.readTree(value);
+        } catch (Exception exception) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private static void requireSameBindingIdentity(
+            Binding current,
+            Miniapp miniapp,
+            Merchant merchant) {
+        if (current.organizationMiniappId() != miniapp.id()
+                || current.merchantProfileId() != merchant.id()
+                || !Objects.equals(current.appid(), miniapp.appid())) {
             throw new TargetApiException(
-                    409, "REQUEST.IDEMPOTENCY_CONFLICT",
-                    "该操作标识已经用于其他成功请求");
+                    409,
+                    "FUNDS.MERCHANT_BINDING_IDENTITY_CONFLICT",
+                    "当前小程序或商户身份与原核查事实不一致，不能覆盖原绑定证据");
+        }
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "merchant binding audit cannot be encoded", exception);
         }
     }
 
@@ -265,7 +427,23 @@ public class MerchantBindingApplicationService {
     }
 
     private static TargetApiException validation(String message) {
-        return new TargetApiException(400, "VALIDATION.INVALID_ARGUMENT", message);
+        return new TargetApiException(
+                400, "COMMON.VALIDATION_FAILED", message);
+    }
+
+    private static void requireUuidV4(UUID operationUid) {
+        if (operationUid == null
+                || operationUid.version() != 4
+                || operationUid.variant() != 2) {
+            throw validation("Idempotency-Key 必须是 UUIDv4");
+        }
+    }
+
+    private static TargetApiException idempotencyConflict() {
+        return new TargetApiException(
+                409,
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                "该 Idempotency-Key 已用于不同的机构微信商户绑定请求");
     }
 
     private static TargetApiException versionConflict(String message) {
@@ -281,11 +459,25 @@ public class MerchantBindingApplicationService {
     }
 
     private record Binding(
-            long id, String status, String appid, long miniappVersion,
-            long version, String mchid, LocalDateTime verifiedAt,
+            long id,
+            long organizationMiniappId,
+            long merchantProfileId,
+            String status,
+            String appid,
+            long miniappVersion,
+            long version,
+            String mchid,
+            LocalDateTime verifiedAt,
             LocalDateTime disabledAt) {
     }
 
     private record Merchant(long id, String mchid) {
+    }
+
+    private record BindingAuditSummary(
+            String fingerprint,
+            MerchantBindingView response,
+            String bindingStatus,
+            String description) {
     }
 }

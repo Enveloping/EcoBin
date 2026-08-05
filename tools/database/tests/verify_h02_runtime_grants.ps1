@@ -22,4 +22,31 @@ if ($opsAlertColumns -notcontains "source_key") {
     throw "ops_alert.source_key is required by the reliable-task alert projection"
 }
 
+$merchantBindingAllowedColumns = @(
+    "status"
+    "disabled_at"
+    "lock_version"
+    "updated_at"
+)
+$merchantBindingColumns = @(
+    $catalog.UpdateColumns.fund_miniapp_merchant_binding
+)
+$unexpectedMerchantBindingColumns = @(
+    $merchantBindingColumns |
+        Where-Object { $merchantBindingAllowedColumns -notcontains $_ }
+)
+$missingMerchantBindingColumns = @(
+    $merchantBindingAllowedColumns |
+        Where-Object { $merchantBindingColumns -notcontains $_ }
+)
+if ($missingMerchantBindingColumns.Count -ne 0 -or
+        $unexpectedMerchantBindingColumns.Count -ne 0) {
+    throw (
+        "fund_miniapp_merchant_binding runtime UPDATE grants must exactly " +
+        "match the frozen projection columns; missing=" +
+        ($missingMerchantBindingColumns -join ", ") + "; unexpected=" +
+        ($unexpectedMerchantBindingColumns -join ", ")
+    )
+}
+
 Write-Output "h02-runtime-grants-contract=PASS"
