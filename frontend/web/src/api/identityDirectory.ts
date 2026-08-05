@@ -19,6 +19,11 @@ export type BindingSnapshot = Schemas['BindingSnapshot'];
 export type OrganizationUserLookup = Schemas['OrganizationUserLookup'];
 export type StaffMiniappBindingLookup = Schemas['StaffMiniappBindingLookup'];
 export type StaffMiniappBinding = Schemas['StaffMiniappBinding'];
+export type MiniappConfiguration = Schemas['MiniappConfiguration'];
+export type MiniappConfigurationMutation =
+  Schemas['MiniappConfigurationMutation'];
+export type PutMiniappConfigurationRequest =
+  Schemas['PutMiniappConfigurationRequest'];
 
 export interface DirectoryContext {
   domain: WebLoginDomain;
@@ -308,6 +313,84 @@ export function changeOrganizationStatus(
     )}/${enabled ? 'activations' : 'deactivations'}`,
     'POST',
     { expectedVersion: organization.version, reason },
+  );
+}
+
+function organizationMiniappBase(
+  context: DirectoryContext,
+  organizationCode: string,
+): string {
+  return `${scopedBase(context)}/organizations/${encodeURIComponent(
+    organizationCode,
+  )}`;
+}
+
+export function getOrganizationMiniappConfiguration(
+  context: DirectoryContext,
+  organizationCode: string,
+) {
+  return request<MiniappConfiguration>({
+    url: `${organizationMiniappBase(
+      context,
+      organizationCode,
+    )}/miniapp-configuration`,
+    method: 'GET',
+    noStore: true,
+    silent: true,
+  });
+}
+
+export function putOrganizationMiniappConfiguration(
+  context: DirectoryContext,
+  organizationCode: string,
+  data: PutMiniappConfigurationRequest,
+  intent: CommandIntent,
+) {
+  return write<MiniappConfigurationMutation>(
+    intent,
+    `${organizationMiniappBase(
+      context,
+      organizationCode,
+    )}/miniapp-configuration`,
+    'PUT',
+    data,
+  );
+}
+
+export function activateOrganizationMiniappConfiguration(
+  context: DirectoryContext,
+  organizationCode: string,
+  expectedVersion: number,
+  intent: CommandIntent,
+  reason?: string,
+) {
+  return write<MiniappConfigurationMutation>(
+    intent,
+    `${organizationMiniappBase(
+      context,
+      organizationCode,
+    )}/miniapp-configuration/activations`,
+    'POST',
+    { expectedVersion, reason },
+  );
+}
+
+export function changeOrganizationMiniappLogin(
+  context: DirectoryContext,
+  organizationCode: string,
+  enabled: boolean,
+  expectedVersion: number,
+  intent: CommandIntent,
+  reason?: string,
+) {
+  return write<MiniappConfigurationMutation>(
+    intent,
+    `${organizationMiniappBase(
+      context,
+      organizationCode,
+    )}/miniapp-login/${enabled ? 'enablements' : 'disablements'}`,
+    'POST',
+    { expectedVersion, reason },
   );
 }
 

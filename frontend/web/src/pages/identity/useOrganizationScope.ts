@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { listAllOrganizations } from '@/api/identityDirectory';
+import { useAuthStore } from '@/stores/authStore';
 import type { DirectoryScope } from './useDirectoryScope';
 
 const ORGANIZATION_QUERY_KEY = 'organization';
@@ -19,6 +20,9 @@ export interface OrganizationScope {
 export function useOrganizationScope(
   directoryScope: DirectoryScope,
 ): OrganizationScope {
+  const sessionOrganizations = useAuthStore(
+    (state) => state.session?.organizations ?? [],
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedOrganization =
     searchParams.get(ORGANIZATION_QUERY_KEY)?.trim() || undefined;
@@ -47,6 +51,18 @@ export function useOrganizationScope(
       setLoading(false);
       return;
     }
+    if (!directoryScope.platform && sessionOrganizations.length) {
+      setOrganizationOptions(
+        sessionOrganizations.map((organization) => ({
+          label:
+            `${organization.organizationName} · `
+            + organization.organizationCode,
+          value: organization.organizationCode,
+        })),
+      );
+      setLoading(false);
+      return;
+    }
     let active = true;
     setLoading(true);
     listAllOrganizations(directoryScope.context)
@@ -70,7 +86,11 @@ export function useOrganizationScope(
     return () => {
       active = false;
     };
-  }, [directoryScope.context]);
+  }, [
+    directoryScope.context,
+    directoryScope.platform,
+    sessionOrganizations,
+  ]);
 
   useEffect(() => {
     if (loading || !organizationOptions.length) return;

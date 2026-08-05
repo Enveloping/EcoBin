@@ -1,0 +1,25 @@
+.page { min-height: 100vh; padding: 28rpx 28rpx calc(52rpx + env(safe-area-inset-bottom)); box-sizing: border-box; background: #f3f7f4; }
+.intro, .order-card, .state-card { background: #fff; border-radius: 24rpx; box-shadow: 0 10rpx 28rpx rgba(34, 66, 40, .065); }
+.intro { display: flex; flex-direction: column; gap: 10rpx; padding: 26rpx; }
+.intro-title { color: #19251c; font-size: 28rpx; font-weight: 720; }
+.intro-copy { color: #7c857d; font-size: 21rpx; line-height: 1.55; }
+.list { display: flex; flex-direction: column; gap: 18rpx; margin-top: 20rpx; }
+.order-card { padding: 25rpx; }
+.order-head, .order-result, .order-foot { display: flex; align-items: center; }
+.order-head { justify-content: space-between; gap: 20rpx; }
+.user { display: flex; min-width: 0; flex-direction: column; gap: 5rpx; }
+.user-name { color: #1b271e; font-size: 27rpx; font-weight: 700; }
+.user-phone { color: #8a928b; font-size: 20rpx; }
+.review { padding: 7rpx 13rpx; font-size: 19rpx; border-radius: 999rpx; }
+.review-APPROVED { color: #108526; background: #e8f7eb; }
+.review-PENDING { color: #b36b08; background: #fff1dc; }
+.order-result { justify-content: space-between; gap: 18rpx; margin-top: 20rpx; color: #7b847c; font-size: 21rpx; }
+.weight { color: #263229; font-size: 29rpx; font-weight: 720; }
+.reason { margin-top: 18rpx; padding: 17rpx; color: #515d53; font-size: 21rpx; line-height: 1.55; background: #f5f7f4; border-radius: 14rpx; }
+.order-foot { gap: 14rpx; margin-top: 20rpx; padding-top: 17rpx; color: #79827a; font-size: 19rpx; border-top: 1rpx solid #edf0ed; }
+.order-no { min-width: 0; flex: 1; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.state-card { display: flex; align-items: center; flex-direction: column; gap: 22rpx; margin-top: 20rpx; padding: 64rpx 30rpx; color: #687169; font-size: 23rpx; text-align: center; }
+.action { padding: 14rpx 27rpx; color: #fff; background: #10a625; border-radius: 999rpx; }
+.list-foot { padding: 28rpx 0 8rpx; color: #929a93; font-size: 21rpx; text-align: center; }
+.list-action { color: #4f45aa; }
+.card--pressed { opacity: .76; }

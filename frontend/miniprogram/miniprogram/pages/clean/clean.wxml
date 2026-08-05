@@ -87,5 +87,17 @@
       </view>
       <view class="function-label">清运记录</view>
     </view>
+
+    <view
+      class="function-item"
+      data-filter="BAG_TRACE"
+      bindtap="onCardTap"
+      hover-class="function-item--pressed"
+    >
+      <view class="function-tile tone-trace">
+        <t-icon name="scan" size="76rpx" color="#ffffff" />
+      </view>
+      <view class="function-label">袋码溯源</view>
+    </view>
   </view>
 </view>

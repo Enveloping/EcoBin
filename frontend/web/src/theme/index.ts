@@ -1,4 +1,4 @@
-import type { ThemeConfig } from 'antd';
+import { theme as antdTheme, type ThemeConfig } from 'antd';
 
 /** Calm enterprise palette: one green accent, cool neutral surfaces. */
 export const palette = {
@@ -28,6 +28,7 @@ export const alpha = (rgb: string, opacity: number) =>
   `rgba(${rgb}, ${opacity})`;
 
 export const lightTheme: ThemeConfig = {
+  algorithm: antdTheme.compactAlgorithm,
   token: {
     colorPrimary: palette.primary,
     colorPrimaryHover: palette.primaryHover,
@@ -46,7 +47,7 @@ export const lightTheme: ThemeConfig = {
     colorBorderSecondary: palette.border,
     borderRadius: 6,
     borderRadiusLG: 10,
-    controlHeight: 36,
+    controlHeight: 35,
     fontSize: 14,
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif',
@@ -74,8 +75,8 @@ export const lightTheme: ThemeConfig = {
       headerSplitColor: 'transparent',
       borderColor: palette.border,
       rowHoverBg: '#F3F8F7',
-      cellPaddingBlock: 13,
-      cellPaddingInline: 16,
+      cellPaddingBlock: 11,
+      cellPaddingInline: 13,
       headerSortHoverBg: '#E8EEF2',
     },
     Tag: {

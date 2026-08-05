@@ -68,6 +68,10 @@
         <text>首次审核时间</text>
         <text class="info-value">{{approvedAtText}}</text>
       </view>
+      <view wx:if="{{reason}}" class="reason-block">
+        <text class="reason-label">审核说明</text>
+        <text class="reason-text">{{reason}}</text>
+      </view>
     </view>
 
     <view wx:if="{{anomalies.length}}" class="info-card">

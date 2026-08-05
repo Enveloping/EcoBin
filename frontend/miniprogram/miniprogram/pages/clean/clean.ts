@@ -41,6 +41,10 @@ Page({
       wx.navigateTo({ url: '/pages/clean-records/clean-records' })
       return
     }
+    if (filter === 'BAG_TRACE') {
+      wx.navigateTo({ url: '/pages/bag-trace/bag-trace?scan=1' })
+      return
+    }
     if (!isDeviceFilter(filter)) return
 
     wx.navigateTo({

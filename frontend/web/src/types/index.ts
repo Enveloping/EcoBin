@@ -9,7 +9,7 @@ type Schemas = components['schemas'];
  */
 export type LoginResponse = Schemas['WebSession'];
 export type WebAccountType = LoginResponse['accountType'];
-export type OrganizationSummary = Schemas['OrganizationSummary'];
+export type OrganizationSummary = LoginResponse['organizations'][number];
 export type DirectoryStatus = Schemas['DirectoryStatus'];
 export type PrincipalAccountSummary = Schemas['PrincipalAccountSummary'];
 export type IdentityTenant = Schemas['IdentityTenant'];

@@ -282,6 +282,63 @@ export interface MiniappDeliveryReviewProjection {
   finalWeightKg: string | null
   finalAmountYuan: string | null
   firstApprovedAt: string | null
+  /** 当前审核或纠正说明；会向订单所属用户展示。 */
+  reason: string | null
+}
+
+export interface BagUseCycleItem {
+  cycleUid: string
+  status: 'ACTIVE' | 'CLOSED'
+  startBasis: 'INITIAL_INSTALLED' | 'CLEAN_COMPLETE' | 'LEGACY_BACKFILL'
+  deploymentCode: string
+  portNo: number
+  installedAt: string
+  removedAt: string | null
+  deliveryOrderCount: number
+}
+
+export interface BagUseCyclePage {
+  bagQr: string
+  codeAuthKind: 'LEGACY' | 'HMAC_V1'
+  unassignedLegacyDeliveryCount: number
+  items: BagUseCycleItem[]
+  asOf: string
+  nextCursor: string | null
+}
+
+export interface BagTraceUser {
+  organizationUserUid: string
+  nickname: string
+  maskedPhoneNumber: string | null
+}
+
+export interface BagTraceDeliveryOrderItem {
+  deliveryOrderNo: string
+  user: BagTraceUser
+  deviceOccurredAt: string | null
+  receivedAt: string
+  rawWeightKg: string | null
+  rawAmountYuan: string | null
+  finalWeightKg: string | null
+  finalAmountYuan: string | null
+  reviewStatus: DeliveryReviewStatus
+  reason: string | null
+  photoCompleteness: 'COMPLETE' | 'INCOMPLETE'
+}
+
+export interface BagTraceDeliveryOrderPage {
+  bagQr: string
+  cycleUid: string
+  items: BagTraceDeliveryOrderItem[]
+  asOf: string
+  nextCursor: string | null
+}
+
+export interface BagTraceDeliveryOrderDetail {
+  bagQr: string
+  cycleUid: string
+  order: BagTraceDeliveryOrderItem
+  photos: MiniappDeliveryPhoto[]
 }
 
 export interface MiniappDeliveryAnomaly {
