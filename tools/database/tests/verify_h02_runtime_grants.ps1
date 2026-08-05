@@ -22,6 +22,14 @@ if ($opsAlertColumns -notcontains "source_key") {
     throw "ops_alert.source_key is required by the reliable-task alert projection"
 }
 
+if ($catalog.UpdateColumns.ContainsKey(
+        "rec_organization_delivery_config")) {
+    throw (
+        "rec_organization_delivery_config is immutable and must not receive " +
+        "runtime UPDATE grants"
+    )
+}
+
 $merchantBindingAllowedColumns = @(
     "status"
     "disabled_at"

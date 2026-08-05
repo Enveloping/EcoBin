@@ -30,6 +30,21 @@ import java.util.UUID;
 public class WalletAdjustmentApplicationService {
 
     private static final String ACTION = "wallet.adjust";
+    static final String LOCK_CURRENT_DELIVERY_CONFIG_HEAD_SQL = """
+            SELECT head.current_config_id, head.current_version_no
+            FROM rec_organization_delivery_config_head head
+            WHERE head.tenant_id = ?
+              AND head.organization_id = ?
+            FOR UPDATE
+            """;
+    static final String LOAD_CURRENT_DELIVERY_THRESHOLD_SQL = """
+            SELECT config.open_balance_floor_cent
+            FROM rec_organization_delivery_config config
+            WHERE config.tenant_id = ?
+              AND config.organization_id = ?
+              AND config.id = ?
+              AND config.version_no = ?
+            """;
 
     private final WalletAdjustmentAuthorizationPort authorization;
     private final WalletAdjustmentPort funds;
@@ -97,28 +112,33 @@ public class WalletAdjustmentApplicationService {
 
     private long lockCurrentThreshold(WalletAdjustmentScopeRef scopeRef) {
         return scopeRef.withScopeOnce((tenantId, organizationId) -> {
-            List<Long> rows = jdbc.query("""
-                            SELECT config.open_balance_floor_cent
-                            FROM rec_organization_delivery_config_head head
-                            JOIN rec_organization_delivery_config config
-                              ON config.tenant_id = head.tenant_id
-                             AND config.organization_id = head.organization_id
-                             AND config.id = head.current_config_id
-                             AND config.version_no = head.current_version_no
-                            WHERE head.tenant_id = ?
-                              AND head.organization_id = ?
-                            FOR UPDATE
-                            """,
-                    (rs, ignored) -> rs.getLong(
-                            "open_balance_floor_cent"),
+            List<DeliveryConfigurationPointer> heads = jdbc.query(
+                    LOCK_CURRENT_DELIVERY_CONFIG_HEAD_SQL,
+                    (rs, ignored) -> new DeliveryConfigurationPointer(
+                            rs.getLong("current_config_id"),
+                            rs.getLong("current_version_no")),
                     tenantId,
                     organizationId);
-            if (rows.size() != 1) {
+            if (heads.size() != 1) {
                 throw new IllegalStateException(
                         "recycling invariant violated: current delivery "
                                 + "configuration is missing");
             }
-            return rows.getFirst();
+            DeliveryConfigurationPointer head = heads.getFirst();
+            List<Long> thresholds = jdbc.query(
+                    LOAD_CURRENT_DELIVERY_THRESHOLD_SQL,
+                    (rs, ignored) -> rs.getLong(
+                            "open_balance_floor_cent"),
+                    tenantId,
+                    organizationId,
+                    head.configurationId(),
+                    head.versionNo());
+            if (thresholds.size() != 1) {
+                throw new IllegalStateException(
+                        "recycling invariant violated: current delivery "
+                                + "configuration is missing");
+            }
+            return thresholds.getFirst();
         });
     }
 
@@ -201,5 +221,10 @@ public class WalletAdjustmentApplicationService {
             long deltaCent,
             long expectedWalletVersion,
             String reason) {
+    }
+
+    private record DeliveryConfigurationPointer(
+            long configurationId,
+            long versionNo) {
     }
 }
