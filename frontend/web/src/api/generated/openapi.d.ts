@@ -7062,16 +7062,16 @@ export interface components {
             deliveryOrderNo: string;
             user: components["schemas"]["BagTraceUser"];
             /** Format: date-time */
-            deviceOccurredAt?: string | null;
+            deviceOccurredAt: string | null;
             /** Format: date-time */
             receivedAt: string;
-            rawWeightKg?: string | null;
-            rawAmountYuan?: string | null;
-            finalWeightKg?: string | null;
-            finalAmountYuan?: string | null;
+            rawWeightKg: string | null;
+            rawAmountYuan: string | null;
+            finalWeightKg: string | null;
+            finalAmountYuan: string | null;
             /** @enum {string} */
             reviewStatus: "PENDING" | "APPROVED";
-            reason?: string | null;
+            reason: string | null;
             /** @enum {string} */
             photoCompleteness: "COMPLETE" | "INCOMPLETE";
         };
@@ -7098,12 +7098,12 @@ export interface components {
                 cycleUid: string;
                 order: components["schemas"]["BagTraceOrder"];
                 photos: {
-                    position?: string;
-                    status?: string;
-                    url?: string | null;
+                    position: string;
+                    status: string;
+                    url: string | null;
                     /** Format: date-time */
-                    capturedAt?: string | null;
-                    missingReason?: string | null;
+                    capturedAt: string | null;
+                    missingReason: string | null;
                 }[];
             };
             requestId: string;
@@ -7211,21 +7211,21 @@ export interface components {
         PortCapacityView: {
             deploymentCode: string;
             portNo: number;
-            currentBagQr?: string | null;
+            currentBagQr: string | null;
             baselineState: string;
-            baselineWeightKg?: string | null;
-            latestStableTotalWeightKg?: string | null;
-            rawNetWeightKg?: string | null;
-            displayedFullnessPercent?: string | null;
+            baselineWeightKg: string | null;
+            latestStableTotalWeightKg: string | null;
+            rawNetWeightKg: string | null;
+            displayedFullnessPercent: string | null;
             detectionGate: string;
             /** @enum {string} */
             confirmedFullnessState: "UNKNOWN" | "NOT_FULL" | "FULL";
             /** @enum {string} */
             stateEvidence: "NO_DEVICE_REPORT" | "DEVICE_REPORTED";
             /** Format: uuid */
-            currentStateChangeUid?: string | null;
+            currentStateChangeUid: string | null;
             /** Format: date-time */
-            lastReportedAt?: string | null;
+            lastReportedAt: string | null;
             version: number;
             /** Format: date-time */
             asOf: string;
@@ -7319,9 +7319,9 @@ export interface components {
         };
         StaffDeploymentListEnvelope: {
             /** @constant */
-            code?: "OK";
-            data?: components["schemas"]["StaffDeploymentSummary"][];
-            requestId?: string;
+            code: "OK";
+            data: components["schemas"]["StaffDeploymentSummary"][];
+            requestId: string;
         };
         StaffDeploymentDetailEnvelope: {
             /** @constant */

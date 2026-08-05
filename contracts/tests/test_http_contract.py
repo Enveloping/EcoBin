@@ -310,6 +310,31 @@ class HttpContractTests(unittest.TestCase):
             "I-039 is intentionally deferred and must not be published",
         )
 
+    def test_new_read_models_require_every_serialized_record_field(self) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+        for schema_name in (
+            "BagTraceOrder",
+            "PortCapacityView",
+            "StaffDeploymentListEnvelope",
+        ):
+            schema = schemas[schema_name]
+            self.assertEqual(
+                set(schema["properties"]),
+                set(schema.get("required", [])),
+                f"{schema_name} must require every serialized field; "
+                "nullable fields stay required and allow null",
+            )
+
+        photo_item = schemas["BagTraceOrderDetailEnvelope"]["properties"][
+            "data"
+        ]["properties"]["photos"]["items"]
+        self.assertEqual(
+            set(photo_item["properties"]),
+            set(photo_item.get("required", [])),
+            "BagTracePhoto must require every serialized field",
+        )
+
     def test_device_ownership_and_operation_roles_are_explicit(self) -> None:
         document = load_openapi()
         paths = document["paths"]

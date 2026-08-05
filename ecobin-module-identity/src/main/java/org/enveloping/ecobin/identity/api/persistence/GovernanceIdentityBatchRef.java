@@ -16,6 +16,7 @@ public interface GovernanceIdentityBatchRef {
                 Long organizationKey,
                 String actorKind,
                 Long platformAdminKey,
-                Long staffAccountKey);
+                Long staffAccountKey,
+                Long organizationUserKey);
     }
 }

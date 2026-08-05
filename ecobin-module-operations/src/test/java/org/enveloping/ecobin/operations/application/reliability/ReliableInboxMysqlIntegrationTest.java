@@ -11,6 +11,8 @@ import org.enveloping.ecobin.device.api.persistence.DeviceOwnedFaultAlertScopeRe
 import org.enveloping.ecobin.device.application.target.DeviceOperationalOverviewQueryService;
 import org.enveloping.ecobin.funds.application.withdrawal.FundsOperationalOverviewQueryService;
 import org.enveloping.ecobin.identity.application.security.IdentityOperationalOverviewQueryService;
+import org.enveloping.ecobin.identity.application.security.GovernanceIdentityQueryService;
+import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedGovernanceFilterRefFactory;
 import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedManagementScopePersistenceRefFactory;
 import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedRegistrationDeploymentAttributionRefFactory;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
@@ -54,6 +56,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -587,6 +590,49 @@ class ReliableInboxMysqlIntegrationTest {
 
         jdbc.update("""
                 UPDATE ops_reliable_task
+                SET state = 'PENDING', next_run_at = UTC_TIMESTAMP(3),
+                    completed_at = NULL,
+                    blocked_reason_code = NULL,
+                    blocked_diagnostic = NULL,
+                    wake_version = wake_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ?
+                """, receipt.taskUid().toString());
+        transactionTemplate.executeWithoutResult(ignored -> projection.project());
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    completed_at = DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 1 SECOND),
+                    blocked_reason_code = 'TEST_BLOCK_AGAIN',
+                    blocked_diagnostic = 'fixture again',
+                    handled_wake_version = wake_version,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE task_uid = ?
+                """, receipt.taskUid().toString());
+        transactionTemplate.executeWithoutResult(ignored -> projection.project());
+        transactionTemplate.executeWithoutResult(ignored -> projection.project());
+
+        assertEquals("OPEN", jdbc.queryForObject("""
+                SELECT status FROM ops_alert
+                WHERE source_type = 'RELIABLE_TASK'
+                """, String.class));
+        assertEquals(2L, jdbc.queryForObject("""
+                SELECT discovery_count FROM ops_alert
+                WHERE source_type = 'RELIABLE_TASK'
+                """, Long.class));
+        assertEquals(1L, jdbc.queryForObject("""
+                SELECT lock_version FROM ops_alert
+                WHERE source_type = 'RELIABLE_TASK'
+                """, Long.class));
+        assertEquals("TEST_BLOCK_AGAIN", jdbc.queryForObject("""
+                SELECT JSON_UNQUOTE(JSON_EXTRACT(
+                           safe_display_parameters, '$.reasonCode'))
+                FROM ops_alert
+                WHERE source_type = 'RELIABLE_TASK'
+                """, String.class));
+
+        jdbc.update("""
+                UPDATE ops_reliable_task
                 SET state = 'DONE', blocked_reason_code = NULL,
                     blocked_diagnostic = NULL, updated_at = UTC_TIMESTAMP(3)
                 WHERE task_uid = ?
@@ -601,6 +647,93 @@ class ReliableInboxMysqlIntegrationTest {
                 SELECT COUNT(*) FROM ops_alert
                 WHERE status = 'RESOLVED'
                 """, Long.class));
+    }
+
+    @Test
+    void organizationUserGovernanceIdentityExposesAndFiltersByPublicUid() {
+        String suffix = UUID.randomUUID().toString().replace("-", "")
+                .substring(0, 12);
+        String tenantCode = "f08-audit-" + suffix;
+        String organizationCode = "f08-audit-org-" + suffix;
+        jdbc.update("""
+                INSERT INTO iam_tenant (
+                    tenant_code, enterprise_name, status,
+                    lock_version, created_at, updated_at
+                ) VALUES (?, 'F08 audit tenant', 'ENABLED',
+                    0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, tenantCode);
+        long tenantId = jdbc.queryForObject("""
+                SELECT id FROM iam_tenant WHERE tenant_code = ?
+                """, Long.class, tenantCode);
+        jdbc.update("""
+                INSERT INTO iam_organization (
+                    tenant_id, organization_code, organization_name, status,
+                    lock_version, created_at, updated_at
+                ) VALUES (?, ?, 'F08 audit organization', 'ENABLED',
+                    0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, tenantId, organizationCode);
+        long organizationId = jdbc.queryForObject("""
+                SELECT id FROM iam_organization
+                WHERE tenant_id = ? AND organization_code = ?
+                """, Long.class, tenantId, organizationCode);
+        jdbc.update("""
+                INSERT INTO iam_organization_miniapp (
+                    tenant_id, organization_id, appid, display_name,
+                    login_enabled, app_secret, activated_at, lock_version,
+                    configured_at, created_at, updated_at
+                ) VALUES (?, ?, ?, 'F08 audit miniapp',
+                    0, NULL, NULL, 0,
+                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, tenantId, organizationId, "wx" + suffix);
+        long miniappId = jdbc.queryForObject("""
+                SELECT id FROM iam_organization_miniapp
+                WHERE tenant_id = ? AND organization_id = ?
+                """, Long.class, tenantId, organizationId);
+        UUID organizationUserUid = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO iam_organization_user (
+                    organization_user_uid, tenant_id, organization_id,
+                    organization_miniapp_id, openid, status,
+                    auth_version, lock_version, registered_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0, 0,
+                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, organizationUserUid.toString(), tenantId,
+                organizationId, miniappId, "openid-" + suffix);
+        long organizationUserId = jdbc.queryForObject("""
+                SELECT id FROM iam_organization_user
+                WHERE organization_user_uid = ?
+                """, Long.class, organizationUserUid.toString());
+
+        var service = new GovernanceIdentityQueryService(
+                jdbc, new IdentityOwnedGovernanceFilterRefFactory());
+        UUID token = UUID.randomUUID();
+        AtomicReference<org.enveloping.ecobin.identity.api.result
+                .GovernanceIdentityFacts> factsRef = new AtomicReference<>();
+        AtomicReference<List<Long>> filterKeys = new AtomicReference<>();
+        transactionTemplate.executeWithoutResult(ignored -> {
+            var filter = service.prepareFilter(
+                    organizationCode, organizationUserUid);
+            filter.consumeOnce((organizationRequested, organizationKeys,
+                                actorRequested, platformKeys, staffKeys,
+                                organizationUserKeys) -> {
+                assertTrue(organizationRequested);
+                assertTrue(actorRequested);
+                assertEquals(List.of(organizationId), organizationKeys);
+                assertTrue(platformKeys.isEmpty());
+                assertTrue(staffKeys.isEmpty());
+                filterKeys.set(organizationUserKeys);
+                return null;
+            });
+            factsRef.set(service.resolve(sink -> sink.entry(
+                    token, tenantId, organizationId,
+                    "ORGANIZATION_USER", null, null,
+                    organizationUserId)));
+        });
+
+        assertEquals(List.of(organizationUserId), filterKeys.get());
+        assertEquals(organizationUserUid,
+                factsRef.get().entries().get(token).actorUid());
     }
 
     @Test
@@ -682,6 +815,23 @@ class ReliableInboxMysqlIntegrationTest {
                 .createdOrderCount());
         assertEquals(0, funds.byOrganization().get("f08-overview-org")
                 .succeededWithdrawalCent());
+    }
+
+    @Test
+    void platformOrganizationUserAuditFilterHasSeekIndex() {
+        List<String> columns = jdbc.query("""
+                SELECT column_name
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'ops_audit_log'
+                  AND index_name = 'ix_ops_audit_org_user_time'
+                ORDER BY seq_in_index
+                """, (resultSet, rowNumber) ->
+                resultSet.getString("column_name"));
+
+        assertEquals(
+                List.of("organization_user_id", "occurred_at", "id"),
+                columns);
     }
 
     @Test

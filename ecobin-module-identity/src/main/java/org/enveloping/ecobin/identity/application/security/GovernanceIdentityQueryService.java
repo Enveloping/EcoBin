@@ -49,9 +49,14 @@ public class GovernanceIdentityQueryService
                         SELECT id FROM iam_staff_account
                         WHERE staff_account_uid = ?
                         """, Long.class, actorUid.toString());
+        List<Long> organizationUsers = actorUid == null
+                ? List.of() : jdbc.queryForList("""
+                        SELECT id FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """, Long.class, actorUid.toString());
         return filters.issue(
                 organizationCode != null, organizations,
-                actorUid != null, platform, staff);
+                actorUid != null, platform, staff, organizationUsers);
     }
 
     @Override
@@ -60,8 +65,10 @@ public class GovernanceIdentityQueryService
             GovernanceIdentityBatchRef batch) {
         List<Relation> relations = new ArrayList<>();
         batch.consumeOnce((token, tenant, organization, actorKind,
-                           platform, staff) -> relations.add(new Relation(
-                token, tenant, organization, actorKind, platform, staff)));
+                           platform, staff, organizationUser) ->
+                relations.add(new Relation(
+                        token, tenant, organization, actorKind,
+                        platform, staff, organizationUser)));
         Map<Long, String> tenants = codes(
                 relations.stream().map(Relation::tenantKey)
                         .filter(java.util.Objects::nonNull).distinct().toList(),
@@ -78,13 +85,20 @@ public class GovernanceIdentityQueryService
                 relations.stream().map(Relation::staffAccountKey)
                         .filter(java.util.Objects::nonNull).distinct().toList(),
                 "iam_staff_account", "staff_account_uid");
+        Map<Long, UUID> organizationUsers = uids(
+                relations.stream().map(Relation::organizationUserKey)
+                        .filter(java.util.Objects::nonNull).distinct().toList(),
+                "iam_organization_user", "organization_user_uid");
         LinkedHashMap<UUID, GovernanceIdentityFacts.Entry> result =
                 new LinkedHashMap<>();
         for (Relation relation : relations) {
             UUID actorUid = "PLATFORM_ADMIN".equals(relation.actorKind())
                     ? platform.get(relation.platformAdminKey())
                     : "STAFF_ACCOUNT".equals(relation.actorKind())
-                    ? staff.get(relation.staffAccountKey()) : null;
+                    ? staff.get(relation.staffAccountKey())
+                    : "ORGANIZATION_USER".equals(relation.actorKind())
+                    ? organizationUsers.get(relation.organizationUserKey())
+                    : null;
             result.put(relation.token(), new GovernanceIdentityFacts.Entry(
                     tenants.get(relation.tenantKey()),
                     organizations.get(relation.organizationKey()),
@@ -132,5 +146,6 @@ public class GovernanceIdentityQueryService
             Long organizationKey,
             String actorKind,
             Long platformAdminKey,
-            Long staffAccountKey) { }
+            Long staffAccountKey,
+            Long organizationUserKey) { }
 }

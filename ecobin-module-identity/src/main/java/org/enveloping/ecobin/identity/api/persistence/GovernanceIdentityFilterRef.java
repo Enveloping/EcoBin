@@ -11,6 +11,7 @@ public final class GovernanceIdentityFilterRef {
     private final boolean actorRequested;
     private final List<Long> platformAdminKeys;
     private final List<Long> staffAccountKeys;
+    private final List<Long> organizationUserKeys;
     private final TransactionBoundReferenceGuard guard;
 
     GovernanceIdentityFilterRef(
@@ -19,12 +20,14 @@ public final class GovernanceIdentityFilterRef {
             boolean actorRequested,
             List<Long> platformAdminKeys,
             List<Long> staffAccountKeys,
+            List<Long> organizationUserKeys,
             Map<Object, Object> resources) {
         this.organizationRequested = organizationRequested;
         this.organizationKeys = List.copyOf(organizationKeys);
         this.actorRequested = actorRequested;
         this.platformAdminKeys = List.copyOf(platformAdminKeys);
         this.staffAccountKeys = List.copyOf(staffAccountKeys);
+        this.organizationUserKeys = List.copyOf(organizationUserKeys);
         this.guard = new TransactionBoundReferenceGuard(resources);
     }
 
@@ -32,7 +35,8 @@ public final class GovernanceIdentityFilterRef {
         guard.claimOnce();
         return function.apply(
                 organizationRequested, organizationKeys,
-                actorRequested, platformAdminKeys, staffAccountKeys);
+                actorRequested, platformAdminKeys, staffAccountKeys,
+                organizationUserKeys);
     }
 
     synchronized void markCompleted() {
@@ -51,6 +55,7 @@ public final class GovernanceIdentityFilterRef {
                 List<Long> organizationKeys,
                 boolean actorRequested,
                 List<Long> platformAdminKeys,
-                List<Long> staffAccountKeys);
+                List<Long> staffAccountKeys,
+                List<Long> organizationUserKeys);
     }
 }

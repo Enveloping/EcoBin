@@ -120,7 +120,16 @@ public class OperationalAlertProjectionService {
                 FROM ops_reliable_task task
                 WHERE task.state = 'BLOCKED'
                 ON DUPLICATE KEY UPDATE
+                    discovery_count = discovery_count + IF(
+                        NOT (ops_alert.source_key <=> VALUES(source_key)),
+                        1, 0),
+                    lock_version = ops_alert.lock_version + IF(
+                        NOT (ops_alert.source_key <=> VALUES(source_key)),
+                        1, 0),
+                    last_seen_at = GREATEST(
+                        ops_alert.last_seen_at, VALUES(last_seen_at)),
                     safe_display_parameters = VALUES(safe_display_parameters),
+                    source_key = VALUES(source_key),
                     updated_at = GREATEST(
                         ops_alert.updated_at, VALUES(updated_at))
                 """);

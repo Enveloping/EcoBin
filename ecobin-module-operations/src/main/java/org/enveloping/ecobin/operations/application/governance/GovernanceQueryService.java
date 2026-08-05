@@ -467,13 +467,15 @@ public class GovernanceQueryService {
             GovernanceIdentityFilterRef filter,
             String alias) {
         filter.consumeOnce((organizationRequested, organizationKeys,
-                            actorRequested, platformKeys, staffKeys) -> {
+                            actorRequested, platformKeys, staffKeys,
+                            organizationUserKeys) -> {
             if (organizationRequested) {
                 appendKeys(sql, args,
                         alias + ".organization_id", organizationKeys);
             }
             if (actorRequested) {
-                if (platformKeys.isEmpty() && staffKeys.isEmpty()) {
+                if (platformKeys.isEmpty() && staffKeys.isEmpty()
+                        && organizationUserKeys.isEmpty()) {
                     sql.append(" AND 1 = 0");
                 } else {
                     sql.append(" AND (");
@@ -489,6 +491,15 @@ public class GovernanceQueryService {
                         }
                         appendKeysWithoutAnd(sql, args,
                                 alias + ".staff_account_id", staffKeys);
+                        appended = true;
+                    }
+                    if (!organizationUserKeys.isEmpty()) {
+                        if (appended) {
+                            sql.append(" OR ");
+                        }
+                        appendKeysWithoutAnd(sql, args,
+                                alias + ".organization_user_id",
+                                organizationUserKeys);
                     }
                     sql.append(')');
                 }
@@ -562,7 +573,7 @@ public class GovernanceQueryService {
                        audit.operation_uid, audit.scope_kind,
                        audit.tenant_id, audit.organization_id,
                        audit.actor_kind, audit.platform_admin_id,
-                       audit.staff_account_id,
+                       audit.staff_account_id, audit.organization_user_id,
                        audit.actor_display_snapshot,
                        audit.action_code, audit.target_type,
                        audit.target_stable_key, audit.entry_channel,
@@ -587,6 +598,7 @@ public class GovernanceQueryService {
                 rs.getString("actor_kind"),
                 (Long) rs.getObject("platform_admin_id"),
                 (Long) rs.getObject("staff_account_id"),
+                (Long) rs.getObject("organization_user_id"),
                 UUID.fromString(rs.getString("audit_uid")),
                 UUID.fromString(rs.getString("request_uid")),
                 uuid(rs.getString("operation_uid")),
@@ -608,7 +620,8 @@ public class GovernanceQueryService {
                 rows.stream().map(row -> new GovernanceIdentityBatch.Entry(
                         row.identityToken(), row.tenantId(),
                         row.organizationId(), row.actorKind(),
-                        row.platformId(), row.staffId())).toList()));
+                        row.platformId(), row.staffId(),
+                        row.organizationUserId())).toList()));
     }
 
     private static AuditLogView auditView(
@@ -682,7 +695,7 @@ public class GovernanceQueryService {
         return identity.resolve(new GovernanceIdentityBatch(
                 rows.stream().map(row -> new GovernanceIdentityBatch.Entry(
                         row.identityToken(), row.tenantId(),
-                        row.organizationId(), "SYSTEM", null, null))
+                        row.organizationId(), "SYSTEM", null, null, null))
                         .toList()));
     }
 
@@ -943,6 +956,7 @@ public class GovernanceQueryService {
             String actorKind,
             Long platformId,
             Long staffId,
+            Long organizationUserId,
             UUID auditUid,
             UUID requestUid,
             UUID operationUid,

@@ -28,7 +28,7 @@ final class GovernanceIdentityBatch implements GovernanceIdentityBatchRef {
         entries.forEach(entry -> sink.entry(
                 entry.token(), entry.tenantKey(), entry.organizationKey(),
                 entry.actorKind(), entry.platformAdminKey(),
-                entry.staffAccountKey()));
+                entry.staffAccountKey(), entry.organizationUserKey()));
     }
 
     record Entry(
@@ -37,5 +37,6 @@ final class GovernanceIdentityBatch implements GovernanceIdentityBatchRef {
             Long organizationKey,
             String actorKind,
             Long platformAdminKey,
-            Long staffAccountKey) { }
+            Long staffAccountKey,
+            Long organizationUserKey) { }
 }

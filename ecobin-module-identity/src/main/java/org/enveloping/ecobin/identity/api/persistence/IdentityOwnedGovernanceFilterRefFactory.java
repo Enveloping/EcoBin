@@ -14,7 +14,8 @@ public final class IdentityOwnedGovernanceFilterRefFactory {
             List<Long> organizationKeys,
             boolean actorRequested,
             List<Long> platformAdminKeys,
-            List<Long> staffAccountKeys) {
+            List<Long> staffAccountKeys,
+            List<Long> organizationUserKeys) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
                     "governance identity filter requires a transaction");
@@ -22,6 +23,7 @@ public final class IdentityOwnedGovernanceFilterRefFactory {
         var result = new GovernanceIdentityFilterRef(
                 organizationRequested, organizationKeys,
                 actorRequested, platformAdminKeys, staffAccountKeys,
+                organizationUserKeys,
                 TransactionSynchronizationManager.getResourceMap());
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
