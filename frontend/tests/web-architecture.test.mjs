@@ -185,6 +185,244 @@ test('delivery Web slice stays on generated contracts and additive commands', ()
   );
 });
 
+test('organization delivery rules stay versioned and share one Web panel', () => {
+  const routeSource = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+  const apiSource = readFileSync(
+    new URL('src/api/deliveryConfiguration.ts', webRoot),
+    'utf8',
+  );
+  const pageSource = readFileSync(
+    new URL('src/pages/delivery-configuration/index.tsx', webRoot),
+    'utf8',
+  );
+  const organizationSource = readFileSync(
+    new URL('src/pages/organization/index.tsx', webRoot),
+    'utf8',
+  );
+  const configurationSource = readFileSync(
+    new URL(
+      'src/pages/organization/OrganizationDeliveryConfiguration.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  assert.match(
+    routeSource,
+    /path: '\/delivery-configuration'[\s\S]*?delivery\.configuration\.manage/,
+  );
+  assert.match(apiSource, /DeliveryConfigurationReleaseRequest/);
+  assert.match(apiSource, /intent\.execute/);
+  assert.match(pageSource, /OrganizationDeliveryConfiguration/);
+  assert.match(
+    organizationSource,
+    /hasCapability\('delivery\.configuration\.manage'\)/,
+  );
+  assert.match(organizationSource, /OrganizationDeliveryConfiguration/);
+  assert.match(configurationSource, /expectedLatestVersion:\s*current\.versionNo/);
+  assert.match(configurationSource, /requestSequence/);
+  assert.doesNotMatch(configurationSource, /randomUUID|Math\.random/);
+});
+
+test('device access Web slice keeps physical facts, commands and proofs separate', () => {
+  const apiSource = readFileSync(
+    new URL('src/api/deviceDirectory.ts', webRoot),
+    'utf8',
+  );
+  const generatedSource = readFileSync(
+    new URL('src/api/generated/openapi.d.ts', webRoot),
+    'utf8',
+  );
+  const pageSource = readFileSync(
+    new URL('src/pages/device-management/index.tsx', webRoot),
+    'utf8',
+  );
+  const drawerSource = readFileSync(
+    new URL(
+      'src/pages/device-management/DeviceAccessDrawer.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const configurationSource = readFileSync(
+    new URL(
+      'src/pages/device-management/DeviceConfigurationModal.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const assetDrawerSource = readFileSync(
+    new URL(
+      'src/pages/device-management/DeviceAssetDrawer.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const presentationSource = readFileSync(
+    new URL(
+      'src/pages/device-management/devicePresentation.ts',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const commandIntentSource = readFileSync(
+    new URL('src/api/commandIntent.ts', webRoot),
+    'utf8',
+  );
+
+  assert.match(apiSource, /Schemas\['DeviceAsset'\]/);
+  assert.match(apiSource, /operations\['listPlatformDeviceAssets'\]/);
+  assert.match(apiSource, /createOrganizationDeviceDeploymentFromTenantPool/);
+  assert.match(apiSource, /allocatePlatformDeviceAssetToTenant/);
+  assert.match(apiSource, /returnDeviceDeploymentToTenantPool/);
+  assert.match(apiSource, /getPlatformDeviceAcceptanceReadiness/);
+  assert.match(apiSource, /acceptPlatformDeviceDeployment/);
+  assert.match(apiSource, /suspendPlatformDeviceDeploymentTechnically/);
+  assert.doesNotMatch(apiSource, /createPlatformDeviceDeployment/);
+  assert.doesNotMatch(apiSource, /activateDeviceDeployment/);
+  assert.doesNotMatch(apiSource, /deactivateDeviceDeployment/);
+  assert.doesNotMatch(apiSource, /ActivateDeviceDeploymentRequest/);
+  assert.doesNotMatch(generatedSource, /ActivateDeviceDeploymentRequest/);
+  assert.doesNotMatch(
+    generatedSource,
+    /device-deployments\/\{deploymentCode\}\/activations/,
+  );
+  assert.doesNotMatch(
+    generatedSource,
+    /device-deployments\/\{deploymentCode\}\/deactivations/,
+  );
+  assert.match(apiSource, /intent\.executeAccepted/);
+  assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
+  assert.match(pageSource, /平台物理设备资产/);
+  assert.match(pageSource, /这不表示 OneNet 设备或密钥已创建/);
+  assert.match(pageSource, /租户设备池/);
+  assert.match(pageSource, /oneNetConnectionStatus/);
+  assert.match(pageSource, /OneNet 传输/);
+  assert.match(pageSource, /业务有效在线/);
+  assert.match(pageSource, /expectedAllocationVersion:\s*deployingAllocation\.allocationVersion/);
+  assert.match(
+    pageSource,
+    /tenantPrincipal\s*\|\|\s*hasCapability\('device\.allocation\.manage'\)/,
+  );
+  assert.match(pageSource, /\.\.\.\(canManageTenantPool\s*\?\s*\[\{/);
+  assert.match(pageSource, /\]\s*:\s*canManageTenantPool\s*\?\s*\[/);
+  assert.match(drawerSource, /requestSequence/);
+  assert.match(drawerSource, /recommendedPollAfterMs/);
+  assert.match(drawerSource, /oneNetStatusObservedAt/);
+  assert.match(drawerSource, /trustedRuntimeReceivedAt/);
+  assert.match(drawerSource, /两层在线事实不能互相替代/);
+  assert.match(drawerSource, /OneNet 已连接，但业务运行事实不可用/);
+  assert.match(drawerSource, /device\.business\.manage/);
+  assert.match(drawerSource, /device\.allocation\.manage/);
+  assert.match(drawerSource, /canManageBusiness = !platform/);
+  assert.match(drawerSource, /AUTOMATIC_TRANSFER_READINESS/);
+  assert.match(drawerSource, /deliveryDoorObservedNormal/);
+  assert.match(drawerSource, /expectedDeploymentVersion:\s*deployment\.version/);
+  assert.match(drawerSource, /acceptanceForm\.resetFields\(\)/);
+  assert.match(drawerSource, /setAcceptanceOpen\(false\)/);
+  assert.doesNotMatch(drawerSource, /activateDeviceDeployment|deactivateDeviceDeployment/);
+  assert.match(drawerSource, /device\.configuration\.manage/);
+  assert.match(assetDrawerSource, /requestSequence/);
+  assert.match(assetDrawerSource, /DEVICE\.CREDENTIAL_ROTATION_REQUIRED/);
+  assert.match(assetDrawerSource, /details\.blockers/);
+  assert.match(assetDrawerSource, /expectedAssetVersion:\s*asset\.version/);
+  assert.match(assetDrawerSource, /expectedAllocationVersion:\s*reclaiming\.allocationVersion/);
+  assert.match(assetDrawerSource, /reclaimForm\.resetFields\(\)/);
+  assert.match(assetDrawerSource, /setReclaiming\(undefined\)/);
+  assert.match(presentationSource, /DEVICE_OFFLINE/);
+  assert.match(presentationSource, /DEVICE_IDENTITY_UNRESOLVED/);
+  assert.match(
+    configurationSource,
+    /expectedLatestVersion:\s*latest\?\.versionNo \?\? 0/,
+  );
+  assert.match(configurationSource, /negativeWeightThresholdGram/);
+  assert.match(commandIntentSource, /requestAccepted/);
+});
+
+test('wallet Web slice keeps independent access, generated types and opaque cursors', () => {
+  const routeSource = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+  const apiSource = readFileSync(
+    new URL('src/api/wallet.ts', webRoot),
+    'utf8',
+  );
+  const pageSource = readFileSync(
+    new URL('src/pages/wallet-entries/index.tsx', webRoot),
+    'utf8',
+  );
+  const drawerSource = readFileSync(
+    new URL(
+      'src/pages/wallet-entries/OrganizationUserWalletDrawer.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const organizationUserSource = readFileSync(
+    new URL('src/pages/organization-user/index.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(
+    routeSource,
+    /path: '\/wallet-entries'[\s\S]*?allOf: \['wallet\.read'\]/,
+  );
+  assert.match(apiSource, /Schemas\['WalletSummary'\]/);
+  assert.match(apiSource, /Schemas\['OrganizationWalletEntry'\]/);
+  assert.match(
+    apiSource,
+    /operations\['listWebOrganizationWalletEntries'\]/,
+  );
+  assert.match(apiSource, /noStore:\s*true/);
+  assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
+  assert.match(pageSource, /page\.nextCursor/);
+  assert.match(pageSource, /organizationUserUid/);
+  assert.match(pageSource, /sourceNo/);
+  assert.match(drawerSource, /requestSequence/);
+  assert.match(drawerSource, /listOrganizationUserWalletEntries/);
+  assert.match(organizationUserSource, /hasCapability\('wallet\.read'\)/);
+  assert.match(organizationUserSource, /OrganizationUserWalletDrawer/);
+});
+
+test('organization miniapp configuration keeps secrets ephemeral and commands versioned', () => {
+  const apiSource = readFileSync(
+    new URL('src/api/identityDirectory.ts', webRoot),
+    'utf8',
+  );
+  const organizationSource = readFileSync(
+    new URL('src/pages/organization/index.tsx', webRoot),
+    'utf8',
+  );
+  const miniappSource = readFileSync(
+    new URL(
+      'src/pages/organization/OrganizationMiniappConfiguration.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+
+  assert.match(apiSource, /Schemas\['MiniappConfiguration'\]/);
+  assert.match(apiSource, /Schemas\['PutMiniappConfigurationRequest'\]/);
+  assert.match(
+    apiSource,
+    /getOrganizationMiniappConfiguration[\s\S]*?noStore:\s*true/,
+  );
+  assert.match(apiSource, /miniapp-login\/\$\{enabled \? 'enablements' : 'disablements'\}/);
+  assert.match(organizationSource, /hasCapability\('miniapp\.manage'\)/);
+  assert.match(organizationSource, /OrganizationMiniappConfiguration/);
+  assert.match(miniappSource, /appSecret:\s*''/);
+  assert.match(miniappSource, /configuration\?\.version \?\? null/);
+  assert.match(miniappSource, /error\.isVersionConflict/);
+  assert.match(miniappSource, /requestSequence\.current !== sequence/);
+  assert.doesNotMatch(
+    miniappSource,
+    /localStorage|sessionStorage|URLSearchParams|console\./,
+  );
+});
+
 test('allOf and anyOf capability semantics are evaluated independently', () => {
   const session = {
     accountType: 'STAFF',
@@ -258,6 +496,14 @@ test('directory deep links preserve only explicit non-sensitive scope', () => {
       organizationUserUid: 'user-public-uid',
     }),
     '/deliveries?tenant=tenant-a&organization=org-a&organizationUserUid=user-public-uid',
+  );
+  assert.equal(
+    directoryPath('/deliveries', {
+      tenant: 'tenant-a',
+      organization: 'org-a',
+      deliveryOrderNo: 'DO-20260731-000001',
+    }),
+    '/deliveries?tenant=tenant-a&organization=org-a&deliveryOrderNo=DO-20260731-000001',
   );
   assert.equal(
     menuTargetPath(

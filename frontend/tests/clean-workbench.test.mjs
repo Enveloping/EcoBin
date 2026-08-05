@@ -16,6 +16,9 @@ test('clean workbench routes and its two native tab roots are registered', () =>
     'pages/clean-operation/clean-operation',
     'pages/clean-devices/clean-devices',
     'pages/clean-records/clean-records',
+    'pages/bag-trace/bag-trace',
+    'pages/bag-trace-orders/bag-trace-orders',
+    'pages/bag-trace-detail/bag-trace-detail',
   ];
 
   for (const page of expectedPages) {
@@ -27,7 +30,7 @@ test('clean workbench routes and its two native tab roots are registered', () =>
   assert.ok(tabPages.includes('pages/clean-profile/clean-profile'));
 });
 
-test('clean workbench exposes exactly the seven agreed function cards', () => {
+test('clean workbench exposes the agreed function cards including bag trace', () => {
   const cleanMarkup = source(
     '../miniprogram/miniprogram/pages/clean/clean.wxml',
   );
@@ -39,6 +42,7 @@ test('clean workbench exposes exactly the seven agreed function cards', () => {
     '满溢设备',
     '满溢超时2h',
     '清运记录',
+    '袋码溯源',
   ];
 
   for (const label of cardLabels) {
@@ -78,6 +82,26 @@ test('clean workbench maps all six device filters and both destination pages', (
   }
   assert.match(cleanSource, /\/pages\/clean-devices\/clean-devices/);
   assert.match(cleanSource, /\/pages\/clean-records\/clean-records/);
+  assert.match(cleanSource, /\/pages\/bag-trace\/bag-trace\?scan=1/);
+});
+
+test('bag trace stays in cleaning mode and drills into cycles and orders', () => {
+  const traceSource = source(
+    '../miniprogram/miniprogram/pages/bag-trace/bag-trace.ts',
+  );
+  const cycleSource = source(
+    '../miniprogram/miniprogram/pages/bag-trace-orders/bag-trace-orders.ts',
+  );
+  const detailSource = source(
+    '../miniprogram/miniprogram/pages/bag-trace-detail/bag-trace-detail.ts',
+  );
+
+  assert.match(traceSource, /requireEntryMode\(\[['"]CLEANING['"]\]\)/);
+  assert.match(traceSource, /wx\.scanCode/);
+  assert.match(traceSource, /\/pages\/bag-trace-orders\/bag-trace-orders/);
+  assert.match(cycleSource, /\/pages\/bag-trace-detail\/bag-trace-detail/);
+  assert.match(detailSource, /bagCycleOrderDetail/);
+  assert.match(detailSource, /reason:\s*order\.reason/);
 });
 
 test('custom tab bar projects user and cleaning roots and scan actions', () => {

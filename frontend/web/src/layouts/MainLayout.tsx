@@ -83,7 +83,7 @@ export default function MainLayout() {
       fixSiderbar
       location={{ pathname: selectedMenuKey(location.pathname, location.search) }}
       route={{ path: '/', routes: menuData }}
-      siderWidth={220}
+      siderWidth={216}
       collapsedButtonRender={false}
       siderMenuType="sub"
       // 浅色侧边栏：白底 + 绿色选中高亮
@@ -124,10 +124,14 @@ export default function MainLayout() {
           colorBgMenuItemSelected: alpha(palette.primaryRGB, 0.1),
           colorTextMenuActive: palette.primary,
           colorTextMenuItemHover: palette.primary,
+          menuHeight: 44,
+          paddingInlineLayoutMenu: 9,
+          paddingBlockLayoutMenu: 9,
         },
         // 顶部导航栏样式（ProLayout 通过 token.header 控制，headerStyle 已不生效）
         header: {
           colorBgHeader: palette.bgContainer,
+          heightLayoutHeader: 56,
         },
       }}
       // 右上角用户头像
@@ -164,8 +168,8 @@ export default function MainLayout() {
       }}
       // 内容区域样式
       contentStyle={{
-        minHeight: 'calc(100dvh - 64px)',
-        padding: 24,
+        minHeight: 'calc(100dvh - 56px)',
+        padding: 22,
         background: palette.bgLayout,
       }}
     >

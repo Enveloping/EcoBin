@@ -210,11 +210,11 @@ export default function DeliveryReviewModal({
 
       <ProFormTextArea
         name="reason"
-        label="说明"
+        label="说明（用户可见）"
         placeholder={
           kind === 'review'
-            ? '选填：记录现场核对依据'
-            : '选填：说明本次纠正依据'
+            ? '选填：向用户说明本次审核或现场核对依据'
+            : '选填：向用户说明本次重量或金额纠正依据'
         }
         fieldProps={{ maxLength: 500, showCount: true, rows: 3 }}
       />

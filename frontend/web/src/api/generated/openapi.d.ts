@@ -4120,6 +4120,12 @@ export interface components {
             /** @example not-a-real-password */
             password: string;
         };
+        WebOrganizationSummary: {
+            /** @example HZ-PILOT */
+            organizationCode: string;
+            /** @example 湖州试点机构 */
+            organizationName: string;
+        };
         OrganizationSummary: {
             /** @example HZ-PILOT */
             organizationCode: string;
@@ -4135,7 +4141,7 @@ export interface components {
             contactPhone?: string | null;
             tenantCode?: string | null;
             capabilities: string[];
-            organizations: components["schemas"]["OrganizationSummary"][];
+            organizations: components["schemas"]["WebOrganizationSummary"][];
             expiresAt: components["schemas"]["UtcTimestamp"];
             version: components["schemas"]["ExpectedVersion"];
             authVersion: components["schemas"]["ExpectedVersion"];
@@ -4361,6 +4367,8 @@ export interface components {
             finalAmountYuan: string | null;
             /** Format: date-time */
             firstApprovedAt: string | null;
+            /** @description 当前审核或纠正说明；会向订单所属用户展示。 */
+            reason: string | null;
         };
         MiniappDeliveryAnomaly: {
             category: components["schemas"]["DeliveryAnomalyCategory"];
@@ -4662,20 +4670,49 @@ export interface components {
         };
         /** @enum {string} */
         DeviceTenantAllocationStatus: "ACTIVE" | "ENDED";
+        /**
+         * @example {
+         *       "hardwareSn": "ECB-OPI-2026-0001",
+         *       "expectedAssetVersion": 0,
+         *       "reason": "分配到湖州试点租户设备池"
+         *     }
+         */
         CreateDeviceTenantAllocationRequest: {
             hardwareSn: components["schemas"]["HardwareSn"];
             expectedAssetVersion: components["schemas"]["ExpectedVersion"];
             reason?: string | null;
         };
+        /**
+         * @example {
+         *       "allocationUid": "9b8dc4d5-3bb4-4a3c-9d6d-e54178df83bb",
+         *       "expectedAllocationVersion": 0
+         *     }
+         */
         CreateAllocatedDeviceDeploymentRequest: {
             allocationUid: components["schemas"]["UuidV4"];
             expectedAllocationVersion: components["schemas"]["ExpectedVersion"];
         };
+        /**
+         * @example {
+         *       "expectedDeploymentVersion": 4,
+         *       "expectedAllocationVersion": 1,
+         *       "reason": "从东门站点调拨至城北站点"
+         *     }
+         */
         ReturnDeviceDeploymentToTenantPoolRequest: {
             expectedDeploymentVersion: components["schemas"]["ExpectedVersion"];
             expectedAllocationVersion: components["schemas"]["ExpectedVersion"];
             reason: string;
         };
+        /**
+         * @example {
+         *       "expectedAllocationVersion": 3,
+         *       "expectedAssetVersion": 5,
+         *       "mode": "NORMAL",
+         *       "physicalPossessionConfirmed": true,
+         *       "reason": "合同结束，平台已收回实物"
+         *     }
+         */
         ReclaimDeviceTenantAllocationRequest: {
             expectedAllocationVersion: components["schemas"]["ExpectedVersion"];
             expectedAssetVersion: components["schemas"]["ExpectedVersion"];
@@ -4684,16 +4721,40 @@ export interface components {
             physicalPossessionConfirmed: boolean;
             reason: string;
         };
+        /**
+         * @example {
+         *       "expectedAssetVersion": 6,
+         *       "reason": "已在 OneNet 控制台轮换设备密钥并更新香橙派"
+         *     }
+         */
         ConfirmOneNetCredentialRotationRequest: {
             expectedAssetVersion: components["schemas"]["ExpectedVersion"];
             reason: string;
         };
+        /**
+         * @example {
+         *       "expectedAssetVersion": 8,
+         *       "physicalPossessionConfirmed": true,
+         *       "inspectionConfirmed": true,
+         *       "reason": "已更换故障电源模块并完成离线检查"
+         *     }
+         */
         ClearDeviceMaintenanceRequest: {
             expectedAssetVersion: components["schemas"]["ExpectedVersion"];
             physicalPossessionConfirmed: boolean;
             inspectionConfirmed: boolean;
             reason: string;
         };
+        /**
+         * @example {
+         *       "expectedDeploymentVersion": 2,
+         *       "expectedConfigurationVersion": 1,
+         *       "deliveryDoorObservedNormal": true,
+         *       "camerasObservedNormal": true,
+         *       "cleanDoorInstallationObservedNormal": true,
+         *       "reason": "现场安装、门体与双摄已逐项确认"
+         *     }
+         */
         AcceptDeviceDeploymentRequest: {
             expectedDeploymentVersion: components["schemas"]["ExpectedVersion"];
             expectedConfigurationVersion: number;
@@ -4702,6 +4763,27 @@ export interface components {
             cleanDoorInstallationObservedNormal: boolean;
             reason?: string | null;
         };
+        /**
+         * @example {
+         *       "allocationUid": "9b8dc4d5-3bb4-4a3c-9d6d-e54178df83bb",
+         *       "tenantCode": "tenant-huzhou",
+         *       "hardwareSn": "ECB-OPI-2026-0001",
+         *       "modelCode": "ECOBIN-V1",
+         *       "expectedPortCount": 2,
+         *       "allocationStatus": "ACTIVE",
+         *       "assetLifecycleStatus": "ALLOCATED",
+         *       "allocationSource": "PLATFORM_ASSIGNMENT",
+         *       "currentDeploymentCode": null,
+         *       "currentOrganizationCode": null,
+         *       "credentialRotationRequired": false,
+         *       "allocationVersion": 1,
+         *       "assetVersion": 2,
+         *       "allocatedAt": "2026-08-01T02:30:00Z",
+         *       "endedAt": null,
+         *       "endMode": null,
+         *       "endReason": null
+         *     }
+         */
         DeviceTenantAllocation: {
             allocationUid: components["schemas"]["UuidV4"];
             tenantCode: components["schemas"]["TenantCode"];
@@ -4728,6 +4810,14 @@ export interface components {
             pageSize: number;
             total: number;
         };
+        /**
+         * @example {
+         *       "confirmationUid": "c7acdd13-46f7-42ae-90e4-1e85372ef7f4",
+         *       "hardwareSn": "ECB-OPI-2026-0001",
+         *       "confirmedAt": "2026-08-01T03:10:00Z",
+         *       "reason": "已在 OneNet 控制台轮换设备密钥并更新香橙派"
+         *     }
+         */
         OneNetCredentialRotationConfirmation: {
             confirmationUid: components["schemas"]["UuidV4"];
             hardwareSn: components["schemas"]["HardwareSn"];
@@ -4768,6 +4858,37 @@ export interface components {
             runtimeEdgeEventId: number | null;
             observedAt: components["schemas"]["UtcTimestamp"] | null;
         };
+        /**
+         * @example {
+         *       "deploymentCode": "DEP-HZ-0001",
+         *       "readinessMode": "PLATFORM_ACCEPTANCE_REQUIRED",
+         *       "ready": false,
+         *       "blockers": [
+         *         "RUNTIME_TOO_OLD",
+         *         "CONFIGURATION_VERSION_MISMATCH"
+         *       ],
+         *       "configuration": {
+         *         "latestVersion": 2,
+         *         "appliedVersion": 1,
+         *         "applicationStatus": "APPLIED",
+         *         "preciselyApplied": false
+         *       },
+         *       "runtime": {
+         *         "edgeConnectionStatus": "OFFLINE",
+         *         "mcuLinkStatus": "UNKNOWN",
+         *         "uartState": "UNKNOWN",
+         *         "aggregateWeightHealth": "UNKNOWN",
+         *         "cameraHealth": "UNKNOWN",
+         *         "localStorageHealth": "UNKNOWN",
+         *         "clockSyncHealth": "UNKNOWN",
+         *         "edgeSoftwareVersion": null,
+         *         "mcuFirmwareVersion": null,
+         *         "pendingReliableEventCount": 0,
+         *         "receivedAt": "2026-08-01T02:00:00Z"
+         *       },
+         *       "ports": []
+         *     }
+         */
         DeviceAcceptanceReadiness: {
             deploymentCode: components["schemas"]["DeploymentCode"];
             /** @enum {string} */
@@ -4778,6 +4899,20 @@ export interface components {
             runtime: components["schemas"]["DeviceRuntimeAcceptanceEvidence"];
             ports: components["schemas"]["DevicePortAcceptanceEvidence"][];
         };
+        /**
+         * @example {
+         *       "acceptanceUid": "66768155-18e2-4475-943e-6534f28b818a",
+         *       "deploymentCode": "DEP-HZ-0001",
+         *       "configurationVersion": 2,
+         *       "runtimeReceivedAt": "2026-08-01T04:00:00Z",
+         *       "deliveryDoorObservedNormal": true,
+         *       "camerasObservedNormal": true,
+         *       "cleanDoorInstallationObservedNormal": true,
+         *       "acceptedBy": "平台设备管理员",
+         *       "reason": "现场逐项验收通过",
+         *       "acceptedAt": "2026-08-01T04:05:00Z"
+         *     }
+         */
         DeviceDeploymentAcceptance: {
             acceptanceUid: components["schemas"]["UuidV4"];
             deploymentCode: components["schemas"]["DeploymentCode"];

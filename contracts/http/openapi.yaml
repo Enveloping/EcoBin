@@ -5376,6 +5376,52 @@
           "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ProblemDetail"
+            },
+            "examples": {
+              "deviceReclaimBlocked": {
+                "summary": "A normal platform reclaim is blocked by current business facts",
+                "value": {
+                  "code": "DEVICE.ALLOCATION_NOT_NORMALLY_RECLAIMABLE",
+                  "message": "设备尚不满足正常收回条件",
+                  "requestId": "01K1DEVICE0000000000000001",
+                  "retryable": false,
+                  "details": {
+                    "blockers": [
+                      "BUSINESS_STILL_ENABLED",
+                      "DELIVERY_SESSION_ACTIVE",
+                      "PENDING_RELIABLE_EVENTS"
+                    ]
+                  }
+                }
+              },
+              "deviceAcceptanceBlocked": {
+                "summary": "Static hardware acceptance is blocked by incomplete trusted evidence",
+                "value": {
+                  "code": "DEVICE.DEPLOYMENT_NOT_ACCEPTABLE",
+                  "message": "设备尚未满足静态硬件验收条件",
+                  "requestId": "01K1DEVICE0000000000000002",
+                  "retryable": false,
+                  "details": {
+                    "blockers": [
+                      "CONFIGURATION_VERSION_MISMATCH",
+                      "TRUSTED_RUNTIME_STALE",
+                      "CAMERA_MANUAL_CONFIRMATION_REQUIRED"
+                    ]
+                  }
+                }
+              },
+              "credentialRotationRequired": {
+                "summary": "A cross-tenant assignment requires an out-of-band OneNet key rotation",
+                "value": {
+                  "code": "DEVICE.CREDENTIAL_ROTATION_REQUIRED",
+                  "message": "跨租户分配前必须先更换 OneNet Device Key",
+                  "requestId": "01K1DEVICE0000000000000003",
+                  "retryable": false,
+                  "details": {
+                    "blockers": ["ONENET_CREDENTIAL_ROTATION_REQUIRED"]
+                  }
+                }
+              }
             }
           }
         }
@@ -8526,6 +8572,28 @@
           }
         }
       },
+      "WebOrganizationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationCode",
+          "organizationName"
+        ],
+        "properties": {
+          "organizationCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "example": "HZ-PILOT"
+          },
+          "organizationName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "example": "湖州试点机构"
+          }
+        }
+      },
       "OrganizationSummary": {
         "type": "object",
         "additionalProperties": false,
@@ -8616,7 +8684,7 @@
           "organizations": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/OrganizationSummary"
+              "$ref": "#/components/schemas/WebOrganizationSummary"
             }
           },
           "expiresAt": {
@@ -9416,7 +9484,8 @@
           "maxReviewAbsoluteWeightKg",
           "finalWeightKg",
           "finalAmountYuan",
-          "firstApprovedAt"
+          "firstApprovedAt",
+          "reason"
         ],
         "properties": {
           "status": {
@@ -9441,6 +9510,11 @@
           "firstApprovedAt": {
             "type": ["string", "null"],
             "format": "date-time"
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "maxLength": 500,
+            "description": "当前审核或纠正说明；会向订单所属用户展示。"
           }
         }
       },
@@ -10609,6 +10683,11 @@
           "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
           "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
           "reason": {"type": ["string", "null"], "maxLength": 500}
+        },
+        "example": {
+          "hardwareSn": "ECB-OPI-2026-0001",
+          "expectedAssetVersion": 0,
+          "reason": "分配到湖州试点租户设备池"
         }
       },
       "CreateAllocatedDeviceDeploymentRequest": {
@@ -10618,6 +10697,10 @@
         "properties": {
           "allocationUid": {"$ref": "#/components/schemas/UuidV4"},
           "expectedAllocationVersion": {"$ref": "#/components/schemas/ExpectedVersion"}
+        },
+        "example": {
+          "allocationUid": "9b8dc4d5-3bb4-4a3c-9d6d-e54178df83bb",
+          "expectedAllocationVersion": 0
         }
       },
       "ReturnDeviceDeploymentToTenantPoolRequest": {
@@ -10628,6 +10711,11 @@
           "expectedDeploymentVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
           "expectedAllocationVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        },
+        "example": {
+          "expectedDeploymentVersion": 4,
+          "expectedAllocationVersion": 1,
+          "reason": "从东门站点调拨至城北站点"
         }
       },
       "ReclaimDeviceTenantAllocationRequest": {
@@ -10640,6 +10728,13 @@
           "mode": {"type": "string", "maxLength": 16, "enum": ["NORMAL", "EXCEPTIONAL"]},
           "physicalPossessionConfirmed": {"type": "boolean"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        },
+        "example": {
+          "expectedAllocationVersion": 3,
+          "expectedAssetVersion": 5,
+          "mode": "NORMAL",
+          "physicalPossessionConfirmed": true,
+          "reason": "合同结束，平台已收回实物"
         }
       },
       "ConfirmOneNetCredentialRotationRequest": {
@@ -10649,6 +10744,10 @@
         "properties": {
           "expectedAssetVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        },
+        "example": {
+          "expectedAssetVersion": 6,
+          "reason": "已在 OneNet 控制台轮换设备密钥并更新香橙派"
         }
       },
       "ClearDeviceMaintenanceRequest": {
@@ -10660,6 +10759,12 @@
           "physicalPossessionConfirmed": {"type": "boolean"},
           "inspectionConfirmed": {"type": "boolean"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        },
+        "example": {
+          "expectedAssetVersion": 8,
+          "physicalPossessionConfirmed": true,
+          "inspectionConfirmed": true,
+          "reason": "已更换故障电源模块并完成离线检查"
         }
       },
       "AcceptDeviceDeploymentRequest": {
@@ -10679,6 +10784,14 @@
           "camerasObservedNormal": {"type": "boolean"},
           "cleanDoorInstallationObservedNormal": {"type": "boolean"},
           "reason": {"type": ["string", "null"], "maxLength": 500}
+        },
+        "example": {
+          "expectedDeploymentVersion": 2,
+          "expectedConfigurationVersion": 1,
+          "deliveryDoorObservedNormal": true,
+          "camerasObservedNormal": true,
+          "cleanDoorInstallationObservedNormal": true,
+          "reason": "现场安装、门体与双摄已逐项确认"
         }
       },
       "DeviceTenantAllocation": {
@@ -10721,6 +10834,25 @@
           "endedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
           "endMode": {"type": ["string", "null"], "maxLength": 16},
           "endReason": {"type": ["string", "null"], "maxLength": 500}
+        },
+        "example": {
+          "allocationUid": "9b8dc4d5-3bb4-4a3c-9d6d-e54178df83bb",
+          "tenantCode": "tenant-huzhou",
+          "hardwareSn": "ECB-OPI-2026-0001",
+          "modelCode": "ECOBIN-V1",
+          "expectedPortCount": 2,
+          "allocationStatus": "ACTIVE",
+          "assetLifecycleStatus": "ALLOCATED",
+          "allocationSource": "PLATFORM_ASSIGNMENT",
+          "currentDeploymentCode": null,
+          "currentOrganizationCode": null,
+          "credentialRotationRequired": false,
+          "allocationVersion": 1,
+          "assetVersion": 2,
+          "allocatedAt": "2026-08-01T02:30:00Z",
+          "endedAt": null,
+          "endMode": null,
+          "endReason": null
         }
       },
       "DeviceTenantAllocationPage": {
@@ -10743,6 +10875,12 @@
           "hardwareSn": {"$ref": "#/components/schemas/HardwareSn"},
           "confirmedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        },
+        "example": {
+          "confirmationUid": "c7acdd13-46f7-42ae-90e4-1e85372ef7f4",
+          "hardwareSn": "ECB-OPI-2026-0001",
+          "confirmedAt": "2026-08-01T03:10:00Z",
+          "reason": "已在 OneNet 控制台轮换设备密钥并更新香橙派"
         }
       },
       "DeviceConfigurationAcceptanceEvidence": {
@@ -10836,6 +10974,32 @@
           "configuration": {"$ref": "#/components/schemas/DeviceConfigurationAcceptanceEvidence"},
           "runtime": {"$ref": "#/components/schemas/DeviceRuntimeAcceptanceEvidence"},
           "ports": {"type": "array", "items": {"$ref": "#/components/schemas/DevicePortAcceptanceEvidence"}}
+        },
+        "example": {
+          "deploymentCode": "DEP-HZ-0001",
+          "readinessMode": "PLATFORM_ACCEPTANCE_REQUIRED",
+          "ready": false,
+          "blockers": ["RUNTIME_TOO_OLD", "CONFIGURATION_VERSION_MISMATCH"],
+          "configuration": {
+            "latestVersion": 2,
+            "appliedVersion": 1,
+            "applicationStatus": "APPLIED",
+            "preciselyApplied": false
+          },
+          "runtime": {
+            "edgeConnectionStatus": "OFFLINE",
+            "mcuLinkStatus": "UNKNOWN",
+            "uartState": "UNKNOWN",
+            "aggregateWeightHealth": "UNKNOWN",
+            "cameraHealth": "UNKNOWN",
+            "localStorageHealth": "UNKNOWN",
+            "clockSyncHealth": "UNKNOWN",
+            "edgeSoftwareVersion": null,
+            "mcuFirmwareVersion": null,
+            "pendingReliableEventCount": 0,
+            "receivedAt": "2026-08-01T02:00:00Z"
+          },
+          "ports": []
         }
       },
       "DeviceDeploymentAcceptance": {
@@ -10864,6 +11028,18 @@
           "acceptedBy": {"type": "string", "minLength": 1, "maxLength": 100},
           "reason": {"type": ["string", "null"], "maxLength": 500},
           "acceptedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        },
+        "example": {
+          "acceptanceUid": "66768155-18e2-4475-943e-6534f28b818a",
+          "deploymentCode": "DEP-HZ-0001",
+          "configurationVersion": 2,
+          "runtimeReceivedAt": "2026-08-01T04:00:00Z",
+          "deliveryDoorObservedNormal": true,
+          "camerasObservedNormal": true,
+          "cleanDoorInstallationObservedNormal": true,
+          "acceptedBy": "平台设备管理员",
+          "reason": "现场逐项验收通过",
+          "acceptedAt": "2026-08-01T04:05:00Z"
         }
       },
       "DeviceTenantAllocationEnvelope": {

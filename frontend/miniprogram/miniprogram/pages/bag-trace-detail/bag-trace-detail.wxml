@@ -1,0 +1,51 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="state-card">正在读取投递证据…</view>
+  <view wx:elif="{{errorMessage}}" class="state-card">{{errorMessage}}</view>
+
+  <block wx:else>
+    <view class="hero card">
+      <view class="hero-head">
+        <view class="avatar">{{avatarText}}</view>
+        <view class="user-copy">
+          <text class="name">{{nickname}}</text>
+          <text class="phone">{{phone}}</text>
+        </view>
+        <text class="review">{{reviewText}}</text>
+      </view>
+      <text class="order-no">{{orderNo}}</text>
+      <text class="time">{{timeText}}</text>
+    </view>
+
+    <view class="result-grid">
+      <view class="result card"><text>设备原始重量</text><text class="strong">{{rawWeightText}}</text></view>
+      <view class="result card"><text>当前认定重量</text><text class="strong">{{finalWeightText}}</text></view>
+      <view class="result card"><text>当前认定金额</text><text class="strong">{{finalAmountText}}</text></view>
+    </view>
+
+    <view wx:if="{{reason}}" class="card section">
+      <view class="section-title">审核说明</view>
+      <text class="reason">{{reason}}</text>
+    </view>
+
+    <view class="card section">
+      <view class="section-title">投递照片</view>
+      <view class="photo-grid">
+        <view class="photo-item" wx:for="{{photos}}" wx:key="position">
+          <image
+            wx:if="{{item.status === 'AVAILABLE' && item.url}}"
+            class="photo"
+            src="{{item.url}}"
+            mode="aspectFill"
+            data-url="{{item.url}}"
+            bindtap="onPreviewPhoto"
+          />
+          <view wx:else class="photo photo-empty">
+            <t-icon name="image" size="40rpx" color="#a7afa8" />
+            <text>{{item.statusText}}</text>
+          </view>
+          <text class="photo-label">{{item.positionText}}</text>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>
