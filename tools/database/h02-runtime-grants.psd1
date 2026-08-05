@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 11
+    CatalogVersion = 12
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -578,6 +578,7 @@
         ops_alert = @(
             "current_severity"
             "highest_severity"
+            "source_key"
             "last_seen_at"
             "discovery_count"
             "safe_display_parameters"

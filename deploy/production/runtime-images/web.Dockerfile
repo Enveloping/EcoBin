@@ -18,6 +18,13 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 RUN test -n "${ECOBIN_RELEASE_ID}" \
     && test -n "${ECOBIN_GIT_COMMIT}" \
     && test -n "${ECOBIN_ARTIFACT_SHA256}" \
-    && test -s /usr/share/nginx/html/index.html
+    && test -s /usr/share/nginx/html/index.html \
+    && chown -R root:root /usr/share/nginx/html \
+    && find /usr/share/nginx/html -type d -exec chmod 0555 {} + \
+    && find /usr/share/nginx/html -type f -exec chmod 0444 {} + \
+    && chown root:root /etc/nginx/conf.d/default.conf \
+    && chmod 0444 /etc/nginx/conf.d/default.conf \
+    && test "$(stat -c '%u:%g:%a' /usr/share/nginx/html)" = "0:0:555" \
+    && test "$(stat -c '%u:%g:%a' /usr/share/nginx/html/index.html)" = "0:0:444"
 
 EXPOSE 80

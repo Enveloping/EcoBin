@@ -1130,11 +1130,18 @@ ROLLBACK;
 "@ | Out-Null
     foreach ($entry in $grantCatalog.UpdateColumns.GetEnumerator()) {
         $table = Quote-Identifier -Value $entry.Key
-        $allowedColumn = Quote-Identifier -Value (@($entry.Value)[0])
+        $allowedAssignments = @($entry.Value) |
+            ForEach-Object {
+                $column = Quote-Identifier -Value $_
+                "$column=$column"
+            }
         Invoke-ClientSql `
             -User "ecobin_app" `
             -PasswordFile $appPasswordPath `
-            -Sql "UPDATE $table SET $allowedColumn=$allowedColumn WHERE 1=0;" |
+            -Sql (
+                "UPDATE $table SET " +
+                "$($allowedAssignments -join ', ') WHERE 1=0;"
+            ) |
             Out-Null
 
         $immutableColumnSql =
