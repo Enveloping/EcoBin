@@ -89,6 +89,13 @@ public class WithdrawalApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public WithdrawalConfigurationView miniappConfiguration() {
+        MiniappScope scope = access.miniappScope(false);
+        return currentConfig(
+                scope.tenantId(), scope.organizationId(), false).view();
+    }
+
+    @Transactional(readOnly = true)
     public PayoutGateView payoutGate() {
         access.platformScope();
         return payoutGateView(currentPlatformGate(false));

@@ -6,6 +6,8 @@ const MONEY = /^-?(0|[1-9]\d*)\.\d{2}$/;
 const POSITIVE_MONEY = /^(0|[1-9]\d*)\.\d{2}$/;
 const UNIT_PRICE = /^(0|[1-9]\d*)\.\d{4}$/;
 const WEIGHT = /^-?(0|[1-9]\d*)\.\d{2}$/;
+const UNSIGNED_MONEY_INPUT = /^(0|[1-9]\d*)(?:\.(\d{0,2}))?$/;
+const SIGNED_MONEY_INPUT = /^(-?)(0|[1-9]\d*)(?:\.(\d{0,2}))?$/;
 const UTC_MILLIS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function groupInteger(integer: string): string {
@@ -26,6 +28,47 @@ export function isMoneyCny(value: string): value is MoneyCny {
 
 export function isPositiveMoneyCny(value: string): value is MoneyCny {
   return POSITIVE_MONEY.test(value);
+}
+
+/** 输入过程允许空值、末尾小数点以及调账时单独的负号。 */
+export function isMoneyInputDraft(
+  value: string,
+  allowNegative = false,
+): boolean {
+  if (value === '') return true;
+  if (allowNegative && value === '-') return true;
+  return (allowNegative ? SIGNED_MONEY_INPUT : UNSIGNED_MONEY_INPUT)
+    .test(value);
+}
+
+/** 将 4、0.4、4.56 规范成后端资金契约要求的两位小数字符串。 */
+export function normalizeMoneyInput(
+  value: string,
+  allowNegative = false,
+): MoneyCny | null {
+  const trimmed = value.trim();
+  if (allowNegative) {
+    const match = SIGNED_MONEY_INPUT.exec(trimmed);
+    if (!match) return null;
+    return `${match[1]}${match[2]}.${(match[3] ?? '').padEnd(2, '0')}`;
+  }
+  const match = UNSIGNED_MONEY_INPUT.exec(trimmed);
+  if (!match) return null;
+  return `${match[1]}.${(match[2] ?? '').padEnd(2, '0')}`;
+}
+
+/** 解析人工输入为整数分，不经过 IEEE-754 浮点数。 */
+export function parseMoneyInputCent(
+  value: string,
+  allowNegative = false,
+): bigint | null {
+  const normalized = normalizeMoneyInput(value, allowNegative);
+  if (!normalized) return null;
+  const negative = normalized.startsWith('-');
+  const unsigned = negative ? normalized.slice(1) : normalized;
+  const [yuan, cent] = unsigned.split('.');
+  const result = BigInt(yuan) * 100n + BigInt(cent);
+  return negative ? -result : result;
 }
 
 export function isUnitPriceCnyPerKg(value: string): value is UnitPriceCnyPerKg {

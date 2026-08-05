@@ -54,21 +54,16 @@ import {
 } from '@/utils/latestTargetRequest';
 import OrganizationUserWalletDrawer from
   '@/pages/wallet-entries/OrganizationUserWalletDrawer';
+import {
+  isMoneyInputDraft,
+  normalizeMoneyInput,
+  parseMoneyInputCent,
+} from '@/utils/decimal';
 
 type UserMutation = 'freeze' | 'restore';
 
 function userInitial(user: OrganizationUser): string {
   return user.nickname.trim().slice(0, 1).toUpperCase() || '用';
-}
-
-function parseMoneyCent(value: string): bigint | null {
-  const normalized = value.trim();
-  if (!/^-?(0|[1-9][0-9]*)\.[0-9]{2}$/.test(normalized)) return null;
-  const negative = normalized.startsWith('-');
-  const unsigned = negative ? normalized.slice(1) : normalized;
-  const [yuan, cent] = unsigned.split('.');
-  const result = BigInt(yuan) * 100n + BigInt(cent);
-  return negative ? -result : result;
 }
 
 function formatMoneyCent(value: bigint): string {
@@ -316,13 +311,14 @@ export default function OrganizationUserPage() {
       message.warning('余额预览已经失效，请重新打开后核对');
       return;
     }
-    const deltaCent = parseMoneyCent(adjustDeltaYuan);
-    if (deltaCent === null || deltaCent === 0n) {
-      message.warning('请输入精确到分且不为 0 的调整差额');
+    const normalizedDelta = normalizeMoneyInput(adjustDeltaYuan, true);
+    const deltaCent = parseMoneyInputCent(adjustDeltaYuan, true);
+    if (!normalizedDelta || deltaCent === null || deltaCent === 0n) {
+      message.warning('请输入最多两位小数且不为 0 的调整差额');
       return;
     }
     const data = {
-      deltaYuan: adjustDeltaYuan.trim(),
+      deltaYuan: normalizedDelta,
       expectedWalletVersion: walletPreview.walletVersion,
       reason: adjustReason.trim() || null,
     };
@@ -529,6 +525,8 @@ export default function OrganizationUserPage() {
     },
   ];
 
+  const adjustmentCent = parseMoneyInputCent(adjustDeltaYuan, true);
+
   return (
     <PageContainer
       {...pageHeader(
@@ -677,8 +675,8 @@ export default function OrganizationUserPage() {
             || !walletPreview
             || walletPreviewOwner.current
               !== selectedWalletAdjustmentTarget.current
-            || parseMoneyCent(adjustDeltaYuan) === null
-            || parseMoneyCent(adjustDeltaYuan) === 0n,
+            || adjustmentCent === null
+            || adjustmentCent === 0n,
         }}
         onOk={submitWalletAdjustment}
         onCancel={() => {
@@ -705,17 +703,31 @@ export default function OrganizationUserPage() {
           <Input
             aria-label="余额调整差额"
             addonBefore="差额 ¥"
-            placeholder="例如 10.00 或 -10.00"
+            placeholder="例如 10、0.4 或 -10.5"
+            inputMode="decimal"
             value={adjustDeltaYuan}
-            onChange={(event) => setAdjustDeltaYuan(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (isMoneyInputDraft(next, true)) setAdjustDeltaYuan(next);
+            }}
+            onBlur={() => {
+              const normalized = normalizeMoneyInput(adjustDeltaYuan, true);
+              if (normalized) setAdjustDeltaYuan(normalized);
+            }}
           />
+          <Typography.Text type="secondary">
+            正数增加余额，负数扣减余额；金额最多保留两位小数。
+          </Typography.Text>
           <Typography.Text type="secondary">
             调整后预计余额：
             {(() => {
               const before = walletPreview
-                ? parseMoneyCent(walletPreview.availableBalanceYuan)
+                ? parseMoneyInputCent(
+                  walletPreview.availableBalanceYuan,
+                  true,
+                )
                 : null;
-              const delta = parseMoneyCent(adjustDeltaYuan);
+              const delta = parseMoneyInputCent(adjustDeltaYuan, true);
               return before === null || delta === null
                 ? '-'
                 : `¥${formatMoneyCent(before + delta)}`;

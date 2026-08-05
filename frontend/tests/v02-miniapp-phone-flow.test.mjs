@@ -261,7 +261,12 @@ test('miniapp orders and wallet use the target read contracts', () => {
   assert.match(walletPageSource, /COMMON\.INVALID_CURSOR/);
   assert.match(configSource, /targetDeliveryOrderApi:\s*true/);
   assert.match(configSource, /targetWalletApi:\s*true/);
-  assert.match(configSource, /targetWithdrawalApi:\s*false/);
+  assert.match(configSource, /targetWithdrawalApi:\s*true/);
+  assert.match(profileSource, /\/pages\/withdrawals\/withdrawals/);
+  assert.doesNotMatch(
+    profileSource,
+    /placeholder\/placeholder\?title=(?:账户提现|提现记录)/,
+  );
   assert.doesNotMatch(configSource, /targetUserDataApi/);
 });
 

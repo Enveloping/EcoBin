@@ -55,7 +55,7 @@ Page({
     shortcuts: [
       { text: '投递订单', icon: 'root-list', url: '/pages/orders/orders' },
       { text: '钱包明细', icon: 'wallet', url: '/pages/wallet/wallet' },
-      { text: '提现记录', icon: 'time', url: '/pages/placeholder/placeholder?title=提现记录' },
+      { text: '提现记录', icon: 'time', url: '/pages/withdrawals/withdrawals' },
     ] as MenuItem[],
     helpers: [
       { text: '常见问题', icon: 'info-circle', url: '/pages/placeholder/placeholder?title=常见问题' },
@@ -183,7 +183,7 @@ Page({
       wx.showToast({ title: '当前无可提现余额', icon: 'none' })
       return
     }
-    wx.navigateTo({ url: '/pages/placeholder/placeholder?title=账户提现' })
+    wx.navigateTo({ url: '/pages/withdrawals/withdrawals' })
   },
 
   requestPhoneBinding() {

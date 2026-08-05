@@ -145,6 +145,15 @@ export interface MiniappWalletView {
   asOf: string
 }
 
+export interface WithdrawalConfigurationView {
+  versionNo: number
+  hardLimitYuan: string
+  manualMinimumYuan: string
+  manualMaximumYuan: string
+  manualReviewFreeThresholdYuan: string
+  publishedAt: string
+}
+
 export type WithdrawalStatus =
   | 'PENDING_REVIEW'
   | 'READY_TO_SUBMIT'

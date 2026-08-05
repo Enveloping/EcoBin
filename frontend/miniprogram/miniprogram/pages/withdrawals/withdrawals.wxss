@@ -55,6 +55,74 @@
   line-height: 1.7;
 }
 
+.balance-panel {
+  display: flex;
+  position: relative;
+  align-items: stretch;
+  margin-top: 28rpx;
+  padding: 22rpx 20rpx;
+  background: #f4faf5;
+  border: 1rpx solid #e2eee4;
+  border-radius: 20rpx;
+}
+
+.balance-item {
+  display: flex;
+  width: 45%;
+  flex-direction: column;
+  gap: 9rpx;
+}
+
+.balance-item--right {
+  width: 55%;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.balance-divider {
+  width: 1rpx;
+  margin: 0 20rpx;
+  background: #dce9de;
+}
+
+.balance-label {
+  color: #7c897e;
+  font-size: 20rpx;
+}
+
+.balance-value {
+  color: #143f20;
+  font-size: 31rpx;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-value {
+  color: #35483a;
+  font-size: 22rpx;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.eligibility-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16rpx;
+  padding: 14rpx 16rpx;
+  color: #a25210;
+  font-size: 20rpx;
+  background: #fff6e9;
+  border-radius: 14rpx;
+}
+
+.inline-retry {
+  flex: none;
+  margin-left: 16rpx;
+  color: #0d8f24;
+  font-weight: 700;
+}
+
 .amount-box {
   display: flex;
   position: relative;
@@ -62,6 +130,10 @@
   margin-top: 30rpx;
   padding: 16rpx 0 18rpx;
   border-bottom: 2rpx solid #dfe8e0;
+}
+
+.amount-box--error {
+  border-bottom-color: #d85b50;
 }
 
 .currency {
@@ -77,6 +149,18 @@
   font-size: 64rpx;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
+}
+
+.amount-help {
+  min-height: 32rpx;
+  margin-top: 10rpx;
+  color: #89938b;
+  font-size: 20rpx;
+  line-height: 1.55;
+}
+
+.amount-help--error {
+  color: #bd5148;
 }
 
 .submit-button {
@@ -96,6 +180,18 @@
 .submit-button::after,
 .action::after {
   border: 0;
+}
+
+.submit-button[disabled] {
+  color: rgba(255, 255, 255, .82);
+  background: #9bcda3;
+}
+
+.submit-note {
+  margin-top: 14rpx;
+  color: #929b94;
+  font-size: 19rpx;
+  text-align: center;
 }
 
 .section-head {
@@ -206,3 +302,20 @@
 
 .action--plain { color: #6f7971; background: #f0f3f0; }
 .action--primary { color: #fff; background: #10b927; }
+
+.action[disabled] {
+  color: rgba(255, 255, 255, .86);
+  background: #7fbd89;
+}
+
+.list-footer {
+  padding: 14rpx 0 30rpx;
+  color: #9aa29b;
+  font-size: 21rpx;
+  text-align: center;
+}
+
+.continue-loading {
+  color: #15942a;
+  font-weight: 680;
+}

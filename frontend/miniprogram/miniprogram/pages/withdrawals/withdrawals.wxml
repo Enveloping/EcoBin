@@ -2,40 +2,65 @@
   <view class="create-card">
     <view class="create-kicker">MANUAL WITHDRAWAL</view>
     <view class="create-title">申请提现</view>
-    <view class="create-copy">提交时同步冻结钱包余额与机构出款额度，全部订单都需要工作人员审核。</view>
-    <view class="amount-box">
+    <view class="create-copy">申请成功后，系统会同时冻结钱包金额和机构出款额度，全部提现都需要工作人员审核。</view>
+
+    <view class="balance-panel">
+      <view class="balance-item">
+        <text class="balance-label">当前可用余额</text>
+        <text class="balance-value">{{eligibilityLoading ? '读取中…' : availableBalanceText}}</text>
+      </view>
+      <view class="balance-divider"></view>
+      <view class="balance-item balance-item--right">
+        <text class="balance-label">单笔提现范围</text>
+        <text class="range-value">{{eligibilityLoading ? '读取中…' : (minimumText + ' — ' + maximumText)}}</text>
+      </view>
+    </view>
+
+    <view class="eligibility-error" wx:if="{{eligibilityError}}">
+      <text>{{eligibilityError}}</text>
+      <text class="inline-retry" bindtap="onRetry">重新读取</text>
+    </view>
+
+    <view class="amount-box {{amountError ? 'amount-box--error' : ''}}">
       <text class="currency">¥</text>
       <input
         class="amount-input"
         type="digit"
+        maxlength="12"
         value="{{amountYuan}}"
         placeholder="0.00"
+        disabled="{{submitting}}"
         bindinput="onAmountInput"
+        bindblur="onAmountBlur"
       />
+    </view>
+    <view class="amount-help {{amountError ? 'amount-help--error' : ''}}">
+      {{amountError || '可输入 4、0.4 或 4.56，最多两位小数'}}
     </view>
     <button
       class="submit-button"
       loading="{{submitting}}"
-      disabled="{{submitting}}"
+      disabled="{{submitting || !canSubmit}}"
       bindtap="onCreate"
-    >提交人工审核</button>
+    >{{submitting ? '正在提交…' : '提交人工审核'}}</button>
+    <view class="submit-note">提交后不可由用户取消，请核对金额后再确认</view>
   </view>
 
   <view class="section-head">
     <text class="section-title">提现记录</text>
-    <text class="section-note">以服务端状态为准</text>
+    <text class="section-note">最终结果以后端查单状态为准</text>
   </view>
 
-  <view wx:if="{{loading}}" class="state-card">
+  <view wx:if="{{listLoading}}" class="state-card">
     <text>正在读取提现状态…</text>
   </view>
 
-  <view wx:if="{{!loading && errorMessage}}" class="state-card state-card--error">
-    <text>{{errorMessage}}</text>
+  <view wx:if="{{!listLoading && listError}}" class="state-card state-card--error">
+    <text>{{listError}}</text>
     <view class="retry" bindtap="onRetry">重新加载</view>
   </view>
 
-  <view wx:if="{{!loading && !errorMessage && items.length === 0}}" class="state-card">
+  <view wx:if="{{!listLoading && !listError && items.length === 0}}" class="state-card">
     <t-icon name="wallet" size="58rpx" color="#10a625" />
     <text class="empty-title">暂无提现记录</text>
     <text class="empty-copy">第一笔提现提交后会显示在这里</text>
@@ -53,14 +78,50 @@
       <text>{{item.createdText}}</text>
       <text wx:if="{{item.channelState}}">微信状态 {{item.channelState}}</text>
     </view>
-    <view class="risk-note" wx:if="{{item.postBoundaryRisk}}">渠道结果待核对，冻结资金不会提前释放</view>
+    <view class="risk-note" wx:if="{{item.postBoundaryRisk}}">渠道结果正在对账，冻结资金不会提前释放</view>
+    <view class="risk-note" wx:if="{{item.negativeBalancePaused}}">当前余额异常，本单不会继续向微信提交</view>
     <view class="order-actions" wx:if="{{item.confirmationRequired}}">
       <button
-        wx:if="{{item.confirmationRequired}}"
         class="action action--primary"
         data-no="{{item.withdrawalNo}}"
+        loading="{{confirmingWithdrawalNo === item.withdrawalNo || pollingWithdrawalNo === item.withdrawalNo}}"
+        disabled="{{confirmingWithdrawalNo || pollingWithdrawalNo}}"
         bindtap="onConfirmTransfer"
-      >确认微信收款</button>
+      >{{pollingWithdrawalNo === item.withdrawalNo ? '正在核对结果' : '确认微信收款'}}</button>
+    </view>
+  </view>
+
+  <view wx:if="{{items.length > 0}}" class="list-footer">
+    <view wx:if="{{loadingMore}}">正在加载更多…</view>
+    <view wx:elif="{{!finished}}" class="continue-loading" bindtap="onContinueLoading">继续加载</view>
+    <view wx:else>已显示全部提现记录</view>
+  </view>
+
+  <view
+    wx:if="{{showPhoneGrant}}"
+    class="phone-sheet-mask"
+    bindtap="onPhoneGrantClose"
+    catchtouchmove="onPhoneSheetPanelTap"
+  >
+    <view class="phone-sheet" catchtap="onPhoneSheetPanelTap">
+      <view class="sheet-handle"></view>
+      <view class="sheet-head">
+        <view class="sheet-icon">
+          <t-icon name="mobile-vibrate" size="52rpx" color="#0b6b3a" />
+        </view>
+        <view class="sheet-title">验证手机号</view>
+        <view class="sheet-close" bindtap="onPhoneGrantClose">×</view>
+      </view>
+      <view class="sheet-copy">提现需要先完成当前机构的手机号身份核验。暂不授权仍可查看提现记录，但本次申请不会继续。</view>
+      <button
+        class="phone-grant-button"
+        open-type="getPhoneNumber"
+        loading="{{phoneGrantSubmitting}}"
+        disabled="{{phoneGrantSubmitting}}"
+        bindgetphonenumber="onGetPhoneNumber"
+      >{{phoneGrantSubmitting ? '正在验证…' : '继续获取手机号'}}</button>
+      <view class="sheet-skip" bindtap="onPhoneGrantClose">暂不授权，返回浏览</view>
+      <view class="sheet-footnote">验证完成后会继续提交刚才核对的金额</view>
     </view>
   </view>
 </view>

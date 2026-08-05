@@ -65,6 +65,12 @@ public class WithdrawalController {
         return ok(service.restorePayoutGate(operationUid, body), request);
     }
 
+    @GetMapping("/api/v1/miniapp/me/withdrawal-configuration")
+    public ResponseEntity<TargetApiEnvelope<WithdrawalConfigurationView>>
+    miniappConfiguration(HttpServletRequest request) {
+        return ok(service.miniappConfiguration(), request);
+    }
+
     @PostMapping("/api/v1/miniapp/me/withdrawals")
     public ResponseEntity<TargetApiEnvelope<WithdrawalView>> create(
             @RequestHeader("Idempotency-Key") UUID operationUid,

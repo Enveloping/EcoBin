@@ -52,10 +52,14 @@ import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
 import { useAuthStore } from '@/stores/authStore';
-import { formatMoneyCny, formatShanghaiTime } from '@/utils/decimal';
+import {
+  compareMoneyCny,
+  formatMoneyCny,
+  formatShanghaiTime,
+  isMoneyInputDraft,
+  normalizeMoneyInput,
+} from '@/utils/decimal';
 import { pageHeader } from '@/utils/pageStyle';
-
-const MONEY = /^(0|[1-9][0-9]*)\.[0-9]{2}$/;
 
 const RECHARGE_STATUS: Record<string, { text: string; color: string }> = {
   PENDING_PAYMENT: { text: '等待支付', color: 'processing' },
@@ -72,6 +76,14 @@ function errorText(error: unknown): string {
       : error.message;
   }
   return error instanceof Error ? error.message : '机构资金加载失败';
+}
+
+function validateRechargeAmount(_: unknown, value?: string) {
+  const normalized = normalizeMoneyInput(value ?? '');
+  if (!normalized || compareMoneyCny(normalized, '0.00') <= 0) {
+    return Promise.reject(new Error('请输入大于 0 且最多两位小数的金额'));
+  }
+  return Promise.resolve();
 }
 
 export default function FundsPage() {
@@ -168,7 +180,9 @@ export default function FundsPage() {
   const submitRecharge = async () => {
     if (!directory.context || !organization.organizationCode) return;
     const values = await rechargeForm.validateFields();
-    const payload = { grossAmountYuan: values.grossAmountYuan.trim() };
+    const normalizedAmount = normalizeMoneyInput(values.grossAmountYuan);
+    if (!normalizedAmount) return;
+    const payload = { grossAmountYuan: normalizedAmount };
     setSubmitting(true);
     try {
       const created = await executeCommand(
@@ -342,7 +356,10 @@ export default function FundsPage() {
                         {readiness.text}
                       </Tag>
                       {mayCreateRecharge && (
-                        <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => setRechargeOpen(true)}>
+                        <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => {
+                          rechargeForm.resetFields();
+                          setRechargeOpen(true);
+                        }}>
                           创建机构充值
                         </Button>
                       )}
@@ -450,8 +467,33 @@ export default function FundsPage() {
       <Modal title="创建机构充值" open={rechargeOpen} confirmLoading={submitting} onOk={() => void submitRecharge()} onCancel={() => setRechargeOpen(false)} okText="创建并准备二维码">
         <Alert style={{ marginBottom: 18 }} type="info" showIcon message="微信实际扣款前不会增加机构余额" description="用户扫码支付成功后，系统再以可信回调或主动查单结果入账。" />
         <Form form={rechargeForm} layout="vertical">
-          <Form.Item name="grossAmountYuan" label="充值金额（元）" rules={[{ required: true, message: '请输入充值金额' }, { pattern: MONEY, message: '请输入精确到分的金额，例如 100.00' }]}>
-            <Input prefix="¥" placeholder="1000.00" inputMode="decimal" />
+          <Form.Item
+            name="grossAmountYuan"
+            label="充值金额（元）"
+            extra="可输入 1000、1000.5 或 1000.50，最多两位小数"
+            getValueFromEvent={(event) => {
+              const next = String(event.target.value);
+              return isMoneyInputDraft(next)
+                ? next
+                : rechargeForm.getFieldValue('grossAmountYuan') ?? '';
+            }}
+            rules={[
+              { required: true, message: '请输入充值金额' },
+              { validator: validateRechargeAmount },
+            ]}
+          >
+            <Input
+              prefix="¥"
+              placeholder="例如 1000 或 1000.5"
+              inputMode="decimal"
+              onBlur={() => {
+                const current = rechargeForm.getFieldValue('grossAmountYuan');
+                const normalized = normalizeMoneyInput(current ?? '');
+                if (normalized) {
+                  rechargeForm.setFieldValue('grossAmountYuan', normalized);
+                }
+              }}
+            />
           </Form.Item>
         </Form>
       </Modal>

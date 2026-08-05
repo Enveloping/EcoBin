@@ -532,6 +532,46 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void miniappReadsCurrentOrganizationWithdrawalConfiguration()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tc");
+        String organizationCode = code("oc");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Miniapp withdrawal configuration");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "configuration-user");
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        mock(MerchantTransferChannelPort.class),
+                        new TransactionTemplate(transactionManager),
+                        mock(AuditPort.class), fundsOperationalControl,
+                        fundsListCursorCodec, "https://fake.invalid");
+
+        var configuration = service.miniappConfiguration();
+        assertEquals(1L, configuration.versionNo());
+        assertEquals("10.00", configuration.hardLimitYuan());
+        assertEquals("0.10", configuration.manualMinimumYuan());
+        assertEquals("10.00", configuration.manualMaximumYuan());
+        assertEquals("0.00",
+                configuration.manualReviewFreeThresholdYuan());
+        assertNotNull(configuration.publishedAt());
+    }
+
+    @Test
     void withdrawalCreationUsesConfigBeforeBindingUnderMysqlConcurrency()
             throws Exception {
         BrowserClient platform = platformClient();

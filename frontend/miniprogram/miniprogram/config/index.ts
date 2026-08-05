@@ -5,9 +5,19 @@
  * 或在开发者工具「详情 → 本地设置」勾选「不校验合法域名」。
  */
 
-/** 后端接口基地址（按需改成你的后端地址） */
-//export const BASE_URL = 'http://115.159.67.35:8080'
-export const BASE_URL = 'http://localhost:8080'
+function resolveBaseUrl(): string {
+  try {
+    if (wx.getSystemInfoSync().platform === 'devtools') {
+      return 'http://localhost:8080'
+    }
+  } catch {
+    // 非微信运行时只用于静态检查，不发起真实请求。
+  }
+  return 'https://www.jinshoubao.com'
+}
+
+/** 开发者工具访问本机；真机、体验版和正式版访问生产 HTTPS 域名。 */
+export const BASE_URL = resolveBaseUrl()
 
 export const FEATURES: Readonly<{
   targetDeliveryOrderApi: boolean
@@ -18,8 +28,7 @@ export const FEATURES: Readonly<{
 }> = {
   targetDeliveryOrderApi: true,
   targetWalletApi: true,
-  // 目标提现申请、明细与记录合同尚未落地。
-  targetWithdrawalApi: false,
+  targetWithdrawalApi: true,
   targetCleaningDataApi: false,
   entryPreview: true,
 }
@@ -37,4 +46,5 @@ export const STORAGE_KEYS = {
   pendingDeviceEntry: 'ecobin_pending_device_entry',
   lastHandledDeviceEntry: 'ecobin_last_handled_device_entry',
   pendingOperationPrefix: 'ecobin_pending_operation_',
+  withdrawalCreateIntent: 'ecobin_withdrawal_create_intent',
 } as const

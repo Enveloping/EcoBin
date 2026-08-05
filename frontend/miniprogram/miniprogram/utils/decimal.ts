@@ -24,6 +24,11 @@ export function normalizeMoneyInput(value: string): MoneyCny | null {
   return `${match[1]}.${(match[2] ?? '').padEnd(2, '0')}`
 }
 
+/** 输入过程允许空值和末尾小数点，但绝不接受第三位小数。 */
+export function isMoneyInputDraft(value: string): boolean {
+  return value === '' || MONEY_INPUT.test(value)
+}
+
 export function isMoneyCny(value: string): value is MoneyCny {
   return MONEY.test(value)
 }
