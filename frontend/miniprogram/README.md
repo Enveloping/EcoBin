@@ -41,8 +41,11 @@ JavaScript 浮点运算；原始克重使用整数。
 
 ## 本地运行
 
-1. 修改 `miniprogram/config/index.ts` 的 `BASE_URL`。真机必须使用已备案 HTTPS 合法
-   域名；`http://localhost:8080` 只用于开发者工具。
+1. `miniprogram/config/index.ts` 的 `BASE_URL` 直接保存小程序请求的服务器地址，
+   不根据运行环境自动切换。需要更换目标时只修改该常量。当前备案域名尚不可用，
+   开发者工具使用 HTTPS IP 联调时，需在“详情 → 本地设置”勾选“不校验合法
+   域名、web-view 域名、TLS 版本以及 HTTPS 证书”。真机、体验版和正式版仍必须使用
+   已备案、证书匹配且已配置为 request 合法域名的 HTTPS 域名。
 2. 在微信开发者工具执行“工具 → 构建 npm”。
 3. 开发期可在“详情 → 本地设置”关闭合法域名校验。
 4. 改过后端非 bootstrap 模块时，先执行 `./mvnw install -DskipTests`，再启动

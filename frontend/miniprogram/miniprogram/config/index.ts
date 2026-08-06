@@ -1,23 +1,9 @@
 /**
- * 全局配置。
+ * 小程序后端地址。
  *
- * baseURL 开发期指向本地后端；真机/预览需在小程序后台配置 request 合法域名，
- * 或在开发者工具「详情 → 本地设置」勾选「不校验合法域名」。
+ * 不按开发者工具、真机或发布环境自动切换；需要更换服务器时只修改此常量。
  */
-
-function resolveBaseUrl(): string {
-  try {
-    if (wx.getSystemInfoSync().platform === 'devtools') {
-      return 'http://localhost:8080'
-    }
-  } catch {
-    // 非微信运行时只用于静态检查，不发起真实请求。
-  }
-  return 'https://www.jinshoubao.com'
-}
-
-/** 开发者工具访问本机；真机、体验版和正式版访问生产 HTTPS 域名。 */
-export const BASE_URL = resolveBaseUrl()
+export const BASE_URL = 'https://115.159.67.35'
 
 export const FEATURES: Readonly<{
   targetDeliveryOrderApi: boolean
