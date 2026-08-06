@@ -25,6 +25,7 @@ final class WechatPayApiException extends RuntimeException {
                 || "FREQUENCY_LIMIT_EXCEED".equals(code)
                 || "RATELIMIT_EXCEEDED".equals(code)
                 || "FREQUENCY_LIMIT".equals(code)
+                || "FREQUENCY_LIMITED".equals(code)
                 || "ALREADY_EXISTS".equals(code);
     }
 }

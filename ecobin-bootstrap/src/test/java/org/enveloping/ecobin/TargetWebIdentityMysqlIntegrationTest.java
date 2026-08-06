@@ -56,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -830,16 +831,48 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
                 first.outcome());
+        assertEquals("NULL|SYSTEM_ERROR", jdbc.queryForObject("""
+                SELECT CONCAT(COALESCE(transfer_row.channel_state, 'NULL'),
+                              '|', transfer_row.last_api_error_code)
+                FROM fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, String.class, withdrawalNo));
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                SET transfer_row.channel_state = 'API_ERROR'
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, withdrawalNo));
         ReliableFundsTaskExecutorPort.Result second = service.executeTask(
                 fundsCommand(taskUid, taskId, 2, fixture, withdrawalNo));
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 second.outcome());
+        assertEquals("NULL|NOT_FOUND", jdbc.queryForObject("""
+                SELECT CONCAT(COALESCE(transfer_row.channel_state, 'NULL'),
+                              '|', transfer_row.last_api_error_code)
+                FROM fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, String.class, withdrawalNo));
         ReliableFundsTaskExecutorPort.Result third = service.executeTask(
                 fundsCommand(taskUid, taskId, 3, fixture, withdrawalNo));
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 third.outcome());
+        assertEquals("WAIT_USER_CONFIRM|NULL", jdbc.queryForObject("""
+                SELECT CONCAT(transfer_row.channel_state, '|',
+                              COALESCE(transfer_row.last_api_error_code,
+                                       'NULL'))
+                FROM fund_wechat_transfer transfer_row
+                JOIN fund_withdrawal_order withdrawal
+                  ON withdrawal.id = transfer_row.withdrawal_order_id
+                WHERE withdrawal.withdrawal_order_no = ?
+                """, String.class, withdrawalNo));
         assertEquals(2, channel.submitCount);
         assertEquals(1, channel.queryCount);
         ReliableFundsTaskExecutorPort.Result fourth = service.executeTask(
@@ -865,6 +898,16 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND issue_row.state = 'UNRESOLVED'
                 """, Integer.class,
                 "MT" + withdrawalNo.substring(2)));
+
+        ReliableFundsTaskExecutorPort.Result fifth = service.executeTask(
+                fundsCommand(taskUid, taskId, 5, fixture, withdrawalNo));
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                fifth.outcome());
+        assertEquals(2, channel.submitCount);
+        assertEquals(3, channel.queryCount);
+        assertEquals("CHANNEL_PROCESSING|990|10|990|10|1",
+                withdrawalFundsState(withdrawalNo));
         assertEquals(1, jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM fund_wechat_transfer_observation observation_row
@@ -878,14 +921,14 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND observation_row.amount_cent = 11
                 """, Integer.class, withdrawalNo));
 
-        ReliableFundsTaskExecutorPort.Result fifth = service.executeTask(
-                fundsCommand(taskUid, taskId, 5, fixture, withdrawalNo));
+        ReliableFundsTaskExecutorPort.Result sixth = service.executeTask(
+                fundsCommand(taskUid, taskId, 6, fixture, withdrawalNo));
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
-                fifth.outcome());
+                sixth.outcome());
 
         assertEquals(2, channel.submitCount);
-        assertEquals(3, channel.queryCount);
+        assertEquals(4, channel.queryCount);
         assertEquals("SUCCEEDED|990|0|990|0|0",
                 withdrawalFundsState(withdrawalNo));
         assertEquals(2, jdbc.queryForObject("""
@@ -3671,7 +3714,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         terminal_at, lock_version, created_at, updated_at
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, NULL, 10, ?, ?, ?, ?, ?, ?,
-                        '环保回收提现', ?, ?, ?, 'NOT_ENOUGH', 'NON_TERMINAL',
+                        '环保回收提现', ?, ?, ?, 'API_ERROR', 'NON_TERMINAL',
                         NULL, 'NOT_ENOUGH', NULL, 0, ?, ?, NULL, 0, ?, ?
                     )
                     """, UUID.randomUUID().toString(), fixture.tenantId(),
@@ -3724,7 +3767,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         content_sha256, observed_at, created_at
                     ) VALUES (
                         ?, ?, ?, ?, 'SUBMIT_RESPONSE', 'TASK_ATTEMPT',
-                        'ORGANIZATION', NULL, ?, 'NOT_ENOUGH', 'NOT_ENOUGH',
+                        'ORGANIZATION', NULL, ?, NULL, 'NOT_ENOUGH',
                         NULL, ?, ?, ?, ?, NULL, NULL, 10, ?, ?, ?, ?, ?
                     )
                     """, observationUid.toString(), fixture.tenantId(),
@@ -3796,6 +3839,12 @@ class TargetWebIdentityMysqlIntegrationTest {
                     new AuthorizedPlatformIdentity(
                             fixture.platformAdminId(), UUID.randomUUID(),
                             UUID.randomUUID(), "payout restore test"));
+            when(identity.authorizeWeb(
+                    true, organizationCode, "withdrawal.read", false))
+                    .thenReturn(new AuthorizedWebIdentity(
+                            true, tenantCode, fixture.platformAdminId(),
+                            UUID.randomUUID(), UUID.randomUUID(),
+                            "payout status test"));
             AuditPort audit = mock(AuditPort.class);
             when(audit.append(any())).thenReturn(1L);
             WithdrawalApplicationService service =
@@ -3807,6 +3856,15 @@ class TargetWebIdentityMysqlIntegrationTest {
                             new TransactionTemplate(transactionManager), audit,
                             fundsOperationalControl, fundsListCursorCodec,
                             "https://fake.invalid");
+            var pausedWithdrawal = service.webDetail(
+                    true, tenantCode, organizationCode, withdrawalNo);
+            assertNull(pausedWithdrawal.channelState(),
+                    "legacy API_ERROR projection must not be exposed as a WeChat bill state");
+            assertEquals("NOT_ENOUGH",
+                    pausedWithdrawal.channelErrorCode());
+            assertEquals(
+                    "微信返回出资商户余额不足；提现资金仍保持冻结，系统会按出款闸门和原商户单号继续处理",
+                    pausedWithdrawal.channelStatusMessage());
             UUID restoreOperationUid = UUID.randomUUID();
             RestorePayoutGateRequest restoreRequest =
                     new RestorePayoutGateRequest(
@@ -4069,7 +4127,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 originalRequest = request;
                 return new MerchantTransferResult(
                         MerchantTransferResult.Outcome.RETRYABLE_FAILURE,
-                        "API_ERROR", null, null, "SYSTEM_ERROR", null,
+                        null, null, null, "SYSTEM_ERROR", null,
                         "uncertain submit result", Instant.now());
             }
             assertEquals(originalRequest, request,
@@ -4088,10 +4146,17 @@ class TargetWebIdentityMysqlIntegrationTest {
             if (queryCount == 1) {
                 return new MerchantTransferResult(
                         MerchantTransferResult.Outcome.NOT_FOUND,
-                        "NOT_FOUND", null, null, "NOT_FOUND", null,
+                        null, null, null, "NOT_FOUND", null,
                         "original bill is absent", Instant.now());
             }
-            long observedAmount = queryCount == 2
+            if (queryCount == 2) {
+                return new MerchantTransferResult(
+                        MerchantTransferResult.Outcome.NOT_FOUND,
+                        null, null, null, "NOT_FOUND", null,
+                        "late missing response after prior bill evidence",
+                        Instant.now());
+            }
+            long observedAmount = queryCount == 3
                     ? originalRequest.amountCent() + 1
                     : originalRequest.amountCent();
             return new MerchantTransferResult(

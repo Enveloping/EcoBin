@@ -110,6 +110,8 @@ public final class FundsModels {
             long version,
             String amountYuan,
             String channelState,
+            String channelErrorCode,
+            String channelStatusMessage,
             boolean confirmationRequired,
             boolean cancellable,
             boolean channelBoundaryCrossed,

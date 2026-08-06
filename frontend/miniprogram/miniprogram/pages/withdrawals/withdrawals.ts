@@ -48,6 +48,7 @@ interface WithdrawalListItem extends WithdrawalView {
   createdText: string
   statusText: string
   statusTone: string
+  channelStateText: string
 }
 
 interface MerchantTransferOptions {
@@ -87,6 +88,17 @@ const STATUS: Record<string, [string, string]> = {
   CHANNEL_CANCELLED: ['微信转账已撤销', 'neutral'],
 }
 
+const CHANNEL_STATE: Record<string, string> = {
+  ACCEPTED: '微信已受理',
+  PROCESSING: '微信处理中',
+  TRANSFERING: '微信转账中',
+  CANCELING: '微信撤销处理中',
+  WAIT_USER_CONFIRM: '等待确认收款',
+  SUCCESS: '微信转账成功',
+  FAIL: '微信转账失败',
+  CANCELLED: '微信转账已撤销',
+}
+
 function listItem(item: WithdrawalView): WithdrawalListItem {
   const [statusText, statusTone] = STATUS[item.status]
     ?? [item.status, 'neutral']
@@ -96,6 +108,9 @@ function listItem(item: WithdrawalView): WithdrawalListItem {
     createdText: formatLocalDateTime(item.createdAt),
     statusText,
     statusTone,
+    channelStateText: item.channelState
+      ? CHANNEL_STATE[item.channelState] ?? item.channelState
+      : '',
   }
 }
 

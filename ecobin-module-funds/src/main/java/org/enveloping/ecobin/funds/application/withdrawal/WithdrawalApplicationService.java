@@ -1058,6 +1058,18 @@ public class WithdrawalApplicationService {
                     ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                     "late non-terminal observation preserved");
         }
+        if (result.outcome() == MerchantTransferResult.Outcome.NOT_FOUND
+                && hasWechatExistenceEvidence(transfer)) {
+            markTransferConflictWhenNeeded(transfer, "CONFLICT", now);
+            observeTransferIssue(
+                    command, transfer,
+                    "FUNDS.MERCHANT_TRANSFER_EVIDENCE_MISMATCH",
+                    "CRITICAL", "NOT_FOUND_AFTER_EXISTENCE_EVIDENCE",
+                    result, now);
+            return new ReliableFundsTaskExecutorPort.Result(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                    "Wechat reported a missing bill after prior existence evidence");
+        }
         if (transferBillConflicts(transfer, result)) {
             markTransferConflictWhenNeeded(transfer, "CONFLICT", now);
             observeTransferIssue(
@@ -1073,15 +1085,21 @@ public class WithdrawalApplicationService {
                 SET transfer_bill_no = COALESCE(transfer_bill_no, ?),
                     package_info = CASE WHEN ? IS NOT NULL THEN ?
                                         ELSE package_info END,
-                    channel_state = ?, last_api_error_code = ?,
+                    channel_state = CASE
+                        WHEN ? IS NOT NULL THEN ?
+                        WHEN channel_state IN ('API_ERROR', 'NOT_FOUND')
+                            THEN NULL
+                        ELSE channel_state END,
+                    last_api_error_code = ?,
                     submitted_at = CASE WHEN ? THEN COALESCE(submitted_at, ?)
                                         ELSE submitted_at END,
                     channel_updated_at = ?, lock_version = lock_version + 1,
                     updated_at = ?
                 WHERE id = ? AND terminal_classification = 'NON_TERMINAL'
                 """, result.transferBillNo(), result.packageInfo(),
-                result.packageInfo(), result.channelState(), result.errorCode(),
-                submitAttempt, now, now, now, transfer.transferId());
+                result.packageInfo(), result.channelState(),
+                result.channelState(), result.errorCode(), submitAttempt, now,
+                now, now, transfer.transferId());
         if (result.outcome() == MerchantTransferResult.Outcome.NOT_ENOUGH) {
             UUID pausedEventUid = pausePayoutGate(
                     transfer, observationId, now);
@@ -1748,7 +1766,7 @@ public class WithdrawalApplicationService {
                 ? null : decoded.lastStableKey();
         List<WithdrawalView> items = jdbc.query("""
                 SELECT w.*, t.channel_state, t.terminal_classification,
-                       t.package_info,
+                       t.package_info, t.last_api_error_code,
                        m.scene_id, m.report_type, m.report_content,
                        m.transfer_page_style
                 FROM fund_withdrawal_order w
@@ -1824,7 +1842,7 @@ public class WithdrawalApplicationService {
     private String withdrawalSql(String predicate, boolean lock) {
         return """
                 SELECT w.*, t.channel_state, t.terminal_classification,
-                       t.package_info,
+                       t.package_info, t.last_api_error_code,
                        m.scene_id, m.report_type, m.report_content,
                        m.transfer_page_style
                 FROM fund_withdrawal_order w
@@ -1859,7 +1877,9 @@ public class WithdrawalApplicationService {
                 rs.getObject("created_at", LocalDateTime.class),
                 rs.getObject("reviewed_at", LocalDateTime.class),
                 rs.getObject("ended_at", LocalDateTime.class),
-                rs.getString("channel_state"), rs.getString("package_info"),
+                rs.getString("channel_state"),
+                rs.getString("last_api_error_code"),
+                rs.getString("package_info"),
                 rs.getString("scene_id"), rs.getString("report_type"),
                 rs.getString("report_content"),
                 rs.getString("transfer_page_style"));
@@ -2214,6 +2234,7 @@ public class WithdrawalApplicationService {
                             rs.getObject("reviewed_at", LocalDateTime.class),
                             rs.getObject("ended_at", LocalDateTime.class),
                             rs.getString("transfer_channel_state"),
+                            rs.getString("last_api_error_code"),
                             rs.getString("transfer_package_info"),
                             rs.getString("scene_id"), rs.getString("report_type"),
                             rs.getString("report_content"),
@@ -2335,16 +2356,27 @@ public class WithdrawalApplicationService {
     }
 
     private WithdrawalView view(WithdrawalRow row) {
+        MerchantTransferStatusPresentation channel =
+                MerchantTransferStatusPresentation.from(
+                        row.channelErrorCode());
+        String channelState = publicChannelState(row.channelState());
         return new WithdrawalView(
                 row.withdrawalNo(), row.state(), row.version(),
-                money(row.amountCent()), row.channelState(),
-                "WAIT_USER_CONFIRM".equals(row.channelState())
+                money(row.amountCent()), channelState,
+                channel.errorCode(), channel.message(),
+                "WAIT_USER_CONFIRM".equals(channelState)
                         && row.packageInfo() != null,
                 false,
                 row.channelBoundaryAt() != null,
                 row.negativePause(), row.postBoundaryRisk(),
                 instant(row.createdAt()), instant(row.reviewedAt()),
                 instant(row.endedAt()));
+    }
+
+    private static String publicChannelState(String channelState) {
+        return "API_ERROR".equals(channelState)
+                || "NOT_FOUND".equals(channelState)
+                ? null : channelState;
     }
 
     private MerchantTransferRequest transferRequest(
@@ -2402,8 +2434,18 @@ public class WithdrawalApplicationService {
 
     private static boolean shouldResubmitOriginal(
             TransferSnapshot transfer) {
-        return "NOT_FOUND".equals(transfer.lastApiErrorCode())
-                || "ACCEPTED".equals(transfer.withdrawal().channelState());
+        String channelState = publicChannelState(
+                transfer.withdrawal().channelState());
+        return "ACCEPTED".equals(channelState)
+                || ("NOT_FOUND".equals(transfer.lastApiErrorCode())
+                && !hasWechatExistenceEvidence(transfer));
+    }
+
+    private static boolean hasWechatExistenceEvidence(
+            TransferSnapshot transfer) {
+        return transfer.transferBillNo() != null
+                || publicChannelState(
+                transfer.withdrawal().channelState()) != null;
     }
 
     private LocalDateTime databaseNow() {
@@ -2653,7 +2695,8 @@ public class WithdrawalApplicationService {
             LocalDateTime channelBoundaryAt, LocalDateTime longUnsettledAt,
             long version,
             LocalDateTime createdAt, LocalDateTime reviewedAt,
-            LocalDateTime endedAt, String channelState, String packageInfo,
+            LocalDateTime endedAt, String channelState,
+            String channelErrorCode, String packageInfo,
             String sceneId, String reportType, String reportContent,
             String pageStyle) {
     }

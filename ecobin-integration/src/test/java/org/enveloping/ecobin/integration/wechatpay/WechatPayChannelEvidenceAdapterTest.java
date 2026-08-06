@@ -8,6 +8,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -133,6 +134,9 @@ class WechatPayChannelEvidenceAdapterTest {
         assertEquals(
                 MerchantTransferChannelPort.MerchantTransferResult.Outcome.NOT_FOUND,
                 result.outcome());
+        assertNull(result.channelState(),
+                "HTTP 404 is an API result, not a WeChat bill state");
+        assertEquals("NOT_FOUND", result.errorCode());
     }
 
     @Test
@@ -150,6 +154,9 @@ class WechatPayChannelEvidenceAdapterTest {
                 MerchantTransferChannelPort.MerchantTransferResult.Outcome
                         .RETRYABLE_FAILURE,
                 result.outcome());
+        assertNull(result.channelState(),
+                "API errors must not masquerade as WeChat bill states");
+        assertEquals("ALREADY_EXISTS", result.errorCode());
     }
 
     @Test
@@ -167,6 +174,48 @@ class WechatPayChannelEvidenceAdapterTest {
                 MerchantTransferChannelPort.MerchantTransferResult.Outcome
                         .PERMANENT_FAILURE,
                 result.outcome());
+        assertNull(result.channelState(),
+                "request rejection is not a WeChat bill state");
+        assertEquals("PARAM_ERROR", result.errorCode());
+    }
+
+    @Test
+    void notEnoughIsKeptAsAnApiErrorWithoutInventingABillState() {
+        when(client.post(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new WechatPayApiException(
+                        403, "NOT_ENOUGH", "merchant balance insufficient"));
+
+        var result = new WechatPayMerchantTransferAdapter(client, mapper)
+                .submit(transferRequest("MT-NOT-ENOUGH"));
+
+        assertEquals(
+                MerchantTransferChannelPort.MerchantTransferResult.Outcome
+                        .NOT_ENOUGH,
+                result.outcome());
+        assertNull(result.channelState());
+        assertEquals("NOT_ENOUGH", result.errorCode());
+    }
+
+    @Test
+    void responseSignatureFailureBlocksAutomaticFundsProcessing() {
+        when(client.post(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new WechatPayApiException(
+                        502, "SIGNATURE_ERROR",
+                        "response signature verification failed"));
+
+        var result = new WechatPayMerchantTransferAdapter(client, mapper)
+                .submit(transferRequest("MT-SIGNATURE-ERROR"));
+
+        assertEquals(
+                MerchantTransferChannelPort.MerchantTransferResult.Outcome
+                        .PERMANENT_FAILURE,
+                result.outcome());
+        assertNull(result.channelState());
+        assertEquals("SIGNATURE_ERROR", result.errorCode());
     }
 
     private MerchantTransferChannelPort.MerchantTransferRequest transferRequest(

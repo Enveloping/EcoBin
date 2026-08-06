@@ -171,6 +171,8 @@ export interface WithdrawalView {
   version: number
   amountYuan: string
   channelState: string | null
+  channelErrorCode?: string | null
+  channelStatusMessage?: string | null
   confirmationRequired: boolean
   cancellable: boolean
   channelBoundaryCrossed: boolean

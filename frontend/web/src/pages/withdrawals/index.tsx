@@ -44,6 +44,17 @@ const STATUS: Record<string, { text: string; color: string }> = {
   CHANNEL_CANCELLED: { text: '微信转账已撤销', color: 'default' },
 };
 
+const CHANNEL_STATE: Record<string, { text: string; color: string }> = {
+  ACCEPTED: { text: '微信已受理', color: 'processing' },
+  PROCESSING: { text: '微信处理中', color: 'processing' },
+  TRANSFERING: { text: '微信转账中', color: 'processing' },
+  CANCELING: { text: '微信撤销处理中', color: 'processing' },
+  WAIT_USER_CONFIRM: { text: '等待用户确认收款', color: 'warning' },
+  SUCCESS: { text: '微信转账成功', color: 'success' },
+  FAIL: { text: '微信转账失败', color: 'error' },
+  CANCELLED: { text: '微信转账已撤销', color: 'default' },
+};
+
 function errorText(error: unknown): string {
   if (error instanceof ApiProblem) {
     return error.requestId
@@ -185,8 +196,49 @@ export default function WithdrawalsPage() {
             columns={[
               { title: '提现单号', dataIndex: 'withdrawalNo', render: (value) => <Typography.Text copyable>{value}</Typography.Text> },
               { title: '金额', dataIndex: 'amountYuan', align: 'right', render: (value) => <Typography.Text strong>¥{formatMoneyCny(value)}</Typography.Text> },
-              { title: '业务状态', dataIndex: 'status', render: (value) => { const status = STATUS[value] ?? { text: value, color: 'default' }; return <Tag color={status.color}>{status.text}</Tag>; } },
-              { title: '微信状态', dataIndex: 'channelState', render: (value) => value ? <Tag>{value}</Tag> : '尚未提交' },
+              {
+                title: '业务状态',
+                dataIndex: 'status',
+                render: (value) => {
+                  const status = STATUS[value]
+                    ?? { text: value, color: 'default' };
+                  return <Tag color={status.color}>{status.text}</Tag>;
+                },
+              },
+              {
+                title: '微信处理结果',
+                dataIndex: 'channelState',
+                width: 360,
+                render: (value, order) => {
+                  if (!value && !order.channelErrorCode
+                    && !order.channelStatusMessage) return '尚未提交';
+                  const state = value
+                    ? CHANNEL_STATE[value]
+                      ?? { text: value, color: 'default' }
+                    : null;
+                  return (
+                    <Space direction="vertical" size={2}>
+                      <Space wrap size={4}>
+                        {state
+                          ? <Tag color={state.color}>{state.text}</Tag>
+                          : (
+                            <Typography.Text type="secondary">
+                              尚未取得微信单据状态
+                            </Typography.Text>
+                          )}
+                        {order.channelErrorCode && (
+                          <Tag color="error">{order.channelErrorCode}</Tag>
+                        )}
+                      </Space>
+                      {order.channelStatusMessage && (
+                        <Typography.Text type="secondary">
+                          {order.channelStatusMessage}
+                        </Typography.Text>
+                      )}
+                    </Space>
+                  );
+                },
+              },
               { title: '创建时间', dataIndex: 'createdAt', render: formatShanghaiTime },
               {
                 title: '操作',

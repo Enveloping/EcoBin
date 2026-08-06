@@ -99,7 +99,7 @@ public class WechatPayMerchantTransferAdapter
             outcome = MerchantTransferResult.Outcome.RETRYABLE_FAILURE;
         }
         return new MerchantTransferResult(
-                outcome, "API_ERROR", null, null, failure.code(),
+                outcome, null, null, null, failure.code(),
                 null, failure.getMessage(), Instant.now());
     }
 
@@ -108,7 +108,7 @@ public class WechatPayMerchantTransferAdapter
         if (failure.status() == 404 && "NOT_FOUND".equals(failure.code())) {
             return new MerchantTransferResult(
                     MerchantTransferResult.Outcome.NOT_FOUND,
-                    "NOT_FOUND", null, null, failure.code(), null,
+                    null, null, null, failure.code(), null,
                     failure.getMessage(), Instant.now());
         }
         return error(failure);
@@ -116,7 +116,8 @@ public class WechatPayMerchantTransferAdapter
 
     private static boolean isPermanentRequestError(String code) {
         return java.util.Set.of(
-                "PARAM_ERROR", "INVALID_REQUEST", "NO_AUTH", "SIGN_ERROR")
+                "PARAM_ERROR", "INVALID_REQUEST", "NO_AUTH", "SIGN_ERROR",
+                "SIGNATURE_ERROR", "RESPONSE_SIGNATURE_INVALID")
                 .contains(code);
     }
 

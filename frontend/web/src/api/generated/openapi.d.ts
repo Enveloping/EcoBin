@@ -6925,6 +6925,10 @@ export interface components {
             version: number;
             amountYuan: components["schemas"]["PositiveMoneyCny"];
             channelState?: string | null;
+            /** @description 微信渠道的稳定错误码；与真实单据状态分列且不会包含微信原始响应正文 */
+            channelErrorCode?: string | null;
+            /** @description 依据渠道错误码生成的安全、可操作中文说明 */
+            channelStatusMessage?: string | null;
             confirmationRequired: boolean;
             cancellable: boolean;
             channelBoundaryCrossed: boolean;

@@ -76,7 +76,10 @@
     </view>
     <view class="order-meta">
       <text>{{item.createdText}}</text>
-      <text wx:if="{{item.channelState}}">微信状态 {{item.channelState}}</text>
+      <text wx:if="{{item.channelState}}">{{item.channelStateText}}</text>
+    </view>
+    <view class="risk-note" wx:if="{{item.channelStatusMessage}}">
+      {{item.channelStatusMessage}}<text wx:if="{{item.channelErrorCode}}">（{{item.channelErrorCode}}）</text>
     </view>
     <view class="risk-note" wx:if="{{item.postBoundaryRisk}}">渠道结果正在对账，冻结资金不会提前释放</view>
     <view class="risk-note" wx:if="{{item.negativeBalancePaused}}">当前余额异常，本单不会继续向微信提交</view>
