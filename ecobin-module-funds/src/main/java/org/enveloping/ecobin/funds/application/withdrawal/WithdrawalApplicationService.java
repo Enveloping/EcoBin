@@ -2308,7 +2308,7 @@ public class WithdrawalApplicationService {
                     AuditActorKind.ORGANIZATION_USER,
                     null, null, scope.organizationUserId(), null,
                     scope.actorDisplayName(), action, "WITHDRAWAL", target,
-                    "MINIAPP", "SUCCEEDED", scope.sessionUid(),
+                    "MINIAPP_USER", "SUCCEEDED", scope.sessionUid(),
                     null, summary, instant(now)));
         } catch (DuplicateKeyException duplicate) {
             throw idempotencyConflict();

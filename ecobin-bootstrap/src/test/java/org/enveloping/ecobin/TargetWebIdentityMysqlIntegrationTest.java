@@ -108,6 +108,9 @@ class TargetWebIdentityMysqlIntegrationTest {
     private FundsOperationalControlPort fundsOperationalControl;
 
     @Autowired
+    private AuditPort auditPort;
+
+    @Autowired
     private FundsListCursorCodec fundsListCursorCodec;
 
     private String run;
@@ -569,6 +572,80 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals("0.00",
                 configuration.manualReviewFreeThresholdYuan());
         assertNotNull(configuration.publishedAt());
+    }
+
+    @Test
+    void miniappWithdrawalCreationPersistsMysqlCompatibleAuditChannel()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tw");
+        String organizationCode = code("ow");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Miniapp withdrawal audit channel");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "withdrawal-audit-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        mock(MerchantTransferChannelPort.class),
+                        new TransactionTemplate(transactionManager), auditPort,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        "https://fake.invalid");
+
+        UUID operationUid = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).execute(status ->
+                service.create(
+                        operationUid,
+                        new CreateWithdrawalRequest("0.10")));
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "WD", operationUid);
+
+        assertEquals(
+                "PENDING_REVIEW|10",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(business_state, '|', amount_cent)
+                        FROM fund_withdrawal_order
+                        WHERE withdrawal_order_no = ?
+                        """, String.class, withdrawalNo));
+        assertEquals(
+                "MINIAPP_USER|ORGANIZATION_USER|withdrawal.create",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            entry_channel, '|', actor_kind, '|', action_code)
+                        FROM ops_audit_log
+                        WHERE operation_uid = ?
+                        """, String.class, operationUid.toString()));
+        assertEquals(
+                "990|10",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            available_balance_cent, '|',
+                            frozen_withdrawal_cent)
+                        FROM fund_user_wallet
+                        WHERE organization_user_id = ?
+                        """, String.class, fixture.userId()));
+        assertEquals(
+                "990|10",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            available_payout_cent, '|',
+                            frozen_withdrawal_cent)
+                        FROM fund_organization_payout_account
+                        WHERE tenant_id = ? AND organization_id = ?
+                        """, String.class,
+                        fixture.tenantId(), fixture.organizationId()));
     }
 
     @Test
