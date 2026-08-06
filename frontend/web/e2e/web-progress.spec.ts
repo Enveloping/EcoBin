@@ -765,10 +765,19 @@ test('organization-user commands reuse idempotency after a retryable failure', a
 
   await page.goto('/organization-users');
   await expect(page.getByText('周宁', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '编辑' }).click();
+  const disabledChoice = page
+    .getByRole('dialog', { name: '编辑机构用户' })
+    .locator('label.ant-radio-button-wrapper')
+    .filter({ hasText: '禁用' });
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    await page.getByRole('button', { name: '冻结' }).click();
-    await page.getByRole('button', { name: '确 定' }).click();
+    await expect(disabledChoice).not.toHaveClass(/ant-radio-button-wrapper-disabled/);
+    await disabledChoice.click();
+    await page
+      .getByRole('dialog', { name: '确认禁用该用户？' })
+      .getByRole('button', { name: '确认禁用' })
+      .click();
     await expect.poll(() => freezeAttempts).toBe(attempt + 1);
   }
 
@@ -776,7 +785,231 @@ test('organization-user commands reuse idempotency after a retryable failure', a
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
   );
   expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
-  await expect(page.getByText('已冻结', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('已禁用', { exact: true }).first()).toBeVisible();
+});
+
+test('organization recharge creates inline QR codes and lists only posted orders', async ({
+  page,
+}) => {
+  const session = {
+    ...tenantSession,
+    capabilities: ['organization.read', 'fund.read', 'recharge.create'],
+    organizations: [{
+      organizationCode: 'org-funds',
+      organizationName: '资金运营中心',
+    }],
+  };
+  const createPayloads: Array<{ grossAmountYuan: string }> = [];
+  const listStatuses: Array<string | null> = [];
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, { token: 'funds-csrf', headerName: 'X-CSRF-TOKEN' });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations'
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode: 'org-funds',
+          organizationName: '资金运营中心',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-08-01T00:00:00Z',
+          updatedAt: '2026-08-01T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/organizations/org-funds/payout-account'
+    ) {
+      await json(route, {
+        availablePayoutYuan: '980.00',
+        frozenWithdrawalYuan: '0.00',
+        totalPayoutYuan: '980.00',
+        cumulativeRechargeGrossYuan: '1000.00',
+        cumulativeRechargeFeeYuan: '6.00',
+        cumulativeRechargeNetYuan: '994.00',
+        cumulativeSuccessfulWithdrawalYuan: '14.00',
+        merchantBindingStatus: 'VERIFIED',
+        payoutGateStatus: 'OPEN',
+        version: 3,
+        asOf: '2026-08-06T00:00:00Z',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-funds/withdrawal-configuration'
+    ) {
+      await json(route, {
+        versionNo: 1,
+        hardLimitYuan: '5000.00',
+        manualMinimumYuan: '1.00',
+        manualMaximumYuan: '5000.00',
+        manualReviewFreeThresholdYuan: '0.00',
+        publishedAt: '2026-08-01T00:00:00Z',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/organizations/org-funds/recharge-orders'
+    ) {
+      const status = url.searchParams.get('status');
+      listStatuses.push(status);
+      await json(route, {
+        items: status === 'POSTED' ? [{
+          operationId: 'payment-posted',
+          resourceId: 'RCPOSTED000000000000000000000001',
+          rechargeNo: 'RCPOSTED000000000000000000000001',
+          status: 'POSTED',
+          version: 2,
+          grossAmountYuan: '1000.00',
+          feeYuan: '6.00',
+          netAmountYuan: '994.00',
+          paymentPreparationStatus: 'READY',
+          qrCodeUrl: null,
+          expiresAt: '2026-08-06T02:00:00Z',
+          statusUrl: '/api/v1/web/organizations/org-funds/recharge-orders/RCPOSTED000000000000000000000001',
+          recommendedPollAfterMs: 1000,
+          createdAt: '2026-08-06T00:00:00Z',
+          paidAt: '2026-08-06T00:01:00Z',
+          postedAt: '2026-08-06T00:01:01Z',
+        }] : [],
+        asOf: '2026-08-06T00:02:00Z',
+        nextCursor: null,
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname
+        === '/api/v1/web/organizations/org-funds/recharge-orders'
+    ) {
+      const payload = request.postDataJSON() as { grossAmountYuan: string };
+      createPayloads.push(payload);
+      const index = createPayloads.length;
+      if (index === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      }
+      const rechargeNo = `RC${String(index).padStart(30, '0')}`;
+      const qrReady = index !== 1 && index !== 4;
+      await json(route, {
+        operationId: `payment-${index}`,
+        resourceId: rechargeNo,
+        rechargeNo,
+        status: 'PENDING_PAYMENT',
+        version: qrReady ? 1 : 0,
+        grossAmountYuan: payload.grossAmountYuan,
+        feeYuan: '0.01',
+        netAmountYuan: payload.grossAmountYuan,
+        paymentPreparationStatus: qrReady ? 'READY' : 'PENDING',
+        qrCodeUrl: qrReady ? `weixin://wxpay/bizpayurl?order=${index}` : null,
+        expiresAt: '2026-08-06T02:00:00Z',
+        statusUrl: `/api/v1/web/organizations/org-funds/recharge-orders/${rechargeNo}`,
+        recommendedPollAfterMs: 1000,
+        createdAt: `2026-08-06T00:00:0${index}Z`,
+        paidAt: null,
+        postedAt: null,
+      }, 202);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname.startsWith(
+        '/api/v1/web/organizations/org-funds/recharge-orders/RC',
+      )
+    ) {
+      const rechargeNo = url.pathname.split('/').at(-1)!;
+      await json(route, {
+        operationId: `payment-query-${rechargeNo}`,
+        resourceId: rechargeNo,
+        rechargeNo,
+        status: 'PENDING_PAYMENT',
+        version: 1,
+        grossAmountYuan: '0.40',
+        feeYuan: '0.01',
+        netAmountYuan: '0.39',
+        paymentPreparationStatus: 'READY',
+        qrCodeUrl: `weixin://wxpay/bizpayurl?order=${rechargeNo}`,
+        expiresAt: '2026-08-06T02:00:00Z',
+        statusUrl: url.pathname,
+        recommendedPollAfterMs: 1000,
+        createdAt: '2026-08-06T00:00:04Z',
+        paidAt: null,
+        postedAt: null,
+      });
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/funds?organization=org-funds');
+  await expect(page.getByText('机构充值记录', { exact: true })).toBeVisible();
+  await expect.poll(() => listStatuses).toContain('POSTED');
+  expect(listStatuses).toContain('PENDING_PAYMENT');
+  expect(listStatuses).toContain('PAID_PENDING_POST');
+  await expect(
+    page.locator('.ant-table').getByText('支付二维码', { exact: true }),
+  ).toHaveCount(0);
+
+  const payButton = page.getByRole('button', { name: /支付/ });
+  await page
+    .locator('label.ant-radio-button-wrapper')
+    .filter({ hasText: '¥50.00' })
+    .click();
+  await expect(payButton).toBeEnabled();
+  await payButton.click();
+  await expect(payButton).toBeDisabled();
+
+  await page
+    .locator('label.ant-radio-button-wrapper')
+    .filter({ hasText: '¥200.00' })
+    .click();
+  await expect(payButton).toBeEnabled();
+  await payButton.click();
+  await expect(page.getByText('请使用微信扫描二维码完成支付。')).toBeVisible();
+  await expect(payButton).toBeEnabled();
+  await expect.poll(() => createPayloads).toEqual([
+    { grossAmountYuan: '50.00' },
+    { grossAmountYuan: '200.00' },
+  ]);
+
+  await payButton.click();
+  await expect.poll(() => createPayloads).toHaveLength(3);
+  expect(createPayloads[2]).toEqual({ grossAmountYuan: '200.00' });
+  await page.waitForTimeout(550);
+  await expect(page.getByText('请使用微信扫描二维码完成支付。')).toBeVisible();
+
+  await page
+    .locator('label.ant-radio-button-wrapper')
+    .filter({ hasText: '自定义充值' })
+    .click();
+  const customAmount = page.getByLabel('自定义充值金额');
+  await customAmount.fill('4.4');
+  await payButton.click();
+  await expect(payButton).toBeDisabled();
+  await customAmount.fill('4.5');
+  await expect(payButton).toBeEnabled();
 });
 
 test('organization-user wallet drawer reads one consistent summary and ledger', async ({
@@ -1121,6 +1354,7 @@ test('organization-user detail binds staff and grants cleaner capability', async
     authVersion: 2,
   };
   const staffUid = '3102b64d-433d-4015-9a29-b21f309ddf8a';
+  const disabledStaffUid = '3102b64d-433d-4015-9a29-b21f309ddf8b';
   const bindingUid = '50000000-0000-4000-8000-000000000001';
 
   await page.route('**/api/v1/**', async (route) => {
@@ -1185,20 +1419,50 @@ test('organization-user detail binds staff and grants cleaner capability', async
       && url.pathname === '/api/v1/web/staff-accounts'
     ) {
       await json(route, {
-        items: [{
-          staffAccountUid: staffUid,
-          accountKind: 'STAFF',
-          loginName: 'operator',
-          displayName: '现场工作人员',
-          status: 'ENABLED',
-          version: 2,
-          authVersion: 3,
-          createdAt: '2026-07-01T00:00:00Z',
-          updatedAt: '2026-07-01T00:00:00Z',
-        }],
+        items: [
+          {
+            staffAccountUid: staffUid,
+            accountKind: 'STAFF',
+            loginName: 'operator',
+            displayName: '现场工作人员',
+            status: 'ENABLED',
+            version: 2,
+            authVersion: 3,
+            createdAt: '2026-07-01T00:00:00Z',
+            updatedAt: '2026-07-01T00:00:00Z',
+          },
+          {
+            staffAccountUid: disabledStaffUid,
+            accountKind: 'STAFF',
+            loginName: 'disabled.account',
+            displayName: '停用工作人员',
+            status: 'DISABLED',
+            version: 4,
+            authVersion: 5,
+            createdAt: '2026-07-01T00:00:00Z',
+            updatedAt: '2026-07-01T00:00:00Z',
+          },
+        ],
         page: 1,
         pageSize: 200,
-        total: 1,
+        total: 2,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === `/api/v1/web/staff-accounts/${staffUid}`
+    ) {
+      await json(route, {
+        staffAccountUid: staffUid,
+        accountKind: 'STAFF',
+        loginName: 'operator',
+        displayName: '现场工作人员',
+        status: 'ENABLED',
+        version: 2,
+        authVersion: 3,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-01T00:00:00Z',
       });
       return;
     }
@@ -1288,42 +1552,39 @@ test('organization-user detail binds staff and grants cleaner capability', async
 
   await page.goto('/organization-users?organization=org-binding');
   await expect(page.getByText('清运测试用户', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '详情' }).click();
-
-  const staffBindingSelect = page.getByRole(
-    'combobox',
-    { name: '绑定工作人员' },
-  );
-  await expect(staffBindingSelect).toBeVisible();
+  await page.getByRole('button', { name: '编辑' }).click();
+  const editDrawer = page.getByRole('dialog', { name: '编辑机构用户' });
+  await editDrawer.getByRole('button', { name: '选择工作人员' }).click();
+  const bindingDialog = page.getByRole('dialog', { name: '选择工作人员' });
+  await expect(bindingDialog).toBeVisible();
   await expect.poll(() => lookupAttemptCount).toBeGreaterThanOrEqual(2);
   await expect.poll(() => lookupHeaders.includes('binding-csrf-2')).toBe(true);
   expect(lookupHeaders).toContain('binding-csrf-1');
 
-  await staffBindingSelect.click();
-  await page.getByText('现场工作人员 · operator').click();
-  await page.getByRole('button', { name: '确认绑定' }).click();
-  await page
-    .locator('.ant-popover:visible')
-    .filter({ hasText: '确认绑定该工作人员？' })
-    .getByRole('button', { name: '确 定' })
-    .click();
+  await expect(bindingDialog.getByText('停用工作人员', { exact: true })).toBeVisible();
+  await expect(
+    bindingDialog.getByRole('radio', { name: '停用工作人员' }),
+  ).toBeDisabled();
+  await bindingDialog.getByLabel('搜索工作人员').fill('现场');
+  await expect(bindingDialog.getByText('停用工作人员', { exact: true })).toHaveCount(0);
+  await bindingDialog.getByLabel('搜索工作人员').clear();
+
+  await bindingDialog.getByRole('radio', { name: '现场工作人员' }).click();
+  await bindingDialog.getByRole('button', { name: '确认绑定' }).click();
   await expect.poll(() => bindingPayload).toEqual({
     organizationUserUid: currentUser.organizationUserUid,
     expectedStaffBinding: null,
     expectedOrganizationUserBinding: null,
   });
-  await expect(
-    page.getByText('该用户已绑定到所选工作人员'),
-  ).toBeVisible();
+  await expect(editDrawer.getByText('现场工作人员', { exact: true })).toBeVisible();
 
-  await page
-    .getByRole('dialog', { name: '机构用户详情' })
-    .getByRole('button', { name: '设为清运员' })
+  await editDrawer
+    .locator('label.ant-radio-button-wrapper')
+    .filter({ hasText: '清运员' })
     .click();
   await page
-    .locator('.ant-popover:visible')
-    .filter({ hasText: '确认允许该用户作为清运员发起清运操作？' })
-    .getByRole('button', { name: '确 定' })
+    .getByRole('dialog', { name: '确认设为清运员？' })
+    .getByRole('button', { name: /确\s*认/ })
     .click();
   await expect.poll(() => cleanerPayload).toEqual({
     expectedVersion: 3,
@@ -1992,6 +2253,9 @@ test('staff table hides security versions and keeps access actions inside edit',
     .filter({ hasText: '展示名' })
     .locator('input')
     .fill('设备工作人员');
+  await expect(
+    createDialog.getByText('读取设备', { exact: true }),
+  ).toHaveCount(0);
   await createDialog.getByRole('button', { name: '全选当前范围' }).click();
   await createDialog.getByRole('button', { name: /创\s*建/ }).click();
   await expect.poll(() => createPayload).toEqual({

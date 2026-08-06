@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircleOutlined,
   LinkOutlined,
-  PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   WalletOutlined,
@@ -20,7 +19,6 @@ import {
   Form,
   Input,
   Modal,
-  QRCode,
   Row,
   Select,
   Space,
@@ -31,7 +29,6 @@ import {
   Typography,
 } from 'antd';
 import {
-  createRechargeOrder,
   disableMerchantBinding,
   getMerchantBinding,
   getPayoutAccount,
@@ -53,21 +50,11 @@ import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
 import { useAuthStore } from '@/stores/authStore';
 import {
-  compareMoneyCny,
   formatMoneyCny,
   formatShanghaiTime,
-  isMoneyInputDraft,
-  normalizeMoneyInput,
 } from '@/utils/decimal';
 import { pageHeader } from '@/utils/pageStyle';
-
-const RECHARGE_STATUS: Record<string, { text: string; color: string }> = {
-  PENDING_PAYMENT: { text: '等待支付', color: 'processing' },
-  PAID_PENDING_POST: { text: '已支付，待入账', color: 'warning' },
-  POSTED: { text: '已入账', color: 'success' },
-  CLOSED: { text: '已关闭', color: 'default' },
-  EXPIRED: { text: '已过期', color: 'default' },
-};
+import OrganizationRechargeCard from './OrganizationRechargeCard';
 
 function errorText(error: unknown): string {
   if (error instanceof ApiProblem) {
@@ -78,21 +65,13 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : '机构资金加载失败';
 }
 
-function validateRechargeAmount(_: unknown, value?: string) {
-  const normalized = normalizeMoneyInput(value ?? '');
-  if (!normalized || compareMoneyCny(normalized, '0.00') <= 0) {
-    return Promise.reject(new Error('请输入大于 0 且最多两位小数的金额'));
-  }
-  return Promise.resolve();
-}
-
 export default function FundsPage() {
   const directory = useDirectoryScope();
   const organization = useOrganizationScope(directory);
   const session = useAuthStore((state) => state.session);
   const executeCommand = useCommandExecutor();
   const { message } = App.useApp();
-  const [rechargeForm] = Form.useForm<{ grossAmountYuan: string }>();
+  const loadSequence = useRef(0);
   const [restoreForm] = Form.useForm<{
     fundsReplenishedConfirmed: boolean;
     reason?: string;
@@ -106,17 +85,15 @@ export default function FundsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [gateError, setGateError] = useState<string>();
-  const [rechargeOpen, setRechargeOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [createdRecharge, setCreatedRecharge] =
-    useState<RechargeOrder | null>(null);
 
   const mayCreateRecharge = directory.context?.domain !== 'platform'
     && !!session?.capabilities.includes('recharge.create');
 
   const load = useCallback(async () => {
     if (!directory.context || !organization.organizationCode) return;
+    const requestId = ++loadSequence.current;
     setLoading(true);
     setError(undefined);
     try {
@@ -126,7 +103,7 @@ export default function FundsPage() {
           listRechargeOrders(
             directory.context,
             organization.organizationCode,
-            { limit: 50 },
+            { status: 'POSTED', limit: 50 },
           ),
           getWithdrawalConfiguration(
             directory.context,
@@ -139,18 +116,20 @@ export default function FundsPage() {
             )
             : Promise.resolve(null),
         ]);
+      if (loadSequence.current !== requestId) return;
       setAccount(nextAccount);
       setRecharges(nextRecharges.items);
       setConfiguration(nextConfiguration);
       setBinding(nextBinding);
     } catch (loadError) {
+      if (loadSequence.current !== requestId) return;
       setError(errorText(loadError));
       setAccount(null);
       setRecharges([]);
       setConfiguration(null);
       setBinding(null);
     } finally {
-      setLoading(false);
+      if (loadSequence.current === requestId) setLoading(false);
     }
   }, [directory.context, directory.platform, organization.organizationCode]);
 
@@ -176,38 +155,6 @@ export default function FundsPage() {
   useEffect(() => {
     void loadGate();
   }, [loadGate]);
-
-  const submitRecharge = async () => {
-    if (!directory.context || !organization.organizationCode) return;
-    const values = await rechargeForm.validateFields();
-    const normalizedAmount = normalizeMoneyInput(values.grossAmountYuan);
-    if (!normalizedAmount) return;
-    const payload = { grossAmountYuan: normalizedAmount };
-    setSubmitting(true);
-    try {
-      const created = await executeCommand(
-        commandKey(
-          'create-recharge',
-          organization.organizationCode,
-          payload,
-        ),
-        (intent) => createRechargeOrder(
-          directory.context!,
-          organization.organizationCode!,
-          payload,
-          intent,
-        ),
-      );
-      setCreatedRecharge(created);
-      setRechargeOpen(false);
-      message.success('充值单已创建，正在准备微信支付二维码');
-      await Promise.all([load(), loadGate()]);
-    } catch (submitError) {
-      message.error(errorText(submitError));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const updateBinding = async (enable: boolean) => {
     if (
@@ -355,14 +302,6 @@ export default function FundsPage() {
                       <Tag icon={readiness.ready ? <CheckCircleOutlined /> : <SafetyCertificateOutlined />} color={readiness.ready ? 'success' : 'warning'}>
                         {readiness.text}
                       </Tag>
-                      {mayCreateRecharge && (
-                        <Button type="primary" ghost icon={<PlusOutlined />} onClick={() => {
-                          rechargeForm.resetFields();
-                          setRechargeOpen(true);
-                        }}>
-                          创建机构充值
-                        </Button>
-                      )}
                     </Space>
                   </Col>
                 </Row>
@@ -380,6 +319,14 @@ export default function FundsPage() {
                 ))}
               </Row>
             </Card>
+
+            {mayCreateRecharge && directory.context && (
+              <OrganizationRechargeCard
+                context={directory.context}
+                organizationCode={organization.organizationCode}
+                onPosted={() => void Promise.all([load(), loadGate()])}
+              />
+            )}
 
             <Row gutter={[16, 16]}>
               <Col xs={24} lg={directory.platform ? 12 : 24}>
@@ -418,15 +365,13 @@ export default function FundsPage() {
                 rowKey="rechargeNo"
                 pagination={false}
                 dataSource={recharges}
-                locale={{ emptyText: '尚未创建机构充值单' }}
+                locale={{ emptyText: '暂无已入账的机构充值记录' }}
                 columns={[
                   { title: '充值单号', dataIndex: 'rechargeNo', render: (value) => <Typography.Text copyable>{value}</Typography.Text> },
                   { title: '充值金额', dataIndex: 'grossAmountYuan', align: 'right', render: (value) => `¥${formatMoneyCny(value)}` },
                   { title: '手续费', dataIndex: 'feeYuan', align: 'right', render: (value) => `¥${formatMoneyCny(value)}` },
                   { title: '机构净入账', dataIndex: 'netAmountYuan', align: 'right', render: (value) => <Typography.Text strong>¥{formatMoneyCny(value)}</Typography.Text> },
-                  { title: '状态', dataIndex: 'status', render: (value) => { const status = RECHARGE_STATUS[value] ?? { text: value, color: 'default' }; return <Tag color={status.color}>{status.text}</Tag>; } },
-                  { title: '创建时间', dataIndex: 'createdAt', render: formatShanghaiTime },
-                  { title: '支付二维码', render: (_, row) => row.qrCodeUrl && row.status === 'PENDING_PAYMENT' ? <Button type="link" onClick={() => setCreatedRecharge(row)}>查看</Button> : '—' },
+                  { title: '入账时间', dataIndex: 'postedAt', render: (value) => value ? formatShanghaiTime(value) : '—' },
                 ]}
               />
             </Card>
@@ -463,40 +408,6 @@ export default function FundsPage() {
         />
       )}
       {content}
-
-      <Modal title="创建机构充值" open={rechargeOpen} confirmLoading={submitting} onOk={() => void submitRecharge()} onCancel={() => setRechargeOpen(false)} okText="创建并准备二维码">
-        <Alert style={{ marginBottom: 18 }} type="info" showIcon message="微信实际扣款前不会增加机构余额" description="用户扫码支付成功后，系统再以可信回调或主动查单结果入账。" />
-        <Form form={rechargeForm} layout="vertical">
-          <Form.Item
-            name="grossAmountYuan"
-            label="充值金额（元）"
-            extra="可输入 1000、1000.5 或 1000.50，最多两位小数"
-            getValueFromEvent={(event) => {
-              const next = String(event.target.value);
-              return isMoneyInputDraft(next)
-                ? next
-                : rechargeForm.getFieldValue('grossAmountYuan') ?? '';
-            }}
-            rules={[
-              { required: true, message: '请输入充值金额' },
-              { validator: validateRechargeAmount },
-            ]}
-          >
-            <Input
-              prefix="¥"
-              placeholder="例如 1000 或 1000.5"
-              inputMode="decimal"
-              onBlur={() => {
-                const current = rechargeForm.getFieldValue('grossAmountYuan');
-                const normalized = normalizeMoneyInput(current ?? '');
-                if (normalized) {
-                  rechargeForm.setFieldValue('grossAmountYuan', normalized);
-                }
-              }}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <Modal
         title="恢复平台出款闸门"
@@ -536,17 +447,6 @@ export default function FundsPage() {
         </Form>
       </Modal>
 
-      <Modal title="微信 Native 支付二维码" open={!!createdRecharge} footer={<Button onClick={() => setCreatedRecharge(null)}>关闭</Button>} onCancel={() => setCreatedRecharge(null)}>
-        {createdRecharge?.qrCodeUrl ? (
-          <Space direction="vertical" align="center" style={{ width: '100%', padding: 24 }}>
-            <QRCode value={createdRecharge.qrCodeUrl} size={236} />
-            <Typography.Title level={4}>¥{formatMoneyCny(createdRecharge.grossAmountYuan)}</Typography.Title>
-            <Typography.Text type="secondary">支付结果以后端订单状态为准，请勿根据扫码页面直接入账。</Typography.Text>
-          </Space>
-        ) : (
-          <Alert type="warning" showIcon message="二维码仍在准备" description="可靠任务正在向微信创建原单，请稍后刷新充值记录。" />
-        )}
-      </Modal>
     </PageContainer>
   );
 }

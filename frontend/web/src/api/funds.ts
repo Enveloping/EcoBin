@@ -129,12 +129,14 @@ export function listRechargeOrders(
   context: DirectoryContext,
   organizationCode: string,
   params: { status?: string; cursor?: string; limit?: number } = {},
+  signal?: AbortSignal,
 ) {
   return request<RechargePage>({
     url: `${organizationBase(context, organizationCode)}/recharge-orders`,
     method: 'GET',
     params,
     noStore: true,
+    signal,
   });
 }
 
@@ -151,6 +153,22 @@ export function createRechargeOrder(
     url: `${organizationBase(context, organizationCode)}/recharge-orders`,
     method: 'POST',
     data,
+  });
+}
+
+export function getRechargeOrder(
+  context: DirectoryContext,
+  organizationCode: string,
+  rechargeNo: string,
+  signal?: AbortSignal,
+) {
+  return request<RechargeOrder>({
+    url:
+      `${organizationBase(context, organizationCode)}/recharge-orders/`
+      + encodeURIComponent(rechargeNo),
+    method: 'GET',
+    noStore: true,
+    signal,
   });
 }
 

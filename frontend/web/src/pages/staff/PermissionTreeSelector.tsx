@@ -15,6 +15,7 @@ interface PermissionTreeSelectorProps {
   disabled?: boolean;
   delegablePermissionCodes?: readonly string[];
   ariaLabel: string;
+  defaultExpandAll?: boolean;
 }
 
 export default function PermissionTreeSelector({
@@ -25,6 +26,7 @@ export default function PermissionTreeSelector({
   disabled = false,
   delegablePermissionCodes,
   ariaLabel,
+  defaultExpandAll = true,
 }: PermissionTreeSelectorProps) {
   const { token } = theme.useToken();
   const groups = useMemo(
@@ -147,7 +149,7 @@ export default function PermissionTreeSelector({
             aria-label={ariaLabel}
             checkable
             blockNode
-            defaultExpandAll
+            defaultExpandAll={defaultExpandAll}
             disabled={disabled}
             checkedKeys={selectedCodes}
             treeData={treeData}

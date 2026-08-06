@@ -17,14 +17,12 @@ import {
   Button,
   Divider,
   Empty,
-  Form,
   Popconfirm,
   Space,
   Tag,
 } from 'antd';
 import {
   changeStaffStatus,
-  createStaffAccount,
   getCurrentEffectiveAccess,
   getStaffAccount,
   listAllOrganizations,
@@ -46,14 +44,12 @@ import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { palette } from '@/theme';
 import StaffAccessPanel from './StaffAccessPanel';
-import PermissionTreeSelector from './PermissionTreeSelector';
+import StaffCreateModal from './StaffCreateModal';
 
 interface StaffForm {
   loginName: string;
-  initialPassword: string;
   displayName: string;
   contactPhone?: string;
-  permissionCodes: string[];
 }
 
 interface PasswordForm {
@@ -79,6 +75,7 @@ export default function StaffPage() {
   const [passwordTarget, setPasswordTarget] =
     useState<StaffAccount | null>(null);
   const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [operatorAccess, setOperatorAccess] =
     useState<EffectiveAccess | null>(null);
   const executeCommand = useCommandExecutor();
@@ -117,47 +114,28 @@ export default function StaffPage() {
     scope.context,
   ]);
 
-  const delegableTenantPermissionCodes = operatorNeedsDelegationLimit
-    ? operatorAccess?.tenantPermissionCodes ?? []
-    : undefined;
-
   const submit = async (values: StaffForm) => {
-    if (!scope.context) return false;
-    if (editing) {
-      if (!canManage || editing.accountKind === 'TENANT_PRINCIPAL') {
-        setOpen(false);
-        return true;
-      }
-      const payload = {
-        displayName: values.displayName,
-        contactPhone: values.contactPhone,
-        expectedVersion: editing.version,
-      };
-      await executeCommand(
-        commandKey('update-staff', editing.staffAccountUid, payload),
-        (intent) =>
-          updateStaffAccount(
-            scope.context!,
-            editing.staffAccountUid,
-            payload,
-            intent,
-          ),
-      );
-      message.success('工作人员资料已更新');
-    } else {
-      const payload = {
-        loginName: values.loginName,
-        initialPassword: values.initialPassword,
-        displayName: values.displayName,
-        contactPhone: values.contactPhone,
-        permissionCodes: values.permissionCodes ?? [],
-      };
-      await executeCommand(
-        commandKey('create-staff', values.loginName, payload),
-        (intent) => createStaffAccount(scope.context!, payload, intent),
-      );
-      message.success('工作人员账号已创建');
+    if (!scope.context || !editing) return false;
+    if (!canManage || editing.accountKind === 'TENANT_PRINCIPAL') {
+      setOpen(false);
+      return true;
     }
+    const payload = {
+      displayName: values.displayName,
+      contactPhone: values.contactPhone,
+      expectedVersion: editing.version,
+    };
+    await executeCommand(
+      commandKey('update-staff', editing.staffAccountUid, payload),
+      (intent) =>
+        updateStaffAccount(
+          scope.context!,
+          editing.staffAccountUid,
+          payload,
+          intent,
+        ),
+    );
+    message.success('工作人员资料已更新');
     setOpen(false);
     actionRef.current?.reload();
     return true;
@@ -350,8 +328,7 @@ export default function StaffPage() {
                     type="primary"
                     icon={<PlusOutlined />}
                     onClick={() => {
-                      setEditing(null);
-                      setOpen(true);
+                      setCreateOpen(true);
                     }}
                   >
                     创建工作人员
@@ -362,18 +339,27 @@ export default function StaffPage() {
         />
       )}
 
+      <StaffCreateModal
+        context={scope.context}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={() => {
+          actionRef.current?.reload();
+        }}
+      />
+
       <ModalForm<StaffForm>
-        title={editing ? '编辑工作人员资料' : '创建工作人员'}
+        title="编辑工作人员资料"
         open={open}
         onOpenChange={setOpen}
-        initialValues={editing ?? { permissionCodes: [] }}
+        initialValues={editing ?? undefined}
         modalProps={{
           destroyOnClose: true,
-          width: editing ? 1080 : 760,
-          style: { top: editing ? 24 : undefined },
-          styles: editing
-            ? { body: { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } }
-            : undefined,
+          width: 1080,
+          style: { top: 24 },
+          styles: {
+            body: { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' },
+          },
         }}
         submitter={{
           searchConfig: {
@@ -381,9 +367,7 @@ export default function StaffPage() {
               editing
               && (!canManage || editing.accountKind === 'TENANT_PRINCIPAL')
                 ? '关闭'
-                : editing
-                  ? '保存资料'
-                  : '创建',
+                : '保存资料',
             resetText: '取消',
           },
         }}
@@ -392,23 +376,8 @@ export default function StaffPage() {
         <ProFormText
           name="loginName"
           label="全局登录名"
-          disabled={!!editing || !canManage}
-          rules={
-            editing
-              ? []
-              : [
-                  { required: true },
-                  { pattern: /^[a-z0-9][a-z0-9._-]*$/, message: '请输入规范化小写登录名' },
-                ]
-          }
+          disabled
         />
-        {!editing && (
-          <ProFormText.Password
-            name="initialPassword"
-            label="初始密码"
-            rules={[{ required: true }, { min: 8 }]}
-          />
-        )}
         <ProFormText
           name="displayName"
           label="展示名"
@@ -426,20 +395,6 @@ export default function StaffPage() {
             && (!canManage || editing.accountKind === 'TENANT_PRINCIPAL')
           }
         />
-        {!editing && canGrant && (
-          <Form.Item
-            name="permissionCodes"
-            label="初始租户权限"
-            tooltip="只能授予当前操作者在相同或更大作用域拥有的权限。"
-          >
-            <PermissionTreeSelector
-              ariaLabel="初始租户权限"
-              definitions={definitions}
-              scopeKind="TENANT"
-              delegablePermissionCodes={delegableTenantPermissionCodes}
-            />
-          </Form.Item>
-        )}
         {editing && (
           <>
             <Divider orientation="left">账号安全</Divider>

@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   DollarOutlined,
-  EyeOutlined,
-  StopOutlined,
-  ToolOutlined,
-  UndoOutlined,
+  EditOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
 import {
@@ -19,11 +16,12 @@ import {
   App,
   Avatar,
   Button,
+  Card,
   Drawer,
   Empty,
   Input,
   Modal,
-  Popconfirm,
+  Radio,
   Select,
   Space,
   Tag,
@@ -85,7 +83,7 @@ export default function OrganizationUserPage() {
   const organizationScope = useOrganizationScope(scope);
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') === 'disabled' ? 'disabled' : 'all';
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>(null);
   const detailRequestSequence = useRef(0);
   const walletPreviewRequests = useRef(new LatestTargetRequestGuard());
@@ -189,8 +187,8 @@ export default function OrganizationUserPage() {
     if (!scope.context || !organizationCode) return;
     const enabled = mutation === 'restore';
     const reason = {
-      freeze: 'Web 管理端冻结机构用户',
-      restore: 'Web 管理端恢复机构用户',
+      freeze: 'Web 管理端禁用机构用户',
+      restore: 'Web 管理端启用机构用户',
     }[mutation];
     setMutating(mutation);
     try {
@@ -217,8 +215,8 @@ export default function OrganizationUserPage() {
       );
       message.success(
         mutation === 'freeze'
-          ? '用户已冻结，普通小程序会话已撤销'
-          : '用户已恢复，旧会话不会自动恢复',
+          ? '用户已禁用，普通小程序会话已撤销'
+          : '用户已启用，旧会话不会自动恢复',
       );
       actionRef.current?.reload();
     } catch (error) {
@@ -417,79 +415,6 @@ export default function OrganizationUserPage() {
     }
   };
 
-  const actionButtons = (user: OrganizationUser) => [
-    <Button
-      key="detail"
-      type="link"
-      size="small"
-      icon={<EyeOutlined />}
-      onClick={() => openDetail(user)}
-    >
-      详情
-    </Button>,
-    canFreeze ? (
-      <Popconfirm
-        key="status"
-        title={
-          user.status === 'ACTIVE'
-            ? '冻结会撤销该用户的普通小程序会话，确认继续？'
-            : '恢复账号不会恢复旧会话，确认继续？'
-        }
-        onConfirm={() =>
-          mutate(user, user.status === 'ACTIVE' ? 'freeze' : 'restore')}
-      >
-        <Button
-          type="link"
-          size="small"
-          danger={user.status === 'ACTIVE'}
-          icon={user.status === 'ACTIVE' ? <StopOutlined /> : <UndoOutlined />}
-          loading={
-            mutating === (user.status === 'ACTIVE' ? 'freeze' : 'restore')
-          }
-        >
-          {user.status === 'ACTIVE' ? '冻结' : '恢复'}
-        </Button>
-      </Popconfirm>
-    ) : null,
-    canAdjustWallet ? (
-      <Button
-        key="wallet-adjust"
-        type="link"
-        size="small"
-        icon={<DollarOutlined />}
-        onClick={() => openWalletAdjustment(user)}
-      >
-        调整余额
-      </Button>
-    ) : null,
-    canManageCleaner ? (
-      <Popconfirm
-        key="clean-operation"
-        title={
-          user.cleanOperationEnabled
-            ? '撤销后该用户不能再发起新的清运操作，确认继续？'
-            : '确认允许该用户作为清运员发起清运操作？'
-        }
-        onConfirm={() => mutateCleanOperation(user)}
-      >
-        <Button
-          type="link"
-          size="small"
-          danger={user.cleanOperationEnabled}
-          icon={<ToolOutlined />}
-          loading={
-            cleanMutating
-              === (user.cleanOperationEnabled
-                ? 'revoke-clean'
-                : 'grant-clean')
-          }
-        >
-          {user.cleanOperationEnabled ? '取消清运员' : '设为清运员'}
-        </Button>
-      </Popconfirm>
-    ) : null,
-  ];
-
   const columns: ProColumns<OrganizationUser>[] = [
     {
       title: '机构用户',
@@ -525,12 +450,12 @@ export default function OrganizationUserPage() {
       dataIndex: 'status',
       valueType: 'select',
       valueEnum: {
-        ACTIVE: { text: '正常' },
-        FROZEN: { text: '已冻结' },
+        ACTIVE: { text: '已启用' },
+        FROZEN: { text: '已禁用' },
       },
       render: (_, user) => (
         <Tag color={user.status === 'ACTIVE' ? 'success' : 'default'}>
-          {user.status === 'ACTIVE' ? '正常' : '已冻结'}
+          {user.status === 'ACTIVE' ? '已启用' : '已禁用'}
         </Tag>
       ),
     },
@@ -622,9 +547,19 @@ export default function OrganizationUserPage() {
       title: '操作',
       key: 'operation',
       valueType: 'option',
-      width: 260,
+      width: 90,
       hideInSetting: true,
-      render: (_, user) => actionButtons(user),
+      render: (_, user) => [
+        <Button
+          key="edit"
+          type="link"
+          size="small"
+          icon={<EditOutlined />}
+          onClick={() => openDetail(user)}
+        >
+          编辑
+        </Button>,
+      ],
     },
   ];
 
@@ -634,7 +569,7 @@ export default function OrganizationUserPage() {
     <PageContainer
       {...pageHeader(
         '机构用户',
-        '只展示安全投影；冻结、恢复和清运授权均使用服务端版本校验。',
+        '用户启用、禁用和清运资格调整均使用服务端版本校验。',
       )}
     >
       <DirectoryScopeBar scope={scope} />
@@ -718,7 +653,7 @@ export default function OrganizationUserPage() {
       )}
 
       <Drawer
-        title="机构用户详情"
+        title="编辑机构用户"
         width={760}
         open={!!detail}
         loading={detailLoading}
@@ -727,20 +662,6 @@ export default function OrganizationUserPage() {
           setDetail(null);
           setDetailLoading(false);
         }}
-        extra={detail ? (
-          <Space>
-            {canReadWallet && (
-              <Button
-                type="link"
-                icon={<WalletOutlined />}
-                onClick={() => setWalletUser(detail)}
-              >
-                钱包
-              </Button>
-            )}
-            {actionButtons(detail).slice(1)}
-          </Space>
-        ) : null}
       >
         {detail && (
           <>
@@ -761,7 +682,7 @@ export default function OrganizationUserPage() {
                   : '未绑定'}
               </ProDescriptions.Item>
               <ProDescriptions.Item label="状态">
-                {detail.status === 'ACTIVE' ? '正常' : '已冻结'}
+                {detail.status === 'ACTIVE' ? '已启用' : '已禁用'}
               </ProDescriptions.Item>
               <ProDescriptions.Item label="清运操作资格">
                 <Tag color={detail.cleanOperationEnabled ? 'blue' : 'default'}>
@@ -780,6 +701,139 @@ export default function OrganizationUserPage() {
                 v{detail.version} / auth {detail.authVersion}
               </ProDescriptions.Item>
             </ProDescriptions>
+            <Card
+              size="small"
+              title="用户设置"
+              style={{ marginTop: 16 }}
+            >
+              <Space direction="vertical" size={18} style={{ width: '100%' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <Typography.Text strong>账号状态</Typography.Text>
+                    <div>
+                      <Typography.Text type="secondary">
+                        禁用会撤销该用户的普通小程序会话。
+                      </Typography.Text>
+                    </div>
+                  </div>
+                  <Radio.Group
+                    aria-label="机构用户账号状态"
+                    optionType="button"
+                    buttonStyle="solid"
+                    value={detail.status}
+                    disabled={!canFreeze || !!mutating || !!cleanMutating}
+                    options={[
+                      { value: 'ACTIVE', label: '启用' },
+                      { value: 'FROZEN', label: '禁用' },
+                    ]}
+                    onChange={(event) => {
+                      const enable = event.target.value === 'ACTIVE';
+                      if (enable === (detail.status === 'ACTIVE')) return;
+                      modal.confirm({
+                        title: enable ? '确认启用该用户？' : '确认禁用该用户？',
+                        content: enable
+                          ? '启用后旧会话不会自动恢复，用户需要重新登录。'
+                          : '禁用后普通小程序会话立即撤销，后续用户业务将被阻止。',
+                        okText: enable ? '确认启用' : '确认禁用',
+                        okButtonProps: { danger: !enable },
+                        onOk: () => mutate(
+                          detail,
+                          enable ? 'restore' : 'freeze',
+                        ),
+                      });
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <Typography.Text strong>清运资格</Typography.Text>
+                    <div>
+                      <Typography.Text type="secondary">
+                        清运员可以在工作人员小程序发起清运操作。
+                      </Typography.Text>
+                    </div>
+                  </div>
+                  <Radio.Group
+                    aria-label="机构用户清运资格"
+                    optionType="button"
+                    buttonStyle="solid"
+                    value={detail.cleanOperationEnabled ? 'CLEANER' : 'USER'}
+                    disabled={!canManageCleaner || !!mutating || !!cleanMutating}
+                    options={[
+                      { value: 'USER', label: '普通用户' },
+                      { value: 'CLEANER', label: '清运员' },
+                    ]}
+                    onChange={(event) => {
+                      const enable = event.target.value === 'CLEANER';
+                      if (enable === detail.cleanOperationEnabled) return;
+                      modal.confirm({
+                        title: enable ? '确认设为清运员？' : '确认取消清运员资格？',
+                        content: enable
+                          ? '确认后该用户可以发起新的清运操作。'
+                          : '取消后该用户不能再发起新的清运操作。',
+                        okText: '确认',
+                        okButtonProps: { danger: !enable },
+                        onOk: () => mutateCleanOperation(detail),
+                      });
+                    }}
+                  />
+                </div>
+
+                {(canReadWallet || canAdjustWallet) && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 16,
+                    }}
+                  >
+                    <div>
+                      <Typography.Text strong>用户钱包</Typography.Text>
+                      <div>
+                        <Typography.Text type="secondary">
+                          查看资金明细或创建一笔人工余额调整。
+                        </Typography.Text>
+                      </div>
+                    </div>
+                    <Space wrap>
+                      {canReadWallet && (
+                        <Button
+                          icon={<WalletOutlined />}
+                          onClick={() => setWalletUser(detail)}
+                        >
+                          查看钱包
+                        </Button>
+                      )}
+                      {canAdjustWallet && (
+                        <Button
+                          type="primary"
+                          icon={<DollarOutlined />}
+                          onClick={() => void openWalletAdjustment(detail)}
+                        >
+                          调整余额
+                        </Button>
+                      )}
+                    </Space>
+                  </div>
+                )}
+              </Space>
+            </Card>
             {canBindStaff && !canReadStaff && (
               <Alert
                 showIcon

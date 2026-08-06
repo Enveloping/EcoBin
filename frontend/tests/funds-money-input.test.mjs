@@ -77,11 +77,15 @@ test('withdrawal page keeps backend authority and never treats the WeChat page a
 });
 
 test('funds clients normalize money before building command payloads', () => {
+  const rechargeCard = source(
+    '../web/src/pages/funds/OrganizationRechargeCard.tsx',
+  );
   const fundsPage = source('../web/src/pages/funds/index.tsx');
   const usersPage = source('../web/src/pages/organization-user/index.tsx');
   const openapi = source('../../contracts/http/openapi.yaml');
 
-  assert.match(fundsPage, /grossAmountYuan: normalizedAmount/);
+  assert.match(rechargeCard, /grossAmountYuan: amountSnapshot/);
+  assert.match(fundsPage, /status: 'POSTED'/);
   assert.match(usersPage, /deltaYuan: normalizedDelta/);
   assert.match(
     openapi,
