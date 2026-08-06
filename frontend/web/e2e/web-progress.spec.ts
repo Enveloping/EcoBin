@@ -552,7 +552,7 @@ test('stale login CSRF retries once and refreshes after session creation', async
   ]);
 });
 
-test('allOf capability rules hide the menu and protect direct navigation', async ({
+test('legacy user-binding navigation redirects into organization users', async ({
   page,
 }) => {
   const session = {
@@ -573,9 +573,7 @@ test('allOf capability rules hide the menu and protect direct navigation', async
   });
 
   await page.goto('/user-bindings');
-  await expect(
-    page.getByText('当前会话没有访问此页面所需的实时能力。'),
-  ).toBeVisible();
+  await expect(page).toHaveURL(/\/organization-users$/);
   await expect(page.getByText('用户绑定', { exact: true })).toHaveCount(0);
 });
 
@@ -1089,28 +1087,41 @@ test('platform principal reset sends both versions and reports session revocatio
   ).toBeVisible();
 });
 
-test('user binding recovers stale CSRF and explains an unmatched organization phone', async ({
+test('organization-user detail binds staff and grants cleaner capability', async ({
   page,
 }) => {
   const session = {
-    ...platformSession,
+    ...tenantSession,
     capabilities: [
-      'tenant.read',
       'organization.read',
       'staff.read',
       'staff.bind',
       'user.read',
+      'cleaner.manage',
     ],
   };
   let csrfRequestCount = 0;
   let lookupAttemptCount = 0;
   const lookupHeaders: Array<string | undefined> = [];
-  let staleLookupStarted = false;
-  let staleLookupCompleted = false;
-  let releaseStaleLookup = () => {};
-  const staleLookupGate = new Promise<void>((resolve) => {
-    releaseStaleLookup = resolve;
-  });
+  let bindingPayload: Record<string, unknown> | undefined;
+  let cleanerPayload: Record<string, unknown> | undefined;
+  let bound = false;
+  let currentUser = {
+    organizationUserUid: '40000000-0000-4000-8000-000000000002',
+    nickname: '清运测试用户',
+    avatarUrl: null,
+    phoneNumber: '13700137000',
+    maskedPhoneNumber: '13700137000',
+    phoneBound: true,
+    registeredAt: '2026-07-02T00:00:00Z',
+    registrationSource: null,
+    status: 'ACTIVE',
+    cleanOperationEnabled: false,
+    version: 3,
+    authVersion: 2,
+  };
+  const staffUid = '3102b64d-433d-4015-9a29-b21f309ddf8a';
+  const bindingUid = '50000000-0000-4000-8000-000000000001';
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -1127,24 +1138,17 @@ test('user binding recovers stale CSRF and explains an unmatched organization ph
       request.method() === 'GET'
       && url.pathname === '/api/v1/web/auth/sessions/current'
     ) {
-      await route.fulfill(problem(401));
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
-    ) {
       await json(route, session);
       return;
     }
     if (
       request.method() === 'GET'
-      && url.pathname === '/api/v1/web/platform/tenants'
+      && url.pathname === '/api/v1/web/organizations'
     ) {
       await json(route, {
         items: [{
-          tenantCode: 'v02-local-dev',
-          enterpriseName: '本地开发租户',
+          organizationCode: 'org-binding',
+          organizationName: '清运机构',
           status: 'ENABLED',
           version: 1,
           createdAt: '2026-07-01T00:00:00Z',
@@ -1158,20 +1162,12 @@ test('user binding recovers stale CSRF and explains an unmatched organization ph
     }
     if (
       request.method() === 'GET'
-      && url.pathname
-        === '/api/v1/web/platform/tenants/v02-local-dev/organizations'
+      && url.pathname === '/api/v1/web/organizations/org-binding/organization-users'
     ) {
       await json(route, {
-        items: [{
-          organizationCode: 'v02-local',
-          organizationName: '本地机构',
-          status: 'ENABLED',
-          version: 1,
-          createdAt: '2026-07-01T00:00:00Z',
-          updatedAt: '2026-07-01T00:00:00Z',
-        }],
+        items: [currentUser],
         page: 1,
-        pageSize: 200,
+        pageSize: 20,
         total: 1,
       });
       return;
@@ -1179,11 +1175,18 @@ test('user binding recovers stale CSRF and explains an unmatched organization ph
     if (
       request.method() === 'GET'
       && url.pathname
-        === '/api/v1/web/platform/tenants/v02-local-dev/staff-accounts'
+        === `/api/v1/web/organizations/org-binding/organization-users/${currentUser.organizationUserUid}`
+    ) {
+      await json(route, currentUser);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/staff-accounts'
     ) {
       await json(route, {
         items: [{
-          staffAccountUid: '3102b64d-433d-4015-9a29-b21f309ddf8a',
+          staffAccountUid: staffUid,
           accountKind: 'STAFF',
           loginName: 'operator',
           displayName: '现场工作人员',
@@ -1202,86 +1205,132 @@ test('user binding recovers stale CSRF and explains an unmatched organization ph
     if (
       request.method() === 'GET'
       && url.pathname.endsWith(
-        '/staff-accounts/3102b64d-433d-4015-9a29-b21f309ddf8a/miniapp-binding',
+        `/staff-accounts/${staffUid}/miniapp-binding`,
       )
     ) {
-      await json(route, { currentMiniappBinding: null });
+      await json(route, {
+        currentMiniappBinding: bound
+          ? {
+              bindingUid,
+              organizationUserUid: currentUser.organizationUserUid,
+              version: 1,
+              nickname: currentUser.nickname,
+              phoneNumber: currentUser.phoneNumber,
+              maskedPhoneNumber: currentUser.phoneNumber,
+            }
+          : null,
+      });
       return;
     }
     if (
       request.method() === 'POST'
-      && url.pathname.endsWith('/organization-users/phone-lookups')
+      && url.pathname.endsWith('/organization-user-lookups')
     ) {
       lookupAttemptCount += 1;
       lookupHeaders.push(request.headers()['x-csrf-token']);
       const { phoneNumber } = request.postDataJSON() as {
         phoneNumber: string;
       };
-      if (phoneNumber === '13800138000' && lookupAttemptCount === 1) {
+      if (phoneNumber === currentUser.phoneNumber && lookupAttemptCount === 1) {
         await route.fulfill(
           problem(403, 'SECURITY.CSRF_INVALID', 'CSRF 校验失败'),
         );
-      } else if (phoneNumber === '13800138000') {
-        await route.fulfill(
-          problem(404, 'COMMON.NOT_FOUND', '未找到指定资源'),
-        );
-      } else if (phoneNumber === '13900139000') {
-        staleLookupStarted = true;
-        await staleLookupGate;
+      } else if (phoneNumber === currentUser.phoneNumber) {
         await json(route, {
-          organizationUserUid: '40000000-0000-4000-8000-000000000001',
-          nickname: '过期核验用户',
-          maskedPhoneNumber: '139****9000',
-          registeredAt: '2026-07-01T00:00:00Z',
-          status: 'ACTIVE',
-          currentMiniappBinding: null,
-        });
-        staleLookupCompleted = true;
-      } else if (phoneNumber === '13700137000') {
-        await json(route, {
-          organizationUserUid: '40000000-0000-4000-8000-000000000002',
-          nickname: '当前核验用户',
-          maskedPhoneNumber: '137****7000',
-          registeredAt: '2026-07-02T00:00:00Z',
-          status: 'ACTIVE',
-          currentMiniappBinding: null,
+          organizationUserUid: currentUser.organizationUserUid,
+          nickname: currentUser.nickname,
+          phoneNumber: currentUser.phoneNumber,
+          maskedPhoneNumber: currentUser.phoneNumber,
+          registeredAt: currentUser.registeredAt,
+          status: currentUser.status,
+          currentMiniappBinding: bound
+            ? { bindingUid, staffAccountUid: staffUid, version: 1 }
+            : null,
         });
       } else {
         await route.fulfill(problem(400));
       }
       return;
     }
+    if (
+      request.method() === 'PUT'
+      && url.pathname.endsWith(`/staff-accounts/${staffUid}/miniapp-binding`)
+    ) {
+      bindingPayload = request.postDataJSON();
+      bound = true;
+      await json(route, {
+        bindingUid,
+        organizationUserUid: currentUser.organizationUserUid,
+        staffAccountUid: staffUid,
+        status: 'ACTIVE',
+        version: 1,
+        boundAt: '2026-08-06T00:00:00Z',
+        revokedAt: null,
+      });
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname.endsWith('/capabilities/clean-operation/grants')
+    ) {
+      cleanerPayload = request.postDataJSON();
+      currentUser = {
+        ...currentUser,
+        cleanOperationEnabled: true,
+        version: 4,
+        authVersion: 3,
+      };
+      await json(route, currentUser);
+      return;
+    }
     await route.fulfill(problem(404));
   });
 
-  await page.goto(
-    '/user-bindings?tenant=v02-local-dev&organization=v02-local',
-  );
-  await page.getByRole('combobox', { name: '工作人员' }).click();
-  await page.getByText('现场工作人员 · operator').click();
-  await page.getByLabel('完整手机号').fill('13800138000');
-  await page.getByRole('button', { name: '取得双侧快照' }).click();
+  await page.goto('/organization-users?organization=org-binding');
+  await expect(page.getByText('清运测试用户', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '详情' }).click();
 
-  await expect.poll(() => lookupAttemptCount).toBe(2);
-  expect(lookupHeaders).toEqual(['binding-csrf-1', 'binding-csrf-2']);
+  const staffBindingSelect = page.getByRole(
+    'combobox',
+    { name: '绑定工作人员' },
+  );
+  await expect(staffBindingSelect).toBeVisible();
+  await expect.poll(() => lookupAttemptCount).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => lookupHeaders.includes('binding-csrf-2')).toBe(true);
+  expect(lookupHeaders).toContain('binding-csrf-1');
+
+  await staffBindingSelect.click();
+  await page.getByText('现场工作人员 · operator').click();
+  await page.getByRole('button', { name: '确认绑定' }).click();
+  await page
+    .locator('.ant-popover:visible')
+    .filter({ hasText: '确认绑定该工作人员？' })
+    .getByRole('button', { name: '确 定' })
+    .click();
+  await expect.poll(() => bindingPayload).toEqual({
+    organizationUserUid: currentUser.organizationUserUid,
+    expectedStaffBinding: null,
+    expectedOrganizationUserBinding: null,
+  });
   await expect(
-    page.getByText(
-      '当前机构没有绑定此手机号的用户，请核对机构，或先让用户在该机构小程序完成手机号绑定',
-    ),
+    page.getByText('该用户已绑定到所选工作人员'),
   ).toBeVisible();
 
-  await page.getByLabel('完整手机号').fill('13900139000');
-  await page.getByRole('button', { name: '取得双侧快照' }).click();
-  await expect.poll(() => staleLookupStarted).toBe(true);
-  await page.getByLabel('完整手机号').fill('13700137000');
-  await page.getByRole('button', { name: '取得双侧快照' }).click();
-  await expect(page.getByText('当前核验用户', { exact: true })).toBeVisible();
-
-  releaseStaleLookup();
-  await expect.poll(() => staleLookupCompleted).toBe(true);
-  await expect(
-    page.getByText('过期核验用户', { exact: true }),
-  ).toHaveCount(0);
+  await page
+    .getByRole('dialog', { name: '机构用户详情' })
+    .getByRole('button', { name: '设为清运员' })
+    .click();
+  await page
+    .locator('.ant-popover:visible')
+    .filter({ hasText: '确认允许该用户作为清运员发起清运操作？' })
+    .getByRole('button', { name: '确 定' })
+    .click();
+  await expect.poll(() => cleanerPayload).toEqual({
+    expectedVersion: 3,
+    expectedAuthVersion: 2,
+    reason: 'Web 管理端授予机构用户清运操作资格',
+  });
+  await expect(page.getByText('清运员', { exact: true }).first()).toBeVisible();
 });
 
 test('tenant sidebar preset and name link apply real directory filters', async ({
@@ -1800,10 +1849,15 @@ test('staff table hides security versions and keeps access actions inside edit',
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-01T00:00:00Z',
   };
+  let createPayload: Record<string, unknown> | undefined;
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === '/api/v1/web/auth/csrf-token') {
+      await json(route, { token: 'staff-csrf', headerName: 'X-CSRF-TOKEN' });
+      return;
+    }
     if (
       request.method() === 'GET'
       && url.pathname === '/api/v1/web/auth/sessions/current'
@@ -1839,12 +1893,44 @@ test('staff table hides security versions and keeps access actions inside edit',
       request.method() === 'GET'
       && url.pathname === '/api/v1/web/permission-definitions'
     ) {
-      await json(route, [{
-        permissionCode: 'device.read',
-        scopeKind: 'ORGANIZATION',
-        permissionName: '读取设备',
-        description: '读取机构设备',
-      }]);
+      await json(route, [
+        {
+          permissionCode: 'device.read',
+          scopeKind: 'TENANT',
+          permissionName: '读取设备',
+          description: '读取租户设备',
+        },
+        {
+          permissionCode: 'device.manage',
+          scopeKind: 'TENANT',
+          permissionName: '管理设备',
+          description: '管理租户设备',
+        },
+        {
+          permissionCode: 'device.read',
+          scopeKind: 'ORGANIZATION',
+          permissionName: '读取设备',
+          description: '读取机构设备',
+        },
+      ]);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === '/api/v1/web/staff-accounts/current/effective-access'
+    ) {
+      await json(route, {
+        staffAccountUid: tenantSession.subjectUid,
+        tenantPermissionCodes: ['device.read', 'device.manage'],
+        organizations: [{
+          organizationCode: 'org-a',
+          organizationName: '湖州运营中心',
+          manager: true,
+          permissionCodes: [],
+        }],
+        authVersion: 5,
+      });
       return;
     }
     if (
@@ -1873,6 +1959,21 @@ test('staff table hides security versions and keeps access actions inside edit',
       });
       return;
     }
+    if (
+      request.method() === 'POST'
+      && url.pathname === '/api/v1/web/staff-accounts'
+    ) {
+      createPayload = request.postDataJSON();
+      await json(route, {
+        ...staff,
+        staffAccountUid: '50000000-0000-4000-8000-000000000002',
+        loginName: 'device.operator',
+        displayName: '设备工作人员',
+        version: 1,
+        authVersion: 1,
+      }, 201);
+      return;
+    }
     await route.fulfill(problem(404));
   });
 
@@ -1881,6 +1982,24 @@ test('staff table hides security versions and keeps access actions inside edit',
   await expect(page.getByText('v7 / auth 4', { exact: true })).toHaveCount(0);
   await expect(page.getByText('编辑', { exact: true })).toBeVisible();
   await expect(page.getByText('重置密码', { exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: '创建工作人员' }).click();
+  const createDialog = page.getByRole('dialog', { name: '创建工作人员' });
+  await createDialog.getByLabel('全局登录名').fill('device.operator');
+  await createDialog.getByLabel('初始密码').fill('test-password-2026');
+  await createDialog
+    .locator('.ant-form-item')
+    .filter({ hasText: '展示名' })
+    .locator('input')
+    .fill('设备工作人员');
+  await createDialog.getByRole('button', { name: '全选当前范围' }).click();
+  await createDialog.getByRole('button', { name: /创\s*建/ }).click();
+  await expect.poll(() => createPayload).toEqual({
+    loginName: 'device.operator',
+    initialPassword: 'test-password-2026',
+    displayName: '设备工作人员',
+    permissionCodes: ['device.manage', 'device.read'],
+  });
 
   await page.getByText('编辑', { exact: true }).click();
   await expect(page.getByText('账号安全', { exact: true })).toBeVisible();

@@ -549,6 +549,13 @@ export function getEffectiveAccess(
   });
 }
 
+export function getCurrentEffectiveAccess() {
+  return request<EffectiveAccess>({
+    url: '/api/v1/web/staff-accounts/current/effective-access',
+    method: 'GET',
+  });
+}
+
 export function replaceTenantPermissions(
   context: DirectoryContext,
   staffUid: string,
@@ -817,9 +824,7 @@ export function setStaffMiniappBinding(
 export function revokeStaffMiniappBinding(
   context: DirectoryContext,
   organizationCode: string,
-  binding:
-    | StaffMiniappBinding
-    | NonNullable<StaffMiniappBindingLookup['currentMiniappBinding']>,
+  binding: Pick<StaffMiniappBinding, 'bindingUid' | 'version'>,
   intent: CommandIntent,
   reason?: string,
 ) {

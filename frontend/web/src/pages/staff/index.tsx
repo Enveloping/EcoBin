@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyOutlined,
   PlusOutlined,
@@ -7,16 +7,25 @@ import {
 import {
   ModalForm,
   PageContainer,
-  ProFormSelect,
   ProFormText,
   ProTable,
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { App, Button, Divider, Empty, Popconfirm, Space, Tag } from 'antd';
+import {
+  App,
+  Button,
+  Divider,
+  Empty,
+  Form,
+  Popconfirm,
+  Space,
+  Tag,
+} from 'antd';
 import {
   changeStaffStatus,
   createStaffAccount,
+  getCurrentEffectiveAccess,
   getStaffAccount,
   listAllOrganizations,
   listPermissionDefinitions,
@@ -26,13 +35,18 @@ import {
 } from '@/api/identityDirectory';
 import { useAuthStore } from '@/stores/authStore';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
-import type { PermissionDefinition, StaffAccount } from '@/types';
+import type {
+  EffectiveAccess,
+  PermissionDefinition,
+  StaffAccount,
+} from '@/types';
 import type { IdentityOrganization } from '@/types';
 import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { palette } from '@/theme';
 import StaffAccessPanel from './StaffAccessPanel';
+import PermissionTreeSelector from './PermissionTreeSelector';
 
 interface StaffForm {
   loginName: string;
@@ -57,6 +71,7 @@ export default function StaffPage() {
     state.hasCapability('permission.manage'));
   const canReadAccess = useAuthStore((state) =>
     state.hasCapability('permission.read'));
+  const session = useAuthStore((state) => state.session);
   const [definitions, setDefinitions] = useState<PermissionDefinition[]>([]);
   const [organizations, setOrganizations] =
     useState<IdentityOrganization[]>([]);
@@ -64,39 +79,47 @@ export default function StaffPage() {
   const [passwordTarget, setPasswordTarget] =
     useState<StaffAccount | null>(null);
   const [open, setOpen] = useState(false);
+  const [operatorAccess, setOperatorAccess] =
+    useState<EffectiveAccess | null>(null);
   const executeCommand = useCommandExecutor();
+  const canViewAccess = canReadAccess || canGrant;
+  const operatorNeedsDelegationLimit = session?.accountType === 'STAFF';
 
   useEffect(() => {
     actionRef.current?.reload();
-    if (!scope.context || !canReadAccess) {
+    if (!scope.context || !canViewAccess) {
       setDefinitions([]);
       setOrganizations([]);
+      setOperatorAccess(null);
       return;
     }
     Promise.all([
       listPermissionDefinitions(scope.context),
       listAllOrganizations(scope.context),
+      operatorNeedsDelegationLimit && canGrant
+        ? getCurrentEffectiveAccess()
+        : Promise.resolve(null),
     ])
-      .then(([nextDefinitions, nextOrganizations]) => {
+      .then(([nextDefinitions, nextOrganizations, nextOperatorAccess]) => {
         setDefinitions(nextDefinitions);
         setOrganizations(nextOrganizations);
+        setOperatorAccess(nextOperatorAccess);
       })
       .catch(() => {
         setDefinitions([]);
         setOrganizations([]);
+        setOperatorAccess(null);
       });
-  }, [canReadAccess, scope.context]);
+  }, [
+    canGrant,
+    canViewAccess,
+    operatorNeedsDelegationLimit,
+    scope.context,
+  ]);
 
-  const tenantPermissionOptions = useMemo(
-    () =>
-      definitions
-        .filter((definition) => definition.scopeKind === 'TENANT')
-        .map((definition) => ({
-          value: definition.permissionCode,
-          label: `${definition.permissionName} · ${definition.permissionCode}`,
-        })),
-    [definitions],
-  );
+  const delegableTenantPermissionCodes = operatorNeedsDelegationLimit
+    ? operatorAccess?.tenantPermissionCodes ?? []
+    : undefined;
 
   const submit = async (values: StaffForm) => {
     if (!scope.context) return false;
@@ -346,7 +369,7 @@ export default function StaffPage() {
         initialValues={editing ?? { permissionCodes: [] }}
         modalProps={{
           destroyOnClose: true,
-          width: editing ? 1080 : 640,
+          width: editing ? 1080 : 760,
           style: { top: editing ? 24 : undefined },
           styles: editing
             ? { body: { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' } }
@@ -404,13 +427,18 @@ export default function StaffPage() {
           }
         />
         {!editing && canGrant && (
-          <ProFormSelect
+          <Form.Item
             name="permissionCodes"
             label="初始租户权限"
-            mode="multiple"
-            options={tenantPermissionOptions}
             tooltip="只能授予当前操作者在相同或更大作用域拥有的权限。"
-          />
+          >
+            <PermissionTreeSelector
+              ariaLabel="初始租户权限"
+              definitions={definitions}
+              scopeKind="TENANT"
+              delegablePermissionCodes={delegableTenantPermissionCodes}
+            />
+          </Form.Item>
         )}
         {editing && (
           <>
@@ -445,7 +473,7 @@ export default function StaffPage() {
               <Tag>账号安全信息只读</Tag>
             )}
 
-            {canReadAccess && scope.context && (
+            {canViewAccess && scope.context && (
               <>
                 <Divider orientation="left">任职与授权</Divider>
                 <StaffAccessPanel
@@ -454,6 +482,8 @@ export default function StaffPage() {
                   organizations={organizations}
                   definitions={definitions}
                   canManage={canGrant}
+                  operatorAccess={operatorAccess}
+                  operatorNeedsDelegationLimit={operatorNeedsDelegationLimit}
                   onChanged={() =>
                     void refreshEditing(editing.staffAccountUid)}
                 />

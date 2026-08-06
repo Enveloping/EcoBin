@@ -5,7 +5,6 @@ import {
   CloudServerOutlined,
   DollarOutlined,
   IdcardOutlined,
-  LinkOutlined,
   ShoppingCartOutlined,
   SettingOutlined,
   SlidersOutlined,
@@ -14,9 +13,10 @@ import {
   UserOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import type { LoginResponse, WebAccountType } from '@/types';
 import { hasRouteAccess } from './access';
+import { directoryPath } from './directoryQuery';
 
 const TenantPage = lazy(() => import('@/pages/tenant'));
 const MyTenantPage = lazy(() => import('@/pages/tenant/MyTenant'));
@@ -41,9 +41,6 @@ const WalletEntriesPage = lazy(
 const BusinessContractPendingPage = lazy(
   () => import('@/pages/business/BusinessContractPending'),
 );
-const OrganizationUserBindingPage = lazy(
-  () => import('@/pages/user/OrganizationUserBinding'),
-);
 
 export interface AppRoute {
   path: string;
@@ -67,6 +64,20 @@ export interface AppMenuRoute {
 
 const PLATFORM: WebAccountType[] = ['PLATFORM_ADMIN'];
 const TENANT_WEB: WebAccountType[] = ['TENANT_PRINCIPAL', 'STAFF'];
+
+function LegacyUserBindingsRedirect() {
+  const location = useLocation();
+  const source = new URLSearchParams(location.search);
+  return (
+    <Navigate
+      replace
+      to={directoryPath('/organization-users', {
+        tenant: source.get('tenant') ?? undefined,
+        organization: source.get('organization') ?? undefined,
+      })}
+    />
+  );
+}
 
 /**
  * Only pages backed by the target /api/v1 identity contract are exposed.
@@ -113,10 +124,7 @@ export const appRoutes: AppRoute[] = [
   },
   {
     path: '/user-bindings',
-    name: '用户绑定',
-    icon: <LinkOutlined />,
-    element: <OrganizationUserBindingPage />,
-    allOf: ['user.read', 'staff.bind'],
+    element: <LegacyUserBindingsRedirect />,
   },
   {
     path: '/devices',
@@ -273,7 +281,7 @@ export function menuRoutesFor(
   const walletEntries = visibleRoute(session, '/wallet-entries');
   if (walletEntries) menu.push(leaf(walletEntries));
 
-  for (const path of ['/staff', '/user-bindings', '/devices'] as const) {
+  for (const path of ['/staff', '/devices'] as const) {
     const route = visibleRoute(session, path);
     if (route) menu.push(leaf(route));
   }

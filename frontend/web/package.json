@@ -13,6 +13,7 @@
     "test:e2e": "playwright test",
     "test:http-foundation": "node --no-warnings --experimental-strip-types --test ../tests/http-foundation.test.mjs",
     "test:funds-money": "node --no-warnings --experimental-strip-types --test ../tests/funds-money-input.test.mjs",
+    "test:permission-tree": "node --no-warnings --experimental-strip-types --test ../tests/permission-tree.test.mjs",
     "test:bundle-budget": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview"
   },

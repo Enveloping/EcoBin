@@ -55,6 +55,7 @@ test('legacy pages, APIs, numeric DTOs and decorative effects stay removed', () 
     'src/pages/door/index.tsx',
     'src/pages/statistics/index.tsx',
     'src/pages/user/index.tsx',
+    'src/pages/user/OrganizationUserBinding.tsx',
     'src/pages/withdraw/index.tsx',
     'src/pages/access/index.tsx',
     'src/api/admin.ts',
@@ -133,7 +134,12 @@ test('route capability composition and caller-owned command intents are fixed', 
   assert.match(routeSource, /anyOf\?: string\[\]/);
   assert.match(
     routeSource,
-    /path: '\/user-bindings'[\s\S]*?allOf: \['user\.read', 'staff\.bind'\]/,
+    /path: '\/user-bindings'[\s\S]*?<LegacyUserBindingsRedirect/,
+  );
+  assert.match(routeSource, /directoryPath\('\/organization-users'/);
+  assert.doesNotMatch(
+    routeSource,
+    /for \(const path of \[[^\]]*'\/user-bindings'/,
   );
 
   const directorySource = readFileSync(

@@ -3,6 +3,7 @@ import {
   DollarOutlined,
   EyeOutlined,
   StopOutlined,
+  ToolOutlined,
   UndoOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
@@ -14,6 +15,7 @@ import {
   type ProColumns,
 } from '@ant-design/pro-components';
 import {
+  Alert,
   App,
   Avatar,
   Button,
@@ -35,6 +37,7 @@ import {
   type WalletSummary,
 } from '@/api/funds';
 import {
+  changeOrganizationUserCleanOperation,
   changeOrganizationUserStatus,
   getOrganizationUser,
   listOrganizationUsers,
@@ -59,8 +62,11 @@ import {
   normalizeMoneyInput,
   parseMoneyInputCent,
 } from '@/utils/decimal';
+import OrganizationUserStaffBindingPanel from
+  './OrganizationUserStaffBindingPanel';
 
 type UserMutation = 'freeze' | 'restore';
+type CleanMutation = 'grant-clean' | 'revoke-clean';
 
 function userInitial(user: OrganizationUser): string {
   return user.nickname.trim().slice(0, 1).toUpperCase() || '用';
@@ -81,12 +87,19 @@ export default function OrganizationUserPage() {
   const view = searchParams.get('view') === 'disabled' ? 'disabled' : 'all';
   const { message } = App.useApp();
   const actionRef = useRef<ActionType>(null);
+  const detailRequestSequence = useRef(0);
   const walletPreviewRequests = useRef(new LatestTargetRequestGuard());
   const selectedWalletAdjustmentTarget = useRef<string | null>(null);
   const walletPreviewOwner = useRef<string | null>(null);
   const executeCommand = useCommandExecutor();
   const canFreeze = useAuthStore((state) =>
     state.hasCapability('user.freeze'));
+  const canManageCleaner = useAuthStore((state) =>
+    state.hasCapability('cleaner.manage'));
+  const canBindStaff = useAuthStore((state) =>
+    state.hasCapability('staff.bind'));
+  const canReadStaff = useAuthStore((state) =>
+    state.hasCapability('staff.read'));
   const canAdjustWallet = useAuthStore((state) =>
     state.hasCapability('wallet.adjust')) || scope.platform;
   const canReadDelivery = useAuthStore((state) =>
@@ -104,6 +117,8 @@ export default function OrganizationUserPage() {
   const [walletUser, setWalletUser] = useState<OrganizationUser | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [mutating, setMutating] = useState<UserMutation | null>(null);
+  const [cleanMutating, setCleanMutating] =
+    useState<CleanMutation | null>(null);
   const [adjustingUser, setAdjustingUser] =
     useState<OrganizationUser | null>(null);
   const [walletPreview, setWalletPreview] = useState<WalletSummary | null>(null);
@@ -122,6 +137,7 @@ export default function OrganizationUserPage() {
   currentWalletAdjustmentScope.current = walletAdjustmentScopeKey;
 
   useEffect(() => {
+    detailRequestSequence.current += 1;
     actionRef.current?.reload();
     setDetail(null);
     setWalletUser(null);
@@ -139,18 +155,20 @@ export default function OrganizationUserPage() {
 
   const openDetail = async (user: OrganizationUser) => {
     if (!scope.context || !organizationCode) return;
+    const requestId = ++detailRequestSequence.current;
     setDetail(user);
     setDetailLoading(true);
     try {
-      setDetail(
-        await getOrganizationUser(
-          scope.context,
-          organizationCode,
-          user.organizationUserUid,
-        ),
+      const latest = await getOrganizationUser(
+        scope.context,
+        organizationCode,
+        user.organizationUserUid,
       );
+      if (detailRequestSequence.current === requestId) setDetail(latest);
     } finally {
-      setDetailLoading(false);
+      if (detailRequestSequence.current === requestId) {
+        setDetailLoading(false);
+      }
     }
   };
 
@@ -210,6 +228,51 @@ export default function OrganizationUserPage() {
       }
     } finally {
       setMutating(null);
+    }
+  };
+
+  const mutateCleanOperation = async (user: OrganizationUser) => {
+    if (!scope.context || !organizationCode) return;
+    const enabled = !user.cleanOperationEnabled;
+    const mutation: CleanMutation = enabled ? 'grant-clean' : 'revoke-clean';
+    const reason = enabled
+      ? 'Web 管理端授予机构用户清运操作资格'
+      : 'Web 管理端撤销机构用户清运操作资格';
+    setCleanMutating(mutation);
+    try {
+      const updated = await executeCommand(
+        commandKey(mutation, user.organizationUserUid, {
+          expectedVersion: user.version,
+          expectedAuthVersion: user.authVersion,
+          reason,
+        }),
+        (intent) => changeOrganizationUserCleanOperation(
+          scope.context!,
+          organizationCode,
+          user,
+          enabled,
+          intent,
+          reason,
+        ),
+      );
+      setDetail((current) =>
+        current?.organizationUserUid === updated.organizationUserUid
+          ? updated
+          : current,
+      );
+      message.success(
+        enabled
+          ? '已设为清运员，该用户可在小程序发起清运操作'
+          : '清运员资格已撤销，后续清运操作将被阻止',
+      );
+      actionRef.current?.reload();
+    } catch (error) {
+      if (error instanceof ApiProblem && error.isVersionConflict) {
+        await refreshUser(user);
+        message.warning('用户权限版本已经变化，已载入最新状态；请重新核对');
+      }
+    } finally {
+      setCleanMutating(null);
     }
   };
 
@@ -399,6 +462,32 @@ export default function OrganizationUserPage() {
         调整余额
       </Button>
     ) : null,
+    canManageCleaner ? (
+      <Popconfirm
+        key="clean-operation"
+        title={
+          user.cleanOperationEnabled
+            ? '撤销后该用户不能再发起新的清运操作，确认继续？'
+            : '确认允许该用户作为清运员发起清运操作？'
+        }
+        onConfirm={() => mutateCleanOperation(user)}
+      >
+        <Button
+          type="link"
+          size="small"
+          danger={user.cleanOperationEnabled}
+          icon={<ToolOutlined />}
+          loading={
+            cleanMutating
+              === (user.cleanOperationEnabled
+                ? 'revoke-clean'
+                : 'grant-clean')
+          }
+        >
+          {user.cleanOperationEnabled ? '取消清运员' : '设为清运员'}
+        </Button>
+      </Popconfirm>
+    ) : null,
   ];
 
   const columns: ProColumns<OrganizationUser>[] = [
@@ -442,6 +531,20 @@ export default function OrganizationUserPage() {
       render: (_, user) => (
         <Tag color={user.status === 'ACTIVE' ? 'success' : 'default'}>
           {user.status === 'ACTIVE' ? '正常' : '已冻结'}
+        </Tag>
+      ),
+    },
+    {
+      title: '清运权限',
+      dataIndex: 'cleanOperation',
+      valueType: 'select',
+      valueEnum: {
+        true: { text: '清运员' },
+        false: { text: '普通用户' },
+      },
+      render: (_, user) => (
+        <Tag color={user.cleanOperationEnabled ? 'blue' : 'default'}>
+          {user.cleanOperationEnabled ? '清运员' : '普通用户'}
         </Tag>
       ),
     },
@@ -519,7 +622,7 @@ export default function OrganizationUserPage() {
       title: '操作',
       key: 'operation',
       valueType: 'option',
-      width: 150,
+      width: 260,
       hideInSetting: true,
       render: (_, user) => actionButtons(user),
     },
@@ -588,6 +691,10 @@ export default function OrganizationUserPage() {
                       params.phoneBound === undefined
                         ? undefined
                         : String(params.phoneBound) === 'true',
+                    cleanOperation:
+                      params.cleanOperation === undefined
+                        ? undefined
+                        : String(params.cleanOperation) === 'true',
                     registeredFrom: params.registeredFrom
                       ? dayjs(params.registeredFrom as string).toISOString()
                       : undefined,
@@ -612,10 +719,14 @@ export default function OrganizationUserPage() {
 
       <Drawer
         title="机构用户详情"
-        width={560}
+        width={760}
         open={!!detail}
         loading={detailLoading}
-        onClose={() => setDetail(null)}
+        onClose={() => {
+          detailRequestSequence.current += 1;
+          setDetail(null);
+          setDetailLoading(false);
+        }}
         extra={detail ? (
           <Space>
             {canReadWallet && (
@@ -632,35 +743,65 @@ export default function OrganizationUserPage() {
         ) : null}
       >
         {detail && (
-          <ProDescriptions<OrganizationUser>
-            column={1}
-            dataSource={detail}
-            bordered
-          >
-            <ProDescriptions.Item label="昵称">
-              {detail.nickname}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="公开标识" copyable>
-              {detail.organizationUserUid}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="手机号">
-              {detail.phoneBound ? detail.maskedPhoneNumber ?? '已绑定' : '未绑定'}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="状态">
-              {detail.status === 'ACTIVE' ? '正常' : '已冻结'}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="注册时间">
-              {dayjs(detail.registeredAt).format('YYYY-MM-DD HH:mm:ss')}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="注册来源">
-              {detail.registrationSource
-                ? `${detail.registrationSource.deploymentCode} · ${detail.registrationSource.lifecycleStatus}`
-                : '无扫码来源'}
-            </ProDescriptions.Item>
-            <ProDescriptions.Item label="版本">
-              v{detail.version} / auth {detail.authVersion}
-            </ProDescriptions.Item>
-          </ProDescriptions>
+          <>
+            <ProDescriptions<OrganizationUser>
+              column={1}
+              dataSource={detail}
+              bordered
+            >
+              <ProDescriptions.Item label="昵称">
+                {detail.nickname}
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="公开标识" copyable>
+                {detail.organizationUserUid}
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="手机号">
+                {detail.phoneBound
+                  ? detail.maskedPhoneNumber ?? '已绑定'
+                  : '未绑定'}
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="状态">
+                {detail.status === 'ACTIVE' ? '正常' : '已冻结'}
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="清运操作资格">
+                <Tag color={detail.cleanOperationEnabled ? 'blue' : 'default'}>
+                  {detail.cleanOperationEnabled ? '清运员' : '普通用户'}
+                </Tag>
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="注册时间">
+                {dayjs(detail.registeredAt).format('YYYY-MM-DD HH:mm:ss')}
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="注册来源">
+                {detail.registrationSource
+                  ? `${detail.registrationSource.deploymentCode} · ${detail.registrationSource.lifecycleStatus}`
+                  : '无扫码来源'}
+              </ProDescriptions.Item>
+              <ProDescriptions.Item label="版本">
+                v{detail.version} / auth {detail.authVersion}
+              </ProDescriptions.Item>
+            </ProDescriptions>
+            {canBindStaff && !canReadStaff && (
+              <Alert
+                showIcon
+                type="info"
+                message="绑定工作人员还需要工作人员读取权限"
+                description="当前账号已有 staff.bind（绑定工作人员）权限，但没有 staff.read（读取工作人员）权限，因此无法安全列出可绑定账号。"
+                style={{ marginTop: 16 }}
+              />
+            )}
+            {scope.context
+              && organizationCode
+              && canBindStaff
+              && canReadStaff && (
+                <OrganizationUserStaffBindingPanel
+                  context={scope.context}
+                  organizationCode={organizationCode}
+                  user={detail}
+                  canBind
+                  onChanged={() => refreshUser(detail)}
+                />
+              )}
+          </>
         )}
       </Drawer>
 

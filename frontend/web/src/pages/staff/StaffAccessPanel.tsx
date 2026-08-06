@@ -8,7 +8,6 @@ import {
   Form,
   Modal,
   Popconfirm,
-  Select,
   Space,
   Spin,
   Switch,
@@ -36,6 +35,7 @@ import type {
   StaffAccount,
   StaffMembership,
 } from '@/types';
+import PermissionTreeSelector from './PermissionTreeSelector';
 
 const { Text } = Typography;
 const MEMBERSHIP_PAGE_SIZE = 200;
@@ -46,6 +46,8 @@ export interface StaffAccessPanelProps {
   organizations: IdentityOrganization[];
   definitions: PermissionDefinition[];
   canManage: boolean;
+  operatorAccess: EffectiveAccess | null;
+  operatorNeedsDelegationLimit: boolean;
   onChanged?: () => void;
 }
 
@@ -105,6 +107,8 @@ export default function StaffAccessPanel({
   organizations,
   definitions,
   canManage,
+  operatorAccess,
+  operatorNeedsDelegationLimit,
   onChanged,
 }: StaffAccessPanelProps) {
   const { message } = App.useApp();
@@ -126,27 +130,24 @@ export default function StaffAccessPanel({
     useState<MembershipEditor | null>(null);
   const [pendingAction, setPendingAction] = useState<string>();
 
-  const tenantPermissionOptions = useMemo(
-    () =>
-      definitions
-        .filter((definition) => definition.scopeKind === 'TENANT')
-        .map((definition) => ({
-          label: `${definition.permissionName} · ${definition.permissionCode}`,
-          value: definition.permissionCode,
-        })),
-    [definitions],
-  );
+  const delegableTenantPermissionCodes = operatorNeedsDelegationLimit
+    ? operatorAccess?.tenantPermissionCodes ?? []
+    : undefined;
 
-  const organizationPermissionOptions = useMemo(
-    () =>
-      definitions
-        .filter((definition) => definition.scopeKind === 'ORGANIZATION')
-        .map((definition) => ({
-          label: `${definition.permissionName} · ${definition.permissionCode}`,
-          value: definition.permissionCode,
-        })),
-    [definitions],
-  );
+  const organizationDelegablePermissionCodes = (
+    organizationCode: string,
+  ): string[] | undefined => {
+    if (!operatorNeedsDelegationLimit) return undefined;
+    const organizationAccess = operatorAccess?.organizations.find(
+      (organization) =>
+        organization.organizationCode === organizationCode,
+    );
+    if (organizationAccess?.manager) return undefined;
+    return [...new Set([
+      ...(operatorAccess?.tenantPermissionCodes ?? []),
+      ...(organizationAccess?.permissionCodes ?? []),
+    ])];
+  };
 
   const permissionNames = useMemo(
     () =>
@@ -612,32 +613,36 @@ export default function StaffAccessPanel({
               </Text>
             </div>
           ) : canManage ? (
-            <Space.Compact style={{ width: '100%', marginTop: 12 }}>
-              <Select
-                aria-label="完整租户权限集合"
-                mode="multiple"
+            <Space
+              direction="vertical"
+              size={10}
+              style={{ width: '100%', marginTop: 12 }}
+            >
+              <PermissionTreeSelector
+                ariaLabel="完整租户权限集合"
+                definitions={definitions}
+                scopeKind="TENANT"
                 value={tenantPermissionCodes}
-                options={tenantPermissionOptions}
-                maxTagCount="responsive"
-                placeholder="暂无租户级直接权限"
+                delegablePermissionCodes={delegableTenantPermissionCodes}
                 disabled={!effectiveAccess || !!pendingAction}
                 onChange={setTenantPermissionCodes}
-                style={{ flex: 1 }}
               />
-              <Button
-                type="primary"
-                loading={pendingAction === 'tenant-permissions'}
-                disabled={
-                  !effectiveAccess
-                  || !tenantPermissionsChanged
-                  || (!!pendingAction
-                    && pendingAction !== 'tenant-permissions')
-                }
-                onClick={() => void saveTenantPermissions()}
-              >
-                保存权限
-              </Button>
-            </Space.Compact>
+              <div style={{ textAlign: 'right' }}>
+                <Button
+                  type="primary"
+                  loading={pendingAction === 'tenant-permissions'}
+                  disabled={
+                    !effectiveAccess
+                    || !tenantPermissionsChanged
+                    || (!!pendingAction
+                      && pendingAction !== 'tenant-permissions')
+                  }
+                  onClick={() => void saveTenantPermissions()}
+                >
+                  保存权限
+                </Button>
+              </div>
+            </Space>
           ) : (
             <div style={{ marginTop: 12 }}>
               {effectiveAccess?.tenantPermissionCodes.length
@@ -741,11 +746,17 @@ export default function StaffAccessPanel({
             <Switch checkedChildren="是" unCheckedChildren="否" />
           </Form.Item>
           <Form.Item name="permissionCodes" label="普通任职的完整权限集合">
-            <Select
-              mode="multiple"
-              options={organizationPermissionOptions}
-              maxTagCount="responsive"
-              placeholder={manager ? '负责人无需配置直接权限' : '可留空'}
+            <PermissionTreeSelector
+              ariaLabel="普通任职的完整权限集合"
+              definitions={definitions}
+              scopeKind="ORGANIZATION"
+              delegablePermissionCodes={
+                membershipEditor
+                  ? organizationDelegablePermissionCodes(
+                    membershipEditor.organization.organizationCode,
+                  )
+                  : []
+              }
               disabled={manager}
             />
           </Form.Item>
