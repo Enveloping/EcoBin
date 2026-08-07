@@ -1357,7 +1357,8 @@ public class OneNetClient
                 requiredMatchingText(
                         grant,
                         "keyPrefix",
-                        "^ecobin/(delivery-session|clean-operation)/"
+                        "^ecobin/(delivery-session|clean-operation|"
+                                + "device-acceptance)/"
                                 + "[0-9a-f-]{36}/$",
                         256));
         scalarFields2.put(

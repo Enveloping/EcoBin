@@ -30,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -80,6 +81,24 @@ class OneNetClientReliableSubmissionTest {
         when(cosUploadCredentialPort.issue(
                 anyString(),
                 eq(1),
+                anyString()))
+                .thenReturn(new CosUploadCredential(
+                        "TMP_SECRET_ID",
+                        "TMP_SECRET_KEY",
+                        "SESSION_TOKEN",
+                        Instant.parse(
+                                        "2026-07-24T01:00:00Z")
+                                .getEpochSecond(),
+                        Instant.parse(
+                                        "2026-07-24T01:30:00Z")
+                                .getEpochSecond(),
+                        "ecobin-contract-1250000000",
+                        "ap-guangzhou",
+                        "https://ecobin-contract-1250000000"
+                                + ".cos.ap-guangzhou.myqcloud.com"));
+        when(cosUploadCredentialPort.issue(
+                anyString(),
+                isNull(),
                 anyString()))
                 .thenReturn(new CosUploadCredential(
                         "TMP_SECRET_ID",
@@ -592,6 +611,54 @@ class OneNetClientReliableSubmissionTest {
                 1,
                 "ecobin/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/");
+    }
+
+    @Test
+    void signsAcceptanceGrantWithItsDedicatedCosPrefix()
+            throws Exception {
+        ObjectNode envelope = (ObjectNode) objectMapper.readTree(
+                Files.readString(contractPath(
+                        "contracts/examples/onenet/"
+                                + "request-device-acceptance.command.json")));
+        envelope.set("cosGrant", null);
+        UUID commandUid = UUID.fromString(
+                "8a000000-0000-4000-8000-000000000004");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        objectMapper.writeValueAsString(envelope),
+                        commandUid,
+                        "REQUEST_DEVICE_ACCEPTANCE"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        JsonNode params = actual.path("params");
+        assertEquals(
+                "requestDeviceAcceptance",
+                actual.path("identifier").asText());
+        assertEquals(
+                "ecobin/device-acceptance/"
+                        + "8a000000-0000-4000-8000-000000000003/",
+                params.path("cosGrantKeyPrefix").asText());
+        assertEquals(1, params.path("cosGrantSessionTokenParts").size());
+        verify(cosUploadCredentialPort).issue(
+                HARDWARE_SN,
+                null,
+                "ecobin/device-acceptance/"
+                        + "8a000000-0000-4000-8000-000000000003/");
     }
 
     private DeviceCommandSubmission submission(
