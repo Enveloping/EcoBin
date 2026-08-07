@@ -95,6 +95,7 @@ export function reevaluateDeviceAcceptance(
       `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
       + '/acceptance-evaluations',
     method: 'POST',
+    silent: true,
   });
 }
 

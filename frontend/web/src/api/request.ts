@@ -350,13 +350,18 @@ async function execute<T, D = unknown>(
       trace,
     };
   } catch (error) {
+    if (needsCsrf) {
+      // Error responses pass through the same security chain and may rotate
+      // the readable CSRF cookie.  Reusing this request's in-memory token on
+      // the next write would guarantee one avoidable 403 before recovery.
+      invalidateCsrfToken();
+    }
     const problem = parseProblem(error);
     if (
       problem.code === 'SECURITY.CSRF_INVALID'
       && needsCsrf
       && !original.csrfRetried
     ) {
-      invalidateCsrfToken();
       return execute<T, D>({ ...original, csrfRetried: true });
     }
     if (problem.status === 401 && original.unauthorized !== 'ignore') {

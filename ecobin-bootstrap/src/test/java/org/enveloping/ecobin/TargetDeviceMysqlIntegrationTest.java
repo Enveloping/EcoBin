@@ -170,6 +170,15 @@ class TargetDeviceMysqlIntegrationTest {
                 blocked.path("code").asText());
 
         seedAcceptedEvidenceFixture(hardwareSn);
+        JsonNode reevaluated = data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/acceptance-evaluations"),
+                UUID.randomUUID(),
+                Map.of(),
+                200));
+        assertEquals("PASSED", reevaluated.path("acceptanceStatus").asText());
+        assertEquals(1, reevaluated.path("version").asLong());
         JsonNode accepted = data(read(platform,
                 "/api/v1/web/platform/device-assets/" + hardwareSn,
                 200));
@@ -359,18 +368,6 @@ class TargetDeviceMysqlIntegrationTest {
                         """,
                 evidenceUid, assetId, challengeUid, commandUid, storeUid,
                 digestSeed);
-        jdbc.update("""
-                        UPDATE dev_device_asset
-                        SET acceptance_status = 'PASSED',
-                            accepted_at = UTC_TIMESTAMP(3),
-                            acceptance_evidence_sha256 =
-                                UNHEX(SHA2(?, 256)),
-                            last_acceptance_evaluated_at = UTC_TIMESTAMP(3),
-                            acceptance_failure_json = NULL,
-                            control_version = control_version + 1,
-                            updated_at = UTC_TIMESTAMP(3)
-                        WHERE id = ?
-                        """, digestSeed, assetId);
     }
 
     private long assetId(String hardwareSn) {

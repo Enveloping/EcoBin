@@ -2302,6 +2302,126 @@ function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
   };
 }
 
+test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
+  page,
+}) => {
+  const hardwareSn = 'SN-PERMANENT-CSRF';
+  const session = {
+    ...platformSession,
+    capabilities: ['device.read', 'device.manage'],
+  };
+  let asset = permanentDeviceAsset({ hardwareSn });
+  let csrfRequestCount = 0;
+  let reevaluationCount = 0;
+  const csrfHeaders: Array<string | undefined> = [];
+  const idempotencyKeys: Array<string | undefined> = [];
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/auth/csrf-token')) {
+      csrfRequestCount += 1;
+      await json(route, {
+        token: `acceptance-csrf-${csrfRequestCount}`,
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      await json(route, { items: [], page: 1, pageSize: 200, total: 0 });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/device-assets'
+    ) {
+      await json(route, { items: [asset], page: 1, pageSize: 20, total: 1 });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/acceptance-evidence`
+    ) {
+      await json(route, []);
+      return;
+    }
+    if (
+      request.method() === 'POST'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/acceptance-evaluations`
+    ) {
+      reevaluationCount += 1;
+      csrfHeaders.push(request.headers()['x-csrf-token']);
+      idempotencyKeys.push(request.headers()['idempotency-key']);
+      if (reevaluationCount === 1) {
+        await route.fulfill(problem(
+          500,
+          'DATA.SCHEMA_OR_QUERY_ERROR',
+          '服务端数据库结构或查询不兼容',
+        ));
+        return;
+      }
+      asset = permanentDeviceAsset({
+        hardwareSn,
+        acceptanceStatus: 'PASSED',
+        version: 1,
+        acceptedAt: '2026-08-07T02:00:00.123Z',
+      });
+      await json(route, asset);
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/devices');
+  await page.getByText(hardwareSn, { exact: true }).click();
+  const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
+  const reevaluate = drawer.getByRole('button', {
+    name: '重新读取验收证据',
+  });
+
+  await reevaluate.click();
+  await expect.poll(() => reevaluationCount).toBe(1);
+  await expect(
+    page.getByText(/服务端数据库结构或查询不兼容/),
+  ).toHaveCount(1);
+  await expect(
+    page.getByText(/请求 ID：req-e2e/),
+  ).toBeVisible();
+  await expect(reevaluate).not.toHaveClass(/ant-btn-loading/);
+
+  await reevaluate.click();
+  await expect.poll(() => reevaluationCount).toBe(2);
+  await expect.poll(() => csrfRequestCount).toBe(2);
+  expect(csrfHeaders).toEqual(['acceptance-csrf-1', 'acceptance-csrf-2']);
+  expect(idempotencyKeys[0]).toBeTruthy();
+  expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
+  await expect(
+    page.getByText('已根据最新真实证据重新计算验收结果'),
+  ).toBeVisible();
+  await expect(
+    drawer.getByText('机器验收通过', { exact: true }),
+  ).toBeVisible();
+});
+
 test('platform creates a real asset and writes its only tenant ownership', async ({
   page,
 }) => {

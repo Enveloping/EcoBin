@@ -1351,6 +1351,11 @@ public class TargetDeviceApplication {
     private CommandResult<DeviceAssetView> reevaluateAcceptance(
             String hardwareSn) {
         Asset asset = asset(hardwareSn, true);
+        // Acceptance evidence is append-only and the trusted ingest path locks
+        // this same asset before inserting.  The asset lock therefore provides
+        // the required serialization; locking the evidence row would also
+        // require an UPDATE privilege that the runtime principal intentionally
+        // does not have for immutable evidence.
         EvidenceDecision evidence = jdbc.query("""
                         SELECT evaluation_status, evidence_sha256,
                                failure_reasons_json, received_at
@@ -1358,7 +1363,6 @@ public class TargetDeviceApplication {
                         WHERE asset_id = ?
                         ORDER BY received_at DESC, id DESC
                         LIMIT 1
-                        FOR UPDATE
                         """,
                 (rs, ignored) -> new EvidenceDecision(
                         rs.getString("evaluation_status"),
@@ -1940,12 +1944,15 @@ public class TargetDeviceApplication {
     }
 
     private List<FactoryBag> factoryBags(long assetId) {
+        // Factory bag registrations are immutable after asset creation.  The
+        // caller already holds the asset row lock while assigning the
+        // organization, so a locking read here adds no concurrency guarantee
+        // and conflicts with the table's intentional SELECT/INSERT grants.
         return jdbc.query("""
                         SELECT port_no, bag_code
                         FROM dev_factory_installed_bag
                         WHERE asset_id = ?
                         ORDER BY port_no
-                        FOR UPDATE
                         """,
                 (rs, ignored) -> new FactoryBag(
                         rs.getInt("port_no"), rs.getString("bag_code")),
