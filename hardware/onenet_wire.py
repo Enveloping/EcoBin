@@ -536,7 +536,8 @@ def _validate_device_acceptance_command(
 def encode_command_receipt(command_uid: str, receipt_state: str, edge_boot_id: int,
                            error_code: str | None = None) -> dict[str, Any]:
     return {
-        "schemaVersion": 2,
+        # OneNet 枚举在线上使用编号；编号 1 对应语义协议版本 "2"。
+        "schemaVersion": 1,
         "commandUid": command_uid,
         "receiptState": RECEIPT_STATE_TO_CODE[receipt_state],
         "errorCodePresent": bool(error_code),

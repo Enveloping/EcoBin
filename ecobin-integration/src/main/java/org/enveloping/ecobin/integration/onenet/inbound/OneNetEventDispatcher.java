@@ -135,6 +135,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             1L, "SYNCED",
             2L, "ESTIMATED",
             3L, "UNAVAILABLE");
+    private static final Map<Long, String> EDGE_PROTOCOL_VERSION = Map.of(
+            1L, "2");
     private static final Map<Long, String> COMPONENT = Map.ofEntries(
             Map.entry(1L, "UART"),
             Map.entry(2L, "DELIVERY_DOOR"),
@@ -2117,7 +2119,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 text(wire, "edgeSoftwareVersion", 64));
         payload.put(
                 "edgeProtocolVersion",
-                text(wire, "edgeProtocolVersion", 32));
+                enumText(
+                        integer(wire, "edgeProtocolVersion"),
+                        EDGE_PROTOCOL_VERSION,
+                        "edgeProtocolVersion"));
         payload.put(
                 "edgeStoreInstanceUid",
                 pattern(wire, "edgeStoreInstanceUid", UUID_V4));

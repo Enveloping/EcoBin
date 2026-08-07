@@ -221,7 +221,7 @@ def test_encode_receipt_uses_target_numeric_state():
     receipt = encode_command_receipt("cmd-1", "DUPLICATE_ACCEPTED", 9001)
 
     assert receipt == {
-        "schemaVersion": 2,
+        "schemaVersion": 1,
         "commandUid": "cmd-1",
         "receiptState": 2,
         "errorCodePresent": False,
