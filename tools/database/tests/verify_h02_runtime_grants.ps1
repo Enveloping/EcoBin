@@ -19,6 +19,17 @@ if ($provisionSource -match 'Expected 99 domain tables') {
 if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 36') {
     throw "H-02 provisioning must migrate through V36"
 }
+if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
+    throw "H-02 production resume must explicitly opt in to business rows"
+}
+if ($provisionSource -notmatch
+        '\$AllowExistingBusinessRows -and\s+-not \$ResumeExistingMigratedEnvironment') {
+    throw "Business-row opt-in must be limited to migrated resume mode"
+}
+if ($provisionSource -notmatch
+        '\$businessRowCount -ne 0 -and\s+-not \$AllowExistingBusinessRows') {
+    throw "H-02 must retain the default empty-target business-row guard"
+}
 
 foreach ($entry in $catalog.UpdateColumns.GetEnumerator()) {
     $columns = @($entry.Value)

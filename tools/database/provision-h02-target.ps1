@@ -30,7 +30,8 @@ param(
     [ValidateRange(1, 10)]
     [int]$TransientSshAttempts = 1,
     [switch]$ResumeExistingEmptyEnvironment,
-    [switch]$ResumeExistingMigratedEnvironment
+    [switch]$ResumeExistingMigratedEnvironment,
+    [switch]$AllowExistingBusinessRows
 )
 
 $ErrorActionPreference = "Stop"
@@ -693,6 +694,15 @@ if (
         "migrated-environment resume mode"
     )
 }
+if (
+    $AllowExistingBusinessRows -and
+    -not $ResumeExistingMigratedEnvironment
+) {
+    throw (
+        "AllowExistingBusinessRows is only valid for the explicit " +
+        "migrated-environment resume mode"
+    )
+}
 if ($UseExistingProductionSecrets) {
     foreach ($requiredSecret in @(
         $rootPasswordPath,
@@ -1087,10 +1097,13 @@ WHERE version = '1';
         "SELECT SUM(row_count) FROM (`n" +
         ($businessCountQueries -join "`nUNION ALL`n") +
         "`n) AS business_rows;"
-    $businessRowCount = [int](Invoke-RootSql `
+    $businessRowCount = [long](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql $businessCountSql)
-    if ($businessRowCount -ne 0) {
+    if (
+        $businessRowCount -ne 0 -and
+        -not $AllowExistingBusinessRows
+    ) {
         throw "Target database contains unexpected business rows"
     }
 

@@ -116,6 +116,20 @@ V30、V31、V32、V33、V34、V35 或 V36。低于 V36 时会用一次性新密�
 `TransientSshAttempts` 只允许在这个已迁移、操作均幂等的续跑模式使用；它只重试
 SSH 连接层错误。SQL 或权限错误不会被重试为成功，SSH 255 也不能冒充权限负测通过。
 
+上面的默认续跑仍按“目标空库”验收，发现权限目录之外的业务行就停止。正式库已经有
+租户、用户、资金等业务数据时，必须先停止所有写入方并完成可恢复备份，再显式使用：
+
+```powershell
+.\tools\database\provision-h02-target.ps1 `
+  -ResumeExistingMigratedEnvironment `
+  -AllowExistingBusinessRows `
+  -TransientSshAttempts 8
+```
+
+`AllowExistingBusinessRows` 只跳过“业务行必须为零”这一项空库断言，不跳过迁移历史、
+表数量、权限目录、账号锁定、运行账号正负权限或备份读取探针；该参数不能用于首次建库
+或空环境恢复。
+
 ## 5. 列级权限完成门
 
 H-02 实施审查发现 F-04/F-05 原矩阵只有表和写类，没有把 identity/device/recycling
