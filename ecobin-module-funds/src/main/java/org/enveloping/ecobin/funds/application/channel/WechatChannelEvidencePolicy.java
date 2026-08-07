@@ -102,6 +102,14 @@ public final class WechatChannelEvidencePolicy {
         return new Validation(violations);
     }
 
+    /** 授权免确认转账不应再进入逐笔确认收款状态。 */
+    public static boolean isTransferStateCompatibleWithCollectionMode(
+            String collectionMode,
+            MerchantTransferResult.Outcome outcome) {
+        return !"AUTHORIZED".equals(collectionMode)
+                || outcome != MerchantTransferResult.Outcome.WAIT_USER_CONFIRM;
+    }
+
     private static void requireEqual(
             String actual,
             String expected,

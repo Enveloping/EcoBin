@@ -48,7 +48,7 @@ public class AbortEdgeRestartedWorkService
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> new CleanTarget(
@@ -59,7 +59,7 @@ public class AbortEdgeRestartedWorkService
                 work.cleanOperationId(),
                 work.tenantId(),
                 work.organizationId(),
-                work.deploymentId());
+                work.assetId());
         if (rows.size() != 1) {
             return;
         }
@@ -95,13 +95,13 @@ public class AbortEdgeRestartedWorkService
                         DELETE FROM dev_device_occupancy
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND occupancy_kind = 'CLEAN'
                           AND clean_operation_id = ?
                         """,
                 work.tenantId(),
                 work.organizationId(),
-                work.deploymentId(),
+                work.assetId(),
                 target.id());
         int reservationReleased = jdbc.update("""
                         DELETE FROM rec_bag_current_occupancy
@@ -154,14 +154,14 @@ public class AbortEdgeRestartedWorkService
         jdbc.update("""
                         INSERT INTO rec_port_clean_restart_interlock (
                             tenant_id, organization_id,
-                            deployment_id, port_id,
+                            asset_id, port_id,
                             source_clean_operation_id,
                             activated_at, created_at, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 work.tenantId(),
                 work.organizationId(),
-                work.deploymentId(),
+                work.assetId(),
                 target.portId(),
                 target.id(),
                 work.observedAt(),
@@ -186,7 +186,7 @@ public class AbortEdgeRestartedWorkService
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND status = 'PENDING'
                         """,
                 work.observedAt(),
@@ -194,7 +194,7 @@ public class AbortEdgeRestartedWorkService
                 work.baselineMeasurementId(),
                 work.tenantId(),
                 work.organizationId(),
-                work.deploymentId());
+                work.assetId());
     }
 
     private void abortFullness(TrustedEdgeRestartedWork work) {
@@ -207,14 +207,14 @@ public class AbortEdgeRestartedWorkService
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> rs.getLong("port_id"),
                 work.fullnessDetectionId(),
                 work.tenantId(),
                 work.organizationId(),
-                work.deploymentId());
+                work.assetId());
         if (ports.size() != 1) {
             return;
         }
@@ -254,14 +254,14 @@ public class AbortEdgeRestartedWorkService
                                 updated_at = ?
                             WHERE tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND port_id = ?
                               AND current_detection_id = ?
                             """,
                     work.observedAt(),
                     work.tenantId(),
                     work.organizationId(),
-                    work.deploymentId(),
+                    work.assetId(),
                     ports.getFirst(),
                     work.fullnessDetectionId());
         }

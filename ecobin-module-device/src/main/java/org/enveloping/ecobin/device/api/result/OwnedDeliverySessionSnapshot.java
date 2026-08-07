@@ -12,7 +12,7 @@ import java.util.UUID;
 public record OwnedDeliverySessionSnapshot(
         UUID sessionUid,
         String deviceStatus,
-        String deploymentCode,
+        String deviceCode,
         int portNo,
         Instant firstPhysicalProgressAt,
         Instant deviceCompletedAt,
@@ -26,9 +26,9 @@ public record OwnedDeliverySessionSnapshot(
             throw new IllegalArgumentException(
                     "deviceStatus must not be blank");
         }
-        if (deploymentCode == null || deploymentCode.isBlank()) {
+        if (deviceCode == null || deviceCode.isBlank()) {
             throw new IllegalArgumentException(
-                    "deploymentCode must not be blank");
+                    "deviceCode must not be blank");
         }
         if (portNo < 1 || portNo > 6) {
             throw new IllegalArgumentException(

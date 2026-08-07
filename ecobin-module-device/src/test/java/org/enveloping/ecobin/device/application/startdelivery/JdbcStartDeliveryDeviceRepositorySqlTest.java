@@ -16,13 +16,15 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
                         .LOCK_ACTIVE_SESSION_SQL,
                 JdbcStartDeliveryDeviceRepository.LOCK_ASSET_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_ACTIVE_DEPLOYMENT_SQL,
+                        .LOCK_TENANT_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_DEPLOYMENT_SQL,
+                        .LOCK_ORGANIZATION_SQL,
                 JdbcStartDeliveryDeviceRepository
                         .LOCK_TRANSPORT_PRESENCE_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_OCCUPANCY_SQL);
+                        .LOCK_OCCUPANCY_SQL,
+                JdbcStartDeliveryDeviceRepository
+                        .LOCK_LATEST_CONFIGURATION_SQL);
 
         assertThat(lockSql)
                 .allSatisfy(sql ->
@@ -33,8 +35,6 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
     @Test
     void immutableStartFactsUsePlainReadsBehindMutableRootLocks() {
         List<String> immutableSql = List.of(
-                JdbcStartDeliveryDeviceRepository
-                        .LOCK_LATEST_CONFIGURATION_SQL,
                 JdbcStartDeliveryDeviceRepository.LOCK_PORT_SQL,
                 JdbcStartDeliveryDeviceRepository
                         .LOCK_PORT_CONFIGURATION_SQL);
@@ -97,6 +97,6 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
                 .contains("'delivery'", "delivery_session_id")
                 .doesNotContain("'clean'");
         assertThat(occupancy.chars().filter(value -> value == '?').count())
-                .isEqualTo(6);
+                .isEqualTo(5);
     }
 }

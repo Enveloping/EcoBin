@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": "30000000-0000-4000-8000-000000000003",
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1042,
   "eventType": "DELIVERY_COMPLETE",
   "eventUid": "30000000-0000-4000-8000-000000000006",
@@ -97,7 +96,7 @@
     "unitPriceTenThousandths": 4500
   },
   "payloadSha256": "427ffe8ec4d4c6ec17729339142da80b86521b8dc37930f23ae998f8da7b2d01",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "DELIVERY_SESSION",
     "uid": "30000000-0000-4000-8000-000000000001"

@@ -9,7 +9,7 @@ import java.util.Objects;
 public record TrustedEdgeRestartedWork(
         long tenantId,
         long organizationId,
-        long deploymentId,
+        long assetId,
         String commandType,
         Long cleanOperationId,
         Long fullnessDetectionId,
@@ -18,7 +18,7 @@ public record TrustedEdgeRestartedWork(
 
     public TrustedEdgeRestartedWork {
         if (tenantId <= 0 || organizationId <= 0
-                || deploymentId <= 0) {
+                || assetId <= 0) {
             throw new IllegalArgumentException(
                     "trusted work scope keys must be positive");
         }

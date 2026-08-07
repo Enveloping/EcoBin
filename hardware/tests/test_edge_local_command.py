@@ -65,7 +65,7 @@ def test_build_start_delivery_uses_applied_device_and_port_values(tmp_path):
         now=datetime(2099, 7, 27, 1, 2, 3, tzinfo=timezone.utc),
     )
 
-    assert command["deploymentCode"] == "Dp_demo_01"
+    assert command["targetDeviceName"] == "SN-CONTRACT-0001"
     assert command["issuedAt"] == "2099-07-27T01:02:03.000Z"
     assert command["expiresAt"] == "2099-07-27T01:02:33.000Z"
     assert command["payload"] == {
@@ -101,7 +101,7 @@ def test_queue_start_delivery_writes_normal_command_inbox_row(tmp_path):
 
 def test_sample_configuration_matches_uart_hil_payload():
     command = build_sample_configuration_command(
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         config_version=24,
         command_uid="51000000-0000-4000-8000-000000000001",
         application_uid="51000000-0000-4000-8000-000000000002",
@@ -126,7 +126,7 @@ def test_queue_sample_configuration_does_not_require_applied_config(tmp_path):
 
     disposition, command = queue_sample_configuration(
         store,
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         config_version=24,
     )
 

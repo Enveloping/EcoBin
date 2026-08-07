@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": "40000000-0000-4000-8000-000000000005",
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1043,
   "eventType": "CLEAN_COMPLETE",
   "eventUid": "40000000-0000-4000-8000-000000000006",
@@ -99,7 +98,7 @@
     "removedNetWeightGrams": 18800
   },
   "payloadSha256": "48e6fa8c38b8f875773c3b2f5f1bfc14c5d0dc5e4b11053d14a600de0dec0d5a",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "CLEAN_OPERATION",
     "uid": "40000000-0000-4000-8000-000000000001"

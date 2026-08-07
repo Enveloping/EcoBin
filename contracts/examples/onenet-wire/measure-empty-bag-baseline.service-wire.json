@@ -12,7 +12,6 @@
         "version": 8
       },
       "cosGrantPresent": false,
-      "deploymentCode": "Dp_demo_01",
       "emptyBagConfirmed": true,
       "expiresAt": "2026-07-24T01:01:00.000Z",
       "issuedAt": "2026-07-24T01:00:00.000Z",
@@ -25,7 +24,8 @@
       "target": {
         "type": 1,
         "uid": "82000000-0000-4000-8000-000000000001"
-      }
+      },
+      "targetDeviceName": "SN-CONTRACT-0001"
     },
     "product_id": "<PRODUCT_ID>"
   },

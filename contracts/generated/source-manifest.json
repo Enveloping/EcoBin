@@ -1,16 +1,16 @@
 {
-  "onenetMappingVersion": "1.0.0-rc.3",
+  "onenetMappingVersion": "2.0.0",
   "sources": {
-    "onenet/command-envelope.schema.json": "f2cabfa2d53ebdca77fae170f30d80087d3bc7c93892cadea300f4ebde1ae53c",
-    "onenet/command-receipt.schema.json": "5af4d09a6841ffb89be587a7eabe7faee0e6a2f1496ef1860764980b328ab6a3",
-    "onenet/commands/commands.schema.json": "afc0daed9046eaf02e0523c1cf5cbc7dff9ffeab32d0385ad6cae55d8b297019",
-    "onenet/common.schema.json": "39542decfa7febbb3ecaf6e189cb71e56c7e478901f9920dfa8053b417bbeef1",
-    "onenet/event-envelope.schema.json": "733d129b05a4bffb6d1abea6f5660c89578a9d210e70aa7040ffcfeadbfb0831",
-    "onenet/events/events.schema.json": "36e49a0372817e22cf37bdd5e91777eef77230cbcf1acc557c093dca80b31b37",
-    "onenet/thing-model.mapping.yaml": "58ec120a77665d5e9faa9171527e74655b9ffc0b926323386a8f1cfbfe4f706e",
-    "uart/uart-registry.schema.json": "e305391f3180e69f7a4abe35133b1240638c6da9e9387e35e6c2172746d7b023",
-    "uart/uart-registry.yaml": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2"
+    "onenet/command-envelope.schema.json": "0fab57961346072be82c442334751419c65caeedd9d85a10073778bfa7a5fc83",
+    "onenet/command-receipt.schema.json": "196cb96b85a8e9d501ea79a5a9cf8e40a23a3d13172cab489c301ff9a528e447",
+    "onenet/commands/commands.schema.json": "b430ccaf7307e7e5b5752b7e3e00b6020e3c13940f518a092a58b49fbb3a8f8b",
+    "onenet/common.schema.json": "c4aae39ddeba8e159a3cd90dfcf3bdee2d72bb389d89fc141bada44e1ed49ace",
+    "onenet/event-envelope.schema.json": "287ff0119d1d2641d440dc5252c5999acf1332714166cacbb1965dc33f0a76e3",
+    "onenet/events/events.schema.json": "144f9b0136c2fe41abc371881d54130efdeaea35635223139a1ddeee84d5a640",
+    "onenet/thing-model.mapping.yaml": "597588100af815b0e3ad4c6e43c4b9d1163836bdca037d18aa9e8e29444d2aa5",
+    "uart/uart-registry.schema.json": "6dc501225f8a7575591fca2a969e926fba15cbb1104fbf758193356f4fa23872",
+    "uart/uart-registry.yaml": "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75"
   },
-  "uartRegistrySha256": "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2",
+  "uartRegistrySha256": "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75",
   "uartRegistryVersion": "1.0.0-rc.3"
 }

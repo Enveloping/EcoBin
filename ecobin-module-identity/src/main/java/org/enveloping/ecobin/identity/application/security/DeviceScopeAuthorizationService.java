@@ -28,11 +28,9 @@ public class DeviceScopeAuthorizationService
             "device.read",
             "device.manage",
             "device.configuration.manage",
-            "device.allocation.manage",
-            "device.business.manage");
+            "device.assignment.manage");
     private static final Set<String> TENANT_ONLY_CAPABILITIES = Set.of(
-            "device.allocation.manage",
-            "device.business.manage");
+            "device.assignment.manage");
 
     private final JdbcTemplate jdbc;
     private final DeviceScopePersistenceRefFactory referenceFactory;

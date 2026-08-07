@@ -95,14 +95,16 @@ uv run --python 3.11 python tools/fixed_frame_pty_simulator.py --help
 
 ```dotenv
 ECOBIN_MCU_PROTOCOL=fixed-frame
+ECOBIN_MCU_SIMULATED=true
 ECOBIN_SERIAL_PORT=/tmp/ecobin-fixed-frame-mcu
 ECOBIN_SERIAL_BAUDRATE=115200
 ECOBIN_UART_PORT_COUNT=1
 ```
 
-当前没有全局测试模式开关。`main.py` 始终根据
-`ECOBIN_MCU_PROTOCOL` 和 `ECOBIN_SERIAL_PORT` 连接所配置的串口边界，因此连接 PTY
-不需要切换运行模式。当前 `config.py` 会以 `.env` 覆盖同名进程环境变量，所以已有
+当前没有会放宽业务校验的全局测试模式开关。`main.py` 始终根据
+`ECOBIN_MCU_PROTOCOL` 和 `ECOBIN_SERIAL_PORT` 连接所配置的串口边界；连接 PTY 时还必须
+显式设置 `ECOBIN_MCU_SIMULATED=true`，确保平台验收不会把模拟证据当成真机证据。当前
+`config.py` 会以 `.env` 覆盖同名进程环境变量，所以已有
 `.env` 时应修改其中的 `ECOBIN_SERIAL_PORT`，不能只在 shell 中临时 `export`。
 
 其余 OneNet、部署和 COS 配置继续使用目标设备的真实测试环境值。然后启动真实入口：

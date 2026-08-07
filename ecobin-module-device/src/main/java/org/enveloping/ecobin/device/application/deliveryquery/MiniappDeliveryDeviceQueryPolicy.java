@@ -6,10 +6,9 @@ import java.util.List;
 
 final class MiniappDeliveryDeviceQueryPolicy {
 
-    static final String DEPLOYMENT_NOT_ENABLED =
-            "DEPLOYMENT_NOT_ENABLED";
-    static final String BUSINESS_SWITCH_DISABLED =
-            "BUSINESS_SWITCH_DISABLED";
+    static final String ASSET_UNAVAILABLE = "ASSET_UNAVAILABLE";
+    static final String CONFIGURATION_NOT_APPLIED =
+            "CONFIGURATION_NOT_APPLIED";
     static final String EDGE_OFFLINE = "EDGE_OFFLINE";
     static final String PORT_DISABLED = "PORT_DISABLED";
     static final String DEVICE_BUSY = "DEVICE_BUSY";
@@ -18,33 +17,30 @@ final class MiniappDeliveryDeviceQueryPolicy {
     }
 
     static Evaluation evaluate(
-            MiniappDeliveryDeviceQueryRepository.DeploymentSnapshotRow
-                    deployment,
+            MiniappDeliveryDeviceQueryRepository.AssetSnapshotRow asset,
             List<MiniappDeliveryDeviceQueryRepository.PortSnapshotRow>
                     ports,
             LocalDateTime now) {
-        boolean exactConfiguration = deployment.configurationId() != null
-                && deployment.configurationVersion() != null;
+        boolean exactConfiguration = exactConfiguration(asset);
         LinkedHashSet<String> common = new LinkedHashSet<>();
-        if (!"IN_USE".equals(deployment.assetLifecycleStatus())
-                || !"ENABLED".equals(
-                        deployment.deploymentLifecycleStatus())) {
-            common.add(DEPLOYMENT_NOT_ENABLED);
+        if (!"NORMAL".equals(asset.lifecycleStatus())
+                || !"PASSED".equals(asset.acceptanceStatus())) {
+            common.add(ASSET_UNAVAILABLE);
         }
-        if (!deployment.businessEnabled()) {
-            common.add(BUSINESS_SWITCH_DISABLED);
+        if (!exactConfiguration) {
+            common.add(CONFIGURATION_NOT_APPLIED);
         }
-        if (!"ONLINE".equals(deployment.edgeConnectionStatus())) {
+        if (!"ONLINE".equals(asset.edgeConnectionStatus())) {
             common.add(EDGE_OFFLINE);
         }
-        if (deployment.deviceBusy()) {
+        if (asset.deviceBusy()) {
             common.add(DEVICE_BUSY);
         }
 
         List<PortEvaluation> evaluatedPorts = ports.stream()
                 .map(port -> evaluatePort(
                         port,
-                        deployment,
+                        asset,
                         exactConfiguration,
                         common))
                 .toList();
@@ -56,8 +52,7 @@ final class MiniappDeliveryDeviceQueryPolicy {
 
     private static PortEvaluation evaluatePort(
             MiniappDeliveryDeviceQueryRepository.PortSnapshotRow port,
-            MiniappDeliveryDeviceQueryRepository.DeploymentSnapshotRow
-                    deployment,
+            MiniappDeliveryDeviceQueryRepository.AssetSnapshotRow asset,
             boolean exactConfiguration,
             LinkedHashSet<String> commonBlockers) {
         LinkedHashSet<String> blockers =
@@ -82,6 +77,32 @@ final class MiniappDeliveryDeviceQueryPolicy {
                         : null,
                 exactConfiguration ? port.fullnessMode() : null,
                 List.copyOf(blockers));
+    }
+
+    private static boolean exactConfiguration(
+            MiniappDeliveryDeviceQueryRepository.AssetSnapshotRow asset) {
+        return asset.configurationId() != null
+                && asset.configurationVersion() != null
+                && "APPLIED".equals(asset.configurationApplicationStatus())
+                && java.util.Objects.equals(
+                        asset.configurationVersion(),
+                        asset.applicationReportedVersion())
+                && java.util.Arrays.equals(
+                        asset.configurationContentSha256(),
+                        asset.applicationReportedContentSha256())
+                && java.util.Arrays.equals(
+                        asset.configurationMcuPayloadSha256(),
+                        asset.applicationReportedMcuPayloadSha256())
+                && asset.configurationAppliedAt() != null
+                && java.util.Objects.equals(
+                        asset.configurationVersion(),
+                        asset.orangePiReportedConfigurationVersion())
+                && java.util.Arrays.equals(
+                        asset.configurationContentSha256(),
+                        asset.orangePiReportedConfigurationContentSha256())
+                && java.util.Arrays.equals(
+                        asset.configurationMcuPayloadSha256(),
+                        asset.orangePiReportedConfigurationMcuPayloadSha256());
     }
 
     record Evaluation(

@@ -23,9 +23,10 @@
       "maxLength": 64,
       "pattern": "^[0-9a-f]{64}$"
     },
-    "deploymentCode": {
+    "deviceName": {
       "type": "string",
-      "pattern": "^Dp_[A-Za-z0-9_-]{6,61}$",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$",
       "maxLength": 64
     },
     "publicUidOrCode": {
@@ -161,7 +162,7 @@
             "FULLNESS_DETECTION",
             "PORT_FULLNESS_STATE",
             "BASELINE_MEASUREMENT",
-            "DEVICE_DEPLOYMENT",
+            "DEVICE_ASSET",
             "EDGE_EVENT",
             "BUSINESS_CONFIRMATION",
             "PHOTO_GRANT_REQUEST"
@@ -619,7 +620,7 @@
         },
         "keyPrefix": {
           "type": "string",
-          "pattern": "^ecobin/Dp_[A-Za-z0-9_-]+/(delivery-session|clean-operation)/[0-9a-f-]{36}/$",
+          "pattern": "^ecobin/(delivery-session|clean-operation|device-acceptance)/[0-9a-f-]{36}/$",
           "maxLength": 256
         },
         "expiresAt": { "$ref": "#/$defs/utcInstant" }

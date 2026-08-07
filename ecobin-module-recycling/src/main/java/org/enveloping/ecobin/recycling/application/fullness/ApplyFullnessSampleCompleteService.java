@@ -109,7 +109,7 @@ public class ApplyFullnessSampleCompleteService
         List<DetectionRow> rows = jdbc.query("""
                         SELECT detection_uid,
                                tenant_id, organization_id,
-                               deployment_id, port_id,
+                               asset_id, port_id,
                                trigger_type,
                                bag_id,
                                baseline_state_snapshot,
@@ -131,7 +131,7 @@ public class ApplyFullnessSampleCompleteService
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
@@ -139,7 +139,7 @@ public class ApplyFullnessSampleCompleteService
                 facts.detectionId(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId());
         if (rows.size() != 1) {
             throw untrusted(
@@ -168,14 +168,14 @@ public class ApplyFullnessSampleCompleteService
                         FROM rec_port_capacity_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> capacity(rs),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId());
         if (rows.size() != 1) {
             throw untrusted(
@@ -530,7 +530,7 @@ public class ApplyFullnessSampleCompleteService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND current_detection_id = ?
                         """,
@@ -540,7 +540,7 @@ public class ApplyFullnessSampleCompleteService
                 facts.backendReceivedAt(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 facts.detectionId()),
                 "mark fullness confirmation in progress");
@@ -554,7 +554,7 @@ public class ApplyFullnessSampleCompleteService
                         TransactionBoundFullnessDetectionCommandRef.issue(
                                 facts.tenantId(),
                                 facts.organizationId(),
-                                facts.deploymentId(),
+                                facts.assetId(),
                                 facts.portId(),
                                 facts.detectionId(),
                                 detection.deviceConfigVersionId(),
@@ -736,7 +736,7 @@ public class ApplyFullnessSampleCompleteService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND current_detection_id = ?
                           AND detection_gate IN (
@@ -751,7 +751,7 @@ public class ApplyFullnessSampleCompleteService
                 facts.backendReceivedAt(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 facts.detectionId()),
                 "apply failed fullness capacity");
@@ -928,7 +928,7 @@ public class ApplyFullnessSampleCompleteService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND current_detection_id = ?
                           AND detection_gate IN (
@@ -945,7 +945,7 @@ public class ApplyFullnessSampleCompleteService
                 facts.backendReceivedAt(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 facts.detectionId()),
                 "apply final fullness capacity");

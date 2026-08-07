@@ -1,31 +1,24 @@
 package org.enveloping.ecobin.device.application.target;
 
-import org.enveloping.ecobin.device.api.port.DevicePortBusinessSnapshotPort;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.ActivateDeploymentRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ComputedOneNetMapping;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationDeviceSnapshot;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationPortSnapshot;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationResynchronizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.CurrentDeploymentSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.DeploymentAssetSummary;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.DeploymentRuntimeView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.DeploymentVersionCommand;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.DeploymentView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryInstalledBagRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.PortBusinessSummary;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.PortRuntimeView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.PortView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeConfigurationSummary;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeHealthSummary;
-import org.enveloping.ecobin.device.web.v1.DeviceLifecycleModels.CreateAllocatedDeploymentRequest;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
@@ -39,35 +32,28 @@ import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskStatusPort;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.identity.api.port.DeviceScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.DeviceScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeviceScope;
-import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementCreator;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.security.SecureRandom;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -80,1533 +66,376 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
+/**
+ * 永久设备资产的唯一管理入口。
+ *
+ * <p>设备不再拥有部署实例。平台只写一次租户，租户只写一次机构；禁用和报废只改变
+ * 新业务准入，不清除归属，也不取消已经由后端创建的作业。</p>
+ */
 @Service
 public class TargetDeviceApplication {
 
-    private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 200;
     private static final int DEFAULT_CURSOR_LIMIT = 20;
     private static final int MAX_CURSOR_LIMIT = 100;
     private static final long RECOMMENDED_POLL_AFTER_MS = 3_000;
-    /*
-     * Configuration is not a 60-second physical-start authorization. Keep the
-     * stable command reusable for operational resynchronization while still
-     * carrying the mandatory machine-contract deadline.
-     */
     private static final long CONFIGURATION_COMMAND_VALIDITY_SECONDS =
             10L * 365 * 24 * 60 * 60;
     private static final String CONFIGURATION_TASK_TYPE =
             "ENSURE_DEVICE_CONFIGURATION";
     private static final String CONFIGURATION_TARGET_TYPE =
             "CONFIGURATION_APPLICATION";
+    private static final SecureRandom PUBLIC_CODE_RANDOM = new SecureRandom();
 
     private final JdbcTemplate jdbc;
     private final DeviceScopeAuthorizationPort authorizationPort;
-    private final DeviceConfigurationCanonicalizer canonicalizer;
-    private final InitialDeviceConfigurationFactory
-            initialConfigurationFactory;
     private final AuditPort auditPort;
+    private final ObjectMapper objectMapper;
+    private final DeviceConfigurationCanonicalizer canonicalizer;
     private final ReliableDeviceTaskRegistrationPort taskRegistrationPort;
     private final ReliableDeviceTaskStatusPort taskStatusPort;
     private final ReliableTaskWakePort taskWakePort;
     private final DeviceCommandTaskRefFactory taskRefFactory;
-    private final DevicePortBusinessSnapshotPort portBusinessPort;
-    private final DeviceLifecycleApplication lifecycleApplication;
-    private final ObjectMapper objectMapper;
     private final String oneNetProductId;
+    private final AutomaticDeviceActivationService activationService;
 
     public TargetDeviceApplication(
             JdbcTemplate jdbc,
             DeviceScopeAuthorizationPort authorizationPort,
-            DeviceConfigurationCanonicalizer canonicalizer,
-            InitialDeviceConfigurationFactory initialConfigurationFactory,
             AuditPort auditPort,
+            ObjectMapper objectMapper,
+            AutomaticDeviceActivationService activationService,
+            DeviceConfigurationCanonicalizer canonicalizer,
             ReliableDeviceTaskRegistrationPort taskRegistrationPort,
             ReliableDeviceTaskStatusPort taskStatusPort,
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
-            DevicePortBusinessSnapshotPort portBusinessPort,
-            DeviceLifecycleApplication lifecycleApplication,
-            ObjectMapper objectMapper,
             @Value("${onenet.product-id:}") String oneNetProductId) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
-        this.canonicalizer = canonicalizer;
-        this.initialConfigurationFactory = initialConfigurationFactory;
         this.auditPort = auditPort;
+        this.objectMapper = objectMapper;
+        this.activationService = activationService;
+        this.canonicalizer = canonicalizer;
         this.taskRegistrationPort = taskRegistrationPort;
         this.taskStatusPort = taskStatusPort;
         this.taskWakePort = taskWakePort;
         this.taskRefFactory = taskRefFactory;
-        this.portBusinessPort = portBusinessPort;
-        this.lifecycleApplication = lifecycleApplication;
-        this.objectMapper = objectMapper;
         this.oneNetProductId = blankToNull(oneNetProductId);
     }
 
     @Transactional(readOnly = true)
-    public PageData<DeviceAssetView> listAssets(
+    public PageData<DeviceAssetView> listPlatformAssets(
             int requestedPage,
             int requestedPageSize,
             String hardwareSn,
-            String modelCode,
-            String productionBatch,
-            String lifecycleStatus) {
+            String lifecycleStatus,
+            String acceptanceStatus) {
         authorize(true, null, null, "device.read");
-        int page = page(requestedPage);
-        int pageSize = pageSize(requestedPageSize);
-        StringBuilder predicate = new StringBuilder("""
-                FROM dev_device_asset a
-                LEFT JOIN dev_asset_active_deployment active
-                  ON active.asset_id = a.id
-                LEFT JOIN dev_device_deployment d
-                  ON d.id = active.deployment_id
-                LEFT JOIN iam_tenant t ON t.id = active.tenant_id
-                LEFT JOIN iam_organization o
-                  ON o.tenant_id = active.tenant_id
-                 AND o.id = active.organization_id
-                WHERE 1 = 1
-                """);
-        List<Object> parameters = new ArrayList<>();
-        addContains(predicate, parameters, "a.hardware_sn", hardwareSn);
-        addContains(predicate, parameters, "a.model_name", modelCode);
-        addContains(
-                predicate, parameters, "a.production_batch", productionBatch);
-        String status = upperOrNull(lifecycleStatus);
-        if (status != null) {
-            predicate.append(" AND a.lifecycle_status = ?");
-            parameters.add(status);
-        }
-        long total = jdbc.queryForObject(
-                "SELECT COUNT(*) " + predicate,
-                Long.class,
-                parameters.toArray());
-        List<Object> listParameters = new ArrayList<>(parameters);
-        listParameters.add(pageSize);
-        listParameters.add((long) (page - 1) * pageSize);
-        List<DeviceAssetView> items = jdbc.query("""
-                        SELECT a.id, a.hardware_sn, a.model_name,
-                               a.production_batch, a.expected_port_count,
-                               a.lifecycle_status, a.lock_version,
-                               a.created_at, a.updated_at,
-                               d.public_code AS deployment_code,
-                               d.lifecycle_status AS deployment_status,
-                               d.business_enabled,
-                               t.tenant_code, o.organization_code
-                        """
-                        + predicate
-                        + " ORDER BY a.id DESC LIMIT ? OFFSET ?",
-                (rs, ignored) -> assetView(rs),
-                listParameters.toArray());
-        return new PageData<>(items, page, pageSize, total);
+        return listAssets(
+                null,
+                null,
+                false,
+                requestedPage,
+                requestedPageSize,
+                hardwareSn,
+                lifecycleStatus,
+                acceptanceStatus);
     }
 
     @Transactional(readOnly = true)
-    public DeviceAssetView asset(String hardwareSn) {
+    public PageData<DeviceAssetView> listTenantAssets(
+            int requestedPage,
+            int requestedPageSize,
+            String hardwareSn) {
+        Scope scope = authorize(false, null, null, "device.read");
+        return listAssets(
+                scope.tenantId(),
+                null,
+                true,
+                requestedPage,
+                requestedPageSize,
+                hardwareSn,
+                null,
+                null);
+    }
+
+    @Transactional(readOnly = true)
+    public PageData<DeviceAssetView> listOrganizationAssets(
+            String organizationCode,
+            int requestedPage,
+            int requestedPageSize,
+            String hardwareSn) {
+        Scope scope = authorize(
+                false, null, organizationCode, "device.read");
+        return listAssets(
+                scope.tenantId(),
+                scope.organizationId(),
+                true,
+                requestedPage,
+                requestedPageSize,
+                hardwareSn,
+                null,
+                null);
+    }
+
+    @Transactional(readOnly = true)
+    public DeviceAssetView platformAsset(String hardwareSn) {
         authorize(true, null, null, "device.read");
-        return findAssetView(normalizeHardwareSn(hardwareSn))
-                .orElseThrow(TargetDeviceApplication::assetNotFound);
+        return findAssetView(normalizeHardwareSn(hardwareSn), null, null, false)
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    @Transactional(readOnly = true)
+    public DeviceAssetView tenantAsset(String hardwareSn) {
+        Scope scope = authorize(false, null, null, "device.read");
+        return findAssetView(
+                normalizeHardwareSn(hardwareSn),
+                scope.tenantId(),
+                null,
+                true).orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    @Transactional(readOnly = true)
+    public DeviceAssetView organizationAsset(
+            String organizationCode,
+            String deviceCode) {
+        Scope scope = authorize(
+                false, null, organizationCode, "device.read");
+        return findAssetViewByCode(
+                normalizeDeviceCode(deviceCode),
+                scope.tenantId(),
+                scope.organizationId(),
+                true).orElseThrow(TargetDeviceApplication::notFound);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DeviceAssetView createAsset(
             UUID operationUid,
             CreateDeviceAssetRequest request) {
-        AuthorizedScope scope = authorize(
-                true, null, null, "device.manage");
-        if (request == null) {
-            throw invalidRequest();
-        }
-        String hardwareSn = normalizeHardwareSn(request.hardwareSn());
-        String modelCode = requiredTrimmed(
-                request.modelCode(), 100, "modelCode");
-        String productionBatch = optionalTrimmed(
-                request.productionBatch(), 64, "productionBatch");
-        if (request.expectedPortCount() == null
-                || request.expectedPortCount() < 1
-                || request.expectedPortCount() > 6) {
-            throw invalidRequest();
-        }
-        CreateDeviceAssetRequest normalized =
-                new CreateDeviceAssetRequest(
-                        hardwareSn,
-                        modelCode,
-                        productionBatch,
-                        request.expectedPortCount());
+        Scope scope = authorize(true, null, null, "device.manage");
+        NormalizedAssetCreate normalized = normalizeCreate(request);
         return command(
                 operationUid,
                 scope,
                 "device.asset.create",
                 "DEVICE_ASSET",
-                hardwareSn,
+                normalized.hardwareSn(),
                 normalized,
                 DeviceAssetView.class,
-                () -> {
-                    if (findAssetView(hardwareSn).isPresent()) {
-                        throw new TargetApiException(
-                                409,
-                                "DEVICE.ASSET_ALREADY_EXISTS",
-                                "硬件序列号已经登记");
-                    }
-                    LocalDateTime now = databaseNow();
-                    try {
-                        jdbc.update("""
-                                        INSERT INTO dev_device_asset (
-                                            hardware_sn, model_name,
-                                            production_batch,
-                                            expected_port_count,
-                                            lifecycle_status,
-                                            retired_at, retirement_reason,
-                                            lock_version, created_at, updated_at
-                                        ) VALUES (
-                                            ?, ?, ?, ?, 'IN_STOCK',
-                                            NULL, NULL, 0, ?, ?
-                                        )
-                                        """,
-                                hardwareSn,
-                                modelCode,
-                                productionBatch,
-                                request.expectedPortCount(),
-                                now,
-                                now);
-                    } catch (DataIntegrityViolationException exception) {
-                        throw new TargetApiException(
-                                409,
-                                "DEVICE.ASSET_ALREADY_EXISTS",
-                                "硬件序列号已经登记");
-                    }
-                    Long assetId = jdbc.queryForObject("""
-                                    SELECT id
-                                    FROM dev_device_asset
-                                    WHERE hardware_sn = ?
-                                    """,
-                            Long.class,
-                            hardwareSn);
-                    jdbc.update("""
-                                    INSERT INTO dev_device_transport_state (
-                                        asset_id,
-                                        onenet_connection_status,
-                                        status_observed_at,
-                                        status_received_at,
-                                        evidence_source,
-                                        source_inbox_id,
-                                        lock_version,
-                                        created_at,
-                                        updated_at
-                                    ) VALUES (
-                                        ?, 'UNKNOWN', NULL, NULL,
-                                        NULL, NULL, 0, ?, ?
-                                    )
-                                    """,
-                            assetId,
-                            now,
-                            now);
-                    DeviceAssetView response = findAssetView(hardwareSn)
-                            .orElseThrow(TargetDeviceApplication::invariant);
-                    return new CommandResult<>(
-                            response,
-                            Map.of(),
-                            assetAuditSnapshot(response),
-                            null);
-                });
+                () -> createAsset(normalized));
     }
 
-    @Transactional(readOnly = true)
-    public PageData<DeploymentView> listDeployments(
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            int requestedPage,
-            int requestedPageSize,
-            String lifecycleStatus,
-            Boolean businessEnabled,
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView assignTenant(
+            UUID operationUid,
             String hardwareSn,
-            String edgeConnectionStatus,
-            String oneNetConnectionStatus,
-            String configurationApplicationStatus) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        int page = page(requestedPage);
-        int pageSize = pageSize(requestedPageSize);
-        StringBuilder predicate = new StringBuilder("""
-                WHERE d.tenant_id = ?
-                  AND d.organization_id = ?
-                """);
-        List<Object> parameters = new ArrayList<>();
-        parameters.add(scope.tenantId());
-        parameters.add(scope.organizationId());
-        String status = upperOrNull(lifecycleStatus);
-        if (status != null) {
-            predicate.append(" AND d.lifecycle_status = ?");
-            parameters.add(status);
-        }
-        if (businessEnabled != null) {
-            predicate.append(" AND d.business_enabled = ?");
-            parameters.add(businessEnabled);
-        }
-        addContains(predicate, parameters, "a.hardware_sn", hardwareSn);
-        String edge = upperOrNull(edgeConnectionStatus);
-        if (edge != null) {
-            predicate.append(
-                    " AND runtime.edge_connection_status = ?");
-            parameters.add(edge);
-        }
-        String oneNet = upperOrNull(oneNetConnectionStatus);
-        if (oneNet != null) {
-            predicate.append(" AND COALESCE(transport.onenet_connection_status, 'UNKNOWN') = ?");
-            parameters.add(oneNet);
-        }
-        String appStatus = upperOrNull(configurationApplicationStatus);
-        if (appStatus != null) {
-            predicate.append(" AND app.status = ?");
-            parameters.add(appStatus);
-        }
-        String joins = deploymentJoins();
-        long total = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM dev_device_deployment d "
-                        + joins + predicate,
-                Long.class,
-                parameters.toArray());
-        List<Object> listParameters = new ArrayList<>(parameters);
-        listParameters.add(pageSize);
-        listParameters.add((long) (page - 1) * pageSize);
-        List<DeploymentView> items = jdbc.query(
-                deploymentSelect()
-                        + " FROM dev_device_deployment d "
-                        + joins
-                        + predicate
-                        + " ORDER BY d.created_at DESC, d.id DESC"
-                        + " LIMIT ? OFFSET ?",
-                (rs, ignored) -> deploymentRow(rs).view(),
-                listParameters.toArray());
-        return new PageData<>(items, page, pageSize, total);
-    }
-
-    @Transactional(readOnly = true)
-    public DeploymentView deployment(
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        return findDeployment(
-                scope,
-                normalizeDeploymentCode(deploymentCode),
-                false).view();
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeploymentView createAllocatedDeployment(
-            UUID operationUid,
-            String organizationCode,
-            CreateAllocatedDeploymentRequest request) {
-        AuthorizedScope scope = authorize(
-                false,
-                null,
-                organizationCode,
-                "device.allocation.manage");
-        requireEnabledScope(scope);
-        if (request == null
-                || request.allocationUid() == null
-                || request.expectedAllocationVersion() == null) {
-            throw invalidRequest();
-        }
-        CreateAllocatedDeploymentRequest normalized =
-                new CreateAllocatedDeploymentRequest(
-                        request.allocationUid(),
-                        request.expectedAllocationVersion());
-        String target = scope.tenantCode() + "|"
-                + scope.organizationCode() + "|allocation:"
-                + normalized.allocationUid();
-        return command(
-                operationUid,
-                scope,
-                "device.deployment.create",
-                "DEVICE_DEPLOYMENT",
-                target,
-                normalized,
-                DeploymentView.class,
-                () -> createAllocatedDeployment(
-                        operationUid, scope, normalized));
-    }
-
-    @Transactional(readOnly = true)
-    public List<PortView> ports(
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        DeploymentRow deployment = findDeployment(
-                scope, normalizeDeploymentCode(deploymentCode), false);
-        return jdbc.query("""
-                        SELECT p.port_no,
-                               snapshot.display_name,
-                               snapshot.business_enabled,
-                               snapshot.unit_price_yuan_per_kg,
-                               snapshot.fullness_mode,
-                               config.version_no
-                        FROM dev_port p
-                        LEFT JOIN dev_config_version config
-                          ON config.id = (
-                              SELECT latest.id
-                              FROM dev_config_version latest
-                              WHERE latest.tenant_id = p.tenant_id
-                                AND latest.organization_id =
-                                    p.organization_id
-                                AND latest.deployment_id = p.deployment_id
-                              ORDER BY latest.version_no DESC
-                              LIMIT 1
-                          )
-                        LEFT JOIN dev_port_config_snapshot snapshot
-                          ON snapshot.tenant_id = p.tenant_id
-                         AND snapshot.organization_id = p.organization_id
-                         AND snapshot.deployment_id = p.deployment_id
-                         AND snapshot.config_version_id = config.id
-                         AND snapshot.port_id = p.id
-                        WHERE p.tenant_id = ?
-                          AND p.organization_id = ?
-                          AND p.deployment_id = ?
-                        ORDER BY p.port_no
-                        """,
-                (rs, ignored) -> new PortView(
-                        rs.getInt("port_no"),
-                        rs.getString("display_name"),
-                        nullableBoolean(rs, "business_enabled"),
-                        decimalString(
-                                rs.getBigDecimal(
-                                        "unit_price_yuan_per_kg"),
-                                4),
-                        rs.getString("fullness_mode"),
-                        nullableLong(rs, "version_no")),
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-    }
-
-    private CommandResult<DeploymentView> createAllocatedDeployment(
-            UUID operationUid,
-            AuthorizedScope scope,
-            CreateAllocatedDeploymentRequest request) {
-        AllocatedAsset allocation = jdbc.query("""
-                        SELECT allocation.id AS allocation_id,
-                               allocation.lock_version AS allocation_version,
-                               asset.id AS asset_id,
-                               asset.hardware_sn, asset.model_name,
-                               asset.expected_port_count,
-                               asset.lifecycle_status,
-                               asset.lock_version AS asset_version,
-                               predecessor.id AS predecessor_id,
-                               EXISTS (
-                                   SELECT 1
-                                   FROM dev_deployment_acceptance acceptance
-                                   WHERE acceptance.deployment_id = predecessor.id
-                               ) AS predecessor_accepted
-                        FROM dev_asset_tenant_allocation allocation
-                        JOIN dev_asset_active_tenant_allocation active
-                          ON active.allocation_id = allocation.id
-                         AND active.asset_id = allocation.asset_id
-                         AND active.tenant_id = allocation.tenant_id
-                        JOIN dev_device_asset asset
-                          ON asset.id = allocation.asset_id
-                        LEFT JOIN dev_device_deployment predecessor
-                          ON predecessor.id = (
-                              SELECT latest.id
-                              FROM dev_device_deployment latest
-                              WHERE latest.tenant_allocation_id = allocation.id
-                              ORDER BY latest.created_at DESC, latest.id DESC
-                              LIMIT 1
-                          )
-                        WHERE allocation.allocation_uid = ?
-                          AND allocation.tenant_id = ?
-                          AND allocation.status = 'ACTIVE'
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new AllocatedAsset(
-                        rs.getLong("allocation_id"),
-                        rs.getLong("allocation_version"),
-                        rs.getLong("asset_id"),
-                        rs.getString("hardware_sn"),
-                        rs.getString("model_name"),
-                        rs.getInt("expected_port_count"),
-                        rs.getString("lifecycle_status"),
-                        rs.getLong("asset_version"),
-                        nullableLong(rs, "predecessor_id"),
-                        rs.getBoolean("predecessor_accepted")),
-                request.allocationUid().toString(),
-                scope.tenantId()).stream().findFirst()
-                .orElseThrow(TargetDeviceApplication::notFound);
-        if (!"ALLOCATED".equals(allocation.lifecycleStatus())) {
-            throw new TargetApiException(
-                    409,
-                    "DEVICE.ASSET_NOT_IN_TENANT_POOL",
-                    "设备不处于当前租户的待部署设备池");
-        }
-        if (allocation.allocationVersion()
-                != request.expectedAllocationVersion()) {
-            throw versionConflict(allocation.allocationVersion());
-        }
-        Integer activeCount = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_asset_active_deployment
-                        WHERE asset_id = ?
-                        """,
-                Integer.class,
-                allocation.assetId());
-        if (activeCount != null && activeCount > 0) {
-            throw new TargetApiException(
-                    409,
-                    "DEVICE.ASSET_ALREADY_DEPLOYED",
-                    "设备资产已经存在当前部署");
-        }
-
-        LocalDateTime now = databaseNow();
-        String deploymentCode = "Dp_"
-                + UUID.randomUUID().toString().replace("-", "");
-        long deploymentId = insertAndReturnKey("""
-                INSERT INTO dev_device_deployment (
-                    tenant_id, organization_id, asset_id,
-                    tenant_allocation_id, predecessor_deployment_id,
-                    readiness_mode, public_code,
-                    lifecycle_status, business_enabled, commissioned_at,
-                    enabled_at, ended_at, end_method, end_reason,
-                    lock_version, created_at, updated_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, 'COMMISSIONING', 0, ?,
-                    NULL, NULL, NULL, NULL, 0, ?, ?
-                )
-                """,
-                scope.tenantId(),
-                scope.organizationId(),
-                allocation.assetId(),
-                allocation.allocationId(),
-                allocation.predecessorId(),
-                allocation.predecessorAccepted()
-                        ? "AUTOMATIC_TRANSFER_READINESS"
-                        : "PLATFORM_ACCEPTANCE_REQUIRED",
-                deploymentCode,
-                now,
-                now,
-                now);
-        jdbc.update("""
-                        INSERT INTO dev_asset_active_deployment (
-                            asset_id, tenant_id, organization_id,
-                            deployment_id, acquired_at
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                allocation.assetId(),
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId,
-                now);
-        jdbc.update("""
-                        INSERT INTO dev_deployment_runtime_state (
-                            deployment_id, tenant_id, organization_id,
-                            edge_connection_status, mcu_link_status,
-                            safety_status, aggregate_weight_health,
-                            camera_health, local_storage_health,
-                            clock_sync_health, edge_boot_id,
-                            edge_software_version, mcu_firmware_version,
-                            mcu_boot_id, uart_state, uart_protocol_major,
-                            uart_protocol_minor, capability_bitmap_hex,
-                            last_mcu_reset_reason,
-                            applied_config_version_no,
-                            applied_config_content_sha256,
-                            applied_mcu_payload_sha256,
-                            local_storage_state, clock_state,
-                            pending_reliable_event_count,
-                            last_heartbeat_at, last_device_event_at,
-                            lock_version, created_at, updated_at
-                        ) VALUES (
-                            ?, ?, ?,
-                            'UNKNOWN', 'UNKNOWN',
-                            'SAFETY_BLOCKED', 'UNKNOWN',
-                            'UNKNOWN', 'UNKNOWN',
-                            'UNKNOWN', NULL,
-                            NULL, NULL,
-                            NULL, NULL, NULL,
-                            NULL, NULL,
-                            NULL,
-                            NULL, NULL, NULL,
-                            NULL, NULL, NULL,
-                            NULL, NULL,
-                            0, ?, ?
-                        )
-                        """,
-                deploymentId,
-                scope.tenantId(),
-                scope.organizationId(),
-                now,
-                now);
-        for (int portNo = 1;
-             portNo <= allocation.expectedPortCount();
-             portNo++) {
-            long portId = insertAndReturnKey("""
-                    INSERT INTO dev_port (
-                        tenant_id, organization_id, deployment_id,
-                        port_no, created_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    scope.tenantId(),
-                    scope.organizationId(),
-                    deploymentId,
-                    portNo,
-                    now);
-            jdbc.update("""
-                            INSERT INTO dev_port_runtime_state (
-                                port_id, tenant_id, organization_id,
-                                deployment_id, delivery_door_state,
-                                delivery_door_actuator_health,
-                                delivery_door_contact_state,
-                                clean_lock_power_state,
-                                clean_solenoid_health,
-                                clean_door_inferred_state,
-                                clean_door_state_basis,
-                                weight_sensor_health, infrared_value,
-                                infrared_sensor_health, smoke_state,
-                                smoke_sensor_health, safety_status,
-                                pending_delivery_result_session_id,
-                                last_observed_at, lock_version,
-                                created_at, updated_at
-                            ) VALUES (
-                                ?, ?, ?, ?,
-                                'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
-                                'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
-                                'INFERRED_FROM_LOCK_POWER',
-                                'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
-                                'UNKNOWN', 'UNKNOWN', 'SAFETY_BLOCKED',
-                                NULL, NULL, 0, ?, ?
-                            )
-                            """,
-                    portId,
-                    scope.tenantId(),
-                    scope.organizationId(),
-                    deploymentId,
-                    now,
-                    now);
-        }
-        byte[] faultKey = sha256(
-                ("INITIAL_COMMISSIONING|" + deploymentCode)
-                        .getBytes(StandardCharsets.UTF_8));
-        jdbc.update("""
-                        INSERT INTO dev_device_fault_event (
-                            fault_uid, tenant_id, organization_id,
-                            deployment_id, port_id, component_type,
-                            fault_code, fault_key, impact_level, status,
-                            first_source_kind, first_source_edge_event_id,
-                            first_source_edge_event_type,
-                            first_source_evidence_sha256,
-                            first_detected_at, last_detected_at,
-                            discovery_count, recovery_source_kind,
-                            recovery_source_edge_event_id,
-                            recovery_source_edge_event_type,
-                            recovery_method, recovery_audit_log_id,
-                            recovered_at, recovered_by_staff_account_id,
-                            recovery_reason, lock_version, created_at
-                        ) VALUES (
-                            ?, ?, ?, ?, NULL, 'DEVICE',
-                            'INITIAL_COMMISSIONING', ?,
-                            'BUSINESS_BLOCKING', 'OPEN',
-                            'INTERNAL_DETECTION', NULL, NULL, ?,
-                            ?, ?, 1, NULL, NULL, NULL,
-                            NULL, NULL, NULL, NULL, NULL, 0, ?
-                        )
-                        """,
-                UUID.randomUUID().toString(),
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId,
-                faultKey,
-                faultKey,
-                now,
-                now,
-                now);
-        int updated = jdbc.update("""
-                        UPDATE dev_device_asset
-                        SET lifecycle_status = 'IN_USE',
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE id = ?
-                          AND lifecycle_status = 'ALLOCATED'
-                          AND lock_version = ?
-                        """,
-                now,
-                allocation.assetId(),
-                allocation.assetVersion());
-        requireSingleRow(updated, "advance deployed asset");
-        int allocationUpdated = jdbc.update("""
-                        UPDATE dev_asset_tenant_allocation
-                        SET lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE id = ? AND status = 'ACTIVE'
-                          AND lock_version = ?
-                        """,
-                now,
-                allocation.allocationId(),
-                allocation.allocationVersion());
-        requireSingleRow(allocationUpdated, "advance tenant allocation");
-        ConfigurationReleaseRequest initialConfiguration =
-                initialConfigurationFactory.create(
-                        allocation.hardwareSn(),
-                        allocation.modelCode(),
-                        allocation.expectedPortCount());
-        releaseConfiguration(
-                operationUid,
-                scope,
-                deploymentCode,
-                applicationCollectionUrl(
-                        false,
-                        scope.tenantCode(),
-                        scope.organizationCode(),
-                        deploymentCode),
-                initialConfiguration);
-        DeploymentView response = findDeployment(
-                scope, deploymentCode, false).view();
-        return new CommandResult<>(
-                response,
-                Map.of(
-                        "assetLifecycleStatus", "ALLOCATED",
-                        "assetVersion", allocation.assetVersion(),
-                        "allocationVersion",
-                        allocation.allocationVersion()),
-                deploymentAuditSnapshot(response),
-                null);
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeploymentView activate(
-            UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode,
-            ActivateDeploymentRequest request) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.manage");
-        if (request == null
-                || request.expectedVersion() == null
-                || request.expectedConfigurationVersion() == null
-                || request.acceptanceConfirmed() == null) {
-            throw invalidRequest();
-        }
-        String code = normalizeDeploymentCode(deploymentCode);
-        return command(
-                operationUid,
-                scope,
-                "device.deployment.activate",
-                "DEVICE_DEPLOYMENT",
-                code,
-                request,
-                DeploymentView.class,
-                () -> mutateDeployment(
-                        scope,
-                        code,
-                        request.expectedVersion(),
-                        request.reason(),
-                        DeploymentMutation.ACTIVATE,
-                        request.expectedConfigurationVersion(),
-                        request.acceptanceConfirmed()));
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeploymentView deactivate(
-            UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode,
-            DeploymentVersionCommand request) {
-        return deploymentVersionCommand(
-                operationUid,
-                platformPath,
-                tenantCode,
-                organizationCode,
-                deploymentCode,
-                request,
-                DeploymentMutation.DEACTIVATE);
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeploymentView enableBusiness(
-            UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode,
-            DeploymentVersionCommand request) {
-        return deploymentVersionCommand(
-                operationUid,
-                platformPath,
-                tenantCode,
-                organizationCode,
-                deploymentCode,
-                request,
-                DeploymentMutation.ENABLE_BUSINESS);
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public DeploymentView disableBusiness(
-            UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode,
-            DeploymentVersionCommand request) {
-        return deploymentVersionCommand(
-                operationUid,
-                platformPath,
-                tenantCode,
-                organizationCode,
-                deploymentCode,
-                request,
-                DeploymentMutation.DISABLE_BUSINESS);
-    }
-
-    @Transactional(readOnly = true)
-    public DeploymentRuntimeView runtime(
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        DeploymentRow deployment = findDeployment(
-                scope, normalizeDeploymentCode(deploymentCode), false);
-        return runtimeView(
-                scope,
-                deployment,
-                runtimeRow(scope, deployment.id(), false));
-    }
-
-    @Transactional(readOnly = true)
-    public PortRuntimeView portRuntime(
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode,
-            int portNo) {
-        if (portNo < 1 || portNo > 6) {
-            throw notFound();
-        }
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        String code = normalizeDeploymentCode(deploymentCode);
-        DeploymentRow deployment = findDeployment(scope, code, false);
-        RuntimeRow runtime = runtimeRow(
-                scope, deployment.id(), false);
-        PortRuntimeRow port = jdbc.query("""
-                        SELECT p.id AS port_id, p.port_no,
-                               state.delivery_door_state,
-                               state.delivery_door_actuator_health,
-                               state.delivery_door_contact_state,
-                               state.clean_lock_power_state,
-                               state.clean_solenoid_health,
-                               state.clean_door_inferred_state,
-                               state.clean_door_state_basis,
-                               state.weight_sensor_health,
-                               state.infrared_value,
-                               state.infrared_sensor_health,
-                               state.smoke_state,
-                               state.smoke_sensor_health,
-                               state.safety_status,
-                               state.last_observed_at,
-                               state.lock_version,
-                               snapshot.business_enabled,
-                               snapshot.fullness_mode
-                        FROM dev_port p
-                        JOIN dev_port_runtime_state state
-                          ON state.tenant_id = p.tenant_id
-                         AND state.organization_id = p.organization_id
-                         AND state.deployment_id = p.deployment_id
-                         AND state.port_id = p.id
-                        LEFT JOIN dev_port_config_snapshot snapshot
-                          ON snapshot.config_version_id = ?
-                         AND snapshot.port_id = p.id
-                        WHERE p.tenant_id = ?
-                          AND p.organization_id = ?
-                          AND p.deployment_id = ?
-                          AND p.port_no = ?
-                        """,
-                (rs, ignored) -> portRuntimeRow(rs),
-                deployment.latestConfigurationId(),
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id(),
-                portNo).stream().findFirst()
-                .orElseThrow(TargetDeviceApplication::notFound);
-        var business = portBusinessPort.find(
-                scope.tenantCode(),
-                scope.organizationCode(),
-                code,
-                portNo);
-        LinkedHashSet<String> deliveryBlockers =
-                new LinkedHashSet<>(baseBlockers(
-                        scope, deployment, runtime, true, true));
-        LinkedHashSet<String> cleaningBlockers =
-                new LinkedHashSet<>(baseBlockers(
-                        scope, deployment, runtime, true, true));
-        if (!Boolean.TRUE.equals(port.businessEnabled())) {
-            deliveryBlockers.add("PORT_DISABLED");
-        }
-        if (!business.currentBagPresent()) {
-            deliveryBlockers.add("CURRENT_BAG_MISSING");
-        }
-        if ("PENDING".equals(business.detectionGate())
-                || "IN_PROGRESS".equals(business.detectionGate())) {
-            deliveryBlockers.add("DEVICE_BUSY");
-            cleaningBlockers.add("DEVICE_BUSY");
-        }
-        if (business.cleanOperationActive()) {
-            deliveryBlockers.add("PORT_CLEAN_OPERATION_ACTIVE");
-            cleaningBlockers.add("PORT_CLEAN_OPERATION_ACTIVE");
-        }
-        Integer cleanRestartInterlock = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM rec_port_clean_restart_interlock
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND port_id = ?
-                        """,
-                Integer.class,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id(),
-                port.portId());
-        if (cleanRestartInterlock != null
-                && cleanRestartInterlock > 0) {
-            deliveryBlockers.add(
-                    "CLEAN_RESTARTED_CLEAN_REQUIRED");
-        }
-        PortBusinessSummary businessView = new PortBusinessSummary(
-                business.currentBagPresent(),
-                business.baselineState(),
-                business.detectionGate(),
-                business.fullnessState(),
-                business.displayedFullnessPercent(),
-                business.cleanOperationActive());
-        return new PortRuntimeView(
-                code,
-                port.portNo(),
-                port.deliveryDoorState(),
-                port.deliveryDoorActuatorHealth(),
-                port.deliveryDoorContactState(),
-                port.cleanLockPowerState(),
-                port.cleanSolenoidHealth(),
-                "UNKNOWN",
-                "NOT_OBSERVABLE",
-                port.weightSensorHealth(),
-                port.infraredValue(),
-                port.infraredSensorHealth(),
-                port.smokeState(),
-                port.smokeSensorHealth(),
-                port.safetyStatus(),
-                businessView,
-                deliveryBlockers.isEmpty(),
-                cleaningBlockers.isEmpty(),
-                List.copyOf(deliveryBlockers),
-                List.copyOf(cleaningBlockers),
-                port.lastObservedAt(),
-                port.version());
-    }
-
-    private DeploymentView deploymentVersionCommand(
-            UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String deploymentCode,
-            DeploymentVersionCommand request,
-            DeploymentMutation mutation) {
-        boolean businessMutation = mutation == DeploymentMutation.ENABLE_BUSINESS
-                || mutation == DeploymentMutation.DISABLE_BUSINESS;
-        if (businessMutation && platformPath) {
-            throw new TargetApiException(
-                    403,
-                    "COMMON.FORBIDDEN",
-                    "平台管理员不能代替租户决定设备是否开始或停止经营");
-        }
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                businessMutation
-                        ? "device.business.manage"
-                        : "device.manage");
+            AssignTenantRequest request) {
+        Scope scope = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
         if (request == null || request.expectedVersion() == null) {
-            throw invalidRequest();
+            throw invalid("租户分配请求不完整");
         }
-        String code = normalizeDeploymentCode(deploymentCode);
+        String tenantCode = required(request.tenantCode(), 32, "tenantCode");
+        Map<String, Object> normalized = Map.of(
+                "tenantCode", tenantCode,
+                "expectedVersion", request.expectedVersion());
         return command(
                 operationUid,
                 scope,
-                mutation.actionCode(),
-                "DEVICE_DEPLOYMENT",
-                code,
-                request,
-                DeploymentView.class,
-                () -> mutateDeployment(
+                "device.asset.assign-tenant",
+                "DEVICE_ASSET",
+                normalizedHardwareSn,
+                normalized,
+                DeviceAssetView.class,
+                () -> assignTenant(
+                        normalizedHardwareSn,
+                        tenantCode,
+                        request.expectedVersion()));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView assignOrganization(
+            UUID operationUid,
+            String hardwareSn,
+            AssignOrganizationRequest request) {
+        Scope scope = authorize(
+                false, null, null, "device.assignment.manage");
+        requireEnabledTenant(scope);
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        if (request == null || request.expectedVersion() == null) {
+            throw invalid("机构分配请求不完整");
+        }
+        String organizationCode = required(
+                request.organizationCode(), 32, "organizationCode");
+        Map<String, Object> normalized = Map.of(
+                "organizationCode", organizationCode,
+                "expectedVersion", request.expectedVersion());
+        return command(
+                operationUid,
+                scope,
+                "device.asset.assign-organization",
+                "DEVICE_ASSET",
+                normalizedHardwareSn,
+                normalized,
+                DeviceAssetView.class,
+                () -> assignOrganization(
+                        operationUid,
                         scope,
-                        code,
-                        request.expectedVersion(),
-                        request.reason(),
-                        mutation,
-                        null,
-                        false));
+                        normalizedHardwareSn,
+                        organizationCode,
+                        request.expectedVersion()));
     }
 
-    private CommandResult<DeploymentView> mutateDeployment(
-            AuthorizedScope scope,
-            String deploymentCode,
-            long expectedVersion,
-            String reason,
-            DeploymentMutation mutation,
-            Long expectedConfigurationVersion,
-            boolean acceptanceConfirmed) {
-        DeploymentRow before = findDeployment(
-                scope, deploymentCode, true);
-        if (before.version() != expectedVersion) {
-            throw versionConflict(before.version());
-        }
-        DeploymentRow auditBefore = before;
-        if (mutation == DeploymentMutation.ENABLE_BUSINESS
-                && !"ENABLED".equals(before.lifecycleStatus())) {
-            lifecycleApplication.promoteAutomaticReadiness(deploymentCode);
-            before = findDeployment(scope, deploymentCode, true);
-        }
-        LocalDateTime now = databaseNow();
-        switch (mutation) {
-            case ACTIVATE -> {
-                if ("ENABLED".equals(before.lifecycleStatus())) {
-                    throw conflict(
-                            "DEVICE.DEPLOYMENT_ALREADY_ENABLED",
-                            "设备部署已经激活");
-                }
-                if (!Set.of("COMMISSIONING", "DISABLED")
-                        .contains(before.lifecycleStatus())) {
-                    throw conflict(
-                            "DEVICE.DEPLOYMENT_NOT_ACTIVATABLE",
-                            "当前生命周期不允许激活");
-                }
-                if (!acceptanceConfirmed) {
-                    throw unprocessable(
-                            "DEVICE.ACCEPTANCE_CONFIRMATION_REQUIRED",
-                            "首次或再次激活必须明确确认验收");
-                }
-                if (!Objects.equals(
-                        before.latestConfigurationVersion(),
-                        expectedConfigurationVersion)) {
-                    throw versionConflict(
-                            before.latestConfigurationVersion() == null
-                                    ? 0
-                                    : before.latestConfigurationVersion());
-                }
-                List<String> blockers = activationBlockers(scope, before);
-                if (!blockers.isEmpty()) {
-                    throw new TargetApiException(
-                            422,
-                            "DEVICE.DEPLOYMENT_NOT_ACTIVATABLE",
-                            "设备尚未满足真实激活条件",
-                            false,
-                            Map.of("blockers", blockers));
-                }
-                jdbc.update("""
-                                UPDATE dev_device_deployment
-                                SET lifecycle_status = 'ENABLED',
-                                    enabled_at = COALESCE(enabled_at, ?),
-                                    lock_version = lock_version + 1,
-                                    updated_at = ?
-                                WHERE id = ?
-                                """,
-                        now, now, before.id());
-                recoverInitialCommissioningLock(scope, before, reason, now);
-            }
-            case DEACTIVATE -> {
-                if ("DISABLED".equals(before.lifecycleStatus())) {
-                    throw conflict(
-                            "DEVICE.DEPLOYMENT_ALREADY_DISABLED",
-                            "设备部署已经停用");
-                }
-                if (!"ENABLED".equals(before.lifecycleStatus())) {
-                    throw conflict(
-                            "DEVICE.DEPLOYMENT_NOT_ENABLED",
-                            "只有已激活部署可以停用");
-                }
-                jdbc.update("""
-                                UPDATE dev_device_deployment
-                                SET lifecycle_status = 'DISABLED',
-                                    business_enabled = 0,
-                                    lock_version = lock_version + 1,
-                                    updated_at = ?
-                                WHERE id = ?
-                                """,
-                        now, before.id());
-            }
-            case ENABLE_BUSINESS -> {
-                if (before.businessEnabled()) {
-                    throw conflict(
-                            "DEVICE.BUSINESS_SWITCH_ALREADY_ENABLED",
-                            "后台经营开关已经开启");
-                }
-                List<String> blockers = baseBlockers(
-                        scope,
-                        before,
-                        runtimeRow(scope, before.id(), true),
-                        false,
-                        false);
-                if (!blockers.isEmpty()) {
-                    throw new TargetApiException(
-                            422,
-                            "DEVICE.DEPLOYMENT_NOT_ACTIVATABLE",
-                            "设备尚未满足经营开启条件",
-                            false,
-                            Map.of("blockers", blockers));
-                }
-                jdbc.update("""
-                                UPDATE dev_device_deployment
-                                SET business_enabled = 1,
-                                    lock_version = lock_version + 1,
-                                    updated_at = ?
-                                WHERE id = ?
-                                """,
-                        now, before.id());
-            }
-            case DISABLE_BUSINESS -> {
-                if (!before.businessEnabled()) {
-                    throw conflict(
-                            "DEVICE.BUSINESS_SWITCH_ALREADY_DISABLED",
-                            "后台经营开关已经关闭");
-                }
-                jdbc.update("""
-                                UPDATE dev_device_deployment
-                                SET business_enabled = 0,
-                                    lock_version = lock_version + 1,
-                                    updated_at = ?
-                                WHERE id = ?
-                                """,
-                        now, before.id());
-            }
-        }
-        DeploymentView after = findDeployment(
-                scope, deploymentCode, false).view();
-        return new CommandResult<>(
-                after,
-                deploymentAuditSnapshot(auditBefore.view()),
-                deploymentAuditSnapshot(after),
-                reason);
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView disable(
+            UUID operationUid,
+            String hardwareSn,
+            DeviceControlRequest request) {
+        return control(operationUid, hardwareSn, request, "DISABLED");
     }
 
-    private void recoverInitialCommissioningLock(
-            AuthorizedScope scope,
-            DeploymentRow deployment,
-            String reason,
-            LocalDateTime now) {
-        jdbc.update("""
-                        UPDATE dev_device_fault_event
-                        SET status = 'RECOVERED',
-                            recovery_source_kind = ?,
-                            recovery_method = 'INITIAL_ACCEPTANCE',
-                            recovered_at = ?,
-                            recovered_by_staff_account_id = ?,
-                            recovery_reason = ?,
-                            lock_version = lock_version + 1
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND fault_code = 'INITIAL_COMMISSIONING'
-                          AND status = 'OPEN'
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView restore(
+            UUID operationUid,
+            String hardwareSn,
+            DeviceControlRequest request) {
+        return control(operationUid, hardwareSn, request, "NORMAL");
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView retire(
+            UUID operationUid,
+            String hardwareSn,
+            DeviceControlRequest request) {
+        return control(operationUid, hardwareSn, request, "RETIRED");
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DeviceAssetView reevaluateAcceptance(
+            UUID operationUid,
+            String hardwareSn) {
+        Scope scope = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        return command(
+                operationUid,
+                scope,
+                "device.acceptance.reevaluate",
+                "DEVICE_ASSET",
+                normalizedHardwareSn,
+                Map.of(),
+                DeviceAssetView.class,
+                () -> reevaluateAcceptance(normalizedHardwareSn));
+    }
+
+    @Transactional(readOnly = true)
+    public List<AcceptanceEvidenceView> acceptanceEvidence(
+            String hardwareSn) {
+        authorize(true, null, null, "device.read");
+        Asset asset = asset(normalizeHardwareSn(hardwareSn), false);
+        return jdbc.query("""
+                        SELECT evidence_uid, evidence_schema_version,
+                               edge_software_version, edge_protocol_version,
+                               onenet_online, persistent_store_healthy,
+                               trusted_time_healthy,
+                               configuration_persistence_healthy,
+                               mcu_communication_healthy, sensors_healthy,
+                               cameras_capture_healthy,
+                               camera_upload_healthy, mcu_simulated,
+                               cameras_simulated, evaluation_status,
+                               failure_reasons_json,
+                               LOWER(HEX(evidence_sha256)) evidence_sha256,
+                               observed_at, received_at
+                        FROM dev_device_acceptance_evidence
+                        WHERE asset_id = ?
+                        ORDER BY received_at DESC, id DESC
                         """,
-                scope.staffAccountId() == null
-                        ? "SYSTEM_VERIFIED"
-                        : "STAFF_CONFIRMED",
-                now,
-                scope.staffAccountId(),
-                blankToNull(reason) == null
-                        ? "initial commissioning accepted"
-                        : blankToNull(reason),
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-        jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
-                        SET safety_status = 'SAFE',
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                        """,
-                now,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-        jdbc.update("""
-                        UPDATE dev_port_runtime_state
-                        SET safety_status = 'SAFE',
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND safety_status = 'SAFETY_BLOCKED'
-                        """,
-                now,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-    }
-
-    private List<String> activationBlockers(
-            AuthorizedScope scope,
-            DeploymentRow deployment) {
-        RuntimeRow runtime = runtimeRow(scope, deployment.id(), true);
-        LinkedHashSet<String> blockers = new LinkedHashSet<>();
-        if (!scope.tenantEnabled()) {
-            blockers.add("TENANT_DISABLED");
-        }
-        if (!scope.organizationEnabled()) {
-            blockers.add("ORGANIZATION_DISABLED");
-        }
-        if (!configurationReady(scope, deployment, runtime)) {
-            blockers.add("CONFIGURATION_NOT_APPLIED");
-        }
-        if (!trustedOrangePiRuntimeAvailable(
-                scope, deployment.id())) {
-            blockers.add("TRUSTED_DEVICE_IDENTITY_UNPROVEN");
-        }
-        if (!"ONLINE".equals(runtime.edgeConnectionStatus())) {
-            blockers.add("EDGE_OFFLINE");
-        }
-        if ("SAFETY_BLOCKED".equals(runtime.safetyStatus())
-                || "OPERATION_BLOCKED".equals(
-                runtime.safetyStatus())) {
-            blockers.add("SAFETY_LOCKED");
-        }
-        Integer seriousFaults = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_device_fault_event
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND deployment_id = ?
-                          AND status = 'OPEN'
-                          AND fault_code <> 'INITIAL_COMMISSIONING'
-                          AND impact_level IN (
-                              'BUSINESS_BLOCKING',
-                              'SAFETY_BLOCKING'
-                          )
-                        """,
-                Integer.class,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
-        if (seriousFaults != null && seriousFaults > 0) {
-            blockers.add("SAFETY_LOCKED");
-        }
-        if (occupied(deployment.assetId())) {
-            blockers.add("DEVICE_BUSY");
-        }
-        return List.copyOf(blockers);
-    }
-
-    private DeploymentRuntimeView runtimeView(
-            AuthorizedScope scope,
-            DeploymentRow deployment,
-            RuntimeRow runtime) {
-        List<String> delivery = baseBlockers(
-                scope, deployment, runtime, true, true);
-        List<String> cleaning = baseBlockers(
-                scope, deployment, runtime, true, true);
-        RuntimeConfigurationSummary configuration =
-                new RuntimeConfigurationSummary(
-                        deployment.latestConfigurationVersion(),
-                        deployment.appliedConfigurationVersion(),
-                        deployment.configurationApplicationStatus(),
-                        configurationReady(
-                                scope, deployment, runtime));
-        RuntimeHealthSummary health = new RuntimeHealthSummary(
-                runtime.edgeConnectionStatus(),
-                runtime.oneNetConnectionStatus(),
-                runtime.oneNetStatusObservedAt(),
-                runtime.trustedRuntimeReceivedAt(),
-                runtime.mcuLinkStatus(),
-                runtime.safetyStatus(),
-                runtime.aggregateWeightHealth(),
-                runtime.cameraHealth(),
-                runtime.localStorageHealth(),
-                runtime.clockSyncHealth(),
-                runtime.edgeSoftwareVersion(),
-                runtime.mcuFirmwareVersion(),
-                runtime.uartState(),
-                runtime.uartProtocolMajor(),
-                runtime.uartProtocolMinor(),
-                runtime.capabilityBitmapHex(),
-                runtime.lastHeartbeatAt(),
-                runtime.lastDeviceEventAt(),
-                runtime.version());
-        return new DeploymentRuntimeView(
-                deployment.publicCode(),
-                deployment.lifecycleStatus(),
-                deployment.businessEnabled(),
-                deployment.version(),
-                configuration,
-                health,
-                occupied(deployment.assetId()),
-                delivery.isEmpty(),
-                cleaning.isEmpty(),
-                delivery,
-                cleaning);
-    }
-
-    private List<String> baseBlockers(
-            AuthorizedScope scope,
-            DeploymentRow deployment,
-            RuntimeRow runtime,
-            boolean requireBusinessSwitch,
-            boolean requireOnline) {
-        LinkedHashSet<String> blockers = new LinkedHashSet<>();
-        if (!scope.tenantEnabled()) {
-            blockers.add("TENANT_DISABLED");
-        }
-        if (!scope.organizationEnabled()) {
-            blockers.add("ORGANIZATION_DISABLED");
-        }
-        if (!"ENABLED".equals(deployment.lifecycleStatus())) {
-            blockers.add("DEPLOYMENT_NOT_ENABLED");
-        }
-        if (requireBusinessSwitch && !deployment.businessEnabled()) {
-            blockers.add("BUSINESS_SWITCH_DISABLED");
-        }
-        if (deployment.latestConfigurationId() == null) {
-            blockers.add("CONFIGURATION_NOT_APPLIED");
-        }
-        if (requireOnline && !"ONLINE".equals(
-                runtime.oneNetConnectionStatus())) {
-            blockers.add("EDGE_OFFLINE");
-        }
-        if (occupied(deployment.assetId())) {
-            blockers.add("DEVICE_BUSY");
-        }
-        return List.copyOf(blockers);
-    }
-
-    private boolean configurationReady(
-            AuthorizedScope scope,
-            DeploymentRow deployment,
-            RuntimeRow runtime) {
-        if (deployment.latestConfigurationVersion() == null
-                || !"APPLIED".equals(
-                deployment.configurationApplicationStatus())
-                || !Objects.equals(
-                deployment.latestConfigurationVersion(),
-                deployment.appliedConfigurationVersion())
-                || !Objects.equals(
-                deployment.latestConfigurationVersion(),
-                runtime.orangePiReportedConfigurationVersion())) {
-            return false;
-        }
-        Integer exact = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_config_version version
-                        WHERE version.tenant_id = ?
-                          AND version.organization_id = ?
-                          AND version.deployment_id = ?
-                          AND version.id = ?
-                          AND version.version_no = ?
-                          AND version.content_sha256 = ?
-                          AND version.mcu_payload_sha256 = ?
-                        """,
-                Integer.class,
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id(),
-                deployment.latestConfigurationId(),
-                runtime.orangePiReportedConfigurationVersion(),
-                runtime.orangePiReportedContentSha256(),
-                runtime.orangePiReportedMcuPayloadSha256());
-        return exact != null && exact == 1;
-    }
-
-    private boolean trustedOrangePiRuntimeAvailable(
-            AuthorizedScope scope, long deploymentId) {
-        Integer available = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_deployment_runtime_state runtime
-                        WHERE runtime.tenant_id = ?
-                          AND runtime.organization_id = ?
-                          AND runtime.deployment_id = ?
-                          AND runtime.trusted_runtime_edge_event_id
-                              IS NOT NULL
-                          AND runtime.trusted_runtime_received_at
-                              IS NOT NULL
-                        """,
-                Integer.class,
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId);
-        return available != null && available == 1;
+                (rs, ignored) -> evidence(rs),
+                asset.id());
     }
 
     @Transactional(readOnly = true)
     public CursorPage<ConfigurationVersionSummary> configurationVersions(
-            boolean platformPath,
-            String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             Long beforeVersionNo,
             int requestedLimit) {
         if (beforeVersionNo != null && beforeVersionNo < 1) {
-            throw invalidRequest();
+            throw invalid("beforeVersionNo 必须大于零");
         }
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        DeploymentRow deployment = findDeployment(
-                scope, normalizeDeploymentCode(deploymentCode), false);
+        Scope scope = authorize(
+                false, null, organizationCode, "device.read");
+        Asset asset = organizationAsset(
+                scope, normalizeDeviceCode(deviceCode), false);
         int limit = requestedLimit <= 0
                 ? DEFAULT_CURSOR_LIMIT
                 : Math.min(requestedLimit, MAX_CURSOR_LIMIT);
         String beforePredicate = beforeVersionNo == null
-                ? ""
-                : " AND config.version_no < ?";
+                ? "" : " AND config.version_no < ?";
         List<Object> parameters = new ArrayList<>();
         parameters.add(scope.tenantId());
         parameters.add(scope.organizationId());
-        parameters.add(deployment.id());
+        parameters.add(asset.id());
         if (beforeVersionNo != null) {
             parameters.add(beforeVersionNo);
         }
         parameters.add(limit + 1);
-        List<ConfigurationVersionRow> rows = jdbc.query("""
-                        SELECT config.id, config.version_no,
-                               config.schema_version,
-                               config.device_display_name,
-                               config.location_address,
-                               config.latitude, config.longitude,
-                               config.edge_heartbeat_interval_ms,
-                               config.edge_heartbeat_miss_threshold,
-                               config.mcu_heartbeat_interval_ms,
-                               config.mcu_heartbeat_miss_threshold,
-                               config.door_close_retry_limit,
-                               config.continue_delivery_wait_ms,
-                               config.negative_weight_threshold_g,
-                               config.delivery_auto_close_ms,
-                               config.weight_measurement_timeout_ms,
-                               config.delivery_door_travel_wait_ms,
-                               config.clean_solenoid_pulse_ms,
-                               config.smoke_monitoring_enabled,
-                               LOWER(HEX(config.content_sha256))
-                                   AS content_sha256,
-                               LOWER(HEX(config.mcu_payload_sha256))
-                                   AS mcu_payload_sha256,
-                               config.publication_source,
-                               staff.display_name AS publisher_name,
-                               config.published_at,
-                               app.application_uid, app.status AS app_status,
-                               app.lock_version AS app_version
-                        FROM dev_config_version config
-                        LEFT JOIN iam_staff_account staff
-                          ON staff.tenant_id = config.tenant_id
-                         AND staff.id =
-                             config.published_by_staff_account_id
-                        JOIN dev_config_application app
-                          ON app.tenant_id = config.tenant_id
-                         AND app.organization_id = config.organization_id
-                         AND app.deployment_id = config.deployment_id
-                         AND app.config_version_id = config.id
+        List<ConfigurationVersionRow> rows = jdbc.query(
+                configurationSelect() + """
                         WHERE config.tenant_id = ?
                           AND config.organization_id = ?
-                          AND config.deployment_id = ?
-                        """
-                        + beforePredicate
+                          AND config.asset_id = ?
+                        """ + beforePredicate
                         + " ORDER BY config.version_no DESC LIMIT ?",
                 (rs, ignored) -> configurationVersionRow(rs),
                 parameters.toArray());
         boolean hasMore = rows.size() > limit;
         List<ConfigurationVersionRow> visible = hasMore
-                ? rows.subList(0, limit)
-                : rows;
-        List<ConfigurationVersionSummary> items = visible.stream()
-                .map(this::configurationSummary)
-                .toList();
+                ? rows.subList(0, limit) : rows;
         Long next = hasMore && !visible.isEmpty()
-                ? visible.getLast().versionNo()
-                : null;
-        return new CursorPage<>(items, next);
+                ? visible.getLast().versionNo() : null;
+        return new CursorPage<>(visible.stream()
+                .map(this::configurationSummary).toList(), next);
     }
 
     @Transactional(readOnly = true)
     public ConfigurationVersionView configurationVersion(
-            boolean platformPath,
-            String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             long versionNo) {
         if (versionNo < 1) {
             throw notFound();
         }
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        DeploymentRow deployment = findDeployment(
-                scope, normalizeDeploymentCode(deploymentCode), false);
-        ConfigurationVersionRow configuration =
-                findConfigurationVersion(
-                        scope, deployment.id(), versionNo)
-                        .orElseThrow(TargetDeviceApplication::notFound);
-        List<ConfigurationPortSnapshot> ports =
-                configurationPorts(scope, deployment.id(), configuration.id());
+        Scope scope = authorize(
+                false, null, organizationCode, "device.read");
+        Asset asset = organizationAsset(
+                scope, normalizeDeviceCode(deviceCode), false);
+        ConfigurationVersionRow configuration = findConfigurationVersion(
+                scope, asset.id(), versionNo)
+                .orElseThrow(TargetDeviceApplication::notFound);
         return configurationView(
-                deployment.publicCode(), configuration, ports);
+                asset.devicePublicCode(),
+                configuration,
+                configurationPorts(scope, asset.id(), configuration.id()));
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public ConfigurationAcceptedView releaseConfiguration(
             UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             ConfigurationReleaseRequest request) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
+        Scope scope = authorize(false, null, organizationCode,
                 "device.configuration.manage");
+        requireEnabledScope(scope);
         if (request == null
                 || request.expectedLatestVersion() == null
                 || request.locationCorrectionConfirmed() == null) {
-            throw invalidRequest();
+            throw invalid("配置发布请求不完整");
         }
-        String code = normalizeDeploymentCode(deploymentCode);
-        String statusUrl = applicationCollectionUrl(
-                platformPath,
-                scope.tenantCode(),
-                scope.organizationCode(),
-                code);
+        String code = normalizeDeviceCode(deviceCode);
+        String statusBaseUrl = configurationApplicationCollectionUrl(
+                organizationCode, code);
         return command(
                 operationUid,
                 scope,
@@ -1616,29 +445,20 @@ public class TargetDeviceApplication {
                 request,
                 ConfigurationAcceptedView.class,
                 () -> releaseConfiguration(
-                        operationUid,
-                        scope,
-                        code,
-                        statusUrl,
-                        request));
+                        operationUid, scope, code, statusBaseUrl, request));
     }
 
     @Transactional(readOnly = true)
     public ConfigurationApplicationView configurationApplication(
-            boolean platformPath,
-            String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             UUID applicationUid) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
-                "device.read");
-        DeploymentRow deployment = findDeployment(
-                scope, normalizeDeploymentCode(deploymentCode), false);
+        Scope scope = authorize(
+                false, null, organizationCode, "device.read");
+        Asset asset = organizationAsset(
+                scope, normalizeDeviceCode(deviceCode), false);
         ApplicationRow application = findApplication(
-                scope, deployment.id(), applicationUid, false)
+                scope, asset.id(), applicationUid, false)
                 .orElseThrow(TargetDeviceApplication::applicationNotFound);
         return applicationView(application);
     }
@@ -1646,36 +466,28 @@ public class TargetDeviceApplication {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public ConfigurationAcceptedView resynchronizeConfiguration(
             UUID operationUid,
-            boolean platformPath,
-            String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             UUID applicationUid,
-            DeploymentVersionCommand request) {
-        AuthorizedScope scope = authorize(
-                platformPath,
-                platformPath ? tenantCode : null,
-                organizationCode,
+            ConfigurationResynchronizationRequest request) {
+        Scope scope = authorize(false, null, organizationCode,
                 "device.configuration.manage");
+        requireEnabledScope(scope);
         if (request == null || request.expectedVersion() == null) {
-            throw invalidRequest();
+            throw invalid("配置重同步请求不完整");
         }
-        String code = normalizeDeploymentCode(deploymentCode);
-        String target = code + "|application:" + applicationUid;
-        String statusUrl = applicationCollectionUrl(
-                platformPath,
-                scope.tenantCode(),
-                scope.organizationCode(),
-                code) + "/" + applicationUid;
+        String code = normalizeDeviceCode(deviceCode);
+        String statusUrl = configurationApplicationCollectionUrl(
+                organizationCode, code) + "/" + applicationUid;
         return command(
                 operationUid,
                 scope,
                 "device.configuration.resynchronize",
                 CONFIGURATION_TARGET_TYPE,
-                target,
+                code + "|application:" + applicationUid,
                 request,
                 ConfigurationAcceptedView.class,
-                () -> resynchronize(
+                () -> resynchronizeConfiguration(
                         operationUid,
                         scope,
                         code,
@@ -1686,24 +498,31 @@ public class TargetDeviceApplication {
 
     private CommandResult<ConfigurationAcceptedView> releaseConfiguration(
             UUID operationUid,
-            AuthorizedScope scope,
-            String deploymentCode,
+            Scope scope,
+            String deviceCode,
             String applicationBaseUrl,
             ConfigurationReleaseRequest request) {
-        DeploymentRow deployment = findDeployment(
-                scope, deploymentCode, true);
-        long latestVersion = deployment.latestConfigurationVersion() == null
-                ? 0 : deployment.latestConfigurationVersion();
+        Asset asset = organizationAsset(scope, deviceCode, true);
+        Long current = jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(version_no), 0)
+                        FROM dev_config_version
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        """,
+                Long.class,
+                scope.tenantId(),
+                scope.organizationId(),
+                asset.id());
+        long latestVersion = current == null ? 0 : current;
         if (latestVersion != request.expectedLatestVersion()) {
             throw versionConflict(latestVersion);
         }
         var normalized = canonicalizer.normalize(
-                request, deployment.portCount());
-        Optional<ConfigurationVersionRow> previous =
-                latestVersion == 0
-                        ? Optional.empty()
-                        : findConfigurationVersion(
-                        scope, deployment.id(), latestVersion);
+                request, asset.expectedPortCount());
+        Optional<ConfigurationVersionRow> previous = latestVersion == 0
+                ? Optional.empty()
+                : findConfigurationVersion(scope, asset.id(), latestVersion);
         if (previous.isPresent()
                 && previous.get().contentSha256()
                 .equals(normalized.contentSha256Hex())) {
@@ -1712,22 +531,20 @@ public class TargetDeviceApplication {
                     "完整配置内容与当前最高版本相同");
         }
         if (previous.isPresent()
-                && locationChanged(
-                previous.get(), normalized.device())
+                && locationChanged(previous.get(), normalized.device())
                 && !request.locationCorrectionConfirmed()) {
             throw unprocessable(
                     "DEVICE.LOCATION_CORRECTION_CONFIRMATION_REQUIRED",
                     "非首次修改地址或坐标必须明确确认位置纠正");
         }
+
         long versionNo = latestVersion + 1;
         byte[] mcuPayloadSha256 = canonicalizer.mcuPayloadSha256(
                 versionNo, normalized);
         LocalDateTime now = databaseNow();
-        String publicationSource =
-                scope.platformActor() ? "SYSTEM" : "STAFF";
         long configurationId = insertAndReturnKey("""
                 INSERT INTO dev_config_version (
-                    tenant_id, organization_id, deployment_id,
+                    tenant_id, organization_id, asset_id,
                     version_no, schema_version, device_display_name,
                     location_address, latitude, longitude,
                     edge_heartbeat_interval_ms,
@@ -1749,15 +566,14 @@ public class TargetDeviceApplication {
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
+                    ?, ?, 'STAFF', ?, ?, ?
                 )
                 """,
                 scope.tenantId(),
                 scope.organizationId(),
-                deployment.id(),
+                asset.id(),
                 versionNo,
-                DeviceConfigurationCanonicalizer
-                        .CONFIGURATION_SCHEMA_VERSION,
+                DeviceConfigurationCanonicalizer.CONFIGURATION_SCHEMA_VERSION,
                 normalized.device().displayName(),
                 normalized.device().address(),
                 nullableDecimal(normalized.device().latitude()),
@@ -1776,39 +592,38 @@ public class TargetDeviceApplication {
                 normalized.device().smokeMonitoringEnabled(),
                 normalized.contentSha256(),
                 mcuPayloadSha256,
-                publicationSource,
                 scope.staffAccountId(),
                 now,
                 now);
+
         Map<Integer, Long> portIds = jdbc.query("""
                         SELECT id, port_no
                         FROM dev_port
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         ORDER BY port_no
                         """,
                 rs -> {
                     Map<Integer, Long> result = new LinkedHashMap<>();
                     while (rs.next()) {
-                        result.put(
-                                rs.getInt("port_no"),
-                                rs.getLong("id"));
+                        result.put(rs.getInt("port_no"), rs.getLong("id"));
                     }
                     return result;
                 },
-                scope.tenantId(),
-                scope.organizationId(),
-                deployment.id());
+                scope.tenantId(), scope.organizationId(), asset.id());
+        if (portIds.size() != asset.expectedPortCount()) {
+            throw invariant();
+        }
         for (var port : normalized.ports()) {
             ConfigurationPortSnapshot view = port.view();
             Long portId = portIds.get(view.portNo());
             if (portId == null) {
                 throw invariant();
             }
-            jdbc.update("""
+            requireSingle(jdbc.update("""
                             INSERT INTO dev_port_config_snapshot (
-                                tenant_id, organization_id, deployment_id,
+                                tenant_id, organization_id, asset_id,
                                 config_version_id, port_id, display_name,
                                 business_enabled, unit_price_yuan_per_kg,
                                 fullness_mode, configured_full_weight_g,
@@ -1838,7 +653,7 @@ public class TargetDeviceApplication {
                             """,
                     scope.tenantId(),
                     scope.organizationId(),
-                    deployment.id(),
+                    asset.id(),
                     configurationId,
                     portId,
                     view.displayName(),
@@ -1864,13 +679,14 @@ public class TargetDeviceApplication {
                     view.calibrationVersion(),
                     view.infraredSampleTimeoutMs(),
                     view.deliveryDoorOperationTimeoutMs(),
-                    now);
+                    now));
         }
+
         UUID applicationUid = UUID.randomUUID();
         long applicationId = insertAndReturnKey("""
                 INSERT INTO dev_config_application (
                     application_uid, tenant_id, organization_id,
-                    deployment_id, config_version_id, status,
+                    asset_id, config_version_id, status,
                     reported_version_no, reported_content_sha256,
                     reported_mcu_payload_sha256, edge_persisted_at,
                     mcu_synced_at, applied_at, last_failure_at,
@@ -1884,7 +700,7 @@ public class TargetDeviceApplication {
                 applicationUid.toString(),
                 scope.tenantId(),
                 scope.organizationId(),
-                deployment.id(),
+                asset.id(),
                 configurationId,
                 now,
                 now);
@@ -1896,32 +712,18 @@ public class TargetDeviceApplication {
         byte[] payloadSha256 = canonicalizer.payloadSha256(payload);
         UUID commandUid = UUID.randomUUID();
         Instant issuedAt = now.toInstant(ZoneOffset.UTC);
-        Map<String, Object> commandEnvelope = new LinkedHashMap<>();
-        commandEnvelope.put("schemaVersion", 1);
-        commandEnvelope.put("commandUid", commandUid.toString());
-        commandEnvelope.put("commandType", "APPLY_CONFIGURATION");
-        commandEnvelope.put("deploymentCode", deployment.publicCode());
-        commandEnvelope.put("target", Map.of(
-                "type", CONFIGURATION_TARGET_TYPE,
-                "uid", applicationUid.toString()));
-        commandEnvelope.put("issuedAt", issuedAt.toString());
-        commandEnvelope.put(
-                "expiresAt",
-                issuedAt.plusSeconds(
-                        CONFIGURATION_COMMAND_VALIDITY_SECONDS).toString());
-        commandEnvelope.put("payloadSchemaVersion", 1);
-        commandEnvelope.put(
-                "payloadSha256",
-                canonicalizer.hex(payloadSha256));
-        commandEnvelope.put("payload", payload);
-        commandEnvelope.put("cosGrant", null);
-        byte[] commandEnvelopeSha256 =
-                canonicalizer.payloadSha256(commandEnvelope);
-        String commandEnvelopeJson = writeJson(commandEnvelope);
+        Map<String, Object> envelope = configurationCommandEnvelope(
+                commandUid,
+                asset.hardwareSn(),
+                applicationUid,
+                issuedAt,
+                payload,
+                payloadSha256);
+        byte[] envelopeSha256 = canonicalizer.payloadSha256(envelope);
         long commandId = insertAndReturnKey("""
                 INSERT INTO dev_device_command (
                     command_uid, tenant_id, organization_id,
-                    deployment_id, command_type, delivery_session_id,
+                    asset_id, command_type, delivery_session_id,
                     clean_operation_id, config_application_id,
                     fullness_detection_id, baseline_measurement_id,
                     payload_schema_version, semantic_payload,
@@ -1931,33 +733,25 @@ public class TargetDeviceApplication {
                 ) VALUES (
                     ?, ?, ?, ?, 'APPLY_CONFIGURATION',
                     NULL, NULL, ?, NULL, NULL,
-                    1, CAST(? AS JSON), ?, 'QUEUED', ?,
+                    2, CAST(? AS JSON), ?, 'QUEUED', ?,
                     NULL, NULL, NULL, 0, ?, ?
                 )
                 """,
                 commandUid.toString(),
                 scope.tenantId(),
                 scope.organizationId(),
-                deployment.id(),
+                asset.id(),
                 applicationId,
-                commandEnvelopeJson,
-                commandEnvelopeSha256,
+                writeJson(envelope),
+                envelopeSha256,
                 now,
                 now,
                 now);
-        Map<String, Object> taskSnapshot = new LinkedHashMap<>();
-        taskSnapshot.put("schemaVersion", 1);
-        taskSnapshot.put("commandUid", commandUid.toString());
-        taskSnapshot.put("commandType", "APPLY_CONFIGURATION");
-        taskSnapshot.put("hardwareSn", deployment.hardwareSn());
-        taskSnapshot.put("deploymentCode", deployment.publicCode());
-        taskSnapshot.put("target", Map.of(
-                "type", CONFIGURATION_TARGET_TYPE,
-                "uid", applicationUid.toString()));
-        taskSnapshot.put("payloadSchemaVersion", 1);
-        taskSnapshot.put(
-                "semanticPayloadSha256",
-                canonicalizer.hex(commandEnvelopeSha256));
+        Map<String, Object> taskSnapshot = configurationTaskSnapshot(
+                commandUid,
+                asset.hardwareSn(),
+                applicationUid,
+                envelopeSha256);
         taskRegistrationPort.register(new ReliableDeviceTaskRegistration(
                 CONFIGURATION_TASK_TYPE,
                 CONFIGURATION_TASK_TYPE + ":"
@@ -1967,29 +761,28 @@ public class TargetDeviceApplication {
                 taskRefFactory.issue(
                         scope.tenantId(),
                         scope.organizationId(),
-                        deployment.id(),
+                        asset.id(),
                         commandId),
-                1,
+                2,
                 writeJson(taskSnapshot),
-                commandEnvelopeSha256,
+                envelopeSha256,
                 operationUid,
                 null,
                 12,
                 true,
-                null));
-        String statusUrl = applicationBaseUrl + "/" + applicationUid;
-        ConfigurationAcceptedView response =
-                new ConfigurationAcceptedView(
-                        operationUid,
-                        applicationUid,
-                        applicationUid,
-                        versionNo,
-                        normalized.contentSha256Hex(),
-                        canonicalizer.hex(mcuPayloadSha256),
-                        "PENDING",
-                        "PENDING",
-                        statusUrl,
-                        RECOMMENDED_POLL_AFTER_MS);
+                now));
+
+        ConfigurationAcceptedView response = new ConfigurationAcceptedView(
+                operationUid,
+                applicationUid,
+                applicationUid,
+                versionNo,
+                normalized.contentSha256Hex(),
+                canonicalizer.hex(mcuPayloadSha256),
+                "PENDING",
+                "PENDING",
+                applicationBaseUrl + "/" + applicationUid,
+                RECOMMENDED_POLL_AFTER_MS);
         Map<String, Object> after = new LinkedHashMap<>();
         after.put("versionNo", versionNo);
         after.put("applicationUid", applicationUid.toString());
@@ -2002,23 +795,22 @@ public class TargetDeviceApplication {
                 request.reason());
     }
 
-    private CommandResult<ConfigurationAcceptedView> resynchronize(
-            UUID operationUid,
-            AuthorizedScope scope,
-            String deploymentCode,
-            UUID applicationUid,
-            String statusUrl,
-            DeploymentVersionCommand request) {
-        DeploymentRow deployment = findDeployment(
-                scope, deploymentCode, true);
+    private CommandResult<ConfigurationAcceptedView>
+            resynchronizeConfiguration(
+                    UUID operationUid,
+                    Scope scope,
+                    String deviceCode,
+                    UUID applicationUid,
+                    String statusUrl,
+                    ConfigurationResynchronizationRequest request) {
+        Asset asset = organizationAsset(scope, deviceCode, true);
         ApplicationRow application = findApplication(
-                scope, deployment.id(), applicationUid, true)
+                scope, asset.id(), applicationUid, true)
                 .orElseThrow(TargetDeviceApplication::applicationNotFound);
         if (application.version() != request.expectedVersion()) {
             throw versionConflict(application.version());
         }
-        if (application.versionNo()
-                != deployment.latestConfigurationVersion()) {
+        if (application.versionNo() != application.latestVersionNo()) {
             throw conflict(
                     "DEVICE.CONFIGURATION_APPLICATION_SUPERSEDED",
                     "配置应用已经被更高版本取代");
@@ -2039,14 +831,13 @@ public class TargetDeviceApplication {
         if (!recoverable) {
             throw conflict(
                     "DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED",
-                    "配置应用仍在正常收敛，当前不允许重同步");
+                    "配置仍在自动重试，当前不需要人工重同步");
         }
         LocalDateTime now = databaseNow();
-        jdbc.update("""
+        requireSingle(jdbc.update("""
                         UPDATE dev_config_application
                         SET status = CASE
-                                WHEN status = 'FAILED'
-                                THEN 'PENDING'
+                                WHEN status = 'FAILED' THEN 'PENDING'
                                 ELSE status
                             END,
                             lock_version = lock_version + 1,
@@ -2054,11 +845,11 @@ public class TargetDeviceApplication {
                         WHERE id = ?
                         """,
                 now,
-                application.id());
+                application.id()));
         taskWakePort.wake(new ReliableTaskWake(
                 task.taskUid(), "WEB_RESYNCHRONIZATION"));
         ApplicationRow after = findApplication(
-                scope, deployment.id(), applicationUid, false)
+                scope, asset.id(), applicationUid, false)
                 .orElseThrow(TargetDeviceApplication::invariant);
         ReliableDeviceTaskStatus afterTask = taskStatusPort.find(
                         CONFIGURATION_TASK_TYPE,
@@ -2066,18 +857,17 @@ public class TargetDeviceApplication {
                         applicationUid.toString(),
                         false)
                 .orElseThrow(TargetDeviceApplication::invariant);
-        ConfigurationAcceptedView response =
-                new ConfigurationAcceptedView(
-                        operationUid,
-                        applicationUid,
-                        applicationUid,
-                        after.versionNo(),
-                        after.contentSha256(),
-                        after.mcuPayloadSha256(),
-                        after.status(),
-                        afterTask.state(),
-                        statusUrl,
-                        RECOMMENDED_POLL_AFTER_MS);
+        ConfigurationAcceptedView response = new ConfigurationAcceptedView(
+                operationUid,
+                applicationUid,
+                applicationUid,
+                after.versionNo(),
+                after.contentSha256(),
+                after.mcuPayloadSha256(),
+                after.status(),
+                afterTask.state(),
+                statusUrl,
+                RECOMMENDED_POLL_AFTER_MS);
         return new CommandResult<>(
                 response,
                 Map.of(
@@ -2089,6 +879,796 @@ public class TargetDeviceApplication {
                         "status", after.status(),
                         "dispatchState", afterTask.state()),
                 request.reason());
+    }
+
+    private PageData<DeviceAssetView> listAssets(
+            Long tenantId,
+            Long organizationId,
+            boolean hideUnavailable,
+            int requestedPage,
+            int requestedPageSize,
+            String hardwareSn,
+            String lifecycleStatus,
+            String acceptanceStatus) {
+        int page = Math.max(1, requestedPage);
+        int pageSize = requestedPageSize < 1
+                ? 20 : Math.min(requestedPageSize, MAX_PAGE_SIZE);
+        StringBuilder from = new StringBuilder(assetFrom());
+        from.append(" WHERE 1 = 1");
+        List<Object> args = new ArrayList<>();
+        if (tenantId != null) {
+            from.append(" AND asset.tenant_id = ?");
+            args.add(tenantId);
+        }
+        if (organizationId != null) {
+            from.append(" AND asset.organization_id = ?");
+            args.add(organizationId);
+        }
+        if (hideUnavailable) {
+            from.append(" AND asset.lifecycle_status = 'NORMAL'");
+        } else if (blankToNull(lifecycleStatus) != null) {
+            from.append(" AND asset.lifecycle_status = ?");
+            args.add(lifecycleStatus.trim().toUpperCase());
+        }
+        if (blankToNull(acceptanceStatus) != null) {
+            from.append(" AND asset.acceptance_status = ?");
+            args.add(acceptanceStatus.trim().toUpperCase());
+        }
+        if (blankToNull(hardwareSn) != null) {
+            from.append(" AND asset.hardware_sn LIKE ? ESCAPE '\\\\'");
+            args.add("%" + escapeLike(hardwareSn.trim()) + "%");
+        }
+        Long total = jdbc.queryForObject(
+                "SELECT COUNT(*) " + from, Long.class, args.toArray());
+        List<Object> pageArgs = new ArrayList<>(args);
+        pageArgs.add(pageSize);
+        pageArgs.add((long) (page - 1) * pageSize);
+        List<DeviceAssetView> items = jdbc.query(
+                assetSelect() + from
+                        + " ORDER BY asset.id DESC LIMIT ? OFFSET ?",
+                (rs, ignored) -> assetView(rs),
+                pageArgs.toArray());
+        return new PageData<>(items, page, pageSize, total == null ? 0 : total);
+    }
+
+    private CommandResult<DeviceAssetView> createAsset(
+            NormalizedAssetCreate request) {
+        if (findAssetView(request.hardwareSn(), null, null, false).isPresent()) {
+            throw conflict(
+                    "DEVICE.ASSET_ALREADY_EXISTS",
+                    "硬件序列号已经登记");
+        }
+        LocalDateTime now = databaseNow();
+        UUID assetUid = UUID.randomUUID();
+        String publicCode = randomPublicCode();
+        try {
+            jdbc.update("""
+                            INSERT INTO dev_device_asset (
+                                asset_uid, device_public_code, hardware_sn,
+                                model_name, production_batch,
+                                expected_port_count,
+                                tenant_id, tenant_assigned_at,
+                                organization_id, organization_assigned_at,
+                                acceptance_status, accepted_at,
+                                acceptance_evidence_sha256,
+                                last_acceptance_evaluated_at,
+                                acceptance_failure_json,
+                                miniapp_qr_status, miniapp_qr_object_key,
+                                miniapp_qr_generated_at,
+                                lifecycle_status, disabled_at,
+                                disable_reason, retired_at,
+                                retirement_reason, control_version,
+                                created_at, updated_at
+                            ) VALUES (
+                                ?, ?, ?, ?, ?, ?,
+                                NULL, NULL, NULL, NULL,
+                                'PENDING', NULL, NULL, NULL, NULL,
+                                'NOT_ASSIGNED', NULL, NULL,
+                                'NORMAL', NULL, NULL, NULL, NULL, 0, ?, ?
+                            )
+                            """,
+                    assetUid.toString(),
+                    publicCode,
+                    request.hardwareSn(),
+                    request.modelCode(),
+                    request.productionBatch(),
+                    request.expectedPortCount(),
+                    now,
+                    now);
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict(
+                    "DEVICE.ASSET_ALREADY_EXISTS",
+                    "设备硬件序列号、公开码或厂家袋码重复");
+        }
+        Asset asset = asset(request.hardwareSn(), true);
+        jdbc.update("""
+                        INSERT INTO dev_device_transport_state (
+                            asset_id, onenet_connection_status,
+                            status_observed_at, status_received_at,
+                            evidence_source, source_inbox_id,
+                            lock_version, created_at, updated_at
+                        ) VALUES (?, 'UNKNOWN', NULL, NULL, NULL, NULL, 0, ?, ?)
+                        """,
+                asset.id(), now, now);
+        for (FactoryBag bag : request.factoryBags()) {
+            jdbc.update("""
+                            INSERT INTO dev_factory_installed_bag (
+                                asset_id, port_no, bag_code, tare_status,
+                                last_failure_code, installed_at,
+                                created_at, updated_at
+                            ) VALUES (?, ?, ?, 'PENDING', NULL, ?, ?, ?)
+                            """,
+                    asset.id(), bag.portNo(), bag.bagCode(), now, now, now);
+        }
+        DeviceAssetView response = platformView(request.hardwareSn());
+        return new CommandResult<>(
+                response,
+                Map.of(),
+                snapshot(response),
+                null);
+    }
+
+    private CommandResult<DeviceAssetView> assignTenant(
+            String hardwareSn,
+            String tenantCode,
+            long expectedVersion) {
+        Asset asset = asset(hardwareSn, true);
+        Tenant tenant = jdbc.query("""
+                        SELECT id, tenant_code, status
+                        FROM iam_tenant
+                        WHERE tenant_code = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new Tenant(
+                        rs.getLong("id"),
+                        rs.getString("tenant_code"),
+                        rs.getString("status")),
+                tenantCode).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::notFound);
+        if (asset.tenantId() != null) {
+            if (asset.tenantId() == tenant.id()) {
+                return unchanged(platformView(hardwareSn));
+            }
+            throw conflict(
+                    "DEVICE.TENANT_ASSIGNMENT_PERMANENT",
+                    "设备已经永久分配给其他租户，不能修改");
+        }
+        requireVersion(asset.controlVersion(), expectedVersion);
+        if (!"NORMAL".equals(asset.lifecycleStatus())) {
+            throw conflict("DEVICE.ASSET_UNAVAILABLE", "禁用或报废设备不能分配");
+        }
+        if (!"PASSED".equals(asset.acceptanceStatus())) {
+            throw unprocessable(
+                    "DEVICE.ACCEPTANCE_REQUIRED",
+                    "真实机器尚未自动通过平台验收");
+        }
+        if (!"ENABLED".equals(tenant.status())) {
+            throw unprocessable("TENANT.DISABLED", "目标租户当前已禁用");
+        }
+        LocalDateTime now = databaseNow();
+        requireSingle(jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET tenant_id = ?, tenant_assigned_at = ?,
+                            control_version = control_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND tenant_id IS NULL
+                          AND control_version = ?
+                        """,
+                tenant.id(), now, now, asset.id(), expectedVersion));
+        DeviceAssetView response = platformView(hardwareSn);
+        return changed(asset, response, null);
+    }
+
+    private CommandResult<DeviceAssetView> assignOrganization(
+            UUID operationUid,
+            Scope scope,
+            String hardwareSn,
+            String organizationCode,
+            long expectedVersion) {
+        Asset asset = asset(hardwareSn, true);
+        if (!Objects.equals(asset.tenantId(), scope.tenantId())) {
+            throw notFound();
+        }
+        Organization organization = jdbc.query("""
+                        SELECT id, organization_code, status
+                        FROM iam_organization
+                        WHERE tenant_id = ? AND organization_code = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new Organization(
+                        rs.getLong("id"),
+                        rs.getString("organization_code"),
+                        rs.getString("status")),
+                scope.tenantId(), organizationCode).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::notFound);
+        if (asset.organizationId() != null) {
+            if (asset.organizationId() == organization.id()) {
+                return unchanged(tenantView(hardwareSn, scope.tenantId()));
+            }
+            throw conflict(
+                    "DEVICE.ORGANIZATION_ASSIGNMENT_PERMANENT",
+                    "设备已经永久分配给其他机构，不能修改");
+        }
+        requireVersion(asset.controlVersion(), expectedVersion);
+        if (!"NORMAL".equals(asset.lifecycleStatus())
+                || !"PASSED".equals(asset.acceptanceStatus())) {
+            throw unprocessable(
+                    "DEVICE.ASSET_UNAVAILABLE",
+                    "设备未通过验收、已禁用或已报废");
+        }
+        if (!"ENABLED".equals(organization.status())) {
+            throw unprocessable("ORGANIZATION.DISABLED", "目标机构当前已禁用");
+        }
+        List<FactoryBag> bags = factoryBags(asset.id());
+        if (bags.size() != asset.expectedPortCount()) {
+            throw unprocessable(
+                    "DEVICE.FACTORY_BAGS_INCOMPLETE",
+                    "厂家必须为每个投口登记一个初始袋");
+        }
+        LocalDateTime now = databaseNow();
+        requireSingle(jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET organization_id = ?, organization_assigned_at = ?,
+                            miniapp_qr_status = 'PENDING',
+                            control_version = control_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND organization_id IS NULL
+                          AND control_version = ?
+                        """,
+                organization.id(), now, now, asset.id(), expectedVersion));
+        initializeOrganizationFacts(
+                asset,
+                scope.tenantId(),
+                organization.id(),
+                bags,
+                now);
+        activationService.reconcileInCurrentTransaction(
+                asset.id(), operationUid);
+        DeviceAssetView response = tenantView(hardwareSn, scope.tenantId());
+        return changed(asset, response, null);
+    }
+
+    private void initializeOrganizationFacts(
+            Asset asset,
+            long tenantId,
+            long organizationId,
+            List<FactoryBag> bags,
+            LocalDateTime now) {
+        jdbc.update("""
+                        INSERT INTO dev_device_runtime_state (
+                            asset_id, tenant_id, organization_id,
+                            edge_connection_status, mcu_link_status,
+                            safety_status, aggregate_weight_health,
+                            camera_health, local_storage_health,
+                            clock_sync_health, edge_boot_id,
+                            edge_software_version, mcu_firmware_version,
+                            mcu_boot_id, uart_state, uart_protocol_major,
+                            uart_protocol_minor, capability_bitmap_hex,
+                            last_mcu_reset_reason,
+                            applied_config_version_no,
+                            applied_config_content_sha256,
+                            applied_mcu_payload_sha256,
+                            local_storage_state, clock_state,
+                            pending_reliable_event_count,
+                            last_heartbeat_at, last_device_event_at,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, 'UNKNOWN', 'UNKNOWN',
+                            'UNKNOWN', 'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
+                            'UNKNOWN', NULL, NULL, NULL, NULL,
+                            NULL, NULL, NULL, NULL, NULL,
+                            NULL, NULL, NULL, NULL, NULL, NULL,
+                            NULL, NULL, 0, ?, ?
+                        )
+                        """,
+                asset.id(), tenantId, organizationId, now, now);
+        Map<Integer, FactoryBag> byPort = new LinkedHashMap<>();
+        bags.forEach(bag -> byPort.put(bag.portNo(), bag));
+        for (int portNo = 1; portNo <= asset.expectedPortCount(); portNo++) {
+            long portId = insertAndReturnKey("""
+                    INSERT INTO dev_port (
+                        tenant_id, organization_id, asset_id,
+                        port_no, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """, tenantId, organizationId, asset.id(), portNo, now);
+            jdbc.update("""
+                            INSERT INTO dev_port_runtime_state (
+                                port_id, tenant_id, organization_id, asset_id,
+                                delivery_door_state,
+                                delivery_door_actuator_health,
+                                delivery_door_contact_state,
+                                clean_lock_power_state,
+                                clean_solenoid_health,
+                                clean_door_inferred_state,
+                                clean_door_state_basis,
+                                weight_sensor_health, infrared_value,
+                                infrared_sensor_health, smoke_state,
+                                smoke_sensor_health, safety_status,
+                                pending_delivery_result_session_id,
+                                last_observed_at, lock_version,
+                                created_at, updated_at
+                            ) VALUES (
+                                ?, ?, ?, ?, 'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
+                                'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
+                                'INFERRED_FROM_LOCK_POWER',
+                                'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
+                                'UNKNOWN', 'UNKNOWN', 'UNKNOWN',
+                                NULL, NULL, 0, ?, ?
+                            )
+                            """,
+                    portId, tenantId, organizationId, asset.id(), now, now);
+            FactoryBag factoryBag = byPort.get(portNo);
+            UUID bagUid = UUID.randomUUID();
+            long bagId = insertAndReturnKey("""
+                    INSERT INTO rec_bag (
+                        bag_uid, tenant_id, organization_id,
+                        bag_code, registered_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """, bagUid.toString(), tenantId, organizationId,
+                    factoryBag.bagCode(), now, now);
+            jdbc.update("""
+                            INSERT INTO rec_bag_current_occupancy (
+                                bag_id, tenant_id, organization_id,
+                                occupancy_type, port_id,
+                                clean_operation_id, acquired_at
+                            ) VALUES (?, ?, ?, 'PORT_BOUND', ?, NULL, ?)
+                            """,
+                    bagId, tenantId, organizationId, portId, now);
+            jdbc.update("""
+                            INSERT INTO rec_bag_occupancy_event (
+                                event_uid, tenant_id, organization_id,
+                                bag_id, port_id, clean_operation_id,
+                                event_type, occurred_at, created_at
+                            ) VALUES (?, ?, ?, ?, ?, NULL,
+                                      'INITIAL_INSTALLED', ?, ?)
+                            """,
+                    UUID.randomUUID().toString(), tenantId, organizationId,
+                    bagId, portId, now, now);
+            jdbc.update("""
+                            INSERT INTO rec_port_capacity_state (
+                                port_id, tenant_id, organization_id, asset_id,
+                                baseline_state, current_baseline_id,
+                                current_baseline_weight_g,
+                                latest_stable_total_weight_g,
+                                raw_net_weight_g,
+                                displayed_fullness_percent,
+                                detection_gate, current_detection_id,
+                                current_rule_fingerprint,
+                                confirmed_fullness_state,
+                                last_detection_id, current_fullness_event_id,
+                                current_bag_id,
+                                current_fullness_state_change_id,
+                                last_fullness_edge_event_id,
+                                last_fullness_edge_event_sequence,
+                                last_fullness_reported_at,
+                                lock_version, updated_at
+                            ) VALUES (
+                                ?, ?, ?, ?, 'UNINITIALIZED', NULL, NULL,
+                                NULL, NULL, NULL, 'UNKNOWN', NULL, NULL,
+                                'UNKNOWN', NULL, NULL, ?, NULL,
+                                NULL, NULL, NULL, 0, ?
+                            )
+                            """,
+                    portId, tenantId, organizationId, asset.id(), bagId, now);
+        }
+    }
+
+    private DeviceAssetView control(
+            UUID operationUid,
+            String hardwareSn,
+            DeviceControlRequest request,
+            String targetStatus) {
+        Scope scope = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        if (request == null || request.expectedVersion() == null) {
+            throw invalid("设备控制请求不完整");
+        }
+        String reason = required(request.reason(), 500, "reason");
+        Map<String, Object> normalized = Map.of(
+                "expectedVersion", request.expectedVersion(),
+                "reason", reason,
+                "targetStatus", targetStatus);
+        return command(
+                operationUid,
+                scope,
+                "device.asset." + targetStatus.toLowerCase(),
+                "DEVICE_ASSET",
+                normalizedHardwareSn,
+                normalized,
+                DeviceAssetView.class,
+                () -> control(
+                        normalizedHardwareSn,
+                        request.expectedVersion(),
+                        reason,
+                        targetStatus));
+    }
+
+    private CommandResult<DeviceAssetView> control(
+            String hardwareSn,
+            long expectedVersion,
+            String reason,
+            String targetStatus) {
+        Asset before = asset(hardwareSn, true);
+        if (before.lifecycleStatus().equals(targetStatus)) {
+            return unchanged(platformView(hardwareSn));
+        }
+        if ("RETIRED".equals(before.lifecycleStatus())) {
+            throw conflict(
+                    "DEVICE.RETIRED_IS_FINAL",
+                    "报废是最终状态，不能恢复或再次禁用");
+        }
+        requireVersion(before.controlVersion(), expectedVersion);
+        LocalDateTime now = databaseNow();
+        int updated;
+        if ("DISABLED".equals(targetStatus)) {
+            if (!"NORMAL".equals(before.lifecycleStatus())) {
+                throw conflict("DEVICE.INVALID_LIFECYCLE", "设备当前不能禁用");
+            }
+            updated = jdbc.update("""
+                            UPDATE dev_device_asset
+                            SET lifecycle_status = 'DISABLED',
+                                disabled_at = ?, disable_reason = ?,
+                                control_version = control_version + 1,
+                                updated_at = ?
+                            WHERE id = ? AND lifecycle_status = 'NORMAL'
+                              AND control_version = ?
+                            """,
+                    now, reason, now, before.id(), expectedVersion);
+        } else if ("NORMAL".equals(targetStatus)) {
+            if (!"DISABLED".equals(before.lifecycleStatus())) {
+                throw conflict("DEVICE.INVALID_LIFECYCLE", "设备当前不能恢复");
+            }
+            updated = jdbc.update("""
+                            UPDATE dev_device_asset
+                            SET lifecycle_status = 'NORMAL',
+                                disabled_at = NULL, disable_reason = NULL,
+                                control_version = control_version + 1,
+                                updated_at = ?
+                            WHERE id = ? AND lifecycle_status = 'DISABLED'
+                              AND control_version = ?
+                            """,
+                    now, before.id(), expectedVersion);
+        } else if ("RETIRED".equals(targetStatus)) {
+            updated = jdbc.update("""
+                            UPDATE dev_device_asset
+                            SET lifecycle_status = 'RETIRED',
+                                retired_at = ?, retirement_reason = ?,
+                                control_version = control_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                              AND lifecycle_status IN ('NORMAL', 'DISABLED')
+                              AND control_version = ?
+                            """,
+                    now, reason, now, before.id(), expectedVersion);
+        } else {
+            throw new IllegalArgumentException("unknown device target status");
+        }
+        requireSingle(updated);
+        DeviceAssetView response = platformView(hardwareSn);
+        return changed(before, response, reason);
+    }
+
+    private CommandResult<DeviceAssetView> reevaluateAcceptance(
+            String hardwareSn) {
+        Asset asset = asset(hardwareSn, true);
+        EvidenceDecision evidence = jdbc.query("""
+                        SELECT evaluation_status, evidence_sha256,
+                               failure_reasons_json, received_at
+                        FROM dev_device_acceptance_evidence
+                        WHERE asset_id = ?
+                        ORDER BY received_at DESC, id DESC
+                        LIMIT 1
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new EvidenceDecision(
+                        rs.getString("evaluation_status"),
+                        rs.getBytes("evidence_sha256"),
+                        rs.getString("failure_reasons_json"),
+                        rs.getObject("received_at", LocalDateTime.class)),
+                asset.id()).stream().findFirst().orElse(null);
+        LocalDateTime now = databaseNow();
+        if (evidence == null) {
+            if (!"PASSED".equals(asset.acceptanceStatus())) {
+                jdbc.update("""
+                                UPDATE dev_device_asset
+                                SET acceptance_status = 'FAILED',
+                                    accepted_at = NULL,
+                                    acceptance_evidence_sha256 = NULL,
+                                    last_acceptance_evaluated_at = ?,
+                                    acceptance_failure_json =
+                                        JSON_ARRAY('ACCEPTANCE_EVIDENCE_MISSING'),
+                                    control_version = control_version + 1,
+                                    updated_at = ?
+                                WHERE id = ?
+                                """,
+                        now, now, asset.id());
+            }
+        } else if ("PASSED".equals(evidence.status())) {
+            jdbc.update("""
+                            UPDATE dev_device_asset
+                            SET acceptance_status = 'PASSED',
+                                accepted_at = COALESCE(accepted_at, ?),
+                                acceptance_evidence_sha256 = ?,
+                                last_acceptance_evaluated_at = ?,
+                                acceptance_failure_json = NULL,
+                                control_version = control_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                            """,
+                    evidence.receivedAt(), evidence.sha256(), now, now, asset.id());
+        } else if (!"PASSED".equals(asset.acceptanceStatus())) {
+            jdbc.update("""
+                            UPDATE dev_device_asset
+                            SET acceptance_status = 'FAILED',
+                                accepted_at = NULL,
+                                acceptance_evidence_sha256 = ?,
+                                last_acceptance_evaluated_at = ?,
+                                acceptance_failure_json = CAST(? AS JSON),
+                                control_version = control_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                            """,
+                    evidence.sha256(), now, evidence.failureReasonsJson(),
+                    now, asset.id());
+        } else {
+            jdbc.update("""
+                            UPDATE dev_device_asset
+                            SET last_acceptance_evaluated_at = ?, updated_at = ?
+                            WHERE id = ?
+                            """, now, now, asset.id());
+        }
+        DeviceAssetView response = platformView(hardwareSn);
+        return changed(asset, response, null);
+    }
+
+    private Asset organizationAsset(
+            Scope scope, String deviceCode, boolean lock) {
+        return jdbc.query("""
+                        SELECT id, hardware_sn, device_public_code,
+                               model_name, expected_port_count,
+                               tenant_id, organization_id,
+                               acceptance_status, lifecycle_status,
+                               control_version
+                        FROM dev_device_asset
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND device_public_code = ?
+                          AND lifecycle_status = 'NORMAL'
+                        """ + (lock ? " FOR UPDATE" : ""),
+                (rs, ignored) -> new Asset(
+                        rs.getLong("id"),
+                        rs.getString("hardware_sn"),
+                        rs.getString("device_public_code"),
+                        rs.getString("model_name"),
+                        rs.getInt("expected_port_count"),
+                        nullableLong(rs, "tenant_id"),
+                        nullableLong(rs, "organization_id"),
+                        rs.getString("acceptance_status"),
+                        rs.getString("lifecycle_status"),
+                        rs.getLong("control_version")),
+                scope.tenantId(),
+                scope.organizationId(),
+                deviceCode).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private static String configurationSelect() {
+        return """
+                SELECT config.id, config.version_no,
+                       config.schema_version,
+                       config.device_display_name,
+                       config.location_address,
+                       config.latitude, config.longitude,
+                       config.edge_heartbeat_interval_ms,
+                       config.edge_heartbeat_miss_threshold,
+                       config.mcu_heartbeat_interval_ms,
+                       config.mcu_heartbeat_miss_threshold,
+                       config.door_close_retry_limit,
+                       config.continue_delivery_wait_ms,
+                       config.negative_weight_threshold_g,
+                       config.delivery_auto_close_ms,
+                       config.weight_measurement_timeout_ms,
+                       config.delivery_door_travel_wait_ms,
+                       config.clean_solenoid_pulse_ms,
+                       config.smoke_monitoring_enabled,
+                       LOWER(HEX(config.content_sha256)) content_sha256,
+                       LOWER(HEX(config.mcu_payload_sha256))
+                           mcu_payload_sha256,
+                       config.publication_source,
+                       staff.display_name publisher_name,
+                       config.published_at,
+                       app.application_uid,
+                       app.status app_status,
+                       app.lock_version app_version
+                FROM dev_config_version config
+                LEFT JOIN iam_staff_account staff
+                  ON staff.tenant_id = config.tenant_id
+                 AND staff.id = config.published_by_staff_account_id
+                JOIN dev_config_application app
+                  ON app.tenant_id = config.tenant_id
+                 AND app.organization_id = config.organization_id
+                 AND app.asset_id = config.asset_id
+                 AND app.config_version_id = config.id
+                """;
+    }
+
+    private Optional<ConfigurationVersionRow> findConfigurationVersion(
+            Scope scope, long assetId, long versionNo) {
+        return jdbc.query(configurationSelect() + """
+                        WHERE config.tenant_id = ?
+                          AND config.organization_id = ?
+                          AND config.asset_id = ?
+                          AND config.version_no = ?
+                        """,
+                (rs, ignored) -> configurationVersionRow(rs),
+                scope.tenantId(),
+                scope.organizationId(),
+                assetId,
+                versionNo).stream().findFirst();
+    }
+
+    private static ConfigurationVersionRow configurationVersionRow(
+            ResultSet rs) throws SQLException {
+        return new ConfigurationVersionRow(
+                rs.getLong("id"),
+                rs.getLong("version_no"),
+                rs.getInt("schema_version"),
+                rs.getString("device_display_name"),
+                rs.getString("location_address"),
+                decimalString(rs.getBigDecimal("longitude"), 7),
+                decimalString(rs.getBigDecimal("latitude"), 7),
+                rs.getLong("edge_heartbeat_interval_ms"),
+                rs.getLong("edge_heartbeat_miss_threshold"),
+                rs.getLong("mcu_heartbeat_interval_ms"),
+                rs.getLong("mcu_heartbeat_miss_threshold"),
+                rs.getLong("door_close_retry_limit"),
+                rs.getLong("continue_delivery_wait_ms"),
+                rs.getLong("negative_weight_threshold_g"),
+                rs.getLong("delivery_auto_close_ms"),
+                rs.getLong("weight_measurement_timeout_ms"),
+                rs.getLong("delivery_door_travel_wait_ms"),
+                rs.getLong("clean_solenoid_pulse_ms"),
+                rs.getBoolean("smoke_monitoring_enabled"),
+                rs.getString("content_sha256"),
+                rs.getString("mcu_payload_sha256"),
+                rs.getString("publication_source"),
+                rs.getString("publisher_name"),
+                instant(rs, "published_at"),
+                UUID.fromString(rs.getString("application_uid")),
+                rs.getString("app_status"),
+                rs.getLong("app_version"));
+    }
+
+    private List<ConfigurationPortSnapshot> configurationPorts(
+            Scope scope, long assetId, long configurationId) {
+        return jdbc.query("""
+                        SELECT port.port_no, snapshot.display_name,
+                               snapshot.business_enabled,
+                               snapshot.unit_price_yuan_per_kg,
+                               snapshot.fullness_mode,
+                               snapshot.configured_full_weight_g,
+                               snapshot.delivery_settle_delay_ms,
+                               snapshot.fullness_settle_wait_ms,
+                               snapshot.fullness_confirmation_wait_ms,
+                               snapshot.door_auto_close_timeout_ms,
+                               snapshot.fullness_sensor_kind,
+                               snapshot.fullness_distance_threshold_mm,
+                               snapshot.fullness_sample_count,
+                               snapshot.fullness_min_valid_sample_count,
+                               snapshot.fullness_echo_timeout_us,
+                               snapshot.weight_stable_window_ms,
+                               snapshot.weight_maximum_fluctuation_g,
+                               snapshot.weight_required_sample_count,
+                               snapshot.weight_measurement_timeout_ms,
+                               snapshot.weight_minimum_g,
+                               snapshot.weight_maximum_g,
+                               snapshot.calibration_version,
+                               snapshot.infrared_sample_timeout_ms,
+                               snapshot.delivery_door_operation_timeout_ms
+                        FROM dev_port_config_snapshot snapshot
+                        JOIN dev_port port
+                          ON port.tenant_id = snapshot.tenant_id
+                         AND port.organization_id = snapshot.organization_id
+                         AND port.asset_id = snapshot.asset_id
+                         AND port.id = snapshot.port_id
+                        WHERE snapshot.tenant_id = ?
+                          AND snapshot.organization_id = ?
+                          AND snapshot.asset_id = ?
+                          AND snapshot.config_version_id = ?
+                        ORDER BY port.port_no
+                        """,
+                (rs, ignored) -> new ConfigurationPortSnapshot(
+                        rs.getInt("port_no"),
+                        rs.getString("display_name"),
+                        rs.getBoolean("business_enabled"),
+                        decimalString(rs.getBigDecimal(
+                                "unit_price_yuan_per_kg"), 4),
+                        rs.getString("fullness_mode"),
+                        decimalString(BigDecimal.valueOf(
+                                rs.getLong("configured_full_weight_g"), 3), 3),
+                        rs.getLong("delivery_settle_delay_ms"),
+                        rs.getLong("fullness_settle_wait_ms"),
+                        rs.getLong("fullness_confirmation_wait_ms"),
+                        rs.getLong("door_auto_close_timeout_ms"),
+                        rs.getString("fullness_sensor_kind"),
+                        rs.getLong("fullness_distance_threshold_mm"),
+                        rs.getInt("fullness_sample_count"),
+                        rs.getInt("fullness_min_valid_sample_count"),
+                        rs.getLong("fullness_echo_timeout_us"),
+                        rs.getLong("weight_stable_window_ms"),
+                        rs.getLong("weight_maximum_fluctuation_g"),
+                        rs.getInt("weight_required_sample_count"),
+                        rs.getLong("weight_measurement_timeout_ms"),
+                        rs.getLong("weight_minimum_g"),
+                        rs.getLong("weight_maximum_g"),
+                        rs.getLong("calibration_version"),
+                        rs.getLong("infrared_sample_timeout_ms"),
+                        rs.getLong("delivery_door_operation_timeout_ms")),
+                scope.tenantId(),
+                scope.organizationId(),
+                assetId,
+                configurationId);
+    }
+
+    private Optional<ApplicationRow> findApplication(
+            Scope scope,
+            long assetId,
+            UUID applicationUid,
+            boolean lock) {
+        return jdbc.query("""
+                        SELECT app.id, app.application_uid,
+                               app.status, app.reported_version_no,
+                               LOWER(HEX(app.reported_content_sha256))
+                                   reported_content_sha256,
+                               LOWER(HEX(app.reported_mcu_payload_sha256))
+                                   reported_mcu_payload_sha256,
+                               app.edge_persisted_at, app.mcu_synced_at,
+                               app.applied_at, app.last_failure_at,
+                               app.last_failure_code, app.lock_version,
+                               config.version_no,
+                               LOWER(HEX(config.content_sha256)) content_sha256,
+                               LOWER(HEX(config.mcu_payload_sha256))
+                                   mcu_payload_sha256,
+                               (
+                                   SELECT MAX(latest.version_no)
+                                   FROM dev_config_version latest
+                                   WHERE latest.tenant_id = app.tenant_id
+                                     AND latest.organization_id =
+                                         app.organization_id
+                                     AND latest.asset_id = app.asset_id
+                               ) latest_version_no
+                        FROM dev_config_application app
+                        JOIN dev_config_version config
+                          ON config.tenant_id = app.tenant_id
+                         AND config.organization_id = app.organization_id
+                         AND config.asset_id = app.asset_id
+                         AND config.id = app.config_version_id
+                        WHERE app.tenant_id = ?
+                          AND app.organization_id = ?
+                          AND app.asset_id = ?
+                          AND app.application_uid = ?
+                        """ + (lock ? " FOR UPDATE" : ""),
+                (rs, ignored) -> new ApplicationRow(
+                        rs.getLong("id"),
+                        UUID.fromString(rs.getString("application_uid")),
+                        rs.getLong("version_no"),
+                        rs.getLong("latest_version_no"),
+                        rs.getString("content_sha256"),
+                        rs.getString("mcu_payload_sha256"),
+                        rs.getString("status"),
+                        rs.getLong("lock_version"),
+                        nullableLong(rs, "reported_version_no"),
+                        rs.getString("reported_content_sha256"),
+                        rs.getString("reported_mcu_payload_sha256"),
+                        instant(rs, "edge_persisted_at"),
+                        instant(rs, "mcu_synced_at"),
+                        instant(rs, "applied_at"),
+                        rs.getString("last_failure_code"),
+                        instant(rs, "last_failure_at")),
+                scope.tenantId(),
+                scope.organizationId(),
+                assetId,
+                applicationUid.toString()).stream().findFirst();
     }
 
     private ConfigurationVersionSummary configurationSummary(
@@ -2105,11 +1685,11 @@ public class TargetDeviceApplication {
     }
 
     private ConfigurationVersionView configurationView(
-            String deploymentCode,
+            String deviceCode,
             ConfigurationVersionRow row,
             List<ConfigurationPortSnapshot> ports) {
         return new ConfigurationVersionView(
-                deploymentCode,
+                deviceCode,
                 row.versionNo(),
                 row.schemaVersion(),
                 row.contentSha256(),
@@ -2193,721 +1773,6 @@ public class TargetDeviceApplication {
                 nextActions);
     }
 
-    private AuthorizedScope authorize(
-            boolean platformPath,
-            String tenantCode,
-            String organizationCode,
-            String capability) {
-        AuthorizedDeviceScope authorization = authorizationPort.authorize(
-                new DeviceScopeAuthorizationQuery(
-                        platformPath,
-                        tenantCode,
-                        organizationCode,
-                        capability));
-        Long[] keys = new Long[4];
-        authorization.persistenceRef().writeForeignKeysTo(
-                (tenantKey,
-                 organizationKey,
-                 platformAdminKey,
-                 staffAccountKey) -> {
-                    keys[0] = tenantKey;
-                    keys[1] = organizationKey;
-                    keys[2] = platformAdminKey;
-                    keys[3] = staffAccountKey;
-                });
-        return new AuthorizedScope(
-                authorization.platformActor(),
-                authorization.principalUid(),
-                authorization.sessionUid(),
-                authorization.actorDisplayName(),
-                authorization.tenantCode(),
-                authorization.organizationCode(),
-                authorization.tenantEnabled(),
-                authorization.organizationEnabled(),
-                keys[0],
-                keys[1],
-                keys[2],
-                keys[3]);
-    }
-
-    private <T> T command(
-            UUID operationUid,
-            AuthorizedScope scope,
-            String actionCode,
-            String targetType,
-            String targetStableKey,
-            Object request,
-            Class<T> responseType,
-            Supplier<CommandResult<T>> work) {
-        validateOperationUid(operationUid);
-        TargetWebAuditRequestContext.describe(
-                actionCode, targetStableKey);
-        String fingerprint = fingerprint(
-                scope.principalUid(),
-                actionCode,
-                targetStableKey,
-                request);
-        Optional<SuccessfulAudit> previous =
-                auditPort.findSuccessful(operationUid);
-        if (previous.isPresent()) {
-            SuccessfulAudit audit = previous.get();
-            JsonNode summary = readJson(
-                    audit.safeChangeSummaryJson());
-            boolean sameActor = scope.platformActor()
-                    ? audit.actorKind()
-                    == AuditActorKind.PLATFORM_ADMIN
-                    && Objects.equals(
-                    audit.platformAdminId(),
-                    scope.platformAdminId())
-                    : audit.actorKind()
-                    == AuditActorKind.STAFF_ACCOUNT
-                    && Objects.equals(
-                    audit.staffAccountId(),
-                    scope.staffAccountId());
-            if (!sameActor
-                    || !actionCode.equals(audit.actionCode())
-                    || !targetType.equals(audit.targetType())
-                    || !targetStableKey.equals(audit.targetStableKey())
-                    || !fingerprint.equals(
-                    summary.path("fingerprint").asText())) {
-                throw idempotencyConflict();
-            }
-            try {
-                return objectMapper.treeToValue(
-                        summary.path("response"), responseType);
-            } catch (Exception exception) {
-                throw idempotencyConflict();
-            }
-        }
-
-        CommandResult<T> result = work.get();
-        Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("fingerprint", fingerprint);
-        summary.put("before", result.before());
-        summary.put("after", result.after());
-        summary.put("response", result.response());
-        summary.put("reasonPresent",
-                result.reason() != null
-                        && !result.reason().isBlank());
-        AuditScopeKind auditScope = scope.organizationId() != null
-                ? AuditScopeKind.ORGANIZATION
-                : scope.tenantId() != null
-                ? AuditScopeKind.TENANT
-                : AuditScopeKind.PLATFORM;
-        auditPort.append(new AuditEntry(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                operationUid,
-                auditScope,
-                scope.tenantId(),
-                scope.organizationId(),
-                scope.platformActor()
-                        ? AuditActorKind.PLATFORM_ADMIN
-                        : AuditActorKind.STAFF_ACCOUNT,
-                scope.platformAdminId(),
-                scope.staffAccountId(),
-                null,
-                null,
-                scope.actorDisplayName(),
-                actionCode,
-                targetType,
-                targetStableKey,
-                "WEB",
-                "SUCCEEDED",
-                scope.sessionUid(),
-                blankToNull(result.reason()),
-                writeJson(summary),
-                Instant.now()));
-        return result.response();
-    }
-
-    private Optional<DeviceAssetView> findAssetView(String hardwareSn) {
-        return jdbc.query("""
-                        SELECT a.id, a.hardware_sn, a.model_name,
-                               a.production_batch, a.expected_port_count,
-                               a.lifecycle_status, a.lock_version,
-                               a.created_at, a.updated_at,
-                               d.public_code AS deployment_code,
-                               d.lifecycle_status AS deployment_status,
-                               d.business_enabled,
-                               t.tenant_code, o.organization_code
-                        FROM dev_device_asset a
-                        LEFT JOIN dev_asset_active_deployment active
-                          ON active.asset_id = a.id
-                        LEFT JOIN dev_device_deployment d
-                          ON d.id = active.deployment_id
-                        LEFT JOIN iam_tenant t ON t.id = active.tenant_id
-                        LEFT JOIN iam_organization o
-                          ON o.tenant_id = active.tenant_id
-                         AND o.id = active.organization_id
-                        WHERE a.hardware_sn = ?
-                        """,
-                (rs, ignored) -> assetView(rs),
-                hardwareSn).stream().findFirst();
-    }
-
-    private DeviceAssetView assetView(ResultSet rs)
-            throws SQLException {
-        String deploymentCode = rs.getString("deployment_code");
-        CurrentDeploymentSummary deployment =
-                deploymentCode == null
-                        ? null
-                        : new CurrentDeploymentSummary(
-                        deploymentCode,
-                        rs.getString("tenant_code"),
-                        rs.getString("organization_code"),
-                        rs.getString("deployment_status"),
-                        rs.getBoolean("business_enabled"));
-        String hardwareSn = rs.getString("hardware_sn");
-        return new DeviceAssetView(
-                hardwareSn,
-                rs.getString("model_name"),
-                rs.getString("production_batch"),
-                rs.getInt("expected_port_count"),
-                rs.getString("lifecycle_status"),
-                deployment,
-                rs.getLong("lock_version"),
-                instant(rs, "created_at"),
-                instant(rs, "updated_at"),
-                new ComputedOneNetMapping(
-                        oneNetProductId,
-                        hardwareSn,
-                        true));
-    }
-
-    private AssetRow lockAsset(String hardwareSn) {
-        return jdbc.query("""
-                        SELECT id, hardware_sn, model_name,
-                               expected_port_count, lifecycle_status,
-                               lock_version
-                        FROM dev_device_asset
-                        WHERE hardware_sn = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new AssetRow(
-                        rs.getLong("id"),
-                        rs.getString("hardware_sn"),
-                        rs.getString("model_name"),
-                        rs.getInt("expected_port_count"),
-                        rs.getString("lifecycle_status"),
-                        rs.getLong("lock_version")),
-                hardwareSn).stream().findFirst()
-                .orElseThrow(TargetDeviceApplication::assetNotFound);
-    }
-
-    private DeploymentRow findDeployment(
-            AuthorizedScope scope,
-            String deploymentCode,
-            boolean forUpdate) {
-        if (scope.tenantId() == null || scope.organizationId() == null) {
-            throw notFound();
-        }
-        if (forUpdate) {
-            boolean found = !jdbc.query("""
-                            SELECT d.id
-                            FROM dev_device_deployment d
-                            JOIN dev_device_asset a ON a.id = d.asset_id
-                            WHERE d.tenant_id = ?
-                              AND d.organization_id = ?
-                              AND d.public_code = ?
-                            FOR UPDATE
-                            """,
-                    (rs, ignored) -> rs.getLong("id"),
-                    scope.tenantId(),
-                    scope.organizationId(),
-                    deploymentCode).isEmpty();
-            if (!found) {
-                throw notFound();
-            }
-        }
-        return jdbc.query(
-                        deploymentSelect()
-                                + " FROM dev_device_deployment d "
-                                + deploymentJoins()
-                                + """
-                                WHERE d.tenant_id = ?
-                                  AND d.organization_id = ?
-                                  AND d.public_code = ?
-                                """,
-                        (rs, ignored) -> deploymentRow(rs),
-                        scope.tenantId(),
-                        scope.organizationId(),
-                        deploymentCode).stream().findFirst()
-                .orElseThrow(TargetDeviceApplication::notFound);
-    }
-
-    private static String deploymentSelect() {
-        return """
-                SELECT d.id, d.tenant_id, d.organization_id, d.asset_id,
-                       d.public_code, d.lifecycle_status,
-                       d.business_enabled, d.commissioned_at, d.enabled_at,
-                       d.created_at, d.updated_at, d.lock_version,
-                       a.hardware_sn, a.model_name, a.expected_port_count,
-                       a.lifecycle_status AS asset_status,
-                       a.lock_version AS asset_version,
-                       t.tenant_code, t.status AS tenant_status,
-                       o.organization_code,
-                       o.status AS organization_status,
-                       (SELECT COUNT(*) FROM dev_port p
-                        WHERE p.deployment_id = d.id) AS port_count,
-                       latest.id AS latest_configuration_id,
-                       latest.version_no AS latest_configuration_version,
-                       app.status AS configuration_application_status,
-                       applied.version_no AS applied_configuration_version,
-                       runtime.edge_connection_status,
-                       COALESCE(
-                           transport.onenet_connection_status,
-                           'UNKNOWN'
-                       ) AS onenet_connection_status,
-                       transport.status_observed_at
-                           AS onenet_status_observed_at,
-                       runtime.trusted_runtime_received_at
-                """;
-    }
-
-    private static String deploymentJoins() {
-        return """
-                JOIN dev_device_asset a ON a.id = d.asset_id
-                JOIN iam_tenant t ON t.id = d.tenant_id
-                JOIN iam_organization o
-                  ON o.tenant_id = d.tenant_id
-                 AND o.id = d.organization_id
-                LEFT JOIN dev_config_version latest
-                  ON latest.id = (
-                      SELECT latest_lookup.id
-                      FROM dev_config_version latest_lookup
-                      WHERE latest_lookup.tenant_id = d.tenant_id
-                        AND latest_lookup.organization_id =
-                            d.organization_id
-                        AND latest_lookup.deployment_id = d.id
-                      ORDER BY latest_lookup.version_no DESC
-                      LIMIT 1
-                  )
-                LEFT JOIN dev_config_application app
-                  ON app.config_version_id = latest.id
-                LEFT JOIN dev_config_version applied
-                  ON applied.id = (
-                      SELECT applied_lookup.id
-                      FROM dev_config_version applied_lookup
-                      JOIN dev_config_application applied_app
-                        ON applied_app.config_version_id =
-                            applied_lookup.id
-                       AND applied_app.status = 'APPLIED'
-                      WHERE applied_lookup.tenant_id = d.tenant_id
-                        AND applied_lookup.organization_id =
-                            d.organization_id
-                        AND applied_lookup.deployment_id = d.id
-                      ORDER BY applied_lookup.version_no DESC
-                      LIMIT 1
-                  )
-                LEFT JOIN dev_deployment_runtime_state runtime
-                  ON runtime.tenant_id = d.tenant_id
-                 AND runtime.organization_id = d.organization_id
-                 AND runtime.deployment_id = d.id
-                LEFT JOIN dev_device_transport_state transport
-                  ON transport.asset_id = d.asset_id
-                """;
-    }
-
-    private DeploymentRow deploymentRow(ResultSet rs)
-            throws SQLException {
-        DeploymentAssetSummary asset = new DeploymentAssetSummary(
-                rs.getString("hardware_sn"),
-                rs.getString("model_name"),
-                rs.getInt("expected_port_count"),
-                rs.getString("asset_status"),
-                rs.getLong("asset_version"));
-        DeploymentView view = new DeploymentView(
-                rs.getString("public_code"),
-                rs.getString("tenant_code"),
-                rs.getString("organization_code"),
-                asset,
-                rs.getString("lifecycle_status"),
-                rs.getBoolean("business_enabled"),
-                rs.getInt("port_count"),
-                nullableLong(rs, "latest_configuration_version"),
-                nullableLong(rs, "applied_configuration_version"),
-                rs.getString("configuration_application_status"),
-                rs.getString("edge_connection_status"),
-                rs.getString("onenet_connection_status"),
-                nullableInstant(rs, "onenet_status_observed_at"),
-                nullableInstant(rs, "trusted_runtime_received_at"),
-                rs.getLong("lock_version"),
-                nullableInstant(rs, "commissioned_at"),
-                nullableInstant(rs, "enabled_at"),
-                instant(rs, "created_at"),
-                instant(rs, "updated_at"));
-        return new DeploymentRow(
-                rs.getLong("id"),
-                rs.getLong("asset_id"),
-                rs.getString("public_code"),
-                rs.getString("hardware_sn"),
-                rs.getString("lifecycle_status"),
-                rs.getBoolean("business_enabled"),
-                rs.getInt("port_count"),
-                nullableLong(rs, "latest_configuration_id"),
-                nullableLong(rs, "latest_configuration_version"),
-                nullableLong(rs, "applied_configuration_version"),
-                rs.getString("configuration_application_status"),
-                rs.getLong("lock_version"),
-                view);
-    }
-
-    private RuntimeRow runtimeRow(
-            AuthorizedScope scope,
-            long deploymentId,
-            boolean forUpdate) {
-        String lock = forUpdate ? " FOR UPDATE" : "";
-        return jdbc.query("""
-                        SELECT runtime.edge_connection_status,
-                               COALESCE(
-                                   transport.onenet_connection_status,
-                                   'UNKNOWN'
-                               ) AS onenet_connection_status,
-                               transport.status_observed_at
-                                   AS onenet_status_observed_at,
-                               runtime.trusted_runtime_received_at,
-                               runtime.mcu_link_status,
-                               runtime.safety_status,
-                               runtime.aggregate_weight_health,
-                               runtime.camera_health,
-                               runtime.local_storage_health,
-                               runtime.clock_sync_health,
-                               runtime.edge_software_version,
-                               runtime.mcu_firmware_version,
-                               runtime.uart_state,
-                               runtime.uart_protocol_major,
-                               runtime.uart_protocol_minor,
-                               runtime.capability_bitmap_hex,
-                               runtime.applied_config_version_no,
-                               runtime.orange_pi_reported_config_version_no,
-                               runtime.orange_pi_reported_config_content_sha256,
-                               runtime.orange_pi_reported_config_mcu_payload_sha256,
-                               runtime.last_heartbeat_at,
-                               runtime.last_device_event_at,
-                               runtime.lock_version
-                        FROM dev_deployment_runtime_state runtime
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = runtime.deployment_id
-                        LEFT JOIN dev_device_transport_state transport
-                          ON transport.asset_id = deployment.asset_id
-                        WHERE runtime.tenant_id = ?
-                          AND runtime.organization_id = ?
-                          AND runtime.deployment_id = ?
-                        """ + lock,
-                (rs, ignored) -> new RuntimeRow(
-                        rs.getString("edge_connection_status"),
-                        rs.getString("onenet_connection_status"),
-                        nullableInstant(rs, "onenet_status_observed_at"),
-                        nullableInstant(rs, "trusted_runtime_received_at"),
-                        rs.getString("mcu_link_status"),
-                        rs.getString("safety_status"),
-                        rs.getString("aggregate_weight_health"),
-                        rs.getString("camera_health"),
-                        rs.getString("local_storage_health"),
-                        rs.getString("clock_sync_health"),
-                        rs.getString("edge_software_version"),
-                        rs.getString("mcu_firmware_version"),
-                        rs.getString("uart_state"),
-                        nullableInteger(rs, "uart_protocol_major"),
-                        nullableInteger(rs, "uart_protocol_minor"),
-                        rs.getString("capability_bitmap_hex"),
-                        nullableLong(rs, "applied_config_version_no"),
-                        nullableLong(
-                                rs,
-                                "orange_pi_reported_config_version_no"),
-                        rs.getBytes(
-                                "orange_pi_reported_config_content_sha256"),
-                        rs.getBytes(
-                                "orange_pi_reported_config_mcu_payload_sha256"),
-                        nullableInstant(rs, "last_heartbeat_at"),
-                        nullableInstant(rs, "last_device_event_at"),
-                        rs.getLong("lock_version")),
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId).stream().findFirst()
-                .orElseThrow(TargetDeviceApplication::invariant);
-    }
-
-    private static PortRuntimeRow portRuntimeRow(ResultSet rs)
-            throws SQLException {
-        return new PortRuntimeRow(
-                rs.getLong("port_id"),
-                rs.getInt("port_no"),
-                rs.getString("delivery_door_state"),
-                rs.getString("delivery_door_actuator_health"),
-                rs.getString("delivery_door_contact_state"),
-                rs.getString("clean_lock_power_state"),
-                rs.getString("clean_solenoid_health"),
-                rs.getString("weight_sensor_health"),
-                rs.getString("infrared_value"),
-                rs.getString("infrared_sensor_health"),
-                rs.getString("smoke_state"),
-                rs.getString("smoke_sensor_health"),
-                rs.getString("safety_status"),
-                nullableBoolean(rs, "business_enabled"),
-                rs.getString("fullness_mode"),
-                nullableInstant(rs, "last_observed_at"),
-                rs.getLong("lock_version"));
-    }
-
-    private boolean occupied(long assetId) {
-        Integer count = jdbc.queryForObject("""
-                        SELECT COUNT(*)
-                        FROM dev_device_occupancy
-                        WHERE asset_id = ?
-                        """,
-                Integer.class,
-                assetId);
-        return count != null && count > 0;
-    }
-
-    private Optional<ConfigurationVersionRow> findConfigurationVersion(
-            AuthorizedScope scope,
-            long deploymentId,
-            long versionNo) {
-        return jdbc.query("""
-                        SELECT config.id, config.version_no,
-                               config.schema_version,
-                               config.device_display_name,
-                               config.location_address,
-                               config.latitude, config.longitude,
-                               config.edge_heartbeat_interval_ms,
-                               config.edge_heartbeat_miss_threshold,
-                               config.mcu_heartbeat_interval_ms,
-                               config.mcu_heartbeat_miss_threshold,
-                               config.door_close_retry_limit,
-                               config.continue_delivery_wait_ms,
-                               config.negative_weight_threshold_g,
-                               config.delivery_auto_close_ms,
-                               config.weight_measurement_timeout_ms,
-                               config.delivery_door_travel_wait_ms,
-                               config.clean_solenoid_pulse_ms,
-                               config.smoke_monitoring_enabled,
-                               LOWER(HEX(config.content_sha256))
-                                   AS content_sha256,
-                               LOWER(HEX(config.mcu_payload_sha256))
-                                   AS mcu_payload_sha256,
-                               config.publication_source,
-                               staff.display_name AS publisher_name,
-                               config.published_at,
-                               app.application_uid,
-                               app.status AS app_status,
-                               app.lock_version AS app_version
-                        FROM dev_config_version config
-                        LEFT JOIN iam_staff_account staff
-                          ON staff.tenant_id = config.tenant_id
-                         AND staff.id =
-                             config.published_by_staff_account_id
-                        JOIN dev_config_application app
-                          ON app.config_version_id = config.id
-                        WHERE config.tenant_id = ?
-                          AND config.organization_id = ?
-                          AND config.deployment_id = ?
-                          AND config.version_no = ?
-                        """,
-                (rs, ignored) -> configurationVersionRow(rs),
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId,
-                versionNo).stream().findFirst();
-    }
-
-    private static ConfigurationVersionRow configurationVersionRow(
-            ResultSet rs) throws SQLException {
-        return new ConfigurationVersionRow(
-                rs.getLong("id"),
-                rs.getLong("version_no"),
-                rs.getInt("schema_version"),
-                rs.getString("device_display_name"),
-                rs.getString("location_address"),
-                decimalString(rs.getBigDecimal("longitude"), 7),
-                decimalString(rs.getBigDecimal("latitude"), 7),
-                rs.getLong("edge_heartbeat_interval_ms"),
-                rs.getLong("edge_heartbeat_miss_threshold"),
-                rs.getLong("mcu_heartbeat_interval_ms"),
-                rs.getLong("mcu_heartbeat_miss_threshold"),
-                rs.getLong("door_close_retry_limit"),
-                rs.getLong("continue_delivery_wait_ms"),
-                rs.getLong("negative_weight_threshold_g"),
-                rs.getLong("delivery_auto_close_ms"),
-                rs.getLong("weight_measurement_timeout_ms"),
-                rs.getLong("delivery_door_travel_wait_ms"),
-                rs.getLong("clean_solenoid_pulse_ms"),
-                rs.getBoolean("smoke_monitoring_enabled"),
-                rs.getString("content_sha256"),
-                rs.getString("mcu_payload_sha256"),
-                rs.getString("publication_source"),
-                rs.getString("publisher_name"),
-                instant(rs, "published_at"),
-                UUID.fromString(rs.getString("application_uid")),
-                rs.getString("app_status"),
-                rs.getLong("app_version"));
-    }
-
-    private List<ConfigurationPortSnapshot> configurationPorts(
-            AuthorizedScope scope,
-            long deploymentId,
-            long configurationId) {
-        return jdbc.query("""
-                        SELECT p.port_no, snapshot.display_name,
-                               snapshot.business_enabled,
-                               snapshot.unit_price_yuan_per_kg,
-                               snapshot.fullness_mode,
-                               snapshot.configured_full_weight_g,
-                               snapshot.delivery_settle_delay_ms,
-                               snapshot.fullness_settle_wait_ms,
-                               snapshot.fullness_confirmation_wait_ms,
-                               snapshot.door_auto_close_timeout_ms,
-                               snapshot.fullness_sensor_kind,
-                               snapshot.fullness_distance_threshold_mm,
-                               snapshot.fullness_sample_count,
-                               snapshot.fullness_min_valid_sample_count,
-                               snapshot.fullness_echo_timeout_us,
-                               snapshot.weight_stable_window_ms,
-                               snapshot.weight_maximum_fluctuation_g,
-                               snapshot.weight_required_sample_count,
-                               snapshot.weight_measurement_timeout_ms,
-                               snapshot.weight_minimum_g,
-                               snapshot.weight_maximum_g,
-                               snapshot.calibration_version,
-                               snapshot.infrared_sample_timeout_ms,
-                               snapshot.delivery_door_operation_timeout_ms
-                        FROM dev_port_config_snapshot snapshot
-                        JOIN dev_port p
-                          ON p.tenant_id = snapshot.tenant_id
-                         AND p.organization_id =
-                             snapshot.organization_id
-                         AND p.deployment_id = snapshot.deployment_id
-                         AND p.id = snapshot.port_id
-                        WHERE snapshot.tenant_id = ?
-                          AND snapshot.organization_id = ?
-                          AND snapshot.deployment_id = ?
-                          AND snapshot.config_version_id = ?
-                        ORDER BY p.port_no
-                        """,
-                (rs, ignored) -> new ConfigurationPortSnapshot(
-                        rs.getInt("port_no"),
-                        rs.getString("display_name"),
-                        rs.getBoolean("business_enabled"),
-                        decimalString(
-                                rs.getBigDecimal(
-                                        "unit_price_yuan_per_kg"),
-                                4),
-                        rs.getString("fullness_mode"),
-                        decimalString(
-                                BigDecimal.valueOf(
-                                        rs.getLong(
-                                                "configured_full_weight_g"),
-                                        3),
-                                3),
-                        rs.getLong("delivery_settle_delay_ms"),
-                        rs.getLong("fullness_settle_wait_ms"),
-                        rs.getLong("fullness_confirmation_wait_ms"),
-                        rs.getLong("door_auto_close_timeout_ms"),
-                        rs.getString("fullness_sensor_kind"),
-                        rs.getLong("fullness_distance_threshold_mm"),
-                        rs.getInt("fullness_sample_count"),
-                        rs.getInt(
-                                "fullness_min_valid_sample_count"),
-                        rs.getLong("fullness_echo_timeout_us"),
-                        rs.getLong("weight_stable_window_ms"),
-                        rs.getLong("weight_maximum_fluctuation_g"),
-                        rs.getInt("weight_required_sample_count"),
-                        rs.getLong("weight_measurement_timeout_ms"),
-                        rs.getLong("weight_minimum_g"),
-                        rs.getLong("weight_maximum_g"),
-                        rs.getLong("calibration_version"),
-                        rs.getLong("infrared_sample_timeout_ms"),
-                        rs.getLong(
-                                "delivery_door_operation_timeout_ms")),
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId,
-                configurationId);
-    }
-
-    private Optional<ApplicationRow> findApplication(
-            AuthorizedScope scope,
-            long deploymentId,
-            UUID applicationUid,
-            boolean forUpdate) {
-        if (forUpdate) {
-            jdbc.query("""
-                            SELECT id
-                            FROM dev_config_application
-                            WHERE tenant_id = ?
-                              AND organization_id = ?
-                              AND deployment_id = ?
-                              AND application_uid = ?
-                            FOR UPDATE
-                            """,
-                    (rs, ignored) -> rs.getLong("id"),
-                    scope.tenantId(),
-                    scope.organizationId(),
-                    deploymentId,
-                    applicationUid.toString());
-        }
-        return jdbc.query("""
-                        SELECT app.id, app.application_uid,
-                               app.status, app.reported_version_no,
-                               LOWER(HEX(app.reported_content_sha256))
-                                   AS reported_content_sha256,
-                               LOWER(HEX(app.reported_mcu_payload_sha256))
-                                   AS reported_mcu_payload_sha256,
-                               app.edge_persisted_at, app.mcu_synced_at,
-                               app.applied_at, app.last_failure_at,
-                               app.last_failure_code, app.lock_version,
-                               config.version_no,
-                               LOWER(HEX(config.content_sha256))
-                                   AS content_sha256,
-                               LOWER(HEX(config.mcu_payload_sha256))
-                                   AS mcu_payload_sha256,
-                               (
-                                   SELECT MAX(latest.version_no)
-                                   FROM dev_config_version latest
-                                   WHERE latest.tenant_id = app.tenant_id
-                                     AND latest.organization_id =
-                                         app.organization_id
-                                     AND latest.deployment_id =
-                                         app.deployment_id
-                               ) AS latest_version_no
-                        FROM dev_config_application app
-                        JOIN dev_config_version config
-                          ON config.tenant_id = app.tenant_id
-                         AND config.organization_id = app.organization_id
-                         AND config.deployment_id = app.deployment_id
-                         AND config.id = app.config_version_id
-                        WHERE app.tenant_id = ?
-                          AND app.organization_id = ?
-                          AND app.deployment_id = ?
-                          AND app.application_uid = ?
-                        """,
-                (rs, ignored) -> new ApplicationRow(
-                        rs.getLong("id"),
-                        UUID.fromString(
-                                rs.getString("application_uid")),
-                        rs.getLong("version_no"),
-                        rs.getLong("latest_version_no"),
-                        rs.getString("content_sha256"),
-                        rs.getString("mcu_payload_sha256"),
-                        rs.getString("status"),
-                        rs.getLong("lock_version"),
-                        nullableLong(rs, "reported_version_no"),
-                        rs.getString("reported_content_sha256"),
-                        rs.getString(
-                                "reported_mcu_payload_sha256"),
-                        nullableInstant(rs, "edge_persisted_at"),
-                        nullableInstant(rs, "mcu_synced_at"),
-                        nullableInstant(rs, "applied_at"),
-                        rs.getString("last_failure_code"),
-                        nullableInstant(rs, "last_failure_at")),
-                scope.tenantId(),
-                scope.organizationId(),
-                deploymentId,
-                applicationUid.toString()).stream().findFirst();
-    }
-
     private static ConfigurationDeviceSnapshot configurationDevice(
             ConfigurationVersionRow row) {
         return new ConfigurationDeviceSnapshot(
@@ -2929,12 +1794,8 @@ public class TargetDeviceApplication {
                 row.smokeMonitoringEnabled());
     }
 
-    private static String publisherName(
-            ConfigurationVersionRow row) {
-        if (row.publisherName() != null) {
-            return row.publisherName();
-        }
-        return "SYSTEM";
+    private static String publisherName(ConfigurationVersionRow row) {
+        return row.publisherName() == null ? "SYSTEM" : row.publisherName();
     }
 
     private static boolean locationChanged(
@@ -2949,180 +1810,445 @@ public class TargetDeviceApplication {
                 normalizedDecimal(next.latitude()));
     }
 
-    private static String normalizedDecimal(String value) {
-        if (value == null) {
-            return null;
-        }
-        return new BigDecimal(value).stripTrailingZeros().toPlainString();
+    private Optional<DeviceAssetView> findAssetView(
+            String hardwareSn,
+            Long tenantId,
+            Long organizationId,
+            boolean hideUnavailable) {
+        StringBuilder sql = new StringBuilder(assetSelect())
+                .append(assetFrom())
+                .append(" WHERE asset.hardware_sn = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(hardwareSn);
+        appendVisibility(sql, args, tenantId, organizationId, hideUnavailable);
+        return jdbc.query(sql.toString(),
+                (rs, ignored) -> assetView(rs), args.toArray())
+                .stream().findFirst();
     }
 
-    private static String applicationCollectionUrl(
+    private Optional<DeviceAssetView> findAssetViewByCode(
+            String deviceCode,
+            Long tenantId,
+            Long organizationId,
+            boolean hideUnavailable) {
+        StringBuilder sql = new StringBuilder(assetSelect())
+                .append(assetFrom())
+                .append(" WHERE asset.device_public_code = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(deviceCode);
+        appendVisibility(sql, args, tenantId, organizationId, hideUnavailable);
+        return jdbc.query(sql.toString(),
+                (rs, ignored) -> assetView(rs), args.toArray())
+                .stream().findFirst();
+    }
+
+    private static void appendVisibility(
+            StringBuilder sql,
+            List<Object> args,
+            Long tenantId,
+            Long organizationId,
+            boolean hideUnavailable) {
+        if (tenantId != null) {
+            sql.append(" AND asset.tenant_id = ?");
+            args.add(tenantId);
+        }
+        if (organizationId != null) {
+            sql.append(" AND asset.organization_id = ?");
+            args.add(organizationId);
+        }
+        if (hideUnavailable) {
+            sql.append(" AND asset.lifecycle_status = 'NORMAL'");
+        }
+    }
+
+    private static String assetSelect() {
+        return """
+                SELECT asset.asset_uid, asset.device_public_code,
+                       asset.hardware_sn, asset.model_name,
+                       asset.production_batch, asset.expected_port_count,
+                       tenant.tenant_code, organization.organization_code,
+                       asset.acceptance_status, asset.miniapp_qr_status,
+                       asset.lifecycle_status, asset.control_version,
+                       asset.tenant_assigned_at,
+                       asset.organization_assigned_at, asset.accepted_at,
+                       asset.disabled_at, asset.retired_at,
+                       asset.created_at, asset.updated_at
+                """;
+    }
+
+    private static String assetFrom() {
+        return """
+                FROM dev_device_asset asset
+                LEFT JOIN iam_tenant tenant ON tenant.id = asset.tenant_id
+                LEFT JOIN iam_organization organization
+                  ON organization.tenant_id = asset.tenant_id
+                 AND organization.id = asset.organization_id
+                """;
+    }
+
+    private DeviceAssetView assetView(ResultSet rs) throws SQLException {
+        String hardwareSn = rs.getString("hardware_sn");
+        return new DeviceAssetView(
+                UUID.fromString(rs.getString("asset_uid")),
+                rs.getString("device_public_code"),
+                hardwareSn,
+                rs.getString("model_name"),
+                rs.getString("production_batch"),
+                rs.getInt("expected_port_count"),
+                rs.getString("tenant_code"),
+                rs.getString("organization_code"),
+                rs.getString("acceptance_status"),
+                rs.getString("miniapp_qr_status"),
+                rs.getString("lifecycle_status"),
+                rs.getLong("control_version"),
+                instant(rs, "tenant_assigned_at"),
+                instant(rs, "organization_assigned_at"),
+                instant(rs, "accepted_at"),
+                instant(rs, "disabled_at"),
+                instant(rs, "retired_at"),
+                instant(rs, "created_at"),
+                instant(rs, "updated_at"),
+                new ComputedOneNetMapping(
+                        oneNetProductId,
+                        hardwareSn,
+                        oneNetProductId != null));
+    }
+
+    private Asset asset(String hardwareSn, boolean lock) {
+        return jdbc.query("""
+                        SELECT id, hardware_sn, device_public_code,
+                               model_name, expected_port_count,
+                               tenant_id, organization_id,
+                               acceptance_status, lifecycle_status,
+                               control_version
+                        FROM dev_device_asset
+                        WHERE hardware_sn = ?
+                        """ + (lock ? " FOR UPDATE" : ""),
+                (rs, ignored) -> new Asset(
+                        rs.getLong("id"),
+                        rs.getString("hardware_sn"),
+                        rs.getString("device_public_code"),
+                        rs.getString("model_name"),
+                        rs.getInt("expected_port_count"),
+                        nullableLong(rs, "tenant_id"),
+                        nullableLong(rs, "organization_id"),
+                        rs.getString("acceptance_status"),
+                        rs.getString("lifecycle_status"),
+                        rs.getLong("control_version")),
+                hardwareSn).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private List<FactoryBag> factoryBags(long assetId) {
+        return jdbc.query("""
+                        SELECT port_no, bag_code
+                        FROM dev_factory_installed_bag
+                        WHERE asset_id = ?
+                        ORDER BY port_no
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new FactoryBag(
+                        rs.getInt("port_no"), rs.getString("bag_code")),
+                assetId);
+    }
+
+    private DeviceAssetView platformView(String hardwareSn) {
+        return findAssetView(hardwareSn, null, null, false)
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private DeviceAssetView tenantView(String hardwareSn, long tenantId) {
+        return findAssetView(hardwareSn, tenantId, null, true)
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private AcceptanceEvidenceView evidence(ResultSet rs) throws SQLException {
+        List<String> reasons = new ArrayList<>();
+        JsonNode node = readJson(rs.getString("failure_reasons_json"));
+        if (node.isArray()) {
+            node.forEach(value -> reasons.add(value.asText()));
+        }
+        return new AcceptanceEvidenceView(
+                UUID.fromString(rs.getString("evidence_uid")),
+                rs.getInt("evidence_schema_version"),
+                rs.getString("edge_software_version"),
+                rs.getString("edge_protocol_version"),
+                rs.getBoolean("onenet_online"),
+                rs.getBoolean("persistent_store_healthy"),
+                rs.getBoolean("trusted_time_healthy"),
+                rs.getBoolean("configuration_persistence_healthy"),
+                rs.getBoolean("mcu_communication_healthy"),
+                rs.getBoolean("sensors_healthy"),
+                rs.getBoolean("cameras_capture_healthy"),
+                rs.getBoolean("camera_upload_healthy"),
+                rs.getBoolean("mcu_simulated"),
+                rs.getBoolean("cameras_simulated"),
+                rs.getString("evaluation_status"),
+                reasons,
+                rs.getString("evidence_sha256"),
+                instant(rs, "observed_at"),
+                instant(rs, "received_at"));
+    }
+
+    private Scope authorize(
             boolean platformPath,
             String tenantCode,
             String organizationCode,
-            String deploymentCode) {
-        String prefix = platformPath
-                ? "/api/v1/web/platform/tenants/" + tenantCode
-                + "/organizations/" + organizationCode
-                : "/api/v1/web/organizations/" + organizationCode;
-        return prefix + "/device-deployments/" + deploymentCode
+            String capability) {
+        AuthorizedDeviceScope authorization = authorizationPort.authorize(
+                new DeviceScopeAuthorizationQuery(
+                        platformPath,
+                        tenantCode,
+                        organizationCode,
+                        capability));
+        Long[] keys = new Long[4];
+        authorization.persistenceRef().writeForeignKeysTo(
+                (tenantId, organizationId, platformAdminId, staffAccountId) -> {
+                    keys[0] = tenantId;
+                    keys[1] = organizationId;
+                    keys[2] = platformAdminId;
+                    keys[3] = staffAccountId;
+                });
+        return new Scope(
+                authorization.platformActor(),
+                authorization.principalUid(),
+                authorization.sessionUid(),
+                authorization.actorDisplayName(),
+                authorization.tenantEnabled(),
+                authorization.organizationEnabled(),
+                keys[0], keys[1], keys[2], keys[3]);
+    }
+
+    private <T> T command(
+            UUID operationUid,
+            Scope scope,
+            String actionCode,
+            String targetType,
+            String targetStableKey,
+            Object request,
+            Class<T> responseType,
+            Supplier<CommandResult<T>> work) {
+        requireUuidV4(operationUid);
+        TargetWebAuditRequestContext.describe(actionCode, targetStableKey);
+        String fingerprint = Integer.toHexString(Objects.hash(
+                scope.principalUid(), actionCode, targetStableKey,
+                writeJson(request)));
+        Optional<SuccessfulAudit> previous =
+                auditPort.findSuccessful(operationUid);
+        if (previous.isPresent()) {
+            SuccessfulAudit audit = previous.get();
+            JsonNode summary = readJson(audit.safeChangeSummaryJson());
+            boolean sameActor = scope.platformActor()
+                    ? audit.actorKind() == AuditActorKind.PLATFORM_ADMIN
+                    && Objects.equals(audit.platformAdminId(), scope.platformAdminId())
+                    : audit.actorKind() == AuditActorKind.STAFF_ACCOUNT
+                    && Objects.equals(audit.staffAccountId(), scope.staffAccountId());
+            if (!sameActor
+                    || !actionCode.equals(audit.actionCode())
+                    || !targetType.equals(audit.targetType())
+                    || !targetStableKey.equals(audit.targetStableKey())
+                    || !fingerprint.equals(summary.path("fingerprint").asText())) {
+                throw idempotencyConflict();
+            }
+            try {
+                return objectMapper.treeToValue(
+                        summary.path("response"), responseType);
+            } catch (Exception exception) {
+                throw idempotencyConflict();
+            }
+        }
+        CommandResult<T> result = work.get();
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("fingerprint", fingerprint);
+        summary.put("before", result.before());
+        summary.put("after", result.after());
+        summary.put("response", result.response());
+        auditPort.append(new AuditEntry(
+                UUID.randomUUID(), UUID.randomUUID(), operationUid,
+                scope.organizationId() != null
+                        ? AuditScopeKind.ORGANIZATION
+                        : scope.tenantId() != null
+                        ? AuditScopeKind.TENANT : AuditScopeKind.PLATFORM,
+                scope.tenantId(), scope.organizationId(),
+                scope.platformActor()
+                        ? AuditActorKind.PLATFORM_ADMIN
+                        : AuditActorKind.STAFF_ACCOUNT,
+                scope.platformAdminId(), scope.staffAccountId(),
+                null, null, scope.actorDisplayName(), actionCode,
+                targetType, targetStableKey, "WEB", "SUCCEEDED",
+                scope.sessionUid(), result.reason(), writeJson(summary),
+                Instant.now()));
+        return result.response();
+    }
+
+    private Map<String, Object> configurationCommandEnvelope(
+            UUID commandUid,
+            String hardwareSn,
+            UUID applicationUid,
+            Instant issuedAt,
+            Map<String, Object> payload,
+            byte[] payloadSha256) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("schemaVersion", 2);
+        envelope.put("commandUid", commandUid.toString());
+        envelope.put("commandType", "APPLY_CONFIGURATION");
+        envelope.put("targetDeviceName", hardwareSn);
+        envelope.put("target", Map.of(
+                "type", CONFIGURATION_TARGET_TYPE,
+                "uid", applicationUid.toString()));
+        envelope.put("issuedAt", issuedAt.toString());
+        envelope.put(
+                "expiresAt",
+                issuedAt.plusSeconds(
+                        CONFIGURATION_COMMAND_VALIDITY_SECONDS).toString());
+        envelope.put("payloadSchemaVersion", 2);
+        envelope.put("payloadSha256", canonicalizer.hex(payloadSha256));
+        envelope.put("payload", payload);
+        envelope.put("cosGrant", null);
+        return envelope;
+    }
+
+    private Map<String, Object> configurationTaskSnapshot(
+            UUID commandUid,
+            String hardwareSn,
+            UUID applicationUid,
+            byte[] envelopeSha256) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("schemaVersion", 2);
+        snapshot.put("commandUid", commandUid.toString());
+        snapshot.put("commandType", "APPLY_CONFIGURATION");
+        snapshot.put("targetDeviceName", hardwareSn);
+        snapshot.put("target", Map.of(
+                "type", CONFIGURATION_TARGET_TYPE,
+                "uid", applicationUid.toString()));
+        snapshot.put("payloadSchemaVersion", 2);
+        snapshot.put(
+                "semanticPayloadSha256",
+                canonicalizer.hex(envelopeSha256));
+        return snapshot;
+    }
+
+    private static String configurationApplicationCollectionUrl(
+            String organizationCode, String deviceCode) {
+        return "/api/v1/web/organizations/" + organizationCode
+                + "/devices/" + deviceCode
                 + "/configuration-applications";
     }
 
-    private String fingerprint(
-            UUID principalUid,
-            String actionCode,
-            String targetStableKey,
-            Object request) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(principalUid.toString()
-                    .getBytes(StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(actionCode.getBytes(StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(targetStableKey.getBytes(StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(objectMapper.writeValueAsBytes(request));
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException(
-                    "SHA-256 is unavailable", exception);
+    private NormalizedAssetCreate normalizeCreate(
+            CreateDeviceAssetRequest request) {
+        if (request == null || request.expectedPortCount() == null
+                || request.factoryBags() == null) {
+            throw invalid("设备资产请求不完整");
         }
+        int portCount = request.expectedPortCount();
+        if (portCount < 1 || portCount > 6
+                || request.factoryBags().size() != portCount) {
+            throw invalid("厂家初始袋必须恰好覆盖每个投口");
+        }
+        Set<Integer> ports = new LinkedHashSet<>();
+        Set<String> codes = new LinkedHashSet<>();
+        List<FactoryBag> bags = new ArrayList<>();
+        for (FactoryInstalledBagRequest bag : request.factoryBags()) {
+            if (bag == null || bag.portNo() == null
+                    || bag.portNo() < 1 || bag.portNo() > portCount) {
+                throw invalid("厂家初始袋投口编号无效");
+            }
+            String code = required(bag.bagCode(), 64, "bagCode");
+            if (!code.matches("[A-Za-z0-9_-]{8,64}")
+                    || !ports.add(bag.portNo()) || !codes.add(code)) {
+                throw invalid("厂家初始袋编号重复或格式无效");
+            }
+            bags.add(new FactoryBag(bag.portNo(), code));
+        }
+        bags.sort(java.util.Comparator.comparingInt(FactoryBag::portNo));
+        return new NormalizedAssetCreate(
+                normalizeHardwareSn(request.hardwareSn()),
+                required(request.modelCode(), 100, "modelCode"),
+                optional(request.productionBatch(), 64),
+                portCount,
+                List.copyOf(bags));
     }
 
-    private JsonNode readJson(String json) {
-        try {
-            return objectMapper.readTree(json);
-        } catch (Exception exception) {
-            throw idempotencyConflict();
+    private long insertAndReturnKey(String sql, Object... args) {
+        org.springframework.jdbc.support.GeneratedKeyHolder holder =
+                new org.springframework.jdbc.support.GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            var statement = connection.prepareStatement(
+                    sql, java.sql.Statement.RETURN_GENERATED_KEYS);
+            for (int index = 0; index < args.length; index++) {
+                statement.setObject(index + 1, args[index]);
+            }
+            return statement;
+        }, holder);
+        Number key = holder.getKey();
+        if (key == null) {
+            throw new IllegalStateException("generated device key is missing");
         }
+        return key.longValue();
+    }
+
+    private LocalDateTime databaseNow() {
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        if (now == null) {
+            throw new IllegalStateException("database time is unavailable");
+        }
+        return now;
     }
 
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
-            throw new IllegalStateException(
-                    "device JSON cannot be encoded", exception);
+            throw new IllegalStateException("device JSON cannot be encoded", exception);
         }
     }
 
-    private long insertAndReturnKey(String sql, Object... parameters) {
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        PreparedStatementCreator creator = connection -> {
-            PreparedStatement statement = connection.prepareStatement(
-                    sql, Statement.RETURN_GENERATED_KEYS);
-            for (int index = 0; index < parameters.length; index++) {
-                statement.setObject(index + 1, parameters[index]);
-            }
-            return statement;
-        };
-        int inserted = jdbc.update(creator, keyHolder);
-        requireSingleRow(inserted, "insert device row");
-        Number key = keyHolder.getKey();
-        if (key == null) {
-            throw invariant();
+    private JsonNode readJson(String value) {
+        try {
+            return objectMapper.readTree(value);
+        } catch (Exception exception) {
+            throw new IllegalStateException("device JSON cannot be decoded", exception);
         }
-        return key.longValue();
     }
 
-    private LocalDateTime databaseNow() {
-        LocalDateTime result = jdbc.queryForObject(
-                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
-        if (result == null) {
-            throw invariant();
-        }
+    private static CommandResult<DeviceAssetView> changed(
+            Asset before,
+            DeviceAssetView response,
+            String reason) {
+        return new CommandResult<>(
+                response,
+                Map.of(
+                        "lifecycleStatus", before.lifecycleStatus(),
+                        "version", before.controlVersion()),
+                snapshot(response),
+                reason);
+    }
+
+    private static CommandResult<DeviceAssetView> unchanged(
+            DeviceAssetView response) {
+        Map<String, Object> state = snapshot(response);
+        return new CommandResult<>(response, state, state, null);
+    }
+
+    private static Map<String, Object> snapshot(DeviceAssetView view) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("assetUid", view.assetUid());
+        result.put("hardwareSn", view.hardwareSn());
+        result.put("tenantCode", view.tenantCode());
+        result.put("organizationCode", view.organizationCode());
+        result.put("acceptanceStatus", view.acceptanceStatus());
+        result.put("lifecycleStatus", view.lifecycleStatus());
+        result.put("version", view.version());
         return result;
     }
 
-    private static void addContains(
-            StringBuilder predicate,
-            List<Object> parameters,
-            String column,
-            String value) {
-        String normalized = blankToNull(value);
-        if (normalized != null) {
-            predicate.append(" AND ").append(column).append(" LIKE ?");
-            parameters.add("%" + normalized + "%");
-        }
-    }
-
-    private static void requireEnabledScope(AuthorizedScope scope) {
-        if (!scope.tenantEnabled() || !scope.organizationEnabled()) {
-            throw unprocessable(
-                    "DEVICE.TARGET_SCOPE_DISABLED",
-                    "目标租户或机构未启用");
-        }
-    }
-
-    private static void requireSingleRow(int updated, String action) {
-        if (updated != 1) {
-            throw new IllegalStateException(
-                    action + " affected " + updated + " rows");
-        }
-    }
-
-    private static int page(int value) {
-        return value <= 0 ? 1 : value;
-    }
-
-    private static int pageSize(int value) {
-        return value <= 0
-                ? DEFAULT_PAGE_SIZE
-                : Math.min(value, MAX_PAGE_SIZE);
-    }
-
-    private static String normalizeHardwareSn(String value) {
-        String result = requiredTrimmed(value, 64, "hardwareSn");
-        if (!result.matches("[A-Za-z0-9._:-]{1,64}")) {
-            throw invalidRequest();
-        }
-        return result;
-    }
-
-    private static String normalizeDeploymentCode(String value) {
-        String result = requiredTrimmed(
-                value, 64, "deploymentCode");
-        if (!result.matches("Dp_[A-Za-z0-9_-]{6,61}")) {
-            throw notFound();
-        }
-        return result;
-    }
-
-    private static String requiredTrimmed(
-            String value,
-            int maximumLength,
-            String field) {
-        if (value == null || value.isBlank()) {
-            throw invalidRequest();
-        }
-        String result = value.trim();
-        if (result.length() > maximumLength) {
-            throw invalidRequest();
-        }
-        return result;
-    }
-
-    private static String optionalTrimmed(
-            String value,
-            int maximumLength,
-            String field) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return requiredTrimmed(value, maximumLength, field);
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private static String upperOrNull(String value) {
-        String normalized = blankToNull(value);
-        return normalized == null
-                ? null
-                : normalized.toUpperCase(Locale.ROOT);
+    private static String randomPublicCode() {
+        byte[] random = new byte[24];
+        PUBLIC_CODE_RANDOM.nextBytes(random);
+        return "Dv_" + Base64.getUrlEncoder()
+                .withoutPadding().encodeToString(random);
     }
 
     private static BigDecimal nullableDecimal(String value) {
@@ -3130,11 +2256,68 @@ public class TargetDeviceApplication {
     }
 
     private static String decimalString(
-            BigDecimal value,
-            int scale) {
+            BigDecimal value, int maximumScale) {
+        if (value == null) {
+            return null;
+        }
+        BigDecimal normalized = value.stripTrailingZeros();
+        if (normalized.scale() < 0) {
+            normalized = normalized.setScale(0);
+        }
+        if (normalized.scale() > maximumScale) {
+            normalized = normalized.setScale(
+                    maximumScale, java.math.RoundingMode.UNNECESSARY);
+        }
+        return normalized.toPlainString();
+    }
+
+    private static String normalizedDecimal(String value) {
         return value == null
                 ? null
-                : value.setScale(scale).toPlainString();
+                : new BigDecimal(value).stripTrailingZeros().toPlainString();
+    }
+
+    private static String normalizeHardwareSn(String value) {
+        String result = required(value, 64, "hardwareSn");
+        if (!result.matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")) {
+            throw invalid("硬件序列号格式无效");
+        }
+        return result;
+    }
+
+    private static String normalizeDeviceCode(String value) {
+        String result = required(value, 64, "deviceCode");
+        if (!result.matches("Dv_[A-Za-z0-9_-]{24,61}")) {
+            throw notFound();
+        }
+        return result;
+    }
+
+    private static String required(
+            String value, int maximumLength, String field) {
+        if (value == null || value.isBlank()) {
+            throw invalid(field + "不能为空");
+        }
+        String result = value.trim();
+        if (result.length() > maximumLength) {
+            throw invalid(field + "过长");
+        }
+        return result;
+    }
+
+    private static String optional(String value, int maximumLength) {
+        return value == null || value.isBlank()
+                ? null : required(value, maximumLength, "value");
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     private static Long nullableLong(ResultSet rs, String column)
@@ -3143,154 +2326,101 @@ public class TargetDeviceApplication {
         return rs.wasNull() ? null : value;
     }
 
-    private static Integer nullableInteger(
-            ResultSet rs,
-            String column) throws SQLException {
-        int value = rs.getInt(column);
-        return rs.wasNull() ? null : value;
-    }
-
-    private static Boolean nullableBoolean(
-            ResultSet rs,
-            String column) throws SQLException {
-        boolean value = rs.getBoolean(column);
-        return rs.wasNull() ? null : value;
-    }
-
     private static Instant instant(ResultSet rs, String column)
             throws SQLException {
-        return rs.getObject(column, LocalDateTime.class)
-                .toInstant(ZoneOffset.UTC);
-    }
-
-    private static Instant nullableInstant(
-            ResultSet rs,
-            String column) throws SQLException {
         LocalDateTime value = rs.getObject(column, LocalDateTime.class);
         return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
 
-    private static byte[] sha256(byte[] value) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(value);
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException(
-                    "SHA-256 is unavailable", exception);
-        }
-    }
-
-    private static Map<String, Object> assetAuditSnapshot(
-            DeviceAssetView asset) {
-        return Map.of(
-                "hardwareSn", asset.hardwareSn(),
-                "lifecycleStatus", asset.lifecycleStatus(),
-                "version", asset.version());
-    }
-
-    private static Map<String, Object> deploymentAuditSnapshot(
-            DeploymentView deployment) {
-        return Map.of(
-                "deploymentCode", deployment.deploymentCode(),
-                "lifecycleStatus", deployment.lifecycleStatus(),
-                "businessEnabled", deployment.businessEnabled(),
-                "version", deployment.version(),
-                "assetVersion", deployment.asset().version());
-    }
-
-    private static void validateOperationUid(UUID value) {
-        if (value == null || value.version() != 4 || value.variant() != 2) {
+    private static void requireVersion(long actual, long expected) {
+        if (actual != expected) {
             throw new TargetApiException(
-                    400,
-                    "COMMON.INVALID_IDEMPOTENCY_KEY",
-                    "Idempotency-Key 必须是 UUIDv4");
+                    409,
+                    "COMMON.VERSION_CONFLICT",
+                    "设备状态已变化，请刷新后重试",
+                    true,
+                    Map.of("currentVersion", actual));
         }
     }
 
-    private static TargetApiException invalidRequest() {
+    private static void requireSingle(int updated) {
+        if (updated != 1) {
+            throw conflict(
+                    "DEVICE.CONCURRENT_CHANGE",
+                    "设备状态已被其他请求修改，请刷新后重试");
+        }
+    }
+
+    private static void requireEnabledTenant(Scope scope) {
+        if (!scope.tenantEnabled()) {
+            throw unprocessable("TENANT.DISABLED", "当前租户已禁用");
+        }
+    }
+
+    private static void requireEnabledScope(Scope scope) {
+        requireEnabledTenant(scope);
+        if (!scope.organizationEnabled()) {
+            throw unprocessable(
+                    "ORGANIZATION.DISABLED", "当前机构已禁用");
+        }
+    }
+
+    private static void requireUuidV4(UUID value) {
+        if (value == null || value.version() != 4 || value.variant() != 2) {
+            throw invalid("Idempotency-Key 必须是 UUIDv4");
+        }
+    }
+
+    private static TargetApiException invalid(String message) {
         return new TargetApiException(
-                400,
-                "COMMON.INVALID_REQUEST",
-                "请求字段不符合接口契约");
+                400, "COMMON.INVALID_REQUEST", message, false, Map.of());
     }
 
     private static TargetApiException notFound() {
         return new TargetApiException(
-                404,
-                "COMMON.RESOURCE_NOT_FOUND",
-                "指定设备资源不存在于当前可见范围");
+                404, "COMMON.RESOURCE_NOT_FOUND", "设备不存在或不可用");
     }
 
-    private static TargetApiException assetNotFound() {
+    private static TargetApiException conflict(String code, String message) {
+        return new TargetApiException(409, code, message);
+    }
+
+    private static TargetApiException unprocessable(
+            String code, String message) {
+        return new TargetApiException(422, code, message);
+    }
+
+    private static TargetApiException idempotencyConflict() {
+        return conflict(
+                "COMMON.IDEMPOTENCY_CONFLICT",
+                "该 Idempotency-Key 已用于其他设备操作");
+    }
+
+    private static TargetApiException versionConflict(long current) {
         return new TargetApiException(
-                404,
-                "DEVICE.ASSET_NOT_FOUND",
-                "未找到指定设备资产");
+                409,
+                "COMMON.VERSION_CONFLICT",
+                "配置版本已变化，请刷新后重试",
+                true,
+                Map.of("currentVersion", current));
     }
 
     private static TargetApiException applicationNotFound() {
         return new TargetApiException(
                 404,
                 "DEVICE.CONFIGURATION_APPLICATION_NOT_FOUND",
-                "未找到指定配置应用");
-    }
-
-    private static TargetApiException versionConflict(long currentVersion) {
-        return new TargetApiException(
-                409,
-                "COMMON.VERSION_CONFLICT",
-                "资源版本已经变化",
-                false,
-                Map.of("currentVersion", currentVersion));
-    }
-
-    private static TargetApiException conflict(
-            String code,
-            String detail) {
-        return new TargetApiException(409, code, detail);
-    }
-
-    private static TargetApiException unprocessable(
-            String code,
-            String detail) {
-        return new TargetApiException(422, code, detail);
-    }
-
-    private static TargetApiException idempotencyConflict() {
-        return new TargetApiException(
-                409,
-                "COMMON.IDEMPOTENCY_KEY_REUSED",
-                "Idempotency-Key 已用于不同操作");
+                "配置应用记录不存在或不可用");
     }
 
     private static IllegalStateException invariant() {
-        return new IllegalStateException(
-                "target device persistence invariant violated");
+        return new IllegalStateException("device configuration invariant failed");
     }
 
-    private enum DeploymentMutation {
-        ACTIVATE("device.deployment.activate"),
-        DEACTIVATE("device.deployment.deactivate"),
-        ENABLE_BUSINESS("device.business-switch.enable"),
-        DISABLE_BUSINESS("device.business-switch.disable");
-
-        private final String actionCode;
-
-        DeploymentMutation(String actionCode) {
-            this.actionCode = actionCode;
-        }
-
-        String actionCode() {
-            return actionCode;
-        }
-    }
-
-    private record AuthorizedScope(
+    private record Scope(
             boolean platformActor,
             UUID principalUid,
             UUID sessionUid,
             String actorDisplayName,
-            String tenantCode,
-            String organizationCode,
             boolean tenantEnabled,
             boolean organizationEnabled,
             Long tenantId,
@@ -3299,88 +2429,41 @@ public class TargetDeviceApplication {
             Long staffAccountId) {
     }
 
-    private record AssetRow(
+    private record Asset(
             long id,
             String hardwareSn,
+            String devicePublicCode,
             String modelCode,
             int expectedPortCount,
+            Long tenantId,
+            Long organizationId,
+            String acceptanceStatus,
             String lifecycleStatus,
-            long version) {
+            long controlVersion) {
     }
 
-    private record AllocatedAsset(
-            long allocationId,
-            long allocationVersion,
-            long assetId,
+    private record Tenant(long id, String code, String status) {
+    }
+
+    private record Organization(long id, String code, String status) {
+    }
+
+    private record FactoryBag(int portNo, String bagCode) {
+    }
+
+    private record NormalizedAssetCreate(
             String hardwareSn,
             String modelCode,
+            String productionBatch,
             int expectedPortCount,
-            String lifecycleStatus,
-            long assetVersion,
-            Long predecessorId,
-            boolean predecessorAccepted) {
+            List<FactoryBag> factoryBags) {
     }
 
-    private record DeploymentRow(
-            long id,
-            long assetId,
-            String publicCode,
-            String hardwareSn,
-            String lifecycleStatus,
-            boolean businessEnabled,
-            int portCount,
-            Long latestConfigurationId,
-            Long latestConfigurationVersion,
-            Long appliedConfigurationVersion,
-            String configurationApplicationStatus,
-            long version,
-            DeploymentView view) {
-    }
-
-    private record RuntimeRow(
-            String edgeConnectionStatus,
-            String oneNetConnectionStatus,
-            Instant oneNetStatusObservedAt,
-            Instant trustedRuntimeReceivedAt,
-            String mcuLinkStatus,
-            String safetyStatus,
-            String aggregateWeightHealth,
-            String cameraHealth,
-            String localStorageHealth,
-            String clockSyncHealth,
-            String edgeSoftwareVersion,
-            String mcuFirmwareVersion,
-            String uartState,
-            Integer uartProtocolMajor,
-            Integer uartProtocolMinor,
-            String capabilityBitmapHex,
-            Long appliedConfigurationVersion,
-            Long orangePiReportedConfigurationVersion,
-            byte[] orangePiReportedContentSha256,
-            byte[] orangePiReportedMcuPayloadSha256,
-            Instant lastHeartbeatAt,
-            Instant lastDeviceEventAt,
-            long version) {
-    }
-
-    private record PortRuntimeRow(
-            long portId,
-            int portNo,
-            String deliveryDoorState,
-            String deliveryDoorActuatorHealth,
-            String deliveryDoorContactState,
-            String cleanLockPowerState,
-            String cleanSolenoidHealth,
-            String weightSensorHealth,
-            String infraredValue,
-            String infraredSensorHealth,
-            String smokeState,
-            String smokeSensorHealth,
-            String safetyStatus,
-            Boolean businessEnabled,
-            String fullnessMode,
-            Instant lastObservedAt,
-            long version) {
+    private record EvidenceDecision(
+            String status,
+            byte[] sha256,
+            String failureReasonsJson,
+            LocalDateTime receivedAt) {
     }
 
     private record ConfigurationVersionRow(
@@ -3434,13 +2517,8 @@ public class TargetDeviceApplication {
 
     private record CommandResult<T>(
             T response,
-            Map<String, ?> before,
-            Map<String, ?> after,
+            Map<String, Object> before,
+            Map<String, Object> after,
             String reason) {
-
-        private CommandResult {
-            before = before == null ? Map.of() : Map.copyOf(before);
-            after = after == null ? Map.of() : Map.copyOf(after);
-        }
     }
 }

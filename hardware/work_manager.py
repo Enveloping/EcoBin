@@ -314,10 +314,12 @@ class WorkManager:
         )
 
     def start_delivery_command(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Persist and dispatch one cloud-authorized delivery session."""
+        """持久化并派发一次云端已授权的投递会话。"""
         payload = command["payload"]
         config = payload["config"]
         self._require_applied_config(config)
+        # 后端只判断它能权威确认的身份、归属、OneNet 在线和整机占位。
+        # 满溢、安全传感器、重启清运锁等现场事实必须在香橙派写串口前判断。
         if self._store.clean_restart_interlock_active(
             payload["portNo"]
         ):
@@ -356,7 +358,7 @@ class WorkManager:
             "delivery_auto_close_ms": payload["deliveryAutoCloseMs"],
             "config": config,
             "start_command_uid": command["commandUid"],
-            "deployment_code": command["deploymentCode"],
+            "device_name": command["targetDeviceName"],
             "start_mcu_command_uid": mcu_command_uid,
             "expires_at": command["expiresAt"],
             "phase": "STARTING",
@@ -367,6 +369,8 @@ class WorkManager:
             "final_weight_grams": None,
             "final_measurement_uid": None,
         }
+        # 单作业槽和命令 ACCEPTED 观察在 SQLite 中一起落盘，成功后才允许写串口。
+        # 若设备进程在随后崩溃，启动恢复会明确结束未决作业，绝不自动重放旧开门。
         if not self._store.acquire_work_slot(
             WORK_TYPE_DELIVERY,
             session_uid,
@@ -437,6 +441,9 @@ class WorkManager:
             )
         self._store.update_work_context(session_uid, ctx)
         if result["acked"]:
+            # uart-v1 的 acked 是协议 ACK；fixed-frame 没有 ACK，兼容适配器只能表示
+            # “串口字节已在本机写出”。MCU_ACCEPTED 是当前云端契约投影，不能当成
+            # 门已实际打开的真机证据。
             self._store.record_command_observation(
                 command,
                 "MCU_ACCEPTED",
@@ -491,7 +498,7 @@ class WorkManager:
             "new_bag_uid": payload["newBagUid"],
             "config": config,
             "start_command_uid": command["commandUid"],
-            "deployment_code": command["deploymentCode"],
+            "device_name": command["targetDeviceName"],
             "start_mcu_command_uid": mcu_command_uid,
             "recovery_generation": 0,
             "action_sequence": 0,
@@ -608,7 +615,7 @@ class WorkManager:
             "detection_uid": detection_uid,
             "port_no": payload["portNo"],
             "command_uid": command["commandUid"],
-            "deployment_code": command["deploymentCode"],
+            "device_name": command["targetDeviceName"],
             "mcu_command_uid": mcu_command_uid,
             "payload": payload,
             "phase": "SAMPLING",
@@ -776,7 +783,7 @@ class WorkManager:
             "bag_uid": payload["bagUid"],
             "empty_bag_confirmed": payload["emptyBagConfirmed"],
             "command_uid": command["commandUid"],
-            "deployment_code": command["deploymentCode"],
+            "device_name": command["targetDeviceName"],
             "mcu_command_uid": mcu_command_uid,
             "config": config,
             "phase": "MEASURING",
@@ -818,69 +825,33 @@ class WorkManager:
             )
         measurement_uid = payload["measurementUid"]
         bag_uid = payload["bagUid"]
-        saved = self._store.get_bag_baseline(bag_uid)
-        if saved:
-            source_kind = (
-                saved.get("source_kind")
-                or "SAME_BAG_CLEAN_POST"
-            )
-            weight_grams = saved["weight_grams"]
-            source = {
-                "mcuBootId": (
-                    saved.get("source_mcu_boot_id")
-                    or max(
-                        1,
-                        int(self._store.get_edge_boot_id() or 1),
-                    )
-                ),
-                "mcuEventSequence": (
-                    saved.get("source_mcu_event_sequence")
-                    or self._store.reserve_compat_mcu_event_sequence()
-                ),
-            }
-            source_work_type = saved.get("source_work_type")
-            source_work_uid = saved.get("source_work_uid")
-        else:
-            try:
-                observation = json.loads(
-                    self._store.get_state(
-                        "fixed_frame_latest_observation_json",
-                        "",
-                    )
-                )
-            except (TypeError, ValueError):
-                observation = None
-            if (
-                isinstance(observation, dict)
-                and self._valid_compat_fullness_observation(
-                    observation
-                )
-            ):
-                source_kind = "LATEST_FLOW_POST"
-                weight_grams = observation["postWeightGrams"]
-                source = observation
-                source_work_type = observation.get("sourceWorkType")
-                source_work_uid = observation.get("sourceWorkUid")
-            else:
-                source_kind = "NO_HISTORY_ZERO"
-                weight_grams = 0
-                source = {
-                    "mcuBootId": max(
-                        1,
-                        int(self._store.get_edge_boot_id() or 1),
-                    ),
-                    "mcuEventSequence": (
-                        self._store.reserve_compat_mcu_event_sequence()
-                    ),
-                }
-                source_work_type = None
-                source_work_uid = None
-        measurement = _compat_measurement(
-            measurement_uid,
-            "baseline",
-            weight_grams,
-            source,
-        )
+        # The negotiated DD/EF fixed-frame protocol has no standalone weight
+        # command. A previous delivery/clean observation (or literal zero) is
+        # not evidence that this currently installed bag is empty. Report an
+        # explicit failed measurement so the cloud keeps the port blocked and
+        # can retry after MCU firmware gains the required capability.
+        measurement = {
+            "measurementUid": _compat_uid(
+                measurement_uid,
+                "baseline-unsupported",
+            ),
+            "measurementStatus": "SENSOR_FAULT",
+            "weightValuePresent": False,
+            "reportedWeightGrams": None,
+            "weightValueKind": "NONE",
+            "measurementElapsedMs": 0,
+            "sampleCount": 0,
+            "calibrationVersion": 0,
+            "weightSensorHealth": "UNKNOWN",
+            "faultCode": "WEIGHT_SENSOR",
+            "mcuBootId": max(
+                1,
+                int(self._store.get_edge_boot_id() or 1),
+            ),
+            "mcuEventSequence": (
+                self._store.reserve_compat_mcu_event_sequence()
+            ),
+        }
         event_payload = {
             "measurementUid": measurement_uid,
             "portNo": payload["portNo"],
@@ -890,10 +861,12 @@ class WorkManager:
             "frozenConfig": _frozen_config(payload["config"]),
         }
         result = {
-            "measurementStatus": "STABLE",
-            "weightValuePresent": True,
-            "reportedWeightGrams": weight_grams,
-            "compatibilitySource": source_kind,
+            "measurementStatus": "SENSOR_FAULT",
+            "weightValuePresent": False,
+            "reportedWeightGrams": None,
+            "compatibilitySource": (
+                "STANDALONE_MEASUREMENT_UNSUPPORTED"
+            ),
         }
         completed = self._store.complete_fixed_frame_local_result(
             result_type="BASELINE",
@@ -905,26 +878,6 @@ class WorkManager:
             target_uid=measurement_uid,
             event_payload=event_payload,
             result=result,
-            bag_baseline={
-                "bag_uid": bag_uid,
-                "weight_grams": weight_grams,
-                "source_kind": source_kind,
-                "source_work_type": source_work_type,
-                "source_work_uid": source_work_uid,
-                "source_mcu_boot_id": source.get("mcuBootId"),
-                "source_mcu_event_sequence": source.get(
-                    "mcuEventSequence"
-                ),
-                "source_observed_at": None,
-                "measurement_uid": measurement[
-                    "measurementUid"
-                ],
-                "updated_at": datetime.now(
-                    timezone.utc
-                ).isoformat(
-                    timespec="milliseconds"
-                ).replace("+00:00", "Z"),
-            },
         )
         if completed not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
@@ -934,7 +887,7 @@ class WorkManager:
             "acked": True,
             "completed_locally": True,
             "mcu_command_uid": None,
-            "disposition": source_kind,
+            "disposition": "STANDALONE_MEASUREMENT_UNSUPPORTED",
         }
 
     def end_clean_before_unlock_command(
@@ -1082,7 +1035,7 @@ class WorkManager:
         target_type: str,
         work_uid: str,
         command_uid: Optional[str],
-        deployment_code: Optional[str],
+        device_name: Optional[str],
         payload: dict[str, Any],
         work_state_update: Optional[dict] = None,
         event_uid: Optional[str] = None,
@@ -1095,7 +1048,7 @@ class WorkManager:
             payload=payload,
             work_uid=work_uid,
             work_state_update=work_state_update,
-            deployment_code=deployment_code or "Dp_unknown",
+            device_name=device_name or "UNKNOWN_DEVICE",
             target_type=target_type,
             command_uid=command_uid,
             fullness_transition=fullness_transition,
@@ -1108,7 +1061,7 @@ class WorkManager:
         bag_uid: Optional[str],
         source_work_type: str,
         source_work_uid: str,
-        deployment_code: str,
+        device_name: str,
         measurement: dict[str, Any],
         infrared_blocked: Optional[bool],
         fixed_frame: bool,
@@ -1128,7 +1081,7 @@ class WorkManager:
             return self._new_bag_default_transition(
                 port_no,
                 bag_uid,
-                deployment_code,
+                device_name,
             ) if reset_for_new_bag else None
         port_config = next(
             (
@@ -1142,7 +1095,7 @@ class WorkManager:
             return self._new_bag_default_transition(
                 port_no,
                 bag_uid,
-                deployment_code,
+                device_name,
             ) if reset_for_new_bag else None
 
         total_weight = _delivery_usable_weight(measurement)
@@ -1187,7 +1140,7 @@ class WorkManager:
             return self._new_bag_default_transition(
                 port_no,
                 bag_uid,
-                deployment_code,
+                device_name,
             ) if reset_for_new_bag else None
 
         state_change_uid = _new_uid()
@@ -1229,7 +1182,7 @@ class WorkManager:
             "state": decided_state,
             "state_change_uid": state_change_uid,
             "event_uid": event_uid,
-            "deployment_code": deployment_code,
+            "device_name": device_name,
             "payload": payload,
         }
 
@@ -1237,7 +1190,7 @@ class WorkManager:
     def _new_bag_default_transition(
         port_no: int,
         bag_uid: str,
-        deployment_code: str,
+        device_name: str,
     ) -> dict[str, Any]:
         return {
             "port_no": port_no,
@@ -1245,7 +1198,7 @@ class WorkManager:
             "state": "NOT_FULL",
             "state_change_uid": _new_uid(),
             "event_uid": _new_uid(),
-            "deployment_code": deployment_code,
+            "device_name": device_name,
             "payload": {},
         }
 
@@ -1344,6 +1297,7 @@ class WorkManager:
             self._on_boot_reconciliation_result(ctx, payload, work_uid)
 
     def _on_compat_delivery_result(self, payload: dict[str, Any]) -> None:
+        """把固定帧 DD 结果收敛为唯一 DELIVERY_COMPLETE 事件。"""
         slot = self._store.get_work_slot()
         if not slot or slot["work_type"] != WORK_TYPE_DELIVERY:
             logger.warning(
@@ -1427,11 +1381,13 @@ class WorkManager:
             bag_uid=ctx.get("bag_uid"),
             source_work_type="DELIVERY_SESSION",
             source_work_uid=ctx.get("session_uid", work_uid),
-            deployment_code=ctx.get("deployment_code") or "Dp_unknown",
+            device_name=ctx.get("device_name") or "UNKNOWN_DEVICE",
             measurement=final_measurement,
             infrared_blocked=payload["infraredBlocked"],
             fixed_frame=True,
         )
+        # 事件发件箱、命令完成、最终观测、满溢状态变化和作业槽释放由一个
+        # SQLite 事务提交。这样强杀发生在任意时刻，都不会丢结果或重复生成第二单。
         created = self._store.complete_fixed_frame_work(
             work_type=WORK_TYPE_DELIVERY,
             work_uid=work_uid,
@@ -1446,7 +1402,7 @@ class WorkManager:
             event_uid=_new_uid(),
             event_type="DELIVERY_COMPLETE",
             event_payload=event_payload,
-            deployment_code=ctx.get("deployment_code") or "Dp_unknown",
+            device_name=ctx.get("device_name") or "UNKNOWN_DEVICE",
             target_type="DELIVERY_SESSION",
             fullness_transition=fullness_transition,
         )
@@ -1564,7 +1520,7 @@ class WorkManager:
             event_uid=_new_uid(),
             event_type="CLEAN_COMPLETE",
             event_payload=event_payload,
-            deployment_code=ctx.get("deployment_code") or "Dp_unknown",
+            device_name=ctx.get("device_name") or "UNKNOWN_DEVICE",
             target_type="CLEAN_OPERATION",
             bag_baseline={
                 "bag_uid": ctx["new_bag_uid"],
@@ -1587,8 +1543,8 @@ class WorkManager:
                 bag_uid=ctx["new_bag_uid"],
                 source_work_type="CLEAN_OPERATION",
                 source_work_uid=ctx.get("operation_uid", work_uid),
-                deployment_code=(
-                    ctx.get("deployment_code") or "Dp_unknown"
+                device_name=(
+                    ctx.get("device_name") or "UNKNOWN_DEVICE"
                 ),
                 measurement=final_measurement,
                 infrared_blocked=payload["infraredBlocked"],
@@ -1640,11 +1596,11 @@ class WorkManager:
         payload,
         mcu_receive_generation: int,
     ):
-        deployment_code = (
-            getattr(self._mqtt, "deployment_code", None) or "Dp_unknown"
+        device_name = (
+            getattr(self._mqtt, "device_name", None) or "UNKNOWN_DEVICE"
         )
         result = self._store.record_safety_state_and_event(
-            deployment_code=deployment_code,
+            device_name=device_name,
             mcu_receive_generation=mcu_receive_generation,
             payload=payload,
         )
@@ -1661,8 +1617,8 @@ class WorkManager:
         severity = str(payload.get("severity") or "WARNING")
         lifecycle = str(payload.get("lifecycle") or "OBSERVED")
         fault_uid = str(payload.get("faultUid") or _new_uid())
-        deployment_code = (
-            getattr(self._mqtt, "deployment_code", None) or "Dp_unknown"
+        device_name = (
+            getattr(self._mqtt, "device_name", None) or "UNKNOWN_DEVICE"
         )
         component = str(
             payload.get("component") or "MCU_INTERNAL"
@@ -1678,7 +1634,7 @@ class WorkManager:
         )
         if lifecycle == "RECOVERED":
             result = self._store.recover_fault_and_create_event(
-                deployment_code=deployment_code,
+                device_name=device_name,
                 fault_uid=fault_uid,
                 component=component,
                 fault_code=fault_code,
@@ -1692,7 +1648,7 @@ class WorkManager:
             )
         else:
             result = self._store.observe_fault_and_create_event(
-                deployment_code=deployment_code,
+                device_name=device_name,
                 component=component,
                 fault_code=fault_code,
                 severity=severity,
@@ -1939,7 +1895,7 @@ class WorkManager:
                 target_type="DELIVERY_SESSION",
                 work_uid=work_uid,
                 command_uid=ctx.get("start_command_uid"),
-                deployment_code=ctx.get("deployment_code"),
+                device_name=ctx.get("device_name"),
                 payload=event_payload,
                 work_state_update={
                     "state": "COMPLETING",
@@ -1950,8 +1906,8 @@ class WorkManager:
                     bag_uid=ctx.get("bag_uid"),
                     source_work_type="DELIVERY_SESSION",
                     source_work_uid=session_uid,
-                    deployment_code=(
-                        ctx.get("deployment_code") or "Dp_unknown"
+                    device_name=(
+                        ctx.get("device_name") or "UNKNOWN_DEVICE"
                     ),
                     measurement=ctx.get("final_measurement") or {},
                     infrared_blocked=ctx.get("infrared_blocked"),
@@ -2233,7 +2189,7 @@ class WorkManager:
             target_type="CLEAN_OPERATION",
             work_uid=work_uid,
             command_uid=ctx.get("start_command_uid"),
-            deployment_code=ctx.get("deployment_code"),
+            device_name=ctx.get("device_name"),
             payload=event_payload,
             work_state_update={
                 "state": "COMPLETING",
@@ -2244,8 +2200,8 @@ class WorkManager:
                 bag_uid=ctx["new_bag_uid"],
                 source_work_type="CLEAN_OPERATION",
                 source_work_uid=ctx["operation_uid"],
-                deployment_code=(
-                    ctx.get("deployment_code") or "Dp_unknown"
+                device_name=(
+                    ctx.get("device_name") or "UNKNOWN_DEVICE"
                 ),
                 measurement=ctx.get("final_measurement") or {},
                 infrared_blocked=ctx.get("infrared_blocked"),
@@ -2301,7 +2257,7 @@ class WorkManager:
             event_type="FULLNESS_SAMPLE_COMPLETE",
             target_type="FULLNESS_DETECTION",
             command_uid=ctx["command_uid"],
-            deployment_code=ctx.get("deployment_code"),
+            device_name=ctx.get("device_name"),
             payload=event_payload,
             work_uid=work_uid,
             work_state_update={"state": "COMPLETED", "context": ctx},
@@ -2333,7 +2289,7 @@ class WorkManager:
             event_type="BASELINE_MEASUREMENT_COMPLETE",
             target_type="BASELINE_MEASUREMENT",
             command_uid=ctx["command_uid"],
-            deployment_code=ctx.get("deployment_code"),
+            device_name=ctx.get("device_name"),
             payload=event_payload,
             work_uid=work_uid,
             work_state_update={"state": "COMPLETED", "context": ctx},

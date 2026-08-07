@@ -23,7 +23,7 @@ public class ReliableDeviceTaskGateService
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public int reconcileAsset(long assetId) {
         var now = repository.databaseNow();
-        int readiness = repository.reconcileDeploymentRuntimeFreshness(
+        int readiness = repository.reconcileAssetRuntimeFreshness(
                 assetId, now);
         int tasks = repository.reconcileDeviceTaskGates(assetId, now);
         int changed = readiness + tasks;
@@ -42,7 +42,7 @@ public class ReliableDeviceTaskGateService
     @Override
     public int reconcileAll() {
         var now = repository.databaseNow();
-        int readiness = repository.reconcileDeploymentRuntimeFreshness(
+        int readiness = repository.reconcileAssetRuntimeFreshness(
                 null, now);
         int tasks = repository.reconcileDeviceTaskGates(null, now);
         int changed = readiness + tasks;

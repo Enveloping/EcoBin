@@ -1,9 +1,9 @@
 package org.enveloping.ecobin.framework.reliability;
 
-public interface DeviceDeploymentTaskRefFactory {
+public interface DeviceAssetTaskRefFactory {
 
-    DeviceDeploymentTaskRef issue(
+    DeviceAssetTaskRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey);
+            long assetKey);
 }

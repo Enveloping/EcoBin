@@ -171,7 +171,7 @@ public class CleanRecordQueryService {
             Integer requestedLimit,
             String resultKind,
             UUID cleanerUserUid,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo,
             String removedBagQr,
             String installedBagQr,
@@ -188,7 +188,7 @@ public class CleanRecordQueryService {
         int limit = limit(requestedLimit);
         Filters filters = filters(
                 resultKind,
-                deploymentCode,
+                deviceCode,
                 portNo,
                 removedBagQr,
                 installedBagQr,
@@ -416,7 +416,7 @@ public class CleanRecordQueryService {
                        record.clean_operation_id,
                        operation.operation_uid,
                        record.cleaner_organization_user_id,
-                       deployment.public_code AS deployment_code,
+                       asset.device_public_code,
                        port.port_no,
                        record.old_bag_code_snapshot,
                        record.new_bag_code_snapshot,
@@ -442,8 +442,8 @@ public class CleanRecordQueryService {
                 FROM rec_clean_record record
                 JOIN rec_clean_operation operation
                   ON operation.id = record.clean_operation_id
-                JOIN dev_device_deployment deployment
-                  ON deployment.id = record.deployment_id
+                JOIN dev_device_asset asset
+                  ON asset.id = record.asset_id
                 JOIN dev_port port ON port.id = record.port_id
                 WHERE record.tenant_id = :tenantId
                   AND record.organization_id = :organizationId
@@ -488,7 +488,7 @@ public class CleanRecordQueryService {
                         rs.getLong("clean_operation_id"),
                         UUID.fromString(rs.getString("operation_uid")),
                         rs.getLong("cleaner_organization_user_id"),
-                        rs.getString("deployment_code"),
+                        rs.getString("device_public_code"),
                         rs.getInt("port_no"),
                         rs.getString("old_bag_code_snapshot"),
                         rs.getString("new_bag_code_snapshot"),
@@ -541,7 +541,7 @@ public class CleanRecordQueryService {
         RootRow root = jdbc.query("""
                         SELECT record.*,
                                operation.operation_uid,
-                               deployment.public_code AS deployment_code,
+                               asset.device_public_code,
                                port.port_no,
                                event.event_uid,
                                command.command_uid,
@@ -549,8 +549,8 @@ public class CleanRecordQueryService {
                         FROM rec_clean_record record
                         JOIN rec_clean_operation operation
                           ON operation.id = record.clean_operation_id
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = record.deployment_id
+                        JOIN dev_device_asset asset
+                          ON asset.id = record.asset_id
                         JOIN dev_port port ON port.id = record.port_id
                         JOIN dev_physical_result result
                           ON result.id = record.physical_result_id
@@ -568,7 +568,7 @@ public class CleanRecordQueryService {
                         rs.getLong("clean_operation_id"),
                         UUID.fromString(rs.getString("operation_uid")),
                         rs.getLong("cleaner_organization_user_id"),
-                        rs.getString("deployment_code"),
+                        rs.getString("device_public_code"),
                         rs.getInt("port_no"),
                         UUID.fromString(rs.getString("event_uid")),
                         UUID.fromString(rs.getString("command_uid")),
@@ -761,7 +761,7 @@ public class CleanRecordQueryService {
                 row.recordNo(),
                 row.operationUid(),
                 cleanerUid,
-                row.deploymentCode(),
+                row.deviceCode(),
                 row.portNo(),
                 row.removedBag(),
                 row.installedBag(),
@@ -784,7 +784,7 @@ public class CleanRecordQueryService {
                 row.operationUid(),
                 row.eventUid(),
                 row.commandUid(),
-                row.deploymentCode(),
+                row.deviceCode(),
                 row.portNo(),
                 cleanerUid,
                 row.configVersion(),
@@ -1118,7 +1118,7 @@ public class CleanRecordQueryService {
 
     private static Filters filters(
             String requestedResultKind,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo,
             String removedBagQr,
             String installedBagQr,
@@ -1134,8 +1134,8 @@ public class CleanRecordQueryService {
                 requestedPhotoCompleteness,
                 "photoCompleteness",
                 List.of("COMPLETE", "INCOMPLETE"));
-        String deployment = sized(
-                deploymentCode, "deploymentCode", 64);
+        String normalizedDeviceCode = sized(
+                deviceCode, "deviceCode", 64);
         String removedBag = bag(removedBagQr, "removedBagQr");
         String installedBag = bag(
                 installedBagQr, "installedBagQr");
@@ -1153,7 +1153,7 @@ public class CleanRecordQueryService {
         }
         return new Filters(
                 resultKind,
-                deployment,
+                normalizedDeviceCode,
                 portNo,
                 removedBag,
                 installedBag,
@@ -1373,7 +1373,7 @@ public class CleanRecordQueryService {
             long operationId,
             UUID operationUid,
             long cleanerId,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String removedBag,
             String installedBag,
@@ -1396,7 +1396,7 @@ public class CleanRecordQueryService {
             long operationId,
             UUID operationUid,
             long cleanerId,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             UUID eventUid,
             UUID commandUid,
@@ -1490,7 +1490,7 @@ public class CleanRecordQueryService {
 
     private record Filters(
             String resultKind,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo,
             String removedBag,
             String installedBag,
@@ -1512,9 +1512,9 @@ public class CleanRecordQueryService {
                 sql.append(" AND record.record_class = :resultKind");
                 parameters.addValue("resultKind", resultKind);
             }
-            if (deploymentCode != null) {
-                sql.append(" AND deployment.public_code = :deploymentCode");
-                parameters.addValue("deploymentCode", deploymentCode);
+            if (deviceCode != null) {
+                sql.append(" AND asset.device_public_code = :deviceCode");
+                parameters.addValue("deviceCode", deviceCode);
             }
             if (portNo != null) {
                 sql.append(" AND port.port_no = :portNo");
@@ -1582,7 +1582,7 @@ public class CleanRecordQueryService {
                     authorized.organizationCode());
             values.put("resultKind", marker(resultKind));
             values.put("cleanerUserUid", marker(cleanerUserUid));
-            values.put("deploymentCode", marker(deploymentCode));
+            values.put("deviceCode", marker(deviceCode));
             values.put("portNo", marker(portNo));
             values.put("removedBagQr", marker(removedBag));
             values.put("installedBagQr", marker(installedBag));

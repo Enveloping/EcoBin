@@ -57,7 +57,7 @@ interface DeliverySearchParams {
   reviewStatus?: DeliveryReviewStatus;
   occurredRange?: [string, string];
   organizationUserUid?: string;
-  deploymentCode?: string;
+  deviceCode?: string;
   portNo?: number;
   anomalyCode?: string;
   photoCompleteness?: DeliveryPhotoCompleteness;
@@ -164,8 +164,8 @@ export default function DeliveryOrdersPage() {
   const organizationCode = organizationScope.organizationCode;
   const linkedOrganizationUserUid =
     searchParams.get('organizationUserUid')?.trim() || undefined;
-  const linkedDeploymentCode =
-    searchParams.get('deploymentCode')?.trim() || undefined;
+  const linkedDeviceCode =
+    searchParams.get('deviceCode')?.trim() || undefined;
   const requestedDeliveryOrderNo =
     searchParams.get('deliveryOrderNo')?.trim() || undefined;
   const linkedDeliveryOrderNo =
@@ -460,14 +460,14 @@ export default function DeliveryOrdersPage() {
     },
     {
       title: '设备部署',
-      dataIndex: 'deploymentCode',
+      dataIndex: 'deviceCode',
       width: 170,
       fieldProps: {
         placeholder: '输入部署编码',
       },
       render: (_, order) => (
         <Space direction="vertical" size={1}>
-          <Typography.Text code>{order.deploymentCode}</Typography.Text>
+          <Typography.Text code>{order.deviceCode}</Typography.Text>
           <Typography.Text type="secondary">
             投口 {order.portNo}
           </Typography.Text>
@@ -669,13 +669,13 @@ export default function DeliveryOrdersPage() {
           form={{
             initialValues: {
               organizationUserUid: linkedOrganizationUserUid,
-              deploymentCode: linkedDeploymentCode,
+              deviceCode: linkedDeviceCode,
               reviewStatus: canReadAll ? undefined : 'PENDING',
             },
           }}
           params={{
             organizationUserUid: linkedOrganizationUserUid,
-            deploymentCode: linkedDeploymentCode,
+            deviceCode: linkedDeviceCode,
           }}
           beforeSearchSubmit={(params) => {
             resetCursorNavigation();
@@ -736,9 +736,9 @@ export default function DeliveryOrdersPage() {
                     typeof params.organizationUserUid === 'string'
                       ? params.organizationUserUid.trim() || undefined
                       : undefined,
-                  deploymentCode:
-                    typeof params.deploymentCode === 'string'
-                      ? params.deploymentCode.trim() || undefined
+                  deviceCode:
+                    typeof params.deviceCode === 'string'
+                      ? params.deviceCode.trim() || undefined
                       : undefined,
                   portNo: params.portNo === undefined
                     ? undefined

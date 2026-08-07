@@ -104,6 +104,10 @@ class IdentitySourceBoundaryTest {
                                 "ecobin-module-identity/src/main/java/org/enveloping/ecobin/identity/"
                                         + "application/miniapp/TargetMiniappLoginTransactionService.java"),
                         Path.of(
+                                "ecobin-module-operations/src/main/java/org/enveloping/ecobin/"
+                                        + "operations/application/reliability/"
+                                        + "ReliablePlatformDeviceControlTaskRegistrationService.java"),
+                        Path.of(
                                 "ecobin-module-recycling/src/main/java/org/enveloping/ecobin/"
                                         + "recycling/infrastructure/registration/"
                                         + "JdbcOrganizationBootstrapParticipant.java")),

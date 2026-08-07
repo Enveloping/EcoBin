@@ -7,10 +7,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.IdentityHashMap;
 
 @Component
-public final class IdentityOwnedRegistrationDeploymentAttributionRefFactory {
+public final class IdentityOwnedRegistrationAssetAttributionRefFactory {
 
-    public RegistrationDeploymentAttributionRef issue(
-            long deploymentKey,
+    public RegistrationAssetAttributionRef issue(
+            long assetKey,
             long registeredUserCount) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()
                 || !TransactionSynchronizationManager
@@ -18,8 +18,8 @@ public final class IdentityOwnedRegistrationDeploymentAttributionRefFactory {
             throw new IllegalStateException(
                     "registration attribution requires its read transaction");
         }
-        var result = new RegistrationDeploymentAttributionRef(
-                deploymentKey,
+        var result = new RegistrationAssetAttributionRef(
+                assetKey,
                 registeredUserCount,
                 new IdentityHashMap<>(
                         TransactionSynchronizationManager.getResourceMap()));

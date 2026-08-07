@@ -5,19 +5,20 @@
 ## 快速开始
 
 1. [项目上下文](architecture/project-context.md)：当前阶段、跨会话决策、已知工程坑和续作入口。
-2. [应用修改后重新部署操作手册](deployment/application-redeployment-runbook.md)：代码提交后本地构建 JAR/dist、上传服务器、制作运行镜像、预检、激活、验证和回退的日常入口。
-3. [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)：覆盖旧主动检测方案；只有当前袋明确 `FULL` 阻止下一次投递。
-4. [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：真实 OneNet/COS、模拟 MCU/双摄的打通过程、易错点和下次检查清单。
-5. [产品需求基线](planning/requirements-baseline.md)：当前目标需求；与旧实现冲突时用于判断后续应实现什么。
-6. [一周 P0 范围基线](planning/p0-scope-baseline.md)：近期受控真实闭环的承诺范围和验收边界。
-7. [P0 业务模型基线](planning/business-model-baseline.md)：已冻结的业务主体、事实、状态机和不变量；2026-07-24 已同步 session 一单与清运电子锁事实。
-8. [P0 系统架构设计基线](planning/system-architecture-draft.md)：已冻结的系统边界、九模块布局、一致性、安全、运行与验证方案。
-9. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
-10. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
-11. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
-12. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：29 项独立任务、状态、执行主体、依赖、工作量和验收证据；H-01、H-02、F-01～F-11、V-01、V-02 已完成，V-02 的微信开发环境限制由非阻塞 P0-FOLLOWUP-01 延期跟踪，H-03、V-09 为 `ready` 但尚未获得实施授权；H-02 已通过本地 MySQL 8.4.10 开发演练及服务器整改阶段 0～3 验收，服务器目标空库已于 2026-08-04 重建到 V31（96 张领域表、77 条权限定义、业务数据 0），当前试验期由项目负责人接受操作机 ACL 受限 `.ecobin` 保管长期凭证原件，加密密码库和异机密码库副本延期到下一版本；F-11 后续验证发现范围内问题时重开，固定帧真机证据保留在 H-03。
-13. [权限与角色设计](architecture/permission-design.md)：当前旧实现的三类登录主体、多租户隔离和接口鉴权。
-14. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构、迁移版本和业务数据关系；新栈目标迁移已推进到 V32，并由只读 epoch guard 校验，运行制品不携带 Flyway/迁移脚本。
+2. [V36 设备永久归属、自动验收与无部署码模型](architecture/permanent-device-ownership-v36.md)：2026-08-07 重新冻结的设备全链路目标，覆盖旧部署、调拨和人工激活模型。
+3. [应用修改后重新部署操作手册](deployment/application-redeployment-runbook.md)：代码提交后本地构建 JAR/dist、上传服务器、制作运行镜像、预检、激活、验证和回退的日常入口。
+4. [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)：覆盖旧主动检测方案；只有当前袋明确 `FULL` 阻止下一次投递。
+5. [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：真实 OneNet/COS、模拟 MCU/双摄的历史联调复盘；设备正式验收仍必须使用真实 MCU 和真实摄像头。
+6. [产品需求基线](planning/requirements-baseline.md)：当前目标需求；与旧实现冲突时用于判断后续应实现什么。
+7. [一周 P0 范围基线](planning/p0-scope-baseline.md)：近期受控真实闭环的承诺范围和验收边界。
+8. [P0 业务模型基线](planning/business-model-baseline.md)：已冻结的业务主体、事实、状态机和不变量；设备章节由 V36 专题覆盖。
+9. [P0 系统架构设计基线](planning/system-architecture-draft.md)：已冻结的系统边界、九模块布局、一致性、安全、运行与验证方案。
+10. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
+11. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
+12. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
+13. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
+14. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
+15. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V36，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 
@@ -76,11 +77,13 @@
 - [P0 业务模型基线](planning/business-model-baseline.md)
 - [P0 系统架构设计基线](planning/system-architecture-draft.md)
 - [P0 目标数据库设计基线](planning/database-design-draft.md)
+- [D-046 微信免确认收款授权数据库设计](planning/database-design/10-merchant-transfer-authorization-d046.md)
 - [F-04 V1～V4 数据库验证矩阵](planning/database-design/f-04-v1-v4-verification-matrix.md)
 - [F-05 V5 recycling 验证矩阵](planning/database-design/f-05-v5-recycling-verification-matrix.md)
 - [F-06 V6～V10 funds/operations 验证矩阵](planning/database-design/f-06-v6-v10-funds-operations-verification-matrix.md)
 - [F-07 epoch guard/Fake bootstrap 验证矩阵](planning/database-design/f-07-epoch-guard-fake-bootstrap-verification.md)
 - [P0 目标接口设计基线](planning/interface-design-draft.md)
+- [I-056 微信免确认收款授权接口设计](planning/interface-design/12-merchant-transfer-authorization-i056.md)
 - [P0 详细设计与任务拆分](planning/detailed-design-draft.md)
 - [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)
 
@@ -101,4 +104,3 @@
 - 历史内容移入 `archive/`，并在开头标明替代它的当前文档。
 - 文档内使用仓库相对链接；移动文件时必须全仓库搜索旧路径。
 - 密钥、`.env`、设备密钥、服务器凭证和真实用户数据不得写入文档。
-

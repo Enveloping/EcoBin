@@ -6,6 +6,7 @@ import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort.MerchantTransferRequest;
+import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort.AuthorizedMerchantTransferRequest;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort.MerchantTransferResult;
 import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort;
 import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort.ReconciliationIssue;
@@ -20,6 +21,8 @@ import org.enveloping.ecobin.funds.application.access.FundsAccessService.WebScop
 import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy;
 import org.enveloping.ecobin.funds.application.channel.WechatChannelEvidencePolicy.Validation;
 import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
+import org.enveloping.ecobin.funds.application.authorization.MerchantTransferAuthorizationApplicationService;
+import org.enveloping.ecobin.funds.application.authorization.MerchantTransferAuthorizationApplicationService.ActiveAuthorizationSnapshot;
 import org.enveloping.ecobin.funds.application.pagination.FundsListCursorCodec;
 import org.enveloping.ecobin.funds.web.v1.FundsModels.*;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +54,7 @@ public class WithdrawalApplicationService {
     private final AuditPort audit;
     private final FundsOperationalControlPort operationalControl;
     private final FundsListCursorCodec cursorCodec;
+    private final MerchantTransferAuthorizationApplicationService authorization;
     private final String notifyBaseUrl;
 
     public WithdrawalApplicationService(
@@ -63,6 +67,7 @@ public class WithdrawalApplicationService {
             AuditPort audit,
             FundsOperationalControlPort operationalControl,
             FundsListCursorCodec cursorCodec,
+            MerchantTransferAuthorizationApplicationService authorization,
             @Value("${ecobin.funds.wechat-pay.notify-base-url:https://fake.invalid}")
             String notifyBaseUrl) {
         this.jdbc = jdbc;
@@ -74,6 +79,7 @@ public class WithdrawalApplicationService {
         this.audit = audit;
         this.operationalControl = operationalControl;
         this.cursorCodec = cursorCodec;
+        this.authorization = authorization;
         this.notifyBaseUrl = stripTrailingSlash(notifyBaseUrl);
     }
 
@@ -280,6 +286,15 @@ public class WithdrawalApplicationService {
             return view(replay);
         }
 
+        UserRow observedUser = requiredUser(scope, false);
+        if (!access.lockWithdrawalTransferIdentity(
+                scope.tenantId(), scope.organizationId(),
+                scope.organizationMiniappId(), scope.appid(),
+                scope.organizationUserId(), observedUser.openid())) {
+            throw new TargetApiException(
+                    422, "WITHDRAWAL.USER_UNAVAILABLE",
+                    "当前机构用户状态不允许提现");
+        }
         UserRow user = requiredUser(scope, true);
         if (!"ACTIVE".equals(user.status()) || user.phoneE164() == null) {
             throw new TargetApiException(
@@ -306,6 +321,13 @@ public class WithdrawalApplicationService {
                     422, "WITHDRAWAL.AMOUNT_OUT_OF_RANGE",
                     "提现金额不符合当前机构配置");
         }
+        ActiveAuthorizationSnapshot activeAuthorization =
+                authorization.lockCurrentActive(
+                        scope.tenantId(), scope.organizationId(),
+                        scope.organizationUserId(), binding.merchantId(),
+                        binding.bindingId(), binding.miniappId(),
+                        binding.mchid(), binding.appid(), user.openid(),
+                        binding.sceneId());
         WalletRow wallet = requiredWallet(
                 scope.tenantId(), scope.organizationId(),
                 scope.organizationUserId(), true);
@@ -342,20 +364,27 @@ public class WithdrawalApplicationService {
                     amount_cent, miniapp_merchant_binding_id,
                     organization_miniapp_id, merchant_profile_id,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
+                    collection_mode_snapshot, transfer_authorization_id,
+                    out_authorization_no_snapshot,
+                    authorization_id_snapshot,
                     business_state, negative_balance_pause,
                     post_boundary_risk, pre_channel_block_reason,
                     channel_boundary_at, long_unsettled_at, reviewed_at,
                     channel_terminal_at, ended_at, lock_version,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?,
-                          ?, ?, ?, 'PENDING_REVIEW', 0, 0, NULL,
+                          ?, ?, ?, 'AUTHORIZED', ?, ?, ?,
+                          'PENDING_REVIEW', 0, 0, NULL,
                           NULL, NULL, NULL, NULL, NULL, 0, ?, ?)
                 """, withdrawalNo, scope.tenantId(), scope.organizationId(),
                 scope.organizationUserId(), wallet.id(), account.id(),
                 config.id(), config.version(), config.hardLimitCent(),
                 config.minimumCent(), config.maximumCent(), amount,
                 binding.bindingId(), binding.miniappId(), binding.merchantId(),
-                binding.mchid(), binding.appid(), user.openid(), now, now);
+                binding.mchid(), binding.appid(), user.openid(),
+                activeAuthorization.id(),
+                activeAuthorization.outAuthorizationNo(),
+                activeAuthorization.authorizationId(), now, now);
         long withdrawalId = requiredLong(
                 "SELECT id FROM fund_withdrawal_order WHERE withdrawal_order_no = ?",
                 withdrawalNo);
@@ -536,6 +565,11 @@ public class WithdrawalApplicationService {
             throw new TargetApiException(
                     409, "WITHDRAWAL.APPID_CONTEXT_CHANGED",
                     "当前小程序与提现收款身份不一致");
+        }
+        if (!"USER_CONFIRM".equals(row.collectionMode())) {
+            throw new TargetApiException(
+                    409, "WITHDRAWAL.CONFIRMATION_NOT_READY",
+                    "自动收款提现不需要逐笔确认");
         }
         return jdbc.query("""
                 SELECT package_info, channel_state
@@ -798,6 +832,11 @@ public class WithdrawalApplicationService {
         TransferPreparation preparation = transactions.execute(
                 status -> prepareTransfer(
                         command.targetStableKey(), command.taskUid()));
+        if (preparation.completedReason() != null) {
+            return new ReliableFundsTaskExecutorPort.Result(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                    preparation.completedReason());
+        }
         if (preparation.blockedReason() != null) {
             return new ReliableFundsTaskExecutorPort.Result(
                     ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
@@ -825,9 +864,9 @@ public class WithdrawalApplicationService {
         }
         boolean submitting = preparation.newlyCreated()
                 || shouldResubmitOriginal(transfer);
-        MerchantTransferRequest originalRequest = submitting
-                ? originalTransferRequest(transfer) : null;
-        if (submitting && originalRequest == null) {
+        TransferSubmission originalSubmission = submitting
+                ? originalTransferSubmission(transfer) : null;
+        if (submitting && originalSubmission == null) {
             return transactions.execute(status -> {
                 TransferSnapshot locked = lockTransfer(
                         transfer.withdrawalNo());
@@ -844,7 +883,7 @@ public class WithdrawalApplicationService {
         }
         attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
         MerchantTransferResult response = submitting
-                ? channel.submit(originalRequest)
+                ? originalSubmission.submit(channel)
                 : channel.query(
                         new MerchantTransferChannelPort.MerchantTransferQuery(
                                 transfer.mchid(), transfer.outBillNo()));
@@ -908,19 +947,41 @@ public class WithdrawalApplicationService {
                 || initial.negativePause()) {
             return TransferPreparation.localWait();
         }
-        if (!access.lockWithdrawalTransferIdentity(
+        boolean identityAvailable = access.lockWithdrawalTransferIdentity(
                 initial.tenantId(), initial.organizationId(),
                 initial.miniappId(), initial.appid(), initial.userId(),
-                initial.openid())) {
-            return TransferPreparation.blocked(
-                    "tenant, organization or recipient identity is no longer active");
-        }
+                initial.openid());
         GateRow gate = requiredGate(initial.merchantId(), true);
-        if (!"OPEN".equals(gate.state())) {
+        if (identityAvailable && !"OPEN".equals(gate.state())) {
             markPayoutTaskWaiting(taskUid, gate);
             return TransferPreparation.waiting(gate.currentPauseEventUid());
         }
-        if (!lockAndVerifyCurrentBinding(initial)) {
+        boolean bindingAvailable = lockAndVerifyCurrentBinding(initial);
+        boolean authorizedMode = "AUTHORIZED".equals(
+                initial.collectionMode());
+        boolean authorizationAvailable = !authorizedMode
+                || authorization.lockReferencedActive(
+                        initial.authorizationRowId(), initial.tenantId(),
+                        initial.organizationId(), initial.userId(),
+                        initial.merchantId(), initial.bindingId(),
+                        initial.miniappId(), initial.mchid(), initial.appid(),
+                        initial.openid(), initial.outAuthorizationNo(),
+                        initial.authorizationId());
+        if (authorizedMode && (!identityAvailable
+                || !bindingAvailable || !authorizationAvailable)) {
+            String reason = !identityAvailable
+                    ? "RECIPIENT_IDENTITY_UNAVAILABLE"
+                    : !bindingAvailable
+                    ? "CURRENT_BINDING_UNAVAILABLE"
+                    : "TRANSFER_AUTHORIZATION_UNAVAILABLE";
+            return abortUnavailableAuthorization(
+                    initial, reason);
+        }
+        if (!identityAvailable) {
+            return TransferPreparation.blocked(
+                    "tenant, organization or recipient identity is no longer active");
+        }
+        if (!bindingAvailable) {
             return TransferPreparation.localWait();
         }
         WalletRow wallet = requiredWalletById(initial, true);
@@ -940,10 +1001,10 @@ public class WithdrawalApplicationService {
         String notifyUrl = notifyBaseUrl
                 + "/api/v1/wechat-pay/notifications/merchant-transfers";
         String remark = "环保回收提现";
-        MerchantTransferRequest originalRequest = new MerchantTransferRequest(
-                row.mchid(), row.appid(), outBillNo, row.openid(),
-                row.amountCent(), row.sceneId(), row.reportType(),
-                row.reportContent(), remark, row.pageStyle(), notifyUrl);
+        TransferSubmission originalSubmission = transferSubmission(
+                row, outBillNo, remark, notifyUrl);
+        boolean automaticCollection = "AUTHORIZED".equals(
+                row.collectionMode());
         LocalDateTime now = databaseNow();
         jdbc.update("""
                 INSERT INTO fund_wechat_transfer (
@@ -952,6 +1013,9 @@ public class WithdrawalApplicationService {
                     miniapp_merchant_binding_id, organization_miniapp_id,
                     out_bill_no, transfer_bill_no, amount_cent,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
+                    collection_mode_snapshot, transfer_authorization_id,
+                    out_authorization_no_snapshot,
+                    authorization_id_snapshot,
                     scene_id_snapshot, report_type_snapshot,
                     report_content_snapshot, transfer_remark,
                     transfer_page_style_snapshot, notify_url_snapshot,
@@ -961,16 +1025,21 @@ public class WithdrawalApplicationService {
                     state_conflict, submitted_at, channel_updated_at,
                     terminal_at, lock_version, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, NULL, 'NON_TERMINAL', NULL, NULL, NULL,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL,
+                          'NON_TERMINAL', NULL, NULL, NULL,
                           0, NULL, NULL, NULL, 0, ?, ?)
                 """, UUID.randomUUID().toString(), row.tenantId(),
                 row.organizationId(), row.id(), row.merchantId(),
                 row.bindingId(), row.miniappId(), outBillNo, row.amountCent(),
-                row.mchid(), row.appid(), row.openid(), row.sceneId(),
-                row.reportType(), row.reportContent(), remark,
-                row.pageStyle(), notifyUrl,
-                RechargeApplicationService.sha256(notifyUrl),
-                transferRequestHash(originalRequest), now, now);
+                row.mchid(), row.appid(), row.openid(), row.collectionMode(),
+                row.authorizationRowId(), row.outAuthorizationNo(),
+                row.authorizationId(), row.sceneId(), row.reportType(),
+                row.reportContent(), remark,
+                automaticCollection ? null : row.pageStyle(),
+                automaticCollection ? null : notifyUrl,
+                automaticCollection ? null
+                        : RechargeApplicationService.sha256(notifyUrl),
+                originalSubmission.requestSha256(), now, now);
         jdbc.update("""
                 UPDATE fund_withdrawal_order
                 SET business_state = 'CHANNEL_PROCESSING',
@@ -979,6 +1048,32 @@ public class WithdrawalApplicationService {
                 WHERE id = ? AND business_state = 'READY_TO_SUBMIT'
                 """, now, now, row.id());
         return TransferPreparation.created(transferSnapshot(withdrawalNo));
+    }
+
+    private TransferPreparation abortUnavailableAuthorization(
+            WithdrawalRow initial, String reason) {
+        WalletRow wallet = requiredWalletById(initial, true);
+        CounterRow counter = lockCounter(
+                initial.tenantId(), initial.organizationId());
+        lockActive(initial.walletId());
+        WithdrawalRow order = requiredWithdrawal(
+                initial.tenantId(), initial.organizationId(),
+                initial.withdrawalNo(), true);
+        AccountRow account = requiredAccountById(order, true);
+        if (!"READY_TO_SUBMIT".equals(order.state())
+                || transferExists(order.id())) {
+            return TransferPreparation.localWait();
+        }
+        LocalDateTime now = databaseNow();
+        release(order, wallet, counter, account,
+                "LOCAL_ABORTED_BEFORE_CHANNEL", false, now);
+        jdbc.update("""
+                UPDATE fund_withdrawal_order
+                SET pre_channel_block_reason = ?, updated_at = ?
+                WHERE id = ?
+                """, reason, now, order.id());
+        return TransferPreparation.completed(
+                "withdrawal released before channel: " + reason);
     }
 
     private TransferSnapshot lockAndVerifyResubmissionFunds(
@@ -1037,6 +1132,20 @@ public class WithdrawalApplicationService {
                     ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
                     "Wechat transfer evidence mismatch: "
                             + evidence.safeSummary());
+        }
+        if (!WechatChannelEvidencePolicy
+                .isTransferStateCompatibleWithCollectionMode(
+                        known.withdrawal().collectionMode(),
+                        result.outcome())) {
+            observeTransferIssue(
+                    command, known,
+                    "FUNDS.MERCHANT_TRANSFER_MODE_STATE_MISMATCH",
+                    "CRITICAL",
+                    "AUTHORIZED_TRANSFER_REPORTED_WAIT_USER_CONFIRM",
+                    result, now);
+            return new ReliableFundsTaskExecutorPort.Result(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                    "authorized transfer unexpectedly requires user confirmation");
         }
         String classification = classification(result.outcome());
         boolean submitTerminalNeedsQuery = classification != null
@@ -1868,7 +1977,12 @@ public class WithdrawalApplicationService {
                 rs.getLong("organization_miniapp_id"),
                 rs.getLong("merchant_profile_id"),
                 rs.getString("mchid_snapshot"), rs.getString("appid_snapshot"),
-                rs.getString("openid_snapshot"), rs.getString("business_state"),
+                rs.getString("openid_snapshot"),
+                rs.getString("collection_mode_snapshot"),
+                nullableLong(rs, "transfer_authorization_id"),
+                rs.getString("out_authorization_no_snapshot"),
+                rs.getString("authorization_id_snapshot"),
+                rs.getString("business_state"),
                 rs.getBoolean("negative_balance_pause"),
                 rs.getBoolean("post_boundary_risk"),
                 rs.getObject("channel_boundary_at", LocalDateTime.class),
@@ -1931,7 +2045,7 @@ public class WithdrawalApplicationService {
             long tenantId, long organizationId, boolean lock) {
         List<BindingRow> rows = jdbc.query("""
                 SELECT b.id binding_id, b.organization_miniapp_id,
-                       b.merchant_profile_id, b.appid, m.mchid
+                       b.merchant_profile_id, b.appid, m.mchid, m.scene_id
                 FROM fund_miniapp_merchant_binding b
                 JOIN fund_wechat_merchant_profile m
                   ON m.id = b.merchant_profile_id
@@ -1946,7 +2060,8 @@ public class WithdrawalApplicationService {
                         rs.getLong("binding_id"),
                         rs.getLong("organization_miniapp_id"),
                         rs.getLong("merchant_profile_id"),
-                        rs.getString("appid"), rs.getString("mchid")),
+                        rs.getString("appid"), rs.getString("mchid"),
+                        rs.getString("scene_id")),
                 tenantId, organizationId);
         if (rows.isEmpty()) {
             throw new TargetApiException(
@@ -2224,6 +2339,10 @@ public class WithdrawalApplicationService {
                             rs.getString("mchid_snapshot"),
                             rs.getString("appid_snapshot"),
                             rs.getString("openid_snapshot"),
+                            rs.getString("collection_mode_snapshot"),
+                            nullableLong(rs, "transfer_authorization_id"),
+                            rs.getString("out_authorization_no_snapshot"),
+                            rs.getString("authorization_id_snapshot"),
                             rs.getString("business_state"),
                             rs.getBoolean("negative_balance_pause"),
                             rs.getBoolean("post_boundary_risk"),
@@ -2362,9 +2481,10 @@ public class WithdrawalApplicationService {
         String channelState = publicChannelState(row.channelState());
         return new WithdrawalView(
                 row.withdrawalNo(), row.state(), row.version(),
-                money(row.amountCent()), channelState,
+                money(row.amountCent()), row.collectionMode(), channelState,
                 channel.errorCode(), channel.message(),
-                "WAIT_USER_CONFIRM".equals(channelState)
+                "USER_CONFIRM".equals(row.collectionMode())
+                        && "WAIT_USER_CONFIRM".equals(channelState)
                         && row.packageInfo() != null,
                 false,
                 row.channelBoundaryAt() != null,
@@ -2379,7 +2499,7 @@ public class WithdrawalApplicationService {
                 ? null : channelState;
     }
 
-    private MerchantTransferRequest transferRequest(
+    private MerchantTransferRequest userConfirmTransferRequest(
             TransferSnapshot transfer) {
         WithdrawalRow row = transfer.withdrawal();
         String notifyUrl = transfer.notifyUrl() == null
@@ -2393,9 +2513,57 @@ public class WithdrawalApplicationService {
                 row.pageStyle(), notifyUrl);
     }
 
-    private MerchantTransferRequest originalTransferRequest(
+    private AuthorizedMerchantTransferRequest authorizedTransferRequest(
             TransferSnapshot transfer) {
-        MerchantTransferRequest request = transferRequest(transfer);
+        WithdrawalRow row = transfer.withdrawal();
+        return new AuthorizedMerchantTransferRequest(
+                row.mchid(), row.appid(), transfer.outBillNo(),
+                row.amountCent(), row.sceneId(), row.reportType(),
+                row.reportContent(), transfer.remark(),
+                row.authorizationId(), row.openid());
+    }
+
+    private TransferSubmission transferSubmission(
+            WithdrawalRow row,
+            String outBillNo,
+            String remark,
+            String notifyUrl) {
+        if ("AUTHORIZED".equals(row.collectionMode())) {
+            AuthorizedMerchantTransferRequest request =
+                    new AuthorizedMerchantTransferRequest(
+                            row.mchid(), row.appid(), outBillNo,
+                            row.amountCent(), row.sceneId(), row.reportType(),
+                            row.reportContent(), remark,
+                            row.authorizationId(), row.openid());
+            return TransferSubmission.authorized(request);
+        }
+        MerchantTransferRequest request = new MerchantTransferRequest(
+                row.mchid(), row.appid(), outBillNo, row.openid(),
+                row.amountCent(), row.sceneId(), row.reportType(),
+                row.reportContent(), remark, row.pageStyle(), notifyUrl);
+        return TransferSubmission.userConfirm(request);
+    }
+
+    private TransferSubmission originalTransferSubmission(
+            TransferSnapshot transfer) {
+        if ("AUTHORIZED".equals(
+                transfer.withdrawal().collectionMode())) {
+            if (transfer.notifyUrl() != null
+                    || transfer.notifyUrlSha256() != null) {
+                return null;
+            }
+            AuthorizedMerchantTransferRequest request =
+                    authorizedTransferRequest(transfer);
+            if (!java.security.MessageDigest.isEqual(
+                    transfer.requestSha256(),
+                    authorizedTransferRequestHash(request))) {
+                return null;
+            }
+            return TransferSubmission.authorized(request);
+        }
+        MerchantTransferRequest request =
+                userConfirmTransferRequest(transfer);
+        if (transfer.notifyUrlSha256() == null) return null;
         if (!java.security.MessageDigest.isEqual(
                 transfer.notifyUrlSha256(),
                 RechargeApplicationService.sha256(request.notifyUrl()))) {
@@ -2403,13 +2571,13 @@ public class WithdrawalApplicationService {
         }
         if (!java.security.MessageDigest.isEqual(
                 transfer.requestSha256(),
-                transferRequestHash(request))) {
+                userConfirmTransferRequestHash(request))) {
             return null;
         }
-        return request;
+        return TransferSubmission.userConfirm(request);
     }
 
-    private static byte[] transferRequestHash(
+    private static byte[] userConfirmTransferRequestHash(
             MerchantTransferRequest request) {
         String canonical = "TRANSFER_REQUEST_V2|"
                 + requestField(request.mchid())
@@ -2424,6 +2592,22 @@ public class WithdrawalApplicationService {
                 + requestField(request.transferPageStyle())
                 + java.util.HexFormat.of().formatHex(
                 RechargeApplicationService.sha256(request.notifyUrl()));
+        return RechargeApplicationService.sha256(canonical);
+    }
+
+    private static byte[] authorizedTransferRequestHash(
+            AuthorizedMerchantTransferRequest request) {
+        String canonical = "AUTHORIZED_TRANSFER_REQUEST_V2|"
+                + requestField(request.mchid())
+                + requestField(request.appid())
+                + requestField(request.outBillNo())
+                + request.amountCent() + "|"
+                + requestField(request.sceneId())
+                + requestField(request.reportType())
+                + requestField(request.reportContent())
+                + requestField(request.remark())
+                + requestField(request.authorizationId())
+                + requestField(request.expectedOpenid());
         return RechargeApplicationService.sha256(canonical);
     }
 
@@ -2566,6 +2750,13 @@ public class WithdrawalApplicationService {
         return value.asLong();
     }
 
+    private static Long nullableLong(
+            java.sql.ResultSet rs,
+            String field) throws java.sql.SQLException {
+        long value = rs.getLong(field);
+        return rs.wasNull() ? null : value;
+    }
+
     private static Instant parseInstant(String value) {
         return java.time.OffsetDateTime.parse(value).toInstant();
     }
@@ -2626,7 +2817,7 @@ public class WithdrawalApplicationService {
 
     private record BindingRow(
             long bindingId, long miniappId, long merchantId,
-            String appid, String mchid) {
+            String appid, String mchid, String sceneId) {
     }
 
     private record GateRow(
@@ -2644,27 +2835,78 @@ public class WithdrawalApplicationService {
             TransferSnapshot transfer,
             UUID gateWaitEventUid,
             boolean newlyCreated,
-            String blockedReason) {
+            String blockedReason,
+            String completedReason) {
 
         static TransferPreparation created(TransferSnapshot transfer) {
-            return new TransferPreparation(transfer, null, true, null);
+            return new TransferPreparation(
+                    transfer, null, true, null, null);
         }
 
         static TransferPreparation existing(TransferSnapshot transfer) {
-            return new TransferPreparation(transfer, null, false, null);
+            return new TransferPreparation(
+                    transfer, null, false, null, null);
         }
 
         static TransferPreparation waiting(UUID gateWaitEventUid) {
             return new TransferPreparation(
-                    null, gateWaitEventUid, false, null);
+                    null, gateWaitEventUid, false, null, null);
         }
 
         static TransferPreparation localWait() {
-            return new TransferPreparation(null, null, false, null);
+            return new TransferPreparation(
+                    null, null, false, null, null);
         }
 
         static TransferPreparation blocked(String reason) {
-            return new TransferPreparation(null, null, false, reason);
+            return new TransferPreparation(
+                    null, null, false, reason, null);
+        }
+
+        static TransferPreparation completed(String reason) {
+            return new TransferPreparation(
+                    null, null, false, null, reason);
+        }
+    }
+
+    private record TransferSubmission(
+            MerchantTransferRequest userConfirmRequest,
+            AuthorizedMerchantTransferRequest authorizedRequest,
+            byte[] requestSha256) {
+
+        private TransferSubmission {
+            requestSha256 = requestSha256.clone();
+            if ((userConfirmRequest == null)
+                    == (authorizedRequest == null)) {
+                throw new IllegalArgumentException(
+                        "exactly one transfer request is required");
+            }
+        }
+
+        static TransferSubmission userConfirm(
+                MerchantTransferRequest request) {
+            return new TransferSubmission(
+                    request, null,
+                    userConfirmTransferRequestHash(request));
+        }
+
+        static TransferSubmission authorized(
+                AuthorizedMerchantTransferRequest request) {
+            return new TransferSubmission(
+                    null, request,
+                    authorizedTransferRequestHash(request));
+        }
+
+        @Override
+        public byte[] requestSha256() {
+            return requestSha256.clone();
+        }
+
+        MerchantTransferResult submit(
+                MerchantTransferChannelPort channel) {
+            return authorizedRequest == null
+                    ? channel.submit(userConfirmRequest)
+                    : channel.submitAuthorized(authorizedRequest);
         }
     }
 
@@ -2691,6 +2933,8 @@ public class WithdrawalApplicationService {
             long userId, long walletId, long accountId, long amountCent,
             long configId, long configVersion, long bindingId, long miniappId,
             long merchantId, String mchid, String appid, String openid,
+            String collectionMode, Long authorizationRowId,
+            String outAuthorizationNo, String authorizationId,
             String state, boolean negativePause, boolean postBoundaryRisk,
             LocalDateTime channelBoundaryAt, LocalDateTime longUnsettledAt,
             long version,
@@ -2709,13 +2953,15 @@ public class WithdrawalApplicationService {
             WithdrawalRow withdrawal) {
 
         private TransferSnapshot {
-            notifyUrlSha256 = notifyUrlSha256.clone();
+            notifyUrlSha256 = notifyUrlSha256 == null
+                    ? null : notifyUrlSha256.clone();
             requestSha256 = requestSha256.clone();
         }
 
         @Override
         public byte[] notifyUrlSha256() {
-            return notifyUrlSha256.clone();
+            return notifyUrlSha256 == null
+                    ? null : notifyUrlSha256.clone();
         }
 
         @Override

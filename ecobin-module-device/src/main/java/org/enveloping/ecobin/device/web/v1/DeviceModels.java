@@ -41,7 +41,19 @@ public final class DeviceModels {
             @NotBlank @Size(max = 64) String hardwareSn,
             @NotBlank @Size(max = 100) String modelCode,
             @Size(max = 64) String productionBatch,
-            @NotNull @Min(1) @Max(6) Integer expectedPortCount) {
+            @NotNull @Min(1) @Max(6) Integer expectedPortCount,
+            @NotEmpty @Size(max = 6)
+            List<@Valid FactoryInstalledBagRequest> factoryBags) {
+
+        public CreateDeviceAssetRequest {
+            factoryBags = factoryBags == null
+                    ? null : List.copyOf(factoryBags);
+        }
+    }
+
+    public record FactoryInstalledBagRequest(
+            @NotNull @Min(1) @Max(6) Integer portNo,
+            @NotBlank @Size(min = 8, max = 64) String bagCode) {
     }
 
     public record ComputedOneNetMapping(
@@ -50,72 +62,68 @@ public final class DeviceModels {
             boolean currentComputedValue) {
     }
 
-    public record CurrentDeploymentSummary(
-            String deploymentCode,
-            String tenantCode,
-            String organizationCode,
-            String lifecycleStatus,
-            boolean businessEnabled) {
-    }
-
     public record DeviceAssetView(
+            UUID assetUid,
+            String deviceCode,
             String hardwareSn,
             String modelCode,
             String productionBatch,
             int expectedPortCount,
+            String tenantCode,
+            String organizationCode,
+            String acceptanceStatus,
+            String miniappQrStatus,
             String lifecycleStatus,
-            CurrentDeploymentSummary currentDeployment,
             long version,
+            Instant tenantAssignedAt,
+            Instant organizationAssignedAt,
+            Instant acceptedAt,
+            Instant disabledAt,
+            Instant retiredAt,
             Instant createdAt,
             Instant updatedAt,
             ComputedOneNetMapping oneNetMapping) {
     }
 
-    public record CreateDeploymentRequest(
-            @NotBlank @Size(max = 64) String hardwareSn,
-            @NotNull @Min(0) Long expectedAssetVersion) {
+    public record AssignTenantRequest(
+            @NotBlank @Size(max = 32) String tenantCode,
+            @NotNull @Min(0) Long expectedVersion) {
     }
 
-    public record DeploymentAssetSummary(
-            String hardwareSn,
-            String modelCode,
-            int expectedPortCount,
-            String lifecycleStatus,
-            long version) {
+    public record AssignOrganizationRequest(
+            @NotBlank @Size(max = 32) String organizationCode,
+            @NotNull @Min(0) Long expectedVersion) {
     }
 
-    public record DeploymentView(
-            String deploymentCode,
-            String tenantCode,
-            String organizationCode,
-            DeploymentAssetSummary asset,
-            String lifecycleStatus,
-            boolean businessEnabled,
-            int portCount,
-            Long latestConfigurationVersion,
-            Long appliedConfigurationVersion,
-            String configurationApplicationStatus,
-            String edgeConnectionStatus,
-            String oneNetConnectionStatus,
-            Instant oneNetStatusObservedAt,
-            Instant trustedRuntimeReceivedAt,
-            long version,
-            Instant commissionedAt,
-            Instant enabledAt,
-            Instant createdAt,
-            Instant updatedAt) {
-    }
-
-    public record DeploymentVersionCommand(
+    public record DeviceControlRequest(
             @NotNull @Min(0) Long expectedVersion,
-            @Size(max = 500) String reason) {
+            @NotBlank @Size(max = 500) String reason) {
     }
 
-    public record ActivateDeploymentRequest(
-            @NotNull @Min(0) Long expectedVersion,
-            @NotNull @Min(1) Long expectedConfigurationVersion,
-            @NotNull Boolean acceptanceConfirmed,
-            @Size(max = 500) String reason) {
+    public record AcceptanceEvidenceView(
+            UUID evidenceUid,
+            int schemaVersion,
+            String edgeSoftwareVersion,
+            String edgeProtocolVersion,
+            boolean oneNetOnline,
+            boolean persistentStoreHealthy,
+            boolean trustedTimeHealthy,
+            boolean configurationPersistenceHealthy,
+            boolean mcuCommunicationHealthy,
+            boolean sensorsHealthy,
+            boolean camerasCaptureHealthy,
+            boolean cameraUploadHealthy,
+            boolean mcuSimulated,
+            boolean camerasSimulated,
+            String evaluationStatus,
+            List<String> failureReasons,
+            String evidenceSha256,
+            Instant observedAt,
+            Instant receivedAt) {
+
+        public AcceptanceEvidenceView {
+            failureReasons = List.copyOf(failureReasons);
+        }
     }
 
     public record PortView(
@@ -156,11 +164,11 @@ public final class DeviceModels {
             long runtimeVersion) {
     }
 
-    public record DeploymentRuntimeView(
-            String deploymentCode,
+    public record DeviceRuntimeView(
+            String deviceCode,
             String lifecycleStatus,
-            boolean businessEnabled,
-            long deploymentVersion,
+            String acceptanceStatus,
+            long version,
             RuntimeConfigurationSummary configuration,
             RuntimeHealthSummary health,
             boolean occupied,
@@ -169,7 +177,7 @@ public final class DeviceModels {
             List<String> deliveryBlockers,
             List<String> cleaningBlockers) {
 
-        public DeploymentRuntimeView {
+        public DeviceRuntimeView {
             deliveryBlockers = List.copyOf(deliveryBlockers);
             cleaningBlockers = List.copyOf(cleaningBlockers);
         }
@@ -185,7 +193,7 @@ public final class DeviceModels {
     }
 
     public record PortRuntimeView(
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String deliveryDoorState,
             String deliveryDoorActuatorHealth,
@@ -225,6 +233,11 @@ public final class DeviceModels {
         public ConfigurationReleaseRequest {
             ports = ports == null ? null : List.copyOf(ports);
         }
+    }
+
+    public record ConfigurationResynchronizationRequest(
+            @NotNull @Min(0) Long expectedVersion,
+            @NotBlank @Size(max = 500) String reason) {
     }
 
     public record ConfigurationDeviceRequest(
@@ -338,7 +351,7 @@ public final class DeviceModels {
     }
 
     public record ConfigurationVersionView(
-            String deploymentCode,
+            String deviceCode,
             long versionNo,
             int schemaVersion,
             String contentSha256,

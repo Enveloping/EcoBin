@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": null,
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1049,
   "eventType": "DEVICE_FAULT_OBSERVED",
   "eventUid": "87000000-0000-4000-8000-000000000002",
@@ -17,9 +16,9 @@
     "severity": "BLOCK_PORT"
   },
   "payloadSha256": "4711fadf22af7fdee5e36b974f0df47d5b5dca39e51f7f43fe74975702f9e7e8",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
-    "type": "DEVICE_DEPLOYMENT",
-    "uid": "Dp_demo_01"
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
   }
 }

@@ -138,7 +138,7 @@ class UartRegistryTests(unittest.TestCase):
                 "parity": "NONE",
                 "stopBits": 1,
                 "flowControl": "NONE",
-                "devicePath": "DEPLOYMENT_CONFIGURED",
+                "devicePath": "RUNTIME_CONFIGURED",
             },
             self.registry["physicalLink"],
         )
@@ -597,7 +597,7 @@ class OneNetSchemaTests(unittest.TestCase):
             "region": "region",
             "baseUrl": "https://example.invalid",
             "keyPrefix": (
-                "ecobin/Dp_demo_01/delivery-session/"
+                "ecobin/Dv_0123456789abcdefghijklmn/delivery-session/"
                 "30000000-0000-4000-8000-000000000001/"
             ),
             "expiresAt": "2026-07-24T02:00:00.000Z",

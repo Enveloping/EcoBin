@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": null,
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1045,
   "eventType": "FULLNESS_STATE_CHANGED",
   "eventUid": "51000000-0000-4000-8000-000000000002",
@@ -43,7 +42,7 @@
     "weightFull": true
   },
   "payloadSha256": "71bc3cf128131c8c8d899c3ac1f22d039520692eb672aeb8d086f77dee8dacea",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "PORT_FULLNESS_STATE",
     "uid": "51000000-0000-4000-8000-000000000001"

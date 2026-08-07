@@ -1,5 +1,7 @@
 import { http } from '../utils/request'
 import type {
+  MerchantTransferAuthorizationAcceptedView,
+  MerchantTransferAuthorizationView,
   MerchantTransferConfirmationView,
   WithdrawalConfigurationView,
   WithdrawalPage,
@@ -7,6 +9,8 @@ import type {
 } from '../types/api'
 
 const COLLECTION = '/api/v1/miniapp/me/withdrawals'
+const AUTHORIZATION =
+  '/api/v1/miniapp/me/merchant-transfer-authorization'
 
 export interface WithdrawalListQuery {
   status?: string
@@ -62,5 +66,33 @@ export function merchantTransferConfirmation(withdrawalNo: string) {
       + '/merchant-transfer-confirmation',
     undefined,
     { noStore: true },
+  )
+}
+
+export function merchantTransferAuthorization(toast = true) {
+  return http.get<MerchantTransferAuthorizationView>(
+    AUTHORIZATION,
+    undefined,
+    { toast, noStore: true },
+  )
+}
+
+export function createMerchantTransferAuthorization(
+  idempotencyKey: string,
+) {
+  return http.post<MerchantTransferAuthorizationAcceptedView>(
+    `${AUTHORIZATION}-requests`,
+    {},
+    { idempotencyKey, noStore: true },
+  )
+}
+
+export function queryMerchantTransferAuthorization(
+  idempotencyKey: string,
+) {
+  return http.post<MerchantTransferAuthorizationAcceptedView>(
+    `${AUTHORIZATION}/queries`,
+    {},
+    { idempotencyKey, noStore: true },
   )
 }

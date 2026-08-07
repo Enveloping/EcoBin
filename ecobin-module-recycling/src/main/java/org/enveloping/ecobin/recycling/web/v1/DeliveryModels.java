@@ -25,7 +25,7 @@ public final class DeliveryModels {
             UUID sessionUid,
             String status,
             String phase,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             Instant startedAt,
             Instant endedAt,
@@ -36,7 +36,7 @@ public final class DeliveryModels {
     }
 
     public record DeliveryOptionsView(
-            String deploymentCode,
+            String deviceCode,
             String displayName,
             String address,
             boolean deviceBusy,

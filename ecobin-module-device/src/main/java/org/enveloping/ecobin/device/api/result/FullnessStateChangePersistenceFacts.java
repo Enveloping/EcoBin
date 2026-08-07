@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 public record FullnessStateChangePersistenceFacts(
         long tenantId,
         long organizationId,
-        long deploymentId,
+        long assetId,
         long portId,
         long edgeEventId,
         long stateFactId,

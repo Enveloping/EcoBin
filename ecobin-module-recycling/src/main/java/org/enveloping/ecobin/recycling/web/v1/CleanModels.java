@@ -36,7 +36,7 @@ public final class CleanModels {
             UUID operationUid,
             String status,
             long version,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String removedBagQr,
             String installedBagQr,
@@ -52,7 +52,7 @@ public final class CleanModels {
     }
 
     public record CleanOptionsView(
-            String deploymentCode,
+            String deviceCode,
             String displayName,
             String address,
             boolean deviceBusy,

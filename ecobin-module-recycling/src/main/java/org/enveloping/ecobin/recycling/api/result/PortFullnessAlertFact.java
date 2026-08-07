@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public record PortFullnessAlertFact(
         PortFullnessAlertScopeRef scopeRef,
-        String deploymentCode,
+        String deviceCode,
         int portNo,
         String state,
         UUID stateChangeUid,

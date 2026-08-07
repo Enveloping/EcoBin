@@ -240,7 +240,7 @@ test('organization delivery rules stay versioned and share one Web panel', () =>
   assert.doesNotMatch(configurationSource, /randomUUID|Math\.random/);
 });
 
-test('device access Web slice keeps physical facts, commands and proofs separate', () => {
+test('device Web slice keeps one permanent asset and automatic activation model', () => {
   const apiSource = readFileSync(
     new URL('src/api/deviceDirectory.ts', webRoot),
     'utf8',
@@ -255,28 +255,7 @@ test('device access Web slice keeps physical facts, commands and proofs separate
   );
   const drawerSource = readFileSync(
     new URL(
-      'src/pages/device-management/DeviceAccessDrawer.tsx',
-      webRoot,
-    ),
-    'utf8',
-  );
-  const configurationSource = readFileSync(
-    new URL(
-      'src/pages/device-management/DeviceConfigurationModal.tsx',
-      webRoot,
-    ),
-    'utf8',
-  );
-  const assetDrawerSource = readFileSync(
-    new URL(
       'src/pages/device-management/DeviceAssetDrawer.tsx',
-      webRoot,
-    ),
-    'utf8',
-  );
-  const presentationSource = readFileSync(
-    new URL(
-      'src/pages/device-management/devicePresentation.ts',
       webRoot,
     ),
     'utf8',
@@ -288,70 +267,27 @@ test('device access Web slice keeps physical facts, commands and proofs separate
 
   assert.match(apiSource, /Schemas\['DeviceAsset'\]/);
   assert.match(apiSource, /operations\['listPlatformDeviceAssets'\]/);
-  assert.match(apiSource, /createOrganizationDeviceDeploymentFromTenantPool/);
-  assert.match(apiSource, /allocatePlatformDeviceAssetToTenant/);
-  assert.match(apiSource, /returnDeviceDeploymentToTenantPool/);
-  assert.match(apiSource, /getPlatformDeviceAcceptanceReadiness/);
-  assert.match(apiSource, /acceptPlatformDeviceDeployment/);
-  assert.match(apiSource, /suspendPlatformDeviceDeploymentTechnically/);
-  assert.doesNotMatch(apiSource, /createPlatformDeviceDeployment/);
-  assert.doesNotMatch(apiSource, /activateDeviceDeployment/);
-  assert.doesNotMatch(apiSource, /deactivateDeviceDeployment/);
-  assert.doesNotMatch(apiSource, /ActivateDeviceDeploymentRequest/);
-  assert.doesNotMatch(generatedSource, /ActivateDeviceDeploymentRequest/);
-  assert.doesNotMatch(
-    generatedSource,
-    /device-deployments\/\{deploymentCode\}\/activations/,
-  );
-  assert.doesNotMatch(
-    generatedSource,
-    /device-deployments\/\{deploymentCode\}\/deactivations/,
-  );
+  assert.match(apiSource, /assignPlatformDeviceTenant/);
+  assert.match(apiSource, /assignTenantDeviceOrganization/);
+  assert.match(apiSource, /listDeviceAcceptanceEvidence/);
+  assert.match(apiSource, /reevaluateDeviceAcceptance/);
+  assert.match(apiSource, /\/organizations\/\$\{encodeURIComponent[\s\S]*?\/devices/);
   assert.match(apiSource, /intent\.executeAccepted/);
   assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
-  assert.match(pageSource, /平台物理设备资产/);
-  assert.match(pageSource, /这不表示 OneNet 设备或密钥已创建/);
-  assert.match(pageSource, /租户设备池/);
-  assert.match(pageSource, /oneNetConnectionStatus/);
-  assert.match(pageSource, /OneNet 传输/);
-  assert.match(pageSource, /业务有效在线/);
-  assert.match(pageSource, /expectedAllocationVersion:\s*deployingAllocation\.allocationVersion/);
-  assert.match(
-    pageSource,
-    /tenantPrincipal\s*\|\|\s*hasCapability\('device\.allocation\.manage'\)/,
-  );
-  assert.match(pageSource, /\.\.\.\(canManageTenantPool\s*\?\s*\[\{/);
-  assert.match(pageSource, /\]\s*:\s*canManageTenantPool\s*\?\s*\[/);
-  assert.match(drawerSource, /requestSequence/);
-  assert.match(drawerSource, /recommendedPollAfterMs/);
-  assert.match(drawerSource, /oneNetStatusObservedAt/);
-  assert.match(drawerSource, /trustedRuntimeReceivedAt/);
-  assert.match(drawerSource, /两层在线事实不能互相替代/);
-  assert.match(drawerSource, /OneNet 已连接，但业务运行事实不可用/);
-  assert.match(drawerSource, /device\.business\.manage/);
-  assert.match(drawerSource, /device\.allocation\.manage/);
-  assert.match(drawerSource, /canManageBusiness = !platform/);
-  assert.match(drawerSource, /AUTOMATIC_TRANSFER_READINESS/);
-  assert.match(drawerSource, /deliveryDoorObservedNormal/);
-  assert.match(drawerSource, /expectedDeploymentVersion:\s*deployment\.version/);
-  assert.match(drawerSource, /acceptanceForm\.resetFields\(\)/);
-  assert.match(drawerSource, /setAcceptanceOpen\(false\)/);
-  assert.doesNotMatch(drawerSource, /activateDeviceDeployment|deactivateDeviceDeployment/);
-  assert.match(drawerSource, /device\.configuration\.manage/);
-  assert.match(assetDrawerSource, /requestSequence/);
-  assert.match(assetDrawerSource, /DEVICE\.CREDENTIAL_ROTATION_REQUIRED/);
-  assert.match(assetDrawerSource, /details\.blockers/);
-  assert.match(assetDrawerSource, /expectedAssetVersion:\s*asset\.version/);
-  assert.match(assetDrawerSource, /expectedAllocationVersion:\s*reclaiming\.allocationVersion/);
-  assert.match(assetDrawerSource, /reclaimForm\.resetFields\(\)/);
-  assert.match(assetDrawerSource, /setReclaiming\(undefined\)/);
-  assert.match(presentationSource, /DEVICE_OFFLINE/);
-  assert.match(presentationSource, /DEVICE_IDENTITY_UNRESOLVED/);
-  assert.match(
-    configurationSource,
-    /expectedLatestVersion:\s*latest\?\.versionNo \?\? 0/,
-  );
-  assert.match(configurationSource, /negativeWeightThresholdGram/);
+  assert.match(pageSource, /永久设备资产/);
+  assert.match(pageSource, /永久分配租户/);
+  assert.match(pageSource, /永久分配机构/);
+  assert.match(pageSource, /factoryBags/);
+  assert.match(pageSource, /联网即可使用/);
+  assert.match(drawerSource, /mcuSimulated/);
+  assert.match(drawerSource, /camerasSimulated/);
+  assert.match(drawerSource, /真实设备联网后会自动提交验收证据/);
+  assert.match(drawerSource, /expectedLatestVersion:\s*current\.versionNo/);
+  assert.match(drawerSource, /系统会自动下发配置并测量厂家初始袋皮重/);
+  assert.doesNotMatch(apiSource, /device-deployments|deploymentCode|TenantPool/);
+  assert.doesNotMatch(pageSource, /部署进度|租户设备池|经营开关状态/);
+  assert.doesNotMatch(drawerSource, /人工验收|现场验收|手动开启/);
+  assert.doesNotMatch(generatedSource, /deploymentCode|device-deployments/);
   assert.match(commandIntentSource, /requestAccepted/);
 });
 

@@ -1,5 +1,5 @@
 {
-  "mappingVersion": "1.0.0-rc.3",
+  "mappingVersion": "2.0.0",
   "status": "IMPLEMENTATION_CANDIDATE",
   "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "transport": {
@@ -26,32 +26,31 @@
       "region": "ap-guangzhou",
       "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com"
     },
-    "notes": "contractTestProfile 只用于契约示例；生产环境必须从可信部署配置注入同形值，不能信任设备或命令载荷自行声明的 COS 环境。"
+    "notes": "contractTestProfile 只用于契约示例；生产环境必须从可信运行配置注入同形值，不能信任设备或命令载荷自行声明的 COS 环境。"
   },
   "canonicalization": {
     "algorithm": "RFC8785-JCS",
     "digest": "SHA-256",
     "jsonNumberPolicy": "integers-only",
     "payloadSha256Scope": "payload only",
-    "commandCanonicalDomain": "ECOBIN:ONENET:COMMAND:v1\\0",
+    "commandCanonicalDomain": "ECOBIN:ONENET:COMMAND:v2\\0",
     "commandCanonicalFields": [
       "schemaVersion",
       "commandUid",
       "commandType",
-      "deploymentCode",
+      "targetDeviceName",
       "target",
       "issuedAt",
       "expiresAt",
       "payloadSchemaVersion",
       "payloadSha256"
     ],
-    "eventCanonicalDomain": "ECOBIN:ONENET:EVENT:v1\\0",
+    "eventCanonicalDomain": "ECOBIN:ONENET:EVENT:v2\\0",
     "eventCanonicalFields": [
       "trustedSource.productId",
       "trustedSource.deviceName",
       "schemaVersion",
       "eventUid",
-      "deploymentCode",
       "edgeEventSequence",
       "eventType",
       "deliveryClass",
@@ -149,6 +148,13 @@
       "schemaRef": "commands/commands.schema.json#/$defs/providePhotoUploadGrantCommand",
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": true
+    },
+    "requestDeviceAcceptance": {
+      "commandType": "REQUEST_DEVICE_ACCEPTANCE",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "commands/commands.schema.json#/$defs/requestDeviceAcceptanceCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": true
     }
   },
   "events": {
@@ -197,19 +203,19 @@
     "deviceFaultObserved": {
       "eventType": "DEVICE_FAULT_OBSERVED",
       "deliveryClass": "RELIABLE_FACT",
-      "targetType": "DEVICE_DEPLOYMENT",
+      "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceFaultObservedEvent"
     },
     "deviceFaultRecovered": {
       "eventType": "DEVICE_FAULT_RECOVERED",
       "deliveryClass": "RELIABLE_FACT",
-      "targetType": "DEVICE_DEPLOYMENT",
+      "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceFaultRecoveredEvent"
     },
     "safetySensorStateChanged": {
       "eventType": "SAFETY_SENSOR_STATE_CHANGED",
       "deliveryClass": "RELIABLE_FACT",
-      "targetType": "DEVICE_DEPLOYMENT",
+      "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/safetySensorStateChangedEvent"
     },
     "photoStatusReported": {
@@ -233,8 +239,14 @@
     "deviceRuntimeSnapshot": {
       "eventType": "DEVICE_RUNTIME_SNAPSHOT",
       "deliveryClass": "TELEMETRY_SNAPSHOT",
-      "targetType": "DEVICE_DEPLOYMENT",
+      "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceRuntimeSnapshotEvent"
+    },
+    "deviceAcceptanceEvidence": {
+      "eventType": "DEVICE_ACCEPTANCE_EVIDENCE",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "events/events.schema.json#/$defs/deviceAcceptanceEvidenceEvent"
     }
   },
   "semanticChecksBeyondJsonSchema": [
@@ -246,12 +258,13 @@
     "CLEAN_COMPLETE has exactly the four cleaning slots",
     "CLEAN_COMPLETE requires cleaner confirmation and DEENERGIZED/CLOSED inferred from lock power",
     "eventType to deliveryClass mapping cannot be downgraded by the device",
-    "edgeEventSequence is unique and monotonic within deploymentCode",
+    "edgeEventSequence is unique and monotonic within the authenticated OneNet device",
     "cosGrant is excluded from payloadSha256 and never persisted or logged as stable content",
     "APPLY_CONFIGURATION ports and runtime snapshot ports are unique, ordered and contiguous from 1",
     "configuration stages, command observation stages and receipt outcomes enforce their error/mcu identity relationships",
-    "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind deployment, work, slot and photo identity",
+    "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind work, slot and photo identity",
     "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation"
+    ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence"
   ],
   "forbiddenLegacyIdentifiers": [
     "openDeliveryDoor",
@@ -260,7 +273,10 @@
     "cleanGross",
     "cleanTare",
     "spillAlarm-v0",
-    "unitPrice-float"
+    "unitPrice-float",
+    "deploymentCode",
+    "DEVICE_DEPLOYMENT",
+    "Dp_"
   ],
   "enumDisplay": {
     "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
@@ -274,12 +290,15 @@
     "PHOTO_UPLOAD_GRANT_REQUESTED": "PHOTO_GRANT_REQ",
     "BUSINESS_CONFIRMATION_RECEIPT": "BIZ_CONFIRM_RCPT",
     "DEVICE_RUNTIME_SNAPSHOT": "DEV_RUNTIME_SNAP",
+    "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
+    "DEVICE_ASSET": "DEVICE_ASSET",
     "START_DELIVERY_SESSION": "START_DELIV_SESSION",
     "START_CLEAN_OPERATION": "START_CLEAN_OPT",
     "END_CLEAN_BEFORE_UNLOCK": "END_CLEAN_PRE_UNLOCK",
     "RESUME_CLEAN_OPERATION": "RESUME_CLEAN_OPT",
     "MEASURE_EMPTY_BAG_BASELINE": "MEAS_BAG_BASELINE",
     "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
+    "REQUEST_DEVICE_ACCEPTANCE": "REQUEST_DEV_ACCEPT",
     "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",
     "BASELINE_MEASUREMENT": "BASELINE_MEAS",
     "BUSINESS_CONFIRMATION": "BIZ_CONFIRMATION",

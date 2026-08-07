@@ -6,7 +6,7 @@
     "bucket": "ecobin-contract-1250000000",
     "expiresAt": "2026-07-24T01:30:00.000Z",
     "grantUid": "71000000-0000-4000-8000-000000000004",
-    "keyPrefix": "ecobin/Dp_demo_01/clean-operation/40000000-0000-4000-8000-000000000001/",
+    "keyPrefix": "ecobin/clean-operation/40000000-0000-4000-8000-000000000001/",
     "region": "ap-guangzhou",
     "sessionTokenParts": [
       "TOKEN_4_PART_1",
@@ -15,7 +15,6 @@
     "tmpSecretId": "TMP_SECRET_ID_4",
     "tmpSecretKey": "TMP_SECRET_KEY_4"
   },
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -31,11 +30,12 @@
     "portNo": 2,
     "recoveryGeneration": 1
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "3b1dc10f9b915ba72757934d7fda6118252ee7d2ed714ede6ab63cca078366c2",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "CLEAN_OPERATION",
     "uid": "40000000-0000-4000-8000-000000000001"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

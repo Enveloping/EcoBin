@@ -51,7 +51,20 @@ function Invoke-Docker {
 
     $output = & docker @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "Docker command failed with exit code $LASTEXITCODE"
+        $diagnostic = ($output -join "`n")
+        foreach ($secret in @(
+            $rootPassword,
+            $schemaOwnerPassword,
+            $appPassword
+        )) {
+            if ($secret.Length -gt 0) {
+                $diagnostic = $diagnostic.Replace($secret, "[REDACTED]")
+            }
+        }
+        throw (
+            "Docker command failed with exit code $LASTEXITCODE`n" +
+            $diagnostic
+        )
     }
     return @($output)
 }
@@ -274,6 +287,20 @@ function Start-TestApplication {
         "--dbUsername=ecobin_app",
         "--dbPassword=$appPassword",
         "--externalMode=fake",
+        "--ecobin.development.default-platform-admin.enabled=false",
+        "--ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
+        "--ecobin.operations.reliable.workers-enabled=false",
+        "--onenet.subscription.enabled=false",
+        "--onenet.subscription.access-id=",
+        "--onenet.subscription.secret-key=",
+        "--onenet.subscription.subscription-name=",
+        "--onenet.product-id=",
+        "--onenet.access-key=",
+        "--cos.secret-id=",
+        "--cos.secret-key=",
+        "--cos.region=",
+        "--cos.bucket-name=",
+        "--cos.base-url=",
         "--server.port=$Port",
         "--spring.datasource.hikari.connection-timeout=3000",
         "--spring.datasource.hikari.initialization-fail-timeout=1",
@@ -290,6 +317,7 @@ function Start-TestApplication {
         -PassThru
     $script:applicationProcesses += $process
     return [pscustomobject]@{
+        Database = $Database
         Process = $process
         StdoutPath = $stdoutPath
         StderrPath = $stderrPath
@@ -337,7 +365,19 @@ function Assert-ApplicationReady {
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
         $Run.Process.Refresh()
         if ($Run.Process.HasExited) {
-            throw "correct V10 application exited before readiness"
+            $diagnostic = Get-ApplicationLog -Run $Run
+            foreach ($secret in @(
+                $rootPassword,
+                $schemaOwnerPassword,
+                $appPassword
+            )) {
+                $diagnostic = $diagnostic.Replace($secret, "[REDACTED]")
+            }
+            if ($diagnostic.Length -gt 8000) {
+                $diagnostic = $diagnostic.Substring(
+                    $diagnostic.Length - 8000)
+            }
+            throw "correct V36 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -375,7 +415,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V10 application did not become ready; " +
+    throw "correct V36 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -395,7 +435,22 @@ function Assert-ApplicationRejected {
     }
     $log = Get-ApplicationLog -Run $Run
     if ($log -notmatch $ReasonPattern) {
-        throw "application rejection did not expose the expected guard reason"
+        $diagnostic = $log
+        foreach ($secret in @(
+            $rootPassword,
+            $schemaOwnerPassword,
+            $appPassword
+        )) {
+            $diagnostic = $diagnostic.Replace($secret, "[REDACTED]")
+        }
+        if ($diagnostic.Length -gt 4000) {
+            $diagnostic = $diagnostic.Substring(
+                $diagnostic.Length - 4000)
+        }
+        throw (
+            "application rejection for $($Run.Database) did not expose " +
+            "expected reason '$ReasonPattern'`n$diagnostic"
+        )
     }
 }
 
@@ -470,10 +525,12 @@ try {
     }
     $ApplicationJar = (Resolve-Path $ApplicationJar).Path
 
-    $javaCommand = Get-Command `
-        $JavaExecutable `
-        -CommandType Application `
-        -ErrorAction Stop
+    $javaCommand = @(
+        Get-Command `
+            $JavaExecutable `
+            -CommandType Application `
+            -ErrorAction Stop
+    )[0]
     $JavaExecutable = $javaCommand.Source
     $javaVersion = (& $JavaExecutable -version 2>&1) -join "`n"
     if ($javaVersion -notmatch 'version "21\.') {
@@ -540,12 +597,15 @@ try {
 
     $ready = $false
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        $containerLogs = (& docker logs $containerName 2>&1) -join "`n"
         & docker exec `
             -e "MYSQL_PWD=$rootPassword" `
             $containerName `
             mysql -uroot --batch --skip-column-names `
             --execute "SELECT 1;" *> $null
-        if ($LASTEXITCODE -eq 0) {
+        if ($LASTEXITCODE -eq 0 -and
+                $containerLogs -match
+                    "MySQL init process done\. Ready for start up\.") {
             $ready = $true
             break
         }
@@ -601,14 +661,6 @@ SET description = 'init schema',
     script = 'V1__init_schema.sql',
     checksum = -123
 WHERE version = '1';
-INSERT INTO ``$($databaseNames.Legacy)``.flyway_schema_history (
-    installed_rank, version, description, type, script, checksum,
-    installed_by, execution_time, success
-) VALUES
-    (11, '11', 'legacy 11', 'SQL', 'V11__legacy.sql', 11, 'legacy', 0, 1),
-    (12, '12', 'legacy 12', 'SQL', 'V12__legacy.sql', 12, 'legacy', 0, 1),
-    (13, '13', 'legacy 13', 'SQL', 'V13__legacy.sql', 13, 'legacy', 0, 1),
-    (14, '14', 'legacy 14', 'SQL', 'V14__legacy.sql', 14, 'legacy', 0, 1);
 
 CREATE TABLE ``$($databaseNames.WrongV1)``.flyway_schema_history
     LIKE ``$($databaseNames.Correct)``.flyway_schema_history;
@@ -674,13 +726,13 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 84) {
-        throw "correct target must contain 83 domain tables plus Flyway history"
+    if ($tableCount -ne 94) {
+        throw "correct target must contain 93 domain tables plus Flyway history"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
         -Sql "SELECT COUNT(*) FROM iam_permission_definition;")
-    if ($permissionCount -ne 71) {
+    if ($permissionCount -ne 76) {
         throw "target permission reference catalog is incomplete"
     }
     $businessRowsBefore = Get-BusinessRowCount `
@@ -810,7 +862,7 @@ WHERE schema_name = '$missingDatabase';
         )
     Assert-ApplicationRejected `
         -Run $credentialRun `
-        -ReasonPattern "Fake mode rejects all real OneNet, COS and WeChat credentials"
+        -ReasonPattern "Fake mode rejects all real OneNet and COS credentials"
 
     $fakeBypassRun = Start-TestApplication `
         -Database $databaseNames.Correct `
@@ -821,7 +873,7 @@ WHERE schema_name = '$missingDatabase';
         )
     Assert-ApplicationRejected `
         -Run $fakeBypassRun `
-        -ReasonPattern "only be disabled by legacy tests"
+        -ReasonPattern "Fake external ingress must remain blocked"
 
     $epochBypassRun = Start-TestApplication `
         -Database $databaseNames.Correct `
@@ -861,8 +913,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 10
-        domainTables = 83
+        targetVersion = 36
+        domainTables = 93
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -870,7 +922,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV10Ready = $true
+        correctV36Ready = $true
         fakeIngressBlocked = $true
         fakeIngressContextPathBlocked = $true
         fakeCredentialMixRejected = $true

@@ -9,7 +9,6 @@
           "clockQuality": 1,
           "commandUidPresent": false,
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1054,
           "eventType": 1,
           "eventUid": "87500000-0000-4000-8000-000000000001",
@@ -27,7 +26,7 @@
           "smokeState": 2,
           "target": {
             "type": 1,
-            "uid": "Dp_demo_01"
+            "uid": "SN-CONTRACT-0001"
           },
           "workType": 3,
           "workUid": "30000000-0000-4000-8000-000000000001",

@@ -2,7 +2,6 @@
   "commandType": "START_DELIVERY_SESSION",
   "commandUid": "30000000-0000-4000-8000-000000000003",
   "cosGrant": null,
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -19,11 +18,12 @@
     "sessionUid": "30000000-0000-4000-8000-000000000001",
     "unitPriceTenThousandths": 4500
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "de983ccb1cc90faffca18315e7483a402bd690dc36e6ccf0e85c7dffa06826fc",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "DELIVERY_SESSION",
     "uid": "30000000-0000-4000-8000-000000000001"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

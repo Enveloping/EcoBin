@@ -24,6 +24,12 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 
+/**
+ * 组装小程序投递页需要的只读视图。
+ *
+ * <p>recycling 在这里协调 identity、funds、device 与回收业务事实，但只做展示；
+ * 用户真正开始投递时，写用例仍会按固定锁序重新检查，避免查询后状态发生变化。</p>
+ */
 @Service
 public class MiniappDeliveryQueryService {
 
@@ -59,16 +65,15 @@ public class MiniappDeliveryQueryService {
     }
 
     /**
-     * A display-only snapshot. The POST start use case still repeats every
-     * eligibility check under its write locks.
+     * 返回展示快照。这里出现“可投递”不构成设备授权，POST 会在写锁下重复全部准入检查。
      */
     @Transactional(readOnly = true)
-    public DeliveryOptionsView deliveryOptions(String deploymentCode) {
+    public DeliveryOptionsView deliveryOptions(String deviceCode) {
         CurrentMiniappDeliveryIdentity current = identity.current();
         DeliveryDeviceOptionsSnapshot deviceOptions =
                 device.deliveryOptions(
                         new DeliveryDeviceOptionsQuery(
-                                deploymentCode,
+                                deviceCode,
                                 current.deliveryQueryUserRef()));
         DeliveryOptionsBusinessFacts businessOptions =
                 business.currentOptions(
@@ -101,7 +106,7 @@ public class MiniappDeliveryQueryService {
                                 userBlockers))
                         .toList();
         return new DeliveryOptionsView(
-                deviceOptions.deploymentCode(),
+                deviceOptions.deviceCode(),
                 deviceOptions.displayName(),
                 deviceOptions.address(),
                 deviceOptions.deviceBusy(),
@@ -127,7 +132,7 @@ public class MiniappDeliveryQueryService {
                 session.sessionUid(),
                 presentation.status(),
                 presentation.phase(),
-                session.deploymentCode(),
+                session.deviceCode(),
                 session.portNo(),
                 session.firstPhysicalProgressAt(),
                 session.endedAt(),
@@ -185,6 +190,7 @@ public class MiniappDeliveryQueryService {
 
     private static SessionPresentation presentSession(
             OwnedDeliverySessionSnapshot session) {
+        // 内部状态保留设备/恢复语义；对小程序只暴露用户能理解并采取行动的阶段。
         return switch (session.deviceStatus()) {
             case "PREPARED", "AUTHORIZATION_QUEUED" ->
                     active(

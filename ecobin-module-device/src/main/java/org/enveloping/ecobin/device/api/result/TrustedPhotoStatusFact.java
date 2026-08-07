@@ -4,13 +4,13 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * Photo terminal fact after transport identity, deployment and edge-event
+ * Photo terminal fact after transport identity, permanent asset and edge-event
  * identity have been authenticated by the device module.
  */
 public record TrustedPhotoStatusFact(
         long tenantId,
         long organizationId,
-        long deploymentId,
+        long assetId,
         long edgeEventId,
         UUID workUid,
         String workType,

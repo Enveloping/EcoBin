@@ -153,7 +153,7 @@ public class OperationalAlertProjectionService {
     private void projectDeviceFault(
             DeviceFaultAlertFact fault, LocalDateTime now) {
         byte[] aggregation = sha256("DEVICE_FAULT|"
-                + fault.deploymentCode() + '|'
+                + fault.deviceCode() + '|'
                 + (fault.portNo() == null ? "DEVICE" : fault.portNo()) + '|'
                 + fault.componentType() + '|' + fault.faultCode());
         if (!"OPEN".equals(fault.state())) {
@@ -171,7 +171,7 @@ public class OperationalAlertProjectionService {
                 fault.faultUid().toString(), aggregation,
                 fault.firstDetectedAt(), fault.lastDetectedAt(),
                 Map.of(
-                        "deploymentCode", fault.deploymentCode(),
+                        "deviceCode", fault.deviceCode(),
                         "portNo", fault.portNo() == null
                                 ? "DEVICE" : fault.portNo(),
                         "componentType", fault.componentType(),
@@ -185,14 +185,14 @@ public class OperationalAlertProjectionService {
     private void projectFullness(
             PortFullnessAlertFact fullness, LocalDateTime now) {
         byte[] aggregation = sha256("PORT_FULLNESS|"
-                + fullness.deploymentCode() + '|' + fullness.portNo());
+                + fullness.deviceCode() + '|' + fullness.portNo());
         if (!"FULL".equals(fullness.state())) {
             resolveAggregation("PORT_FULLNESS", aggregation,
                     fullness.reportedAt(), now);
             return;
         }
         String sourceKey = fullness.stateChangeUid() == null
-                ? "PORT:" + fullness.deploymentCode() + ':'
+                ? "PORT:" + fullness.deviceCode() + ':'
                 + fullness.portNo() + ':' + fullness.reportedAt().toEpochMilli()
                 : fullness.stateChangeUid().toString();
         fullness.scopeRef().withScopeOnce((tenantId, organizationId) -> {
@@ -202,7 +202,7 @@ public class OperationalAlertProjectionService {
                 "DOMAIN_FACT", "PORT_FULLNESS", sourceKey, aggregation,
                 fullness.reportedAt(), fullness.reportedAt(),
                 Map.of(
-                        "deploymentCode", fullness.deploymentCode(),
+                        "deviceCode", fullness.deviceCode(),
                         "portNo", fullness.portNo()),
                 now);
             return null;

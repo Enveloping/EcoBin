@@ -1,43 +1,20 @@
 import request from './request';
 import type { CommandIntent } from './commandIntent';
 import type { components, operations } from './generated/openapi';
-import type { DirectoryContext } from './identityDirectory';
 
 type Schemas = components['schemas'];
 
-export type DeviceDeployment = Schemas['DeviceDeployment'];
 export type DeviceAsset = Schemas['DeviceAsset'];
+export type DeviceAssetPage = Schemas['DeviceAssetPage'];
 export type DeviceAssetLifecycleStatus =
   Schemas['DeviceAssetLifecycleStatus'];
+export type DeviceAcceptanceStatus = Schemas['DeviceAcceptanceStatus'];
+export type DeviceAcceptanceEvidence = Schemas['DeviceAcceptanceEvidence'];
 export type CreateDeviceAssetRequest = Schemas['CreateDeviceAssetRequest'];
-export type DeviceTenantAllocation = Schemas['DeviceTenantAllocation'];
-export type DeviceTenantAllocationStatus =
-  Schemas['DeviceTenantAllocationStatus'];
-export type CreateDeviceTenantAllocationRequest =
-  Schemas['CreateDeviceTenantAllocationRequest'];
-export type CreateAllocatedDeviceDeploymentRequest =
-  Schemas['CreateAllocatedDeviceDeploymentRequest'];
-export type ReclaimDeviceTenantAllocationRequest =
-  Schemas['ReclaimDeviceTenantAllocationRequest'];
-export type ReturnDeviceDeploymentToTenantPoolRequest =
-  Schemas['ReturnDeviceDeploymentToTenantPoolRequest'];
-export type ConfirmOneNetCredentialRotationRequest =
-  Schemas['ConfirmOneNetCredentialRotationRequest'];
-export type ClearDeviceMaintenanceRequest =
-  Schemas['ClearDeviceMaintenanceRequest'];
-export type DeviceAcceptanceReadiness =
-  Schemas['DeviceAcceptanceReadiness'];
-export type DeviceDeploymentAcceptance =
-  Schemas['DeviceDeploymentAcceptance'];
-export type AcceptDeviceDeploymentRequest =
-  Schemas['AcceptDeviceDeploymentRequest'];
-export type OneNetCredentialRotationConfirmation =
-  Schemas['OneNetCredentialRotationConfirmation'];
-export type DeviceDeploymentLifecycleStatus =
-  Schemas['DeviceDeploymentLifecycleStatus'];
-export type DeviceDeploymentRuntime = Schemas['DeviceDeploymentRuntime'];
-export type DevicePort = Schemas['DevicePort'];
-export type DevicePortRuntime = Schemas['DevicePortRuntime'];
+export type AssignDeviceTenantRequest = Schemas['AssignDeviceTenantRequest'];
+export type AssignDeviceOrganizationRequest =
+  Schemas['AssignDeviceOrganizationRequest'];
+export type DeviceControlRequest = Schemas['DeviceControlRequest'];
 export type DeviceConfigurationApplicationStatus =
   Schemas['DeviceConfigurationApplicationStatus'];
 export type DeviceConfigurationApplication =
@@ -46,73 +23,29 @@ export type DeviceConfigurationAccepted =
   Schemas['DeviceConfigurationAccepted'];
 export type DeviceConfigurationReleaseRequest =
   Schemas['DeviceConfigurationReleaseRequest'];
+export type DeviceConfigurationResynchronizationRequest =
+  Schemas['DeviceConfigurationResynchronizationRequest'];
 export type DeviceConfigurationVersion =
   Schemas['DeviceConfigurationVersion'];
 export type DeviceConfigurationVersionSummary =
   Schemas['DeviceConfigurationVersionSummary'];
 export type DeviceConfigurationVersionPage =
   Schemas['DeviceConfigurationVersionPage'];
-export type DeviceDeploymentVersionCommand =
-  Schemas['DeviceDeploymentVersionCommand'];
-export type DeviceAssetListParams = NonNullable<
+
+export type PlatformDeviceAssetListParams = NonNullable<
   operations['listPlatformDeviceAssets']['parameters']['query']
 >;
-export type DeviceDeploymentListParams = NonNullable<
-  operations['listOrganizationDeviceDeployments']['parameters']['query']
+export type TenantDeviceAssetListParams = NonNullable<
+  operations['listTenantPermanentDeviceAssets']['parameters']['query']
 >;
-export type TenantDeviceAllocationListParams = NonNullable<
-  operations['listTenantDeviceAssetAllocations']['parameters']['query']
+export type OrganizationDeviceListParams = NonNullable<
+  operations['listOrganizationPermanentDevices']['parameters']['query']
 >;
-export type PlatformDeviceAllocationListParams = NonNullable<
-  operations['listPlatformDeviceAssetAllocations']['parameters']['query']
->;
-
-function deploymentCollectionUrl(
-  context: DirectoryContext,
-  organizationCode: string,
-): string {
-  const organization = encodeURIComponent(organizationCode);
-  if (context.domain === 'platform') {
-    if (!context.tenantCode) {
-      throw new Error('平台设备查询需要先选择目标租户');
-    }
-    return (
-      `/api/v1/web/platform/tenants/${encodeURIComponent(context.tenantCode)}`
-      + `/organizations/${organization}/device-deployments`
-    );
-  }
-  return `/api/v1/web/organizations/${organization}/device-deployments`;
-}
-
-function deploymentUrl(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-): string {
-  return `${deploymentCollectionUrl(context, organizationCode)}/${encodeURIComponent(
-    deploymentCode,
-  )}`;
-}
-
-function platformDeploymentUrl(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-): string {
-  if (context.domain !== 'platform' || !context.tenantCode) {
-    throw new Error('该操作需要平台管理员和显式租户范围');
-  }
-  return deploymentUrl(
-    context,
-    organizationCode,
-    deploymentCode,
-  );
-}
 
 export function listPlatformDeviceAssets(
-  params: DeviceAssetListParams = {},
+  params: PlatformDeviceAssetListParams = {},
 ) {
-  return request<Schemas['DeviceAssetPage']>({
+  return request<DeviceAssetPage>({
     url: '/api/v1/web/platform/device-assets',
     method: 'GET',
     params,
@@ -139,323 +72,155 @@ export function getPlatformDeviceAsset(hardwareSn: string) {
   });
 }
 
-export function listTenantDeviceAssetAllocations(
-  params: TenantDeviceAllocationListParams = {},
-) {
-  return request<Schemas['DeviceTenantAllocationPage']>({
-    url: '/api/v1/web/device-asset-allocations',
-    method: 'GET',
-    params,
-    noStore: true,
-  });
-}
-
-export function getTenantDeviceAssetAllocation(allocationUid: string) {
-  return request<DeviceTenantAllocation>({
-    url: `/api/v1/web/device-asset-allocations/${encodeURIComponent(allocationUid)}`,
-    method: 'GET',
-    noStore: true,
-  });
-}
-
-export function listPlatformDeviceAssetAllocations(
-  params: PlatformDeviceAllocationListParams = {},
-) {
-  return request<Schemas['DeviceTenantAllocationPage']>({
-    url: '/api/v1/web/platform/device-asset-allocations',
-    method: 'GET',
-    params,
-    noStore: true,
-  });
-}
-
-export function getPlatformDeviceAssetAllocation(allocationUid: string) {
-  return request<DeviceTenantAllocation>({
-    url:
-      '/api/v1/web/platform/device-asset-allocations/'
-      + encodeURIComponent(allocationUid),
-    method: 'GET',
-    noStore: true,
-  });
-}
-
-export function allocatePlatformDeviceAssetToTenant(
-  tenantCode: string,
-  data: CreateDeviceTenantAllocationRequest,
-  intent: CommandIntent,
-) {
-  return intent.execute<
-    DeviceTenantAllocation,
-    CreateDeviceTenantAllocationRequest
-  >({
-    url:
-      `/api/v1/web/platform/tenants/${encodeURIComponent(tenantCode)}`
-      + '/device-asset-allocations',
-    method: 'POST',
-    data,
-  });
-}
-
-export function reclaimPlatformDeviceAssetAllocation(
-  allocationUid: string,
-  data: ReclaimDeviceTenantAllocationRequest,
-  intent: CommandIntent,
-) {
-  return intent.execute<
-    DeviceTenantAllocation,
-    ReclaimDeviceTenantAllocationRequest
-  >({
-    url:
-      '/api/v1/web/platform/device-asset-allocations/'
-      + `${encodeURIComponent(allocationUid)}/reclaims`,
-    method: 'POST',
-    data,
-  });
-}
-
-export function confirmPlatformOneNetCredentialRotation(
+export function assignPlatformDeviceTenant(
   hardwareSn: string,
-  data: ConfirmOneNetCredentialRotationRequest,
+  data: AssignDeviceTenantRequest,
   intent: CommandIntent,
 ) {
-  return intent.execute<
-    OneNetCredentialRotationConfirmation,
-    ConfirmOneNetCredentialRotationRequest
-  >({
+  return intent.execute<DeviceAsset, AssignDeviceTenantRequest>({
     url:
       `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
-      + '/onenet-credential-rotation-confirmations',
+      + '/tenant-assignments',
     method: 'POST',
     data,
   });
 }
 
-export function clearPlatformDeviceMaintenanceIsolation(
+export function reevaluateDeviceAcceptance(
   hardwareSn: string,
-  data: ClearDeviceMaintenanceRequest,
   intent: CommandIntent,
 ) {
-  return intent.execute<DeviceTenantAllocation, ClearDeviceMaintenanceRequest>({
+  return intent.execute<DeviceAsset>({
     url:
       `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
-      + '/maintenance-clearances',
+      + '/acceptance-evaluations',
     method: 'POST',
-    data,
   });
 }
 
-export function createOrganizationDeviceDeploymentFromTenantPool(
-  context: DirectoryContext,
-  organizationCode: string,
-  data: CreateAllocatedDeviceDeploymentRequest,
+export function listDeviceAcceptanceEvidence(hardwareSn: string) {
+  return request<DeviceAcceptanceEvidence[]>({
+    url:
+      `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
+      + '/acceptance-evidence',
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+function controlPlatformDevice(
+  hardwareSn: string,
+  action: 'disablements' | 'restorations' | 'retirements',
+  data: DeviceControlRequest,
   intent: CommandIntent,
 ) {
-  if (context.domain === 'platform') {
-    throw new Error('平台管理员不能代替租户选择部署机构');
-  }
-  return intent.execute<
-    DeviceDeployment,
-    CreateAllocatedDeviceDeploymentRequest
-  >({
-    url: deploymentCollectionUrl(context, organizationCode),
+  return intent.execute<DeviceAsset, DeviceControlRequest>({
+    url:
+      `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`
+      + `/${action}`,
     method: 'POST',
     data,
   });
 }
 
-export function listDeviceDeployments(
-  context: DirectoryContext,
-  organizationCode: string,
-  params: DeviceDeploymentListParams = {},
+export function disablePlatformDevice(
+  hardwareSn: string,
+  data: DeviceControlRequest,
+  intent: CommandIntent,
 ) {
-  return request<Schemas['DeviceDeploymentPage']>({
-    url: deploymentCollectionUrl(context, organizationCode),
+  return controlPlatformDevice(hardwareSn, 'disablements', data, intent);
+}
+
+export function restorePlatformDevice(
+  hardwareSn: string,
+  data: DeviceControlRequest,
+  intent: CommandIntent,
+) {
+  return controlPlatformDevice(hardwareSn, 'restorations', data, intent);
+}
+
+export function retirePlatformDevice(
+  hardwareSn: string,
+  data: DeviceControlRequest,
+  intent: CommandIntent,
+) {
+  return controlPlatformDevice(hardwareSn, 'retirements', data, intent);
+}
+
+export function listTenantDeviceAssets(
+  params: TenantDeviceAssetListParams = {},
+) {
+  return request<DeviceAssetPage>({
+    url: '/api/v1/web/device-assets',
     method: 'GET',
     params,
+    noStore: true,
   });
 }
 
-export function getDeviceDeployment(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-) {
-  return request<DeviceDeployment>({
-    url: deploymentUrl(context, organizationCode, deploymentCode),
+export function getTenantDeviceAsset(hardwareSn: string) {
+  return request<DeviceAsset>({
+    url: `/api/v1/web/device-assets/${encodeURIComponent(hardwareSn)}`,
     method: 'GET',
     noStore: true,
   });
 }
 
-export function listDeviceDeploymentPorts(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-) {
-  return request<DevicePort[]>({
-    url: `${deploymentUrl(context, organizationCode, deploymentCode)}/ports`,
-    method: 'GET',
-    noStore: true,
-  });
-}
-
-export function getDeviceDeploymentRuntime(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-) {
-  return request<DeviceDeploymentRuntime>({
-    url: `${deploymentUrl(context, organizationCode, deploymentCode)}/runtime`,
-    method: 'GET',
-    noStore: true,
-  });
-}
-
-export function getDevicePortRuntime(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-  portNo: number,
-) {
-  return request<DevicePortRuntime>({
-    url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
-      + `/ports/${portNo}/runtime`,
-    method: 'GET',
-    noStore: true,
-  });
-}
-
-function executeDeploymentCommand<T extends object>(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-  suffix: string,
-  data: T,
+export function assignTenantDeviceOrganization(
+  hardwareSn: string,
+  data: AssignDeviceOrganizationRequest,
   intent: CommandIntent,
 ) {
-  return intent.execute<DeviceDeployment, T>({
-    url: `${deploymentUrl(context, organizationCode, deploymentCode)}/${suffix}`,
+  return intent.execute<DeviceAsset, AssignDeviceOrganizationRequest>({
+    url:
+      `/api/v1/web/device-assets/${encodeURIComponent(hardwareSn)}`
+      + '/organization-assignments',
     method: 'POST',
     data,
   });
 }
 
-export function setDeviceBusinessEnabled(
-  context: DirectoryContext,
+function organizationDeviceUrl(
   organizationCode: string,
-  deploymentCode: string,
-  enabled: boolean,
-  data: DeviceDeploymentVersionCommand,
-  intent: CommandIntent,
+  deviceCode?: string,
 ) {
-  if (context.domain === 'platform') {
-    throw new Error('平台管理员不能代替租户开启或关闭经营');
-  }
-  return executeDeploymentCommand(
-    context,
+  const base = `/api/v1/web/organizations/${encodeURIComponent(
     organizationCode,
-    deploymentCode,
-    `business-switch/${enabled ? 'enablements' : 'disablements'}`,
-    data,
-    intent,
-  );
+  )}/devices`;
+  return deviceCode ? `${base}/${encodeURIComponent(deviceCode)}` : base;
 }
 
-export function returnDeviceDeploymentToTenantPool(
-  context: DirectoryContext,
+export function listOrganizationDevices(
   organizationCode: string,
-  deploymentCode: string,
-  data: ReturnDeviceDeploymentToTenantPoolRequest,
-  intent: CommandIntent,
+  params: OrganizationDeviceListParams = {},
 ) {
-  if (context.domain === 'platform') {
-    throw new Error('平台管理员不能代替租户发起机构调拨');
-  }
-  return intent.execute<
-    DeviceTenantAllocation,
-    ReturnDeviceDeploymentToTenantPoolRequest
-  >({
-    url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
-      + '/returns-to-tenant-pool',
-    method: 'POST',
-    data,
-  });
-}
-
-export function getPlatformDeviceAcceptanceReadiness(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-) {
-  return request<DeviceAcceptanceReadiness>({
-    url:
-      `${platformDeploymentUrl(context, organizationCode, deploymentCode)}`
-      + '/acceptance-readiness',
+  return request<DeviceAssetPage>({
+    url: organizationDeviceUrl(organizationCode),
     method: 'GET',
+    params,
     noStore: true,
   });
 }
 
-export function listPlatformDeviceDeploymentAcceptances(
-  context: DirectoryContext,
+export function getOrganizationDevice(
   organizationCode: string,
-  deploymentCode: string,
+  deviceCode: string,
 ) {
-  return request<DeviceDeploymentAcceptance[]>({
-    url:
-      `${platformDeploymentUrl(context, organizationCode, deploymentCode)}`
-      + '/acceptances',
+  return request<DeviceAsset>({
+    url: organizationDeviceUrl(organizationCode, deviceCode),
     method: 'GET',
     noStore: true,
-  });
-}
-
-export function acceptPlatformDeviceDeployment(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-  data: AcceptDeviceDeploymentRequest,
-  intent: CommandIntent,
-) {
-  return intent.execute<
-    DeviceDeploymentAcceptance,
-    AcceptDeviceDeploymentRequest
-  >({
-    url:
-      `${platformDeploymentUrl(context, organizationCode, deploymentCode)}`
-      + '/acceptances',
-    method: 'POST',
-    data,
-  });
-}
-
-export function suspendPlatformDeviceDeploymentTechnically(
-  context: DirectoryContext,
-  organizationCode: string,
-  deploymentCode: string,
-  data: DeviceDeploymentVersionCommand,
-  intent: CommandIntent,
-) {
-  return intent.execute<DeviceDeployment, DeviceDeploymentVersionCommand>({
-    url:
-      `${platformDeploymentUrl(context, organizationCode, deploymentCode)}`
-      + '/technical-suspensions',
-    method: 'POST',
-    data,
   });
 }
 
 export function listDeviceConfigurationVersions(
-  context: DirectoryContext,
   organizationCode: string,
-  deploymentCode: string,
+  deviceCode: string,
   params: { beforeVersionNo?: number; limit?: number } = {},
 ) {
   return request<DeviceConfigurationVersionPage>({
     url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
+      `${organizationDeviceUrl(organizationCode, deviceCode)}`
       + '/configuration-versions',
     method: 'GET',
     params,
@@ -464,14 +229,13 @@ export function listDeviceConfigurationVersions(
 }
 
 export function getDeviceConfigurationVersion(
-  context: DirectoryContext,
   organizationCode: string,
-  deploymentCode: string,
+  deviceCode: string,
   versionNo: number,
 ) {
   return request<DeviceConfigurationVersion>({
     url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
+      `${organizationDeviceUrl(organizationCode, deviceCode)}`
       + `/configuration-versions/${versionNo}`,
     method: 'GET',
     noStore: true,
@@ -479,9 +243,8 @@ export function getDeviceConfigurationVersion(
 }
 
 export function releaseDeviceConfiguration(
-  context: DirectoryContext,
   organizationCode: string,
-  deploymentCode: string,
+  deviceCode: string,
   data: DeviceConfigurationReleaseRequest,
   intent: CommandIntent,
 ) {
@@ -490,7 +253,7 @@ export function releaseDeviceConfiguration(
     DeviceConfigurationReleaseRequest
   >({
     url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
+      `${organizationDeviceUrl(organizationCode, deviceCode)}`
       + '/configuration-releases',
     method: 'POST',
     data,
@@ -498,14 +261,13 @@ export function releaseDeviceConfiguration(
 }
 
 export function getDeviceConfigurationApplication(
-  context: DirectoryContext,
   organizationCode: string,
-  deploymentCode: string,
+  deviceCode: string,
   applicationUid: string,
 ) {
   return request<DeviceConfigurationApplication>({
     url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
+      `${organizationDeviceUrl(organizationCode, deviceCode)}`
       + `/configuration-applications/${encodeURIComponent(applicationUid)}`,
     method: 'GET',
     noStore: true,
@@ -513,19 +275,18 @@ export function getDeviceConfigurationApplication(
 }
 
 export function resynchronizeDeviceConfiguration(
-  context: DirectoryContext,
   organizationCode: string,
-  deploymentCode: string,
+  deviceCode: string,
   applicationUid: string,
-  data: DeviceDeploymentVersionCommand,
+  data: DeviceConfigurationResynchronizationRequest,
   intent: CommandIntent,
 ) {
   return intent.executeAccepted<
     DeviceConfigurationAccepted,
-    DeviceDeploymentVersionCommand
+    DeviceConfigurationResynchronizationRequest
   >({
     url:
-      `${deploymentUrl(context, organizationCode, deploymentCode)}`
+      `${organizationDeviceUrl(organizationCode, deviceCode)}`
       + `/configuration-applications/${encodeURIComponent(applicationUid)}`
       + '/resynchronizations',
     method: 'POST',

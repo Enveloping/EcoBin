@@ -3,7 +3,7 @@ package org.enveloping.ecobin.device.application.target;
 import org.enveloping.ecobin.device.api.port.PhotoGrantWorkVerificationPort;
 import org.enveloping.ecobin.device.api.result.PhotoGrantWorkVerification;
 import org.enveloping.ecobin.device.api.result.TrustedPhotoGrantWork;
-import org.enveloping.ecobin.framework.reliability.DeviceDeploymentTaskRefFactory;
+import org.enveloping.ecobin.framework.reliability.DeviceAssetTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistrationPort;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,7 +48,7 @@ public class ReliablePhotoUploadGrantService {
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
     private final PhotoGrantWorkVerificationPort workVerification;
-    private final DeviceDeploymentTaskRefFactory taskRefFactory;
+    private final DeviceAssetTaskRefFactory taskRefFactory;
     private final ReliableDeviceControlTaskRegistrationPort taskRegistration;
 
     public ReliablePhotoUploadGrantService(
@@ -56,7 +56,7 @@ public class ReliablePhotoUploadGrantService {
             ObjectMapper objectMapper,
             DeviceConfigurationCanonicalizer canonicalizer,
             PhotoGrantWorkVerificationPort workVerification,
-            DeviceDeploymentTaskRefFactory taskRefFactory,
+            DeviceAssetTaskRefFactory taskRefFactory,
             ReliableDeviceControlTaskRegistrationPort taskRegistration) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
@@ -70,9 +70,8 @@ public class ReliablePhotoUploadGrantService {
     public PhotoGrantRequestApplyResult apply(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long edgeEventId,
-            String deploymentCode,
             String eventUid,
             JsonNode payload,
             LocalDateTime deviceOccurredAt,
@@ -95,7 +94,7 @@ public class ReliablePhotoUploadGrantService {
                 workVerification.verify(new TrustedPhotoGrantWork(
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         workType,
                         workUid,
                         requestedSlots));
@@ -110,7 +109,7 @@ public class ReliablePhotoUploadGrantService {
                         FROM dev_photo_upload_grant_request
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND work_type = ?
                           AND work_uid = ?
                         ORDER BY grant_generation DESC
@@ -122,7 +121,7 @@ public class ReliablePhotoUploadGrantService {
                         rs.getString("request_status")),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 workType,
                 workUid.toString());
         long generation = prior.isEmpty()
@@ -135,7 +134,7 @@ public class ReliablePhotoUploadGrantService {
                         taskRefFactory.issue(
                                 tenantId,
                                 organizationId,
-                                deploymentId),
+                                assetId),
                         TASK_TYPE,
                         TARGET_TYPE,
                         request.eventUid());
@@ -148,7 +147,7 @@ public class ReliablePhotoUploadGrantService {
                                 updated_at = ?
                             WHERE tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND work_type = ?
                               AND work_uid = ?
                               AND request_status IN (
@@ -159,7 +158,7 @@ public class ReliablePhotoUploadGrantService {
                     receivedAt,
                     tenantId,
                     organizationId,
-                    deploymentId,
+                    assetId,
                     workType,
                     workUid.toString());
         }
@@ -180,7 +179,7 @@ public class ReliablePhotoUploadGrantService {
                             workUid.toString());
             Map<String, Object> envelope = commandEnvelope(
                     commandUid,
-                    deploymentCode,
+                    hardwareSn(tenantId, organizationId, assetId),
                     eventUid,
                     commandPayload,
                     receivedAt);
@@ -196,8 +195,8 @@ public class ReliablePhotoUploadGrantService {
                             taskRefFactory.issue(
                                     tenantId,
                                     organizationId,
-                                    deploymentId),
-                            1,
+                                    assetId),
+                            2,
                             objectMapper.writeValueAsString(envelope),
                             envelopeSha256,
                             UUID.fromString(eventUid),
@@ -209,7 +208,7 @@ public class ReliablePhotoUploadGrantService {
         requireSingle(jdbc.update("""
                         INSERT INTO dev_photo_upload_grant_request (
                             event_uid,
-                            tenant_id, organization_id, deployment_id,
+                            tenant_id, organization_id, asset_id,
                             edge_event_id, edge_event_type,
                             work_type, work_uid, grant_generation,
                             requested_slots, request_reason,
@@ -232,7 +231,7 @@ public class ReliablePhotoUploadGrantService {
                 eventUid,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 edgeEventId,
                 workType,
                 workUid.toString(),
@@ -255,7 +254,7 @@ public class ReliablePhotoUploadGrantService {
 
     private Map<String, Object> commandEnvelope(
             UUID commandUid,
-            String deploymentCode,
+            String targetDeviceName,
             String eventUid,
             Map<String, Object> payload,
             LocalDateTime receivedAt) {
@@ -263,16 +262,16 @@ public class ReliablePhotoUploadGrantService {
         target.put("type", TARGET_TYPE);
         target.put("uid", eventUid);
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("schemaVersion", 1);
+        envelope.put("schemaVersion", 2);
         envelope.put("commandUid", commandUid.toString());
         envelope.put("commandType", TASK_TYPE);
-        envelope.put("deploymentCode", deploymentCode);
+        envelope.put("targetDeviceName", targetDeviceName);
         envelope.put("target", target);
         envelope.put("issuedAt", instant(receivedAt));
         envelope.put(
                 "expiresAt",
                 instant(receivedAt.plusYears(10)));
-        envelope.put("payloadSchemaVersion", 1);
+        envelope.put("payloadSchemaVersion", 2);
         envelope.put(
                 "payloadSha256",
                 canonicalizer.hex(
@@ -280,6 +279,28 @@ public class ReliablePhotoUploadGrantService {
         envelope.put("payload", payload);
         envelope.put("cosGrant", null);
         return envelope;
+    }
+
+    private String hardwareSn(
+            long tenantId,
+            long organizationId,
+            long assetId) {
+        List<String> rows = jdbc.query("""
+                        SELECT hardware_sn
+                        FROM dev_device_asset
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                        """,
+                (rs, ignored) -> rs.getString("hardware_sn"),
+                assetId,
+                tenantId,
+                organizationId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "photo grant device asset is not authoritative");
+        }
+        return rows.getFirst();
     }
 
     private static Map<String, Object> commandPayload(

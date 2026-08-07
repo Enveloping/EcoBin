@@ -11,7 +11,6 @@
           "commandUidPresent": false,
           "component": 4,
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1050,
           "eventType": 1,
           "eventUid": "87000000-0000-4000-8000-000000000003",
@@ -30,7 +29,7 @@
           "severity": 2,
           "target": {
             "type": 1,
-            "uid": "Dp_demo_01"
+            "uid": "SN-CONTRACT-0001"
           }
         }
       }

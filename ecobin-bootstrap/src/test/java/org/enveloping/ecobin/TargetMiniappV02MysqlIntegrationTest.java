@@ -90,7 +90,7 @@ class TargetMiniappV02MysqlIntegrationTest {
     private String tenantCode;
     private String organizationCode;
     private String appId;
-    private String deploymentCode;
+    private String deviceCode;
     private long tenantId;
     private long organizationId;
     private long miniappId;
@@ -105,7 +105,7 @@ class TargetMiniappV02MysqlIntegrationTest {
         organizationCode = code("o");
         appId = "wx" + UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 16);
-        deploymentCode = "Dp_" + run;
+        deviceCode = "Dv_" + (run + "0".repeat(24)).substring(0, 24);
         participant.reset();
 
         platformAdminUid = UUID.randomUUID();
@@ -197,84 +197,41 @@ class TargetMiniappV02MysqlIntegrationTest {
 
         jdbc.update("""
                         INSERT INTO dev_device_asset (
+                            asset_uid, device_public_code,
                             hardware_sn, model_name, production_batch,
-                            expected_port_count, lifecycle_status,
-                            retired_at, retirement_reason, lock_version,
+                            expected_port_count,
+                            tenant_id, tenant_assigned_at,
+                            organization_id, organization_assigned_at,
+                            acceptance_status, accepted_at,
+                            acceptance_evidence_sha256,
+                            last_acceptance_evaluated_at,
+                            acceptance_failure_json,
+                            miniapp_qr_status, miniapp_qr_object_key,
+                            miniapp_qr_generated_at,
+                            lifecycle_status, disabled_at, disable_reason,
+                            retired_at, retirement_reason, control_version,
                             created_at, updated_at
                         ) VALUES (
-                            ?, 'V02 model', NULL, 1, 'ALLOCATED',
-                            NULL, NULL, 0,
+                            ?, ?, ?, 'V02 model', NULL, 1,
+                            ?, UTC_TIMESTAMP(3),
+                            ?, UTC_TIMESTAMP(3),
+                            'PASSED', UTC_TIMESTAMP(3),
+                            UNHEX(SHA2(?, 256)), UTC_TIMESTAMP(3), NULL,
+                            'READY', ?, UTC_TIMESTAMP(3),
+                            'NORMAL', NULL, NULL, NULL, NULL, 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
                         )
-                        """, "V02-SN-" + run);
+                        """,
+                UUID.randomUUID().toString(),
+                deviceCode,
+                "V02-SN-" + run,
+                tenantId,
+                organizationId,
+                deviceCode,
+                "miniapp/device/" + deviceCode + ".png");
         long assetId = jdbc.queryForObject("""
                         SELECT id FROM dev_device_asset WHERE hardware_sn = ?
                         """, Long.class, "V02-SN-" + run);
-        String allocationUid = UUID.randomUUID().toString();
-        jdbc.update("""
-                        INSERT INTO dev_asset_tenant_allocation (
-                            allocation_uid, tenant_id, asset_id,
-                            allocation_source, status,
-                            allocated_by_platform_admin_id, allocated_at,
-                            ended_by_platform_admin_id, ended_at,
-                            end_mode, end_reason, legacy_deployment_id,
-                            lock_version, created_at, updated_at
-                        ) VALUES (
-                            ?, ?, ?, 'PLATFORM_ASSIGNMENT', 'ACTIVE',
-                            ?, UTC_TIMESTAMP(3), NULL, NULL,
-                            NULL, NULL, NULL, 0,
-                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
-                        )
-                        """,
-                allocationUid,
-                tenantId,
-                assetId,
-                platformAdminId);
-        long allocationId = jdbc.queryForObject("""
-                        SELECT id FROM dev_asset_tenant_allocation
-                        WHERE allocation_uid = ?
-                        """, Long.class, allocationUid);
-        jdbc.update("""
-                        INSERT INTO dev_asset_active_tenant_allocation (
-                            asset_id, tenant_id, allocation_id, acquired_at
-                        ) VALUES (?, ?, ?, UTC_TIMESTAMP(3))
-                        """,
-                assetId,
-                tenantId,
-                allocationId);
-        jdbc.update("""
-                        INSERT INTO dev_device_deployment (
-                            tenant_id, organization_id, asset_id,
-                            tenant_allocation_id,
-                            predecessor_deployment_id, readiness_mode,
-                            public_code, lifecycle_status,
-                            business_enabled, commissioned_at,
-                            enabled_at, ended_at, end_method, end_reason,
-                            lock_version, created_at, updated_at
-                        ) VALUES (
-                            ?, ?, ?, ?, NULL,
-                            'PLATFORM_ACCEPTANCE_REQUIRED',
-                            ?, 'PENDING_INSTALL',
-                            0, NULL, NULL, NULL, NULL, NULL,
-                            0, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
-                        )
-                        """,
-                tenantId,
-                organizationId,
-                assetId,
-                allocationId,
-                deploymentCode);
-        long deploymentId = jdbc.queryForObject("""
-                        SELECT id FROM dev_device_deployment
-                        WHERE public_code = ?
-                        """, Long.class, deploymentCode);
-        jdbc.update("""
-                        INSERT INTO dev_asset_active_deployment (
-                            asset_id, tenant_id, organization_id,
-                            deployment_id, acquired_at
-                        ) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(3))
-                        """,
-                assetId, tenantId, organizationId, deploymentId);
     }
 
     @AfterEach
@@ -316,19 +273,19 @@ class TargetMiniappV02MysqlIntegrationTest {
                 200);
 
         String sourcedCode = "fake:sourced:" + run;
-        JsonNode sourced = login(sourcedCode, deploymentCode, 201);
+        JsonNode sourced = login(sourcedCode, deviceCode, 201);
         String sourcedToken = sourced.path("accessToken").asText();
         UUID sourcedUid = UUID.fromString(
                 sourced.path("subjectUid").asText());
-        Long attributedDeployment = jdbc.queryForObject("""
-                        SELECT registered_via_deployment_id
+        Long attributedAsset = jdbc.queryForObject("""
+                        SELECT registered_via_asset_id
                         FROM iam_organization_user
                         WHERE organization_user_uid = ?
                         """, Long.class, sourcedUid.toString());
-        assertNotNull(attributedDeployment);
+        assertNotNull(attributedAsset);
         login(sourcedCode, null, 201);
-        assertEquals(attributedDeployment, jdbc.queryForObject("""
-                        SELECT registered_via_deployment_id
+        assertEquals(attributedAsset, jdbc.queryForObject("""
+                        SELECT registered_via_asset_id
                         FROM iam_organization_user
                         WHERE organization_user_uid = ?
                         """, Long.class, sourcedUid.toString()));
@@ -694,7 +651,7 @@ class TargetMiniappV02MysqlIntegrationTest {
     void organizationUserDirectoryMutationsPreserveScopeAndRevokeSessions()
             throws Exception {
         String wxLoginCode = "fake:directory:" + run;
-        JsonNode first = login(wxLoginCode, deploymentCode, 201);
+        JsonNode first = login(wxLoginCode, deviceCode, 201);
         UUID userUid = UUID.fromString(
                 first.path("subjectUid").asText());
         String ordinaryToken = first.path("accessToken").asText();
@@ -710,15 +667,15 @@ class TargetMiniappV02MysqlIntegrationTest {
                         false,
                         null,
                         null,
-                        deploymentCode,
+                        deviceCode,
                         false);
         assertEquals(1, initial.total());
         OrganizationUserView initialUser = initial.items().getFirst();
         assertEquals(userUid, initialUser.organizationUserUid());
         assertFalse(initialUser.phoneBound());
         assertEquals(
-                deploymentCode,
-                initialUser.registrationSource().deploymentCode());
+                deviceCode,
+                initialUser.registrationSource().deviceCode());
         assertFalse(initialUser.cleanOperationEnabled());
         assertEquals(0, initialUser.version());
         assertEquals(0, initialUser.authVersion());
@@ -891,7 +848,7 @@ class TargetMiniappV02MysqlIntegrationTest {
                         "appId", targetAppId,
                         "wxLoginCode", wxLoginCode,
                         "registrationSource",
-                        Map.of("deploymentCode", source));
+                        Map.of("deviceCode", source));
         MvcResult result = mockMvc.perform(
                         post("/api/v1/miniapp/auth/sessions")
                                 .contentType(MediaType.APPLICATION_JSON)

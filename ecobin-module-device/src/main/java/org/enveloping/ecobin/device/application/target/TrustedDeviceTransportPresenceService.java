@@ -172,14 +172,12 @@ public class TrustedDeviceTransportPresenceService
         requireSingle(updated, "merge device transport presence");
         if ("OFFLINE".equals(status)) {
             jdbc.update("""
-                            UPDATE dev_deployment_runtime_state runtime
-                            JOIN dev_device_deployment deployment
-                              ON deployment.id = runtime.deployment_id
+                            UPDATE dev_device_runtime_state runtime
                             SET runtime.edge_connection_status = 'OFFLINE',
                                 runtime.lock_version =
                                     runtime.lock_version + 1,
                                 runtime.updated_at = ?
-                            WHERE deployment.asset_id = ?
+                            WHERE runtime.asset_id = ?
                               AND runtime.edge_connection_status <> 'OFFLINE'
                             """,
                     receivedAt,

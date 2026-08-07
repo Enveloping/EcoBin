@@ -1,34 +1,30 @@
-package org.enveloping.ecobin.framework.reliability;
+package org.enveloping.ecobin.device.api.persistence;
 
+import org.enveloping.ecobin.device.application.registration.RegistrationAssetRefFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Component
-final class TransactionBoundDeviceDeploymentTaskRefFactory
-        implements DeviceDeploymentTaskRefFactory {
+final class DeviceOwnedRegistrationAssetRefFactory
+        implements RegistrationAssetRefFactory {
 
     @Override
-    public DeviceDeploymentTaskRef issue(
+    public RegistrationAssetRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey) {
-        if (!TransactionSynchronizationManager
-                .isActualTransactionActive()) {
+            long assetKey) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
-                    "device deployment task reference requires a transaction");
+                    "registration asset reference requires an active transaction");
         }
         var resources = TransactionSynchronizationManager.getResourceMap();
         if (resources.isEmpty()) {
             throw new IllegalStateException(
-                    "device deployment task reference requires a bound resource");
+                    "registration asset reference requires a bound transaction resource");
         }
-        DeviceDeploymentTaskRef reference =
-                new DeviceDeploymentTaskRef(
-                        tenantKey,
-                        organizationKey,
-                        deploymentKey,
-                        resources);
+        RegistrationAssetRef reference = new RegistrationAssetRef(
+                tenantKey, organizationKey, assetKey, resources);
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override

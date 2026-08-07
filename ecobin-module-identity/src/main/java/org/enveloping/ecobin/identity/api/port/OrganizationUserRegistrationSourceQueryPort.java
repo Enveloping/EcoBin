@@ -6,12 +6,12 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Consumer-shaped read port for the device-owned deployment details exposed
+ * Consumer-shaped read port for the device-owned permanent asset details exposed
  * by organization-user directory projections.
  *
- * <p>Only public identity and deployment identifiers cross the module
+ * <p>Only public identity and asset identifiers cross the module
  * boundary. Identity never queries device-owned tables or receives a raw
- * deployment primary key.</p>
+ * asset primary key.</p>
  */
 public interface OrganizationUserRegistrationSourceQueryPort {
 
@@ -36,21 +36,21 @@ public interface OrganizationUserRegistrationSourceQueryPort {
     record RegistrationSourceUsersQuery(
             String tenantCode,
             String organizationCode,
-            String deploymentCode) {
+            String deviceCode) {
 
         public RegistrationSourceUsersQuery {
             requireText(tenantCode, "tenantCode");
             requireText(organizationCode, "organizationCode");
-            requireText(deploymentCode, "deploymentCode");
+            requireText(deviceCode, "deviceCode");
         }
     }
 
     record RegistrationSourceSummary(
-            String deploymentCode,
+            String deviceCode,
             String lifecycleStatus) {
 
         public RegistrationSourceSummary {
-            requireText(deploymentCode, "deploymentCode");
+            requireText(deviceCode, "deviceCode");
             requireText(lifecycleStatus, "lifecycleStatus");
         }
     }

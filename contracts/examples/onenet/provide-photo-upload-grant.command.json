@@ -6,7 +6,7 @@
     "bucket": "ecobin-contract-1250000000",
     "expiresAt": "2026-07-24T01:30:00.000Z",
     "grantUid": "71000000-0000-4000-8000-000000000005",
-    "keyPrefix": "ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/",
+    "keyPrefix": "ecobin/delivery-session/30000000-0000-4000-8000-000000000001/",
     "region": "ap-guangzhou",
     "sessionTokenParts": [
       "TOKEN_5_PART_1",
@@ -15,7 +15,6 @@
     "tmpSecretId": "TMP_SECRET_ID_5",
     "tmpSecretKey": "TMP_SECRET_KEY_5"
   },
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -29,11 +28,12 @@
     "workType": "DELIVERY_SESSION",
     "workUid": "30000000-0000-4000-8000-000000000001"
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "74bc18a6be35bc0b214cd6150c7100e2e618c25c72d048afe76f2edbc9012b1a",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "PHOTO_GRANT_REQUEST",
     "uid": "83000000-0000-4000-8000-000000000001"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

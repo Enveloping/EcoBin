@@ -49,8 +49,8 @@
     <view class="info-card">
       <view class="section-title">订单信息</view>
       <view class="info-row">
-        <text>设备部署码</text>
-        <text class="info-value">{{deploymentCode}}</text>
+        <text>设备公开码</text>
+        <text class="info-value">{{deviceCode}}</text>
       </view>
       <view class="info-row">
         <text>设备接收时间</text>

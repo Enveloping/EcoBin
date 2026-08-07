@@ -5,7 +5,7 @@ import org.enveloping.ecobin.device.api.result.LockedStartDeliveryBusinessFacts;
 
 /**
  * Device-defined inversion point implemented by recycling. The device calls
- * it only after its asset/deployment/port lock prefix has been acquired.
+ * it only after its asset and port lock prefix has been acquired.
  */
 public interface StartDeliveryBusinessFactsPort {
 

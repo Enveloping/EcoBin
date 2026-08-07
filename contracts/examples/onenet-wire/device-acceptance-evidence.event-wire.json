@@ -1,0 +1,50 @@
+{
+  "identifier": "deviceAcceptanceEvidence",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "114",
+    "params": {
+      "deviceAcceptanceEvidence": {
+        "value": {
+          "cameraCaptureSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "cameraUploadHealthy": true,
+          "cameraUploadSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "camerasCaptureHealthy": true,
+          "camerasSimulated": false,
+          "challengeUid": "8a000000-0000-4000-8000-000000000003",
+          "clockQuality": 1,
+          "commandUid": "8a000000-0000-4000-8000-000000000004",
+          "configurationPersistenceHealthy": true,
+          "deliveryClass": 1,
+          "edgeEventSequence": 1055,
+          "edgeProtocolVersion": 1,
+          "edgeSoftwareVersion": "0.1.0",
+          "edgeStoreInstanceUid": "8a000000-0000-4000-8000-000000000002",
+          "eventType": 1,
+          "eventUid": "8a000000-0000-4000-8000-000000000001",
+          "evidenceSchemaVersion": 1,
+          "mcuCommunicationHealthy": true,
+          "mcuFirmwareVersion": "fixed-frame-1.0.0",
+          "mcuSimulated": false,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "d92f1bfadec8cdb3cf9a5dd0cfa0dca0aeba0ab32f9225774509e8dac3fdc46a",
+          "persistentStoreHealthy": true,
+          "schemaVersion": 1,
+          "sensorSampleSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "sensorsHealthy": true,
+          "target": {
+            "type": 1,
+            "uid": "SN-CONTRACT-0001"
+          },
+          "trustedTimeHealthy": true,
+          "verifiedCameraCount": 2,
+          "verifiedPortCount": 2
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

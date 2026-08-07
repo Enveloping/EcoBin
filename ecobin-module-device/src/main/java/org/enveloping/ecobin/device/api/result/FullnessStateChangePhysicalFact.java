@@ -8,7 +8,7 @@ public record FullnessStateChangePhysicalFact(
         UUID eventUid,
         UUID stateChangeUid,
         String hardwareSn,
-        String deploymentCode,
+        String deviceCode,
         long edgeEventSequence,
         Instant deviceOccurredAt,
         String clockQuality,
@@ -36,7 +36,7 @@ public record FullnessStateChangePhysicalFact(
         Objects.requireNonNull(eventUid, "eventUid");
         Objects.requireNonNull(stateChangeUid, "stateChangeUid");
         Objects.requireNonNull(hardwareSn, "hardwareSn");
-        Objects.requireNonNull(deploymentCode, "deploymentCode");
+        Objects.requireNonNull(deviceCode, "deviceCode");
         Objects.requireNonNull(deviceOccurredAt, "deviceOccurredAt");
         Objects.requireNonNull(clockQuality, "clockQuality");
         Objects.requireNonNull(payloadSha256, "payloadSha256");

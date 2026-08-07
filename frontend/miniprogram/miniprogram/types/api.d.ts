@@ -63,8 +63,7 @@ export interface LoginResponse extends MiniappSessionView {
 export type DeliveryOptionBlocker =
   | 'PHONE_BINDING_REQUIRED'
   | 'WALLET_DELIVERY_LIMIT_REACHED'
-  | 'DEPLOYMENT_NOT_ENABLED'
-  | 'BUSINESS_SWITCH_DISABLED'
+  | 'ASSET_UNAVAILABLE'
   | 'CONFIGURATION_NOT_APPLIED'
   | 'EDGE_OFFLINE'
   | 'DEVICE_BUSY'
@@ -84,7 +83,7 @@ export interface DeliveryPortOption {
 }
 
 export interface DeliveryOptionsView {
-  deploymentCode: string
+  deviceCode: string
   displayName: string | null
   address: string | null
   deviceBusy: boolean
@@ -125,7 +124,7 @@ export interface DeliverySessionView {
   sessionUid: string
   status: DeliverySessionStatus
   phase: DeliverySessionPhase
-  deploymentCode: string
+  deviceCode: string
   portNo: number
   startedAt: string | null
   endedAt: string | null
@@ -170,6 +169,7 @@ export interface WithdrawalView {
   status: WithdrawalStatus
   version: number
   amountYuan: string
+  collectionMode: 'USER_CONFIRM' | 'AUTHORIZED'
   channelState: string | null
   channelErrorCode?: string | null
   channelStatusMessage?: string | null
@@ -195,6 +195,36 @@ export interface MerchantTransferConfirmationView {
   mchId: string
   packageInfo: string
   channelState: 'WAIT_USER_CONFIRM'
+}
+
+export type MerchantTransferAuthorizationStatus =
+  | 'NOT_OPENED'
+  | 'PREPARING'
+  | 'WAIT_USER_CONFIRM'
+  | 'ACTIVE'
+  | 'CLOSED'
+  | 'EXPIRED'
+  | 'UNKNOWN'
+
+export interface MerchantTransferAuthorizationView {
+  status: MerchantTransferAuthorizationStatus
+  authorizationNo: string | null
+  appId: string | null
+  mchId: string | null
+  packageInfo: string | null
+  confirmationRequired: boolean
+  confirmationExpiresAt: string | null
+  authorizedAt: string | null
+  closedAt: string | null
+  closeReason: string | null
+  lastSuccessfulQueryAt: string | null
+}
+
+export interface MerchantTransferAuthorizationAcceptedView {
+  authorizationNo: string
+  status: Exclude<MerchantTransferAuthorizationStatus, 'NOT_OPENED'>
+  statusUrl: string
+  recommendedPollAfterMs: number
 }
 
 export type WalletEntryType =
@@ -249,7 +279,7 @@ export type DeliveryRawAmountReliability =
 
 export interface MiniappDeliveryOrderItem {
   deliveryOrderNo: string
-  deploymentCode: string
+  deviceCode: string
   portNo: number
   deviceOccurredAt: string | null
   receivedAt: string
@@ -268,7 +298,7 @@ export interface MiniappDeliveryOrderItem {
 export interface MiniappDeliverySource {
   eventUid: string
   sessionUid: string
-  deploymentCode: string
+  deviceCode: string
   portNo: number
   deviceOccurredAt: string | null
   receivedAt: string
@@ -301,7 +331,7 @@ export interface BagUseCycleItem {
   cycleUid: string
   status: 'ACTIVE' | 'CLOSED'
   startBasis: 'INITIAL_INSTALLED' | 'CLEAN_COMPLETE' | 'LEGACY_BACKFILL'
-  deploymentCode: string
+  deviceCode: string
   portNo: number
   installedAt: string
   removedAt: string | null

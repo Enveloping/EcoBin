@@ -6,7 +6,7 @@ import java.util.UUID;
 public record TrustedPhotoGrantWork(
         long tenantId,
         long organizationId,
-        long deploymentId,
+        long assetId,
         String workType,
         UUID workUid,
         List<String> requestedSlots) {

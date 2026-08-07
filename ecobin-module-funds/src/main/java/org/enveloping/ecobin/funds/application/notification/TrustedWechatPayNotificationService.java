@@ -7,6 +7,7 @@ import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRef;
 import org.enveloping.ecobin.funds.api.port.WechatPayNotificationPort;
 import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
 import org.enveloping.ecobin.funds.application.withdrawal.WithdrawalApplicationService;
+import org.enveloping.ecobin.funds.application.authorization.MerchantTransferAuthorizationApplicationService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -20,16 +21,19 @@ public class TrustedWechatPayNotificationService
     private final ObjectMapper mapper;
     private final RechargeApplicationService recharge;
     private final WithdrawalApplicationService withdrawal;
+    private final MerchantTransferAuthorizationApplicationService authorization;
 
     public TrustedWechatPayNotificationService(
             JdbcTemplate jdbc,
             ObjectMapper mapper,
             RechargeApplicationService recharge,
-            WithdrawalApplicationService withdrawal) {
+            WithdrawalApplicationService withdrawal,
+            MerchantTransferAuthorizationApplicationService authorization) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.recharge = recharge;
         this.withdrawal = withdrawal;
+        this.authorization = authorization;
     }
 
     @Override
@@ -53,6 +57,15 @@ public class TrustedWechatPayNotificationService
                         FROM fund_wechat_transfer t
                         JOIN fund_withdrawal_order w ON w.id = t.withdrawal_order_id
                         WHERE t.out_bill_no = ? AND t.mchid_snapshot = ?
+                        """, (rs, ignored) -> new Scope(
+                                rs.getLong("tenant_id"),
+                                rs.getLong("organization_id")),
+                        externalOrderNo, mchid);
+                case TRANSFER_AUTHORIZATION_KIND -> jdbc.query("""
+                        SELECT a.tenant_id, a.organization_id
+                        FROM fund_wechat_transfer_authorization a
+                        WHERE a.out_authorization_no = ?
+                          AND a.mchid_snapshot = ?
                         """, (rs, ignored) -> new Scope(
                                 rs.getLong("tenant_id"),
                                 rs.getLong("organization_id")),
@@ -95,6 +108,10 @@ public class TrustedWechatPayNotificationService
                     case TRANSFER_KIND -> withdrawal.applyTrustedNotification(
                             inboxId, sourceTaskAttemptId,
                             tenantId, organizationId, payload);
+                    case TRANSFER_AUTHORIZATION_KIND ->
+                            authorization.applyTrustedNotification(
+                                    inboxId, sourceTaskAttemptId,
+                                    tenantId, organizationId, payload);
                     default -> throw new IllegalArgumentException(
                             "unsupported WeChat Pay notification kind");
                 });

@@ -143,8 +143,8 @@ def payload_sha256(payload: Any) -> str:
     return sha256_hex(canonical_json_bytes(payload))
 
 
-ONENET_COMMAND_CANONICAL_DOMAIN = b"ECOBIN:ONENET:COMMAND:v1\x00"
-ONENET_EVENT_CANONICAL_DOMAIN = b"ECOBIN:ONENET:EVENT:v1\x00"
+ONENET_COMMAND_CANONICAL_DOMAIN = b"ECOBIN:ONENET:COMMAND:v2\x00"
+ONENET_EVENT_CANONICAL_DOMAIN = b"ECOBIN:ONENET:EVENT:v2\x00"
 
 
 def onenet_command_canonical_projection(
@@ -156,7 +156,7 @@ def onenet_command_canonical_projection(
         "schemaVersion",
         "commandUid",
         "commandType",
-        "deploymentCode",
+        "targetDeviceName",
         "target",
         "issuedAt",
         "expiresAt",
@@ -194,7 +194,6 @@ def onenet_event_canonical_projection(
     fields = (
         "schemaVersion",
         "eventUid",
-        "deploymentCode",
         "edgeEventSequence",
         "eventType",
         "deliveryClass",

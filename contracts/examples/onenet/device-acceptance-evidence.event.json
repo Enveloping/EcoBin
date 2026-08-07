@@ -1,0 +1,37 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8a000000-0000-4000-8000-000000000004",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1055,
+  "eventType": "DEVICE_ACCEPTANCE_EVIDENCE",
+  "eventUid": "8a000000-0000-4000-8000-000000000001",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "cameraCaptureSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "cameraUploadHealthy": true,
+    "cameraUploadSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "camerasCaptureHealthy": true,
+    "camerasSimulated": false,
+    "challengeUid": "8a000000-0000-4000-8000-000000000003",
+    "configurationPersistenceHealthy": true,
+    "edgeProtocolVersion": "2",
+    "edgeSoftwareVersion": "0.1.0",
+    "edgeStoreInstanceUid": "8a000000-0000-4000-8000-000000000002",
+    "evidenceSchemaVersion": 1,
+    "mcuCommunicationHealthy": true,
+    "mcuFirmwareVersion": "fixed-frame-1.0.0",
+    "mcuSimulated": false,
+    "persistentStoreHealthy": true,
+    "sensorSampleSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "sensorsHealthy": true,
+    "trustedTimeHealthy": true,
+    "verifiedCameraCount": 2,
+    "verifiedPortCount": 2
+  },
+  "payloadSha256": "d92f1bfadec8cdb3cf9a5dd0cfa0dca0aeba0ab32f9225774509e8dac3fdc46a",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  }
+}

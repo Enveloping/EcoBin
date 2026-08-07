@@ -67,7 +67,7 @@ class TrustedFullnessStateChangeServiceTest {
                 UUID.fromString(
                         "10000000-0000-4000-8000-000000000002"),
                 "HW-TEST-1",
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 1L,
                 Instant.parse("2026-08-02T00:00:00Z"),
                 "SYNCED",

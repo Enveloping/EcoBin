@@ -4,8 +4,8 @@ import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.ManagementScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.ManagementScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.query.ManagementScopeAuthorizationQuery.Channel;
-import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeploymentDetail;
-import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeploymentSummary;
+import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeviceDetail;
+import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeviceSummary;
 import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.PortSummary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -30,15 +30,13 @@ public class MiniappStaffDeviceQueryService {
     }
 
     @Transactional(readOnly = true)
-    public List<DeploymentSummary> deployments() {
+    public List<DeviceSummary> devices() {
         Scope scope = scope();
-        return jdbc.query(summarySql() + " ORDER BY deployment.public_code",
-                (rs, ignored) -> new DeploymentSummary(
-                        rs.getString("public_code"),
+        return jdbc.query(summarySql() + " ORDER BY asset.device_public_code",
+                (rs, ignored) -> new DeviceSummary(
+                        rs.getString("device_public_code"),
                         rs.getString("display_name"),
                         rs.getString("location_address"),
-                        rs.getString("lifecycle_status"),
-                        rs.getBoolean("business_enabled"),
                         rs.getString("edge_connection_status"),
                         rs.getString("mcu_link_status"),
                         rs.getString("safety_status"),
@@ -49,17 +47,15 @@ public class MiniappStaffDeviceQueryService {
     }
 
     @Transactional(readOnly = true)
-    public DeploymentDetail deployment(String requestedCode) {
+    public DeviceDetail device(String requestedCode) {
         Scope scope = scope();
         String code = code(requestedCode);
-        DeploymentSummary deployment = jdbc.query(
-                        summarySql() + " AND deployment.public_code = ?",
-                        (rs, ignored) -> new DeploymentSummary(
-                                rs.getString("public_code"),
+        DeviceSummary device = jdbc.query(
+                        summarySql() + " AND asset.device_public_code = ?",
+                        (rs, ignored) -> new DeviceSummary(
+                                rs.getString("device_public_code"),
                                 rs.getString("display_name"),
                                 rs.getString("location_address"),
-                                rs.getString("lifecycle_status"),
-                                rs.getBoolean("business_enabled"),
                                 rs.getString("edge_connection_status"),
                                 rs.getString("mcu_link_status"),
                                 rs.getString("safety_status"),
@@ -88,13 +84,15 @@ public class MiniappStaffDeviceQueryService {
                                    AS safety_status,
                                runtime.last_observed_at
                         FROM dev_port port
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = port.deployment_id
+                        JOIN dev_device_asset asset
+                          ON asset.id = port.asset_id
+                         AND asset.tenant_id = port.tenant_id
+                         AND asset.organization_id = port.organization_id
                         LEFT JOIN dev_config_version configuration
                           ON configuration.id = (
                             SELECT latest.id
                             FROM dev_config_version latest
-                            WHERE latest.deployment_id = deployment.id
+                            WHERE latest.asset_id = asset.id
                             ORDER BY latest.version_no DESC
                             LIMIT 1
                           )
@@ -105,7 +103,8 @@ public class MiniappStaffDeviceQueryService {
                           ON runtime.port_id = port.id
                         WHERE port.tenant_id = ?
                           AND port.organization_id = ?
-                          AND deployment.public_code = ?
+                          AND asset.device_public_code = ?
+                          AND asset.lifecycle_status = 'NORMAL'
                         ORDER BY port.port_no
                         """,
                 (rs, ignored) -> new PortSummary(
@@ -120,7 +119,7 @@ public class MiniappStaffDeviceQueryService {
                         instant(rs.getObject(
                                 "last_observed_at", LocalDateTime.class))),
                 scope.tenantId(), scope.organizationId(), code);
-        return new DeploymentDetail(deployment, ports, databaseNow());
+        return new DeviceDetail(device, ports, databaseNow());
     }
 
     private Scope scope() {
@@ -140,12 +139,10 @@ public class MiniappStaffDeviceQueryService {
 
     private static String summarySql() {
         return """
-                SELECT deployment.public_code,
+                SELECT asset.device_public_code,
                        COALESCE(configuration.device_display_name,
-                                deployment.public_code) AS display_name,
+                                asset.device_public_code) AS display_name,
                        configuration.location_address,
-                       deployment.lifecycle_status,
-                       deployment.business_enabled,
                        COALESCE(runtime.edge_connection_status, 'UNKNOWN')
                            AS edge_connection_status,
                        COALESCE(runtime.mcu_link_status, 'UNKNOWN')
@@ -153,23 +150,25 @@ public class MiniappStaffDeviceQueryService {
                        COALESCE(runtime.safety_status, 'UNKNOWN')
                            AS safety_status,
                        runtime.last_heartbeat_at,
-                       (SELECT COUNT(*) FROM dev_port port
-                        WHERE port.deployment_id = deployment.id)
+                        (SELECT COUNT(*) FROM dev_port port
+                        WHERE port.asset_id = asset.id)
                            AS port_count
-                FROM dev_device_deployment deployment
+                FROM dev_device_asset asset
                 LEFT JOIN dev_config_version configuration
                   ON configuration.id = (
                     SELECT latest.id
                     FROM dev_config_version latest
-                    WHERE latest.deployment_id = deployment.id
+                    WHERE latest.asset_id = asset.id
                     ORDER BY latest.version_no DESC
                     LIMIT 1
                   )
-                LEFT JOIN dev_deployment_runtime_state runtime
-                  ON runtime.deployment_id = deployment.id
-                WHERE deployment.tenant_id = ?
-                  AND deployment.organization_id = ?
-                  AND deployment.lifecycle_status <> 'ENDED'
+                LEFT JOIN dev_device_runtime_state runtime
+                  ON runtime.asset_id = asset.id
+                 AND runtime.tenant_id = asset.tenant_id
+                 AND runtime.organization_id = asset.organization_id
+                WHERE asset.tenant_id = ?
+                  AND asset.organization_id = ?
+                  AND asset.lifecycle_status = 'NORMAL'
                 """;
     }
 
@@ -184,7 +183,7 @@ public class MiniappStaffDeviceQueryService {
 
     private static String code(String value) {
         if (value == null || !value.trim()
-                .matches("Dp_[A-Za-z0-9_-]{6,61}")) {
+                .matches("Dv_[A-Za-z0-9_-]{24,61}")) {
             throw notFound();
         }
         return value.trim();
@@ -196,7 +195,7 @@ public class MiniappStaffDeviceQueryService {
 
     private static TargetApiException notFound() {
         return new TargetApiException(
-                404, "RESOURCE.NOT_FOUND", "设备部署不存在");
+                404, "RESOURCE.NOT_FOUND", "设备不存在或不可用");
     }
 
     private record Scope(long tenantId, long organizationId) { }

@@ -6,58 +6,55 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 
 /**
- * Opaque, transaction-bound relationship from a device deployment to a
+ * Opaque, transaction-bound relationship from a permanent device asset to a
  * protocol-control task. Internal database keys never leave the callback.
  */
-public final class DeviceDeploymentTaskRef {
+public final class DeviceAssetTaskRef {
 
     private final long tenantKey;
     private final long organizationKey;
-    private final long deploymentKey;
+    private final long assetKey;
     private final long ownerThreadId;
     private final Map<Object, Object> transactionResources;
     private boolean consumed;
     private boolean transactionCompleted;
 
-    DeviceDeploymentTaskRef(
+    DeviceAssetTaskRef(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             Map<Object, Object> transactionResources) {
         this.tenantKey = positive(tenantKey, "tenantKey");
-        this.organizationKey = positive(
-                organizationKey, "organizationKey");
-        this.deploymentKey = positive(deploymentKey, "deploymentKey");
+        this.organizationKey = positive(organizationKey, "organizationKey");
+        this.assetKey = positive(assetKey, "assetKey");
         this.ownerThreadId = Thread.currentThread().threadId();
-        this.transactionResources = new IdentityHashMap<>(
-                transactionResources);
+        this.transactionResources = new IdentityHashMap<>(transactionResources);
     }
 
     public synchronized void writeForeignKeysTo(ForeignKeyWriter writer) {
         if (Thread.currentThread().threadId() != ownerThreadId) {
             throw new IllegalStateException(
-                    "device deployment task reference cannot cross threads");
+                    "device asset task reference cannot cross threads");
         }
         if (transactionCompleted
                 || !TransactionSynchronizationManager
                 .isActualTransactionActive()) {
             throw new IllegalStateException(
-                    "device deployment task reference requires its transaction");
+                    "device asset task reference requires its transaction");
         }
         boolean sameTransaction = transactionResources.entrySet().stream()
-                .allMatch(entry ->
-                        TransactionSynchronizationManager.getResource(
-                                entry.getKey()) == entry.getValue());
+                .allMatch(entry -> TransactionSynchronizationManager
+                        .getResource(entry.getKey()) == entry.getValue());
         if (!sameTransaction) {
             throw new IllegalStateException(
-                    "device deployment task reference cannot cross transactions");
+                    "device asset task reference cannot cross transactions");
         }
         if (consumed) {
             throw new IllegalStateException(
-                    "device deployment task reference was already consumed");
+                    "device asset task reference was already consumed");
         }
         consumed = true;
-        writer.write(tenantKey, organizationKey, deploymentKey);
+        writer.write(tenantKey, organizationKey, assetKey);
     }
 
     synchronized void markTransactionCompleted() {
@@ -66,7 +63,7 @@ public final class DeviceDeploymentTaskRef {
 
     @Override
     public String toString() {
-        return "DeviceDeploymentTaskRef[REDACTED]";
+        return "DeviceAssetTaskRef[REDACTED]";
     }
 
     private static long positive(long value, String name) {
@@ -78,9 +75,6 @@ public final class DeviceDeploymentTaskRef {
 
     @FunctionalInterface
     public interface ForeignKeyWriter {
-        void write(
-                long tenantKey,
-                long organizationKey,
-                long deploymentKey);
+        void write(long tenantKey, long organizationKey, long assetKey);
     }
 }

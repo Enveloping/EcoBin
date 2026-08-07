@@ -25,6 +25,13 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * 外部可信消息的可靠落地点。
+ *
+ * <p>本服务只负责保存经过适配器认证、规范化的消息，并为需要异步处理的消息建立唯一任务；
+ * 它不在 Pulsar 消费线程里直接创建订单。稳定外部身份相同且内容相同视为重复传输，内容
+ * 不同则隔离为冲突，绝不让后到消息覆盖先到事实。</p>
+ */
 @Service
 public class TrustedInboxService implements TrustedInboxPort {
 
@@ -73,6 +80,8 @@ public class TrustedInboxService implements TrustedInboxPort {
             propagation = Propagation.REQUIRES_NEW,
             isolation = Isolation.READ_COMMITTED)
     public TrustedInboxReceipt receive(TrustedInboxMessage message) {
+        // REQUIRES_NEW 把“允许传输 ACK”的事实压缩到一个短事务：收件箱和处理任务必须
+        // 一起提交，后续业务 worker 失败不会迫使 OneNet/Pulsar 重发原始传输消息。
         properties.validate();
         InboxScope scope = resolveScope(message);
         CanonicalJson.CanonicalPayload canonicalPayload = canonicalJson.canonicalize(
@@ -105,6 +114,7 @@ public class TrustedInboxService implements TrustedInboxPort {
                             message.causationUid()),
                     now);
         } catch (DuplicateKeyException duplicate) {
+            // 唯一键竞争也是正常幂等路径：锁住已存在行，比较规范摘要后决定重用或隔离。
             InboxAggregate existing = repository.lockInboxByExternalIdentity(
                             message.sourceNamespace(),
                             message.sourcePrincipalKey(),
@@ -121,6 +131,7 @@ public class TrustedInboxService implements TrustedInboxPort {
 
         InboxAggregate inserted = repository.lockInboxByUid(proposedInboxUid);
         if (isRuntimeTelemetry(message)) {
+            // 高频运行快照直接更新诊断投影，不为每一份快照制造可靠处理任务。
             applyRuntimeTelemetry(inserted);
             return telemetryReceipt(
                     inserted.inboxUid(),
@@ -130,6 +141,8 @@ public class TrustedInboxService implements TrustedInboxPort {
                 inserted.inboxUid(),
                 inserted.messageKind(),
                 inserted.normalizedContentSha256Hex());
+        // 业务事件则登记 PROCESS_INBOX。订单创建发生在 worker 的权威业务事务中，
+        // 与当前传输落库事务分开重试，但仍由同一 inboxUid 保持幂等身份。
         UUID taskUid = repository.insertProcessInboxTask(
                 inserted.inboxId(),
                 inserted.inboxUid(),

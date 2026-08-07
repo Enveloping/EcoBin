@@ -475,7 +475,7 @@ def test_delivery_complete_reports_latched_command_without_pulse_duration(
             "start_command_uid": (
                 "53000000-0000-4000-8000-000000000003"
             ),
-            "deployment_code": "Dp_demo_01",
+            "device_name": "SN-DEMO-0001",
             "unit_price_ten_thousandths": 4500,
             "config": {
                 "version": 8,
@@ -885,7 +885,7 @@ def test_real_smoke_alarm_is_recorded_and_blocks_new_delivery(tmp_path):
     mqtt = type(
         "FakeMqtt",
         (),
-        {"deployment_code": "Dp_demo_01"},
+        {"device_name": "SN-DEMO-0001"},
     )()
     work = WorkManager(store, uart, mqtt, FakePhotoManager())
     processor = CommandProcessor(store, uart, work)
@@ -1231,7 +1231,7 @@ def test_compat_fullness_uses_latest_dd_observation_without_uart(tmp_path):
     store.close()
 
 
-def test_compat_baseline_uses_zero_without_history(tmp_path):
+def test_compat_baseline_reports_unsupported_without_history(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)
     uart = FakeCompatUart()
@@ -1250,16 +1250,26 @@ def test_compat_baseline_uses_zero_without_history(tmp_path):
 
     inbox = store.get_command(command["commandUid"])
     assert inbox["state"] == "COMPLETED"
-    assert inbox["result"]["reportedWeightGrams"] == 0
+    assert inbox["result"] == {
+        "measurementStatus": "SENSOR_FAULT",
+        "weightValuePresent": False,
+        "reportedWeightGrams": None,
+        "compatibilitySource": (
+            "STANDALONE_MEASUREMENT_UNSUPPORTED"
+        ),
+    }
     events = [
         json.loads(row["payload_json"])
         for row in store.list_pending_events(limit=100)
         if row["event_type"] == "BASELINE_MEASUREMENT_COMPLETE"
     ]
     assert len(events) == 1
-    assert events[0]["payload"]["totalWeightMeasurement"][
-        "reportedWeightGrams"
-    ] == 0
+    encode_event_post("BASELINE_MEASUREMENT_COMPLETE", events[0])
+    measurement = events[0]["payload"]["totalWeightMeasurement"]
+    assert measurement["status"] == "SENSOR_FAULT"
+    assert measurement["weightValueAvailable"] is False
+    assert measurement["reportedWeightGrams"] is None
+    assert measurement["faultCode"] == "WEIGHT_SENSOR"
     assert store.get_work_slot() is None
     assert uart.calls == []
     store.close()
@@ -1444,7 +1454,7 @@ def test_compat_fullness_supports_all_roles_without_history(
     store.close()
 
 
-def test_compat_baseline_reuses_saved_bag_value_after_restart(
+def test_compat_baseline_never_reuses_old_flow_weight_after_restart(
     tmp_path,
 ):
     database_path = tmp_path / "edge.db"
@@ -1479,10 +1489,12 @@ def test_compat_baseline_reuses_saved_bag_value_after_restart(
     )
     processor.process_next()
     assert store.get_command(first["commandUid"])["result"] == {
-        "measurementStatus": "STABLE",
-        "weightValuePresent": True,
-        "reportedWeightGrams": 7_777,
-        "compatibilitySource": "LATEST_FLOW_POST",
+        "measurementStatus": "SENSOR_FAULT",
+        "weightValuePresent": False,
+        "reportedWeightGrams": None,
+        "compatibilitySource": (
+            "STANDALONE_MEASUREMENT_UNSUPPORTED"
+        ),
     }
     bag_uid = first["payload"]["bagUid"]
     store.close()
@@ -1525,8 +1537,10 @@ def test_compat_baseline_reuses_saved_bag_value_after_restart(
     processor.process_next()
 
     result = store.get_command(second["commandUid"])["result"]
-    assert result["reportedWeightGrams"] == 7_777
-    assert result["compatibilitySource"] == "LATEST_FLOW_POST"
-    assert store.get_bag_baseline(bag_uid)["weight_grams"] == 7_777
+    assert result["reportedWeightGrams"] is None
+    assert result["compatibilitySource"] == (
+        "STANDALONE_MEASUREMENT_UNSUPPORTED"
+    )
+    assert store.get_bag_baseline(bag_uid) is None
     assert uart.calls == []
     store.close()

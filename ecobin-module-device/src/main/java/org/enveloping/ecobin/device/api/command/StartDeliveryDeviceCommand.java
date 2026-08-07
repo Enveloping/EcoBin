@@ -11,7 +11,7 @@ import java.util.UUID;
  */
 public record StartDeliveryDeviceCommand(
         UUID operationUid,
-        String deploymentCode,
+        String deviceCode,
         int portNo,
         DeliverySessionOrganizationUserRef organizationUserRef,
         DeliveryRuleSnapshot deliveryRule) {
@@ -22,9 +22,9 @@ public record StartDeliveryDeviceCommand(
             throw new IllegalArgumentException(
                     "operationUid must be a UUIDv4");
         }
-        if (deploymentCode == null || deploymentCode.isBlank()) {
+        if (deviceCode == null || deviceCode.isBlank()) {
             throw new IllegalArgumentException(
-                    "deploymentCode must not be blank");
+                    "deviceCode must not be blank");
         }
         if (portNo < 1 || portNo > 6) {
             throw new IllegalArgumentException(

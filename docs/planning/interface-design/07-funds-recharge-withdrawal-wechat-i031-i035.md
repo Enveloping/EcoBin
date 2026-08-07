@@ -4,7 +4,10 @@
 >
 > 状态：**I-031～I-035 已确认**
 >
-> 说明：本文件定义人工钱包调整、机构出款账户、Native 充值、用户手动提现、后台审核/客服处置、微信商家转账和公共出款闸门的 P0 契约。P0 只接入普通商户 APIv3 的用户确认收款模式；投递后自动提现和免确认收款授权继续留到 M1。
+> 说明：本文件定义人工钱包调整、机构出款账户、Native 充值、用户手动提现、后台审核/客服处置、微信商家转账和公共出款闸门的基础契约。
+
+> [!IMPORTANT]
+> 2026-08-06 的 [I-056](12-merchant-transfer-authorization-i056.md) 已覆盖本章“所有新提现逐笔确认收款”的旧限制。当前规则是用户先完成一次免确认收款授权，之后新提现使用授权后转账并自动收款；本章的收款确认接口只服务历史 `USER_CONFIRM` 提现。
 
 ## 本章统一边界
 
@@ -310,7 +313,8 @@ Authorization: Bearer <aud=miniapp token>
 1. 当前机构用户有效且已绑定手机号；钱包可提现余额 `>= 0`、金额充足并满足当前配置。
 2. 同钱包没有活动提现；机构可用出款额度充足。
 3. 机构 AppID 与系统商户绑定有效；平台出款闸门为 `OPEN`。
-4. P0 不收集 `userName`。若提交前已经确定渠道要求姓名而系统无法提供，直接拒绝并提示联系客服。
+4. 当前商户号、机构 AppID、用户 OpenID 和场景下存在 I-056 定义的 `ACTIVE` 授权；服务端固化授权记录、`outAuthorizationNo` 和 `authorizationId`，不接受客户端提交这些身份。
+5. P0 不收集 `userName`。若提交前已经确定渠道要求姓名而系统无法提供，直接拒绝并提示联系客服。
 
 任一前置条件不成立时不创建提现、失败记录、活动槽、任务或任何资金明细。成功事务共同创建提现、活动槽和双方 `FREEZE` 明细，把用户可用转为提现处理中、机构可用转为冻结，并返回 `201 Created`：
 
@@ -321,6 +325,8 @@ Authorization: Bearer <aud=miniapp token>
   "status": "PENDING_REVIEW",
   "version": 0,
   "reviewRequired": true,
+  "collectionMode": "AUTHORIZED",
+  "authorizationState": "ACTIVE",
   "channelState": null,
   "longUnsettled": false,
   "canCancel": false,
@@ -362,6 +368,7 @@ CHANNEL_CANCELLED
 503 WITHDRAWAL.PAYOUT_TEMPORARILY_PAUSED
 422 WITHDRAWAL.REAL_NAME_REQUIRED
 422 FUNDS.MINIAPP_MERCHANT_BINDING_UNAVAILABLE
+422 WITHDRAWAL.AUTO_COLLECTION_AUTHORIZATION_REQUIRED
 ```
 
 ## I-034 提现查询、审核与客服处置
@@ -440,7 +447,7 @@ Idempotency-Key: <UUIDv4>
 
 ## I-035 微信商家转账与公共出款闸门
 
-**已确认：P0 使用普通商户 APIv3“商家转账”的用户确认收款模式；一个提现只使用一个固定外部单号，只有微信三个终态可以驱动双方资金最终结算。**
+**已确认且由 I-056 扩展：一个提现只使用一个固定外部单号，只有微信三个终态可以驱动双方资金最终结算；所有新提现改用有效授权后的自动收款，逐笔用户确认仅保留给历史单。**
 
 ### 1. 渠道就绪边界
 
@@ -460,34 +467,33 @@ POST /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/
 
 ### 2. 固定转账请求
 
-审核通过后的可靠执行器在调用微信前，先按“租户/机构/小程序/机构用户身份前缀 → 平台闸门 → AppID/系统商户绑定 → 钱包 → 活动提现 → 提现单 → 机构账户 → 微信转账”锁序复核：
+审核通过后的可靠执行器在调用微信前，先按“租户/机构/小程序/机构用户身份前缀 → 平台闸门 → AppID/系统商户绑定 → 当前免确认收款授权 → 钱包 → 活动提现 → 提现单 → 机构账户 → 微信转账”锁序复核：
 
 - 提现仍为 `READY_TO_SUBMIT`，没有负余额暂停，活动槽和双方冻结完整；
 - 平台闸门开放，机构 AppID/系统商户绑定仍有效；
-- 租户、机构、小程序和当前机构用户仍有效，且当前用户仍可由本提现固化的 AppID/OpenID 收款。提现配置变化不改写本单金额范围快照，也不要求提交阶段反向锁当前配置 head。
+- 租户、机构、小程序和当前机构用户仍有效，且当前用户仍可由本提现固化的 AppID/OpenID 收款；提现固化的授权仍为 `ACTIVE` 且身份逐项匹配。提现配置变化不改写本单金额范围快照，也不要求提交阶段反向锁当前配置 head。
 
 随后在一个短事务创建唯一微信转账单、全平台唯一且最长 32 位字母数字 `outBillNo`、不可变请求快照，把提现推进 `CHANNEL_PROCESSING` 并建立外部调用边界。提交后才能调用微信商家转账。
 
-P0 请求快照固定包含：
+新 `AUTHORIZED` 请求快照固定包含：
 
 - 机构 AppID及该 AppID 下的用户 OpenID；
 - 整数分金额，不传 `user_name`；
 - 系统已获批的“二手回收”场景 ID；
 - 报备类型“回收商品名称”、内容“混合可回收物”；
-- 普通收款确认页；
+- 授权记录、商户授权单号和微信授权单号；
 - 不超过渠道长度的 `EcoBin回收款 + 提现单短标识` 备注；
-- 公网 HTTPS、无查询参数的商家转账通知地址。
 
-连接器必须保存微信返回的 `transferBillNo`、原始 `state` 和可空 `packageInfo`。HTTP 非成功、超时、`SYSTEM_ERROR`、限频、未知错误、`ALREADY_EXISTS` 和 `NOT_ENOUGH` 都不能生成新 `outBillNo` 或本地失败终态；只保存技术尝试/渠道观察，并使用原单查单或原参数续办。
+连接器必须保存微信返回的 `transferBillNo` 和原始 `state`；新授权提现不应产生逐笔 `packageInfo`。HTTP 非成功、超时、`SYSTEM_ERROR`、限频、未知错误、`ALREADY_EXISTS` 和 `NOT_ENOUGH` 都不能生成新 `outBillNo` 或本地失败终态；只保存技术尝试/渠道观察，并使用原单查单或原参数续办。
 
-### 3. 用户确认收款
+### 3. 历史逐笔用户确认收款
 
 ```http
 GET /api/v1/miniapp/me/withdrawals/{withdrawalNo}/collection-confirmation
 Authorization: Bearer <aud=miniapp token>
 ```
 
-- 只允许提现固化的原机构用户在原 AppID 会话下读取；其他主体、AppID 或机构统一返回 `404 RESOURCE.NOT_FOUND`。
+- 仅允许 `collectionMode=USER_CONFIRM` 的历史提现访问。只允许提现固化的原机构用户在原 AppID 会话下读取；其他主体、AppID 或机构统一返回 `404 RESOURCE.NOT_FOUND`。
 - 微信当前状态必须为 `WAIT_USER_CONFIRM`，本地没有相反终态，且 `packageInfo` 已可靠保存。成功返回 `appId + packageInfo + withdrawalNo + channelState` 并设置 `no-store`；其他状态返回明确不可调起错误。
 - 小程序使用该参数调起微信官方确认收款页。前端成功、取消、失败或页面返回都只代表交互结果，不能更新提现或结算资金；最终结果只能来自可信回调、查单或对账。
 - 用户超过 24 小时未确认也不能按本地时钟释放。系统继续用原单查微信，直至得到 `FAIL/CANCELLED/SUCCESS`；原单未终结时禁止创建替代提现。
@@ -498,7 +504,8 @@ Authorization: Bearer <aud=miniapp token>
 
 | 微信原始状态 | 渠道终态 | 本地处理 |
 |---|---|---|
-| `ACCEPTED/PROCESSING/WAIT_USER_CONFIRM/TRANSFERING/CANCELING` | 否 | 提现保持 `CHANNEL_PROCESSING`，双方继续冻结 |
+| `ACCEPTED/PROCESSING/TRANSFERING/CANCELING` | 否 | 提现保持 `CHANNEL_PROCESSING`，双方继续冻结 |
+| `WAIT_USER_CONFIRM` | 否 | 只接受历史 `USER_CONFIRM` 提现；保持双方冻结并提供原确认入口，新 `AUTHORIZED` 提现观察到该状态时停止自动归并并建立对账异常 |
 | `SUCCESS` | 是 | 双方冻结各减少提现金额；用户进入 `WITHDRAWAL_SUCCEEDED` 明细，机构额度完成成功消耗，提现置 `SUCCEEDED` |
 | `FAIL` | 是 | 双方冻结释放回可用并追加 `WITHDRAWAL_RELEASED`，提现置 `CHANNEL_FAILED`，保存安全失败原因 |
 | `CANCELLED` | 是 | 双方冻结释放回可用并追加 `WITHDRAWAL_RELEASED`，提现置 `CHANNEL_CANCELLED` |
@@ -555,6 +562,9 @@ POST /api/v1/web/platform/payout-gate/restorations
 - [Native 支付开发指引](https://pay.weixin.qq.com/doc/v3/merchant/4012791891)：Native 下单取得 `code_url`，支付成功通知与主动查单共同确认结果，设置 `time_expire` 后仍需查单/关单收敛。
 - [商家转账开发指引](https://pay.weixin.qq.com/doc/v3/merchant/4012715211)：用户确认收款、原单续办、撤销非终态、24 小时确认和 30 天查单窗口。
 - [发起转账 API](https://pay.weixin.qq.com/doc/v3/merchant/4012716434)：普通商户请求字段、固定外部单号、`package_info`、原始状态及 `NOT_ENOUGH` 等 API 错误边界。
+- [发起免确认收款授权](https://pay.weixin.qq.com/doc/v3/merchant/4015901167)：授权申请 24 小时有效，授权成功后长期生效并返回授权身份。
+- [商户单号查询授权结果](https://pay.weixin.qq.com/doc/v3/merchant/4014399423)：以原商户授权单号主动确认 `WAIT_USER_CONFIRM/TAKING_EFFECT/CLOSED`。
+- [用户授权后转账](https://pay.weixin.qq.com/doc/v3/merchant/4014399371)：新提现携带有效授权身份发起自动收款。
 
 官方以后增加字段、状态或校验时，连接器必须保留未知原值并停止不安全的自动归并；不得在未更新本章/机器 Schema 和契约测试前，把新增值映射成既有终态。
 
@@ -564,4 +574,4 @@ POST /api/v1/web/platform/payout-gate/restorations
 2. Native 支付和商家转账使用相互独立的渠道单、通知入口、状态机和观察表，只共享签名、验签、HTTP 客户端、系统商户配置和可靠任务基础设施。
 3. 两类通知均须保存唯一可信 inbox、原始密文摘要、验签身份和接收时间；业务观察只保存规范化安全字段。敏感原文按保留策略受限存储，不进入普通业务查询。
 4. 连接器请求、回调和查询的机器可读 Schema、官方测试向量、签名/验签失败样本、金额/身份矛盾、重复/乱序、原单重试和终态竞争必须进入后续契约测试章节。
-5. M0 真机验收至少完成一笔真实 Native 充值到账及净额入账、一笔真实商家转账并由用户确认微信零钱到账；破坏性 `FAIL/CANCELLED/NOT_ENOUGH`、超时和乱序由 Fake/Stub 加真实 MySQL 并发测试覆盖。
+5. M0 真机验收至少完成一笔真实 Native 充值到账及净额入账、一次真实免确认授权及至少一笔授权后自动到账；破坏性 `FAIL/CANCELLED/NOT_ENOUGH`、超时和乱序由 Fake/Stub 加真实 MySQL 并发测试覆盖。

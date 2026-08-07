@@ -10,7 +10,7 @@ public interface ReliableDeviceControlTaskRegistrationPort {
     UUID register(ReliableDeviceControlTaskRegistration registration);
 
     void cancelPending(
-            DeviceDeploymentTaskRef sourceDeployment,
+            DeviceAssetTaskRef sourceAsset,
             String taskType,
             String targetType,
             String targetStableKey);

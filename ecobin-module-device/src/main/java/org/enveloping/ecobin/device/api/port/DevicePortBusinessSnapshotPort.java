@@ -9,7 +9,7 @@ public interface DevicePortBusinessSnapshotPort {
     DevicePortBusinessSnapshot find(
             String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             int portNo);
 
     record DevicePortBusinessSnapshot(

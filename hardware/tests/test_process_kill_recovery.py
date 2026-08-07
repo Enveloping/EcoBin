@@ -51,7 +51,7 @@ assert store.register_photo(
     "diagnostic-photo.jpg",
     work_uid=work_uid,
     work_type="DELIVERY_SESSION",
-    deployment_code="Dp_diagnostic",
+    device_name="SN-DIAGNOSTIC",
 ) == "ACCEPTED"
 assert store.receive_business_confirmation(
     confirmation_uid,

@@ -475,8 +475,8 @@ export default function OrganizationUserPage() {
     },
     {
       title: '注册设备',
-      dataIndex: 'sourceDeploymentCode',
-      render: (_, user) => user.registrationSource?.deploymentCode ?? '-',
+      dataIndex: 'sourceDeviceCode',
+      render: (_, user) => user.registrationSource?.deviceCode ?? '-',
     },
     {
       title: '注册时间',
@@ -636,8 +636,8 @@ export default function OrganizationUserPage() {
                     registeredTo: params.registeredTo
                       ? dayjs(params.registeredTo as string).toISOString()
                       : undefined,
-                    sourceDeploymentCode:
-                      params.sourceDeploymentCode as string | undefined,
+                    sourceDeviceCode:
+                      params.sourceDeviceCode as string | undefined,
                   },
                 );
                 return {
@@ -694,7 +694,7 @@ export default function OrganizationUserPage() {
               </ProDescriptions.Item>
               <ProDescriptions.Item label="注册来源">
                 {detail.registrationSource
-                  ? `${detail.registrationSource.deploymentCode} · ${detail.registrationSource.lifecycleStatus}`
+                  ? `${detail.registrationSource.deviceCode} · ${detail.registrationSource.lifecycleStatus}`
                   : '无扫码来源'}
               </ProDescriptions.Item>
               <ProDescriptions.Item label="版本">

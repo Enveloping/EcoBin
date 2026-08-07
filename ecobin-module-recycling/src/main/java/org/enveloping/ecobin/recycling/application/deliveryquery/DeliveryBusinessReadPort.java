@@ -9,7 +9,7 @@ import java.util.Optional;
  * Recycling-owned read side used by the miniapp delivery query coordinator.
  *
  * <p>The device module supplies transaction-bound references, so callers never
- * pass recycling raw tenant, organization, deployment, port or session keys.</p>
+ * pass recycling raw tenant, organization, asset, port or session keys.</p>
  */
 public interface DeliveryBusinessReadPort {
 

@@ -40,11 +40,11 @@ public class RecyclingDeliveryBusinessReadAdapter
         return queryRef.withOptionsBusinessKeysOnce(
                 (tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         ports) -> currentOptionsWithinScope(
                                 tenantId,
                                 organizationId,
-                                deploymentId,
+                                assetId,
                                 ports));
     }
 
@@ -63,7 +63,7 @@ public class RecyclingDeliveryBusinessReadAdapter
     private DeliveryOptionsBusinessFacts currentOptionsWithinScope(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             List<DeliveryOptionsBusinessQueryRef.PortKey> ports) {
         List<Long> portIds = ports.stream()
                 .map(DeliveryOptionsBusinessQueryRef.PortKey::portKey)
@@ -72,7 +72,7 @@ public class RecyclingDeliveryBusinessReadAdapter
                 repository.findCurrentOptions(
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         portIds);
         List<DeliveryPortBusinessFacts> portFacts = ports.stream()
                 .map(port -> toPortFacts(port, rows))

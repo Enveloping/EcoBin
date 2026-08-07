@@ -7,7 +7,7 @@ param(
     [Parameter(Mandatory)]
     [Security.SecureString]$AppSecret,
 
-    [string]$DeploymentCode = 'Dp_SGMqV11JX26yI5dQp7DvUA',
+    [string]$DeviceCode = 'Dv_0123456789abcdefghijklmn',
 
     [ValidateSet('develop', 'trial', 'release')]
     [string]$EnvVersion = 'develop',
@@ -15,7 +15,7 @@ param(
     [ValidateRange(280, 1280)]
     [int]$Width = 430,
 
-    [string]$OutputBaseName = 'v02-trusted-registration-code',
+    [string]$OutputBaseName = 'device-registration-code',
 
     [switch]$CheckPath
 )
@@ -92,11 +92,11 @@ function Invoke-JsonPost {
     }
 }
 
-if ($DeploymentCode -notmatch '^Dp_[A-Za-z0-9_-]{6,61}$') {
-    throw 'DeploymentCode 不符合 EcoBin 公开部署码格式'
+if ($DeviceCode -notmatch '^Dv_[A-Za-z0-9_-]{24,61}$') {
+    throw 'DeviceCode 不符合 EcoBin 设备公开码格式'
 }
-if ($DeploymentCode.Length -gt 32) {
-    throw 'DeploymentCode 超过微信小程序码 scene 的 32 字符限制'
+if ($DeviceCode.Length -gt 32) {
+    throw 'DeviceCode 超过微信小程序码 scene 的 32 字符限制'
 }
 if (
     [IO.Path]::GetFileName($OutputBaseName) -ne $OutputBaseName -or
@@ -173,7 +173,7 @@ try {
         -Client $client `
         -Uri "https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token=$escapedToken" `
         -Payload @{
-            scene = $DeploymentCode
+            scene = $DeviceCode
             page = 'pages/login/login'
             check_path = [bool]$CheckPath
             env_version = $EnvVersion
@@ -219,7 +219,7 @@ try {
 
     Write-Host "小程序码已生成：$outputPath"
     Write-Host "页面：pages/login/login"
-    Write-Host "scene：$DeploymentCode"
+    Write-Host "scene：$DeviceCode"
     Write-Host "版本：$EnvVersion"
 } finally {
     $appSecretPlain = $null

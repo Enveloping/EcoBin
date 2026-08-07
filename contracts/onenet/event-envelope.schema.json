@@ -6,7 +6,6 @@
   "required": [
     "schemaVersion",
     "eventUid",
-    "deploymentCode",
     "edgeEventSequence",
     "eventType",
     "deliveryClass",
@@ -19,12 +18,9 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "eventUid": {
       "$ref": "common.schema.json#/$defs/uuid"
-    },
-    "deploymentCode": {
-      "$ref": "common.schema.json#/$defs/deploymentCode"
     },
     "edgeEventSequence": {
       "$ref": "common.schema.json#/$defs/positiveSequence"
@@ -44,7 +40,8 @@
         "PHOTO_UPLOAD_GRANT_REQUESTED",
         "BUSINESS_CONFIRMATION_RECEIPT",
         "DEVICE_RUNTIME_SNAPSHOT",
-        "SAFETY_SENSOR_STATE_CHANGED"
+        "SAFETY_SENSOR_STATE_CHANGED",
+        "DEVICE_ACCEPTANCE_EVIDENCE"
       ]
     },
     "deliveryClass": {

@@ -1,8 +1,8 @@
-const DEPLOYMENT_CODE_PATTERN = /^Dp_[A-Za-z0-9_-]{6,61}$/
+const DEVICE_CODE_PATTERN = /^Dv_[A-Za-z0-9_-]{24,61}$/
 const MAX_LINK_LENGTH = 2048
 
 export interface DeviceLink {
-  deploymentCode: string
+  deviceCode: string
 }
 
 function decodeComponent(value: string): string | undefined {
@@ -13,19 +13,19 @@ function decodeComponent(value: string): string | undefined {
   }
 }
 
-function deploymentCodeFromQuery(query: string): string | undefined {
-  let deploymentCode: string | undefined
+function deviceCodeFromQuery(query: string): string | undefined {
+  let deviceCode: string | undefined
   for (const pair of query.split('&')) {
     if (!pair) continue
     const separator = pair.indexOf('=')
     if (separator <= 0) continue
     const key = decodeComponent(pair.slice(0, separator))
-    if (key !== 'deploymentCode') continue
-    if (deploymentCode !== undefined) return undefined
-    deploymentCode = decodeComponent(pair.slice(separator + 1))
+    if (key !== 'deviceCode') continue
+    if (deviceCode !== undefined) return undefined
+    deviceCode = decodeComponent(pair.slice(separator + 1))
   }
-  const normalized = deploymentCode?.trim()
-  return normalized && DEPLOYMENT_CODE_PATTERN.test(normalized)
+  const normalized = deviceCode?.trim()
+  return normalized && DEVICE_CODE_PATTERN.test(normalized)
     ? normalized
     : undefined
 }
@@ -34,8 +34,8 @@ function deploymentCodeFromQuery(query: string): string | undefined {
  * 解析小程序内部 wx.scanCode 返回的二维码原始链接。
  *
  * 域名、路径和路径中的 AppID 由微信后台二维码规则负责路由，客户端不校验。
- * 客户端只提取 deploymentCode；登录请求的 appId 始终取当前运行小程序，
- * 后端再按 appId 恢复机构并校验 deploymentCode 的真实归属。
+ * 客户端只提取 deviceCode；登录请求的 appId 始终取当前运行小程序，
+ * 后端再按 appId 恢复机构并校验 deviceCode 的真实归属。
  */
 export function parseDeviceLinkUrl(
   rawLink: string | undefined,
@@ -50,8 +50,8 @@ export function parseDeviceLinkUrl(
     queryStart + 1,
     fragmentStart < 0 ? value.length : fragmentStart,
   )
-  const deploymentCode = deploymentCodeFromQuery(query)
-  return deploymentCode ? { deploymentCode } : undefined
+  const deviceCode = deviceCodeFromQuery(query)
+  return deviceCode ? { deviceCode } : undefined
 }
 
 /**

@@ -15,7 +15,7 @@ public record RecyclingDeviceRelationFacts(
         fullnessStateFacts = Map.copyOf(fullnessStateFacts);
     }
 
-    public record Port(String deploymentCode, int portNo) { }
+    public record Port(String deviceCode, int portNo) { }
 
     public record DeliverySession(Instant createdAt) { }
 

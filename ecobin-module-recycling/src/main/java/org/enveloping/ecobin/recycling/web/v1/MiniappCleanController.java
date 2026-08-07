@@ -43,13 +43,13 @@ public class MiniappCleanController {
     }
 
     @GetMapping(
-            "/api/v1/miniapp/device-deployments/{deploymentCode}"
+            "/api/v1/miniapp/devices/{deviceCode}"
                     + "/clean-options")
     public TargetApiEnvelope<CleanOptionsView> cleanOptions(
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             HttpServletRequest request) {
         return TargetApiEnvelope.ok(
-                queryService.options(deploymentCode),
+                queryService.options(deviceCode),
                 TargetRequestIds.resolve(request));
     }
 
@@ -82,17 +82,17 @@ public class MiniappCleanController {
     }
 
     @PostMapping(
-            "/api/v1/miniapp/device-deployments/{deploymentCode}"
+            "/api/v1/miniapp/devices/{deviceCode}"
                     + "/ports/{portNo}/clean-operations")
     public ResponseEntity<TargetApiEnvelope<CleanOperationAccepted>> start(
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             @Valid @RequestBody StartCleanOperationRequest body,
             HttpServletRequest request) {
         CleanOperationAccepted accepted = startService.start(
                 idempotencyKey,
-                deploymentCode,
+                deviceCode,
                 portNo,
                 body.installedBagQr());
         return ResponseEntity.accepted()

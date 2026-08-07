@@ -43,7 +43,7 @@ public class ReliableFundsTaskJdbcRepository {
                     task_uid, scope_kind, tenant_id, organization_id,
                     task_category, task_type, execution_lane, task_key,
                     target_type, target_stable_key,
-                    source_inbox_id, source_device_deployment_id,
+                    source_inbox_id, source_device_asset_id,
                     source_device_command_id, payload_schema_version,
                     redacted_execution_snapshot, payload_sha256,
                     correlation_uid, causation_uid, initiating_audit_id,

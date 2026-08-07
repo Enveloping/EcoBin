@@ -86,7 +86,7 @@ class PhotoManager:
         ),
         *,
         camera_warmup_frames=5,
-        deployment_code="",
+        device_name="",
         uploader=None,
         upload_poll_seconds=1.0,
         grant_expiry_skew_seconds=30,
@@ -113,7 +113,7 @@ class PhotoManager:
         self._outside_camera_source = outside_camera_source
         self._inside_camera_source = inside_camera_source
         self._camera_warmup_frames = camera_warmup_frames
-        self._deployment_code = deployment_code
+        self._device_name = device_name
         self._uploader = uploader
         self._upload_poll_seconds = upload_poll_seconds
         self._grant_expiry_skew_seconds = grant_expiry_skew_seconds
@@ -136,7 +136,7 @@ class PhotoManager:
         if (
             start_upload_worker
             and uploader is not None
-            and deployment_code
+            and device_name
         ):
             recovered = self._store.recover_photo_upload_queue()
             if recovered:
@@ -218,6 +218,76 @@ class PhotoManager:
             CLEAN_SLOTS,
         )
 
+    def capture_acceptance_probe(self, challenge_uid: str) -> dict[str, Any]:
+        """Capture one fresh image from each configured physical camera.
+
+        Acceptance probes deliberately bypass ``photo_outbox``: they are not
+        business photos and must not be retried later with an expired grant.
+        The caller owns the returned files and must remove them after COS
+        readback.  Both cameras are attempted so a single failure still gives
+        the platform precise evidence instead of hiding the second result.
+        """
+        challenge_uid = str(_uuid.UUID(challenge_uid))
+        sources = (
+            ("OUTSIDE", self._outside_camera_source),
+            ("INSIDE", self._inside_camera_source),
+        )
+        probe_dir = os.path.join(
+            self._photo_dir,
+            "device-acceptance",
+            challenge_uid,
+        )
+        os.makedirs(probe_dir, exist_ok=True)
+        results: list[dict[str, Any]] = []
+        with self._capture_lock:
+            for camera_name, source in sources:
+                photo_uid = str(_uuid.uuid4())
+                path = os.path.join(
+                    probe_dir,
+                    camera_name.lower(),
+                    f"{photo_uid}.jpg",
+                )
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                temporary_path = self._temporary_path(path)
+                result: dict[str, Any] = {
+                    "camera": camera_name,
+                    "simulated": is_simulated_camera_source(source),
+                    "path": None,
+                    "contentSha256": None,
+                    "sizeBytes": 0,
+                    "error": None,
+                }
+                try:
+                    self._capture_camera_to_path(temporary_path, source)
+                    with open(temporary_path, "rb+") as captured:
+                        os.fsync(captured.fileno())
+                    os.replace(temporary_path, path)
+                    self._sync_directory(os.path.dirname(path))
+                    size_bytes = os.path.getsize(path)
+                    if not 1 <= size_bytes <= MAXIMUM_PHOTO_BYTES:
+                        raise RuntimeError("captured photo size is invalid")
+                    result.update({
+                        "path": path,
+                        "contentSha256": _file_sha256(path),
+                        "sizeBytes": size_bytes,
+                    })
+                except Exception as error:
+                    result["error"] = self._capture_error_code(error)
+                    for candidate in (temporary_path, path):
+                        try:
+                            if os.path.exists(candidate):
+                                os.remove(candidate)
+                        except OSError:
+                            pass
+                results.append(result)
+        return {
+            "challengeUid": challenge_uid,
+            "camerasSimulated": any(
+                item["simulated"] for item in results
+            ),
+            "captures": results,
+        }
+
     def _enqueue_capture(self, work_uid, work_type, slot_names):
         try:
             captures = self._reserve_capture_slots(
@@ -292,7 +362,7 @@ class PhotoManager:
         for slot in slot_names:
             photo_uid = str(_uuid.uuid4())
             object_key = (
-                f"ecobin/{self._deployment_code}/{work_path}/"
+                f"ecobin/{work_path}/"
                 f"{work_uid}/{slot}/{photo_uid}.jpg"
             )
             local_path = os.path.join(
@@ -309,7 +379,7 @@ class PhotoManager:
                     "local_path": local_path,
                     "work_uid": work_uid,
                     "work_type": work_type,
-                    "deployment_code": self._deployment_code,
+                    "device_name": self._device_name,
                     "cos_key": object_key,
                 }
             )
@@ -529,7 +599,7 @@ class PhotoManager:
             return
         validate_cos_grant(
             grant,
-            deployment_code=self._deployment_code,
+            device_name=self._device_name,
             work_type=work_type,
             work_uid=work_uid,
             trusted_environment=self._trusted_cos_environment,
@@ -601,7 +671,7 @@ class PhotoManager:
                 logger.exception("unexpected photo upload worker failure")
 
     def process_uploads_once(self) -> bool:
-        if self._uploader is None or not self._deployment_code:
+        if self._uploader is None or not self._device_name:
             return False
         pending = self._store.list_pending_photos(limit=100)
         grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -815,7 +885,7 @@ class PhotoManager:
                 "requestedSlots": requested_slots,
                 "reason": reason,
             },
-            deployment_code=photos[0]["deployment_code"],
+            device_name=photos[0]["device_name"],
             work_type=work_type,
             work_uid=work_uid,
         )

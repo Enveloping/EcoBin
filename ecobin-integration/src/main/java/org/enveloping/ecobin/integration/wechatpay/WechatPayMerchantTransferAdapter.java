@@ -29,6 +29,9 @@ public class WechatPayMerchantTransferAdapter
 
     @Override
     public MerchantTransferResult submit(MerchantTransferRequest request) {
+        if (!client.usesMerchant(request.mchid())) {
+            return merchantMismatch();
+        }
         ObjectNode body = mapper.createObjectNode();
         body.put("appid", request.appid());
         body.put("out_bill_no", request.outBillNo());
@@ -52,12 +55,49 @@ public class WechatPayMerchantTransferAdapter
     }
 
     @Override
+    public MerchantTransferResult submitAuthorized(
+            AuthorizedMerchantTransferRequest request) {
+        if (!client.usesMerchant(request.mchid())) {
+            return merchantMismatch();
+        }
+        ObjectNode body = mapper.createObjectNode();
+        body.put("appid", request.appid());
+        body.put("out_bill_no", request.outBillNo());
+        body.put("transfer_scene_id", request.sceneId());
+        body.put("transfer_amount", request.amountCent());
+        body.put("transfer_remark", request.remark());
+        body.put("authorization_id", request.authorizationId());
+        ObjectNode report = body.putArray("transfer_scene_report_infos")
+                .addObject();
+        report.put("info_type", reportType(request.reportType()));
+        report.put("info_content", reportContent(request.reportContent()));
+        try {
+            return map(client.post(
+                    "/v3/fund-app/mch-transfer/transfer-bills/transfer",
+                    body));
+        } catch (WechatPayApiException failure) {
+            return error(failure);
+        }
+    }
+
+    @Override
     public MerchantTransferResult query(MerchantTransferQuery query) {
+        if (!client.usesMerchant(query.mchid())) {
+            return merchantMismatch();
+        }
         try {
             return map(client.get(base(query.outBillNo())));
         } catch (WechatPayApiException failure) {
             return queryError(failure);
         }
+    }
+
+    private static MerchantTransferResult merchantMismatch() {
+        return new MerchantTransferResult(
+                MerchantTransferResult.Outcome.PERMANENT_FAILURE,
+                null, null, null, "MCHID_MISMATCH", null,
+                "configured merchant does not match request merchant",
+                Instant.now());
     }
 
     private MerchantTransferResult map(JsonNode response) {

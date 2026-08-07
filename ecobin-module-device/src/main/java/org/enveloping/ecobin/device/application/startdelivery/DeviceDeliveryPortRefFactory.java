@@ -7,6 +7,6 @@ public interface DeviceDeliveryPortRefFactory {
     DeviceDeliveryPortRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long portKey);
 }

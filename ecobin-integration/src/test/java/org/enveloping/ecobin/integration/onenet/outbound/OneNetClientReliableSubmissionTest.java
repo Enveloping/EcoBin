@@ -41,7 +41,7 @@ class OneNetClientReliableSubmissionTest {
             UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID COMMAND_UID =
             UUID.fromString("20000000-0000-4000-8000-000000000001");
-    private static final String HARDWARE_SN = "HW-CONTRACT-001";
+    private static final String HARDWARE_SN = "SN-CONTRACT-0001";
     private static final String PRODUCT_ID = "contract-product";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -579,7 +579,7 @@ class OneNetClientReliableSubmissionTest {
                         .path("cosGrantTmpSecretId")
                         .asText());
         assertEquals(
-                "ecobin/Dp_demo_01/delivery-session/"
+                "ecobin/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/",
                 params.path("scalarFields")
                         .path("cosGrantKeyPrefix")
@@ -590,7 +590,7 @@ class OneNetClientReliableSubmissionTest {
         verify(cosUploadCredentialPort).issue(
                 HARDWARE_SN,
                 1,
-                "ecobin/Dp_demo_01/delivery-session/"
+                "ecobin/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/");
     }
 
@@ -637,7 +637,7 @@ class OneNetClientReliableSubmissionTest {
                         + ".cos.ap-guangzhou.myqcloud.com");
         expectedScalar2.put(
                 "cosGrantKeyPrefix",
-                "ecobin/Dp_demo_01/delivery-session/"
+                "ecobin/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/");
         expectedScalar2.put(
                 "cosGrantExpiresAt",
@@ -648,7 +648,7 @@ class OneNetClientReliableSubmissionTest {
         verify(cosUploadCredentialPort).issue(
                 HARDWARE_SN,
                 2,
-                "ecobin/Dp_demo_01/delivery-session/"
+                "ecobin/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/");
     }
 
@@ -679,7 +679,7 @@ class OneNetClientReliableSubmissionTest {
         verify(cosUploadCredentialPort).issue(
                 HARDWARE_SN,
                 2,
-                "ecobin/Dp_demo_01/clean-operation/"
+                "ecobin/clean-operation/"
                         + "40000000-0000-4000-8000-000000000001/");
     }
 

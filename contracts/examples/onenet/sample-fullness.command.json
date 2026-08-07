@@ -2,7 +2,6 @@
   "commandType": "SAMPLE_FULLNESS",
   "commandUid": "81000000-0000-4000-8000-000000000004",
   "cosGrant": null,
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -21,11 +20,12 @@
     "settleWaitMs": 5000,
     "triggerType": "DELIVERY_COMPLETE"
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "cb51ceaa587ef1514cdc66d33f2022a5bef994e240403030c59e75a8dd07e696",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "FULLNESS_DETECTION",
     "uid": "50000000-0000-4000-8000-000000000001"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

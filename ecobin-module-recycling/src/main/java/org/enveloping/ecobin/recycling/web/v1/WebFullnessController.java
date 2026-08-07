@@ -21,12 +21,12 @@ public class WebFullnessController {
 
     private static final String STAFF_BASE =
             "/api/v1/web/organizations/{organizationCode}"
-                    + "/device-deployments/{deploymentCode}"
+                    + "/devices/{deviceCode}"
                     + "/ports/{portNo}";
     private static final String PLATFORM_BASE =
             "/api/v1/web/platform/tenants/{tenantCode}"
                     + "/organizations/{organizationCode}"
-                    + "/device-deployments/{deploymentCode}"
+                    + "/devices/{deviceCode}"
                     + "/ports/{portNo}";
 
     private final FullnessQueryService service;
@@ -38,12 +38,12 @@ public class WebFullnessController {
     @GetMapping(STAFF_BASE + "/capacity")
     public ResponseEntity<TargetApiEnvelope<PortCapacityView>> capacity(
             @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             HttpServletRequest request) {
         return noStore(
                 service.webCapacity(false, null, organizationCode,
-                        deploymentCode, portNo),
+                        deviceCode, portNo),
                 request);
     }
 
@@ -51,26 +51,26 @@ public class WebFullnessController {
     public ResponseEntity<TargetApiEnvelope<PortCapacityView>> platformCapacity(
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             HttpServletRequest request) {
         return noStore(
                 service.webCapacity(true, tenantCode, organizationCode,
-                        deploymentCode, portNo),
+                        deviceCode, portNo),
                 request);
     }
 
     @GetMapping(STAFF_BASE + "/fullness-state-changes")
     public ResponseEntity<TargetApiEnvelope<FullnessStateChangePage>> history(
             @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         return noStore(
                 service.webHistory(false, null, organizationCode,
-                        deploymentCode, portNo, cursor, limit),
+                        deviceCode, portNo, cursor, limit),
                 request);
     }
 
@@ -78,14 +78,14 @@ public class WebFullnessController {
     public ResponseEntity<TargetApiEnvelope<FullnessStateChangePage>> platformHistory(
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit,
             HttpServletRequest request) {
         return noStore(
                 service.webHistory(true, tenantCode, organizationCode,
-                        deploymentCode, portNo, cursor, limit),
+                        deviceCode, portNo, cursor, limit),
                 request);
     }
 
@@ -93,13 +93,13 @@ public class WebFullnessController {
             + "/fullness-state-changes/{stateChangeUid}")
     public ResponseEntity<TargetApiEnvelope<FullnessStateChangeItem>> stateChange(
             @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             @PathVariable UUID stateChangeUid,
             HttpServletRequest request) {
         return noStore(
                 service.webStateChange(false, null, organizationCode,
-                        deploymentCode, portNo, stateChangeUid),
+                        deviceCode, portNo, stateChangeUid),
                 request);
     }
 
@@ -108,13 +108,13 @@ public class WebFullnessController {
     public ResponseEntity<TargetApiEnvelope<FullnessStateChangeItem>> platformStateChange(
             @PathVariable String tenantCode,
             @PathVariable String organizationCode,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             @PathVariable UUID stateChangeUid,
             HttpServletRequest request) {
         return noStore(
                 service.webStateChange(true, tenantCode, organizationCode,
-                        deploymentCode, portNo, stateChangeUid),
+                        deviceCode, portNo, stateChangeUid),
                 request);
     }
 

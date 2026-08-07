@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": "50000000-0000-4000-8000-000000000004",
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1044,
   "eventType": "FULLNESS_SAMPLE_COMPLETE",
   "eventUid": "50000000-0000-4000-8000-000000000003",
@@ -40,7 +39,7 @@
     "validSampleCount": 5
   },
   "payloadSha256": "9186f31e3b33a9380dfe1a437f4a132c65499c7639699e443679e8b329b39213",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "FULLNESS_DETECTION",
     "uid": "50000000-0000-4000-8000-000000000001"

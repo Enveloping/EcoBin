@@ -33,24 +33,26 @@ class JdbcStartDeliveryDeviceRepository
             """;
 
     static final String LOCK_ASSET_SQL = """
-            SELECT id, hardware_sn, lifecycle_status, expected_port_count
+            SELECT id, hardware_sn, device_public_code,
+                   lifecycle_status, acceptance_status, miniapp_qr_status,
+                   tenant_id, organization_id, expected_port_count
             FROM dev_device_asset
+            WHERE device_public_code = ?
+            FOR UPDATE
+            """;
+
+    static final String LOCK_TENANT_SQL = """
+            SELECT id, status
+            FROM iam_tenant
             WHERE id = ?
             FOR UPDATE
             """;
 
-    static final String LOCK_ACTIVE_DEPLOYMENT_SQL = """
-            SELECT asset_id, tenant_id, organization_id, deployment_id
-            FROM dev_asset_active_deployment
-            WHERE asset_id = ?
-            FOR UPDATE
-            """;
-
-    static final String LOCK_DEPLOYMENT_SQL = """
-            SELECT id, tenant_id, organization_id, asset_id,
-                   public_code, lifecycle_status, business_enabled
-            FROM dev_device_deployment
-            WHERE id = ?
+    static final String LOCK_ORGANIZATION_SQL = """
+            SELECT id, status
+            FROM iam_organization
+            WHERE tenant_id = ?
+              AND id = ?
             FOR UPDATE
             """;
 
@@ -69,18 +71,44 @@ class JdbcStartDeliveryDeviceRepository
             """;
 
     static final String LOCK_LATEST_CONFIGURATION_SQL = """
-            SELECT id, version_no, content_sha256, mcu_payload_sha256,
-                   edge_heartbeat_interval_ms,
-                   edge_heartbeat_miss_threshold,
-                   continue_delivery_wait_ms,
-                   negative_weight_threshold_g,
-                   delivery_auto_close_ms
-            FROM dev_config_version
-            WHERE tenant_id = ?
-              AND organization_id = ?
-              AND deployment_id = ?
-            ORDER BY version_no DESC
+            SELECT config.id,
+                   config.version_no,
+                   config.content_sha256,
+                   config.mcu_payload_sha256,
+                   config.edge_heartbeat_interval_ms,
+                   config.edge_heartbeat_miss_threshold,
+                   config.continue_delivery_wait_ms,
+                   config.negative_weight_threshold_g,
+                   config.delivery_auto_close_ms,
+                   EXISTS (
+                       SELECT 1
+                       FROM dev_config_application application
+                       WHERE application.tenant_id = config.tenant_id
+                         AND application.organization_id = config.organization_id
+                         AND application.asset_id = config.asset_id
+                         AND application.config_version_id = config.id
+                         AND application.status = 'APPLIED'
+                         AND application.reported_version_no = config.version_no
+                         AND application.reported_content_sha256 = config.content_sha256
+                         AND application.reported_mcu_payload_sha256 = config.mcu_payload_sha256
+                   ) AS application_applied,
+                   EXISTS (
+                       SELECT 1
+                       FROM dev_device_runtime_state runtime
+                       WHERE runtime.asset_id = config.asset_id
+                         AND runtime.tenant_id = config.tenant_id
+                         AND runtime.organization_id = config.organization_id
+                         AND runtime.applied_config_version_no = config.version_no
+                         AND runtime.applied_config_content_sha256 = config.content_sha256
+                         AND runtime.applied_mcu_payload_sha256 = config.mcu_payload_sha256
+                   ) AS runtime_applied
+            FROM dev_config_version config
+            WHERE config.tenant_id = ?
+              AND config.organization_id = ?
+              AND config.asset_id = ?
+            ORDER BY config.version_no DESC
             LIMIT 1
+            FOR UPDATE
             """;
 
     static final String LOCK_PORT_SQL = """
@@ -88,7 +116,7 @@ class JdbcStartDeliveryDeviceRepository
             FROM dev_port
             WHERE tenant_id = ?
               AND organization_id = ?
-              AND deployment_id = ?
+              AND asset_id = ?
               AND port_no = ?
             """;
 
@@ -98,7 +126,7 @@ class JdbcStartDeliveryDeviceRepository
             FROM dev_port_config_snapshot
             WHERE tenant_id = ?
               AND organization_id = ?
-              AND deployment_id = ?
+              AND asset_id = ?
               AND config_version_id = ?
               AND port_id = ?
             """;
@@ -108,7 +136,7 @@ class JdbcStartDeliveryDeviceRepository
                 session_uid,
                 tenant_id,
                 organization_id,
-                deployment_id,
+                asset_id,
                 port_id,
                 organization_user_id,
                 device_config_version_id,
@@ -154,14 +182,13 @@ class JdbcStartDeliveryDeviceRepository
                 asset_id,
                 tenant_id,
                 organization_id,
-                deployment_id,
                 occupancy_kind,
                 delivery_session_id,
                 clean_operation_id,
                 acquired_at,
                 lock_version
             ) VALUES (
-                ?, ?, ?, ?,
+                ?, ?, ?,
                 'DELIVERY', ?, NULL, ?, 0
             )
             """;
@@ -171,7 +198,7 @@ class JdbcStartDeliveryDeviceRepository
                 command_uid,
                 tenant_id,
                 organization_id,
-                deployment_id,
+                asset_id,
                 command_type,
                 delivery_session_id,
                 clean_operation_id,
@@ -193,7 +220,7 @@ class JdbcStartDeliveryDeviceRepository
                 ?, ?, ?, ?,
                 'START_DELIVERY_SESSION',
                 ?, NULL, NULL, NULL, NULL,
-                1, CAST(? AS JSON), ?,
+                2, CAST(? AS JSON), ?,
                 'QUEUED', ?,
                 NULL, NULL, NULL,
                 0, ?, ?
@@ -231,55 +258,44 @@ class JdbcStartDeliveryDeviceRepository
     }
 
     @Override
-    public Optional<Long> findAssetIdByDeploymentCode(
-            String deploymentCode) {
-        return jdbc.query("""
-                        SELECT asset_id
-                        FROM dev_device_deployment
-                        WHERE public_code = ?
-                        """,
-                (rs, ignored) -> rs.getLong("asset_id"),
-                deploymentCode).stream().findFirst();
-    }
-
-    @Override
-    public Optional<AssetRow> lockAsset(long assetId) {
+    public Optional<AssetRow> lockAssetByDeviceCode(
+            String deviceCode) {
         return jdbc.query(
                 LOCK_ASSET_SQL,
                 (rs, ignored) -> new AssetRow(
                         rs.getLong("id"),
                         rs.getString("hardware_sn"),
+                        rs.getString("device_public_code"),
                         rs.getString("lifecycle_status"),
+                        rs.getString("acceptance_status"),
+                        rs.getString("miniapp_qr_status"),
+                        nullableLong(rs, "tenant_id"),
+                        nullableLong(rs, "organization_id"),
                         rs.getInt("expected_port_count")),
-                assetId).stream().findFirst();
+                deviceCode).stream().findFirst();
     }
 
     @Override
-    public Optional<ActiveDeploymentRow> lockActiveDeployment(
-            long assetId) {
+    public Optional<SubjectStatusRow> lockTenant(long tenantId) {
         return jdbc.query(
-                LOCK_ACTIVE_DEPLOYMENT_SQL,
-                (rs, ignored) -> new ActiveDeploymentRow(
-                        rs.getLong("asset_id"),
-                        rs.getLong("tenant_id"),
-                        rs.getLong("organization_id"),
-                        rs.getLong("deployment_id")),
-                assetId).stream().findFirst();
-    }
-
-    @Override
-    public Optional<DeploymentRow> lockDeployment(long deploymentId) {
-        return jdbc.query(
-                LOCK_DEPLOYMENT_SQL,
-                (rs, ignored) -> new DeploymentRow(
+                LOCK_TENANT_SQL,
+                (rs, ignored) -> new SubjectStatusRow(
                         rs.getLong("id"),
-                        rs.getLong("tenant_id"),
-                        rs.getLong("organization_id"),
-                        rs.getLong("asset_id"),
-                        rs.getString("public_code"),
-                        rs.getString("lifecycle_status"),
-                        rs.getBoolean("business_enabled")),
-                deploymentId).stream().findFirst();
+                        rs.getString("status")),
+                tenantId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<SubjectStatusRow> lockOrganization(
+            long tenantId,
+            long organizationId) {
+        return jdbc.query(
+                LOCK_ORGANIZATION_SQL,
+                (rs, ignored) -> new SubjectStatusRow(
+                        rs.getLong("id"),
+                        rs.getString("status")),
+                tenantId,
+                organizationId).stream().findFirst();
     }
 
     @Override
@@ -305,7 +321,7 @@ class JdbcStartDeliveryDeviceRepository
     public Optional<ConfigurationRow> lockLatestConfiguration(
             long tenantId,
             long organizationId,
-            long deploymentId) {
+            long assetId) {
         return jdbc.query(
                 LOCK_LATEST_CONFIGURATION_SQL,
                 (rs, ignored) -> new ConfigurationRow(
@@ -317,17 +333,19 @@ class JdbcStartDeliveryDeviceRepository
                         rs.getLong("edge_heartbeat_miss_threshold"),
                         rs.getLong("continue_delivery_wait_ms"),
                         rs.getLong("negative_weight_threshold_g"),
-                        rs.getLong("delivery_auto_close_ms")),
+                        rs.getLong("delivery_auto_close_ms"),
+                        rs.getBoolean("application_applied"),
+                        rs.getBoolean("runtime_applied")),
                 tenantId,
                 organizationId,
-                deploymentId).stream().findFirst();
+                assetId).stream().findFirst();
     }
 
     @Override
     public Optional<PortRow> lockPort(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             int portNo) {
         return jdbc.query(
                 LOCK_PORT_SQL,
@@ -336,7 +354,7 @@ class JdbcStartDeliveryDeviceRepository
                         rs.getInt("port_no")),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 portNo).stream().findFirst();
     }
 
@@ -344,7 +362,7 @@ class JdbcStartDeliveryDeviceRepository
     public Optional<PortConfigurationRow> lockPortConfiguration(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long configurationId,
             long portId) {
         return jdbc.query(
@@ -357,7 +375,7 @@ class JdbcStartDeliveryDeviceRepository
                         rs.getLong("calibration_version")),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 configurationId,
                 portId).stream().findFirst();
     }
@@ -369,7 +387,7 @@ class JdbcStartDeliveryDeviceRepository
                 insert.sessionUid().toString(),
                 insert.tenantId(),
                 insert.organizationId(),
-                insert.deploymentId(),
+                insert.assetId(),
                 insert.portId(),
                 insert.organizationUserId(),
                 insert.deviceConfigurationId(),
@@ -398,7 +416,6 @@ class JdbcStartDeliveryDeviceRepository
             long assetId,
             long tenantId,
             long organizationId,
-            long deploymentId,
             long sessionId,
             LocalDateTime acquiredAt) {
         requireSingle(
@@ -407,7 +424,6 @@ class JdbcStartDeliveryDeviceRepository
                         assetId,
                         tenantId,
                         organizationId,
-                        deploymentId,
                         sessionId,
                         acquiredAt),
                 "insert delivery occupancy");
@@ -420,7 +436,7 @@ class JdbcStartDeliveryDeviceRepository
                 insert.commandUid().toString(),
                 insert.tenantId(),
                 insert.organizationId(),
-                insert.deploymentId(),
+                insert.assetId(),
                 insert.deliverySessionId(),
                 insert.semanticEnvelopeJson(),
                 insert.semanticEnvelopeSha256(),
@@ -458,6 +474,13 @@ class JdbcStartDeliveryDeviceRepository
         if (affected != 1) {
             throw invariant(operation + " affected " + affected + " rows");
         }
+    }
+
+    private static Long nullableLong(
+            java.sql.ResultSet resultSet,
+            String column) throws java.sql.SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
     }
 
     private static IllegalStateException invariant(String message) {

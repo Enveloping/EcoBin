@@ -30,14 +30,18 @@ public class ReliableDeviceTaskRegistrationService
         registration.sourceCommand().writeForeignKeysTo(
                 (tenantKey,
                  organizationKey,
-                 deploymentKey,
+                 assetKey,
                  commandKey) -> {
                     keys[0] = tenantKey;
                     keys[1] = organizationKey;
-                    keys[2] = deploymentKey;
+                    keys[2] = assetKey;
                     keys[3] = commandKey;
                 });
         var now = repository.databaseNow();
+        var initialRunAt = registration.initialRunAt() == null
+                || registration.initialRunAt().isBefore(now)
+                ? now
+                : registration.initialRunAt();
         if (registration.supersedePriorPendingTasks()) {
             repository.cancelSupersededDeviceTasks(
                     keys[0],
@@ -61,9 +65,7 @@ public class ReliableDeviceTaskRegistrationService
                 registration.correlationUid(),
                 registration.causationUid(),
                 registration.maxAutoAttempts(),
-                registration.initialRunAt() == null
-                        ? now
-                        : registration.initialRunAt(),
+                initialRunAt,
                 now);
         workSignal.deviceCommand();
         return taskUid;

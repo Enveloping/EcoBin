@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": null,
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1051,
   "eventType": "PHOTO_STATUS_REPORTED",
   "eventUid": "88000000-0000-4000-8000-000000000002",
@@ -16,13 +15,13 @@
       "sizeBytes": 483220,
       "slot": "AFTER_INNER",
       "status": "AVAILABLE",
-      "url": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com/ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/AFTER_INNER/88000000-0000-4000-8000-000000000001.jpg"
+      "url": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com/ecobin/delivery-session/30000000-0000-4000-8000-000000000001/AFTER_INNER/88000000-0000-4000-8000-000000000001.jpg"
     },
     "workType": "DELIVERY_SESSION",
     "workUid": "30000000-0000-4000-8000-000000000001"
   },
-  "payloadSha256": "d57b48724ed92caa534466b26c490a80b706e76ef786d700c3bfb0106fb7dd64",
-  "schemaVersion": 1,
+  "payloadSha256": "3e6f3f91f5ff5aeae9ae3cdb71ef6329e6c5a356da14b5d27a0c2f0fdbee24dc",
+  "schemaVersion": 2,
   "target": {
     "type": "DELIVERY_SESSION",
     "uid": "30000000-0000-4000-8000-000000000001"

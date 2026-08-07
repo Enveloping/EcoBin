@@ -12,6 +12,8 @@
     "CONFIGURATION_PROGRESS": "CONFIG_PROGRESS",
     "DELIVERY_DOOR_HIL_NOT_QUALIFIED": "DOOR_HIL_NOT_QUAL",
     "DELIVERY_DOOR_OUTPUT_REJECTED": "DOOR_OUTPUT_REJECTED",
+    "DEVICE_ACCEPTANCE_EVIDENCE": "DEV_ACCEPT_EVIDENCE",
+    "DEVICE_ASSET": "DEVICE_ASSET",
     "DEVICE_COMMAND_OBSERVED": "DEV_CMD_OBSERVED",
     "DEVICE_FAULT_OBSERVED": "DEV_FAULT_OBSERVED",
     "DEVICE_FAULT_RECOVERED": "DEV_FAULT_RECOVERED",
@@ -29,6 +31,7 @@
     "PHOTO_STATUS_REPORTED": "PHOTO_STATUS_RPT",
     "PHOTO_UPLOAD_GRANT_REQUESTED": "PHOTO_GRANT_REQ",
     "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
+    "REQUEST_DEVICE_ACCEPTANCE": "REQUEST_DEV_ACCEPT",
     "RESUME_CLEAN_OPERATION": "RESUME_CLEAN_OPT",
     "SAFETY_SENSOR_STATE_CHANGED": "SAFETY_STATE_CHANGED",
     "SELECTION_WINDOW_EXPIRED": "SEL_WINDOW_EXPIRED",
@@ -44,7 +47,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -60,16 +63,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -491,12 +484,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -587,7 +574,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -603,16 +590,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -786,12 +763,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -870,7 +841,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -886,16 +857,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -1819,12 +1780,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -1957,7 +1912,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -1973,16 +1928,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -2212,12 +2157,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -2314,7 +2253,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -2330,16 +2269,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -3257,12 +3186,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -3383,13 +3306,13 @@
         }
       ]
     },
-    "deviceCommandObserved": {
-      "eventType": "DEVICE_COMMAND_OBSERVED",
+    "deviceAcceptanceEvidence": {
+      "eventType": "DEVICE_ACCEPTANCE_EVIDENCE",
       "outputData": [
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -3409,12 +3332,539 @@
         {
           "dataType": {
             "specs": {
+              "max": "9007199254740991",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "edgeEventSequence",
+          "name": "edgeEventSequence"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "DEV_ACCEPT_EVIDENCE"
+            },
+            "type": "enum"
+          },
+          "identifier": "eventType",
+          "name": "eventType"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "RELIABLE_FACT"
+            },
+            "type": "enum"
+          },
+          "identifier": "deliveryClass",
+          "name": "deliveryClass"
+        },
+        {
+          "dataType": {
+            "specs": [
+              {
+                "dataType": {
+                  "specs": {
+                    "1": "DEVICE_ASSET"
+                  },
+                  "type": "enum"
+                },
+                "identifier": "type",
+                "name": "type"
+              },
+              {
+                "dataType": {
+                  "specs": {
+                    "length": 64
+                  },
+                  "type": "string"
+                },
+                "identifier": "uid",
+                "name": "uid"
+              }
+            ],
+            "type": "struct"
+          },
+          "identifier": "target",
+          "name": "target"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "commandUid",
+          "name": "commandUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "null",
+              "true": "present"
+            },
+            "type": "bool"
+          },
+          "identifier": "occurredAtPresent",
+          "name": "occurredAtPresent"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 30
+            },
+            "type": "string"
+          },
+          "identifier": "occurredAt",
+          "name": "occurredAt"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "SYNCED",
+              "2": "ESTIMATED",
+              "3": "UNAVAILABLE"
+            },
+            "type": "enum"
+          },
+          "identifier": "clockQuality",
+          "name": "clockQuality"
+        },
+        {
+          "dataType": {
+            "specs": {
               "length": 64
             },
             "type": "string"
           },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
+          "identifier": "payloadSha256",
+          "name": "payloadSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "1"
+            },
+            "type": "enum"
+          },
+          "identifier": "evidenceSchemaVersion",
+          "name": "evidenceSchemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "challengeUid",
+          "name": "challengeUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "edgeSoftwareVersion",
+          "name": "edgeSoftwareVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "edgeProtocolVersion",
+          "name": "edgeProtocolVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "edgeStoreInstanceUid",
+          "name": "edgeStoreInstanceUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "mcuFirmwareVersion",
+          "name": "mcuFirmwareVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "persistentStoreHealthy",
+          "name": "persistentStoreHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "trustedTimeHealthy",
+          "name": "trustedTimeHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "configurationPersistenceHealthy",
+          "name": "configurationPersistenceHealth"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "mcuCommunicationHealthy",
+          "name": "mcuCommunicationHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "sensorsHealthy",
+          "name": "sensorsHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "camerasCaptureHealthy",
+          "name": "camerasCaptureHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "cameraUploadHealthy",
+          "name": "cameraUploadHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "mcuSimulated",
+          "name": "mcuSimulated"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "camerasSimulated",
+          "name": "camerasSimulated"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "6",
+              "min": "1",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "verifiedPortCount",
+          "name": "verifiedPortCount"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "16",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int32"
+          },
+          "identifier": "verifiedCameraCount",
+          "name": "verifiedCameraCount"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "sensorSampleSha256",
+          "name": "sensorSampleSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "cameraCaptureSha256",
+          "name": "cameraCaptureSha256"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "cameraUploadSha256",
+          "name": "cameraUploadSha256"
+        }
+      ],
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.evidenceSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "evidenceSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.challengeUid",
+          "nullable": false,
+          "wireIdentifier": "challengeUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.edgeSoftwareVersion",
+          "nullable": false,
+          "wireIdentifier": "edgeSoftwareVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.edgeProtocolVersion",
+          "nullable": false,
+          "wireIdentifier": "edgeProtocolVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.edgeStoreInstanceUid",
+          "nullable": false,
+          "wireIdentifier": "edgeStoreInstanceUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuFirmwareVersion",
+          "nullable": false,
+          "wireIdentifier": "mcuFirmwareVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.persistentStoreHealthy",
+          "nullable": false,
+          "wireIdentifier": "persistentStoreHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.trustedTimeHealthy",
+          "nullable": false,
+          "wireIdentifier": "trustedTimeHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.configurationPersistenceHealthy",
+          "nullable": false,
+          "wireIdentifier": "configurationPersistenceHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuCommunicationHealthy",
+          "nullable": false,
+          "wireIdentifier": "mcuCommunicationHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sensorsHealthy",
+          "nullable": false,
+          "wireIdentifier": "sensorsHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.camerasCaptureHealthy",
+          "nullable": false,
+          "wireIdentifier": "camerasCaptureHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cameraUploadHealthy",
+          "nullable": false,
+          "wireIdentifier": "cameraUploadHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.mcuSimulated",
+          "nullable": false,
+          "wireIdentifier": "mcuSimulated"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.camerasSimulated",
+          "nullable": false,
+          "wireIdentifier": "camerasSimulated"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.verifiedPortCount",
+          "nullable": false,
+          "wireIdentifier": "verifiedPortCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.verifiedCameraCount",
+          "nullable": false,
+          "wireIdentifier": "verifiedCameraCount"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sensorSampleSha256",
+          "nullable": false,
+          "wireIdentifier": "sensorSampleSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cameraCaptureSha256",
+          "nullable": false,
+          "wireIdentifier": "cameraCaptureSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.cameraUploadSha256",
+          "nullable": false,
+          "wireIdentifier": "cameraUploadSha256"
+        }
+      ]
+    },
+    "deviceCommandObserved": {
+      "eventType": "DEVICE_COMMAND_OBSERVED",
+      "outputData": [
+        {
+          "dataType": {
+            "specs": {
+              "1": "2"
+            },
+            "type": "enum"
+          },
+          "identifier": "schemaVersion",
+          "name": "schemaVersion"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 36
+            },
+            "type": "string"
+          },
+          "identifier": "eventUid",
+          "name": "eventUid"
         },
         {
           "dataType": {
@@ -3619,12 +4069,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -3703,7 +4147,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -3719,16 +4163,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -3769,7 +4203,7 @@
               {
                 "dataType": {
                   "specs": {
-                    "1": "DEVICE_DEPLOYMENT"
+                    "1": "DEVICE_ASSET"
                   },
                   "type": "enum"
                 },
@@ -4014,12 +4448,6 @@
           "jsonPath": "$.eventUid",
           "nullable": false,
           "wireIdentifier": "eventUid"
-        },
-        {
-          "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
         },
         {
           "encoding": "FLAT_TYPED",
@@ -4119,7 +4547,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -4135,16 +4563,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -4185,7 +4603,7 @@
               {
                 "dataType": {
                   "specs": {
-                    "1": "DEVICE_DEPLOYMENT"
+                    "1": "DEVICE_ASSET"
                   },
                   "type": "enum"
                 },
@@ -4433,12 +4851,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -4535,7 +4947,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -4551,16 +4963,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -4601,7 +5003,7 @@
               {
                 "dataType": {
                   "specs": {
-                    "1": "DEVICE_DEPLOYMENT"
+                    "1": "DEVICE_ASSET"
                   },
                   "type": "enum"
                 },
@@ -5376,12 +5778,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -5514,7 +5910,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -5530,16 +5926,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -6061,12 +6447,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -6199,7 +6579,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -6215,16 +6595,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -6797,12 +7167,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -6953,7 +7317,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -6969,16 +7333,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -7310,12 +7664,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -7388,7 +7736,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -7404,16 +7752,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -7601,12 +7939,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -7685,7 +8017,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -7701,16 +8033,6 @@
           },
           "identifier": "eventUid",
           "name": "eventUid"
-        },
-        {
-          "dataType": {
-            "specs": {
-              "length": 64
-            },
-            "type": "string"
-          },
-          "identifier": "deploymentCode",
-          "name": "deploymentCode"
         },
         {
           "dataType": {
@@ -7751,7 +8073,7 @@
               {
                 "dataType": {
                   "specs": {
-                    "1": "DEVICE_DEPLOYMENT"
+                    "1": "DEVICE_ASSET"
                   },
                   "type": "enum"
                 },
@@ -7995,12 +8317,6 @@
         },
         {
           "encoding": "FLAT_TYPED",
-          "jsonPath": "$.deploymentCode",
-          "nullable": false,
-          "wireIdentifier": "deploymentCode"
-        },
-        {
-          "encoding": "FLAT_TYPED",
           "jsonPath": "$.edgeEventSequence",
           "nullable": false,
           "wireIdentifier": "edgeEventSequence"
@@ -8099,5 +8415,5 @@
     }
   },
   "generated": true,
-  "mappingVersion": "1.0.0-rc.3"
+  "mappingVersion": "2.0.0"
 }

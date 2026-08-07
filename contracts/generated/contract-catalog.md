@@ -3,10 +3,10 @@
 > 本文件由 `contracts/tools/generate_contracts.py` 生成，请勿直接编辑。
 
 - UART Registry：`1.0.0-rc.3`
-- UART Registry SHA-256：`11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2`
+- UART Registry SHA-256：`d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75`
 - UART 状态：`MCU_REVIEW_REQUIRED`
 - UART 物理链路：`115200 baud / 8N1 / no flow control`
-- OneNet Mapping：`1.0.0-rc.3` / `IMPLEMENTATION_CANDIDATE`
+- OneNet Mapping：`2.0.0` / `IMPLEMENTATION_CANDIDATE`
 
 ## UART 消息
 
@@ -65,6 +65,7 @@
 | `measureEmptyBagBaseline` | `MEASURE_EMPTY_BAG_BASELINE` | `BASELINE_MEASUREMENT` | `DOMAIN_COMMAND` |
 | `confirmEdgeEvent` | `CONFIRM_EDGE_EVENT` | `EDGE_EVENT` | `CONTROL_COMMAND` |
 | `providePhotoUploadGrant` | `PROVIDE_PHOTO_UPLOAD_GRANT` | `PHOTO_GRANT_REQUEST` | `CONTROL_COMMAND` |
+| `requestDeviceAcceptance` | `REQUEST_DEVICE_ACCEPTANCE` | `DEVICE_ASSET` | `CONTROL_COMMAND` |
 
 ## OneNet 上行
 
@@ -77,13 +78,14 @@
 | `fullnessStateChanged` | `FULLNESS_STATE_CHANGED` | `RELIABLE_FACT` | `PORT_FULLNESS_STATE` |
 | `fullnessSampleComplete` | `FULLNESS_SAMPLE_COMPLETE` | `RELIABLE_FACT` | `FULLNESS_DETECTION` |
 | `baselineMeasurementComplete` | `BASELINE_MEASUREMENT_COMPLETE` | `RELIABLE_FACT` | `BASELINE_MEASUREMENT` |
-| `deviceFaultObserved` | `DEVICE_FAULT_OBSERVED` | `RELIABLE_FACT` | `DEVICE_DEPLOYMENT` |
-| `deviceFaultRecovered` | `DEVICE_FAULT_RECOVERED` | `RELIABLE_FACT` | `DEVICE_DEPLOYMENT` |
-| `safetySensorStateChanged` | `SAFETY_SENSOR_STATE_CHANGED` | `RELIABLE_FACT` | `DEVICE_DEPLOYMENT` |
+| `deviceFaultObserved` | `DEVICE_FAULT_OBSERVED` | `RELIABLE_FACT` | `DEVICE_ASSET` |
+| `deviceFaultRecovered` | `DEVICE_FAULT_RECOVERED` | `RELIABLE_FACT` | `DEVICE_ASSET` |
+| `safetySensorStateChanged` | `SAFETY_SENSOR_STATE_CHANGED` | `RELIABLE_FACT` | `DEVICE_ASSET` |
 | `photoStatusReported` | `PHOTO_STATUS_REPORTED` | `RELIABLE_FACT` | `DELIVERY_SESSION / CLEAN_OPERATION` |
 | `photoUploadGrantRequested` | `PHOTO_UPLOAD_GRANT_REQUESTED` | `RELIABLE_FACT` | `DELIVERY_SESSION / CLEAN_OPERATION` |
 | `businessConfirmationReceipt` | `BUSINESS_CONFIRMATION_RECEIPT` | `CONTROL_RECEIPT` | `BUSINESS_CONFIRMATION` |
-| `deviceRuntimeSnapshot` | `DEVICE_RUNTIME_SNAPSHOT` | `TELEMETRY_SNAPSHOT` | `DEVICE_DEPLOYMENT` |
+| `deviceRuntimeSnapshot` | `DEVICE_RUNTIME_SNAPSHOT` | `TELEMETRY_SNAPSHOT` | `DEVICE_ASSET` |
+| `deviceAcceptanceEvidence` | `DEVICE_ACCEPTANCE_EVIDENCE` | `RELIABLE_FACT` | `DEVICE_ASSET` |
 
 ## MCU 人工确认清单
 

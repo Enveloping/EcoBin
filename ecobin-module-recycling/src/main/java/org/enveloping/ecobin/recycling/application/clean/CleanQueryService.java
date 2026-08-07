@@ -37,8 +37,8 @@ public class CleanQueryService {
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public CleanOptionsView options(String deploymentCode) {
-        String normalized = deploymentCode(deploymentCode);
+    public CleanOptionsView options(String deviceCode) {
+        String normalized = deviceCode(deviceCode);
         LockedMiniappCleanScope scope =
                 identity.lockCurrentMiniappScope();
         ScopeIds ids = scope.organizationScopeRef()
@@ -85,10 +85,10 @@ public class CleanQueryService {
             long tenantId,
             long organizationId,
             long organizationUserId,
-            String deploymentCode) {
+            String deviceCode) {
         requireScope(locked, tenantId, organizationId);
-        Deployment deployment = jdbc.query("""
-                        SELECT deployment.id, deployment.asset_id,
+        Asset asset = jdbc.query("""
+                        SELECT asset.id,
                                configuration.device_display_name
                                    AS display_name,
                                configuration.location_address AS address,
@@ -96,34 +96,41 @@ public class CleanQueryService {
                                    transport.onenet_connection_status,
                                    'UNKNOWN'
                                ) AS onenet_connection_status
-                        FROM dev_device_deployment deployment
+                        FROM dev_device_asset asset
+                        JOIN iam_tenant tenant
+                          ON tenant.id = asset.tenant_id
+                         AND tenant.status = 'ENABLED'
+                        JOIN iam_organization organization
+                          ON organization.tenant_id = asset.tenant_id
+                         AND organization.id = asset.organization_id
+                         AND organization.status = 'ENABLED'
                         LEFT JOIN dev_device_transport_state transport
-                          ON transport.asset_id = deployment.asset_id
+                          ON transport.asset_id = asset.id
                         LEFT JOIN dev_config_version configuration
                           ON configuration.id = (
                               SELECT latest.id
                               FROM dev_config_version latest
-                              WHERE latest.tenant_id = deployment.tenant_id
-                                AND latest.organization_id = deployment.organization_id
-                                AND latest.deployment_id = deployment.id
+                              WHERE latest.tenant_id = asset.tenant_id
+                                AND latest.organization_id = asset.organization_id
+                                AND latest.asset_id = asset.id
                               ORDER BY latest.version_no DESC
                               LIMIT 1
                           )
-                        WHERE deployment.tenant_id = ?
-                          AND deployment.organization_id = ?
-                          AND deployment.public_code = ?
-                          AND deployment.lifecycle_status = 'ENABLED'
-                          AND deployment.business_enabled = 1
+                        WHERE asset.tenant_id = ?
+                          AND asset.organization_id = ?
+                          AND asset.device_public_code = ?
+                          AND asset.lifecycle_status = 'NORMAL'
+                          AND asset.acceptance_status = 'PASSED'
+                          AND asset.miniapp_qr_status = 'READY'
                         """,
-                (rs, ignored) -> new Deployment(
+                (rs, ignored) -> new Asset(
                         rs.getLong("id"),
-                        rs.getLong("asset_id"),
                         rs.getString("display_name"),
                         rs.getString("address"),
                         rs.getString("onenet_connection_status")),
                 tenantId,
                 organizationId,
-                deploymentCode).stream().findFirst().orElseThrow(
+                deviceCode).stream().findFirst().orElseThrow(
                 CleanQueryService::notFound);
         boolean deviceBusy = Boolean.TRUE.equals(jdbc.queryForObject("""
                         SELECT EXISTS (
@@ -133,14 +140,14 @@ public class CleanQueryService {
                         )
                         """,
                 Boolean.class,
-                deployment.assetId()));
+                asset.id()));
         List<RecoverableCleanOperation> recoverable = jdbc.query("""
                         SELECT operation_uid, port.port_no, status
                         FROM rec_clean_operation operation
                         JOIN dev_port port ON port.id = operation.port_id
                         WHERE operation.tenant_id = ?
                           AND operation.organization_id = ?
-                          AND operation.deployment_id = ?
+                          AND operation.asset_id = ?
                           AND operation.cleaner_organization_user_id = ?
                           AND operation.status = 'RECOVERY_REQUIRED'
                         ORDER BY operation.id
@@ -156,7 +163,7 @@ public class CleanQueryService {
                 },
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 organizationUserId);
         List<CleanPortOption> ports = jdbc.query("""
                         SELECT port.port_no,
@@ -182,14 +189,14 @@ public class CleanQueryService {
                               FROM dev_config_version latest
                               WHERE latest.tenant_id = port.tenant_id
                                 AND latest.organization_id = port.organization_id
-                                AND latest.deployment_id = port.deployment_id
+                                AND latest.asset_id = port.asset_id
                               ORDER BY latest.version_no DESC
                               LIMIT 1
                           )
                         JOIN dev_port_config_snapshot snapshot
                           ON snapshot.tenant_id = port.tenant_id
                          AND snapshot.organization_id = port.organization_id
-                         AND snapshot.deployment_id = port.deployment_id
+                         AND snapshot.asset_id = port.asset_id
                          AND snapshot.config_version_id = configuration.id
                          AND snapshot.port_id = port.id
                         LEFT JOIN rec_bag_current_occupancy occupancy
@@ -200,20 +207,20 @@ public class CleanQueryService {
                           ON capacity.port_id = port.id
                         WHERE port.tenant_id = ?
                           AND port.organization_id = ?
-                          AND port.deployment_id = ?
+                          AND port.asset_id = ?
                         ORDER BY port.port_no
                         """,
                 (rs, ignored) -> portOption(
                         rs,
                         deviceBusy,
-                        deployment.onenetConnectionStatus()),
+                        asset.onenetConnectionStatus()),
                 tenantId,
                 organizationId,
-                deployment.id());
+                asset.id());
         return new CleanOptionsView(
-                deploymentCode,
-                deployment.displayName(),
-                deployment.address(),
+                deviceCode,
+                asset.displayName(),
+                asset.address(),
                 deviceBusy,
                 recoverable,
                 databaseNow(),
@@ -231,7 +238,7 @@ public class CleanQueryService {
                         SELECT operation.operation_uid,
                                operation.status,
                                operation.lock_version,
-                               deployment.public_code,
+                               asset.device_public_code,
                                port.port_no,
                                operation.old_bag_code_snapshot,
                                operation.new_bag_code_snapshot,
@@ -243,8 +250,8 @@ public class CleanQueryService {
                                operation.ended_at,
                                record.clean_record_no
                         FROM rec_clean_operation operation
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = operation.deployment_id
+                        JOIN dev_device_asset asset
+                          ON asset.id = operation.asset_id
                         JOIN dev_port port ON port.id = operation.port_id
                         LEFT JOIN rec_clean_record record
                           ON record.id = operation.completion_record_id
@@ -315,7 +322,7 @@ public class CleanQueryService {
                 UUID.fromString(rs.getString("operation_uid")),
                 status,
                 rs.getLong("lock_version"),
-                rs.getString("public_code"),
+                rs.getString("device_public_code"),
                 rs.getInt("port_no"),
                 rs.getString("old_bag_code_snapshot"),
                 rs.getString("new_bag_code_snapshot"),
@@ -360,9 +367,9 @@ public class CleanQueryService {
         return "UNKNOWN";
     }
 
-    private static String deploymentCode(String value) {
+    private static String deviceCode(String value) {
         if (value == null
-                || !value.trim().matches("Dp_[A-Za-z0-9_-]{6,61}")) {
+                || !value.trim().matches("Dv_[A-Za-z0-9_-]{24,61}")) {
             throw notFound();
         }
         return value.trim();
@@ -404,9 +411,8 @@ public class CleanQueryService {
     private record ScopeIds(long tenantId, long organizationId) {
     }
 
-    private record Deployment(
+    private record Asset(
             long id,
-            long assetId,
             String displayName,
             String address,
             String onenetConnectionStatus) {

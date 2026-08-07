@@ -1,10 +1,14 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceEvidencePort;
+import org.enveloping.ecobin.device.api.port.DeviceAcceptanceChallengeCoordinatorPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
 import org.enveloping.ecobin.device.api.result.DeviceTransportPresenceApplyResult;
+import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
+import org.enveloping.ecobin.device.api.result.TrustedDeviceAcceptanceEvent;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceTransportEvent;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRefFactory;
@@ -24,7 +28,10 @@ public class ReliableDeviceInboxWorkerService
     private final TrustedPlatformInboxRefFactory platformInboxRefFactory;
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final TrustedDeviceInboxEventPort deviceEventPort;
+    private final TrustedDeviceAcceptanceEvidencePort acceptanceEvidencePort;
     private final TrustedDeviceTransportPresencePort transportPresencePort;
+    private final DeviceAcceptanceChallengeCoordinatorPort
+            acceptanceChallengeCoordinator;
     private final ReliableDeviceTaskGateService taskGateService;
     private final CanonicalJson canonicalJson;
     private final ApplyDeliveryCompleteUseCase deliveryComplete;
@@ -37,7 +44,10 @@ public class ReliableDeviceInboxWorkerService
             TrustedPlatformInboxRefFactory platformInboxRefFactory,
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             TrustedDeviceInboxEventPort deviceEventPort,
+            TrustedDeviceAcceptanceEvidencePort acceptanceEvidencePort,
             TrustedDeviceTransportPresencePort transportPresencePort,
+            DeviceAcceptanceChallengeCoordinatorPort
+                    acceptanceChallengeCoordinator,
             ReliableDeviceTaskGateService taskGateService,
             CanonicalJson canonicalJson,
             ApplyDeliveryCompleteUseCase deliveryComplete,
@@ -48,7 +58,10 @@ public class ReliableDeviceInboxWorkerService
         this.platformInboxRefFactory = platformInboxRefFactory;
         this.inboxRefFactory = inboxRefFactory;
         this.deviceEventPort = deviceEventPort;
+        this.acceptanceEvidencePort = acceptanceEvidencePort;
         this.transportPresencePort = transportPresencePort;
+        this.acceptanceChallengeCoordinator =
+                acceptanceChallengeCoordinator;
         this.taskGateService = taskGateService;
         this.canonicalJson = canonicalJson;
         this.deliveryComplete = deliveryComplete;
@@ -74,6 +87,30 @@ public class ReliableDeviceInboxWorkerService
                         DeviceTransportPresenceApplyResult applied =
                                 transportPresencePort.apply(
                                         new TrustedDeviceTransportEvent(
+                                                platformInboxRefFactory.issue(
+                                                        task.inboxId()),
+                                                task.normalizedSchemaVersion(),
+                                                task.normalizedPayload()));
+                        taskGateService.reconcileAsset(applied.assetId());
+                        if ("ONLINE".equals(applied.status())) {
+                            acceptanceChallengeCoordinator.requestIfNeeded(
+                                    applied.assetId());
+                        }
+                        return applied.changed()
+                                ? InboxTaskHandlerResult.APPLIED
+                                : InboxTaskHandlerResult.NO_ACTION_REQUIRED;
+                    }
+                    if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
+                            task.messageKind())) {
+                        if (!"PLATFORM".equals(task.scopeKind())
+                                || task.tenantId() != null
+                                || task.organizationId() != null) {
+                            throw new ReliableTaskInvariantException(
+                                    "acceptance evidence inbox task is not platform scoped");
+                        }
+                        DeviceAcceptanceEvidenceApplyResult applied =
+                                acceptanceEvidencePort.apply(
+                                        new TrustedDeviceAcceptanceEvent(
                                                 platformInboxRefFactory.issue(
                                                         task.inboxId()),
                                                 task.normalizedSchemaVersion(),

@@ -1,6 +1,6 @@
 /* Generated from contracts/uart/uart-registry.yaml.
  * DO NOT EDIT.
- * Registry SHA-256: 11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2
+ * Registry SHA-256: d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75
  */
 #ifndef ECOBIN_UART_PROTOCOL_H
 #define ECOBIN_UART_PROTOCOL_H
@@ -14,7 +14,7 @@
 #define inline __inline
 #endif
 
-#define ECOBIN_UART_REGISTRY_SHA256 "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2"
+#define ECOBIN_UART_REGISTRY_SHA256 "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75"
 #define ECOBIN_UART_BAUD_RATE 115200u
 #define ECOBIN_UART_DATA_BITS 8u
 #define ECOBIN_UART_STOP_BITS 1u

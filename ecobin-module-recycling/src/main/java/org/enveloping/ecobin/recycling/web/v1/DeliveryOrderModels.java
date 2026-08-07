@@ -27,7 +27,7 @@ public final class DeliveryOrderModels {
 
     public record MiniappDeliveryOrderItem(
             String deliveryOrderNo,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             Instant deviceOccurredAt,
             Instant receivedAt,
@@ -50,7 +50,7 @@ public final class DeliveryOrderModels {
     public record WebDeliveryOrderItem(
             String deliveryOrderNo,
             UUID organizationUserUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             Instant deviceOccurredAt,
             Instant receivedAt,
@@ -73,7 +73,7 @@ public final class DeliveryOrderModels {
     public record DeliverySource(
             UUID eventUid,
             UUID sessionUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             Instant deviceOccurredAt,
             Instant receivedAt) {

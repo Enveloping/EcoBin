@@ -25,7 +25,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -82,9 +82,13 @@ class EdgeStore:
         )
         row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         current = row[0] or 0
-        if current >= CURRENT_SCHEMA_VERSION:
+        if current == CURRENT_SCHEMA_VERSION:
             return
-        logger.info("EdgeStore 迁移: v%d -> v%d", current, CURRENT_SCHEMA_VERSION)
+        if current != 0:
+            raise RuntimeError(
+                "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
+            )
+        logger.info("EdgeStore 创建永久资产数据库 v%d", CURRENT_SCHEMA_VERSION)
         if current < 1:
             self._create_tables()
             conn.execute("INSERT INTO schema_version (version) VALUES (1)")
@@ -116,6 +120,9 @@ class EdgeStore:
         if current < 8:
             self._migrate_v8()
             conn.execute("INSERT INTO schema_version (version) VALUES (8)")
+            current = 8
+        if current < 9:
+            conn.execute("INSERT INTO schema_version (version) VALUES (9)")
         conn.commit()
 
     def _create_tables(self) -> None:
@@ -174,7 +181,7 @@ class EdgeStore:
             uploaded_at TEXT,
             work_uid TEXT,
             work_type TEXT,
-            deployment_code TEXT,
+            device_name TEXT,
             content_sha256 TEXT,
             size_bytes INTEGER,
             captured_at TEXT,
@@ -261,7 +268,7 @@ class EdgeStore:
         conn.execute("""CREATE TABLE IF NOT EXISTS configuration_state (
             application_uid TEXT NOT NULL PRIMARY KEY,
             command_uid TEXT NOT NULL UNIQUE,
-            deployment_code TEXT NOT NULL,
+            device_name TEXT NOT NULL,
             config_version INTEGER NOT NULL,
             content_sha256 TEXT NOT NULL,
             mcu_payload_sha256 TEXT NOT NULL,
@@ -373,7 +380,7 @@ class EdgeStore:
             uploaded_at TEXT,
             work_uid TEXT,
             work_type TEXT,
-            deployment_code TEXT,
+            device_name TEXT,
             content_sha256 TEXT,
             size_bytes INTEGER,
             captured_at TEXT,
@@ -392,7 +399,7 @@ class EdgeStore:
         additions = {
             "url": "TEXT",
             "work_type": "TEXT",
-            "deployment_code": "TEXT",
+            "device_name": "TEXT",
             "content_sha256": "TEXT",
             "size_bytes": "INTEGER",
             "captured_at": "TEXT",
@@ -621,7 +628,7 @@ class EdgeStore:
         ).fetchall()
         for row in rows:
             work_type = row["work_type"]
-            deployment_code = row["deployment_code"]
+            device_name = row["device_name"]
             slot_name = row["slot_name"]
             event = conn.execute(
                 """SELECT event_type, payload_json FROM event_outbox
@@ -633,8 +640,8 @@ class EdgeStore:
             ).fetchone()
             if event:
                 envelope = _json.loads(event["payload_json"])
-                deployment_code = (
-                    deployment_code or envelope.get("deploymentCode")
+                device_name = (
+                    device_name or envelope.get("targetDeviceName")
                 )
                 if event["event_type"] == "DELIVERY_COMPLETE":
                     work_type = "DELIVERY_SESSION"
@@ -662,13 +669,13 @@ class EdgeStore:
                 )
             conn.execute(
                 """UPDATE photo_outbox
-                   SET slot_name=?, work_type=?, deployment_code=?,
+                   SET slot_name=?, work_type=?, device_name=?,
                        content_sha256=?, size_bytes=?, captured_at=?
                    WHERE photo_uid=?""",
                 (
                     slot_name,
                     work_type,
-                    deployment_code,
+                    device_name,
                     content_sha256,
                     size_bytes,
                     captured_at,
@@ -878,6 +885,87 @@ class EdgeStore:
             )
             return cur.rowcount == 1
 
+    def complete_device_acceptance(
+        self,
+        command: dict,
+        evidence_payload: dict,
+    ) -> dict:
+        """Atomically retain acceptance evidence and complete its command.
+
+        The camera upload/readback happens before this transaction because it
+        talks to COS.  Once those external checks finish, the reliable event
+        and command terminal state must commit together so a process crash can
+        never leave a completed command without its evidence event.
+        """
+        command_uid = command["commandUid"]
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state, command_type FROM command_inbox
+                   WHERE command_uid=?""",
+                (command_uid,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("acceptance command is not persisted")
+            if row["command_type"] != "REQUEST_DEVICE_ACCEPTANCE":
+                raise ValueError("command is not a device acceptance request")
+            if row["state"] == "COMPLETED":
+                existing = self._conn.execute(
+                    """SELECT payload_json FROM event_outbox
+                       WHERE event_type='DEVICE_ACCEPTANCE_EVIDENCE'
+                         AND json_extract(payload_json, '$.commandUid')=?
+                       ORDER BY edge_event_sequence DESC LIMIT 1""",
+                    (command_uid,),
+                ).fetchone()
+                if existing is None:
+                    raise ValueError(
+                        "completed acceptance command has no evidence"
+                    )
+                return _json.loads(existing["payload_json"])
+            if row["state"] != "PROCESSING":
+                raise ValueError("acceptance command is not processing")
+
+            event_uid = self._new_uid()
+            sequence = self._next_seq(self._conn)
+            event = build_event_envelope(
+                event_uid=event_uid,
+                device_name=command["targetDeviceName"],
+                edge_event_sequence=sequence,
+                event_type="DEVICE_ACCEPTANCE_EVIDENCE",
+                target_type="DEVICE_ASSET",
+                target_uid=command["targetDeviceName"],
+                command_uid=command_uid,
+                payload=evidence_payload,
+            )
+            self._insert_event(
+                self._conn,
+                event,
+                "DEVICE_ACCEPTANCE_EVIDENCE",
+            )
+            updated = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='COMPLETED', processed_at=?,
+                       processing_started_at=NULL, result_json=?,
+                       last_error=NULL
+                   WHERE command_uid=? AND state='PROCESSING'""",
+                (
+                    self._now(),
+                    _json.dumps(
+                        {
+                            "challengeUid": evidence_payload[
+                                "challengeUid"
+                            ],
+                            "evidenceEventUid": event_uid,
+                            "disposition": "EVIDENCE_RECORDED",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    command_uid,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("acceptance command state changed")
+            return event
+
     def fail_command(
         self,
         command_uid: str,
@@ -918,7 +1006,7 @@ class EdgeStore:
                     command["commandUid"],
                 ),
             )
-            if command.get("deploymentCode"):
+            if command.get("targetDeviceName"):
                 observation = self._record_command_observation_in_tx(
                     self._conn,
                     command,
@@ -980,6 +1068,18 @@ class EdgeStore:
                    )
                      AND command_type='APPLY_CONFIGURATION'"""
             ).rowcount
+            acceptance = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='FAILED', processed_at=?,
+                       processing_started_at=NULL,
+                       last_error='ACCEPTANCE_GRANT_NOT_AVAILABLE'
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
+                     AND command_type='REQUEST_DEVICE_ACCEPTANCE'""",
+                (self._now(),),
+            ).rowcount
             rows = self._conn.execute(
                 """SELECT command_uid, payload_json
                    FROM command_inbox
@@ -987,12 +1087,15 @@ class EdgeStore:
                        'PROCESSING', 'WAITING_MCU_RESULT',
                        'RECOVERY_REQUIRED'
                    )
-                     AND command_type<>'APPLY_CONFIGURATION'"""
+                     AND command_type NOT IN (
+                         'APPLY_CONFIGURATION',
+                         'REQUEST_DEVICE_ACCEPTANCE'
+                     )"""
             ).fetchall()
             physical_failed = 0
             for row in rows:
                 command = _json.loads(row["payload_json"])
-                if command.get("deploymentCode"):
+                if command.get("targetDeviceName"):
                     observation = self._record_command_observation_in_tx(
                         self._conn,
                         command,
@@ -1015,6 +1118,7 @@ class EdgeStore:
                 ).rowcount
             return {
                 "configuration_requeued": config,
+                "acceptance_grant_lost": acceptance,
                 "physical_locked": 0,
                 "physical_failed": physical_failed,
             }
@@ -1069,14 +1173,14 @@ class EdgeStore:
             now = self._now()
             self._conn.execute(
                 """INSERT INTO configuration_state
-                   (application_uid, command_uid, deployment_code, config_version,
+                   (application_uid, command_uid, device_name, config_version,
                     content_sha256, mcu_payload_sha256, payload_json,
                     part_command_uids_json, state, edge_saved_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
                     application_uid,
                     command["commandUid"],
-                    command["deploymentCode"],
+                    command["targetDeviceName"],
                     version,
                     config["contentSha256"],
                     config["mcuPayloadSha256"],
@@ -1088,7 +1192,7 @@ class EdgeStore:
             )
             seq = self._next_seq(self._conn)
             event = build_configuration_progress_event(
-                deployment_code=command["deploymentCode"],
+                device_name=command["targetDeviceName"],
                 command_uid=command["commandUid"],
                 application_uid=application_uid,
                 stage="EDGE_SAVED",
@@ -1197,7 +1301,7 @@ class EdgeStore:
             )
             seq = self._next_seq(self._conn)
             event = build_configuration_progress_event(
-                deployment_code=row["deployment_code"],
+                device_name=row["device_name"],
                 command_uid=row["command_uid"],
                 application_uid=application_uid,
                 stage=desired_state,
@@ -1303,7 +1407,7 @@ class EdgeStore:
             )
             seq = self._next_seq(self._conn)
             event = build_configuration_progress_event(
-                deployment_code=row["deployment_code"],
+                device_name=row["device_name"],
                 command_uid=row["command_uid"],
                 application_uid=application_uid,
                 stage="FAILED",
@@ -1523,7 +1627,7 @@ class EdgeStore:
         sequence = self._next_seq(conn)
         event = build_event_envelope(
             event_uid=event_uid,
-            deployment_code=command["deploymentCode"],
+            device_name=command["targetDeviceName"],
             edge_event_sequence=sequence,
             event_type="DEVICE_COMMAND_OBSERVED",
             target_type="DEVICE_COMMAND",
@@ -1684,6 +1788,16 @@ class EdgeStore:
             ).fetchone()
         return row["state_value"] if row else default
 
+    def get_state_record(self, key: str) -> Optional[dict]:
+        """Return a state value together with its trusted SQLite write time."""
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT state_value, updated_at FROM device_state
+                   WHERE state_key=?""",
+                (key,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def set_state(self, key: str, value: str) -> None:
         with self.transaction():
             self._conn.execute(
@@ -1692,6 +1806,34 @@ class EdgeStore:
                    ON CONFLICT(state_key) DO UPDATE SET state_value=?, updated_at=?""",
                 (key, value, self._now(), value, self._now()),
             )
+
+    def get_or_create_edge_store_instance_uid(self) -> str:
+        """Return the permanent identity of this freshly-created edge DB."""
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='edge_store_instance_uid'"""
+            ).fetchone()
+            if row:
+                try:
+                    parsed = _uuid.UUID(row["state_value"])
+                except (ValueError, TypeError, AttributeError) as error:
+                    raise RuntimeError(
+                        "edge store instance identity is corrupt"
+                    ) from error
+                if parsed.version != 4 or str(parsed) != row["state_value"]:
+                    raise RuntimeError(
+                        "edge store instance identity is not UUIDv4"
+                    )
+                return str(parsed)
+            instance_uid = str(_uuid.uuid4())
+            self._upsert_state(
+                self._conn,
+                "edge_store_instance_uid",
+                instance_uid,
+                self._now(),
+            )
+            return instance_uid
 
     def get_edge_boot_id(self) -> str:
         return self.get_state("edge_boot_id")
@@ -1724,7 +1866,7 @@ class EdgeStore:
     def record_safety_state_and_event(
         self,
         *,
-        deployment_code: str,
+        device_name: str,
         mcu_receive_generation: int,
         payload: dict,
     ) -> str:
@@ -1824,11 +1966,11 @@ class EdgeStore:
             )
             event = build_event_envelope(
                 event_uid=event_uid,
-                deployment_code=deployment_code,
+                device_name=device_name,
                 edge_event_sequence=sequence,
                 event_type="SAFETY_SENSOR_STATE_CHANGED",
-                target_type="DEVICE_DEPLOYMENT",
-                target_uid=deployment_code,
+                target_type="DEVICE_ASSET",
+                target_uid=device_name,
                 payload={
                     "portNo": port_no,
                     "smokeState": smoke_state,
@@ -1958,7 +2100,7 @@ class EdgeStore:
     def observe_fault_and_create_event(
         self,
         *,
-        deployment_code: str,
+        device_name: str,
         component: str,
         fault_code: str,
         severity: str,
@@ -1970,7 +2112,7 @@ class EdgeStore:
         detail: Optional[dict] = None,
     ) -> str:
         """Create or monotonically upgrade one active fault atomically."""
-        if not deployment_code or deployment_code == "Dp_unknown":
+        if not device_name or device_name == "UNKNOWN_DEVICE":
             return "REJECTED"
         scope_key = (
             f"PORT:{port_no}" if port_no is not None else "DEVICE"
@@ -2067,11 +2209,11 @@ class EdgeStore:
             event_uid = self._new_uid()
             event = build_event_envelope(
                 event_uid=event_uid,
-                deployment_code=deployment_code,
+                device_name=device_name,
                 edge_event_sequence=sequence,
                 event_type="DEVICE_FAULT_OBSERVED",
-                target_type="DEVICE_DEPLOYMENT",
-                target_uid=deployment_code,
+                target_type="DEVICE_ASSET",
+                target_uid=device_name,
                 payload={
                     "faultUid": fault_uid,
                     "portNo": port_no,
@@ -2116,7 +2258,7 @@ class EdgeStore:
     def recover_fault_and_create_event(
         self,
         *,
-        deployment_code: str,
+        device_name: str,
         fault_uid: str,
         component: str,
         fault_code: str,
@@ -2127,7 +2269,7 @@ class EdgeStore:
         mcu_receive_generation: Optional[int] = None,
     ) -> str:
         """Close exactly one active fault and create its recovery fact."""
-        if not deployment_code or deployment_code == "Dp_unknown":
+        if not device_name or device_name == "UNKNOWN_DEVICE":
             return "REJECTED"
         with self.transaction():
             now = self._now()
@@ -2183,11 +2325,11 @@ class EdgeStore:
             event_uid = self._new_uid()
             event = build_event_envelope(
                 event_uid=event_uid,
-                deployment_code=deployment_code,
+                device_name=device_name,
                 edge_event_sequence=sequence,
                 event_type="DEVICE_FAULT_RECOVERED",
-                target_type="DEVICE_DEPLOYMENT",
-                target_uid=deployment_code,
+                target_type="DEVICE_ASSET",
+                target_uid=device_name,
                 payload={
                     "faultUid": fault_uid,
                     "portNo": port_no,
@@ -2340,7 +2482,7 @@ class EdgeStore:
                 self._conn.execute(
                     """INSERT INTO photo_outbox
                        (photo_uid, slot_name, local_path, cos_key,
-                        state, work_uid, work_type, deployment_code)
+                        state, work_uid, work_type, device_name)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         capture["photo_uid"],
@@ -2350,7 +2492,7 @@ class EdgeStore:
                         PHOTO_CAPTURE_PENDING,
                         capture["work_uid"],
                         capture["work_type"],
-                        capture["deployment_code"],
+                        capture["device_name"],
                     ),
                 )
                 row = self._conn.execute(
@@ -2461,7 +2603,7 @@ class EdgeStore:
         event_uid: str,
         payload: dict,
         *,
-        deployment_code: str,
+        device_name: str,
         work_type: str,
         work_uid: str,
     ) -> str:
@@ -2492,7 +2634,7 @@ class EdgeStore:
                 seq = self._next_seq(self._conn)
                 event = build_event_envelope(
                     event_uid=event_uid,
-                    deployment_code=deployment_code,
+                    device_name=device_name,
                     edge_event_sequence=seq,
                     event_type="PHOTO_UPLOAD_GRANT_REQUESTED",
                     target_type=work_type,
@@ -2632,7 +2774,7 @@ class EdgeStore:
             seq = self._next_seq(self._conn)
             event = build_event_envelope(
                 event_uid=event_uid,
-                deployment_code=photo["deployment_code"],
+                device_name=photo["device_name"],
                 edge_event_sequence=seq,
                 event_type="PHOTO_STATUS_REPORTED",
                 target_type=photo["work_type"],
@@ -2873,7 +3015,7 @@ class EdgeStore:
         event_uid: str,
         event_type: str,
         event_payload: dict,
-        deployment_code: str,
+        device_name: str,
         target_type: str,
         bag_baseline: Optional[dict] = None,
         fullness_transition: Optional[dict] = None,
@@ -2899,7 +3041,7 @@ class EdgeStore:
             sequence = self._next_seq(self._conn)
             event = build_event_envelope(
                 event_uid=event_uid,
-                deployment_code=deployment_code,
+                device_name=device_name,
                 edge_event_sequence=sequence,
                 event_type=event_type,
                 target_type=target_type,
@@ -2989,7 +3131,7 @@ class EdgeStore:
                     command["commandUid"],
                 ),
             )
-            if command.get("deploymentCode"):
+            if command.get("targetDeviceName"):
                 observation = self._record_command_observation_in_tx(
                     self._conn,
                     command,
@@ -3071,7 +3213,7 @@ class EdgeStore:
                 ).fetchone()
                 command = _json.loads(row["payload_json"]) if row else None
             command_observed = False
-            if command and command.get("deploymentCode"):
+            if command and command.get("targetDeviceName"):
                 observation = self._record_command_observation_in_tx(
                     self._conn,
                     command,
@@ -3221,7 +3363,7 @@ class EdgeStore:
         sequence = self._next_seq(conn)
         envelope = build_event_envelope(
             event_uid=transition["event_uid"],
-            deployment_code=transition["deployment_code"],
+            device_name=transition["device_name"],
             edge_event_sequence=sequence,
             event_type="FULLNESS_STATE_CHANGED",
             target_type="PORT_FULLNESS_STATE",
@@ -3337,7 +3479,7 @@ class EdgeStore:
             sequence = self._next_seq(self._conn)
             envelope = build_event_envelope(
                 event_uid=event_uid,
-                deployment_code=command["deploymentCode"],
+                device_name=command["targetDeviceName"],
                 edge_event_sequence=sequence,
                 event_type=event_type,
                 target_type=target_type,
@@ -3421,7 +3563,7 @@ class EdgeStore:
         self,
         command_uid: Optional[str] = None,
         confirmation_payload: Optional[dict] = None,
-        deployment_code: str = "",
+        device_name: str = "",
         *,
         command: Optional[dict] = None,
     ) -> str:
@@ -3513,7 +3655,7 @@ class EdgeStore:
 
             seq = self._next_seq(conn)
             receipt = build_business_confirmation_receipt(
-                deployment_code=deployment_code,
+                device_name=device_name,
                 command_uid=command_uid,
                 confirmation_uid=confirmation_uid,
                 original_event_uid=original_event_uid,
@@ -3593,7 +3735,7 @@ class EdgeStore:
         work_uid: Optional[str] = None,
         *,
         work_type: Optional[str] = None,
-        deployment_code: Optional[str] = None,
+        device_name: Optional[str] = None,
         content_sha256: Optional[str] = None,
         size_bytes: Optional[int] = None,
         captured_at: Optional[str] = None,
@@ -3608,7 +3750,7 @@ class EdgeStore:
             conn.execute(
                 """INSERT INTO photo_outbox
                    (photo_uid, slot_name, local_path, cos_key, work_uid,
-                    work_type, deployment_code, content_sha256, size_bytes,
+                    work_type, device_name, content_sha256, size_bytes,
                     captured_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
@@ -3618,7 +3760,7 @@ class EdgeStore:
                     cos_key,
                     work_uid,
                     work_type,
-                    deployment_code,
+                    device_name,
                     content_sha256,
                     size_bytes,
                     captured_at,
@@ -3650,7 +3792,7 @@ class EdgeStore:
                           work_uid: Optional[str] = None,
                           work_state_update: Optional[dict] = None,
                           *,
-                          deployment_code: Optional[str] = None,
+                          device_name: Optional[str] = None,
                           target_type: Optional[str] = None,
                           target_uid: Optional[str] = None,
                           command_uid: Optional[str] = None,
@@ -3665,10 +3807,10 @@ class EdgeStore:
                 return "DUPLICATE"
             seq = self._next_seq(conn)
             stored_payload = payload
-            if deployment_code and target_type:
+            if device_name and target_type:
                 stored_payload = build_event_envelope(
                     event_uid=event_uid,
-                    deployment_code=deployment_code,
+                    device_name=device_name,
                     edge_event_sequence=seq,
                     event_type=event_type,
                     target_type=target_type,

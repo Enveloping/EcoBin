@@ -52,12 +52,12 @@ public class ApplyCleanCompleteService
             "FINAL_CLOSE_OUTER");
 
     static final String FIND_EDGE_COLLISIONS_SQL = """
-            SELECT event_uid, deployment_id, edge_event_sequence,
+            SELECT event_uid, asset_id, edge_event_sequence,
                    LOWER(HEX(canonical_sha256)) AS canonical_sha256,
                    source_inbox_id
             FROM dev_edge_event
             WHERE event_uid = ?
-               OR (deployment_id = ? AND edge_event_sequence = ?)
+               OR (asset_id = ? AND edge_event_sequence = ?)
                OR source_inbox_id = ?
             """;
 
@@ -108,9 +108,9 @@ public class ApplyCleanCompleteService
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public TrustedDeviceEventApplyResult apply(
-            TrustedDeviceInboxEvent event) {
+        TrustedDeviceInboxEvent event) {
         if (!MESSAGE_KIND.equals(event.messageKind())
-                || event.normalizedSchemaVersion() != 1) {
+                || event.normalizedSchemaVersion() != 2) {
             throw new IllegalArgumentException(
                     "unsupported clean completion inbox message");
         }
@@ -130,17 +130,15 @@ public class ApplyCleanCompleteService
             long inboxId,
             long tenantId,
             long organizationId) {
-        Asset asset = lockAsset(fact.hardwareSn());
-        Deployment deployment = lockDeployment(
-                fact,
-                asset.id(),
+        Asset asset = lockAsset(
+                fact.hardwareSn(),
                 tenantId,
                 organizationId);
-        lockDeploymentRuntime(
-                deployment.id(), tenantId, organizationId);
+        lockAssetRuntime(
+                asset.id(), tenantId, organizationId);
         Operation operation = lockOperation(
                 fact,
-                deployment,
+                asset,
                 tenantId,
                 organizationId);
 
@@ -148,7 +146,7 @@ public class ApplyCleanCompleteService
             return requirePreviouslyApplied(
                     fact,
                     inboxId,
-                    deployment.id(),
+                    asset.id(),
                     operation);
         }
         if (!Set.of(
@@ -164,7 +162,7 @@ public class ApplyCleanCompleteService
         verifyFrozenFacts(fact, operation, command);
 
         List<ExistingEdge> collisions = findEdgeCollisions(
-                fact, deployment.id(), inboxId);
+                fact, asset.id(), inboxId);
         if (!collisions.isEmpty()) {
             throw untrusted(
                     "clean completion identity or sequence conflicts");
@@ -176,7 +174,7 @@ public class ApplyCleanCompleteService
                 inboxId,
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 receivedAt);
         long physicalResultId = insertPhysicalResult(
                 fact,
@@ -235,15 +233,14 @@ public class ApplyCleanCompleteService
                 receivedAt);
         releaseDeviceOccupancy(asset.id(), operation);
         touchRuntimeAndClearPendingDelivery(
-                deployment.id(), operation, receivedAt);
+                asset.id(), operation, receivedAt);
 
         List<DeliveryCompletionResultReference> references =
                 cleanCompletionResultReferences(recordNo);
         confirmationPort.registerApplied(
                 tenantId,
                 organizationId,
-                deployment.id(),
-                deployment.publicCode(),
+                asset.id(),
                 fact.eventUid().toString(),
                 fact.payloadSha256(),
                 "CREATED",
@@ -262,87 +259,66 @@ public class ApplyCleanCompleteService
     private TrustedDeviceEventApplyResult requirePreviouslyApplied(
             CleanFact fact,
             long inboxId,
-            long deploymentId,
+            long assetId,
             Operation operation) {
         verifyFrozenFacts(fact, operation, lockStartCommand(fact, operation));
         List<ExistingEdge> collisions = findEdgeCollisions(
-                fact, deploymentId, inboxId);
+                fact, assetId, inboxId);
         if (operation.completionRecordId() != null
                 && collisions.size() == 1
                 && collisions.getFirst().matches(
-                fact, deploymentId, inboxId)) {
+                fact, assetId, inboxId)) {
             return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
         }
         throw untrusted("completed clean event identity conflicts");
     }
 
-    private Asset lockAsset(String hardwareSn) {
+    private Asset lockAsset(
+            String hardwareSn,
+            long tenantId,
+            long organizationId) {
         List<Asset> rows = jdbc.query("""
                         SELECT id
                         FROM dev_device_asset
                         WHERE hardware_sn = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new Asset(rs.getLong("id")),
-                hardwareSn);
-        if (rows.size() != 1) {
-            throw untrusted("clean source device is unknown");
-        }
-        return rows.getFirst();
-    }
-
-    private Deployment lockDeployment(
-            CleanFact fact,
-            long assetId,
-            long tenantId,
-            long organizationId) {
-        List<Deployment> rows = jdbc.query("""
-                        SELECT id, public_code
-                        FROM dev_device_deployment
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND asset_id = ?
-                          AND public_code = ?
-                          AND lifecycle_status = 'ENABLED'
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new Deployment(
-                        rs.getLong("id"),
-                        rs.getString("public_code")),
-                tenantId,
-                organizationId,
-                assetId,
-                fact.deploymentCode());
-        if (rows.size() != 1) {
-            throw untrusted("clean deployment scope differs");
-        }
-        return rows.getFirst();
-    }
-
-    private void lockDeploymentRuntime(
-            long deploymentId,
-            long tenantId,
-            long organizationId) {
-        List<Long> rows = jdbc.query("""
-                        SELECT deployment_id
-                        FROM dev_deployment_runtime_state
-                        WHERE deployment_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getLong("deployment_id"),
-                deploymentId,
+                (rs, ignored) -> new Asset(rs.getLong("id")),
+                hardwareSn,
                 tenantId,
                 organizationId);
         if (rows.size() != 1) {
-            throw untrusted("clean deployment runtime is missing");
+            throw untrusted("clean source asset scope differs");
+        }
+        return rows.getFirst();
+    }
+
+    private void lockAssetRuntime(
+            long assetId,
+            long tenantId,
+            long organizationId) {
+        List<Long> rows = jdbc.query("""
+                        SELECT asset_id
+                        FROM dev_device_runtime_state
+                        WHERE asset_id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getLong("asset_id"),
+                assetId,
+                tenantId,
+                organizationId);
+        if (rows.size() != 1) {
+            throw untrusted("clean asset runtime is missing");
         }
     }
 
     private Operation lockOperation(
             CleanFact fact,
-            Deployment deployment,
+            Asset asset,
             long tenantId,
             long organizationId) {
         List<Operation> rows = jdbc.query("""
@@ -350,7 +326,7 @@ public class ApplyCleanCompleteService
                                operation.operation_uid,
                                operation.tenant_id,
                                operation.organization_id,
-                               operation.deployment_id,
+                               operation.asset_id,
                                operation.port_id,
                                port.port_no,
                                operation.cleaner_organization_user_id,
@@ -386,17 +362,17 @@ public class ApplyCleanCompleteService
                         JOIN dev_port port
                           ON port.tenant_id = operation.tenant_id
                          AND port.organization_id = operation.organization_id
-                         AND port.deployment_id = operation.deployment_id
+                         AND port.asset_id = operation.asset_id
                          AND port.id = operation.port_id
                         JOIN dev_config_version config
                           ON config.tenant_id = operation.tenant_id
                          AND config.organization_id = operation.organization_id
-                         AND config.deployment_id = operation.deployment_id
+                         AND config.asset_id = operation.asset_id
                          AND config.id = operation.device_config_version_id
                         JOIN dev_port_config_snapshot snapshot
                           ON snapshot.tenant_id = operation.tenant_id
                          AND snapshot.organization_id = operation.organization_id
-                         AND snapshot.deployment_id = operation.deployment_id
+                         AND snapshot.asset_id = operation.asset_id
                          AND snapshot.config_version_id =
                              operation.device_config_version_id
                          AND snapshot.port_id = operation.port_id
@@ -411,14 +387,14 @@ public class ApplyCleanCompleteService
                         WHERE operation.operation_uid = ?
                           AND operation.tenant_id = ?
                           AND operation.organization_id = ?
-                          AND operation.deployment_id = ?
+                          AND operation.asset_id = ?
                         %s
                         """.formatted(OPERATION_LOCK_CLAUSE),
                 (rs, ignored) -> operation(rs),
                 fact.operationUid().toString(),
                 tenantId,
                 organizationId,
-                deployment.id());
+                asset.id());
         if (rows.size() != 1) {
             throw untrusted("clean operation is unknown in source scope");
         }
@@ -431,14 +407,14 @@ public class ApplyCleanCompleteService
                         FROM dev_port_runtime_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> rs.getLong("port_id"),
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.portId());
         if (rows.size() != 1) {
             throw untrusted("clean port runtime is missing");
@@ -454,7 +430,7 @@ public class ApplyCleanCompleteService
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND occupancy_kind = 'CLEAN'
                         FOR UPDATE
                         """,
@@ -462,7 +438,7 @@ public class ApplyCleanCompleteService
                 assetId,
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId());
+                operation.assetId());
         if (rows.size() != 1
                 || rows.getFirst() != operation.id()) {
             throw untrusted("clean device occupancy differs");
@@ -519,7 +495,7 @@ public class ApplyCleanCompleteService
                         WHERE command_uid = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND command_type = 'START_CLEAN_OPERATION'
                           AND clean_operation_id = ?
                         FOR UPDATE
@@ -531,7 +507,7 @@ public class ApplyCleanCompleteService
                 fact.commandUid().toString(),
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.id());
         if (rows.size() != 1) {
             throw untrusted("clean command differs");
@@ -585,18 +561,18 @@ public class ApplyCleanCompleteService
 
     private List<ExistingEdge> findEdgeCollisions(
             CleanFact fact,
-            long deploymentId,
+            long assetId,
             long inboxId) {
         return jdbc.query(
                 FIND_EDGE_COLLISIONS_SQL,
                 (rs, ignored) -> new ExistingEdge(
                         rs.getString("event_uid"),
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         rs.getLong("edge_event_sequence"),
                         rs.getString("canonical_sha256"),
                         rs.getLong("source_inbox_id")),
                 fact.eventUid().toString(),
-                deploymentId,
+                assetId,
                 fact.edgeEventSequence(),
                 inboxId);
     }
@@ -610,12 +586,12 @@ public class ApplyCleanCompleteService
             long inboxId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime receivedAt) {
         requireSingle(jdbc.update("""
                         INSERT INTO dev_edge_event (
                             event_uid, tenant_id, organization_id,
-                            deployment_id, edge_event_sequence,
+                            asset_id, edge_event_sequence,
                             event_type, delivery_class, schema_version,
                             target_type, target_stable_key_sha256,
                             device_occurred_at, clock_quality,
@@ -631,7 +607,7 @@ public class ApplyCleanCompleteService
                 fact.eventUid().toString(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 fact.edgeEventSequence(),
                 sha256(fact.operationUid().toString()),
                 utc(fact.deviceOccurredAt()),
@@ -667,7 +643,7 @@ public class ApplyCleanCompleteService
                 : null;
         requireSingle(jdbc.update("""
                         INSERT INTO dev_physical_result (
-                            tenant_id, organization_id, deployment_id,
+                            tenant_id, organization_id, asset_id,
                             port_id, edge_event_id, edge_event_type,
                             command_id, command_type,
                             reported_config_version_no,
@@ -728,7 +704,7 @@ public class ApplyCleanCompleteService
                         """,
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.portId(),
                 edgeEventId,
                 command.id(),
@@ -778,7 +754,7 @@ public class ApplyCleanCompleteService
         requireSingleOrInserted(jdbc.update("""
                         INSERT INTO rec_port_capacity_state (
                             port_id, tenant_id, organization_id,
-                            deployment_id, baseline_state,
+                            asset_id, baseline_state,
                             current_baseline_id,
                             current_baseline_weight_g,
                             latest_stable_total_weight_g,
@@ -803,7 +779,7 @@ public class ApplyCleanCompleteService
                 operation.portId(),
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 "TRUSTED".equals(operation.oldBaselineState())
                         ? "VALID" : "UNINITIALIZED",
                 "TRUSTED".equals(operation.oldBaselineState())
@@ -820,7 +796,7 @@ public class ApplyCleanCompleteService
                         FROM rec_port_capacity_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
@@ -830,7 +806,7 @@ public class ApplyCleanCompleteService
                         rs.getLong("lock_version")),
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.portId());
         if (rows.size() != 1
                 || rows.getFirst().currentDetectionId() != null) {
@@ -913,7 +889,7 @@ public class ApplyCleanCompleteService
                             tenant_id, organization_id,
                             visibility_sequence_no,
                             clean_operation_id, physical_result_id,
-                            deployment_id, port_id,
+                            asset_id, port_id,
                             cleaner_organization_user_id,
                             clean_config_version_id,
                             clean_config_version_no,
@@ -952,7 +928,7 @@ public class ApplyCleanCompleteService
                 visibilitySequence,
                 operation.id(),
                 physicalResultId,
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.portId(),
                 operation.cleanerOrganizationUserId(),
                 operation.cleanConfigVersionId(),
@@ -1328,7 +1304,7 @@ public class ApplyCleanCompleteService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND lock_version = ?
                           AND current_detection_id IS NULL
@@ -1344,7 +1320,7 @@ public class ApplyCleanCompleteService
                 now,
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.portId(),
                 capacity.lockVersion()),
                 "project new-bag default capacity state");
@@ -1424,12 +1400,12 @@ public class ApplyCleanCompleteService
                         DELETE FROM rec_port_clean_restart_interlock
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         """,
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.portId());
     }
 
@@ -1441,20 +1417,20 @@ public class ApplyCleanCompleteService
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND occupancy_kind = 'CLEAN'
                           AND clean_operation_id = ?
                         """,
                 assetId,
                 operation.tenantId(),
                 operation.organizationId(),
-                operation.deploymentId(),
+                operation.assetId(),
                 operation.id()),
                 "release clean device occupancy");
     }
 
     private void touchRuntimeAndClearPendingDelivery(
-            long deploymentId,
+            long assetId,
             Operation operation,
             LocalDateTime now) {
         requireSingle(jdbc.update("""
@@ -1469,31 +1445,31 @@ public class ApplyCleanCompleteService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         """,
                 operation.pendingDeliverySessionId(),
                 now,
                 operation.tenantId(),
                 operation.organizationId(),
-                deploymentId,
+                assetId,
                 operation.portId()),
                 "clear clean pending delivery pointer");
         requireSingle(jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET last_device_event_at = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
-                        WHERE deployment_id = ?
+                        WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         """,
                 now,
                 now,
-                deploymentId,
+                assetId,
                 operation.tenantId(),
                 operation.organizationId()),
-                "touch clean deployment runtime");
+                "touch clean asset runtime");
     }
 
     private CleanFact parse(String normalizedPayload) {
@@ -1527,7 +1503,6 @@ public class ApplyCleanCompleteService
                 uuid(event, "commandUid"),
                 operationUid,
                 requiredText(source, "deviceName"),
-                requiredText(event, "deploymentCode"),
                 positiveLong(event, "edgeEventSequence"),
                 nullableInstant(event, "occurredAt"),
                 requiredText(event, "clockQuality"),
@@ -1918,7 +1893,7 @@ public class ApplyCleanCompleteService
                 UUID.fromString(rs.getString("operation_uid")),
                 rs.getLong("tenant_id"),
                 rs.getLong("organization_id"),
-                rs.getLong("deployment_id"),
+                rs.getLong("asset_id"),
                 rs.getLong("port_id"),
                 rs.getInt("port_no"),
                 rs.getLong("cleaner_organization_user_id"),
@@ -1959,9 +1934,6 @@ public class ApplyCleanCompleteService
     }
 
     private record Asset(long id) {
-    }
-
-    private record Deployment(long id, String publicCode) {
     }
 
     private record Command(
@@ -2007,17 +1979,17 @@ public class ApplyCleanCompleteService
 
     private record ExistingEdge(
             String eventUid,
-            long deploymentId,
+            long assetId,
             long sequence,
             String canonicalSha256,
             long inboxId) {
 
         private boolean matches(
                 CleanFact fact,
-                long expectedDeploymentId,
+                long expectedAssetId,
                 long expectedInboxId) {
             return eventUid.equals(fact.eventUid().toString())
-                    && deploymentId == expectedDeploymentId
+                    && assetId == expectedAssetId
                     && sequence == fact.edgeEventSequence()
                     && canonicalSha256.equals(
                     fact.canonicalSha256())
@@ -2030,7 +2002,7 @@ public class ApplyCleanCompleteService
             UUID uid,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long portId,
             int portNo,
             long cleanerOrganizationUserId,
@@ -2119,7 +2091,6 @@ public class ApplyCleanCompleteService
             UUID commandUid,
             UUID operationUid,
             String hardwareSn,
-            String deploymentCode,
             long edgeEventSequence,
             Instant deviceOccurredAt,
             String clockQuality,

@@ -22,6 +22,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 把投递审核版本产生的金额差额原子写入用户钱包。
+ *
+ * <p>本服务不能独立开启事务，只能参加 recycling 的审核事务。它同时维护钱包明细、余额、
+ * 投递准入闸门和进行中提现的风险状态，确保订单认定与资金事实不会分开提交。</p>
+ */
 @Service
 public class ApplyDeliveryRevisionDeltaService
         implements ApplyDeliveryRevisionDeltaPort {
@@ -80,6 +86,8 @@ public class ApplyDeliveryRevisionDeltaService
                     "wallet owner and delivery revision references "
                             + "must share the same tenant and organization");
         }
+        // 锁序固定为钱包 → 机构可见序号 → 活动提现 → 提现单。
+        // revision 和钱包所有者携带同事务一次性外键引用，避免跨模块用裸主键拼接资金记录。
         DeliveryRevisionDeltaRepository.WalletRow wallet =
                 repository.lockWallet(
                                 ownerKeys.tenantKey(),
@@ -127,6 +135,8 @@ public class ApplyDeliveryRevisionDeltaService
         LocalDateTime occurredAt = utc(command.trustedOccurredAt());
         UUID entryUid = UUID.randomUUID();
 
+        // 先纯计算余额、投递闸门和提现影响，再按同一快照写入所有表。
+        // 纠错扣款可能让余额为负，因此不能只更新 available_balance_cent。
         GatePlan gatePlan = planGate(
                 wallet,
                 afterBalance,
@@ -136,6 +146,7 @@ public class ApplyDeliveryRevisionDeltaService
                 withdrawal,
                 afterBalance);
 
+        // 钱包明细是不可变资金事实；余额和序号是它的当前投影。
         long entryId = repository.insertWalletEntry(
                 new DeliveryRevisionDeltaRepository.WalletEntryInsert(
                         entryUid,
@@ -222,6 +233,8 @@ public class ApplyDeliveryRevisionDeltaService
                             "open delivery gate contains latch facts");
                 }
                 if (afterBalance <= currentStopThresholdCent) {
+                    // 触发后锁存当时阈值和触发明细。余额后来回升也不自动开放，
+                    // 必须走人工恢复边界，防止历史纠错造成准入状态来回抖动。
                     yield new GatePlan(
                             GATE_MANUAL_RECOVERY,
                             currentStopThresholdCent,

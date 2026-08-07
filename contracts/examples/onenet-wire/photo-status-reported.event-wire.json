@@ -10,13 +10,12 @@
           "commandUid": "",
           "commandUidPresent": false,
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1051,
           "eventType": 1,
           "eventUid": "88000000-0000-4000-8000-000000000002",
           "occurredAt": "2026-07-24T01:00:30.000Z",
           "occurredAtPresent": true,
-          "payloadSha256": "d57b48724ed92caa534466b26c490a80b706e76ef786d700c3bfb0106fb7dd64",
+          "payloadSha256": "3e6f3f91f5ff5aeae9ae3cdb71ef6329e6c5a356da14b5d27a0c2f0fdbee24dc",
           "photo": {
             "capturedAt": "2026-07-24T01:00:29.000Z",
             "capturedAtPresent": true,
@@ -30,7 +29,7 @@
             "sizeBytesPresent": true,
             "slot": 3,
             "status": 1,
-            "url": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com/ecobin/Dp_demo_01/delivery-session/30000000-0000-4000-8000-000000000001/AFTER_INNER/88000000-0000-4000-8000-000000000001.jpg",
+            "url": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com/ecobin/delivery-session/30000000-0000-4000-8000-000000000001/AFTER_INNER/88000000-0000-4000-8000-000000000001.jpg",
             "urlPresent": true
           },
           "schemaVersion": 1,

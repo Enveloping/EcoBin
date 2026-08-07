@@ -7,7 +7,7 @@ import java.util.UUID;
 public record DeviceFaultAlertFact(
         DeviceFaultAlertScopeRef scopeRef,
         UUID faultUid,
-        String deploymentCode,
+        String deviceCode,
         Integer portNo,
         String componentType,
         String faultCode,

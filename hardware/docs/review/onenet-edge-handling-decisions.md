@@ -1,18 +1,36 @@
-# OneNet 9 服务 / 13 事件处理决策记录
+# OneNet 10 服务 / 15 事件处理决策记录
 
 > 状态：持续更新
 > 建立日期：2026-07-29
-> 适用范围：当前 OneNet 9 服务 / 13 事件物模型、香橙派 `fixed-frame`
-> 兼容路径及其后端闭环
+> 适用范围：当前 OneNet v2 的 10 服务 / 15 事件物模型、香橙派 `fixed-frame`
+> 现行设备资产链路及其后端闭环
 > 决策方式：项目负责人逐项确认；未标记“已确认”的条目不得从讨论稿推导实现要求
 
+> [!IMPORTANT]
+> 2026-08-07 V36 永久归属裁决优先于本文全部旧记录：设备资产是唯一设备根，OneNet
+> 设备名固定取不可变 `hardwareSn`，协议中不存在部署记录、部署码或 `Dp_` 身份。本文
+> 下方仍出现的“设备部署”“部署级”“deploymentCode”等字样只用于保存旧讨论背景，
+> 一律不能作为实现或兼容要求。现行规则如下：
+>
+> - 设备事件序号按已认证 OneNet 设备持久递增，不按部署递增；
+> - 设备资产类事件的目标身份使用已认证设备名，作业类事件仍使用对应作业 UID；
+> - COS 对象路径为 `ecobin/{workType}/{workUid}/...`，不得包含设备公开号或旧部署码；
+> - 公开号 `Dv_...` 只用于二维码和小程序入口，不进入 OneNet、COS 或边缘数据库；
+> - 平台创建设备资产后即可自动下发 `requestDeviceAcceptance`，真实设备以
+>   `deviceAcceptanceEvidence` 回传验收证据，验收不依赖租户或机构分配。
+>
+> 权威设备归属与验收规则见
+> [`../../../docs/architecture/permanent-device-ownership-v36.md`](../../../docs/architecture/permanent-device-ownership-v36.md)，
+> 机器契约以 [`../../../contracts/onenet/thing-model.mapping.yaml`](../../../contracts/onenet/thing-model.mapping.yaml)
+> 及其生成物为准。
+>
 > [!IMPORTANT]
 > 2026-08-02 新裁决：满溢改为香橙派在投递结束/清运完成后判断，并仅以 `FULLNESS_STATE_CHANGED` 被动上报状态变化。后端不再为正常业务创建检测或主动下发 `sampleFullness`，无上报/失败不阻止投递，只有当前袋明确 `FULL` 阻止下一次会话。本文下方关于 `SAMPLE_FULLNESS`、检测 gate、人工重检和失败阻断的逐项记录仅保留为历史设计，不再指导当前实现。权威说明见 [`../../../docs/architecture/fullness-reporting-v25.md`](../../../docs/architecture/fullness-reporting-v25.md)。
 
 ## 1. 已确认的共同前提
 
-1. 当前 OneNet 控制台已经使用 9 服务 / 13 事件物模型，不再把旧
-   3 服务 / 5 事件模型作为当前线上前提。
+1. 当前机器契约是 OneNet v2 的 10 服务 / 15 事件模型；旧模型和旧部署身份不提供
+   兼容入口。
 2. 当前 MCU 已冻结，无法增加协议能力，也无法取得协议没有提供的其他物理状态。
 3. 当前首要目标是先让现有硬件和三端业务跑起来。为适配冻结 MCU，香橙派可以在
    `fixed-frame` 兼容边界内构造云端契约要求、但 MCU 无法实际提供的正常状态。
@@ -37,6 +55,7 @@
 | 7 | `measureEmptyBagBaseline` | 已确认 |
 | 8 | `confirmEdgeEvent` | 已确认 |
 | 9 | `providePhotoUploadGrant` | 已确认 |
+| 10 | `requestDeviceAcceptance` | 已确认并于 V36 实现 |
 
 ### 2.2 事件
 
@@ -46,17 +65,35 @@
 | 2 | `configurationProgress` | 已确认 |
 | 3 | `deliveryComplete` | 已确认 |
 | 4 | `cleanComplete` | 已确认 |
-| 5 | `fullnessSampleComplete` | 已确认 |
-| 6 | `baselineMeasurementComplete` | 已确认 |
-| 7 | `deviceFaultObserved` | 已确认 |
-| 8 | `deviceFaultRecovered` | 已确认 |
-| 9 | `safetySensorStateChanged` | 已确认 |
-| 10 | `photoStatusReported` | 已确认 |
-| 11 | `photoUploadGrantRequested` | 已确认 |
-| 12 | `businessConfirmationReceipt` | 已确认 |
-| 13 | `deviceRuntimeSnapshot` | 已确认 |
+| 5 | `fullnessStateChanged` | 已确认并于 V25 实现 |
+| 6 | `fullnessSampleComplete` | 已确认（保留的显式检测能力） |
+| 7 | `baselineMeasurementComplete` | 已确认 |
+| 8 | `deviceFaultObserved` | 已确认 |
+| 9 | `deviceFaultRecovered` | 已确认 |
+| 10 | `safetySensorStateChanged` | 已确认 |
+| 11 | `photoStatusReported` | 已确认 |
+| 12 | `photoUploadGrantRequested` | 已确认 |
+| 13 | `businessConfirmationReceipt` | 已确认 |
+| 14 | `deviceRuntimeSnapshot` | 已确认 |
+| 15 | `deviceAcceptanceEvidence` | 已确认并于 V36 实现 |
 
-### 2.3 在线判定、下发暂停与恢复
+### 2.3 V36 自动机器验收
+
+平台在创建设备资产并保存 OneNet 映射后发起验收，不等待租户或机构参与。平台下发
+`requestDeviceAcceptance` 时，`targetDeviceName` 和设备资产目标都必须等于当前已认证的
+不可变设备名。香橙派只有在以下事实都真实成立时才回传通过证据：
+
+1. OneNet 已连接，SQLite v9 可读写，可信时间和配置持久化健康；
+2. 使用真实 MCU 通信，且传感器检查通过，`mcuSimulated=false`；
+3. 使用真实摄像头完成拍摄，并用本次挑战限定的临时 COS 授权上传成功，
+   `camerasSimulated=false`；
+4. 验收挑战身份、有效期、COS 前缀和证据摘要都匹配，且证据先可靠落入本地发件箱。
+
+后端按设备资产和挑战身份幂等保存证据。任一检查失败都保存失败原因并保持设备未验收，
+不会伪造通过，也不会因为尚未分配租户或机构而阻止再次自动验收。验收通过只改变机器
+验收事实；租户分配、机构分配仍分别由平台和租户执行一次，且之后不可改派。
+
+### 2.4 在线判定、下发暂停与恢复
 
 状态：**已确认并于 2026-08-02 实现**
 
@@ -65,7 +102,7 @@
 | 状态 | 作用域 | 事实来源 | 是否足以允许投递、清运等业务命令 |
 |---|---|---|---|
 | `oneNetConnectionStatus` | 设备资产 | 仅 OneNet 北向 `deviceOnline` / `deviceOffline` 生命周期通知 | 否，只证明 OneNet 判断的传输连接状态 |
-| `edgeConnectionStatus` | 设备部署 | OneNet 明确在线，并且后端至少接收过一份可信 `deviceRuntimeSnapshot` | 是，但仍需同时通过配置、安全、门和传感器等业务闸门 |
+| `edgeConnectionStatus` | 设备资产 | OneNet 明确在线，并且后端至少接收过一份可信 `deviceRuntimeSnapshot` | 是，但仍需同时通过配置、安全、门和传感器等业务闸门 |
 
 香橙派通过已发布的 `applyConfiguration.deviceConfig` 接收
 `edgeHeartbeatIntervalMs` 和 `edgeHeartbeatMissThreshold`。其中前者当前解释为诊断快照兜底
@@ -74,7 +111,7 @@
 
 下发规则如下：
 
-1. 投递、清运和配置等业务任务只在 OneNet 状态明确为 `ONLINE`，且部署至少有一份可信
+1. 投递、清运和配置等业务任务只在 OneNet 状态明确为 `ONLINE`，且设备资产至少有一份可信
    运行快照时领取；`UNKNOWN` 不等于在线。安全幂等的事件确认和照片授权也要求在线。
 2. 首次配置不再在 `UNKNOWN` 状态试探；必须先收到 OneNet 上线通知。
 3. OneNet 返回 `10421` 时，记录本次技术结果 `TARGET_OFFLINE`，把任务恢复为
@@ -145,7 +182,7 @@ OneNet 生命周期通知经既有北向 Pulsar 链路进入，不增加公网�
 以下情况仍须返回失败，不能用兼容状态掩盖：
 
 - 命令封套或字段不合法；
-- 目标部署或 `applicationUid` 不匹配；
+- 已认证设备名或 `applicationUid` 不匹配；
 - 配置摘要不匹配；
 - 配置版本过期或身份冲突；
 - 投口编号、数量或配置范围不合法；
@@ -177,7 +214,7 @@ OneNet 生命周期通知经既有北向 Pulsar 链路进入，不增加公网�
 
 #### 3.2.2 处理流程
 
-1. 校验命令封套、部署、目标、有效期和载荷，要求
+1. 校验命令封套、已认证设备名、目标、有效期和载荷，要求
    `target.uid == payload.sessionUid`。
 2. 校验配置身份已经由 `applyConfiguration` 保存并激活。
 3. 校验 `portNo=1`，并确认设备不存在其他活动投递或清运工作。
@@ -267,7 +304,7 @@ OneNet 同步回执只证明命令已经由香橙派可靠接收和保存，不�
 
 #### 3.3.2 处理流程
 
-1. 校验命令封套、部署、目标、有效期和载荷，要求
+1. 校验命令封套、已认证设备名、目标、有效期和载荷，要求
    `target.uid == payload.operationUid`。
 2. 校验配置身份已经由 `applyConfiguration` 保存并激活。
 3. 校验 `portNo=1`，并确认设备不存在其他活动投递或清运工作。
@@ -539,7 +576,7 @@ fullnessPercent < 100%   -> NOT_FULL
 百分比未满、但红外原始位又把同一结果判满的双重业务口径。
 
 当前 `fullnessSampleComplete` 事件没有直接的 `fullnessPercent` 字段。为避免修改已经
-导入 OneNet 控制台的 9 服务 / 13 事件模型，香橙派上报最近总重量和冻结配置，后端按
+导入 OneNet 控制台的 v2 事件结构，香橙派上报最近总重量和冻结配置，后端按
 上述公式计算并对外返回满溢度。
 
 #### 3.6.4 事件兼容值
@@ -565,7 +602,7 @@ fullnessPercent < 100%   -> NOT_FULL
 
 #### 3.6.5 受理与幂等
 
-1. 校验命令封套、部署、`detectionUid`、`portNo=1`、配置身份和载荷范围。
+1. 校验命令封套、已认证设备名、`detectionUid`、`portNo=1`、配置身份和载荷范围。
 2. 校验 `target.uid == payload.detectionUid`。
 3. 命令可靠保存后同步返回 `ACCEPTED`。
 4. 香橙派读取最近总重量，在本地立即创建可靠结果事件。
@@ -630,7 +667,7 @@ fixed-frame MCU 没有独立称重命令，香橙派无法在服务调用发生�
 
 #### 3.7.3 处理流程
 
-1. 校验命令封套、部署、`measurementUid`、`portNo=1`、`bagUid`、配置身份及载荷范围。
+1. 校验命令封套、已认证设备名、`measurementUid`、`portNo=1`、`bagUid`、配置身份及载荷范围。
 2. 校验 `target.uid == payload.measurementUid`。
 3. `emptyBagConfirmed` 必须为 `true`；否则作为非法命令拒绝，不能伪造现场确认。
 4. 命令可靠写入后，同步返回 `ACCEPTED`。
@@ -717,7 +754,7 @@ OneNet 服务调用成功、MQTT PUBACK 或后端收到原事件都不能代替�
 
 香橙派必须先完整校验命令封套和载荷，至少包括：
 
-1. Schema 版本、`commandUid`、部署身份、签发时间、过期时间和命令载荷摘要合法；
+1. Schema 版本、`commandUid`、已认证设备名、签发时间、过期时间和命令载荷摘要合法；
 2. `target.type=EDGE_EVENT`；
 3. `target.uid == payload.originalEventUid`；
 4. `originalEventUid` 在本地发件箱中存在，且原事件属于 `RELIABLE_FACT`；
@@ -830,14 +867,14 @@ OneNet 服务调用成功、MQTT PUBACK 或后端收到原事件都不能代替�
 
 香橙派在返回成功前必须校验：
 
-1. 命令封套、部署、期限、稳定载荷摘要及 COS 授权结构合法；
+1. 命令封套、已认证设备名、期限、稳定载荷摘要及 COS 授权结构合法；
 2. `target.type=PHOTO_GRANT_REQUEST`；
 3. `target.uid == payload.grantRequestEventUid`；
 4. `grantRequestEventUid` 对应香橙派当前仍待处理的
    `photoUploadGrantRequested`；
 5. `workType`、`workUid` 与该请求及本地照片记录完全一致；
 6. `authorizedSlots` 是对应作业类型的固定四槽集合；
-7. COS bucket、region、`baseUrl`、`keyPrefix` 和授权期限与当前部署及作业身份一致。
+7. COS bucket、region、`baseUrl`、`keyPrefix` 和授权期限与当前作业身份一致；对象路径不含设备公开号或旧部署身份。
 
 固定槽位为：
 
@@ -1328,7 +1365,7 @@ AFTER_OUTER
 
 #### 4.3.5 后端归并语义
 
-后端必须先校验可信 OneNet 来源、事件 Schema、摘要、部署、目标、原命令和原会话，并
+后端必须先校验可信 OneNet 来源、事件 Schema、摘要、已认证设备名、目标、原命令和原会话，并
 要求：
 
 - `target.type=DELIVERY_SESSION`；
@@ -1362,7 +1399,7 @@ AFTER_OUTER
 - 工作槽释放不等待 MQTT、OneNet 或后端业务确认，避免断网永久占用设备。
 - 同一 `sessionUid` 的重复 `DD` 或重复处理只能复用原完成事实，不分配第二事件。
 - MQTT、OneNet 回执丢失、断网或重启后持续重发同一个 `eventUid` 和不可变载荷。
-- 后端同事件同摘要重投复用原订单和原确认；同事件异摘要、同部署序号异事实或同
+- 后端同事件同摘要重投复用原订单和原确认；同事件异摘要、同一已认证设备序号异事实或同
   `sessionUid` 的第二完成事件必须隔离，不能覆盖首个可信结果。
 - 香橙派收到匹配的 `confirmEdgeEvent` 后才把原事件置为业务已确认。
 
@@ -1555,7 +1592,7 @@ FINAL_CLOSE_OUTER
 
 #### 4.4.5 后端归并语义
 
-后端必须先校验可信 OneNet 来源、事件 Schema、摘要、设备部署、目标、原命令和原清运
+后端必须先校验可信 OneNet 来源、事件 Schema、摘要、已认证设备名、目标、原命令和原清运
 操作，并要求：
 
 - `target.type=CLEAN_OPERATION`；
@@ -1595,7 +1632,7 @@ FINAL_CLOSE_OUTER
 - 同一 `operationUid` 的重复 `EF` 或处理重入只能复用原完成事实，不创建第二事件、
   第二清运记录或再次交换袋。
 - MQTT、OneNet 回执丢失、断网或重启后持续重发同一个 `eventUid` 和不可变载荷。
-- 后端同事件同摘要重投复用原清运结果和原确认；同事件异摘要、同部署序号异事实或同
+- 后端同事件同摘要重投复用原清运结果和原确认；同事件异摘要、同一已认证设备序号异事实或同
   `operationUid` 的第二完成事件必须隔离，不能覆盖首个可信结果。
 - 香橙派收到匹配的 `confirmEdgeEvent` 后才把原事件置为业务已确认。
 
@@ -1761,11 +1798,11 @@ validSampleCount                           = 0
 0 克测量的其余质量字段和 MCU 身份使用持久化的正常兼容值，嵌套重量测量
 `sampleCount=1`。后端通过
 `NOT_SAMPLED + requestedSampleCount=0 + validSampleCount=0` 识别这是无历史默认值；
-不修改当前 OneNet 9 服务 / 13 事件模型增加来源字段。
+不修改当前 OneNet v2 事件结构增加来源字段。
 
 `sampleRole`、`triggerType`、`fullnessMode` 和 `frozenConfig` 必须逐字来自原命令及检测
 快照。香橙派仍应在 SQLite 中保留来源作业类型、作业 UID、接收时间和配置代际，供
-审计和重启恢复；这些本地元数据不改变本事件的 9/13 线上结构。
+审计和重启恢复；这些本地元数据不改变本事件的 v2 线上结构。
 
 #### 4.5.4 百分比与 `FULL/NOT_FULL`
 
@@ -1831,7 +1868,7 @@ fixed-frame 不会因角色不同执行新的 MCU 动作。每次调用分别读
 
 #### 4.5.6 后端归并语义
 
-后端必须校验可信 OneNet 来源、Schema、摘要、设备部署和原命令，并要求：
+后端必须校验可信 OneNet 来源、Schema、摘要、已认证设备名和原命令，并要求：
 
 - `target.type=FULLNESS_DETECTION`；
 - `target.uid == payload.detectionUid`；
@@ -1874,7 +1911,7 @@ OneNet/Pulsar 的传输 ACK 不是业务确认。
 - 相同命令重试复用原事件身份、冻结观测和载荷；
 - 以新 `commandUid` 重复请求同一检测角色，也不得读取新缓存或创建第二结果；
 - 同事件同摘要重投复用原样本和原确认；
-- 同事件异摘要、同部署序号异事实或同角色第二份不同结果必须隔离；
+- 同事件异摘要、同一已认证设备序号异事实或同角色第二份不同结果必须隔离；
 - 本地命令结果、冻结观测、事件身份和发件箱必须原子提交；
 - 该本地计算不占用全局物理工作槽，进程重启后可从持久命令和冻结观测安全重放；
 - MQTT、OneNet 回执丢失、断网或重启后持续重发同一事件；
@@ -2029,7 +2066,7 @@ LATEST_FLOW_POST
 NO_HISTORY_ZERO
 ```
 
-三类兼容来源及对应来源作业、接收身份和时间，供重启恢复与诊断。当前 9 服务 / 13 事件
+三类兼容来源及对应来源作业、接收身份和时间，供重启恢复与诊断。当前 OneNet v2 事件
 模型没有来源字段，本轮不修改 OneNet 线上结构；后端结合设备 fixed-frame 兼容配置和
 事件形状，将该结果记录为 fixed-frame 兼容建立，不宣称发生了新的 MCU 实测。
 
@@ -2074,7 +2111,7 @@ fixed-frame 规则，使用调用时最近总重量除以下发满溢总重量�
 
 #### 4.6.6 后端归并语义
 
-后端必须校验可信 OneNet 来源、Schema、摘要、设备部署和原命令，并要求：
+后端必须校验可信 OneNet 来源、Schema、摘要、已认证设备名和原命令，并要求：
 
 - `target.type=BASELINE_MEASUREMENT`；
 - `target.uid == payload.measurementUid`；
@@ -2116,7 +2153,7 @@ fixed-frame 兼容来源，或建立等价的可审计表达；禁止把历史�
 - 使用新 `commandUid` 重复请求同一 `measurementUid`，也不得重新选择重量或创建第二
   结果；
 - 同事件同摘要重投复用原皮重结果和确认；
-- 同事件异摘要、同部署序号异事实或同任务第二份不同结果必须隔离；
+- 同事件异摘要、同一已认证设备序号异事实或同任务第二份不同结果必须隔离；
 - 香橙派持续重发同一 `eventUid` 和不可变载荷；
 - 后端只有在皮重任务终态、新基准或过期处置、必要后续检测任务和确认意图同事务提交
   后，才能业务确认本事件；
@@ -2251,11 +2288,11 @@ SQLite 完全不可写时无法声称故障事件已经可靠持久化。此时�
 
 #### 4.7.4 事件字段与作用域
 
-本事件固定使用设备部署作为目标：
+本事件固定使用设备资产作为目标：
 
 ```text
-target.type = DEVICE_DEPLOYMENT
-target.uid  = deploymentCode
+target.type = DEVICE_ASSET
+target.uid  = trustedSource.deviceName (= hardwareSn)
 commandUid  = null
 ```
 
@@ -2283,14 +2320,14 @@ mcuEventSequence
   UUIDv4；
 - `faultCode` 使用中心化、稳定的符号代码，不得直接上传异常消息、原始串口内容、路径、
   密钥或其他敏感文本；
-- 没有真实 `deploymentCode` 时不得使用 `Dp_unknown` 等占位身份发送可信故障事件。
+- 无法取得已认证 OneNet 设备名时不得发送可信故障事件，也不得构造占位身份。
 
 #### 4.7.5 持续故障、去重与严重度升级
 
 香橙派以以下四元组作为活动故障键：
 
 ```text
-(deploymentCode, portNo, component, faultCode)
+(authenticatedDeviceName, portNo, component, faultCode)
 ```
 
 生命周期规则为：
@@ -2311,7 +2348,7 @@ mcuEventSequence
 
 #### 4.7.6 后端归并与阻断语义
 
-后端必须校验可信 OneNet 来源、Schema、部署目标、端口作用域、组件与故障码关系、
+后端必须校验可信 OneNet 来源、Schema、设备资产目标、端口作用域、组件与故障码关系、
 严重度以及 MCU 身份成对为空或成对存在。可信事件按以下规则归并：
 
 - `faultUid` 标识同一次连续故障；
@@ -2442,7 +2479,7 @@ fixed-frame MCU 没有恢复帧，因此当前只能恢复 4.7 中由香橙派�
 | 网络持续不可用 | MQTT 成功重新连接 OneNet |
 | 系统时钟持续未同步 | 操作系统明确报告时间同步已经恢复 |
 
-如果同一 `(deploymentCode, portNo, component, faultCode)` 活动故障内部合并记录了多个
+如果同一 `(authenticatedDeviceName, portNo, component, faultCode)` 活动故障内部合并记录了多个
 本地原因，则所有仍然活动的原因都取得对应恢复证据后才关闭该 `faultUid`。例如 UART
 重新打开不能关闭仍在持续的协议解析故障。
 
@@ -2454,8 +2491,8 @@ fixed-frame MCU 没有恢复帧，因此当前只能恢复 4.7 中由香橙派�
 恢复事件固定使用：
 
 ```text
-target.type = DEVICE_DEPLOYMENT
-target.uid  = deploymentCode
+target.type = DEVICE_ASSET
+target.uid  = trustedSource.deviceName (= hardwareSn)
 commandUid  = null
 ```
 
@@ -2470,7 +2507,7 @@ commandUid  = null
 - 未来真实 MCU 恢复帧使用该恢复帧自己的真实 MCU 事件身份，不要求与观察帧序号相同；
 - envelope `eventUid` 是本次恢复事实的新 UUIDv4，与 `faultUid` 分离；
 - 同一恢复事件重试必须复用原 `eventUid`、载荷和摘要；
-- 没有真实 `deploymentCode` 时不得使用占位部署身份发送可信恢复事件。
+- 无法取得已认证 OneNet 设备名时不得发送可信恢复事件，也不得构造占位身份。
 
 #### 4.8.5 本地关闭、新故障与原子事务
 
@@ -2508,13 +2545,13 @@ SQLite 完全不可写时，观察事件无法在故障发生时可靠保存。�
 3. 两个不同、持久化的 `eventUid`；
 4. 按观察在前、恢复在后的发件箱顺序。
 
-不得只发送恢复事件，也不得把补录时刻伪装成故障最初发生时刻。线上 9 服务 / 13 事件
+不得只发送恢复事件，也不得把补录时刻伪装成故障最初发生时刻。当前 OneNet v2 事件
 载荷当前没有补录字段，因此补录证据和原始诊断时间先保存在香橙派本地；后端结合
 `occurredAt`、`clockQuality` 和事件序号审计，后续实施时再决定是否扩展契约。
 
 #### 4.8.7 后端归并、乱序与自动解除阻断
 
-后端必须按 `faultUid` 精确关闭故障，并校验部署、端口、组件、故障码、最高严重度和
+后端必须按 `faultUid` 精确关闭故障，并校验设备资产、端口、组件、故障码、最高严重度和
 MCU 身份规则：
 
 - 同事件同摘要重投只复用已有恢复结果和确认；
@@ -2667,8 +2704,8 @@ safetyStatus      = SAFE
 
 其他字段规则为：
 
-- `target.type=DEVICE_DEPLOYMENT`；
-- `target.uid=deploymentCode`；
+- `target.type=DEVICE_ASSET`；
+- `target.uid=trustedSource.deviceName=hardwareSn`；
 - `commandUid=null`；
 - `portNo` 有值时表示对应投口，`null` 表示整台设备；
 - `workType/workUid` 是状态变化发生时的作业上下文；
@@ -2676,7 +2713,7 @@ safetyStatus      = SAFE
 - 有活动作业时 `workUid` 使用真实 UUIDv4，但后端消费时不要求该作业仍处于活动状态；
 - `mcuBootId/mcuEventSequence` 必须使用真实 MCU 事件身份且都为正数；
 - envelope `eventUid` 使用持久化 UUIDv4，同一 MCU 事件重放时保持不变；
-- 没有真实部署身份时不得使用 `Dp_unknown` 等占位值发送可信事件。
+- 无法取得已认证 OneNet 设备名时不得发送可信事件，也不得构造占位值。
 
 `ALARM/OK` 的 `faultCode` 必须为空，因为报警是有效传感器检测结果，不是传感器故障。
 传感器不健康时状态必须是 `UNKNOWN`，不能同时宣称一个可信的 `NORMAL` 或 `ALARM`。
@@ -2703,7 +2740,7 @@ SQLite 事务中：
 可信事件按作用域处理：
 
 - `portNo` 有值时，只更新和阻断该投口；
-- `portNo=null` 时，更新部署级安全状态并阻断整台设备；
+- `portNo=null` 时，更新资产级安全状态并阻断整台设备；
 - 任一真实 `ALARM/OK` 将对应范围设为 `SAFETY_BLOCKED`；
 - `UNKNOWN/非 OK/SMOKE_SENSOR` 将对应范围设为 `OPERATION_BLOCKED`；
 - `NORMAL/OK` 清除同一范围的烟雾报警和烟感健康阻断；
@@ -2717,15 +2754,15 @@ SQLite 事务中：
 香橙派、OneNet 和后端后再下发。后端也不能把本事件当成“门已经安全关闭”的证据。
 正在执行的作业由后续真实 MCU 结果收敛；本事件只阻止新的业务并保存安全事实。
 
-当前数据库同时有部署级和投口级 `safety_status`。实施时必须避免把某一投口的报警无
-条件提升为全设备阻断；只有 `portNo=null` 的设备级事件或明确的聚合策略才能设置部署级
+当前数据库同时有资产级和投口级 `safety_status`。实施时必须避免把某一投口的报警无
+条件提升为全设备阻断；只有 `portNo=null` 的设备级事件或明确的聚合策略才能设置资产级
 阻断。
 
 #### 4.9.7 幂等、顺序和业务确认
 
 - 同一 `eventUid`、相同摘要重投只复用已有状态变更和确认；
 - 同事件异摘要或同 MCU 身份异事实必须隔离；
-- 后端按部署、作用域和 MCU 事件身份维护状态顺序；
+- 后端按设备资产、作用域和 MCU 事件身份维护状态顺序；
 - 迟到的旧 `ALARM` 不能覆盖已经处理的新 `NORMAL`，反之亦然；
 - 迟到事件仍保存为历史证据，但不更新当前状态；
 - `workUid` 已结束或不存在不影响安全事实本身的可信保存；
@@ -2751,7 +2788,7 @@ SQLite 事务中：
    校验。
 10. 后端 OneNet 分发仍只处理 `configurationProgress`，本事件会被警告后由 MQ ACK
     丢弃，不会更新烟感、安全投影、告警或阻断。
-11. 后端现有部署级基础阻断可能把投口级安全事件扩大为整机阻断，需实现明确的作用域
+11. 后端现有资产级基础阻断可能把投口级安全事件扩大为整机阻断，需实现明确的作用域
     归并。
 12. 后端尚未实现按 MCU 顺序拒绝迟到状态覆盖、可靠确认和确认回执。
 
@@ -2825,7 +2862,7 @@ SQLite 事务中：
 一个照片槽的业务唯一键为：
 
 ```text
-(deploymentCode, workType, workUid, slot)
+(workType, workUid, slot)
 ```
 
 投递固定槽位为：
@@ -2965,7 +3002,7 @@ missingReason = 稳定错误码
 
 #### 4.10.8 后端业务事务和可靠确认
 
-后端必须校验可信 OneNet 来源、Schema、载荷摘要、部署、目标、作业类型、作业身份、
+后端必须校验可信 OneNet 来源、Schema、载荷摘要、已认证设备名、目标、作业类型、作业身份、
 槽位、终态形状和 COS URL。可信处理以业务唯一键和 `eventUid` 双重幂等：
 
 - 同事件同摘要重投复用已有结果和确认；
@@ -3138,7 +3175,7 @@ photoUid + slot + objectKey
 
 #### 4.11.6 后端处理和业务确认
 
-后端收到事件后校验可信 OneNet 来源、Schema、摘要、部署、原作业、目标、槽位和申请
+后端收到事件后校验可信 OneNet 来源、Schema、摘要、已认证设备名、原作业、目标、槽位和申请
 身份。以 `eventUid` 和申请业务身份双重幂等，在同一个业务事务中：
 
 1. 保存可信申请事件；
@@ -3297,7 +3334,7 @@ photoUid + slot + objectKey
 #### 4.12.6 后端消费
 
 后端把本事件作为协议控制回执处理，而不是普通领域事件。收到后校验可信 OneNet 来源、
-Schema、摘要、部署身份、目标以及以下冻结字段：
+Schema、摘要、已认证设备名、目标以及以下冻结字段：
 
 ```text
 commandUid
@@ -3402,10 +3439,10 @@ outcome
 事件必须满足：
 
 - `deliveryClass=TELEMETRY_SNAPSHOT`；
-- `target.type=DEVICE_DEPLOYMENT`；
-- `target.uid == deploymentCode`；
+- `target.type=DEVICE_ASSET`；
+- `target.uid == trustedSource.deviceName == hardwareSn`；
 - `commandUid=null`；
-- `edgeEventSequence` 继续使用部署级统一持久序号空间；
+- `edgeEventSequence` 使用已认证设备级统一持久序号空间；
 - `ports` 使用活动配置中的真实投口数量，并按 `1..N` 唯一、连续、升序上报。
 
 快照使用 MQTT QoS 1，但不进入需要业务确认的 `RELIABLE_FACT` 发件箱，也不接受
@@ -3538,12 +3575,12 @@ smokeSensorHealth = OK
 
 #### 4.13.7 后端归并和优先级
 
-后端收到快照后校验可信 OneNet 来源、Schema、摘要、部署目标、字段组合和连续投口列表，
-然后更新部署及投口运行投影。
+后端收到快照后校验可信 OneNet 来源、Schema、摘要、设备资产目标、字段组合和连续投口列表，
+然后更新资产及投口运行投影。
 
 归并规则为：
 
-- 相同部署只应用比当前投影更新的 `edgeEventSequence`；
+- 相同已认证设备只应用比当前投影更新的 `edgeEventSequence`；
 - 迟到旧快照可以保留接收诊断，但不能覆盖新投影；
 - 新 `edgeBootId` 表示香橙派新进程代次，不能反向应用旧启动代次的快照；
 - 收到快照可以更新运行状态的最近观测时间，但不能覆盖 OneNet 生命周期在线状态；
@@ -3567,7 +3604,7 @@ smokeSensorHealth = OK
 
 - 启动完成后可以发送一份运行快照；
 - 主循环默认每 5 分钟发送一次；
-- 事件封套使用 `TELEMETRY_SNAPSHOT`、部署目标和空 `commandUid`；
+- 事件封套使用 `TELEMETRY_SNAPSHOT`、设备资产目标和空 `commandUid`；
 - fixed-frame 路径已经将 UART 协议版本设为空、能力位设为 0；
 - 快照直接发送，不进入可靠业务事件确认链。
 

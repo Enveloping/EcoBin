@@ -36,8 +36,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Recycling-owned outer transaction for the one and only cloud-side delivery
- * authorization. Continuing or ending a delivery is not an HTTP use case.
+ * 开始投递的外层协调事务，由 recycling 模块拥有。
+ *
+ * <p>一次扫码会话只在云端授权一次：本服务按既定锁序确认身份、机构规则、钱包资格和
+ * 设备业务事实，再让 device 模块写入会话、整机占位、命令和可靠任务。用户在设备上的
+ * “继续投递/结束投递”属于已授权会话内的本地动作，不会再次进入 HTTP 用例。</p>
  */
 @Service
 public class StartDeliverySessionService {
@@ -71,9 +74,11 @@ public class StartDeliverySessionService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DeliverySessionAccepted start(
             UUID operationUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo) {
         validateOperationUid(operationUid);
+        // 锁序是并发协议的一部分：身份作用域 → 机构投递规则 → 机构用户 → 钱包 → 设备。
+        // 参与模块都使用 MANDATORY 加入当前事务，任一检查失败会整体回滚。
         LockedMiniappDeliveryScope scope =
                 identity.lockCurrentMiniappScope();
         DeliveryRuleSnapshot deliveryRule =
@@ -84,13 +89,13 @@ public class StartDeliverySessionService {
                 identity.lockCurrentOrganizationUser(scope);
         String fingerprint = fingerprint(
                 user.organizationUserUid().value(),
-                deploymentCode,
+                deviceCode,
                 portNo);
         return user.auditActorRef().withAuditActorOnce(
                 (tenantId, organizationId, organizationUserId) ->
                         startOrReplay(
                                 operationUid,
-                                deploymentCode,
+                                deviceCode,
                                 portNo,
                                 deliveryRule,
                                 user,
@@ -102,7 +107,7 @@ public class StartDeliverySessionService {
 
     private DeliverySessionAccepted startOrReplay(
             UUID operationUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             DeliveryRuleSnapshot deliveryRule,
             LockedDeliveryOrganizationUser user,
@@ -113,6 +118,7 @@ public class StartDeliverySessionService {
         Optional<SuccessfulAudit> previous =
                 audit.findSuccessful(operationUid);
         if (previous.isPresent()) {
+            // 相同操作者、路径参数和幂等键返回第一次成功响应，不创建第二个物理会话。
             return replay(
                     previous.orElseThrow(),
                     fingerprint,
@@ -120,14 +126,16 @@ public class StartDeliverySessionService {
                     organizationId,
                     organizationUserId);
         }
+        // 钱包此时只决定“能否开始新投递”，不会产生返现明细；金额要等订单审核后入账。
         wallet.lockAndRequireEligible(
                 new StartDeliveryWalletQualificationCommand(
                         user.walletOwnerRef(),
                         deliveryRule.openBalanceFloorCent()));
+        // device 参与者在同一事务内冻结设备事实并登记可靠下发任务。
         StartDeliveryDeviceResult accepted = device.start(
                 new StartDeliveryDeviceCommand(
                         operationUid,
-                        deploymentCode,
+                        deviceCode,
                         portNo,
                         user.deliverySessionUserRef(),
                         deliveryRule));
@@ -149,6 +157,7 @@ public class StartDeliverySessionService {
         safeSummary.put("fingerprint", fingerprint);
         safeSummary.put("response", response);
         try {
+            // 成功审计同时占据全局幂等槽。只有审计和前述设备事实一起提交，202 才可返回。
             audit.append(new AuditEntry(
                     UUID.randomUUID(),
                     UUID.randomUUID(),
@@ -230,6 +239,7 @@ public class StartDeliverySessionService {
     private DeliveryRuleSnapshot lockCurrentDeliveryRule(
             long tenantId,
             long organizationId) {
+        // 先锁配置头，再读取其指向的不可变版本，保证本次会话冻结的是同一套规则快照。
         var heads = jdbc.query("""
                         SELECT current_config_id, current_version_no
                         FROM rec_organization_delivery_config_head
@@ -313,7 +323,7 @@ public class StartDeliverySessionService {
 
     private static String fingerprint(
             UUID organizationUserUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo) {
         try {
             MessageDigest digest =
@@ -323,7 +333,7 @@ public class StartDeliverySessionService {
                             .getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(
-                    deploymentCode.trim()
+                    deviceCode.trim()
                             .getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(

@@ -69,6 +69,10 @@ public class WechatPayApiV3Client {
         return exchange("POST", pathAndQuery, body);
     }
 
+    boolean usesMerchant(String mchid) {
+        return properties.getMchid().equals(mchid);
+    }
+
     public JsonNode exchange(
             String method, String pathAndQuery, JsonNode body) {
         try {

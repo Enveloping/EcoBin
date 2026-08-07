@@ -20,14 +20,11 @@ class JdbcMiniappDeliveryDeviceQueryRepository
      * The mcu-payload digest below is only part of immutable configuration
      * identity; it is not a live Orange Pi-to-MCU health check.
      */
-    static final String FIND_CURRENT_DEPLOYMENT_SQL = """
-            SELECT deployment.id AS deployment_id,
-                   deployment.asset_id,
-                   deployment.public_code,
-                   asset.lifecycle_status AS asset_lifecycle_status,
-                   deployment.lifecycle_status
-                       AS deployment_lifecycle_status,
-                   deployment.business_enabled,
+    static final String FIND_CURRENT_ASSET_SQL = """
+            SELECT asset.id AS asset_id,
+                   asset.device_public_code,
+                   asset.lifecycle_status,
+                   asset.acceptance_status,
                    CASE
                        WHEN occupancy.asset_id IS NULL THEN 0
                        ELSE 1
@@ -68,46 +65,48 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                        AS orange_pi_reported_configuration_content_sha256,
                    runtime.orange_pi_reported_config_mcu_payload_sha256
                        AS orange_pi_reported_configuration_mcu_payload_sha256
-            FROM dev_device_deployment deployment
-            JOIN dev_device_asset asset
-              ON asset.id = deployment.asset_id
+            FROM dev_device_asset asset
+            JOIN iam_tenant tenant
+              ON tenant.id = asset.tenant_id
+            JOIN iam_organization organization
+              ON organization.tenant_id = asset.tenant_id
+             AND organization.id = asset.organization_id
             LEFT JOIN dev_device_transport_state transport
               ON transport.asset_id = asset.id
-            JOIN dev_asset_active_deployment active
-              ON active.asset_id = deployment.asset_id
-             AND active.tenant_id = deployment.tenant_id
-             AND active.organization_id = deployment.organization_id
-             AND active.deployment_id = deployment.id
             LEFT JOIN dev_device_occupancy occupancy
-              ON occupancy.asset_id = deployment.asset_id
-             AND occupancy.tenant_id = deployment.tenant_id
-             AND occupancy.organization_id = deployment.organization_id
-             AND occupancy.deployment_id = deployment.id
+              ON occupancy.asset_id = asset.id
+             AND occupancy.tenant_id = asset.tenant_id
+             AND occupancy.organization_id = asset.organization_id
             LEFT JOIN dev_config_version configuration
               ON configuration.id = (
                   SELECT latest.id
                   FROM dev_config_version latest
-                  WHERE latest.tenant_id = deployment.tenant_id
+                  WHERE latest.tenant_id = asset.tenant_id
                     AND latest.organization_id =
-                        deployment.organization_id
-                    AND latest.deployment_id = deployment.id
+                        asset.organization_id
+                    AND latest.asset_id = asset.id
                   ORDER BY latest.version_no DESC
                   LIMIT 1
               )
             LEFT JOIN dev_config_application application
-              ON application.tenant_id = deployment.tenant_id
+              ON application.tenant_id = asset.tenant_id
              AND application.organization_id =
-                 deployment.organization_id
-             AND application.deployment_id = deployment.id
+                 asset.organization_id
+             AND application.asset_id = asset.id
              AND application.config_version_id = configuration.id
-            LEFT JOIN dev_deployment_runtime_state runtime
-              ON runtime.tenant_id = deployment.tenant_id
+            LEFT JOIN dev_device_runtime_state runtime
+              ON runtime.tenant_id = asset.tenant_id
              AND runtime.organization_id =
-                 deployment.organization_id
-             AND runtime.deployment_id = deployment.id
-            WHERE deployment.tenant_id = ?
-              AND deployment.organization_id = ?
-              AND deployment.public_code = ?
+                 asset.organization_id
+             AND runtime.asset_id = asset.id
+            WHERE asset.tenant_id = ?
+              AND asset.organization_id = ?
+              AND asset.device_public_code = ?
+              AND asset.lifecycle_status = 'NORMAL'
+              AND asset.acceptance_status = 'PASSED'
+              AND asset.miniapp_qr_status = 'READY'
+              AND tenant.status = 'ENABLED'
+              AND organization.status = 'ENABLED'
             """;
 
     /*
@@ -145,17 +144,17 @@ class JdbcMiniappDeliveryDeviceQueryRepository
             LEFT JOIN dev_port_config_snapshot configuration
               ON configuration.tenant_id = port.tenant_id
              AND configuration.organization_id = port.organization_id
-             AND configuration.deployment_id = port.deployment_id
+             AND configuration.asset_id = port.asset_id
              AND configuration.port_id = port.id
              AND configuration.config_version_id = ?
             LEFT JOIN dev_port_runtime_state runtime
               ON runtime.tenant_id = port.tenant_id
              AND runtime.organization_id = port.organization_id
-             AND runtime.deployment_id = port.deployment_id
+             AND runtime.asset_id = port.asset_id
              AND runtime.port_id = port.id
             WHERE port.tenant_id = ?
               AND port.organization_id = ?
-              AND port.deployment_id = ?
+              AND port.asset_id = ?
             ORDER BY port.port_no
             """;
 
@@ -163,24 +162,24 @@ class JdbcMiniappDeliveryDeviceQueryRepository
             SELECT delivery_session.id AS session_id,
                    delivery_session.session_uid,
                    delivery_session.status AS device_status,
-                   deployment.public_code AS deployment_code,
+                   asset.device_public_code,
                    port.port_no,
                    delivery_session.first_physical_progress_at,
                    delivery_session.device_completed_at,
                    delivery_session.ended_at,
                    delivery_session.end_reason
             FROM dev_delivery_session delivery_session
-            JOIN dev_device_deployment deployment
-              ON deployment.tenant_id = delivery_session.tenant_id
-             AND deployment.organization_id =
+            JOIN dev_device_asset asset
+              ON asset.tenant_id = delivery_session.tenant_id
+             AND asset.organization_id =
                  delivery_session.organization_id
-             AND deployment.id = delivery_session.deployment_id
+             AND asset.id = delivery_session.asset_id
             JOIN dev_port port
               ON port.tenant_id = delivery_session.tenant_id
              AND port.organization_id =
                  delivery_session.organization_id
-             AND port.deployment_id =
-                 delivery_session.deployment_id
+             AND port.asset_id =
+                 delivery_session.asset_id
              AND port.id = delivery_session.port_id
             WHERE delivery_session.tenant_id = ?
               AND delivery_session.organization_id = ?
@@ -207,23 +206,23 @@ class JdbcMiniappDeliveryDeviceQueryRepository
     }
 
     @Override
-    public Optional<DeploymentSnapshotRow> findCurrentDeployment(
+    public Optional<AssetSnapshotRow> findAsset(
             long tenantId,
             long organizationId,
-            String deploymentCode) {
+            String deviceCode) {
         return jdbc.query(
-                FIND_CURRENT_DEPLOYMENT_SQL,
-                (rs, ignored) -> deployment(rs),
+                FIND_CURRENT_ASSET_SQL,
+                (rs, ignored) -> asset(rs),
                 tenantId,
                 organizationId,
-                deploymentCode).stream().findFirst();
+                deviceCode).stream().findFirst();
     }
 
     @Override
     public List<PortSnapshotRow> findPorts(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             Long configurationId) {
         return jdbc.query(
                 FIND_PORTS_SQL,
@@ -231,7 +230,7 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                 configurationId,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
     }
 
     @Override
@@ -246,7 +245,7 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                         rs.getLong("session_id"),
                         UUID.fromString(rs.getString("session_uid")),
                         rs.getString("device_status"),
-                        rs.getString("deployment_code"),
+                        rs.getString("device_public_code"),
                         rs.getInt("port_no"),
                         rs.getObject(
                                 "first_physical_progress_at",
@@ -264,15 +263,13 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                 sessionUid.toString()).stream().findFirst();
     }
 
-    private static DeploymentSnapshotRow deployment(ResultSet rs)
+    private static AssetSnapshotRow asset(ResultSet rs)
             throws SQLException {
-        return new DeploymentSnapshotRow(
-                rs.getLong("deployment_id"),
+        return new AssetSnapshotRow(
                 rs.getLong("asset_id"),
-                rs.getString("public_code"),
-                rs.getString("asset_lifecycle_status"),
-                rs.getString("deployment_lifecycle_status"),
-                rs.getBoolean("business_enabled"),
+                rs.getString("device_public_code"),
+                rs.getString("acceptance_status"),
+                rs.getString("lifecycle_status"),
                 rs.getBoolean("device_busy"),
                 nullableLong(rs, "configuration_id"),
                 nullableLong(rs, "configuration_version"),

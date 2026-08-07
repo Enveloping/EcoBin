@@ -1,13 +1,11 @@
 @{
-    CatalogVersion = 12
+    CatalogVersion = 14
 
     ReadOnlyTables = @(
         "iam_permission_definition"
     )
 
     SlotTables = @(
-        "dev_asset_active_deployment"
-        "dev_asset_active_tenant_allocation"
         "dev_device_occupancy"
         "rec_bag_current_occupancy"
         "rec_port_clean_restart_interlock"
@@ -112,29 +110,24 @@
             "revocation_reason"
         )
         dev_device_asset = @(
+            "tenant_id"
+            "tenant_assigned_at"
+            "organization_id"
+            "organization_assigned_at"
+            "acceptance_status"
+            "accepted_at"
+            "acceptance_evidence_sha256"
+            "last_acceptance_evaluated_at"
+            "acceptance_failure_json"
+            "miniapp_qr_status"
+            "miniapp_qr_object_key"
+            "miniapp_qr_generated_at"
             "lifecycle_status"
+            "disabled_at"
+            "disable_reason"
             "retired_at"
             "retirement_reason"
-            "lock_version"
-            "updated_at"
-        )
-        dev_device_deployment = @(
-            "lifecycle_status"
-            "business_enabled"
-            "enabled_at"
-            "ended_at"
-            "end_method"
-            "end_reason"
-            "lock_version"
-            "updated_at"
-        )
-        dev_asset_tenant_allocation = @(
-            "status"
-            "ended_by_platform_admin_id"
-            "ended_at"
-            "end_mode"
-            "end_reason"
-            "lock_version"
+            "control_version"
             "updated_at"
         )
         dev_config_application = @(
@@ -159,7 +152,7 @@
             "lock_version"
             "updated_at"
         )
-        dev_deployment_runtime_state = @(
+        dev_device_runtime_state = @(
             "edge_connection_status"
             "mcu_link_status"
             "safety_status"
@@ -524,6 +517,23 @@
             "submitted_at"
             "channel_updated_at"
             "terminal_at"
+            "lock_version"
+            "updated_at"
+        )
+        fund_wechat_transfer_authorization = @(
+            "authorization_id"
+            "local_state"
+            "channel_state"
+            "package_info"
+            "last_api_error_code"
+            "close_reason"
+            "state_conflict"
+            "submitted_at"
+            "channel_created_at"
+            "confirmation_deadline_at"
+            "authorized_at"
+            "closed_at"
+            "channel_updated_at"
             "lock_version"
             "updated_at"
         )

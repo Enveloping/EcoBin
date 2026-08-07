@@ -31,13 +31,11 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * OneNet target-contract inbound Adapter.
+ * OneNet 北向消息进入后端的可信适配器。
  *
- * <p>The Adapter authenticates the OneNet product/device identity, converts
- * the generated numeric wire contract into the stable semantic event contract,
- * verifies both payload and event digests, and then writes the event to the
- * reliable inbox. A successful return therefore means that Pulsar may ACK
- * without losing the business fact.</p>
+ * <p>这里先核对 OneNet 产品和设备身份，再把线级数字枚举转换成稳定业务语义，校验载荷
+ * 摘要与事件摘要，最后写入可靠收件箱。方法正常返回只表示消息已经可靠落库，Pulsar 可以
+ * ACK；它不表示投递订单等业务事实已经处理完成。</p>
  */
 @Slf4j
 @Component
@@ -54,8 +52,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
     private static final String SHA256 = "^[0-9a-f]{64}$";
-    private static final String DEPLOYMENT_CODE =
-            "^Dp_[A-Za-z0-9_-]{6,61}$";
 
     private static final Map<String, EventContract> CONTRACTS =
             Map.ofEntries(
@@ -89,26 +85,36 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     "FULLNESS_SAMPLE_COMPLETE",
                     "RELIABLE_FACT",
                     "FULLNESS_DETECTION")),
+            Map.entry("baselineMeasurementComplete",
+            new EventContract(
+                    "BASELINE_MEASUREMENT_COMPLETE",
+                    "RELIABLE_FACT",
+                    "BASELINE_MEASUREMENT")),
             Map.entry("deviceRuntimeSnapshot",
             new EventContract(
                     "DEVICE_RUNTIME_SNAPSHOT",
                     "TELEMETRY_SNAPSHOT",
-                    "DEVICE_DEPLOYMENT")),
+                    "DEVICE_ASSET")),
             Map.entry("deviceFaultObserved",
             new EventContract(
                     "DEVICE_FAULT_OBSERVED",
                     "RELIABLE_FACT",
-                    "DEVICE_DEPLOYMENT")),
+                    "DEVICE_ASSET")),
             Map.entry("deviceFaultRecovered",
             new EventContract(
                     "DEVICE_FAULT_RECOVERED",
                     "RELIABLE_FACT",
-                    "DEVICE_DEPLOYMENT")),
+                    "DEVICE_ASSET")),
             Map.entry("safetySensorStateChanged",
             new EventContract(
                     "SAFETY_SENSOR_STATE_CHANGED",
                     "RELIABLE_FACT",
-                    "DEVICE_DEPLOYMENT")),
+                    "DEVICE_ASSET")),
+            Map.entry("deviceAcceptanceEvidence",
+            new EventContract(
+                    "DEVICE_ACCEPTANCE_EVIDENCE",
+                    "RELIABLE_FACT",
+                    "DEVICE_ASSET")),
             Map.entry("photoStatusReported",
             new EventContract(
                     "PHOTO_STATUS_REPORTED",
@@ -236,6 +242,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         String msgType = text(root, "msgType", 32);
         if ("deviceOnline".equals(msgType)
                 || "deviceOffline".equals(msgType)) {
+            // 只有 OneNet 生命周期通知能改变资产级在线事实。普通业务事件和运行快照
+            // 即使刚刚到达，也不能据此推断设备仍在线。
             acceptTransportPresence(
                     root,
                     msgType,
@@ -342,7 +350,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             null,
                             null,
                             TrustedInboxExecutionLane.DEVICE,
-                                sourceScopePort.resolverForAsset(hardwareSn)));
+                                sourceScopePort.resolverForPlatformAsset(
+                                        hardwareSn)));
                 if (!receipt.transportAcknowledgementAllowed()) {
                     throw new IllegalStateException(
                             "reliable inbox did not permit lifecycle ACK");
@@ -419,6 +428,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             JsonNode wire,
             byte[] rawTransportBody) {
         try {
+            // 先从 OneNet 线级字段恢复语义载荷，再用设备提供的摘要复算。
+            // 同一 eventUid 携带不同内容会在收件箱层被隔离，不能覆盖原设备事实。
             Map<String, Object> payload =
                     payload(
                             contract.messageKind(),
@@ -434,7 +445,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             }
 
             Map<String, Object> event = eventEnvelope(
-                    contract, wire, payloadSha256, payload);
+                    contract, wire, hardwareSn, payloadSha256, payload);
             validateSemanticShape(contract, event, payload);
             String canonicalSha256 =
                     OneNetCanonicalJson.eventCanonicalSha256(
@@ -453,12 +464,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             UUID commandUid = event.get("commandUid") == null
                     ? null
                     : UUID.fromString((String) event.get("commandUid"));
-            String deploymentCode =
-                    (String) event.get("deploymentCode");
             try (MDC.MDCCloseable ignoredEvent = MDC.putCloseable(
-                         "eventUid", eventUid.toString());
-                 MDC.MDCCloseable ignoredDeployment = MDC.putCloseable(
-                         "deploymentCode", safeToken(deploymentCode))) {
+                         "eventUid", eventUid.toString())) {
+                // receive() 使用独立短事务同时写收件箱和处理任务。只有它允许 ACK，
+                // 外层 Pulsar 消费者才确认传输消息，避免“先 ACK、后端宕机、事实丢失”。
                 TrustedInboxReceipt receipt = trustedInboxPort.receive(
                         new TrustedInboxMessage(
                             "onenet.device-event",
@@ -466,7 +475,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                                     productId, hardwareSn),
                             eventUid.toString(),
                             contract.messageKind(),
-                            1,
+                            2,
                             requireRawTransportBody(rawTransportBody),
                             objectMapper.writeValueAsString(normalized),
                             "ONENET_PULSAR_AES",
@@ -475,8 +484,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             eventUid,
                             commandUid,
                             TrustedInboxExecutionLane.DEVICE,
-                            sourceScopePort.resolverFor(
-                                    hardwareSn, deploymentCode)));
+                            "DEVICE_ACCEPTANCE_EVIDENCE".equals(
+                                    contract.messageKind())
+                                    ? sourceScopePort
+                                            .resolverForPlatformAsset(hardwareSn)
+                                    : sourceScopePort
+                                            .resolverForOrganizationAsset(hardwareSn)));
                 if (!receipt.transportAcknowledgementAllowed()) {
                     throw new IllegalStateException(
                             "reliable inbox did not permit transport ACK");
@@ -553,16 +566,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private static Map<String, Object> eventEnvelope(
             EventContract contract,
             JsonNode wire,
+            String trustedHardwareSn,
             String payloadSha256,
             Map<String, Object> payload) {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put(
                 "schemaVersion",
-                exactEnum(wire, "schemaVersion", 1, 1L));
+                exactEnum(wire, "schemaVersion", 1, 2L));
         event.put("eventUid", pattern(wire, "eventUid", UUID_V4));
-        event.put(
-                "deploymentCode",
-                pattern(wire, "deploymentCode", DEPLOYMENT_CODE));
         event.put(
                 "edgeEventSequence",
                 positiveSafeInteger(wire, "edgeEventSequence"));
@@ -591,7 +602,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         targetType));
         target.put(
                 "uid",
-                targetUid(targetType, wireTarget));
+                targetUid(targetType, wireTarget, trustedHardwareSn));
         event.put("target", target);
         event.put(
                 "commandUid",
@@ -610,16 +621,18 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     }
 
     private static String targetUid(
-            String targetType, JsonNode target) {
+            String targetType,
+            JsonNode target,
+            String trustedHardwareSn) {
         return switch (targetType) {
-            case "DEVICE_DEPLOYMENT" ->
-                    pattern(target, "uid", DEPLOYMENT_CODE);
+            case "DEVICE_ASSET" -> trustedHardwareSn;
             case "CONFIGURATION_APPLICATION",
                  "BUSINESS_CONFIRMATION",
                  "DEVICE_COMMAND",
                  "DELIVERY_SESSION",
                  "CLEAN_OPERATION",
                  "FULLNESS_DETECTION",
+                 "BASELINE_MEASUREMENT",
                  "PORT_FULLNESS_STATE" ->
                     pattern(target, "uid", UUID_V4);
             default -> throw permanent(
@@ -656,6 +669,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "DELIVERY_COMPLETE".equals(messageKind)
                 || "CLEAN_COMPLETE".equals(messageKind)
                 || "FULLNESS_SAMPLE_COMPLETE".equals(
+                messageKind)
+                || "BASELINE_MEASUREMENT_COMPLETE".equals(
+                messageKind)
+                || "DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
         }
@@ -686,6 +703,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             trustedCosBaseUrl);
             case "FULLNESS_SAMPLE_COMPLETE" ->
                     fullnessSampleCompletePayload(wire);
+            case "BASELINE_MEASUREMENT_COMPLETE" ->
+                    baselineMeasurementCompletePayload(wire);
             case "FULLNESS_STATE_CHANGED" ->
                     fullnessStateChangedPayload(wire);
             case "PHOTO_STATUS_REPORTED" ->
@@ -696,6 +715,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     photoGrantRequestPayload(wire);
             case "DEVICE_RUNTIME_SNAPSHOT" ->
                     runtimePayload(wire);
+            case "DEVICE_ACCEPTANCE_EVIDENCE" ->
+                    acceptanceEvidencePayload(wire);
             case "DEVICE_FAULT_OBSERVED",
                  "DEVICE_FAULT_RECOVERED" ->
                     faultPayload(wire);
@@ -827,15 +848,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         2L, "CLEAN_OPERATION"),
                 "workType");
         String workUid = pattern(wire, "workUid", UUID_V4);
-        String deploymentCode =
-                pattern(wire, "deploymentCode", DEPLOYMENT_CODE);
         payload.put("workType", workType);
         payload.put("workUid", workUid);
         payload.put(
                 "photo",
                 terminalPhoto(
                         object(wire, "photo"),
-                        deploymentCode,
                         workType,
                         workUid,
                         trustedCosBaseUrl));
@@ -914,8 +932,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         Map<String, Object> payload = new LinkedHashMap<>();
         String sessionUid =
                 pattern(wire, "sessionUid", UUID_V4);
-        String deploymentCode =
-                pattern(wire, "deploymentCode", DEPLOYMENT_CODE);
         payload.put("sessionUid", sessionUid);
         payload.put(
                 "portNo",
@@ -977,7 +993,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 "photos",
                 deliveryPhotos(
                         wire,
-                        deploymentCode,
                         sessionUid,
                         trustedCosBaseUrl));
         return payload;
@@ -1007,8 +1022,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         Map<String, Object> payload = new LinkedHashMap<>();
         String operationUid = pattern(
                 wire, "operationUid", UUID_V4);
-        String deploymentCode = pattern(
-                wire, "deploymentCode", DEPLOYMENT_CODE);
         payload.put("operationUid", operationUid);
         payload.put(
                 "portNo",
@@ -1114,7 +1127,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 "photos",
                 cleanPhotos(
                         wire,
-                        deploymentCode,
                         operationUid,
                         trustedCosBaseUrl));
         return payload;
@@ -1322,6 +1334,32 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                         wire,
                         "weightFullPresent",
                         "weightFull"));
+        payload.put(
+                "frozenConfig",
+                configSnapshot(object(wire, "frozenConfig")));
+        return payload;
+    }
+
+    private static Map<String, Object> baselineMeasurementCompletePayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "measurementUid",
+                pattern(wire, "measurementUid", UUID_V4));
+        payload.put(
+                "portNo",
+                requiredIntegerInRange(wire, "portNo", 1, 6));
+        payload.put(
+                "bagUid",
+                pattern(wire, "bagUid", UUID_V4));
+        if (!bool(wire, "emptyBagConfirmed")) {
+            throw permanent(
+                    "baseline measurement does not confirm an empty bag");
+        }
+        payload.put("emptyBagConfirmed", true);
+        payload.put(
+                "totalWeightMeasurement",
+                measurement(object(wire, "totalWeightMeasurement")));
         payload.put(
                 "frozenConfig",
                 configSnapshot(object(wire, "frozenConfig")));
@@ -1554,7 +1592,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static List<Map<String, Object>> deliveryPhotos(
             JsonNode wire,
-            String deploymentCode,
             String sessionUid,
             String trustedCosBaseUrl) {
         JsonNode photos = wire.get("photos");
@@ -1573,7 +1610,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             }
             Map<String, Object> value = deliveryPhoto(
                     photo,
-                    deploymentCode,
                     sessionUid,
                     trustedCosBaseUrl);
             String slot = (String) value.get("slot");
@@ -1592,7 +1628,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static List<Map<String, Object>> cleanPhotos(
             JsonNode wire,
-            String deploymentCode,
             String operationUid,
             String trustedCosBaseUrl) {
         JsonNode photos = wire.get("photos");
@@ -1611,7 +1646,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             }
             Map<String, Object> value = cleanPhoto(
                     photo,
-                    deploymentCode,
                     operationUid,
                     trustedCosBaseUrl);
             String slot = (String) value.get("slot");
@@ -1630,7 +1664,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static Map<String, Object> cleanPhoto(
             JsonNode wire,
-            String deploymentCode,
             String operationUid,
             String trustedCosBaseUrl) {
         Map<String, Object> photo = new LinkedHashMap<>();
@@ -1701,8 +1734,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     : trustedCosBaseUrl.replaceFirst("/+$", "");
             String expectedUrl = baseUrl
                     + "/ecobin/"
-                    + deploymentCode
-                    + "/clean-operation/"
+                    + "clean-operation/"
                     + operationUid
                     + "/"
                     + slot
@@ -1719,7 +1751,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static Map<String, Object> deliveryPhoto(
             JsonNode wire,
-            String deploymentCode,
             String sessionUid,
             String trustedCosBaseUrl) {
         Map<String, Object> photo = new LinkedHashMap<>();
@@ -1791,8 +1822,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     : trustedCosBaseUrl.replaceFirst("/+$", "");
             String expectedUrl = baseUrl
                     + "/ecobin/"
-                    + deploymentCode
-                    + "/delivery-session/"
+                    + "delivery-session/"
                     + sessionUid
                     + "/"
                     + slot
@@ -1810,7 +1840,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
 
     private static Map<String, Object> terminalPhoto(
             JsonNode wire,
-            String deploymentCode,
             String workType,
             String workUid,
             String trustedCosBaseUrl) {
@@ -1908,8 +1937,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     : trustedCosBaseUrl.replaceFirst("/+$", "");
             String expectedUrl = baseUrl
                     + "/ecobin/"
-                    + deploymentCode
-                    + "/"
                     + workPath
                     + "/"
                     + workUid
@@ -2072,6 +2099,72 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     port, fixedFrameCompatibility));
         }
         payload.put("ports", normalizedPorts);
+        return payload;
+    }
+
+    private static Map<String, Object> acceptanceEvidencePayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "evidenceSchemaVersion",
+                requiredIntegerInRange(
+                        wire, "evidenceSchemaVersion", 1, 1));
+        payload.put(
+                "challengeUid",
+                pattern(wire, "challengeUid", UUID_V4));
+        payload.put(
+                "edgeSoftwareVersion",
+                text(wire, "edgeSoftwareVersion", 64));
+        payload.put(
+                "edgeProtocolVersion",
+                text(wire, "edgeProtocolVersion", 32));
+        payload.put(
+                "edgeStoreInstanceUid",
+                pattern(wire, "edgeStoreInstanceUid", UUID_V4));
+        payload.put(
+                "mcuFirmwareVersion",
+                text(wire, "mcuFirmwareVersion", 64));
+        payload.put(
+                "persistentStoreHealthy",
+                bool(wire, "persistentStoreHealthy"));
+        payload.put(
+                "trustedTimeHealthy",
+                bool(wire, "trustedTimeHealthy"));
+        payload.put(
+                "configurationPersistenceHealthy",
+                bool(wire, "configurationPersistenceHealthy"));
+        payload.put(
+                "mcuCommunicationHealthy",
+                bool(wire, "mcuCommunicationHealthy"));
+        payload.put(
+                "sensorsHealthy",
+                bool(wire, "sensorsHealthy"));
+        payload.put(
+                "camerasCaptureHealthy",
+                bool(wire, "camerasCaptureHealthy"));
+        payload.put(
+                "cameraUploadHealthy",
+                bool(wire, "cameraUploadHealthy"));
+        payload.put("mcuSimulated", bool(wire, "mcuSimulated"));
+        payload.put(
+                "camerasSimulated",
+                bool(wire, "camerasSimulated"));
+        payload.put(
+                "verifiedPortCount",
+                requiredIntegerInRange(wire, "verifiedPortCount", 1, 6));
+        payload.put(
+                "verifiedCameraCount",
+                requiredIntegerInRange(
+                        wire, "verifiedCameraCount", 0, 16));
+        payload.put(
+                "sensorSampleSha256",
+                pattern(wire, "sensorSampleSha256", SHA256));
+        payload.put(
+                "cameraCaptureSha256",
+                pattern(wire, "cameraCaptureSha256", SHA256));
+        payload.put(
+                "cameraUploadSha256",
+                pattern(wire, "cameraUploadSha256", SHA256));
         return payload;
     }
 
@@ -2440,13 +2533,6 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         Map<String, Object> target =
                 (Map<String, Object>) event.get("target");
         String targetUid = (String) target.get("uid");
-        String deploymentCode =
-                (String) event.get("deploymentCode");
-        if ("DEVICE_DEPLOYMENT".equals(contract.targetType())
-                && !deploymentCode.equals(targetUid)) {
-            throw permanent(
-                    "deployment event target differs from envelope");
-        }
         if ("CONFIGURATION_PROGRESS".equals(contract.messageKind())
                 && !payload.get("applicationUid").equals(targetUid)) {
             throw permanent(
@@ -2475,6 +2561,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             throw permanent(
                     "fullness detection target differs from payload");
         }
+        if ("BASELINE_MEASUREMENT_COMPLETE".equals(
+                contract.messageKind())
+                && !payload.get("measurementUid").equals(targetUid)) {
+            throw permanent(
+                    "baseline measurement target differs from payload");
+        }
         if ("FULLNESS_STATE_CHANGED".equals(
                 contract.messageKind())
                 && (!payload.get("stateChangeUid").equals(targetUid)
@@ -2499,6 +2591,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && !payload.get("confirmationUid").equals(targetUid)) {
             throw permanent(
                     "confirmation receipt target differs from payload");
+        }
+        if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
+                contract.messageKind())
+                && event.get("commandUid") == null) {
+            throw permanent(
+                    "acceptance evidence lacks its platform challenge command");
         }
     }
 

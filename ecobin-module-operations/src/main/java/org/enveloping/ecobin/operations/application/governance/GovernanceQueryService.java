@@ -734,7 +734,7 @@ public class GovernanceQueryService {
             Map<String, Object> parameters) {
         var result = new java.util.LinkedHashMap<String, Object>();
         for (String key : List.of(
-                "deploymentCode", "portNo", "withdrawalNo", "rechargeNo")) {
+                "deviceCode", "portNo", "withdrawalNo", "rechargeNo")) {
             if (parameters.containsKey(key)) {
                 result.put(key, parameters.get(key));
             }

@@ -1,9 +1,12 @@
 # EcoBin P0 目标接口设计基线
 
 > [!IMPORTANT]
+> 2026-08-07 已新增并冻结 I-057：HTTP/小程序统一使用永久 `deviceCode`，OneNet/COS/边缘切换到不含部署码的 v2 契约；平台自动机器验收并拥有禁用/恢复/报废权，租户只做一次性机构分配，机构没有部署或激活操作。冲突内容以 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 为准。
+
+> [!IMPORTANT]
 > 2026-08-02：满溢接口由 V25 更新为设备状态变化被动入站；只有当前袋明确 `FULL` 阻止下一次投递，旧主动检测/人工重检前置要求不再生效。详见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)。
 
-> 状态：**接口设计基线已完成；I-001～I-055 均已确认；2026-07-24 已按最新投递/清运硬件边界修订；2026-07-27 已记录固定帧 MCU 显式适配配置；2026-08-01 已取消清运审核并确认记录可直接修改**
+> 状态：**接口设计基线已完成；I-001～I-056 均已确认；2026-08-06 已增加微信免确认收款授权与授权后自动收款契约**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)、[`database-design-draft.md`](database-design-draft.md)
 > 当前运行接口：[`../api/api-frontend.md`](../api/api-frontend.md)、当前 Controller、Web/小程序请求封装、OneNet 物模型及香橙派实现
@@ -57,13 +60,14 @@
 | [09-onenet-cos-edge-confirmation-i041-i045.md](interface-design/09-onenet-cos-edge-confirmation-i041-i045.md) | I-041～I-045 | OneNet 可信事件/命令、边缘 SQLite、COS 临时授权与后端业务确认 | 已确认 |
 | [10-uart-protocol-i046-i050.md](interface-design/10-uart-protocol-i046-i050.md) | I-046～I-050 | UART 二进制帧、版本握手、ACK/NACK、MCU 状态机、传感器语义与重启恢复 | 已确认 |
 | [11-module-ports-machine-contracts-i051-i055.md](interface-design/11-module-ports-machine-contracts-i051-i055.md) | I-051～I-055 | Java 模块公开端口、事务协调、技术/外部端口、机器契约单一来源与首版治理节奏 | 已确认 |
+| [12-merchant-transfer-authorization-i056.md](interface-design/12-merchant-transfer-authorization-i056.md) | I-056 | 微信免确认收款授权查询/发起、状态归并、新提现授权门槛与历史兼容 | 已确认 |
 
 ## 5. 下游落实状态
 
 1. I-001～I-050 已冻结 HTTP、认证、身份、设备、投递、清运、资金、运营、OneNet/COS/边缘确认和 UART 全部外部契约面。
 2. I-051～I-054 已冻结九模块 `.api` 公开边界、事务协调、技术/外部端口及 OpenAPI/JSON Schema/UART Registry 的机器单一来源；DD-004 已把当前事务 FK 构造引用和首次机构用户原子创建参与扩展作为两个严格受限例外写回 I-051/I-053；修订后的 PDD-001 只保留 recycling 开始投递复合事务，device 继续拥有会话、占位、命令与物理事实。
 3. I-055 已明确首版不以前置契约 CI、完整自动契约门禁或自动 HIL 发布门禁阻塞各端开发；必要的人工真机和真实小额资金验收仍不可省略，共同首版形成后再逐步自动化。
-4. 接口设计已经完成；详细设计、29 项任务及依赖也已批准并发布到 [`tasks/p0-controlled-loop/`](tasks/p0-controlled-loop/00-index.md)。所有任务仍未获得实施授权，不能因为任务 `ready` 就修改业务代码、数据库或固件。
+4. I-056 已冻结授权查询/发起、微信授权通知和新提现授权门槛；V35 数据库模型已建立，但 Controller、应用用例、可靠任务、微信适配器、小程序授权页和 OpenAPI 尚未实施。
 
 ### 5.1 已发现的跨阶段落实项
 
@@ -81,6 +85,7 @@
   原操作等待原清运员恢复；只有断电且原清运员现场确认门扇关闭后，才可释放整机占位并
   继续锁住原投口/袋预留。
 - I-031～I-035 已确认本地资金状态与微信原始状态分离：充值先建本地单再异步取得 Native 二维码，支付成功事实与净额入账分两段恢复；提现先双侧冻结，审核通过后才固定唯一 `outBillNo`，只有微信 `SUCCESS/FAIL/CANCELLED` 可以最终结算。后续运营与契约测试必须继续复用同一观察归并器，不能另建后台“改状态”旁路。
+- I-056 已覆盖 I-035 对“所有新提现逐笔确认收款”的旧限制：用户先发起一次授权，可信查单或通知确认 `TAKING_EFFECT` 后，新提现创建和提交分别复核并固化授权；审核后自动收款。历史 `USER_CONFIRM` 提现继续按旧接口收敛，不能批量转换为 `AUTHORIZED`。
 - I-036～I-040 已确认 operations 只提供原任务恢复、脱敏审计、告警确认和受控对账动作，不拥有业务终态。最小概览必须从各模块权威查询端口在专用只读 `REPEATABLE READ` 快照中组装，业务写入仍使用 `READ COMMITTED`；后续 IoT/COS 设计要让业务确认超时、本地写入阻断和隔离消息产生可解释的任务、尝试与告警，但不能增加任意重放入口。
 - I-041～I-045 已确认可靠边缘事实使用稳定 `eventUid`、部署内全局 `edgeEventSequence`、强类型 Schema 和规范摘要；OneNet 传输成功、设备受理、物理结果与后端业务完成严格分层。香橙派只有持久化后端业务确认并返回回执后才能清理原事件；COS 凭证只授予原作业精确前缀，照片关联独立于建单。
 - I-046～I-050 的 UART 1.0 继续作为规范模型和可选 `uart-v1` 实现：最大 256 字节、
@@ -95,6 +100,7 @@
 
 | 日期 | 变更 |
 |---|---|
+| 2026-08-06 | 项目负责人确认 I-056：新增当前授权查询和幂等授权发起接口、微信授权通知入口、授权公开状态与身份核对；新提现强制要求有效授权，审核提交后自动收款。历史逐笔确认提现继续按原模式收敛，投递后自动提现和提现免审仍不在本次范围。 |
 | 2026-07-23 | 基于当前 HTTP、Web、小程序、OneNet、COS 与 UART 只读审计形成 I-001～I-005；项目负责人确认接口分区与版本、统一响应错误和公共格式、会话与可信作用域、命令幂等与并发、异步操作及分层成功语义。 |
 | 2026-07-23 | 独立读者复核后收紧跨阶段表达：失败/拒绝不占成功幂等槽；全局 `operationUid` 不因主体或命令形成可复用命名空间；时间线默认稳定游标；只有可靠受理或可能已外调的动作进入未知态；补回已冻结的 `__Host-` Cookie 属性，并登记客户端可寻址主数据缺少公开 ID 的落实项。未改变 I-001～I-005 的确认结论。 |
 | 2026-07-23 | 项目负责人确认 I-006～I-010：Web 独立平台/工作人员登录与 Cookie/CSRF、小程序单 Token 自动入口、微信手机号首次绑定、Web 原子设置工作人员小程序身份、四类公开 UUID、8 小时/2 小时会话及实时授权错误语义正式冻结。 |

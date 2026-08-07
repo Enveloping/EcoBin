@@ -26,6 +26,7 @@ COMMAND_IDENTIFIERS = {
     "measureEmptyBagBaseline": "MEASURE_EMPTY_BAG_BASELINE",
     "confirmEdgeEvent": "CONFIRM_EDGE_EVENT",
     "providePhotoUploadGrant": "PROVIDE_PHOTO_UPLOAD_GRANT",
+    "requestDeviceAcceptance": "REQUEST_DEVICE_ACCEPTANCE",
 }
 
 COMMAND_TYPE_BY_CODE = {
@@ -100,6 +101,7 @@ WORK_PHOTO_SLOTS = {
 WORK_TYPE_PATH = {
     "DELIVERY_SESSION": "delivery-session",
     "CLEAN_OPERATION": "clean-operation",
+    "DEVICE_ACCEPTANCE": "device-acceptance",
 }
 TARGET_TYPE_BY_CODE = {
     1: None,  # decoded from command/event context where OneNet enum is local.
@@ -151,14 +153,16 @@ def decode_service_command(identifier: str, params: dict[str, Any]) -> dict[str,
     target["type"] = _target_type_for_command(command_type, target.get("type"))
 
     return {
-        "schemaVersion": scalars.get("schemaVersion"),
+        # OneNet encodes a JSON-Schema const as the local enum value 1.  The
+        # domain envelope remains v2 after decoding.
+        "schemaVersion": 2,
         "commandUid": scalars.get("commandUid") or params.get("commandUid"),
         "commandType": command_type,
-        "deploymentCode": scalars.get("deploymentCode"),
+        "targetDeviceName": scalars.get("targetDeviceName"),
         "target": target,
         "issuedAt": scalars.get("issuedAt"),
         "expiresAt": scalars.get("expiresAt"),
-        "payloadSchemaVersion": scalars.get("payloadSchemaVersion"),
+        "payloadSchemaVersion": 2,
         "payloadSha256": scalars.get("payloadSha256"),
         "payload": payload,
         "cosGrant": cos_grant,
@@ -172,17 +176,17 @@ def validate_command_envelope(
 ) -> None:
     """Validate stable command facts before reliable inbox acceptance."""
 
-    if command.get("schemaVersion") != 1:
+    if command.get("schemaVersion") != 2:
         raise ValueError("unsupported schemaVersion")
-    if command.get("payloadSchemaVersion") != 1:
+    if command.get("payloadSchemaVersion") != 2:
         raise ValueError("unsupported payloadSchemaVersion")
     _require_uuid4(command.get("commandUid"), "commandUid")
     command_type = command.get("commandType")
     if command_type not in COMMAND_IDENTIFIERS.values():
         raise ValueError("unsupported commandType")
-    deployment_code = command.get("deploymentCode")
-    if not isinstance(deployment_code, str) or not deployment_code:
-        raise ValueError("deploymentCode is required")
+    device_name = command.get("targetDeviceName")
+    if not isinstance(device_name, str) or not device_name:
+        raise ValueError("targetDeviceName is required")
     target = command.get("target")
     if not isinstance(target, dict) or not target.get("type") or not target.get("uid"):
         raise ValueError("target is required")
@@ -208,10 +212,15 @@ def validate_command_envelope(
             command,
             trusted_environment=trusted_environment,
         )
+    elif command_type == "REQUEST_DEVICE_ACCEPTANCE":
+        _validate_device_acceptance_command(
+            command,
+            trusted_environment=trusted_environment,
+        )
     elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
         validate_cos_grant(
             command["cosGrant"],
-            deployment_code=deployment_code,
+            device_name=device_name,
             work_type="DELIVERY_SESSION",
             work_uid=payload.get("sessionUid"),
             trusted_environment=trusted_environment,
@@ -222,7 +231,7 @@ def validate_command_envelope(
     } and command.get("cosGrant"):
         validate_cos_grant(
             command["cosGrant"],
-            deployment_code=deployment_code,
+            device_name=device_name,
             work_type="CLEAN_OPERATION",
             work_uid=payload.get("operationUid"),
             trusted_environment=trusted_environment,
@@ -270,6 +279,17 @@ def _validate_command_target(command: dict[str, Any]) -> None:
             "grantRequestEventUid",
         ),
     }
+    if command_type == "REQUEST_DEVICE_ACCEPTANCE":
+        challenge_uid = payload.get("challengeUid")
+        _require_uuid4(challenge_uid, "challengeUid")
+        if command["target"] != {
+            "type": "DEVICE_ASSET",
+            "uid": command["targetDeviceName"],
+        }:
+            raise ValueError(
+                "acceptance target differs from targetDeviceName"
+            )
+        return
     target_type, payload_uid_field = target_fields[command_type]
     payload_uid = payload.get(payload_uid_field)
     _require_uuid4(payload_uid, payload_uid_field)
@@ -353,7 +373,7 @@ def _validate_confirm_edge_event(command: dict[str, Any]) -> None:
 def validate_cos_grant(
     grant: dict[str, Any],
     *,
-    deployment_code: str,
+    device_name: str,
     work_type: str,
     work_uid: str,
     trusted_environment: dict[str, str] | None = None,
@@ -398,9 +418,7 @@ def validate_cos_grant(
     work_path = WORK_TYPE_PATH.get(work_type)
     if work_path is None:
         raise ValueError("photo workType is invalid")
-    expected_prefix = (
-        f"ecobin/{deployment_code}/{work_path}/{work_uid}/"
-    )
+    expected_prefix = f"ecobin/{work_path}/{work_uid}/"
     if grant["keyPrefix"] != expected_prefix:
         raise ValueError("cosGrant.keyPrefix differs from work identity")
     expected_base_url = (
@@ -481,9 +499,36 @@ def _validate_photo_upload_grant_command(
         raise ValueError("photo grant authorizedSlots are invalid")
     validate_cos_grant(
         command.get("cosGrant"),
-        deployment_code=command["deploymentCode"],
+        device_name=command["targetDeviceName"],
         work_type=work_type,
         work_uid=payload["workUid"],
+        trusted_environment=trusted_environment,
+    )
+
+
+def _validate_device_acceptance_command(
+    command: dict[str, Any],
+    *,
+    trusted_environment: dict[str, str] | None = None,
+) -> None:
+    payload = command["payload"]
+    if set(payload) != {"challengeUid", "expectedPortCount"}:
+        raise ValueError("acceptance challenge payload fields are invalid")
+    challenge_uid = _require_uuid4(
+        payload["challengeUid"], "challengeUid"
+    )
+    expected_port_count = payload["expectedPortCount"]
+    if (
+        isinstance(expected_port_count, bool)
+        or not isinstance(expected_port_count, int)
+        or not 1 <= expected_port_count <= 6
+    ):
+        raise ValueError("expectedPortCount is outside 1..6")
+    validate_cos_grant(
+        command.get("cosGrant"),
+        device_name=command["targetDeviceName"],
+        work_type="DEVICE_ACCEPTANCE",
+        work_uid=challenge_uid,
         trusted_environment=trusted_environment,
     )
 
@@ -491,7 +536,7 @@ def _validate_photo_upload_grant_command(
 def encode_command_receipt(command_uid: str, receipt_state: str, edge_boot_id: int,
                            error_code: str | None = None) -> dict[str, Any]:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commandUid": command_uid,
         "receiptState": RECEIPT_STATE_TO_CODE[receipt_state],
         "errorCodePresent": bool(error_code),
@@ -501,7 +546,7 @@ def encode_command_receipt(command_uid: str, receipt_state: str, edge_boot_id: i
 
 
 def build_business_confirmation_receipt(
-    deployment_code: str,
+    device_name: str,
     command_uid: str,
     confirmation_uid: str,
     original_event_uid: str,
@@ -516,9 +561,8 @@ def build_business_confirmation_receipt(
         "outcome": outcome,
     }
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": str(uuid.uuid4()),
-        "deploymentCode": deployment_code,
         "edgeEventSequence": edge_event_sequence,
         "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
         "deliveryClass": "CONTROL_RECEIPT",
@@ -533,7 +577,7 @@ def build_business_confirmation_receipt(
 
 def build_configuration_progress_event(
     *,
-    deployment_code: str,
+    device_name: str,
     command_uid: str,
     application_uid: str,
     stage: str,
@@ -554,9 +598,8 @@ def build_configuration_progress_event(
         "errorCode": error_code,
     }
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": str(uuid.uuid4()),
-        "deploymentCode": deployment_code,
         "edgeEventSequence": edge_event_sequence,
         "eventType": "CONFIGURATION_PROGRESS",
         "deliveryClass": "RELIABLE_FACT",
@@ -572,7 +615,7 @@ def build_configuration_progress_event(
 def build_event_envelope(
     *,
     event_uid: str,
-    deployment_code: str,
+    device_name: str,
     edge_event_sequence: int,
     event_type: str,
     target_type: str,
@@ -583,9 +626,8 @@ def build_event_envelope(
 ) -> dict[str, Any]:
     """Build the stable reliable envelope persisted before OneNet publish."""
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": event_uid,
-        "deploymentCode": deployment_code,
         "edgeEventSequence": edge_event_sequence,
         "eventType": event_type,
         "deliveryClass": delivery_class,
@@ -929,6 +971,11 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
                 slots.get(slot, slot) for slot in params.get("authorizedSlots") or []
             ],
         }
+    if identifier == "requestDeviceAcceptance":
+        return {
+            "challengeUid": scalars.get("challengeUid"),
+            "expectedPortCount": scalars.get("expectedPortCount"),
+        }
     payload = dict(params)
     payload.pop("target", None)
     payload.pop("cosGrantSessionTokenParts", None)
@@ -1005,6 +1052,7 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "MEASURE_EMPTY_BAG_BASELINE": "BASELINE_MEASUREMENT",
         "CONFIRM_EDGE_EVENT": "EDGE_EVENT",
         "PROVIDE_PHOTO_UPLOAD_GRANT": "PHOTO_GRANT_REQUEST",
+        "REQUEST_DEVICE_ACCEPTANCE": "DEVICE_ASSET",
     }
     return mapping.get(command_type, str(wire_value))
 

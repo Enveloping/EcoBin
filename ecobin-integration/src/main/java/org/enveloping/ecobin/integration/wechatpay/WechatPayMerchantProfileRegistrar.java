@@ -4,6 +4,7 @@ import org.enveloping.ecobin.integration.config.ExternalAdapterModeProperties;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,19 +25,26 @@ public class WechatPayMerchantProfileRegistrar implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     private final ExternalAdapterModeProperties mode;
     private final WechatPayProperties properties;
+    private final boolean registrationEnabled;
 
     public WechatPayMerchantProfileRegistrar(
             JdbcTemplate jdbc,
             ExternalAdapterModeProperties mode,
-            WechatPayProperties properties) {
+            WechatPayProperties properties,
+            @Value("${ecobin.funds.wechat-pay.merchant-profile-registration-enabled:true}")
+            boolean registrationEnabled) {
         this.jdbc = jdbc;
         this.mode = mode;
         this.properties = properties;
+        this.registrationEnabled = registrationEnabled;
     }
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        if (!registrationEnabled) {
+            return;
+        }
         boolean real = mode.getMode()
                 == ExternalAdapterModeProperties.Mode.REAL;
         if (real && !properties.isConfigured()) {

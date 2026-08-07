@@ -246,6 +246,103 @@ public class FundsOperationalControlService
                 "SUBMIT_MERCHANT_TRANSFER", false, wakeAt);
     }
 
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AuthorizationQueryTaskWakeResult
+    wakeMerchantTransferAuthorizationQuery(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime wakeAt) {
+        if (tenantId <= 0 || organizationId <= 0
+                || outAuthorizationNo == null
+                || outAuthorizationNo.isBlank()) {
+            throw new IllegalArgumentException(
+                    "authorization query task scope is incomplete");
+        }
+        Objects.requireNonNull(wakeAt, "wakeAt");
+        String taskType = "QUERY_MERCHANT_TRANSFER_AUTHORIZATION";
+        String taskKey = (taskType + ":" + outAuthorizationNo)
+                .toUpperCase(Locale.ROOT);
+        List<WithdrawalSubmitTask> tasks = jdbc.query("""
+                SELECT id, state, lease_token, dispatch_wait_reason,
+                       wake_version
+                FROM ops_reliable_task
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND execution_lane = 'FUNDS'
+                  AND task_type = ?
+                  AND target_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                  AND target_stable_key = ?
+                  AND task_key = ?
+                FOR UPDATE
+                """, (resultSet, ignored) -> new WithdrawalSubmitTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("state"),
+                        resultSet.getString("lease_token"),
+                        resultSet.getString("dispatch_wait_reason"),
+                        resultSet.getLong("wake_version")),
+                tenantId, organizationId, taskType,
+                outAuthorizationNo, taskKey);
+        if (tasks.size() != 1) {
+            return AuthorizationQueryTaskWakeResult.NOT_WAKEABLE;
+        }
+        WithdrawalSubmitTask task = tasks.getFirst();
+        if (task.dispatchWaitReason() != null
+                || task.wakeVersion() >= 9_007_199_254_740_991L) {
+            return AuthorizationQueryTaskWakeResult.NOT_WAKEABLE;
+        }
+        long nextWakeVersion = task.wakeVersion() + 1;
+        int updated;
+        if ("PENDING".equals(task.state())
+                && task.leaseToken() == null) {
+            updated = jdbc.update("""
+                    UPDATE ops_reliable_task
+                    SET next_run_at = ?, wake_version = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ? AND state = 'PENDING'
+                      AND lease_token IS NULL
+                      AND dispatch_wait_reason IS NULL
+                      AND wake_version = ?
+                    """, wakeAt, nextWakeVersion, wakeAt,
+                    task.id(), task.wakeVersion());
+        } else if ("PENDING".equals(task.state())) {
+            updated = jdbc.update("""
+                    UPDATE ops_reliable_task
+                    SET wake_version = ?,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ? AND state = 'PENDING'
+                      AND lease_token = ?
+                      AND dispatch_wait_reason IS NULL
+                      AND wake_version = ?
+                    """, nextWakeVersion, wakeAt, task.id(),
+                    task.leaseToken(), task.wakeVersion());
+        } else if ("DONE".equals(task.state())
+                || "BLOCKED".equals(task.state())) {
+            updated = jdbc.update("""
+                    UPDATE ops_reliable_task
+                    SET state = 'PENDING', next_run_at = ?,
+                        lease_token = NULL, lease_worker = NULL,
+                        lease_until = NULL, dispatch_wait_reason = NULL,
+                        consecutive_failure_count = 0,
+                        wake_version = ?, completed_at = NULL,
+                        blocked_reason_code = NULL,
+                        blocked_diagnostic = NULL,
+                        lock_version = lock_version + 1, updated_at = ?
+                    WHERE id = ? AND state = ? AND wake_version = ?
+                    """, wakeAt, nextWakeVersion, wakeAt, task.id(),
+                    task.state(), task.wakeVersion());
+        } else {
+            return AuthorizationQueryTaskWakeResult.NOT_WAKEABLE;
+        }
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "precise authorization query wake updated "
+                            + updated + " rows");
+        }
+        return AuthorizationQueryTaskWakeResult.WOKEN;
+    }
+
     private WithdrawalSubmitTaskWakeResult reopenExactWithdrawalTask(
             long tenantId,
             long organizationId,

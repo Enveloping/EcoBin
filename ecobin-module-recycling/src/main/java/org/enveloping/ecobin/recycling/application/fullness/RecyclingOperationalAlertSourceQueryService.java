@@ -75,7 +75,7 @@ public class RecyclingOperationalAlertSourceQueryService
             }
             return new PortFullnessAlertFact(
                     refs.issue(row.tenantId(), row.organizationId()),
-                    port.deploymentCode(), port.portNo(), row.state(),
+                    port.deviceCode(), port.portNo(), row.state(),
                     row.stateChangeUid(), row.reportedAt());
         }).toList();
     }

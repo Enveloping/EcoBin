@@ -14,7 +14,7 @@ public interface FullnessDetectionCommandRef {
     record ForeignKeys(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long portKey,
             long detectionKey,
             long deviceConfigVersionKey,
@@ -23,7 +23,7 @@ public interface FullnessDetectionCommandRef {
         public ForeignKeys {
             if (tenantKey <= 0
                     || organizationKey <= 0
-                    || deploymentKey <= 0
+                    || assetKey <= 0
                     || portKey <= 0
                     || detectionKey <= 0
                     || deviceConfigVersionKey <= 0

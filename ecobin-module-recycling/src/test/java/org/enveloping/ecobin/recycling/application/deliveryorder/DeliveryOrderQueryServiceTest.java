@@ -182,8 +182,8 @@ class DeliveryOrderQueryServiceTest {
                         ORGANIZATION_ID,
                         ORGANIZATION_USER_ID));
         assertThat(page.items()).hasSize(1);
-        assertThat(page.items().getFirst().deploymentCode())
-                .isEqualTo("Dp_public_01");
+        assertThat(page.items().getFirst().deviceCode())
+                .isEqualTo("Dv_0123456789abcdefghijklmn");
         assertThat(recordComponentNames(
                 MiniappDeliveryOrderItem.class))
                 .doesNotContain(
@@ -216,8 +216,8 @@ class DeliveryOrderQueryServiceTest {
                     assertThat(item.organizationUserUid())
                             .isEqualTo(
                                     ORGANIZATION_USER_UID);
-                    assertThat(item.deploymentCode())
-                            .isEqualTo("Dp_public_01");
+                    assertThat(item.deviceCode())
+                            .isEqualTo("Dv_0123456789abcdefghijklmn");
                     assertThat(item.portNo()).isEqualTo(2);
                 });
         verify(deviceFacts).facts(any());
@@ -404,7 +404,7 @@ class DeliveryOrderQueryServiceTest {
                         DeliveryOrderDeviceFilterQuery.class);
         verify(deviceFilters).resolveFilter(
                 filterQuery.capture());
-        assertThat(filterQuery.getValue().deploymentCode())
+        assertThat(filterQuery.getValue().deviceCode())
                 .isNull();
         assertThat(filterQuery.getValue().portNo()).isEqualTo(2);
         assertThat(filterQuery.getValue().scopeRef())
@@ -414,7 +414,7 @@ class DeliveryOrderQueryServiceTest {
                 ArgumentCaptor.forClass(
                         DeliveryOrderPageQuery.class);
         verify(repository).findPage(pageQuery.capture());
-        assertThat(pageQuery.getValue().deploymentId()).isNull();
+        assertThat(pageQuery.getValue().assetId()).isNull();
         assertThat(pageQuery.getValue().portIds())
                 .containsExactly(201L, 202L, 203L);
     }
@@ -534,7 +534,7 @@ class DeliveryOrderQueryServiceTest {
     }
 
     private void answerDeviceFilterRef(
-            Long deploymentId,
+            Long assetId,
             List<Long> portIds) {
         when(deviceFilterRef.withFilterKeysOnce(any()))
                 .thenAnswer(invocation -> {
@@ -543,7 +543,7 @@ class DeliveryOrderQueryServiceTest {
                     return function.apply(
                             TENANT_ID,
                             ORGANIZATION_ID,
-                            deploymentId,
+                            assetId,
                             portIds);
                 });
     }
@@ -560,7 +560,7 @@ class DeliveryOrderQueryServiceTest {
                                                     key.token(),
                                                     EVENT_UID,
                                                     DEVICE_SESSION_UID,
-                                                    "Dp_public_01",
+                                                    "Dv_0123456789abcdefghijklmn",
                                                     2))
                                     .toList());
                 });
@@ -637,7 +637,7 @@ class DeliveryOrderQueryServiceTest {
     private CursorPage<WebDeliveryOrderItem> webOrders(
             Integer limit,
             String reviewStatus,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo) {
         return service.webOrders(
                 true,
@@ -649,7 +649,7 @@ class DeliveryOrderQueryServiceTest {
                 null,
                 null,
                 null,
-                deploymentCode,
+                deviceCode,
                 portNo,
                 null,
                 null);

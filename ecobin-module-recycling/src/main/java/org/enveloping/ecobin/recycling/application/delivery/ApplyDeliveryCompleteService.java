@@ -35,9 +35,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Builds the single pending recycling order from a trusted, stable delivery
- * result. Fullness is evaluated by the edge and arrives independently as a
- * state-change fact; this use case never creates or polls a sample command.
+ * 根据可信投递结果创建唯一的待审核回收订单。
+ *
+ * <p>订单在设备完成上报后创建，不在用户请求开门时预建。满溢由边缘设备判断并作为独立
+ * 状态变化事实上报；本用例只投影本次完成重量，不创建或轮询主动满溢采样命令。</p>
  */
 @Service
 public class ApplyDeliveryCompleteService
@@ -90,6 +91,8 @@ public class ApplyDeliveryCompleteService
     @Transactional(propagation = Propagation.MANDATORY)
     public TrustedDeviceEventApplyResult apply(
             TrustedDeviceInboxEvent event) {
+        // device 先校验并保存不可变物理事实，再通过一次性 writer 回调本服务建单。
+        // 两个模块加入同一个外层事务，任何一边失败都会整体回滚。
         return deviceCompletion.complete(
                 event,
                 reference -> reference.useOnce(
@@ -98,6 +101,8 @@ public class ApplyDeliveryCompleteService
 
     private DeliveryCompletionBusinessResult persistBusinessFacts(
             DeliveryCompletionPersistenceFacts facts) {
+        // 不能只相信完成载荷中的袋和价格：重新核对开始时冻结的配置、当前袋绑定关系，
+        // 并锁住容量投影，防止清运换袋和投递完成并发穿插。
         DeliveryConfiguration configuration =
                 requireFrozenDeliveryConfiguration(facts);
         requireCurrentBag(facts);
@@ -107,6 +112,8 @@ public class ApplyDeliveryCompleteService
         String orderNo = deliveryOrderNo(
                 facts.physicalFact().sessionUid());
         OrderCalculation calculation = calculate(facts);
+        // 一次 session 只生成一张 PENDING 订单；设备原始事实保留不变，审核结果后续
+        // 通过 revision 追加，钱包此处完全不入账。
         long orderId = insertOrder(
                 facts,
                 configuration,
@@ -114,6 +121,7 @@ public class ApplyDeliveryCompleteService
                 orderNo,
                 calculation);
 
+        // 异常和照片都是订单证据：异常不会静默改重量，照片暂缺也不阻止建单。
         insertAnomalies(facts, orderId, calculation);
         insertPhotos(facts, orderId);
         photoStatusService.mergeStagedDeliveryFacts(
@@ -205,14 +213,14 @@ public class ApplyDeliveryCompleteService
                         FROM rec_port_capacity_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> capacity(rs),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId());
         if (rows.size() != 1) {
             throw untrusted(
@@ -279,7 +287,7 @@ public class ApplyDeliveryCompleteService
                             visibility_sequence_no,
                             delivery_session_id, physical_result_id,
                             organization_user_id,
-                            deployment_id, port_id,
+                            asset_id, port_id,
                             device_config_version_id,
                             delivery_config_version_id,
                             delivery_config_version_no,
@@ -348,7 +356,7 @@ public class ApplyDeliveryCompleteService
                 facts.deliverySessionId(),
                 facts.physicalResultId(),
                 facts.organizationUserId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 facts.deviceConfigVersionId(),
                 facts.deliveryConfigVersionId(),
@@ -524,6 +532,8 @@ public class ApplyDeliveryCompleteService
     private void projectCapacityObservation(
             DeliveryCompletionPersistenceFacts facts,
             CapacityState capacity) {
+        // 这里只更新重量推导的展示值。能否开始下一次投递只认边缘设备针对当前袋
+        // 上报的明确 FULL 状态，不能把百分比、旧袋结果或“未上报”自行解释为 FULL。
         CapacityProjection projection =
                 capacityProjection(facts, capacity);
         requireSingle(jdbc.update("""
@@ -535,7 +545,7 @@ public class ApplyDeliveryCompleteService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         """,
                 projection.latestTotalWeightGrams(),
@@ -544,7 +554,7 @@ public class ApplyDeliveryCompleteService
                 facts.backendReceivedAt(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId()),
                 "project post-delivery capacity observation");
     }

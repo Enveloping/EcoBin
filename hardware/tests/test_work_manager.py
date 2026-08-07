@@ -43,7 +43,7 @@ def delivery_command():
     return {
         "commandUid": "10000000-0000-4000-8000-000000000001",
         "commandType": "START_DELIVERY_SESSION",
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-DEMO-0001",
         "payload": {
             "portNo": 1,
             "bagUid": "20000000-0000-4000-8000-000000000001",

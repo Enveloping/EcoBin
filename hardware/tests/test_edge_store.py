@@ -10,6 +10,8 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 
+import pytest
+
 from edge_store import (
     CURRENT_SCHEMA_VERSION,
     EdgeStore,
@@ -73,7 +75,7 @@ class TestEdgeStoreInit:
         assert row[0] == CURRENT_SCHEMA_VERSION
         store.close()
 
-    def test_v6_clears_urls_that_do_not_prove_successful_upload(self):
+    def test_v9_rejects_a_v5_database_instead_of_migrating_it(self):
         path = os.path.join(tempfile.mkdtemp(), "v5-photo-url.db")
         store = EdgeStore(path)
         store.initialize()
@@ -119,21 +121,13 @@ class TestEdgeStoreInit:
         store._conn.commit()
         store.close()
 
-        migrated = EdgeStore(path)
-        migrated.initialize()
-        rows = {
-            row["photo_uid"]: row["url"]
-            for row in migrated._conn.execute(
-                "SELECT photo_uid, url FROM photo_outbox"
-            ).fetchall()
-        }
-        assert rows == {
-            "capture-pending": None,
-            "upload-pending": None,
-            "missing": None,
-            "available": "https://example.invalid/available.jpg",
-        }
-        migrated.close()
+        incompatible = EdgeStore(path)
+        with pytest.raises(
+            RuntimeError,
+            match="永久资产 v9 不读取旧设备数据库",
+        ):
+            incompatible.initialize()
+        incompatible.close()
 
     def test_work_slot_prefilled(self):
         store = make_store()
@@ -150,7 +144,7 @@ class TestEdgeStoreInit:
         assert store.get_mcu_receive_generation() == 0
         store.close()
 
-    def test_v2_mcu_event_inbox_migrates_without_losing_history(self):
+    def test_v9_rejects_a_v2_database_instead_of_migrating_it(self):
         path = os.path.join(tempfile.mkdtemp(), "v2.db")
         conn = sqlite3.connect(path)
         conn.execute(
@@ -199,23 +193,13 @@ class TestEdgeStoreInit:
         conn.commit()
         conn.close()
 
-        store = EdgeStore(path)
-        store.initialize()
-
-        row = store._conn.execute(
-            """SELECT mcu_receive_generation, mcu_boot_id,
-                      mcu_event_sequence, state
-               FROM mcu_event_inbox"""
-        ).fetchone()
-        assert dict(row) == {
-            "mcu_receive_generation": 0,
-            "mcu_boot_id": 42,
-            "mcu_event_sequence": 7,
-            "state": "PROCESSED",
-        }
-        assert store.get_mcu_receive_generation() == 0
-        assert store.begin_mcu_receive_generation(42) == 1
-        store.close()
+        incompatible = EdgeStore(path)
+        with pytest.raises(
+            RuntimeError,
+            match="永久资产 v9 不读取旧设备数据库",
+        ):
+            incompatible.initialize()
+        incompatible.close()
 
 
 class TestAtomicReceiveCommand:
@@ -415,7 +399,7 @@ class TestPortFullnessStateTransitions:
             "state": state,
             "state_change_uid": state_change_uid,
             "event_uid": event_uid,
-            "deployment_code": "Dp_demo_01",
+            "device_name": "SN-DEMO-0001",
             "payload": {
                 "stateChangeUid": state_change_uid,
                 "portNo": 1,
@@ -434,7 +418,7 @@ class TestPortFullnessStateTransitions:
             completion_uid,
             "DELIVERY_COMPLETE",
             {},
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             target_type="DELIVERY_SESSION",
             target_uid=completion_uid,
             fullness_transition=transition,
@@ -617,7 +601,7 @@ class TestWorkSlotOperations:
         command = {
             "commandUid": command_uid,
             "commandType": "START_DELIVERY_SESSION",
-            "deploymentCode": "Dp_demo_01",
+            "targetDeviceName": "SN-DEMO-0001",
         }
         store.receive_command(
             command_uid,
@@ -631,7 +615,7 @@ class TestWorkSlotOperations:
             1,
             {
                 "start_command_uid": command_uid,
-                "deployment_code": "Dp_demo_01",
+                "device_name": "SN-DEMO-0001",
             },
         )
         store.receive_mcu_event(
@@ -847,21 +831,21 @@ class TestFaultOperations:
         fault_uid = str(uuid.uuid4())
 
         assert store.observe_fault_and_create_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             component="CAMERA",
             fault_code="CAMERA_CAPTURE",
             severity="WARNING",
             fault_uid=fault_uid,
         ) == "ACCEPTED"
         assert store.observe_fault_and_create_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             component="CAMERA",
             fault_code="CAMERA_CAPTURE",
             severity="WARNING",
             fault_uid=str(uuid.uuid4()),
         ) == "DUPLICATE"
         assert store.observe_fault_and_create_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             component="CAMERA",
             fault_code="CAMERA_CAPTURE",
             severity="BLOCK_DEVICE",
@@ -883,7 +867,7 @@ class TestFaultOperations:
         assert active[0]["discovery_count"] == 3
 
         assert store.recover_fault_and_create_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             fault_uid=fault_uid,
             component="CAMERA",
             fault_code="CAMERA_CAPTURE",
@@ -891,7 +875,7 @@ class TestFaultOperations:
             recovery_evidence="CAPTURE_SUCCEEDED",
         ) == "ACCEPTED"
         assert store.recover_fault_and_create_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             fault_uid=fault_uid,
             component="CAMERA",
             fault_code="CAMERA_CAPTURE",
@@ -927,7 +911,7 @@ class TestFaultOperations:
         assert store.receive_mcu_frame(frame) == "ACCEPTED"
 
         assert store.record_safety_state_and_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             mcu_receive_generation=generation,
             payload=frame["payload"],
         ) == "ACCEPTED"
@@ -940,7 +924,7 @@ class TestFaultOperations:
         assert inbox["state"] == "PROCESSED"
         assert store.get_state("port_1_smoke_state") == "ALARM"
         assert store.record_safety_state_and_event(
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             mcu_receive_generation=generation,
             payload=frame["payload"],
         ) == "DUPLICATE"

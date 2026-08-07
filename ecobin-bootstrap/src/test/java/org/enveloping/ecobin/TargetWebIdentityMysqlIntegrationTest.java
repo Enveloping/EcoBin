@@ -18,10 +18,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskRegistrationPort;
 import org.enveloping.ecobin.funds.api.port.FundsOperationalControlPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
+import org.enveloping.ecobin.funds.api.port.MerchantTransferAuthorizationChannelPort;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsAttemptBoundaryPort;
 import org.enveloping.ecobin.funds.api.port.ReliableFundsTaskExecutorPort;
 import org.enveloping.ecobin.funds.application.access.FundsAccessService;
+import org.enveloping.ecobin.funds.application.authorization.MerchantTransferAuthorizationApplicationService;
 import org.enveloping.ecobin.funds.application.recharge.RechargeApplicationService;
 import org.enveloping.ecobin.funds.application.pagination.FundsListCursorCodec;
 import org.enveloping.ecobin.funds.application.withdrawal.WithdrawalApplicationService;
@@ -113,6 +115,10 @@ class TargetWebIdentityMysqlIntegrationTest {
 
     @Autowired
     private FundsListCursorCodec fundsListCursorCodec;
+
+    @Autowired
+    private MerchantTransferAuthorizationApplicationService
+            merchantTransferAuthorizationService;
 
     private String run;
     private String platformLogin;
@@ -563,7 +569,9 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(MerchantTransferChannelPort.class),
                         new TransactionTemplate(transactionManager),
                         mock(AuditPort.class), fundsOperationalControl,
-                        fundsListCursorCodec, "https://fake.invalid");
+                        fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
+                        "https://fake.invalid");
 
         var configuration = service.miniappConfiguration();
         assertEquals(1L, configuration.versionNo());
@@ -595,6 +603,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                 fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "withdrawal-audit-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
         WithdrawalApplicationService service =
                 new WithdrawalApplicationService(
                         jdbc, new FundsAccessService(jdbc, identity),
@@ -603,6 +613,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(MerchantTransferChannelPort.class),
                         new TransactionTemplate(transactionManager), auditPort,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         UUID operationUid = UUID.randomUUID();
@@ -682,6 +693,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(MerchantTransferChannelPort.class),
                         new TransactionTemplate(transactionManager), audit,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         CountDownLatch configLocked = new CountDownLatch(1);
@@ -783,7 +795,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         ScriptedMerchantTransferChannel channel =
-                new ScriptedMerchantTransferChannel();
+                new ScriptedMerchantTransferChannel(fixture.openid());
         WithdrawalApplicationService service =
                 new WithdrawalApplicationService(
                         jdbc, new FundsAccessService(jdbc, identity),
@@ -791,6 +803,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(ReliableFundsAttemptBoundaryPort.class), channel,
                         new TransactionTemplate(transactionManager), audit,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         UUID createOperationUid = UUID.randomUUID();
@@ -864,7 +877,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(
                 ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 third.outcome());
-        assertEquals("WAIT_USER_CONFIRM|NULL", jdbc.queryForObject("""
+        assertEquals("PROCESSING|NULL", jdbc.queryForObject("""
                 SELECT CONCAT(transfer_row.channel_state, '|',
                               COALESCE(transfer_row.last_api_error_code,
                                        'NULL'))
@@ -944,7 +957,7 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
-    void frozenRecipientBlocksInitialWechatTransferSubmission()
+    void frozenRecipientReleasesAuthorizedWithdrawalBeforeWechatSubmission()
             throws Exception {
         BrowserClient platform = platformClient();
         String tenantCode = code("ti");
@@ -972,7 +985,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         ScriptedMerchantTransferChannel channel =
-                new ScriptedMerchantTransferChannel();
+                new ScriptedMerchantTransferChannel(fixture.openid());
         WithdrawalApplicationService service =
                 new WithdrawalApplicationService(
                         jdbc, new FundsAccessService(jdbc, identity),
@@ -980,6 +993,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(ReliableFundsAttemptBoundaryPort.class), channel,
                         new TransactionTemplate(transactionManager), audit,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         UUID createUid = UUID.randomUUID();
@@ -1022,7 +1036,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 fundsCommand(taskUid, taskId, 1, fixture, withdrawalNo));
 
         assertEquals(
-                ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 result.outcome());
         assertEquals(0, channel.submitCount);
         assertEquals(0, jdbc.queryForObject("""
@@ -1031,8 +1045,14 @@ class TargetWebIdentityMysqlIntegrationTest {
                   ON withdrawal.id = transfer_row.withdrawal_order_id
                 WHERE withdrawal.withdrawal_order_no = ?
                 """, Integer.class, withdrawalNo));
-        assertEquals("READY_TO_SUBMIT|990|10|990|10|1",
+        assertEquals("LOCAL_ABORTED_BEFORE_CHANNEL|1000|0|1000|0|0",
                 withdrawalFundsState(withdrawalNo));
+        assertEquals("RECIPIENT_IDENTITY_UNAVAILABLE",
+                jdbc.queryForObject("""
+                        SELECT pre_channel_block_reason
+                        FROM fund_withdrawal_order
+                        WHERE withdrawal_order_no = ?
+                        """, String.class, withdrawalNo));
     }
 
     @Test
@@ -1060,7 +1080,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         FailingMerchantTransferChannel channel =
-                new FailingMerchantTransferChannel();
+                new FailingMerchantTransferChannel(fixture.openid());
         WithdrawalApplicationService service =
                 new WithdrawalApplicationService(
                         jdbc, new FundsAccessService(jdbc, identity),
@@ -1068,6 +1088,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(ReliableFundsAttemptBoundaryPort.class), channel,
                         new TransactionTemplate(transactionManager), audit,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         UUID createUid = UUID.randomUUID();
@@ -1114,7 +1135,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 "state", "SUCCESS",
                 "mch_id", channel.request.mchid(),
                 "transfer_bill_no", channel.transferBillNo(),
-                "openid", channel.request.openid(),
+                "openid", channel.openid,
                 "transfer_amount", channel.request.amountCent(),
                 "update_time", Instant.now().toString()));
         long sourceInboxId = insertSyntheticWechatInbox(
@@ -1185,7 +1206,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         ScriptedMerchantTransferChannel channel =
-                new ScriptedMerchantTransferChannel();
+                new ScriptedMerchantTransferChannel(fixture.openid());
         WithdrawalApplicationService service =
                 new WithdrawalApplicationService(
                         jdbc, new FundsAccessService(jdbc, identity),
@@ -1193,6 +1214,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(ReliableFundsAttemptBoundaryPort.class), channel,
                         new TransactionTemplate(transactionManager), audit,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         UUID createUid = UUID.randomUUID();
@@ -1647,8 +1669,184 @@ class TargetWebIdentityMysqlIntegrationTest {
                 WHERE tenant_id = ? AND organization_id = ?
                   AND action_code = 'wallet.adjust'
                   AND result = 'SUCCEEDED'
-                """, Integer.class,
-                fixture.tenantId(), fixture.organizationId()));
+                        """, Integer.class,
+                        fixture.tenantId(), fixture.organizationId()));
+    }
+
+    @Test
+    void merchantTransferAuthorizationActivatesAndEnablesNewWithdrawal()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("ta");
+        String organizationCode = code("oa");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Automatic collection authorization");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                DELETE FROM fund_wechat_transfer_authorization
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                "authorization-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        ScriptedAuthorizationChannel authorizationChannel =
+                new ScriptedAuthorizationChannel();
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        authorizationChannel, fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), audit,
+                        "https://callback.example");
+
+        UUID operationUid = UUID.randomUUID();
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(operationUid));
+        assertNotNull(accepted);
+        assertEquals("PREPARING", accepted.status());
+        FundsTaskRef createTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var createResult = service.executeTask(fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo()));
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                createResult.outcome());
+        assertEquals("WAIT_USER_CONFIRM", service.current().status());
+
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var queryResult = service.executeTask(fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo()));
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                queryResult.outcome());
+        assertEquals("ACTIVE", service.current().status());
+
+        WithdrawalApplicationService withdrawals =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        mock(MerchantTransferChannelPort.class),
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        service, "https://callback.example");
+        var withdrawal = new TransactionTemplate(transactionManager).execute(
+                status -> withdrawals.create(
+                        UUID.randomUUID(),
+                        new CreateWithdrawalRequest("0.10")));
+        assertNotNull(withdrawal);
+        assertEquals("AUTHORIZED", withdrawal.collectionMode());
+        assertFalse(withdrawal.confirmationRequired());
+        assertEquals("PENDING_REVIEW", withdrawal.status());
+
+        var active = service.current();
+        assertNotNull(active.authorizedAt());
+        String authorizationId = jdbc.queryForObject("""
+                SELECT authorization_id
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo());
+        String userDisplayName = jdbc.queryForObject("""
+                SELECT user_display_name_snapshot
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo());
+        Instant closedAt = Instant.now().plusSeconds(1);
+        JsonNode closed = objectMapper.valueToTree(Map.of(
+                "out_authorization_no", accepted.authorizationNo(),
+                "authorization_id", authorizationId,
+                "appid", fixture.appid(),
+                "openid", fixture.openid(),
+                "user_display_name", userDisplayName,
+                "state", "CLOSED",
+                "authorize_time", active.authorizedAt().toString(),
+                "close_info", Map.of(
+                        "close_reason", "USER_CLOSE",
+                        "close_time", closedAt.toString())));
+        long sourceInboxId = insertSyntheticWechatInbox(
+                fixture, "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION",
+                closed.toString());
+        ReliableFundsTaskExecutorPort.Command callbackSource = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        Boolean applied = new TransactionTemplate(transactionManager).execute(
+                status -> service.applyTrustedNotification(
+                        sourceInboxId,
+                        callbackSource.sourceTaskAttemptId(),
+                        fixture.tenantId(), fixture.organizationId(), closed));
+
+        assertTrue(Boolean.TRUE.equals(applied));
+        assertEquals("CLOSED", service.current().status());
+        TargetApiException denied = assertThrows(
+                TargetApiException.class,
+                () -> withdrawals.create(
+                        UUID.randomUUID(),
+                        new CreateWithdrawalRequest("0.10")));
+        assertEquals(
+                "WITHDRAWAL.AUTO_COLLECTION_AUTHORIZATION_REQUIRED",
+                denied.code());
+
+        JsonNode lateActive = objectMapper.valueToTree(Map.of(
+                "out_authorization_no", accepted.authorizationNo(),
+                "authorization_id", authorizationId,
+                "appid", fixture.appid(),
+                "openid", fixture.openid(),
+                "user_display_name", userDisplayName,
+                "state", "TAKING_EFFECT",
+                "authorize_time", active.authorizedAt().toString()));
+        long lateInboxId = insertSyntheticWechatInbox(
+                fixture, "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION",
+                lateActive.toString());
+        ReliableFundsTaskExecutorPort.Command lateCallbackSource =
+                fundsCommand(
+                        queryTask.taskUid(), queryTask.taskId(), 3, fixture,
+                        MerchantTransferAuthorizationApplicationService
+                                .QUERY_TASK,
+                        accepted.authorizationNo());
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> service.applyTrustedNotification(
+                        lateInboxId,
+                        lateCallbackSource.sourceTaskAttemptId(),
+                        fixture.tenantId(), fixture.organizationId(),
+                        lateActive));
+
+        assertEquals("UNKNOWN", service.current().status());
+        TargetApiException unresolved = assertThrows(
+                TargetApiException.class,
+                () -> withdrawals.create(
+                        UUID.randomUUID(),
+                        new CreateWithdrawalRequest("0.10")));
+        assertEquals(
+                "WITHDRAWAL.AUTO_COLLECTION_AUTHORIZATION_UNRESOLVED",
+                unresolved.code());
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_TERMINAL_CONFLICT'
+                  AND subject_stable_key = ? AND state = 'UNRESOLVED'
+                """, Integer.class, accepted.authorizationNo()));
     }
 
     @Test
@@ -1671,6 +1869,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                 fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "wallet-adjustment-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
         AuditPort audit = mock(AuditPort.class);
         when(audit.append(any())).thenReturn(1L);
         WithdrawalApplicationService withdrawalService =
@@ -1681,6 +1881,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         mock(MerchantTransferChannelPort.class),
                         new TransactionTemplate(transactionManager), audit,
                         fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
                         "https://fake.invalid");
 
         UUID createUid = UUID.randomUUID();
@@ -3349,6 +3550,49 @@ class TargetWebIdentityMysqlIntegrationTest {
                 SELECT id FROM fund_miniapp_merchant_binding
                 WHERE organization_miniapp_id = ?
                 """, Long.class, miniappId);
+        String[] merchant = jdbc.queryForObject("""
+                SELECT mchid, scene_id
+                FROM fund_wechat_merchant_profile
+                WHERE id = ?
+                """, (rs, ignored) -> new String[]{
+                rs.getString("mchid"), rs.getString("scene_id")}, scope[2]);
+        UUID authorizationUid = UUID.randomUUID();
+        String outAuthorizationNo = RechargeApplicationService.stableNo(
+                "AU", authorizationUid);
+        String authorizationId = RechargeApplicationService.stableNo(
+                "AI", UUID.randomUUID());
+        String authorizationNotifyUrl =
+                "https://fixture.invalid/api/v1/wechat-pay/notifications/"
+                        + "merchant-transfer-authorizations";
+        jdbc.update("""
+                INSERT INTO fund_wechat_transfer_authorization (
+                    authorization_uid, tenant_id, organization_id,
+                    organization_user_id, merchant_profile_id,
+                    miniapp_merchant_binding_id, organization_miniapp_id,
+                    out_authorization_no, authorization_id,
+                    mchid_snapshot, appid_snapshot, openid_snapshot,
+                    scene_id_snapshot, user_display_name_snapshot,
+                    user_recv_perception_snapshot,
+                    authorization_notify_url_snapshot,
+                    notify_url_sha256, request_sha256,
+                    local_state, channel_state, package_info,
+                    last_api_error_code, close_reason, state_conflict,
+                    submitted_at, channel_created_at,
+                    confirmation_deadline_at, authorized_at, closed_at,
+                    channel_updated_at, lock_version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          '测试用户', NULL, ?, ?, ?, 'ACTIVE',
+                          'TAKING_EFFECT', NULL, NULL, NULL, 0,
+                          ?, ?, DATE_ADD(?, INTERVAL 24 HOUR), ?, NULL,
+                          ?, 0, ?, ?)
+                """, authorizationUid.toString(), scope[0], scope[1],
+                userId, scope[2], bindingId, miniappId,
+                outAuthorizationNo, authorizationId, merchant[0], appid,
+                openid, merchant[1], authorizationNotifyUrl,
+                RechargeApplicationService.sha256(authorizationNotifyUrl),
+                RechargeApplicationService.sha256(
+                        "test-authorization-request-" + run),
+                now, now, now, now, now, now, now);
         jdbc.update("""
                 UPDATE fund_organization_payout_account
                 SET available_payout_cent = 1000,
@@ -3362,7 +3606,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 """, Integer.class, scope[0], scope[1]));
         return new WithdrawalCreationFixture(
                 scope[0], scope[1], miniappId, appid,
-                userId, userUid, bindingId);
+                userId, userUid, bindingId, openid);
     }
 
     private void assertDefaultDeliveryRule(
@@ -3855,6 +4099,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                             mock(MerchantTransferChannelPort.class),
                             new TransactionTemplate(transactionManager), audit,
                             fundsOperationalControl, fundsListCursorCodec,
+                            merchantTransferAuthorizationService,
                             "https://fake.invalid");
             var pausedWithdrawal = service.webDetail(
                     true, tenantCode, organizationCode, withdrawalNo);
@@ -3945,7 +4190,8 @@ class TargetWebIdentityMysqlIntegrationTest {
             String appid,
             long userId,
             UUID userUid,
-            long bindingId) {
+            long bindingId,
+            String openid) {
     }
 
     private record FundsTaskRef(long taskId, UUID taskUid) {
@@ -4083,17 +4329,29 @@ class TargetWebIdentityMysqlIntegrationTest {
     private static final class FailingMerchantTransferChannel
             implements MerchantTransferChannelPort {
 
-        private MerchantTransferRequest request;
+        private final String openid;
+        private AuthorizedMerchantTransferRequest request;
+
+        private FailingMerchantTransferChannel(String openid) {
+            this.openid = openid;
+        }
 
         @Override
         public MerchantTransferResult submit(MerchantTransferRequest request) {
+            throw new AssertionError(
+                    "new withdrawals must use authorized transfer");
+        }
+
+        @Override
+        public MerchantTransferResult submitAuthorized(
+                AuthorizedMerchantTransferRequest request) {
             this.request = request;
             return new MerchantTransferResult(
-                    MerchantTransferResult.Outcome.WAIT_USER_CONFIRM,
-                    "WAIT_USER_CONFIRM", transferBillNo(), "package-info",
+                    MerchantTransferResult.Outcome.PROCESSING,
+                    "PROCESSING", transferBillNo(), null,
                     null, null, null,
                     Instant.now(), request.mchid(), request.outBillNo(),
-                    request.appid(), request.amountCent(), request.openid());
+                    request.appid(), request.amountCent(), openid);
         }
 
         @Override
@@ -4105,11 +4363,49 @@ class TargetWebIdentityMysqlIntegrationTest {
                     "FAIL", transferBillNo(), null, null,
                     "RECIPIENT_ACCOUNT_ABNORMAL", "synthetic terminal fail",
                     Instant.now(), request.mchid(), request.outBillNo(),
-                    request.appid(), request.amountCent(), request.openid());
+                    request.appid(), request.amountCent(), openid);
         }
 
         private String transferBillNo() {
             return "WXFAIL" + request.outBillNo();
+        }
+    }
+
+    private static final class ScriptedAuthorizationChannel
+            implements MerchantTransferAuthorizationChannelPort {
+
+        private AuthorizationRequest request;
+        private Instant channelCreatedAt;
+
+        @Override
+        public AuthorizationResult create(AuthorizationRequest request) {
+            this.request = request;
+            channelCreatedAt = Instant.now();
+            return new AuthorizationResult(
+                    AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
+                    "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
+                    null, null, null, null, null, null,
+                    "authorization-package", null, channelCreatedAt,
+                    null, null, null, null, channelCreatedAt);
+        }
+
+        @Override
+        public AuthorizationResult query(AuthorizationQuery query) {
+            assertNotNull(request);
+            assertEquals(request.mchid(), query.mchid());
+            assertEquals(request.outAuthorizationNo(),
+                    query.outAuthorizationNo());
+            Instant observedAt = Instant.now();
+            String authorizationId = ("WXAUTH"
+                    + request.outAuthorizationNo()).substring(0, 32);
+            return new AuthorizationResult(
+                    AuthorizationResult.Outcome.ACTIVE,
+                    "TAKING_EFFECT", request.outAuthorizationNo(),
+                    authorizationId,
+                    request.appid(), request.openid(), request.sceneId(),
+                    request.userDisplayName(), request.userRecvPerception(),
+                    null, null, channelCreatedAt, observedAt, null,
+                    null, null, observedAt);
         }
     }
 
@@ -4118,10 +4414,22 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         private int submitCount;
         private int queryCount;
-        private MerchantTransferRequest originalRequest;
+        private final String openid;
+        private AuthorizedMerchantTransferRequest originalRequest;
+
+        private ScriptedMerchantTransferChannel(String openid) {
+            this.openid = openid;
+        }
 
         @Override
         public MerchantTransferResult submit(MerchantTransferRequest request) {
+            throw new AssertionError(
+                    "new withdrawals must use authorized transfer");
+        }
+
+        @Override
+        public MerchantTransferResult submitAuthorized(
+                AuthorizedMerchantTransferRequest request) {
             submitCount++;
             if (submitCount == 1) {
                 originalRequest = request;
@@ -4133,9 +4441,9 @@ class TargetWebIdentityMysqlIntegrationTest {
             assertEquals(originalRequest, request,
                     "confirmed missing bill must reuse every original parameter");
             return new MerchantTransferResult(
-                    MerchantTransferResult.Outcome.WAIT_USER_CONFIRM,
-                    "WAIT_USER_CONFIRM", transferBillNo(),
-                    "package-info", null, null, null, Instant.now());
+                    MerchantTransferResult.Outcome.PROCESSING,
+                    "PROCESSING", transferBillNo(),
+                    null, null, null, null, Instant.now());
         }
 
         @Override
@@ -4164,7 +4472,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                     "SUCCESS", transferBillNo(), null, null, null,
                     null, Instant.now(), originalRequest.mchid(),
                     originalRequest.outBillNo(), originalRequest.appid(),
-                    observedAmount, originalRequest.openid());
+                    observedAmount, openid);
         }
 
         private String transferBillNo() {

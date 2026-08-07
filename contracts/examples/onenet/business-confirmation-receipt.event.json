@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": "60000000-0000-4000-8000-000000000002",
   "deliveryClass": "CONTROL_RECEIPT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1045,
   "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
   "eventUid": "60000000-0000-4000-8000-000000000003",
@@ -14,7 +13,7 @@
     "outcome": "BUSINESS_APPLIED"
   },
   "payloadSha256": "5e0f0c210aaa55988c336a87acecdcc9fa8d008f9e0febcac7ce6264ce9b5d9d",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "BUSINESS_CONFIRMATION",
     "uid": "60000000-0000-4000-8000-000000000001"

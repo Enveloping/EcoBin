@@ -87,7 +87,7 @@ class MiniappDeliveryQueryServiceTest {
         when(identity.current()).thenReturn(identity(false));
         when(device.deliveryOptions(any())).thenReturn(
                 new DeliveryDeviceOptionsSnapshot(
-                        "Dp_demo_01",
+                        "Dv_0123456789abcdefghijklmn",
                         "校园回收机",
                         "教学楼一层",
                         true,
@@ -126,9 +126,11 @@ class MiniappDeliveryQueryServiceTest {
                                 DeliveryWalletQualificationBlocker
                                         .WALLET_DELIVERY_LIMIT_REACHED)));
 
-        var result = service.deliveryOptions("Dp_demo_01");
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
 
-        assertThat(result.deploymentCode()).isEqualTo("Dp_demo_01");
+        assertThat(result.deviceCode())
+                .isEqualTo("Dv_0123456789abcdefghijklmn");
         assertThat(result.deviceBusy()).isTrue();
         assertThat(result.ports()).singleElement()
                 .satisfies(port -> {
@@ -156,7 +158,8 @@ class MiniappDeliveryQueryServiceTest {
                         OptionalLong.empty(),
                         List.of(healthyBusinessPort())));
 
-        var result = service.deliveryOptions("Dp_demo_01");
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
 
         assertThat(result.ports()).singleElement()
                 .satisfies(port -> {
@@ -191,7 +194,8 @@ class MiniappDeliveryQueryServiceTest {
         when(wallet.current(any())).thenReturn(
                 eligibleWallet());
 
-        var result = service.deliveryOptions("Dp_demo_01");
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
 
         assertThat(result.ports()).singleElement()
                 .satisfies(port -> {
@@ -215,7 +219,7 @@ class MiniappDeliveryQueryServiceTest {
                 new OwnedDeliverySessionSnapshot(
                         DELIVERY_SESSION_UID,
                         deviceStatus,
-                        "Dp_demo_01",
+                        "Dv_0123456789abcdefghijklmn",
                         2,
                         STARTED_AT,
                         deviceCompletedAt,
@@ -292,7 +296,7 @@ class MiniappDeliveryQueryServiceTest {
 
     private DeliveryDeviceOptionsSnapshot healthyDeviceOptions() {
         return new DeliveryDeviceOptionsSnapshot(
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 "校园回收机",
                 "教学楼一层",
                 false,

@@ -7,7 +7,7 @@
     "schemaVersion",
     "commandUid",
     "commandType",
-    "deploymentCode",
+    "targetDeviceName",
     "target",
     "issuedAt",
     "expiresAt",
@@ -18,7 +18,7 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "commandUid": {
       "$ref": "common.schema.json#/$defs/uuid"
     },
@@ -32,11 +32,12 @@
         "SAMPLE_FULLNESS",
         "MEASURE_EMPTY_BAG_BASELINE",
         "CONFIRM_EDGE_EVENT",
-        "PROVIDE_PHOTO_UPLOAD_GRANT"
+        "PROVIDE_PHOTO_UPLOAD_GRANT",
+        "REQUEST_DEVICE_ACCEPTANCE"
       ]
     },
-    "deploymentCode": {
-      "$ref": "common.schema.json#/$defs/deploymentCode"
+    "targetDeviceName": {
+      "$ref": "common.schema.json#/$defs/deviceName"
     },
     "target": {
       "$ref": "common.schema.json#/$defs/target"
@@ -47,7 +48,7 @@
     "expiresAt": {
       "$ref": "common.schema.json#/$defs/utcInstant"
     },
-    "payloadSchemaVersion": { "const": 1 },
+    "payloadSchemaVersion": { "const": 2 },
     "payloadSha256": {
       "$ref": "common.schema.json#/$defs/sha256"
     },

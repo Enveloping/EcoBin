@@ -34,7 +34,7 @@ public final class OperationalOverviewModels {
             long createdRecordCount, long anomalousRecordCount) { }
 
     public record Operations(
-            long currentOnlineDeploymentCount,
+            long currentOnlineDeviceCount,
             long currentFullPortCount,
             long currentOpenAlertCount) { }
 
@@ -50,15 +50,15 @@ public final class OperationalOverviewModels {
             Operations operations,
             Funds funds) { }
 
-    public record DeploymentAttribution(
-            String deploymentCode,
-            String deploymentName,
+    public record AssetAttribution(
+            String deviceCode,
+            String deviceName,
             long registeredUserCount) { }
 
     public record RegistrationAttribution(
             long directEntryCount,
-            List<DeploymentAttribution> byDeployment) {
-        public RegistrationAttribution { byDeployment = List.copyOf(byDeployment); }
+            List<AssetAttribution> byAsset) {
+        public RegistrationAttribution { byAsset = List.copyOf(byAsset); }
     }
 
     public record OrganizationOverview(

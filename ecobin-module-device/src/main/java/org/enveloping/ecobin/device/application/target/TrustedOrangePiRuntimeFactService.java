@@ -48,6 +48,7 @@ public class TrustedOrangePiRuntimeFactService {
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
             "SAFETY_SENSOR_STATE_CHANGED",
+            "BASELINE_MEASUREMENT_COMPLETE",
             "PHOTO_STATUS_REPORTED",
             "PHOTO_UPLOAD_GRANT_REQUESTED",
             "BUSINESS_CONFIRMATION_RECEIPT");
@@ -100,7 +101,7 @@ public class TrustedOrangePiRuntimeFactService {
     public TrustedDeviceEventApplyResult apply(
             TrustedDeviceInboxEvent inboxEvent) {
         if (!SUPPORTED.contains(inboxEvent.messageKind())
-                || inboxEvent.normalizedSchemaVersion() != 1) {
+                || inboxEvent.normalizedSchemaVersion() != 2) {
             throw new IllegalArgumentException(
                     "unsupported trusted Orange Pi inbox message");
         }
@@ -121,11 +122,11 @@ public class TrustedOrangePiRuntimeFactService {
             long inboxId,
             long tenantId,
             long organizationId) {
-        DeploymentTarget deployment = loadDeployment(
+        AssetTarget asset = loadAsset(
                 event, tenantId, organizationId);
         EdgeInsert edge = insertEdgeEvent(
                 event,
-                deployment,
+                asset,
                 inboxId,
                 tenantId,
                 organizationId);
@@ -141,7 +142,7 @@ public class TrustedOrangePiRuntimeFactService {
                 CommandObservationResult result =
                         applyCommandObservation(
                                 event,
-                                deployment,
+                                asset,
                                 edge.eventId(),
                                 tenantId,
                                 organizationId,
@@ -158,8 +159,7 @@ public class TrustedOrangePiRuntimeFactService {
                     confirmationService.registerQuarantined(
                             tenantId,
                             organizationId,
-                            deployment.deploymentId(),
-                            event.deploymentCode(),
+                            asset.assetId(),
                             event.eventUid(),
                             event.payloadSha256(),
                             "DEVICE_COMMAND_STAGE_CONFLICT",
@@ -172,7 +172,7 @@ public class TrustedOrangePiRuntimeFactService {
             case "DEVICE_RUNTIME_SNAPSHOT" -> {
                 applyRuntimeSnapshot(
                         event,
-                        deployment,
+                        asset,
                         edge.eventId(),
                         tenantId,
                         organizationId,
@@ -182,7 +182,7 @@ public class TrustedOrangePiRuntimeFactService {
             case "DEVICE_FAULT_OBSERVED" -> {
                 FaultApplyResult result = observeFault(
                         event,
-                        deployment,
+                        asset,
                         edge.eventId(),
                         tenantId,
                         organizationId,
@@ -190,7 +190,7 @@ public class TrustedOrangePiRuntimeFactService {
                 if (result.conflict()) {
                     return quarantineFaultConflict(
                             event,
-                            deployment,
+                            asset,
                             inboxId,
                             tenantId,
                             organizationId,
@@ -202,7 +202,7 @@ public class TrustedOrangePiRuntimeFactService {
             case "DEVICE_FAULT_RECOVERED" -> {
                 FaultApplyResult result = observeFaultRecovery(
                         event,
-                        deployment,
+                        asset,
                         edge.eventId(),
                         tenantId,
                         organizationId,
@@ -210,7 +210,7 @@ public class TrustedOrangePiRuntimeFactService {
                 if (result.conflict()) {
                     return quarantineFaultConflict(
                             event,
-                            deployment,
+                            asset,
                             inboxId,
                             tenantId,
                             organizationId,
@@ -222,18 +222,26 @@ public class TrustedOrangePiRuntimeFactService {
             case "SAFETY_SENSOR_STATE_CHANGED" -> {
                 applySafetyChange(
                         event,
-                        deployment,
+                        asset,
                         edge.eventId(),
                         tenantId,
                         organizationId,
                         edge.receivedAt());
                 effectKind = "UPDATED";
             }
+            case "BASELINE_MEASUREMENT_COMPLETE" ->
+                    effectKind = applyBaselineMeasurementComplete(
+                            event,
+                            asset,
+                            edge.eventId(),
+                            tenantId,
+                            organizationId,
+                            edge.receivedAt());
             case "PHOTO_STATUS_REPORTED" -> {
                 PhotoStatusBusinessResult result =
                         photoStatusBusiness.apply(photoStatusFact(
                                 event,
-                                deployment,
+                                asset,
                                 edge.eventId(),
                                 tenantId,
                                 organizationId,
@@ -251,8 +259,7 @@ public class TrustedOrangePiRuntimeFactService {
                     confirmationService.registerQuarantined(
                             tenantId,
                             organizationId,
-                            deployment.deploymentId(),
-                            event.deploymentCode(),
+                            asset.assetId(),
                             event.eventUid(),
                             event.payloadSha256(),
                             result.conflictCode(),
@@ -263,8 +270,7 @@ public class TrustedOrangePiRuntimeFactService {
                 confirmationService.registerApplied(
                         tenantId,
                         organizationId,
-                        deployment.deploymentId(),
-                        event.deploymentCode(),
+                        asset.assetId(),
                         event.eventUid(),
                         event.payloadSha256(),
                         result.effectKind(),
@@ -278,9 +284,8 @@ public class TrustedOrangePiRuntimeFactService {
                         photoUploadGrants.apply(
                                 tenantId,
                                 organizationId,
-                                deployment.deploymentId(),
+                                asset.assetId(),
                                 edge.eventId(),
-                                event.deploymentCode(),
                                 event.eventUid(),
                                 event.payload(),
                                 event.occurredAt(),
@@ -297,8 +302,7 @@ public class TrustedOrangePiRuntimeFactService {
                     confirmationService.registerQuarantined(
                             tenantId,
                             organizationId,
-                            deployment.deploymentId(),
-                            event.deploymentCode(),
+                            asset.assetId(),
                             event.eventUid(),
                             event.payloadSha256(),
                             result.conflictCode(),
@@ -309,8 +313,7 @@ public class TrustedOrangePiRuntimeFactService {
                 confirmationService.registerApplied(
                         tenantId,
                         organizationId,
-                        deployment.deploymentId(),
-                        event.deploymentCode(),
+                        asset.assetId(),
                         event.eventUid(),
                         event.payloadSha256(),
                         result.effectKind(),
@@ -320,7 +323,7 @@ public class TrustedOrangePiRuntimeFactService {
             case "BUSINESS_CONFIRMATION_RECEIPT" -> {
                 applyConfirmationReceipt(
                         event,
-                        deployment);
+                        asset);
                 return TrustedDeviceEventApplyResult.APPLIED;
             }
             default -> throw new IllegalStateException(
@@ -330,8 +333,7 @@ public class TrustedOrangePiRuntimeFactService {
         confirmationService.registerApplied(
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
-                event.deploymentCode(),
+                asset.assetId(),
                 event.eventUid(),
                 event.payloadSha256(),
                 effectKind,
@@ -341,7 +343,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private TrustedDeviceEventApplyResult quarantineFaultConflict(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long inboxId,
             long tenantId,
             long organizationId,
@@ -357,8 +359,7 @@ public class TrustedOrangePiRuntimeFactService {
         confirmationService.registerQuarantined(
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
-                event.deploymentCode(),
+                asset.assetId(),
                 event.eventUid(),
                 event.payloadSha256(),
                 result.conflictCode(),
@@ -367,52 +368,34 @@ public class TrustedOrangePiRuntimeFactService {
         return TrustedDeviceEventApplyResult.QUARANTINED;
     }
 
-    private DeploymentTarget loadDeployment(
+    private AssetTarget loadAsset(
             ParsedEvent event,
             long tenantId,
             long organizationId) {
-        List<LockedAsset> assets = jdbc.query("""
+        List<AssetTarget> assets = jdbc.query("""
                         SELECT id, expected_port_count
                         FROM dev_device_asset
                         WHERE hardware_sn = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new LockedAsset(
-                        rs.getLong("id"),
-                        rs.getInt("expected_port_count")),
-                event.hardwareSn());
-        if (assets.size() != 1) {
-            throw new UntrustedInboxSourceException(
-                    "authenticated Orange Pi asset is not authoritative");
-        }
-        LockedAsset asset = assets.getFirst();
-        List<Long> deploymentIds = jdbc.query("""
-                        SELECT id
-                        FROM dev_device_deployment
-                        WHERE asset_id = ?
-                          AND public_code = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getLong("id"),
-                asset.assetId(),
-                event.deploymentCode(),
+                (rs, ignored) -> new AssetTarget(
+                        rs.getLong("id"),
+                        rs.getInt("expected_port_count")),
+                event.hardwareSn(),
                 tenantId,
                 organizationId);
-        if (deploymentIds.size() != 1) {
+        if (assets.size() != 1) {
             throw new UntrustedInboxSourceException(
-                    "authenticated Orange Pi deployment is not authoritative");
+                    "authenticated Orange Pi asset is not authoritative");
         }
-        return new DeploymentTarget(
-                asset.assetId(),
-                deploymentIds.getFirst(),
-                asset.portCount());
+        return assets.getFirst();
     }
 
     private EdgeInsert insertEdgeEvent(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long inboxId,
             long tenantId,
             long organizationId) {
@@ -424,7 +407,7 @@ public class TrustedOrangePiRuntimeFactService {
                         FROM dev_edge_event
                         WHERE event_uid = ?
                            OR (
-                               deployment_id = ?
+                               asset_id = ?
                                AND edge_event_sequence = ?
                            )
                         """,
@@ -435,7 +418,7 @@ public class TrustedOrangePiRuntimeFactService {
                         rs.getString("canonical_sha256"),
                         rs.getLong("source_inbox_id")),
                 event.eventUid(),
-                deployment.deploymentId(),
+                asset.assetId(),
                 event.sequence());
         if (!collisions.isEmpty()) {
             if (collisions.size() == 1
@@ -457,8 +440,7 @@ public class TrustedOrangePiRuntimeFactService {
                 confirmationService.registerQuarantined(
                         tenantId,
                         organizationId,
-                        deployment.deploymentId(),
-                        event.deploymentCode(),
+                            asset.assetId(),
                         event.eventUid(),
                         event.payloadSha256(),
                         "EVENT_IDENTITY_CONFLICT",
@@ -472,7 +454,7 @@ public class TrustedOrangePiRuntimeFactService {
         int inserted = jdbc.update("""
                         INSERT INTO dev_edge_event (
                             event_uid, tenant_id, organization_id,
-                            deployment_id, edge_event_sequence,
+                            asset_id, edge_event_sequence,
                             event_type, delivery_class, schema_version,
                             target_type, target_stable_key_sha256,
                             device_occurred_at, clock_quality,
@@ -481,7 +463,7 @@ public class TrustedOrangePiRuntimeFactService {
                         ) VALUES (
                             ?, ?, ?,
                             ?, ?,
-                            ?, ?, 1,
+                            ?, ?, 2,
                             ?, ?,
                             ?, ?,
                             ?, ?,
@@ -491,7 +473,7 @@ public class TrustedOrangePiRuntimeFactService {
                 event.eventUid(),
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 event.sequence(),
                 event.eventType(),
                 event.deliveryClass(),
@@ -519,9 +501,623 @@ public class TrustedOrangePiRuntimeFactService {
         return new EdgeInsert(id, true, false, now);
     }
 
+    private String applyBaselineMeasurementComplete(
+            ParsedEvent event,
+            AssetTarget asset,
+            long edgeEventId,
+            long tenantId,
+            long organizationId,
+            LocalDateTime now) {
+        JsonNode payload = event.payload();
+        String measurementUid = requiredText(payload, "measurementUid");
+        String commandUid = event.commandUid();
+        if (commandUid == null
+                || !measurementUid.equals(event.targetUid())) {
+            throw new UntrustedInboxSourceException(
+                    "baseline result target is not authoritative");
+        }
+        List<BaselineTarget> rows = jdbc.query("""
+                        SELECT measurement.id AS measurement_id,
+                               measurement.status AS measurement_status,
+                               measurement.capacity_lock_version_snapshot,
+                               measurement.fullness_rule_fingerprint,
+                               port.id AS port_id, port.port_no,
+                               bag.id AS bag_id, bag.bag_uid,
+                               version.id AS config_id,
+                               version.version_no,
+                               LOWER(HEX(version.content_sha256))
+                                   AS content_sha256,
+                               LOWER(HEX(version.mcu_payload_sha256))
+                                   AS mcu_payload_sha256,
+                               snapshot.id AS snapshot_id,
+                               snapshot.calibration_version,
+                               capacity.lock_version AS capacity_version,
+                               capacity.current_bag_id,
+                               capacity.current_detection_id,
+                               runtime.applied_config_version_no,
+                               LOWER(HEX(runtime.applied_config_content_sha256))
+                                   AS applied_content_sha256,
+                               LOWER(HEX(runtime.applied_mcu_payload_sha256))
+                                   AS applied_mcu_payload_sha256,
+                               command_row.id AS command_id,
+                               command_row.physical_state AS command_state,
+                               factory_bag.id AS factory_bag_id
+                        FROM rec_port_baseline_measurement measurement
+                        JOIN dev_port port
+                          ON port.tenant_id = measurement.tenant_id
+                         AND port.organization_id = measurement.organization_id
+                         AND port.asset_id = measurement.asset_id
+                         AND port.id = measurement.port_id
+                        JOIN rec_bag bag
+                          ON bag.tenant_id = measurement.tenant_id
+                         AND bag.organization_id = measurement.organization_id
+                         AND bag.id = measurement.bag_id
+                        JOIN dev_config_version version
+                          ON version.tenant_id = measurement.tenant_id
+                         AND version.organization_id =
+                             measurement.organization_id
+                         AND version.asset_id = measurement.asset_id
+                         AND version.id =
+                             measurement.device_config_version_id
+                        JOIN dev_port_config_snapshot snapshot
+                          ON snapshot.tenant_id = measurement.tenant_id
+                         AND snapshot.organization_id =
+                             measurement.organization_id
+                         AND snapshot.asset_id = measurement.asset_id
+                         AND snapshot.config_version_id = version.id
+                         AND snapshot.port_id = port.id
+                         AND snapshot.id =
+                             measurement.port_config_snapshot_id
+                        JOIN rec_port_capacity_state capacity
+                          ON capacity.tenant_id = measurement.tenant_id
+                         AND capacity.organization_id =
+                             measurement.organization_id
+                         AND capacity.asset_id = measurement.asset_id
+                         AND capacity.port_id = port.id
+                        JOIN dev_device_runtime_state runtime
+                          ON runtime.tenant_id = measurement.tenant_id
+                         AND runtime.organization_id =
+                             measurement.organization_id
+                         AND runtime.asset_id = measurement.asset_id
+                        JOIN dev_device_command command_row
+                          ON command_row.tenant_id = measurement.tenant_id
+                         AND command_row.organization_id =
+                             measurement.organization_id
+                         AND command_row.asset_id = measurement.asset_id
+                         AND command_row.baseline_measurement_id =
+                             measurement.id
+                         AND command_row.command_type =
+                             'MEASURE_EMPTY_BAG_BASELINE'
+                        JOIN dev_factory_installed_bag factory_bag
+                          ON factory_bag.asset_id = measurement.asset_id
+                         AND factory_bag.port_no = port.port_no
+                         AND factory_bag.bag_code = bag.bag_code
+                        WHERE measurement.tenant_id = ?
+                          AND measurement.organization_id = ?
+                          AND measurement.asset_id = ?
+                          AND measurement.measurement_uid = ?
+                          AND command_row.command_uid = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> new BaselineTarget(
+                        rs.getLong("measurement_id"),
+                        rs.getString("measurement_status"),
+                        rs.getLong("capacity_lock_version_snapshot"),
+                        rs.getBytes("fullness_rule_fingerprint"),
+                        rs.getLong("port_id"),
+                        rs.getInt("port_no"),
+                        rs.getLong("bag_id"),
+                        rs.getString("bag_uid"),
+                        rs.getLong("config_id"),
+                        rs.getLong("version_no"),
+                        rs.getString("content_sha256"),
+                        rs.getString("mcu_payload_sha256"),
+                        rs.getLong("snapshot_id"),
+                        rs.getLong("calibration_version"),
+                        rs.getLong("capacity_version"),
+                        nullableDatabaseLong(rs, "current_bag_id"),
+                        nullableDatabaseLong(rs, "current_detection_id"),
+                        nullableDatabaseLong(
+                                rs, "applied_config_version_no"),
+                        rs.getString("applied_content_sha256"),
+                        rs.getString("applied_mcu_payload_sha256"),
+                        rs.getLong("command_id"),
+                        rs.getString("command_state"),
+                        rs.getLong("factory_bag_id")),
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                measurementUid,
+                commandUid);
+        if (rows.size() != 1) {
+            throw new UntrustedInboxSourceException(
+                    "baseline result does not resolve its frozen intent");
+        }
+        BaselineTarget target = rows.getFirst();
+        if (!"PENDING".equals(target.measurementStatus())
+                || Set.of(
+                        "PHYSICAL_SUCCEEDED",
+                        "PHYSICAL_FAILED",
+                        "PRE_START_FAILED",
+                        "EDGE_RESTARTED")
+                .contains(target.commandState())) {
+            throw new UntrustedInboxSourceException(
+                    "baseline intent is already terminal");
+        }
+
+        JsonNode frozen = requiredObject(payload, "frozenConfig");
+        BaselineMeasurementFact measurement = baselineMeasurement(
+                requiredObject(payload, "totalWeightMeasurement"));
+        if (positiveInt(payload, "portNo") != target.portNo()
+                || !target.bagUid().equals(requiredText(payload, "bagUid"))
+                || !requiredBoolean(payload, "emptyBagConfirmed")
+                || positiveLong(frozen, "version") != target.versionNo()
+                || !target.contentSha256().equals(
+                        requiredText(frozen, "contentSha256"))
+                || !target.mcuPayloadSha256().equals(
+                        requiredText(frozen, "mcuPayloadSha256"))
+                || measurement.calibrationVersion()
+                        != target.calibrationVersion()) {
+            throw new UntrustedInboxSourceException(
+                    "baseline result differs from its frozen intent");
+        }
+
+        NormalizedBaselineMeasurement normalized =
+                normalizeBaselineMeasurement(measurement);
+        long physicalResultId = insertBaselinePhysicalResult(
+                event,
+                target,
+                normalized,
+                edgeEventId,
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                now);
+        boolean stale = target.capacityVersion()
+                != target.capacityVersionSnapshot()
+                || !Long.valueOf(target.bagId()).equals(
+                        target.currentBagId())
+                || target.currentDetectionId() != null
+                || !Long.valueOf(target.versionNo()).equals(
+                        target.appliedVersionNo())
+                || !target.contentSha256().equals(
+                        target.appliedContentSha256())
+                || !target.mcuPayloadSha256().equals(
+                        target.appliedMcuPayloadSha256());
+        boolean success = !stale
+                && "STABLE".equals(normalized.status())
+                && normalized.weightGrams() != null
+                && normalized.weightGrams() >= 0;
+        if (success) {
+            applySuccessfulBaseline(
+                    target,
+                    physicalResultId,
+                    normalized.weightGrams(),
+                    tenantId,
+                    organizationId,
+                    asset.assetId(),
+                    now);
+        } else {
+            String failureCode = stale
+                    ? "BASELINE_FACT_STALE"
+                    : "STABLE".equals(normalized.status())
+                    ? "NEGATIVE_EMPTY_BAG_WEIGHT"
+                    : normalized.faultCode();
+            applyFailedBaseline(
+                    target,
+                    physicalResultId,
+                    failureCode,
+                    stale,
+                    tenantId,
+                    organizationId,
+                    asset.assetId(),
+                    now);
+        }
+        completeBaselineCommand(
+                target,
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                now);
+        taskProofPort.completeDispatchFromTrustedCommandObservation(
+                UUID.fromString(commandUid));
+        touchLastDeviceEvent(
+                asset.assetId(), tenantId, organizationId, now);
+        return success ? "BASELINE_ESTABLISHED" : "BASELINE_RETRY_REQUIRED";
+    }
+
+    private long insertBaselinePhysicalResult(
+            ParsedEvent event,
+            BaselineTarget target,
+            NormalizedBaselineMeasurement measurement,
+            long edgeEventId,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            LocalDateTime now) {
+        requireSingle(jdbc.update("""
+                        INSERT INTO dev_physical_result (
+                            tenant_id, organization_id, asset_id,
+                            port_id, edge_event_id, edge_event_type,
+                            command_id, command_type,
+                            reported_config_version_no,
+                            reported_config_content_sha256,
+                            reported_config_mcu_payload_sha256,
+                            result_type, delivery_session_id,
+                            clean_operation_id, fullness_sample_id,
+                            baseline_measurement_id,
+                            baseline_measurement_uid,
+                            baseline_measurement_status,
+                            baseline_total_weight_g,
+                            baseline_last_observed_weight_g,
+                            baseline_measurement_elapsed_ms,
+                            baseline_sample_count,
+                            baseline_calibration_version,
+                            baseline_sensor_health,
+                            baseline_fault_code,
+                            baseline_mcu_boot_id,
+                            baseline_mcu_event_sequence,
+                            empty_bag_confirmed,
+                            uart_protocol_major, uart_protocol_minor,
+                            created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?,
+                            'BASELINE_MEASUREMENT_COMPLETE',
+                            ?, 'MEASURE_EMPTY_BAG_BASELINE',
+                            ?, ?, ?,
+                            'BASELINE_MEASUREMENT',
+                            NULL, NULL, NULL, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+                            NULL, NULL, ?
+                        )
+                        """,
+                tenantId,
+                organizationId,
+                assetId,
+                target.portId(),
+                edgeEventId,
+                target.commandId(),
+                target.versionNo(),
+                HexFormat.of().parseHex(target.contentSha256()),
+                HexFormat.of().parseHex(target.mcuPayloadSha256()),
+                target.measurementId(),
+                measurement.measurementUid(),
+                measurement.status(),
+                "STABLE".equals(measurement.status())
+                        ? measurement.weightGrams() : null,
+                "STABLE".equals(measurement.status())
+                        ? null : measurement.weightGrams(),
+                measurement.elapsedMs(),
+                measurement.sampleCount(),
+                measurement.calibrationVersion(),
+                measurement.sensorHealth(),
+                measurement.faultCode(),
+                measurement.mcuBootId(),
+                measurement.mcuEventSequence(),
+                now),
+                "insert baseline physical result");
+        Long resultId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM dev_physical_result
+                        WHERE edge_event_id = ?
+                        """,
+                Long.class,
+                edgeEventId);
+        if (resultId == null) {
+            throw new IllegalStateException(
+                    "baseline physical result id is missing");
+        }
+        return resultId;
+    }
+
+    private void applySuccessfulBaseline(
+            BaselineTarget target,
+            long physicalResultId,
+            long weightGrams,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            LocalDateTime now) {
+        Long latestVersion = jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(version_no), 0)
+                        FROM rec_port_weight_baseline
+                        WHERE port_id = ?
+                        """,
+                Long.class,
+                target.portId());
+        long baselineVersion = (latestVersion == null ? 0 : latestVersion) + 1;
+        requireSingle(jdbc.update("""
+                        INSERT INTO rec_port_weight_baseline (
+                            tenant_id, organization_id,
+                            port_id, bag_id, version_no,
+                            source_type, source_bag_event_id,
+                            source_physical_result_id,
+                            source_clean_record_id,
+                            source_measurement_id,
+                            baseline_weight_g,
+                            established_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?,
+                            'AUTOMATIC_INITIAL', NULL, ?, NULL, ?,
+                            ?, ?, ?
+                        )
+                        """,
+                tenantId,
+                organizationId,
+                target.portId(),
+                target.bagId(),
+                baselineVersion,
+                physicalResultId,
+                target.measurementId(),
+                weightGrams,
+                now,
+                now),
+                "insert automatic initial baseline");
+        Long baselineId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM rec_port_weight_baseline
+                        WHERE source_measurement_id = ?
+                        """,
+                Long.class,
+                target.measurementId());
+        if (baselineId == null) {
+            throw new IllegalStateException(
+                    "automatic initial baseline id is missing");
+        }
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_baseline_measurement
+                        SET status = 'COMPLETED',
+                            physical_result_id = ?,
+                            stable_total_weight_g = ?,
+                            fault_code = NULL,
+                            result_baseline_id = ?,
+                            completed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND status = 'PENDING'
+                        """,
+                physicalResultId,
+                weightGrams,
+                baselineId,
+                now,
+                now,
+                target.measurementId()),
+                "complete automatic baseline measurement");
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_capacity_state
+                        SET baseline_state = 'VALID',
+                            current_baseline_id = ?,
+                            current_baseline_weight_g = ?,
+                            latest_stable_total_weight_g = ?,
+                            raw_net_weight_g = 0,
+                            displayed_fullness_percent = 0,
+                            detection_gate = 'READY',
+                            current_detection_id = NULL,
+                            current_rule_fingerprint = ?,
+                            confirmed_fullness_state = 'NOT_FULL',
+                            last_detection_id = NULL,
+                            current_fullness_event_id = NULL,
+                            current_bag_id = ?,
+                            current_fullness_state_change_id = NULL,
+                            last_fullness_edge_event_id = NULL,
+                            last_fullness_edge_event_sequence = NULL,
+                            last_fullness_reported_at = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                          AND lock_version = ?
+                          AND current_bag_id = ?
+                          AND current_detection_id IS NULL
+                        """,
+                baselineId,
+                weightGrams,
+                weightGrams,
+                target.ruleFingerprint(),
+                target.bagId(),
+                now,
+                tenantId,
+                organizationId,
+                assetId,
+                target.portId(),
+                target.capacityVersionSnapshot(),
+                target.bagId()),
+                "project automatic baseline capacity");
+        requireSingle(jdbc.update("""
+                        UPDATE dev_factory_installed_bag
+                        SET tare_status = 'READY',
+                            last_failure_code = NULL,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                now,
+                target.factoryBagId()),
+                "mark factory bag tare ready");
+    }
+
+    private void applyFailedBaseline(
+            BaselineTarget target,
+            long physicalResultId,
+            String failureCode,
+            boolean stale,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            LocalDateTime now) {
+        String terminalStatus = stale ? "STALE_IGNORED" : "FAILED";
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_baseline_measurement
+                        SET status = ?,
+                            physical_result_id = ?,
+                            stable_total_weight_g = NULL,
+                            fault_code = ?,
+                            result_baseline_id = NULL,
+                            completed_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND status = 'PENDING'
+                        """,
+                terminalStatus,
+                physicalResultId,
+                failureCode,
+                now,
+                now,
+                target.measurementId()),
+                "fail automatic baseline measurement");
+        jdbc.update("""
+                        UPDATE rec_port_capacity_state
+                        SET detection_gate = 'FAILED',
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                          AND current_baseline_id IS NULL
+                        """,
+                now,
+                tenantId,
+                organizationId,
+                assetId,
+                target.portId());
+        requireSingle(jdbc.update("""
+                        UPDATE dev_factory_installed_bag
+                        SET tare_status = 'FAILED',
+                            last_failure_code = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                failureCode,
+                now,
+                target.factoryBagId()),
+                "mark factory bag tare failed");
+    }
+
+    private void completeBaselineCommand(
+            BaselineTarget target,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            LocalDateTime now) {
+        requireSingle(jdbc.update("""
+                        UPDATE dev_device_command
+                        SET physical_state = 'PHYSICAL_SUCCEEDED',
+                            edge_accepted_at = COALESCE(edge_accepted_at, ?),
+                            physical_started_at =
+                                COALESCE(physical_started_at, ?),
+                            physical_ended_at = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND physical_state IN (
+                              'QUEUED', 'EDGE_ACCEPTED', 'PHYSICAL_STARTED'
+                          )
+                        """,
+                now,
+                now,
+                now,
+                now,
+                target.commandId(),
+                tenantId,
+                organizationId,
+                assetId),
+                "complete baseline device command");
+    }
+
+    private static BaselineMeasurementFact baselineMeasurement(JsonNode node) {
+        return new BaselineMeasurementFact(
+                requiredText(node, "measurementUid"),
+                requiredText(node, "status"),
+                requiredBoolean(node, "weightValueAvailable"),
+                nullableLong(node, "reportedWeightGrams"),
+                requiredText(node, "weightValueKind"),
+                nonNegativeLong(node, "measurementElapsedMs"),
+                nonNegativeLong(node, "sampleCount"),
+                nonNegativeLong(node, "calibrationVersion"),
+                requiredText(node, "sensorHealth"),
+                nullableText(node, "faultCode"),
+                positiveLong(node, "mcuBootId"),
+                positiveLong(node, "mcuEventSequence"));
+    }
+
+    private static NormalizedBaselineMeasurement normalizeBaselineMeasurement(
+            BaselineMeasurementFact fact) {
+        boolean available = fact.weightValueAvailable()
+                && fact.reportedWeightGrams() != null;
+        if (available != !"NONE".equals(fact.weightValueKind())) {
+            throw new UntrustedInboxSourceException(
+                    "baseline measurement value presence differs");
+        }
+        if ("STABLE".equals(fact.status())) {
+            if (!available
+                    || fact.sampleCount() < 1
+                    || !"OK".equals(fact.sensorHealth())
+                    || fact.faultCode() != null) {
+                throw new UntrustedInboxSourceException(
+                        "stable baseline measurement quality differs");
+            }
+            return new NormalizedBaselineMeasurement(
+                    fact.measurementUid(),
+                    "STABLE",
+                    fact.reportedWeightGrams(),
+                    fact.elapsedMs(),
+                    fact.sampleCount(),
+                    fact.calibrationVersion(),
+                    "OK",
+                    null,
+                    fact.mcuBootId(),
+                    fact.mcuEventSequence());
+        }
+        String status;
+        String health;
+        String fault;
+        switch (fact.status()) {
+            case "UNSTABLE" -> {
+                status = "UNSTABLE";
+                health = "OK";
+                fault = "WEIGHT_UNSTABLE";
+            }
+            case "TIMEOUT" -> {
+                status = "TIMEOUT";
+                health = "TIMEOUT";
+                fault = "WEIGHT_TIMEOUT";
+            }
+            case "OVERLOAD" -> {
+                status = "OVERLOAD";
+                health = "OK";
+                fault = "WEIGHT_OVERLOAD";
+            }
+            case "SENSOR_FAULT", "PROTOCOL_ERROR", "CONFIG_ERROR",
+                 "DISCONNECTED" -> {
+                status = "SENSOR_FAULT";
+                health = "DISCONNECTED".equals(fact.sensorHealth())
+                        ? "DISCONNECTED" : "SENSOR_FAULT";
+                fault = "WEIGHT_SENSOR";
+            }
+            default -> throw new UntrustedInboxSourceException(
+                    "baseline measurement status is unsupported");
+        }
+        return new NormalizedBaselineMeasurement(
+                fact.measurementUid(),
+                status,
+                available ? fact.reportedWeightGrams() : null,
+                fact.elapsedMs(),
+                fact.sampleCount(),
+                fact.calibrationVersion(),
+                health,
+                fault,
+                fact.mcuBootId(),
+                fact.mcuEventSequence());
+    }
+
     private void applyRuntimeSnapshot(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long edgeEventId,
             long tenantId,
             long organizationId,
@@ -529,11 +1125,11 @@ public class TrustedOrangePiRuntimeFactService {
         JsonNode payload = event.payload();
         JsonNode ports = requiredArray(payload, "ports");
         Map<Integer, Long> portIds = loadPortIds(
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId);
-        if (ports.size() != deployment.portCount()
-                || portIds.size() != deployment.portCount()) {
+        if (ports.size() != asset.portCount()
+                || portIds.size() != asset.portCount()) {
             throw new UntrustedInboxSourceException(
                     "runtime snapshot does not cover the deployed port set");
         }
@@ -585,11 +1181,9 @@ public class TrustedOrangePiRuntimeFactService {
         String capability = requiredText(
                 payload, "capabilityBitmapHex");
         int updated = jdbc.update("""
-                        UPDATE dev_deployment_runtime_state runtime
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = runtime.deployment_id
+                        UPDATE dev_device_runtime_state runtime
                         LEFT JOIN dev_device_transport_state transport
-                          ON transport.asset_id = deployment.asset_id
+                          ON transport.asset_id = runtime.asset_id
                         SET runtime.edge_connection_status = CASE
                                 WHEN transport.onenet_connection_status =
                                     'ONLINE' THEN 'ONLINE'
@@ -626,7 +1220,7 @@ public class TrustedOrangePiRuntimeFactService {
                             runtime.updated_at = ?
                         WHERE runtime.tenant_id = ?
                           AND runtime.organization_id = ?
-                          AND runtime.deployment_id = ?
+                          AND runtime.asset_id = ?
                           AND (
                               runtime.trusted_runtime_sequence IS NULL
                               OR runtime.trusted_runtime_sequence < ?
@@ -659,11 +1253,11 @@ public class TrustedOrangePiRuntimeFactService {
                 now,
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 event.sequence());
         if (updated == 0) {
             touchLastDeviceEvent(
-                    deployment.deploymentId(),
+                    asset.assetId(),
                     tenantId,
                     organizationId,
                     now);
@@ -674,7 +1268,7 @@ public class TrustedOrangePiRuntimeFactService {
             mergePortRuntime(
                     port,
                     portIds.get(positiveInt(port, "portNo")),
-                    deployment.deploymentId(),
+                    asset.assetId(),
                     edgeEventId,
                     event.sequence(),
                     tenantId,
@@ -682,7 +1276,7 @@ public class TrustedOrangePiRuntimeFactService {
                     now);
         }
         refreshSafetyProjection(
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId,
                 now);
@@ -690,7 +1284,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private CommandObservationResult applyCommandObservation(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long edgeEventId,
             long tenantId,
             long organizationId,
@@ -707,7 +1301,7 @@ public class TrustedOrangePiRuntimeFactService {
                         FROM dev_device_command
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND command_uid = ?
                         FOR UPDATE
                         """,
@@ -725,7 +1319,7 @@ public class TrustedOrangePiRuntimeFactService {
                         rs.getString("physical_state")),
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 event.commandUid());
         if (commands.size() != 1
                 || !commands.getFirst().commandType().equals(
@@ -751,7 +1345,7 @@ public class TrustedOrangePiRuntimeFactService {
         }
         requireSingle(jdbc.update("""
                         INSERT INTO dev_device_command_event (
-                            tenant_id, organization_id, deployment_id,
+                            tenant_id, organization_id, asset_id,
                             edge_event_id, edge_event_type,
                             command_id, delivery_session_id,
                             observed_command_type, observation_stage,
@@ -766,7 +1360,7 @@ public class TrustedOrangePiRuntimeFactService {
                         """,
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 edgeEventId,
                 command.id(),
                 "START_DELIVERY_SESSION".equals(observedType)
@@ -830,7 +1424,7 @@ public class TrustedOrangePiRuntimeFactService {
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         """,
                 desiredState,
                 now,
@@ -842,7 +1436,7 @@ public class TrustedOrangePiRuntimeFactService {
                 command.id(),
                 tenantId,
                 organizationId,
-                deployment.deploymentId()),
+                asset.assetId()),
                 "advance observed device command");
         if ("FAILED".equals(stage)
                 && "EDGE_RESTARTED".equals(errorCode)) {
@@ -850,7 +1444,7 @@ public class TrustedOrangePiRuntimeFactService {
                     command,
                     tenantId,
                     organizationId,
-                    deployment.deploymentId(),
+                    asset.assetId(),
                     now);
         }
         return new CommandObservationResult(
@@ -861,7 +1455,7 @@ public class TrustedOrangePiRuntimeFactService {
             CommandRow command,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime now) {
         if (command.deliverySessionId() != null) {
             int ended = jdbc.update("""
@@ -874,7 +1468,7 @@ public class TrustedOrangePiRuntimeFactService {
                             WHERE id = ?
                               AND tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND status IN (
                                   'PREPARED',
                                   'AUTHORIZATION_QUEUED',
@@ -887,19 +1481,19 @@ public class TrustedOrangePiRuntimeFactService {
                     command.deliverySessionId(),
                     tenantId,
                     organizationId,
-                    deploymentId);
+                    assetId);
             if (ended == 1) {
                 jdbc.update("""
                                 DELETE FROM dev_device_occupancy
                                 WHERE tenant_id = ?
                                   AND organization_id = ?
-                                  AND deployment_id = ?
+                                  AND asset_id = ?
                                   AND occupancy_kind = 'DELIVERY'
                                   AND delivery_session_id = ?
                                 """,
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         command.deliverySessionId());
             }
         }
@@ -907,7 +1501,7 @@ public class TrustedOrangePiRuntimeFactService {
                 new TrustedEdgeRestartedWork(
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         command.commandType(),
                         command.cleanOperationId(),
                         command.fullnessDetectionId(),
@@ -949,7 +1543,7 @@ public class TrustedOrangePiRuntimeFactService {
     private void mergePortRuntime(
             JsonNode port,
             long portId,
-            long deploymentId,
+            long assetId,
             long edgeEventId,
             long sequence,
             long tenantId,
@@ -1020,7 +1614,7 @@ public class TrustedOrangePiRuntimeFactService {
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND (
                               trusted_runtime_sequence IS NULL
@@ -1064,7 +1658,7 @@ public class TrustedOrangePiRuntimeFactService {
                 now,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 portId,
                 sequence);
         mergeSnapshotSafety(
@@ -1076,7 +1670,7 @@ public class TrustedOrangePiRuntimeFactService {
                 portSafety,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 now);
     }
 
@@ -1089,7 +1683,7 @@ public class TrustedOrangePiRuntimeFactService {
             String safetyStatus,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime now) {
         jdbc.update("""
                         UPDATE dev_port_runtime_state
@@ -1105,7 +1699,7 @@ public class TrustedOrangePiRuntimeFactService {
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND (
                               safety_projection_sequence IS NULL
@@ -1125,14 +1719,14 @@ public class TrustedOrangePiRuntimeFactService {
                 now,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 portId,
                 sequence);
     }
 
     private FaultApplyResult observeFault(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long edgeEventId,
             long tenantId,
             long organizationId,
@@ -1140,7 +1734,7 @@ public class TrustedOrangePiRuntimeFactService {
         JsonNode payload = event.payload();
         Long portId = resolvePortId(
                 payload,
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId);
         String component = requiredText(payload, "component");
@@ -1156,7 +1750,7 @@ public class TrustedOrangePiRuntimeFactService {
                 RecoveryObservation recovery =
                         recoveries.getFirst();
                 if (!recovery.matches(
-                        deployment.deploymentId(),
+                        asset.assetId(),
                         portId,
                         component,
                         faultCode)
@@ -1173,7 +1767,7 @@ public class TrustedOrangePiRuntimeFactService {
             int inserted = jdbc.update("""
                             INSERT INTO dev_device_fault_event (
                                 fault_uid, tenant_id, organization_id,
-                                deployment_id, port_id, component_type,
+                                asset_id, port_id, component_type,
                                 fault_code, fault_key, impact_level, status,
                                 first_source_kind,
                                 first_source_edge_event_id,
@@ -1214,13 +1808,13 @@ public class TrustedOrangePiRuntimeFactService {
                     faultUid,
                     tenantId,
                     organizationId,
-                    deployment.deploymentId(),
+                    asset.assetId(),
                     portId,
                     component,
                     faultCode,
                     faultKey(
                             tenantId,
-                            deployment.deploymentId(),
+                            asset.assetId(),
                             portId,
                             component,
                             faultCode),
@@ -1235,11 +1829,11 @@ public class TrustedOrangePiRuntimeFactService {
         } else {
             FaultRow row = rows.getFirst();
             if (!sameFaultIdentity(
-                    row, deployment.deploymentId(), portId,
+                    row, asset.assetId(), portId,
                     component, faultCode)) {
                 return FaultApplyResult.conflict(
                         "FAULT_IDENTITY_CONFLICT",
-                        "fault uid carries another deployment, port, "
+                        "fault uid carries another asset, port, "
                                 + "component or fault code");
             }
             if (!"OPEN".equals(row.status())
@@ -1271,7 +1865,7 @@ public class TrustedOrangePiRuntimeFactService {
         applyStoredRecoveryIfPresent(
                 rows.getFirst(), faultUid, now);
         refreshSafetyProjection(
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId,
                 now);
@@ -1280,7 +1874,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private FaultApplyResult observeFaultRecovery(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long edgeEventId,
             long tenantId,
             long organizationId,
@@ -1288,7 +1882,7 @@ public class TrustedOrangePiRuntimeFactService {
         JsonNode payload = event.payload();
         Long portId = resolvePortId(
                 payload,
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId);
         String component = requiredText(payload, "component");
@@ -1307,12 +1901,12 @@ public class TrustedOrangePiRuntimeFactService {
         if (!faults.isEmpty()) {
             FaultRow fault = faults.getFirst();
             if (!sameFaultIdentity(
-                    fault, deployment.deploymentId(), portId,
+                    fault, asset.assetId(), portId,
                     component, faultCode)) {
                 return FaultApplyResult.conflict(
                         "FAULT_RECOVERY_IDENTITY_CONFLICT",
                         "fault recovery does not identify the same "
-                                + "deployment, port, component and code");
+                                + "asset, port, component and code");
             }
             if (impactRank(impact) < impactRank(fault.impact())) {
                 return FaultApplyResult.conflict(
@@ -1338,7 +1932,7 @@ public class TrustedOrangePiRuntimeFactService {
         int inserted = jdbc.update("""
                         INSERT INTO dev_fault_recovery_observation (
                             fault_uid, tenant_id, organization_id,
-                            deployment_id, port_id, component_type,
+                            asset_id, port_id, component_type,
                             fault_code, impact_level,
                             source_edge_event_id,
                             source_edge_event_type,
@@ -1355,7 +1949,7 @@ public class TrustedOrangePiRuntimeFactService {
                 faultUid,
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 portId,
                 component,
                 faultCode,
@@ -1372,7 +1966,7 @@ public class TrustedOrangePiRuntimeFactService {
                     now);
         }
         refreshSafetyProjection(
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId,
                 now);
@@ -1449,7 +2043,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private void applySafetyChange(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long edgeEventId,
             long tenantId,
             long organizationId,
@@ -1457,7 +2051,7 @@ public class TrustedOrangePiRuntimeFactService {
         JsonNode payload = event.payload();
         Long portId = resolvePortId(
                 payload,
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId);
         String reportedHealth = requiredText(
@@ -1488,7 +2082,7 @@ public class TrustedOrangePiRuntimeFactService {
                                 updated_at = ?
                             WHERE tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND (
                                   safety_projection_sequence IS NULL
                                   OR safety_projection_sequence < ?
@@ -1503,7 +2097,7 @@ public class TrustedOrangePiRuntimeFactService {
                     now,
                     tenantId,
                     organizationId,
-                    deployment.deploymentId(),
+                    asset.assetId(),
                     event.sequence());
         } else {
             jdbc.update("""
@@ -1520,7 +2114,7 @@ public class TrustedOrangePiRuntimeFactService {
                                 updated_at = ?
                             WHERE tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND port_id = ?
                               AND (
                                   safety_projection_sequence IS NULL
@@ -1536,12 +2130,12 @@ public class TrustedOrangePiRuntimeFactService {
                     now,
                     tenantId,
                     organizationId,
-                    deployment.deploymentId(),
+                    asset.assetId(),
                     portId,
                     event.sequence());
         }
         jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET safety_projection_edge_event_id = ?,
                             safety_projection_edge_event_type =
                                 'SAFETY_SENSOR_STATE_CHANGED',
@@ -1551,7 +2145,7 @@ public class TrustedOrangePiRuntimeFactService {
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND (
                               safety_projection_sequence IS NULL
                               OR safety_projection_sequence < ?
@@ -1563,10 +2157,10 @@ public class TrustedOrangePiRuntimeFactService {
                 now,
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 event.sequence());
         refreshSafetyProjection(
-                deployment.deploymentId(),
+                asset.assetId(),
                 tenantId,
                 organizationId,
                 now);
@@ -1574,7 +2168,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private void applyConfirmationReceipt(
             ParsedEvent event,
-            DeploymentTarget deployment) {
+            AssetTarget asset) {
         JsonNode receipt = event.payload();
         String confirmationUid = requiredText(
                 receipt, "confirmationUid");
@@ -1590,7 +2184,7 @@ public class TrustedOrangePiRuntimeFactService {
                           AND task.target_type =
                               'BUSINESS_CONFIRMATION'
                           AND task.target_stable_key = ?
-                          AND task.source_device_deployment_id = ?
+                          AND task.source_device_asset_id = ?
                           AND task.source_device_command_id IS NULL
                         FOR UPDATE
                         """,
@@ -1598,7 +2192,7 @@ public class TrustedOrangePiRuntimeFactService {
                         rs.getString("state"),
                         rs.getString("semantic_payload")),
                 confirmationUid,
-                deployment.deploymentId());
+                asset.assetId());
         if (rows.size() != 1) {
             throw new UntrustedInboxSourceException(
                     "confirmation receipt target is not authoritative");
@@ -1629,7 +2223,7 @@ public class TrustedOrangePiRuntimeFactService {
     }
 
     private void refreshSafetyProjection(
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId,
             LocalDateTime now) {
@@ -1638,20 +2232,20 @@ public class TrustedOrangePiRuntimeFactService {
                         FROM dev_device_fault_event
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND status = 'OPEN'
                           AND impact_level = 'SAFETY_BLOCKING'
                         """,
                 Integer.class,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         Integer businessFaults = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_device_fault_event
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND status = 'OPEN'
                           AND impact_level = 'BUSINESS_BLOCKING'
                           AND fault_code <> 'INITIAL_COMMISSIONING'
@@ -1659,31 +2253,31 @@ public class TrustedOrangePiRuntimeFactService {
                 Integer.class,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         Integer safetyPorts = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_port_runtime_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND safety_status = 'SAFETY_BLOCKED'
                         """,
                 Integer.class,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         Integer blockedPorts = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_port_runtime_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND safety_status = 'OPERATION_BLOCKED'
                         """,
                 Integer.class,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         String status = positive(safetyFaults)
                 || positive(safetyPorts)
                 ? "SAFETY_BLOCKED"
@@ -1692,26 +2286,26 @@ public class TrustedOrangePiRuntimeFactService {
                 ? "OPERATION_BLOCKED"
                 : "SAFE";
         requireSingle(jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET safety_status = ?,
                             last_device_event_at = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         """,
                 status,
                 now,
                 now,
                 tenantId,
                 organizationId,
-                deploymentId),
+                assetId),
                 "refresh Orange Pi safety projection");
     }
 
     private Map<Integer, Long> loadPortIds(
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         Map<Integer, Long> result = new HashMap<>();
@@ -1720,7 +2314,7 @@ public class TrustedOrangePiRuntimeFactService {
                         FROM dev_port
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         """,
                 rs -> {
                     result.put(
@@ -1729,13 +2323,13 @@ public class TrustedOrangePiRuntimeFactService {
                 },
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         return result;
     }
 
     private Long resolvePortId(
             JsonNode payload,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         Long portNo = nullableLong(payload, "portNo");
@@ -1747,17 +2341,17 @@ public class TrustedOrangePiRuntimeFactService {
                         FROM dev_port
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_no = ?
                         """,
                 (rs, ignored) -> rs.getLong("id"),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 portNo);
         if (rows.size() != 1) {
             throw new UntrustedInboxSourceException(
-                    "event port is not part of the deployment");
+                    "event port is not part of the asset");
         }
         return rows.getFirst();
     }
@@ -1765,7 +2359,7 @@ public class TrustedOrangePiRuntimeFactService {
     private List<FaultRow> loadFault(String faultUid) {
         return jdbc.query("""
                         SELECT
-                            id, deployment_id, port_id,
+                            id, asset_id, port_id,
                             component_type, fault_code,
                             impact_level, status
                         FROM dev_device_fault_event
@@ -1774,7 +2368,7 @@ public class TrustedOrangePiRuntimeFactService {
                         """,
                 (rs, ignored) -> new FaultRow(
                         rs.getLong("id"),
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         nullableDatabaseLong(rs, "port_id"),
                         rs.getString("component_type"),
                         rs.getString("fault_code"),
@@ -1787,7 +2381,7 @@ public class TrustedOrangePiRuntimeFactService {
             String faultUid) {
         return jdbc.query("""
                         SELECT
-                            source_edge_event_id, deployment_id,
+                            source_edge_event_id, asset_id,
                             port_id, component_type, fault_code,
                             impact_level
                         FROM dev_fault_recovery_observation
@@ -1795,7 +2389,7 @@ public class TrustedOrangePiRuntimeFactService {
                         """,
                 (rs, ignored) -> new RecoveryObservation(
                         rs.getLong("source_edge_event_id"),
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         nullableDatabaseLong(rs, "port_id"),
                         rs.getString("component_type"),
                         rs.getString("fault_code"),
@@ -1805,11 +2399,11 @@ public class TrustedOrangePiRuntimeFactService {
 
     private static boolean sameFaultIdentity(
             FaultRow row,
-            long deploymentId,
+            long assetId,
             Long portId,
             String component,
             String faultCode) {
-        return row.deploymentId() == deploymentId
+        return row.assetId() == assetId
                 && java.util.Objects.equals(row.portId(), portId)
                 && row.component().equals(component)
                 && row.faultCode().equals(faultCode);
@@ -1840,7 +2434,7 @@ public class TrustedOrangePiRuntimeFactService {
         JsonNode target = requiredObject(event, "target");
         String eventType = requiredText(event, "eventType");
         if (!expectedKind.equals(eventType)
-                || event.path("schemaVersion").asInt() != 1) {
+                || event.path("schemaVersion").asInt() != 2) {
             throw new IllegalArgumentException(
                     "trusted Orange Pi envelope constants differ");
         }
@@ -1858,6 +2452,8 @@ public class TrustedOrangePiRuntimeFactService {
                         ? "BUSINESS_CONFIRMATION"
                         : "DEVICE_COMMAND_OBSERVED".equals(eventType)
                         ? "DEVICE_COMMAND"
+                        : "BASELINE_MEASUREMENT_COMPLETE".equals(eventType)
+                        ? "BASELINE_MEASUREMENT"
                         : Set.of(
                                 "PHOTO_STATUS_REPORTED",
                                 "PHOTO_UPLOAD_GRANT_REQUESTED")
@@ -1865,19 +2461,17 @@ public class TrustedOrangePiRuntimeFactService {
                         ? requiredText(
                                 requiredObject(event, "payload"),
                                 "workType")
-                        : "DEVICE_DEPLOYMENT";
+                        : "DEVICE_ASSET";
         if (!expectedDelivery.equals(delivery)
                 || !expectedTarget.equals(targetType)) {
             throw new IllegalArgumentException(
                     "trusted Orange Pi envelope class differs");
         }
-        String deploymentCode = requiredText(
-                event, "deploymentCode");
-        if ("DEVICE_DEPLOYMENT".equals(targetType)
-                && !deploymentCode.equals(
-                requiredText(target, "uid"))) {
+        String trustedDeviceName = requiredText(source, "deviceName");
+        if ("DEVICE_ASSET".equals(targetType)
+                && !trustedDeviceName.equals(requiredText(target, "uid"))) {
             throw new IllegalArgumentException(
-                    "runtime target differs from deployment");
+                    "asset target differs from trusted OneNet device");
         }
         if (Set.of(
                 "PHOTO_STATUS_REPORTED",
@@ -1890,10 +2484,18 @@ public class TrustedOrangePiRuntimeFactService {
                         "photo target differs from payload");
             }
         }
+        if ("BASELINE_MEASUREMENT_COMPLETE".equals(eventType)) {
+            JsonNode payload = requiredObject(event, "payload");
+            if (!requiredText(payload, "measurementUid").equals(
+                    requiredText(target, "uid"))
+                    || nullableText(event, "commandUid") == null) {
+                throw new IllegalArgumentException(
+                        "baseline target differs from payload");
+            }
+        }
         return new ParsedEvent(
-                requiredText(source, "deviceName"),
+                trustedDeviceName,
                 requiredText(event, "eventUid"),
-                deploymentCode,
                 positiveLong(event, "edgeEventSequence"),
                 eventType,
                 delivery,
@@ -1911,7 +2513,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private static TrustedPhotoStatusFact photoStatusFact(
             ParsedEvent event,
-            DeploymentTarget deployment,
+            AssetTarget asset,
             long edgeEventId,
             long tenantId,
             long organizationId,
@@ -1959,7 +2561,7 @@ public class TrustedOrangePiRuntimeFactService {
         return new TrustedPhotoStatusFact(
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
+                asset.assetId(),
                 edgeEventId,
                 UUID.fromString(requiredText(payload, "workUid")),
                 workType,
@@ -2062,13 +2664,13 @@ public class TrustedOrangePiRuntimeFactService {
 
     private static byte[] faultKey(
             long tenantId,
-            long deploymentId,
+            long assetId,
             Long portId,
             String component,
             String faultCode) {
         return sha256(
                 tenantId + "\0"
-                        + deploymentId + "\0"
+                        + assetId + "\0"
                         + (portId == null ? "-" : portId) + "\0"
                         + component + "\0"
                         + faultCode);
@@ -2095,24 +2697,24 @@ public class TrustedOrangePiRuntimeFactService {
     }
 
     private void touchLastDeviceEvent(
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId,
             LocalDateTime now) {
         requireSingle(jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET last_device_event_at = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         """,
                 now,
                 now,
                 tenantId,
                 organizationId,
-                deploymentId),
+                assetId),
                 "touch older Orange Pi event");
     }
 
@@ -2304,7 +2906,6 @@ public class TrustedOrangePiRuntimeFactService {
     private record ParsedEvent(
             String hardwareSn,
             String eventUid,
-            String deploymentCode,
             long sequence,
             String eventType,
             String deliveryClass,
@@ -2318,13 +2919,7 @@ public class TrustedOrangePiRuntimeFactService {
             JsonNode payload) {
     }
 
-    private record DeploymentTarget(
-            long assetId,
-            long deploymentId,
-            int portCount) {
-    }
-
-    private record LockedAsset(
+    private record AssetTarget(
             long assetId,
             int portCount) {
     }
@@ -2355,7 +2950,7 @@ public class TrustedOrangePiRuntimeFactService {
 
     private record FaultRow(
             long id,
-            long deploymentId,
+            long assetId,
             Long portId,
             String component,
             String faultCode,
@@ -2365,18 +2960,18 @@ public class TrustedOrangePiRuntimeFactService {
 
     private record RecoveryObservation(
             long edgeEventId,
-            long deploymentId,
+            long assetId,
             Long portId,
             String component,
             String faultCode,
             String impact) {
 
         private boolean matches(
-                long expectedDeploymentId,
+                long expectedAssetId,
                 Long expectedPortId,
                 String expectedComponent,
                 String expectedFaultCode) {
-            return deploymentId == expectedDeploymentId
+            return assetId == expectedAssetId
                     && java.util.Objects.equals(
                     portId, expectedPortId)
                     && component.equals(expectedComponent)
@@ -2408,6 +3003,60 @@ public class TrustedOrangePiRuntimeFactService {
     private record CommandObservationResult(
             String effectKind,
             boolean conflict) {
+    }
+
+    private record BaselineTarget(
+            long measurementId,
+            String measurementStatus,
+            long capacityVersionSnapshot,
+            byte[] ruleFingerprint,
+            long portId,
+            int portNo,
+            long bagId,
+            String bagUid,
+            long configurationId,
+            long versionNo,
+            String contentSha256,
+            String mcuPayloadSha256,
+            long snapshotId,
+            long calibrationVersion,
+            long capacityVersion,
+            Long currentBagId,
+            Long currentDetectionId,
+            Long appliedVersionNo,
+            String appliedContentSha256,
+            String appliedMcuPayloadSha256,
+            long commandId,
+            String commandState,
+            long factoryBagId) {
+    }
+
+    private record BaselineMeasurementFact(
+            String measurementUid,
+            String status,
+            boolean weightValueAvailable,
+            Long reportedWeightGrams,
+            String weightValueKind,
+            long elapsedMs,
+            long sampleCount,
+            long calibrationVersion,
+            String sensorHealth,
+            String faultCode,
+            long mcuBootId,
+            long mcuEventSequence) {
+    }
+
+    private record NormalizedBaselineMeasurement(
+            String measurementUid,
+            String status,
+            Long weightGrams,
+            long elapsedMs,
+            long sampleCount,
+            long calibrationVersion,
+            String sensorHealth,
+            String faultCode,
+            long mcuBootId,
+            long mcuEventSequence) {
     }
 
     private record FaultApplyResult(

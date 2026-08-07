@@ -11,9 +11,9 @@ import java.util.Map;
 public final class EcobinCanonicalJson {
     public static final long SAFE_INTEGER_MAX = 9_007_199_254_740_991L;
     private static final byte[] COMMAND_DOMAIN =
-        domain("ECOBIN:ONENET:COMMAND:v1");
+        domain("ECOBIN:ONENET:COMMAND:v2");
     private static final byte[] EVENT_DOMAIN =
-        domain("ECOBIN:ONENET:EVENT:v1");
+        domain("ECOBIN:ONENET:EVENT:v2");
 
     private EcobinCanonicalJson() {}
 
@@ -36,7 +36,7 @@ public final class EcobinCanonicalJson {
 
     public static Map<String, Object> commandProjection(Map<String, Object> command) {
         String[] fields = {
-            "schemaVersion", "commandUid", "commandType", "deploymentCode",
+            "schemaVersion", "commandUid", "commandType", "targetDeviceName",
             "target", "issuedAt", "expiresAt", "payloadSchemaVersion",
             "payloadSha256"
         };
@@ -65,7 +65,7 @@ public final class EcobinCanonicalJson {
             throw new IllegalArgumentException("trusted OneNet source is required");
         }
         String[] fields = {
-            "schemaVersion", "eventUid", "deploymentCode", "edgeEventSequence",
+            "schemaVersion", "eventUid", "edgeEventSequence",
             "eventType", "deliveryClass", "target", "commandUid", "occurredAt",
             "clockQuality", "payloadSha256"
         };

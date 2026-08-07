@@ -45,6 +45,7 @@ public class TrustedConfigurationProgressService
     private final ReliableEdgeConfirmationService confirmationService;
     private final TrustedInboxQuarantinePort quarantinePort;
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
+    private final AutomaticDeviceActivationService activationService;
 
     public TrustedConfigurationProgressService(
             JdbcTemplate jdbc,
@@ -52,20 +53,22 @@ public class TrustedConfigurationProgressService
             ReliableDeviceTaskProofPort taskProofPort,
             ReliableEdgeConfirmationService confirmationService,
             TrustedInboxQuarantinePort quarantinePort,
-            TrustedOrganizationInboxRefFactory inboxRefFactory) {
+            TrustedOrganizationInboxRefFactory inboxRefFactory,
+            AutomaticDeviceActivationService activationService) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.taskProofPort = taskProofPort;
         this.confirmationService = confirmationService;
         this.quarantinePort = quarantinePort;
         this.inboxRefFactory = inboxRefFactory;
+        this.activationService = activationService;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public TrustedDeviceEventApplyResult apply(
             TrustedDeviceInboxEvent inboxEvent) {
         if (!MESSAGE_KIND.equals(inboxEvent.messageKind())
-                || inboxEvent.normalizedSchemaVersion() != 1) {
+                || inboxEvent.normalizedSchemaVersion() != 2) {
             throw new IllegalArgumentException(
                     "unsupported trusted device inbox message");
         }
@@ -94,31 +97,31 @@ public class TrustedConfigurationProgressService
         List<ExistingEvent> collisions = jdbc.query("""
                         SELECT
                             event_uid,
-                            deployment_id,
+                            asset_id,
                             edge_event_sequence,
                             LOWER(HEX(canonical_sha256)) AS canonical_sha256,
                             source_inbox_id
                         FROM dev_edge_event
                         WHERE event_uid = ?
                            OR (
-                                deployment_id = ?
+                                asset_id = ?
                                 AND edge_event_sequence = ?
                            )
                         """,
                 (rs, ignored) -> new ExistingEvent(
                         rs.getString("event_uid"),
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         rs.getLong("edge_event_sequence"),
                         rs.getString("canonical_sha256"),
                         rs.getLong("source_inbox_id")),
                 event.eventUid(),
-                target.deploymentId(),
+                target.assetId(),
                 event.edgeEventSequence());
         if (!collisions.isEmpty()) {
             if (collisions.size() == 1
                     && collisions.getFirst().matches(
                             event,
-                            target.deploymentId(),
+                            target.assetId(),
                             inboxKey)) {
                 return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
             }
@@ -134,8 +137,7 @@ public class TrustedConfigurationProgressService
             confirmationService.registerQuarantined(
                     tenantKey,
                     organizationKey,
-                    target.deploymentId(),
-                    event.deploymentCode(),
+                    target.assetId(),
                     event.eventUid(),
                     event.payloadSha256(),
                     "EVENT_IDENTITY_CONFLICT",
@@ -156,6 +158,11 @@ public class TrustedConfigurationProgressService
         mergeApplication(event, target, now);
         mergeCommand(event, target, now);
         mergeRuntime(event, target, now);
+        if ("APPLIED".equals(event.stage())) {
+            activationService.reconcileInCurrentTransaction(
+                    target.assetId(),
+                    UUID.fromString(event.eventUid()));
+        }
         if ("APPLIED".equals(event.stage())
                 || "FAILED".equals(event.stage())) {
             taskProofPort.completeFromTrustedProof(
@@ -166,8 +173,7 @@ public class TrustedConfigurationProgressService
         confirmationService.registerApplied(
                 tenantKey,
                 organizationKey,
-                target.deploymentId(),
-                event.deploymentCode(),
+                target.assetId(),
                 event.eventUid(),
                 event.payloadSha256(),
                 "UPDATED",
@@ -200,7 +206,7 @@ public class TrustedConfigurationProgressService
                 organizationKey);
         List<ConfigurationTarget> rows = jdbc.query("""
                         SELECT
-                            deployment.id AS deployment_id,
+                            asset.id AS asset_id,
                             application.id AS application_id,
                             application.status AS application_status,
                             version.version_no,
@@ -211,37 +217,34 @@ public class TrustedConfigurationProgressService
                             command_row.id AS command_id,
                             command_row.physical_state AS command_state
                         FROM dev_device_asset asset
-                        JOIN dev_device_deployment deployment
-                          ON deployment.asset_id = asset.id
                         JOIN dev_config_application application
-                          ON application.deployment_id = deployment.id
-                         AND application.tenant_id = deployment.tenant_id
+                          ON application.asset_id = asset.id
+                         AND application.tenant_id = asset.tenant_id
                          AND application.organization_id =
-                             deployment.organization_id
+                             asset.organization_id
                         JOIN dev_config_version version
                           ON version.id = application.config_version_id
-                         AND version.deployment_id = deployment.id
-                         AND version.tenant_id = deployment.tenant_id
+                         AND version.asset_id = asset.id
+                         AND version.tenant_id = asset.tenant_id
                          AND version.organization_id =
-                             deployment.organization_id
+                             asset.organization_id
                         JOIN dev_device_command command_row
                           ON command_row.config_application_id =
                              application.id
-                         AND command_row.deployment_id = deployment.id
-                         AND command_row.tenant_id = deployment.tenant_id
+                         AND command_row.asset_id = asset.id
+                         AND command_row.tenant_id = asset.tenant_id
                          AND command_row.organization_id =
-                             deployment.organization_id
+                             asset.organization_id
                         WHERE asset.hardware_sn = ?
-                          AND deployment.public_code = ?
-                          AND deployment.tenant_id = ?
-                          AND deployment.organization_id = ?
+                          AND asset.tenant_id = ?
+                          AND asset.organization_id = ?
                           AND application.application_uid = ?
                           AND command_row.command_uid = ?
                           AND command_row.command_type =
                               'APPLY_CONFIGURATION'
                         """,
                 (rs, ignored) -> new ConfigurationTarget(
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         rs.getLong("application_id"),
                         rs.getString("application_status"),
                         rs.getLong("version_no"),
@@ -250,7 +253,6 @@ public class TrustedConfigurationProgressService
                         rs.getLong("command_id"),
                         rs.getString("command_state")),
                 event.hardwareSn(),
-                event.deploymentCode(),
                 tenantKey,
                 organizationKey,
                 event.applicationUid(),
@@ -322,7 +324,7 @@ public class TrustedConfigurationProgressService
         int inserted = jdbc.update("""
                         INSERT INTO dev_edge_event (
                             event_uid, tenant_id, organization_id,
-                            deployment_id, edge_event_sequence,
+                            asset_id, edge_event_sequence,
                             event_type, delivery_class, schema_version,
                             target_type, target_stable_key_sha256,
                             device_occurred_at, clock_quality,
@@ -330,7 +332,7 @@ public class TrustedConfigurationProgressService
                             canonical_sha256, source_inbox_id, created_at
                         ) VALUES (
                             ?, ?, ?, ?, ?,
-                            'CONFIGURATION_PROGRESS', 'RELIABLE_FACT', 1,
+                            'CONFIGURATION_PROGRESS', 'RELIABLE_FACT', 2,
                             'CONFIGURATION_APPLICATION', ?,
                             ?, ?, ?, ?, ?, ?, ?
                         )
@@ -338,7 +340,7 @@ public class TrustedConfigurationProgressService
                 event.eventUid(),
                 tenantKey,
                 organizationKey,
-                target.deploymentId(),
+                target.assetId(),
                 event.edgeEventSequence(),
                 sha256(event.applicationUid()),
                 event.deviceOccurredAt(),
@@ -508,14 +510,14 @@ public class TrustedConfigurationProgressService
             LocalDateTime now) {
         if ("APPLIED".equals(event.stage())) {
             int updated = jdbc.update("""
-                            UPDATE dev_deployment_runtime_state
+                            UPDATE dev_device_runtime_state
                             SET applied_config_version_no = ?,
                                 applied_config_content_sha256 = ?,
                                 applied_mcu_payload_sha256 = ?,
                                 last_device_event_at = ?,
                                 lock_version = lock_version + 1,
                                 updated_at = ?
-                            WHERE deployment_id = ?
+                            WHERE asset_id = ?
                               AND (
                                   applied_config_version_no IS NULL
                                   OR applied_config_version_no <= ?
@@ -526,22 +528,22 @@ public class TrustedConfigurationProgressService
                     HexFormat.of().parseHex(event.mcuPayloadSha256()),
                     now,
                     now,
-                    target.deploymentId(),
+                    target.assetId(),
                     event.version());
             if (updated == 1) {
                 return;
             }
         }
         requireSingle(jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET last_device_event_at = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
-                        WHERE deployment_id = ?
+                        WHERE asset_id = ?
                         """,
                 now,
                 now,
-                target.deploymentId()),
+                target.assetId()),
                 "merge device event runtime timestamp");
     }
 
@@ -557,7 +559,7 @@ public class TrustedConfigurationProgressService
         requiredText(source, "productId", 128);
         int schemaVersion = Math.toIntExact(
                 requiredPositiveLong(event, "schemaVersion"));
-        if (schemaVersion != 1
+        if (schemaVersion != 2
                 || !"CONFIGURATION_PROGRESS".equals(
                         requiredText(event, "eventType", 48))
                 || !"RELIABLE_FACT".equals(
@@ -580,10 +582,6 @@ public class TrustedConfigurationProgressService
         }
         String commandUid = requiredPattern(
                 event, "commandUid", UUID_V4);
-        String deploymentCode = requiredPattern(
-                event,
-                "deploymentCode",
-                "^Dp_[A-Za-z0-9_-]{6,61}$");
         long sequence = requiredPositiveLong(
                 event, "edgeEventSequence");
         String clockQuality = requiredText(
@@ -601,7 +599,6 @@ public class TrustedConfigurationProgressService
         return new ConfigurationProgress(
                 hardwareSn,
                 eventUid,
-                deploymentCode,
                 sequence,
                 commandUid,
                 occurredAt,
@@ -742,7 +739,6 @@ public class TrustedConfigurationProgressService
     private record ConfigurationProgress(
             String hardwareSn,
             String eventUid,
-            String deploymentCode,
             long edgeEventSequence,
             String commandUid,
             LocalDateTime deviceOccurredAt,
@@ -759,7 +755,7 @@ public class TrustedConfigurationProgressService
     }
 
     private record ConfigurationTarget(
-            long deploymentId,
+            long assetId,
             long applicationId,
             String applicationStatus,
             long versionNo,
@@ -771,17 +767,17 @@ public class TrustedConfigurationProgressService
 
     private record ExistingEvent(
             String eventUid,
-            long deploymentId,
+            long assetId,
             long sequence,
             String canonicalSha256,
             long sourceInboxId) {
 
         private boolean matches(
                 ConfigurationProgress event,
-                long expectedDeploymentId,
+                long expectedAssetId,
                 long expectedInboxId) {
             return eventUid.equals(event.eventUid())
-                    && deploymentId == expectedDeploymentId
+                    && assetId == expectedAssetId
                     && sequence == event.edgeEventSequence()
                     && canonicalSha256.equals(event.canonicalSha256())
                     && sourceInboxId == expectedInboxId;

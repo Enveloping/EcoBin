@@ -91,6 +91,7 @@ rec_port_capacity_state
 fund_payout_gate（仅涉及创建、提交或 NOT_ENOUGH 时）
 → fund_organization_withdraw_config_head（仅发布或创建提现时）
 → fund_miniapp_merchant_binding（仅涉及渠道就绪时）
+→ fund_wechat_transfer_authorization（授权申请/归并、创建提现或提交微信时）
 → fund_user_wallet
 → fund_organization_wallet_entry_counter（仅产生用户钱包明细时）
 → fund_active_withdrawal
@@ -106,9 +107,10 @@ fund_payout_gate（仅涉及创建、提交或 NOT_ENOUGH 时）
 | 用例 | 锁序与同一事务结果 |
 |---|---|
 | 投递初审/纠错 | 外层 recycling 协调器先锁 `rec_organization_delivery_config_head` 取得资金变动线性化时的当前停投阈值，再锁 `rec_delivery_order` 并计算确定性差额；差额非 0 时按 `wallet → organization wallet-entry counter → active withdrawal → withdrawal order` 进入资金链，把当前阈值作为受信参数传给 funds，分配钱包内及机构可见序号、追加唯一钱包明细、更新余额，并在新余额达到该当前阈值时锁存 `MANUAL_RECOVERY_REQUIRED` 及阈值快照，同时完成负余额提现暂停/风险或恢复联动。订单冻结阈值只保留历史解释，不参与本次锁存判定；funds 无需也不得反向读取 recycling。普通正向明细不能清除已经锁存的停投闸。差额为 0 时只追加修订和更新订单当前认定，不取得资金锁、不消耗任一序号、不制造资金明细。已经锁住钱包后不得再取得平台闸门或配置 head。 |
-| 创建提现 | `gate → withdrawal config head → miniapp-merchant binding → wallet → organization wallet-entry counter → organization account`；锁 head 后固化当前配置并复核渠道就绪，钱包锁保护活动槽缺失，同一事务创建提现单、活动槽和双方 `FREEZE` 明细并更新双方投影。若外键要求先插入提现单再插入槽位，这是钱包根保护下的合法构造顺序，不允许其他路径绕过“已有槽位先于提现单”的读取锁序。 |
+| 授权申请/归并 | 申请按身份前缀后进入 `miniapp-merchant binding → transfer authorization`，当前授权槽保证同一商户号、AppID、OpenID、场景最多一个未关闭授权；提交本地请求和唯一可靠任务后才调用微信。响应、通知和查单从同一绑定/授权锁根追加观察并归并，身份冲突进入 `UNKNOWN` 和对账异常。授权进入 `CLOSED/EXPIRED/UNKNOWN` 时，若当前活动提现引用该授权且尚无转账行，则继续按 `wallet → organization wallet-entry counter → active slot → withdrawal order → organization account` 原子渠道前终止和双侧释放；已经越过渠道边界的提现/转账只继续原单收敛。 |
+| 创建提现 | `gate → withdrawal config head → miniapp-merchant binding → current transfer authorization → wallet → organization wallet-entry counter → organization account`；锁 head 后固化当前配置，复核渠道就绪和授权 `ACTIVE`，并把授权记录、商户授权单号和微信授权单号写入提现快照。钱包锁保护活动槽缺失，同一事务创建提现单、活动槽和双方 `FREEZE` 明细并更新双方投影。若外键要求先插入提现单再插入槽位，这是钱包根保护下的合法构造顺序，不允许其他路径绕过“已有槽位先于提现单”的读取锁序。 |
 | 审核或渠道前终止 | 先普通读取不可变钱包/账户 ID，再按 `wallet → organization wallet-entry counter（仅释放时） → active slot → withdrawal order → organization account` 加锁。审核通过不产生钱包明细，因此跳过计数器，只追加决定、推进 `READY_TO_SUBMIT` 并建立唯一任务；驳回和严格渠道前终止原子分配序号、释放双方冻结并删除槽位。新流程不提供用户取消。 |
-| 提交微信 | `gate → miniapp-merchant binding → wallet → active slot → withdrawal order → organization account → transfer`；该步不产生钱包明细，跳过配置 head 和机构钱包计数器，使用提现既有快照并复核当前渠道关系；短事务只固化唯一 `out_bill_no`、请求快照和不可本地取消的渠道边界，提交后才调用微信。 |
+| 提交微信 | `gate → miniapp-merchant binding → current transfer authorization → wallet → organization wallet-entry counter（仅授权失效释放时） → active slot → withdrawal order → organization account → transfer`；使用提现既有快照并复核当前渠道关系及同一授权仍为 `ACTIVE`。授权失效且无转账行时原子推进渠道前终止、释放双方冻结并删除槽位；授权有效时不产生钱包明细，短事务固化唯一 `out_bill_no`、授权后转账请求快照和不可本地取消的渠道边界，提交后才调用微信。 |
 | 微信终态归并 | 普通读取转账单的不可变关联后，从 `wallet → organization wallet-entry counter` 开始按主链加锁；同一事务追加观察、更新渠道投影、写双方唯一 `FINAL` 明细、更新账户投影、推进提现终态并删除活动槽。 |
 | `NOT_ENOUGH` | 必须先锁 gate，再按完整主链归并当前观察和暂停事件；不释放当前或其他提现的任何冻结，不修改其他机构账本。 |
 | 充值成功第一段 | `recharge order → wechat payment`；保存可信支付观察、推进 `PAID_PENDING_POST` 并建立唯一净额入账任务，不修改机构额度。 |
@@ -199,6 +201,8 @@ fund_payout_gate（仅涉及创建、提交或 NOT_ENOUGH 时）
 | 43 | 提交响应、回调、主动查单和资金账单重复或乱序到达，且 `SUCCESS` 与 `CANCELLED/FAIL` 冲突 | 所有来源追加各自 observation，但只有首个可信终态完成一次双方 `FINAL` 结算并删除活动槽；相反终态不覆盖、不再次动账，只生成对账异常。未知状态不按失败处理。 |
 | 44 | 多笔转账同时返回 `NOT_ENOUGH`、平台恢复与新提现创建/旧任务提交并发 | 当前暂停事件唯一，重复不足只聚合告警；暂停期间新提现不建单、待提交任务不外调，既有渠道单继续归并。恢复只命中精确事件和版本，提交后旧原单与新请求都重新从 gate 锁根判断。 |
 | 45 | 机构 AppID 改动、商户绑定验证/禁用、充值创建和提现提交并发 | 绑定验证必须引用当前小程序版本；AppID 变化使旧绑定失效。充值或提现只有在事务复核当前 `VERIFIED` 关系时成立/提交，客户端自报 AppID 或旧验证不能穿透。 |
+| 45A | 同一用户在同一商户/AppID/OpenID/场景下并发发起两次授权，且创建响应、通知和主动查单乱序 | 当前授权槽最多保留一个未关闭授权；幂等重试复用原 `out_authorization_no`。所有来源只追加观察，只有身份逐项一致的 `TAKING_EFFECT/CLOSED` 推进投影。旧终态收到相反证据且已有新当前行时，旧行只标记冲突、新当前行进入 `UNKNOWN`；没有新当前行时旧行进入 `UNKNOWN` 占槽。两种情况都建立对账异常并阻止新提现。 |
+| 45B | 授权关闭或 AppID/OpenID 变化与创建提现、提交微信并发 | `binding → authorization` 锁给出唯一提交顺序：关闭/变化先提交则不得创建新提现；创建先提交但尚无转账行的原单在关闭归并或提交复核时渠道前终止并原子释放，不能改挂新授权；提交边界先提交则原转账按固定快照继续收敛，授权关闭不能回退或释放其冻结。 |
 | 46 | 两名平台管理员用同一版本恢复一个 `BLOCKED` 任务，同时 worker 或迟到可信证据尝试唤醒 | 最多一个人工版本动作成功；始终只有原 `task_uid/task_key` 和原外部业务 ID，`wake_version` 单调且新证据不会丢失。人工事务不修改领域事实，后来执行仍按当前事实收敛。 |
 | 47 | 两名平台管理员并发确认同一隔离项，或重复提交相同请求 | 只有一个 `OPEN -> ACKNOWLEDGED` 状态迁移和对应成功审计；另一方得到幂等结果或版本冲突，不创建 inbox、任务、订单、用户或资金事实。 |
 | 48 | 人员确认告警与来源重复发现、真实恢复同时交错 | 确认和解决互不覆盖：重复发现可继续更新活动告警，只有来源恢复能关闭；任何顺序都不改变来源领域状态。恢复后同类新事件创建新告警，不重新打开旧行。 |

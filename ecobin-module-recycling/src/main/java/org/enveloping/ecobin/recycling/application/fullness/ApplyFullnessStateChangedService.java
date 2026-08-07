@@ -98,7 +98,7 @@ public class ApplyFullnessStateChangedService
                             FROM rec_delivery_order
                             WHERE tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND port_id = ?
                               AND delivery_session_id = ?
                             FOR UPDATE
@@ -110,7 +110,7 @@ public class ApplyFullnessStateChangedService
                             rs.getLong("bag_id")),
                     facts.tenantId(),
                     facts.organizationId(),
-                    facts.deploymentId(),
+                    facts.assetId(),
                     facts.portId(),
                     facts.sourceDeliverySessionId());
             if (rows.size() != 1) {
@@ -125,7 +125,7 @@ public class ApplyFullnessStateChangedService
                         FROM rec_clean_operation operation
                         WHERE operation.tenant_id = ?
                           AND operation.organization_id = ?
-                          AND operation.deployment_id = ?
+                          AND operation.asset_id = ?
                           AND operation.port_id = ?
                           AND operation.operation_uid = ?
                           AND operation.status = 'COMPLETED'
@@ -139,7 +139,7 @@ public class ApplyFullnessStateChangedService
                         rs.getLong("new_bag_id")),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 physical.sourceWorkUid().toString());
         if (rows.size() != 1) {
@@ -185,7 +185,7 @@ public class ApplyFullnessStateChangedService
         jdbc.update("""
                         INSERT INTO rec_port_capacity_state (
                             port_id, tenant_id, organization_id,
-                            deployment_id,
+                            asset_id,
                             baseline_state, current_baseline_id,
                             current_baseline_weight_g,
                             latest_stable_total_weight_g,
@@ -215,7 +215,7 @@ public class ApplyFullnessStateChangedService
                 facts.portId(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 baseline.id() == null ? "UNINITIALIZED" : "VALID",
                 baseline.id(),
                 baseline.weightGrams(),
@@ -229,14 +229,14 @@ public class ApplyFullnessStateChangedService
                         FROM rec_port_capacity_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> capacity(rs),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId());
         if (rows.size() != 1) {
             throw new IllegalStateException(
@@ -278,7 +278,7 @@ public class ApplyFullnessStateChangedService
                         INSERT INTO rec_fullness_state_change (
                             state_change_uid,
                             tenant_id, organization_id,
-                            deployment_id, port_id,
+                            asset_id, port_id,
                             bag_id, reported_bag_uid,
                             device_state_fact_id, edge_event_id,
                             edge_event_sequence,
@@ -295,7 +295,7 @@ public class ApplyFullnessStateChangedService
                 physical.stateChangeUid().toString(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 source.bagId(),
                 physical.bagUid().toString(),
@@ -362,7 +362,7 @@ public class ApplyFullnessStateChangedService
                             updated_at = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                           AND lock_version = ?
                         """,
@@ -378,7 +378,7 @@ public class ApplyFullnessStateChangedService
                 facts.backendReceivedAt(),
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.portId(),
                 capacity.lockVersion()),
                 "project current-bag fullness state");

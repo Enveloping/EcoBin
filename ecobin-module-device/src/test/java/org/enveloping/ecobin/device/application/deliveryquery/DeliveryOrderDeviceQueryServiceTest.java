@@ -93,7 +93,7 @@ class DeliveryOrderDeviceQueryServiceTest {
                                 402L,
                                 EVENT_UID,
                                 SESSION_UID,
-                                "Dp_wrong_1",
+                                "Dv_9999999999abcdefghijklmn",
                                 6),
                         new DeliveryOrderDeviceQueryRepository
                                 .ResolvedFactRow(
@@ -103,7 +103,7 @@ class DeliveryOrderDeviceQueryServiceTest {
                                 401L,
                                 EVENT_UID,
                                 SESSION_UID,
-                                "Dp_demo_01",
+                                "Dv_0123456789abcdefghijklmn",
                                 2)));
 
         var result = service.facts(factsRef);
@@ -111,13 +111,13 @@ class DeliveryOrderDeviceQueryServiceTest {
         assertThat(result).hasSize(2);
         assertThat(result.get(0).token()).isEqualTo("row-1");
         assertThat(result.get(0).resolved()).isTrue();
-        assertThat(result.get(0).deploymentCode())
-                .isEqualTo("Dp_demo_01");
+        assertThat(result.get(0).deviceCode())
+                .isEqualTo("Dv_0123456789abcdefghijklmn");
         assertThat(result.get(1).token()).isEqualTo("row-2");
         assertThat(result.get(1).resolved()).isFalse();
         assertThat(result.get(1).eventUid()).isNull();
         assertThat(result.get(1).sessionUid()).isNull();
-        assertThat(result.get(1).deploymentCode()).isNull();
+        assertThat(result.get(1).deviceCode()).isNull();
         assertThat(result.get(1).portNo()).isNull();
     }
 
@@ -162,13 +162,13 @@ class DeliveryOrderDeviceQueryServiceTest {
     @Test
     void filterResolvesInsideIdentityScopeAndReturnsOpaqueKeys() {
         answerScopeRef();
-        when(repository.resolveDeploymentFilter(
+        when(repository.resolveAssetFilter(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 2)).thenReturn(Optional.of(
                         new DeliveryOrderDeviceQueryRepository
-                                .DeploymentFilterKeyRow(101L, 201L)));
+                                .AssetFilterKeyRow(101L, 201L)));
         when(queryRefFactory.issueOrderFilter(
                 TENANT_ID,
                 ORGANIZATION_ID,
@@ -177,32 +177,32 @@ class DeliveryOrderDeviceQueryServiceTest {
 
         var result = service.resolveFilter(
                 new DeliveryOrderDeviceFilterQuery(
-                        "Dp_demo_01",
+                        "Dv_0123456789abcdefghijklmn",
                         2,
                         scopeRef));
 
         assertThat(result).containsSame(filterRef);
-        verify(repository).resolveDeploymentFilter(
+        verify(repository).resolveAssetFilter(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 2);
     }
 
     @Test
     void missingRequestedPortReturnsEmptyWithoutIssuingRawKeys() {
         answerScopeRef();
-        when(repository.resolveDeploymentFilter(
+        when(repository.resolveAssetFilter(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 2)).thenReturn(Optional.of(
                         new DeliveryOrderDeviceQueryRepository
-                                .DeploymentFilterKeyRow(101L, null)));
+                                .AssetFilterKeyRow(101L, null)));
 
         var result = service.resolveFilter(
                 new DeliveryOrderDeviceFilterQuery(
-                        "Dp_demo_01",
+                        "Dv_0123456789abcdefghijklmn",
                         2,
                         scopeRef));
 
@@ -215,15 +215,15 @@ class DeliveryOrderDeviceQueryServiceTest {
     }
 
     @Test
-    void deploymentOnlyFilterIssuesAnEmptyPortKeySet() {
+    void assetOnlyFilterIssuesAnEmptyPortKeySet() {
         answerScopeRef();
-        when(repository.resolveDeploymentFilter(
+        when(repository.resolveAssetFilter(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 null)).thenReturn(Optional.of(
                         new DeliveryOrderDeviceQueryRepository
-                                .DeploymentFilterKeyRow(101L, null)));
+                                .AssetFilterKeyRow(101L, null)));
         when(queryRefFactory.issueOrderFilter(
                 TENANT_ID,
                 ORGANIZATION_ID,
@@ -232,7 +232,7 @@ class DeliveryOrderDeviceQueryServiceTest {
 
         var result = service.resolveFilter(
                 new DeliveryOrderDeviceFilterQuery(
-                        "Dp_demo_01",
+                        "Dv_0123456789abcdefghijklmn",
                         null,
                         scopeRef));
 
@@ -266,18 +266,18 @@ class DeliveryOrderDeviceQueryServiceTest {
     }
 
     @Test
-    void invalidDeploymentCodeStillConsumesScopeButDoesNotQuery() {
+    void invalidDeviceCodeStillConsumesScopeButDoesNotQuery() {
         answerScopeRef();
 
         var result = service.resolveFilter(
                 new DeliveryOrderDeviceFilterQuery(
-                        "not-a-deployment",
+                        "not-a-device-code",
                         null,
                         scopeRef));
 
         assertThat(result).isEmpty();
         verify(scopeRef).withScopeOnce(any());
-        verify(repository, never()).resolveDeploymentFilter(
+        verify(repository, never()).resolveAssetFilter(
                 anyLong(),
                 anyLong(),
                 any(),
@@ -330,13 +330,13 @@ class DeliveryOrderDeviceQueryServiceTest {
 
     private static DeliveryOrderDeviceFactsRef.FactKey fact(
             String token,
-            long deploymentId,
+            long assetId,
             long portId,
             long sessionId,
             long resultId) {
         return new DeliveryOrderDeviceFactsRef.FactKey(
                 token,
-                deploymentId,
+                assetId,
                 portId,
                 sessionId,
                 resultId);

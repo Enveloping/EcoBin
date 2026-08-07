@@ -17,8 +17,8 @@ public final class MiniappModels {
     public record RegistrationSource(
             @NotBlank
             @Size(max = 64)
-            @Pattern(regexp = "^Dp_[A-Za-z0-9_-]{6,61}$")
-            String deploymentCode) {
+            @Pattern(regexp = "^Dv_[A-Za-z0-9_-]{24,61}$")
+            String deviceCode) {
     }
 
     public record MiniappLoginRequest(

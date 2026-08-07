@@ -6,6 +6,6 @@ import org.enveloping.ecobin.identity.api.persistence.ManagementScopePersistence
 public interface RecyclingDevicePortLookupPort {
     ResolvedRecyclingDevicePort requirePort(
             ManagementScopePersistenceRef scope,
-            String deploymentCode,
+            String deviceCode,
             int portNo);
 }

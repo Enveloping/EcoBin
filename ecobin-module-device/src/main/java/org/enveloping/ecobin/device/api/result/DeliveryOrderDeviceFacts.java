@@ -13,7 +13,7 @@ public record DeliveryOrderDeviceFacts(
         String token,
         UUID eventUid,
         UUID sessionUid,
-        String deploymentCode,
+        String deviceCode,
         Integer portNo) {
 
     public DeliveryOrderDeviceFacts {
@@ -23,11 +23,11 @@ public record DeliveryOrderDeviceFacts(
         }
         boolean allPresent = eventUid != null
                 && sessionUid != null
-                && deploymentCode != null
+                && deviceCode != null
                 && portNo != null;
         boolean allMissing = eventUid == null
                 && sessionUid == null
-                && deploymentCode == null
+                && deviceCode == null
                 && portNo == null;
         if (!allPresent && !allMissing) {
             throw new IllegalArgumentException(
@@ -35,11 +35,11 @@ public record DeliveryOrderDeviceFacts(
         }
         if (allPresent) {
             Objects.requireNonNull(
-                    deploymentCode,
-                    "deploymentCode");
-            if (deploymentCode.isBlank()) {
+                    deviceCode,
+                    "deviceCode");
+            if (deviceCode.isBlank()) {
                 throw new IllegalArgumentException(
-                        "deploymentCode must not be blank");
+                        "deviceCode must not be blank");
             }
             if (portNo < 1 || portNo > 6) {
                 throw new IllegalArgumentException(

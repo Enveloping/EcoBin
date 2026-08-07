@@ -63,7 +63,7 @@ function deliveryItem(
   return {
     deliveryOrderNo,
     organizationUserUid: deliveryUserUid,
-    deploymentCode: 'dp-hz-01',
+    deviceCode: 'Dv_0123456789abcdefghijklmn',
     portNo: 2,
     deviceOccurredAt: '2026-07-30T02:10:00.123Z',
     receivedAt: '2026-07-30T02:10:02.123Z',
@@ -89,7 +89,7 @@ function deliveryDetail(
     source: {
       eventUid: '40000000-0000-4000-8000-000000000042',
       sessionUid: '40000000-0000-4000-8000-000000000043',
-      deploymentCode: 'dp-hz-01',
+      deviceCode: 'Dv_0123456789abcdefghijklmn',
       portNo: 2,
       deviceOccurredAt: '2026-07-30T02:10:00.123Z',
       receivedAt: '2026-07-30T02:10:02.123Z',
@@ -675,7 +675,7 @@ test('organization-user commands reuse idempotency after a retryable failure', a
     phoneBound: true,
     registeredAt: '2026-07-20T03:20:00Z',
     registrationSource: {
-      deploymentCode: 'hz-box-07',
+      deviceCode: 'Dv_0123456789abcdefghijklmn',
       lifecycleStatus: 'ACTIVE',
     },
     status: 'ACTIVE',
@@ -2272,424 +2272,68 @@ test('staff table hides security versions and keeps access actions inside edit',
   await expect(page.getByText('机构任职', { exact: true })).toBeVisible();
 });
 
-test('device management consumes the organization deep link and target API', async ({
-  page,
-}) => {
-  const session = {
-    ...tenantSession,
-    capabilities: ['device.read'],
-    organizations: [{
-      organizationCode: 'org-b',
-      organizationName: '设备运营中心',
-    }],
-  };
-  let requestedOrganization = false;
-  let organizationDirectoryRequested = false;
-  const deployment = {
-    deploymentCode: 'dp-hz-01',
-    tenantCode: 'tenant-a',
-    organizationCode: 'org-b',
-    asset: {
-      hardwareSn: 'EC-BOX-0001',
-      modelCode: 'ECO-6P',
-      expectedPortCount: 6,
-      lifecycleStatus: 'IN_USE',
-      version: 2,
-    },
-    lifecycleStatus: 'ENABLED',
-    businessEnabled: true,
-    portCount: 6,
-    latestConfigurationVersion: 8,
-    appliedConfigurationVersion: 8,
-    configurationApplicationStatus: 'APPLIED',
-    edgeConnectionStatus: 'OFFLINE',
-    oneNetConnectionStatus: 'ONLINE',
-    oneNetStatusObservedAt: '2026-08-02T02:00:00.123Z',
-    trustedRuntimeReceivedAt: '2026-08-02T01:55:00.123Z',
-    version: 5,
-    commissionedAt: '2026-07-02T00:00:00Z',
-    enabledAt: '2026-07-03T00:00:00Z',
-    createdAt: '2026-07-01T00:00:00Z',
-    updatedAt: '2026-07-20T00:00:00Z',
-  };
-  const runtime = {
-    deploymentCode: deployment.deploymentCode,
-    lifecycleStatus: deployment.lifecycleStatus,
-    businessEnabled: deployment.businessEnabled,
-    deploymentVersion: deployment.version,
-    configuration: {
-      latestPublishedVersion: 8,
-      latestAppliedVersion: 8,
-      latestApplicationStatus: 'APPLIED',
-      latestPreciselyApplied: true,
-    },
-    health: {
-      edgeConnectionStatus: 'OFFLINE',
-      oneNetConnectionStatus: 'ONLINE',
-      oneNetStatusObservedAt: '2026-08-02T02:00:00.123Z',
-      trustedRuntimeReceivedAt: '2026-08-02T01:55:00.123Z',
-      mcuLinkStatus: 'ONLINE',
-      safetyStatus: 'SAFE',
-      aggregateWeightHealth: 'HEALTHY',
-      cameraHealth: 'HEALTHY',
-      localStorageHealth: 'HEALTHY',
-      clockSyncHealth: 'HEALTHY',
-      edgeSoftwareVersion: '1.0.0',
-      mcuFirmwareVersion: 'fixed-frame',
-      uartState: 'ONLINE',
-      uartProtocolMajor: 1,
-      uartProtocolMinor: 0,
-      capabilityBitmapHex: '01',
-      lastHeartbeatAt: '2026-08-02T01:55:00.123Z',
-      lastDeviceEventAt: '2026-08-02T01:55:00.123Z',
-      runtimeVersion: 9,
-    },
-    occupied: false,
-    deliveryAllowed: false,
-    cleaningAllowed: false,
-    deliveryBlockers: ['EDGE_OFFLINE'],
-    cleaningBlockers: ['EDGE_OFFLINE'],
-  };
-
-  await page.route('**/api/v1/**', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (
-      request.method() === 'GET'
-      && url.pathname === '/api/v1/web/auth/sessions/current'
-    ) {
-      await json(route, session);
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && url.pathname === '/api/v1/web/organizations'
-    ) {
-      organizationDirectoryRequested = true;
-      await route.fulfill(problem(403, 'SECURITY.FORBIDDEN', '没有机构目录权限'));
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && url.pathname
-        === '/api/v1/web/organizations/org-b/device-deployments'
-    ) {
-      requestedOrganization = true;
-      await json(route, {
-        items: [deployment],
-        page: 1,
-        pageSize: 20,
-        total: 1,
-      });
-      return;
-    }
-    const deploymentBase =
-      '/api/v1/web/organizations/org-b/device-deployments/dp-hz-01';
-    if (request.method() === 'GET' && url.pathname === deploymentBase) {
-      await json(route, deployment);
-      return;
-    }
-    if (request.method() === 'GET' && url.pathname === `${deploymentBase}/runtime`) {
-      await json(route, runtime);
-      return;
-    }
-    if (request.method() === 'GET' && url.pathname === `${deploymentBase}/ports`) {
-      await json(route, []);
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && url.pathname === `${deploymentBase}/configuration-versions`
-    ) {
-      await json(route, { items: [], nextBeforeVersionNo: null });
-      return;
-    }
-    await route.fulfill(problem(404));
-  });
-
-  await page.goto('/devices?organization=org-b');
-  await expect.poll(() => requestedOrganization).toBe(true);
-  expect(organizationDirectoryRequested).toBe(false);
-  await expect(page).toHaveURL(/organization=org-b/);
-  await expect(
-    page.getByText('设备运营中心 · org-b', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText('dp-hz-01', { exact: true })).toBeVisible();
-  await expect(page.getByText('EC-BOX-0001', { exact: true })).toBeVisible();
-  const deploymentRow = page.getByRole('row', { name: /dp-hz-01/ });
-  await expect(deploymentRow.getByText('在线', { exact: true })).toBeVisible();
-  await expect(deploymentRow.getByText('离线', { exact: true })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'OneNet 传输' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: '业务有效在线' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: '机构部署' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: '租户设备池' })).toHaveCount(0);
-  await expect(page.getByRole('tab', { name: '平台资产' })).toHaveCount(0);
-
-  await page.getByText('dp-hz-01', { exact: true }).click();
-  const drawer = page.locator('.ant-drawer').filter({ hasText: '设备接入' });
-  await expect(
-    drawer.getByText('OneNet 已连接，但业务运行事实不可用'),
-  ).toBeVisible();
-  await drawer.getByRole('tab', { name: '运行事实' }).click();
-  await expect(drawer.getByText('两层在线事实不能互相替代')).toBeVisible();
-  await expect(drawer.getByText('OneNet 状态观测时间')).toBeVisible();
-  await expect(drawer.getByText('可信运行事实时间')).toBeVisible();
-});
-
-test('staff with tenant allocation capability sees the tenant pool and deployment entry', async ({
-  page,
-}) => {
-  const allocationUid = '5a000000-0000-4000-8000-000000000001';
-  const session = {
-    ...tenantSession,
-    capabilities: ['device.read', 'device.allocation.manage'],
-    organizations: [
-      { organizationCode: 'org-a', organizationName: '东门站点' },
-      { organizationCode: 'org-b', organizationName: '城北站点' },
-    ],
-  };
-  const allocation = {
-    allocationUid,
-    tenantCode: 'tenant-a',
-    hardwareSn: 'SN-STAFF-POOL-01',
+function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
+  return {
+    assetUid: '51000000-0000-4000-8000-000000000001',
+    deviceCode: 'Dv_0123456789abcdefghijklmn',
+    hardwareSn: 'SN-PERMANENT-01',
     modelCode: 'ECOBIN-V1',
+    productionBatch: '2026-08',
     expectedPortCount: 1,
-    allocationStatus: 'ACTIVE',
-    assetLifecycleStatus: 'ALLOCATED',
-    allocationSource: 'PLATFORM_ASSIGNMENT',
-    currentDeploymentCode: null,
-    currentOrganizationCode: null,
-    credentialRotationRequired: false,
-    allocationVersion: 2,
-    assetVersion: 4,
-    allocatedAt: '2026-08-02T02:00:00.123Z',
-    endedAt: null,
-    endMode: null,
-    endReason: null,
-  };
-  let deploymentRequest: {
-    body: unknown;
-    idempotencyKey?: string;
-  } | undefined;
-
-  await page.route('**/api/v1/**', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.pathname.endsWith('/auth/csrf-token')) {
-      await json(route, {
-        token: 'csrf-staff-allocation',
-        headerName: 'X-CSRF-TOKEN',
-      });
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && url.pathname === '/api/v1/web/auth/sessions/current'
-    ) {
-      await json(route, session);
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && /^\/api\/v1\/web\/organizations\/[^/]+\/device-deployments$/.test(
-        url.pathname,
-      )
-    ) {
-      await json(route, { items: [], page: 1, pageSize: 20, total: 0 });
-      return;
-    }
-    if (
-      request.method() === 'POST'
-      && url.pathname === '/api/v1/web/organizations/org-b/device-deployments'
-    ) {
-      deploymentRequest = {
-        body: request.postDataJSON(),
-        idempotencyKey: request.headers()['idempotency-key'],
-      };
-      await json(route, {
-        deploymentCode: 'dp-staff-pool-01',
-        tenantCode: 'tenant-a',
-        organizationCode: 'org-b',
-      }, 201);
-      return;
-    }
-    if (
-      request.method() === 'GET'
-      && url.pathname === '/api/v1/web/device-asset-allocations'
-    ) {
-      await json(route, {
-        items: [allocation],
-        page: 1,
-        pageSize: 20,
-        total: 1,
-      });
-      return;
-    }
-    await route.fulfill(problem(404));
-  });
-
-  await page.goto('/devices');
-  const poolTab = page.getByRole('tab', { name: '租户设备池' });
-  await expect(poolTab).toBeVisible();
-  await poolTab.click();
-  await expect(page.getByText('SN-STAFF-POOL-01', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '部署到机构' }).click();
-
-  const deploymentDialog = page.getByRole('dialog', {
-    name: '从租户设备池部署到机构',
-  });
-  await expect(deploymentDialog).toBeVisible();
-  await expect(deploymentDialog.getByText('SN-STAFF-POOL-01')).toBeVisible();
-  await deploymentDialog.locator('.ant-select-selector').click();
-  await expect(
-    page.locator('.ant-select-dropdown:visible')
-      .getByText('城北站点 · org-b', { exact: true }),
-  ).toBeVisible();
-  await page.locator('.ant-select-dropdown:visible')
-    .getByText('城北站点 · org-b', { exact: true })
-    .click();
-  await deploymentDialog.getByRole('button', { name: '创建新部署' }).click();
-  await expect.poll(() => deploymentRequest).toEqual({
-    body: {
-      allocationUid,
-      expectedAllocationVersion: 2,
+    tenantCode: null,
+    organizationCode: null,
+    acceptanceStatus: 'PENDING',
+    miniappQrStatus: 'NOT_ASSIGNED',
+    lifecycleStatus: 'NORMAL',
+    version: 0,
+    tenantAssignedAt: null,
+    organizationAssignedAt: null,
+    acceptedAt: null,
+    disabledAt: null,
+    retiredAt: null,
+    createdAt: '2026-08-07T01:00:00.123Z',
+    updatedAt: '2026-08-07T01:00:00.123Z',
+    oneNetMapping: {
+      productId: 'onenet-product',
+      deviceName: 'SN-PERMANENT-01',
+      currentComputedValue: true,
     },
-    idempotencyKey: expect.any(String),
-  });
-});
+    ...overrides,
+  };
+}
 
-test('platform registers an asset and allocates it to a tenant without choosing an organization', async ({
+test('platform creates a real asset and writes its only tenant ownership', async ({
   page,
 }) => {
+  const hardwareSn = 'SN-PERMANENT-01';
   const tenantCode = 'tenant-device';
-  const organizationCode = 'org-device';
-  const hardwareSn = 'SN-WEB-ONBOARD-01';
-  const deploymentCode = 'dp-web-onboard-01';
-  const applicationUid = '50000000-0000-4000-8000-000000000001';
   const session = {
     ...platformSession,
-    capabilities: [
-      'device.read',
-      'device.manage',
-      'device.configuration.manage',
-    ],
+    capabilities: ['device.read', 'device.manage'],
   };
   const tenant = {
     tenantCode,
-    enterpriseName: '设备接入测试租户',
+    enterpriseName: '设备测试租户',
     status: 'ENABLED',
     contactName: '测试人员',
-    contactPhone: '138****0000',
-    contactAddress: '杭州市',
+    contactPhone: null,
+    contactAddress: null,
     version: 1,
     principalAccount: null,
-    createdAt: '2026-08-01T00:00:00.123Z',
-    updatedAt: '2026-08-01T00:00:00.123Z',
-  };
-  const organization = {
-    organizationCode,
-    organizationName: '设备接入中心',
-    contactPhone: '0571-80000000',
-    contactAddress: '杭州市滨江区',
-    status: 'ENABLED',
-    version: 1,
-    createdAt: '2026-08-01T00:00:00.123Z',
-    updatedAt: '2026-08-01T00:00:00.123Z',
+    createdAt: '2026-08-07T00:00:00.123Z',
+    updatedAt: '2026-08-07T00:00:00.123Z',
   };
   let asset: Record<string, unknown> | undefined;
-  let allocation: Record<string, unknown> | undefined;
-  let deployment: Record<string, any> | undefined;
-  let configurationPublished = false;
-  const mutationHeaders: string[] = [];
-  const mutationPayloads: Array<{ path: string; body: any }> = [];
+  let createRequest: { body: unknown; key?: string } | undefined;
+  let assignmentRequest: { body: unknown; key?: string } | undefined;
+  const legacyRequests: string[] = [];
 
-  const applicationSummary = () => ({
-    applicationUid,
-    status: 'APPLIED',
-    dispatchState: 'DONE',
-    version: 2,
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/device-deployments|device-asset-allocations|business-switch/.test(path)) {
+      legacyRequests.push(path);
+    }
   });
-  const configurationDevice = {
-    displayName: '新接入设备',
-    address: null,
-    longitude: null,
-    latitude: null,
-    edgeHeartbeatIntervalMs: 30000,
-    edgeHeartbeatMissThreshold: 3,
-    mcuHeartbeatIntervalMs: 5000,
-    mcuHeartbeatMissThreshold: 3,
-    doorCloseRetryLimit: 3,
-    continueDeliveryWaitMs: 30000,
-    negativeWeightThresholdGram: 500,
-  };
-  const configurationPort = {
-    portNo: 1,
-    displayName: '1 号投口',
-    enabled: true,
-    unitPriceYuanPerKg: '0.8000',
-    fullnessMode: 'INFRARED_OR_WEIGHT',
-    fullnessWeightKg: '50.00',
-    deliverySettleDelayMs: 3000,
-    fullnessInitialDelayMs: 3000,
-    fullnessRecheckDelayMs: 10000,
-    doorAutoCloseTimeoutMs: 60000,
-  };
-  const configurationVersion = () => ({
-    deploymentCode,
-    versionNo: 1,
-    schemaVersion: 1,
-    contentSha256: 'a'.repeat(64),
-    mcuPayloadSha256: 'b'.repeat(64),
-    device: configurationDevice,
-    ports: [configurationPort],
-    publicationSource: 'WEB',
-    publishedBy: '平台管理员',
-    publishedAt: '2026-08-01T01:00:00.123Z',
-    application: applicationSummary(),
-  });
-  const runtime = () => ({
-    deploymentCode,
-    lifecycleStatus: deployment?.lifecycleStatus ?? 'COMMISSIONING',
-    businessEnabled: deployment?.businessEnabled ?? false,
-    deploymentVersion: deployment?.version ?? 0,
-    configuration: {
-      latestPublishedVersion: configurationPublished ? 1 : null,
-      latestAppliedVersion: configurationPublished ? 1 : null,
-      latestApplicationStatus: configurationPublished ? 'APPLIED' : null,
-      latestPreciselyApplied: configurationPublished,
-    },
-    health: {
-      edgeConnectionStatus: 'ONLINE',
-      oneNetConnectionStatus: 'ONLINE',
-      oneNetStatusObservedAt: '2026-08-01T01:01:00.123Z',
-      trustedRuntimeReceivedAt: '2026-08-01T01:01:00.123Z',
-      mcuLinkStatus: 'ONLINE',
-      safetyStatus: 'SAFE',
-      aggregateWeightHealth: 'HEALTHY',
-      cameraHealth: 'HEALTHY',
-      localStorageHealth: 'HEALTHY',
-      clockSyncHealth: 'HEALTHY',
-      edgeSoftwareVersion: '1.0.0',
-      mcuFirmwareVersion: 'fixed-frame',
-      uartState: 'ONLINE',
-      uartProtocolMajor: 1,
-      uartProtocolMinor: 0,
-      capabilityBitmapHex: '01',
-      lastHeartbeatAt: '2026-08-01T01:01:00.123Z',
-      lastDeviceEventAt: '2026-08-01T01:01:00.123Z',
-      runtimeVersion: 3,
-    },
-    occupied: false,
-    deliveryAllowed: deployment?.businessEnabled === true,
-    cleaningAllowed: deployment?.businessEnabled === true,
-    deliveryBlockers: deployment?.businessEnabled
-      ? []
-      : ['BUSINESS_SWITCH_DISABLED'],
-    cleaningBlockers: deployment?.businessEnabled
-      ? []
-      : ['BUSINESS_SWITCH_DISABLED'],
-  });
-
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -2719,19 +2363,6 @@ test('platform registers an asset and allocates it to a tenant without choosing 
       await json(route, { items: [tenant], page: 1, pageSize: 200, total: 1 });
       return;
     }
-    if (
-      method === 'GET'
-      && url.pathname
-        === `/api/v1/web/platform/tenants/${tenantCode}/organizations`
-    ) {
-      await json(route, {
-        items: [organization],
-        page: 1,
-        pageSize: 200,
-        total: 1,
-      });
-      return;
-    }
     if (url.pathname === '/api/v1/web/platform/device-assets') {
       if (method === 'GET') {
         await json(route, {
@@ -2743,1204 +2374,193 @@ test('platform registers an asset and allocates it to a tenant without choosing 
         return;
       }
       if (method === 'POST') {
-        mutationHeaders.push(request.headers()['idempotency-key']);
-        mutationPayloads.push({ path: url.pathname, body: request.postDataJSON() });
-        const body = request.postDataJSON();
-        asset = {
-          ...body,
-          lifecycleStatus: 'IN_STOCK',
-          currentDeployment: null,
-          version: 0,
-          createdAt: '2026-08-01T00:10:00.123Z',
-          updatedAt: '2026-08-01T00:10:00.123Z',
-          oneNetMapping: {
-            productId: 'onenet-product',
-            deviceName: hardwareSn,
-            currentComputedValue: true,
-          },
+        createRequest = {
+          body: request.postDataJSON(),
+          key: request.headers()['idempotency-key'],
         };
+        asset = permanentDeviceAsset();
         await json(route, asset, 201);
         return;
       }
     }
     if (
-      url.pathname === `/api/v1/web/platform/device-assets/${hardwareSn}`
-      && method === 'GET'
+      method === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/acceptance-evidence`
     ) {
-      await json(route, asset);
+      await json(route, []);
       return;
     }
     if (
-      url.pathname === '/api/v1/web/platform/device-asset-allocations'
-      && method === 'GET'
+      method === 'POST'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/tenant-assignments`
     ) {
-      await json(route, {
-        items: allocation ? [allocation] : [],
-        page: 1,
-        pageSize: 200,
-        total: allocation ? 1 : 0,
-      });
-      return;
-    }
-    if (
-      url.pathname
-        === `/api/v1/web/platform/tenants/${tenantCode}/device-asset-allocations`
-      && method === 'POST'
-    ) {
-      mutationHeaders.push(request.headers()['idempotency-key']);
-      mutationPayloads.push({ path: url.pathname, body: request.postDataJSON() });
-      allocation = {
-        allocationUid: '60000000-0000-4000-8000-000000000001',
+      assignmentRequest = {
+        body: request.postDataJSON(),
+        key: request.headers()['idempotency-key'],
+      };
+      asset = permanentDeviceAsset({
         tenantCode,
-        hardwareSn,
-        modelCode: 'ECOBIN-V1',
-        expectedPortCount: 1,
-        allocationStatus: 'ACTIVE',
-        assetLifecycleStatus: 'ALLOCATED',
-        allocationSource: 'PLATFORM_ASSIGNMENT',
-        currentDeploymentCode: null,
-        currentOrganizationCode: null,
-        credentialRotationRequired: false,
-        allocationVersion: 0,
-        assetVersion: 1,
-        allocatedAt: '2026-08-01T00:15:00.123Z',
-        endedAt: null,
-        endMode: null,
-        endReason: null,
-      };
-      asset = { ...asset, lifecycleStatus: 'ALLOCATED', version: 1 };
-      await json(route, allocation, 201);
-      return;
-    }
-    const deploymentBase =
-      `/api/v1/web/platform/tenants/${tenantCode}`
-      + `/organizations/${organizationCode}/device-deployments`;
-    if (url.pathname === deploymentBase) {
-      if (method === 'GET') {
-        await json(route, {
-          items: deployment ? [deployment] : [],
-          page: 1,
-          pageSize: 20,
-          total: deployment ? 1 : 0,
-        });
-        return;
-      }
-    }
-    if (url.pathname === `${deploymentBase}/${deploymentCode}` && method === 'GET') {
-      await json(route, deployment);
-      return;
-    }
-    if (
-      url.pathname === `${deploymentBase}/${deploymentCode}/runtime`
-      && method === 'GET'
-    ) {
-      await json(route, runtime());
-      return;
-    }
-    if (
-      url.pathname === `${deploymentBase}/${deploymentCode}/ports`
-      && method === 'GET'
-    ) {
-      await json(route, [{
-        portNo: 1,
-        displayName: configurationPublished ? '1 号投口' : null,
-        enabled: configurationPublished ? true : null,
-        unitPriceYuanPerKg: configurationPublished ? '0.8000' : null,
-        fullnessMode: configurationPublished ? 'INFRARED_OR_WEIGHT' : null,
-        configurationVersion: configurationPublished ? 1 : null,
-      }]);
-      return;
-    }
-    if (
-      url.pathname === `${deploymentBase}/${deploymentCode}/configuration-versions`
-      && method === 'GET'
-    ) {
-      await json(route, {
-        items: configurationPublished ? [{
-          versionNo: 1,
-          contentSha256: 'a'.repeat(64),
-          mcuPayloadSha256: 'b'.repeat(64),
-          deviceDisplayName: '新接入设备',
-          publicationSource: 'WEB',
-          publishedBy: '平台管理员',
-          publishedAt: '2026-08-01T01:00:00.123Z',
-          application: applicationSummary(),
-        }] : [],
-        nextBeforeVersionNo: null,
+        version: 1,
+        tenantAssignedAt: '2026-08-07T01:05:00.123Z',
+        miniappQrStatus: 'PENDING',
+        updatedAt: '2026-08-07T01:05:00.123Z',
       });
-      return;
-    }
-    if (
-      url.pathname
-        === `${deploymentBase}/${deploymentCode}/configuration-versions/1`
-      && method === 'GET'
-    ) {
-      await json(route, configurationVersion());
-      return;
-    }
-    const applicationPath =
-      `${deploymentBase}/${deploymentCode}`
-      + `/configuration-applications/${applicationUid}`;
-    if (url.pathname === applicationPath && method === 'GET') {
-      await json(route, {
-        applicationUid,
-        versionNo: 1,
-        contentSha256: 'a'.repeat(64),
-        mcuPayloadSha256: 'b'.repeat(64),
-        status: 'APPLIED',
-        version: 2,
-        latestDesired: true,
-        superseded: false,
-        deviceReportedVersionNo: 1,
-        deviceReportedContentSha256: 'a'.repeat(64),
-        deviceReportedMcuPayloadSha256: 'b'.repeat(64),
-        edgePersistedAt: '2026-08-01T01:00:02.123Z',
-        mcuSyncedAt: '2026-08-01T01:00:03.123Z',
-        appliedAt: '2026-08-01T01:00:03.123Z',
-        lastFailureCode: null,
-        lastFailedAt: null,
-        dispatchState: 'DONE',
-        recommendedPollAfterMs: null,
-        nextActions: [],
-      });
-      return;
-    }
-    if (
-      url.pathname === `${deploymentBase}/${deploymentCode}/configuration-releases`
-      && method === 'POST'
-    ) {
-      mutationHeaders.push(request.headers()['idempotency-key']);
-      mutationPayloads.push({ path: url.pathname, body: request.postDataJSON() });
-      configurationPublished = true;
-      deployment = {
-        ...deployment,
-        latestConfigurationVersion: 1,
-        appliedConfigurationVersion: 1,
-        configurationApplicationStatus: 'APPLIED',
-      };
-      const accepted = {
-        operationId: request.headers()['idempotency-key'],
-        resourceId: applicationUid,
-        applicationUid,
-        versionNo: 1,
-        contentSha256: 'a'.repeat(64),
-        mcuPayloadSha256: 'b'.repeat(64),
-        status: 'PENDING',
-        dispatchState: 'PENDING',
-        statusUrl: applicationPath,
-        recommendedPollAfterMs: 1000,
-      };
-      await route.fulfill({
-        status: 202,
-        contentType: 'application/json',
-        headers: { Location: applicationPath },
-        body: JSON.stringify(envelope(accepted)),
-      });
+      await json(route, asset);
       return;
     }
     await route.fulfill(problem(404));
   });
 
   await page.goto('/devices');
-  await expect(page.getByRole('tab', { name: '平台资产' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: '租户分配' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: '机构部署' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: '租户设备池' })).toHaveCount(0);
-  await page.getByRole('button', { name: '登记硬件' }).click();
-  const assetDialog = page.getByRole('dialog', { name: '登记平台物理设备' });
-  await assetDialog.getByPlaceholder('例如 SN-001').fill(hardwareSn);
-  await assetDialog.getByPlaceholder('例如 ECOBIN-V1').fill('ECOBIN-V1');
-  await assetDialog.getByPlaceholder('可选，例如 2026-08').fill('2026-08');
-  await assetDialog.getByRole('spinbutton').fill('1');
-  await assetDialog.getByRole('button', { name: '确认登记' }).click();
-  const assetDrawer = page.locator('.ant-drawer').filter({
-    hasText: '平台资产详情',
-  });
-  await expect(assetDrawer.getByText(hardwareSn, { exact: true }).first()).toBeVisible();
-  await assetDrawer.getByRole('button', { name: '分配给租户' }).click();
-  const allocationDialog = page.getByRole('dialog', { name: '分配给租户' });
-  await allocationDialog.getByLabel('目标租户').click();
-  await page.locator('.ant-select-dropdown:visible')
-    .getByText('设备接入测试租户 · tenant-device', { exact: true })
-    .click();
-  await allocationDialog.getByLabel('分配原因').fill('投放到试点租户设备池');
-  await allocationDialog.getByRole('button', { name: '提交分配' }).click();
-  await expect(assetDrawer.getByText('已分配租户', { exact: true })).toBeVisible();
-  await expect(assetDrawer.getByText(tenantCode, { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('永久设备资产', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('永久归属 · 自动验收 · 联网即用', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '登记真实设备' }).click();
+  const createDialog = page.getByRole('dialog', { name: '登记真实设备资产' });
+  await createDialog.locator('.ant-form-item')
+    .filter({ hasText: '硬件 SN / OneNet 设备名' })
+    .locator('input')
+    .fill(hardwareSn);
+  await createDialog.locator('.ant-form-item')
+    .filter({ hasText: '设备型号' })
+    .locator('input')
+    .fill('ECOBIN-V1');
+  await createDialog.locator('.ant-form-item')
+    .filter({ hasText: '生产批次' })
+    .locator('input')
+    .fill('2026-08');
+  await createDialog.locator('.ant-form-item')
+    .filter({ hasText: '1 号投口厂家初始袋码' })
+    .locator('input')
+    .fill('BAG-FACTORY-0001');
+  await createDialog.getByRole('button', { name: '创建资产' }).click();
 
-  expect(mutationHeaders).toHaveLength(2);
-  expect(mutationHeaders.every(Boolean)).toBe(true);
-  expect(mutationPayloads[1].body).toEqual({
-    hardwareSn,
-    expectedAssetVersion: 0,
-    reason: '投放到试点租户设备池',
+  await expect.poll(() => createRequest).toEqual({
+    body: {
+      hardwareSn,
+      modelCode: 'ECOBIN-V1',
+      productionBatch: '2026-08',
+      expectedPortCount: 1,
+      factoryBags: [{ portNo: 1, bagCode: 'BAG-FACTORY-0001' }],
+    },
+    key: expect.any(String),
   });
+  const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
+  await expect(drawer.getByText('真实设备联网后会自动提交验收证据')).toBeVisible();
+  await drawer.getByRole('button', { name: '永久分配租户' }).click();
+  const assignmentDialog = page.getByRole('dialog', { name: '永久分配租户' });
+  await assignmentDialog.getByLabel('目标租户').click();
+  await page.locator('.ant-select-dropdown:visible')
+    .getByText('设备测试租户 · tenant-device', { exact: true })
+    .click();
+  await assignmentDialog.getByRole('button', { name: '确认永久归属' }).click();
+
+  await expect.poll(() => assignmentRequest).toEqual({
+    body: { tenantCode, expectedVersion: 0 },
+    key: expect.any(String),
+  });
+  await expect(drawer.getByText(tenantCode, { exact: true })).toBeVisible();
+  expect(legacyRequests).toEqual([]);
 });
 
-test('platform handles reclaim blockers, maintenance clearance and cross-tenant credential rotation', async ({
+test('tenant writes the only organization ownership without deployment progress', async ({
   page,
 }) => {
-  const hardwareSn = 'SN-RECLAIM-01';
-  const allocationUid = '61000000-0000-4000-8000-000000000001';
-  const tenantA = 'tenant-a';
-  const tenantB = 'tenant-b';
-  let assetVersion = 7;
-  let lifecycleStatus = 'ALLOCATED';
-  let allocationStatus = 'ACTIVE';
-  let allocationTenant = tenantA;
-  let allocationVersion = 3;
-  let normalReclaimAttempts = 0;
-  let clearanceAttempts = 0;
-  let targetAllocationAttempts = 0;
-  const mutations: Array<{ path: string; body: any; key?: string }> = [];
+  const hardwareSn = 'SN-PERMANENT-02';
+  const deviceCode = 'Dv_abcdefghijklmnopqrstuvwx';
   const session = {
-    ...platformSession,
-    capabilities: ['device.read', 'device.manage'],
+    ...tenantSession,
+    accountType: 'TENANT_PRINCIPAL',
+    capabilities: ['device.read', 'device.assignment.manage'],
+    organizations: [
+      { organizationCode: 'org-a', organizationName: '东门站点' },
+      { organizationCode: 'org-b', organizationName: '城北站点' },
+    ],
   };
-  const tenants = [tenantA, tenantB].map((tenantCode, index) => ({
-    tenantCode,
-    enterpriseName: index === 0 ? '原租户' : '目标租户',
-    status: 'ENABLED',
-    contactPhone: null,
-    contactAddress: null,
-    version: 1,
-    principalAccount: null,
-    createdAt: '2026-08-01T00:00:00.123Z',
-    updatedAt: '2026-08-01T00:00:00.123Z',
-  }));
-  const asset = () => ({
+  let asset = permanentDeviceAsset({
+    assetUid: '51000000-0000-4000-8000-000000000002',
+    deviceCode,
     hardwareSn,
-    modelCode: 'ECOBIN-V1',
-    productionBatch: '2026-08',
-    expectedPortCount: 2,
-    lifecycleStatus,
-    currentDeployment: null,
-    version: assetVersion,
-    createdAt: '2026-08-01T00:00:00.123Z',
-    updatedAt: '2026-08-01T01:00:00.123Z',
+    tenantCode: 'tenant-a',
+    acceptanceStatus: 'PASSED',
+    miniappQrStatus: 'PENDING',
+    version: 1,
+    tenantAssignedAt: '2026-08-07T01:10:00.123Z',
+    acceptedAt: '2026-08-07T01:09:00.123Z',
     oneNetMapping: {
       productId: 'onenet-product',
       deviceName: hardwareSn,
       currentComputedValue: true,
     },
   });
-  const allocation = () => ({
-    allocationUid,
-    tenantCode: allocationTenant,
-    hardwareSn,
-    modelCode: 'ECOBIN-V1',
-    expectedPortCount: 2,
-    allocationStatus,
-    assetLifecycleStatus: lifecycleStatus,
-    allocationSource: 'PLATFORM_ASSIGNMENT',
-    currentDeploymentCode: null,
-    currentOrganizationCode: null,
-    credentialRotationRequired: false,
-    allocationVersion,
-    assetVersion,
-    allocatedAt: '2026-08-01T00:10:00.123Z',
-    endedAt: allocationStatus === 'ENDED'
-      ? '2026-08-01T01:10:00.123Z'
-      : null,
-    endMode: allocationStatus === 'ENDED' ? 'EXCEPTIONAL' : null,
-    endReason: allocationStatus === 'ENDED' ? '设备故障，平台取回检查' : null,
-  });
+  let assignmentRequest: { body: unknown; key?: string } | undefined;
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const method = request.method();
     if (url.pathname.endsWith('/auth/csrf-token')) {
-      await json(route, { token: 'csrf-reclaim', headerName: 'X-CSRF-TOKEN' });
-      return;
-    }
-    if (method === 'GET' && url.pathname === '/api/v1/web/auth/sessions/current') {
-      await route.fulfill(problem(401));
+      await json(route, { token: 'csrf-tenant-device', headerName: 'X-CSRF-TOKEN' });
       return;
     }
     if (
-      method === 'GET'
-      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
-    ) {
-      await json(route, session);
-      return;
-    }
-    if (method === 'GET' && url.pathname === '/api/v1/web/platform/tenants') {
-      await json(route, { items: tenants, page: 1, pageSize: 200, total: 2 });
-      return;
-    }
-    if (
-      method === 'GET'
-      && /^\/api\/v1\/web\/platform\/tenants\/[^/]+\/organizations$/.test(
-        url.pathname,
-      )
-    ) {
-      await json(route, { items: [], page: 1, pageSize: 200, total: 0 });
-      return;
-    }
-    if (url.pathname === '/api/v1/web/platform/device-assets' && method === 'GET') {
-      await json(route, { items: [asset()], page: 1, pageSize: 20, total: 1 });
-      return;
-    }
-    if (
-      url.pathname === `/api/v1/web/platform/device-assets/${hardwareSn}`
-      && method === 'GET'
-    ) {
-      await json(route, asset());
-      return;
-    }
-    if (
-      url.pathname === '/api/v1/web/platform/device-asset-allocations'
-      && method === 'GET'
-    ) {
-      await json(route, {
-        items: allocationStatus === 'ACTIVE' || allocationStatus === 'ENDED'
-          ? [allocation()]
-          : [],
-        page: 1,
-        pageSize: 200,
-        total: 1,
-      });
-      return;
-    }
-    if (
-      url.pathname
-        === `/api/v1/web/platform/device-asset-allocations/${allocationUid}/reclaims`
-      && method === 'POST'
-    ) {
-      const body = request.postDataJSON();
-      mutations.push({
-        path: url.pathname,
-        body,
-        key: request.headers()['idempotency-key'],
-      });
-      if (body.mode === 'NORMAL') {
-        normalReclaimAttempts += 1;
-        if (normalReclaimAttempts === 1) {
-          await route.fulfill({
-            status: 503,
-            contentType: 'application/problem+json',
-            body: JSON.stringify({
-              code: 'COMMON.SERVICE_UNAVAILABLE',
-              message: '设备服务暂时不可用，请重试',
-              requestId: 'req-reclaim-retry',
-              retryable: true,
-              details: {},
-            }),
-          });
-          return;
-        }
-        await route.fulfill({
-          status: 422,
-          contentType: 'application/problem+json',
-          body: JSON.stringify({
-            code: 'DEVICE.ALLOCATION_NOT_NORMALLY_RECLAIMABLE',
-            message: '当前运行事实不允许正常收回',
-            requestId: 'req-reclaim-blocked',
-            retryable: false,
-            details: {
-              blockers: ['BUSINESS_STILL_ENABLED', 'PENDING_RELIABLE_EVENTS'],
-            },
-          }),
-        });
-        return;
-      }
-      lifecycleStatus = 'MAINTENANCE';
-      allocationStatus = 'ENDED';
-      allocationVersion += 1;
-      assetVersion += 1;
-      await json(route, allocation());
-      return;
-    }
-    if (
-      url.pathname
-        === `/api/v1/web/platform/device-assets/${hardwareSn}/maintenance-clearances`
-      && method === 'POST'
-    ) {
-      clearanceAttempts += 1;
-      mutations.push({
-        path: url.pathname,
-        body: request.postDataJSON(),
-        key: request.headers()['idempotency-key'],
-      });
-      if (clearanceAttempts === 1) {
-        assetVersion += 1;
-        await route.fulfill({
-          status: 409,
-          contentType: 'application/problem+json',
-          body: JSON.stringify({
-            code: 'COMMON.VERSION_CONFLICT',
-            message: '资产版本已变化',
-            requestId: 'req-clearance-conflict',
-            retryable: false,
-            details: {},
-          }),
-        });
-        return;
-      }
-      lifecycleStatus = 'IN_STOCK';
-      assetVersion += 1;
-      await json(route, allocation());
-      return;
-    }
-    if (
-      url.pathname
-        === `/api/v1/web/platform/tenants/${tenantB}/device-asset-allocations`
-      && method === 'POST'
-    ) {
-      targetAllocationAttempts += 1;
-      mutations.push({
-        path: url.pathname,
-        body: request.postDataJSON(),
-        key: request.headers()['idempotency-key'],
-      });
-      if (targetAllocationAttempts === 1) {
-        await route.fulfill({
-          status: 422,
-          contentType: 'application/problem+json',
-          body: JSON.stringify({
-            code: 'DEVICE.CREDENTIAL_ROTATION_REQUIRED',
-            message: '跨租户重新分配前必须轮换 OneNet Device Key',
-            requestId: 'req-rotation-required',
-            retryable: false,
-            details: { blockers: ['ONENET_CREDENTIAL_ROTATION_REQUIRED'] },
-          }),
-        });
-        return;
-      }
-      allocationTenant = tenantB;
-      allocationStatus = 'ACTIVE';
-      allocationVersion += 1;
-      lifecycleStatus = 'ALLOCATED';
-      assetVersion += 1;
-      await json(route, allocation(), 201);
-      return;
-    }
-    if (
-      url.pathname
-        === `/api/v1/web/platform/device-assets/${hardwareSn}/onenet-credential-rotation-confirmations`
-      && method === 'POST'
-    ) {
-      mutations.push({
-        path: url.pathname,
-        body: request.postDataJSON(),
-        key: request.headers()['idempotency-key'],
-      });
-      assetVersion += 1;
-      await json(route, {
-        hardwareSn,
-        confirmedAt: '2026-08-01T01:20:00.123Z',
-        assetVersion,
-      });
-      return;
-    }
-    await route.fulfill(problem(404, 'COMMON.NOT_FOUND', '接口不存在'));
-  });
-
-  await page.goto('/devices');
-  await page.getByRole('button', { name: '详情' }).click();
-  const drawer = page.getByRole('dialog', { name: /平台资产详情/ });
-  await drawer.getByRole('button', { name: '正常 / 异常收回' }).click();
-  const reclaimDialog = page.getByRole('dialog', { name: '平台收回设备' });
-  await reclaimDialog.getByRole('checkbox', {
-    name: '我确认设备实物已由平台收回',
-  }).check();
-  await reclaimDialog.getByLabel('收回原因').fill('经营结束后正常回收');
-  await reclaimDialog.getByRole('button', { name: '确认收回' }).click();
-  await expect(reclaimDialog.getByText(/设备服务暂时不可用，请重试/)).toBeVisible();
-  await reclaimDialog.getByRole('button', { name: '确认收回' }).click();
-  await expect(reclaimDialog.getByText('经营开关尚未关闭')).toBeVisible();
-  await expect(reclaimDialog.getByText('设备还有待上传的可靠事件')).toBeVisible();
-  expect(normalReclaimAttempts).toBe(2);
-  expect(mutations[0].key).toBe(mutations[1].key);
-
-  await reclaimDialog.locator('.ant-select-selector').click();
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option')
-    .filter({ hasText: '异常收回（进维修隔离）' })
-    .click();
-  await reclaimDialog.getByLabel('收回原因').fill('设备故障，平台取回检查');
-  await reclaimDialog.getByRole('button', { name: '确认收回' }).click();
-  await expect(drawer.getByText('维修隔离', { exact: true }).first()).toBeVisible();
-  await drawer.getByRole('button', { name: '解除维修隔离' }).click();
-  let clearanceDialog = page.getByRole('dialog', { name: '解除维修隔离' });
-  await clearanceDialog.getByRole('checkbox', {
-    name: '设备实物已在平台手中',
-  }).check();
-  await clearanceDialog.getByRole('checkbox', {
-    name: '维修检查已通过，可重新入库',
-  }).check();
-  await clearanceDialog.getByLabel('解除原因').fill('更换主板后复检通过');
-  await clearanceDialog.getByRole('button', { name: '确认解除' }).click();
-  await expect(page.getByText('资产或分配状态已更新，已刷新详情，请重新确认')).toBeVisible();
-  await expect(clearanceDialog).toHaveCount(0);
-  await drawer.getByRole('button', { name: '解除维修隔离' }).click();
-  clearanceDialog = page.getByRole('dialog', { name: '解除维修隔离' });
-  await expect(clearanceDialog.getByRole('checkbox', {
-    name: '设备实物已在平台手中',
-  })).not.toBeChecked();
-  await clearanceDialog.getByRole('checkbox', {
-    name: '设备实物已在平台手中',
-  }).check();
-  await clearanceDialog.getByRole('checkbox', {
-    name: '维修检查已通过，可重新入库',
-  }).check();
-  await clearanceDialog.getByLabel('解除原因').fill('更换主板后复检通过');
-  await clearanceDialog.getByRole('button', { name: '确认解除' }).click();
-  await expect(drawer.getByText('平台库存', { exact: true }).first()).toBeVisible();
-
-  await drawer.getByRole('button', { name: '分配给租户' }).click();
-  const allocationDialog = page.getByRole('dialog', { name: '分配给租户' });
-  await allocationDialog.getByLabel('目标租户').click();
-  await page.locator('.ant-select-dropdown:visible')
-    .getByText('目标租户 · tenant-b', { exact: true })
-    .click();
-  await allocationDialog.getByLabel('分配原因').fill('调拨到目标租户');
-  await allocationDialog.getByRole('button', { name: '提交分配' }).click();
-  await expect(allocationDialog.getByText(/线下更换 Device Key/)).toBeVisible();
-  await allocationDialog.getByRole('button', {
-    name: '确认已轮换 Device Key',
-  }).click();
-  await expect(page.getByText('已记录密钥轮换确认，请重新提交租户分配')).toBeVisible();
-  await allocationDialog.getByRole('button', { name: '提交分配' }).click();
-  await expect(drawer.getByText(tenantB, { exact: true }).first()).toBeVisible();
-
-  expect(mutations.every((mutation) => Boolean(mutation.key))).toBe(true);
-  expect(mutations.map((mutation) => mutation.body)).toEqual([
-    {
-      expectedAllocationVersion: 3,
-      expectedAssetVersion: 7,
-      mode: 'NORMAL',
-      physicalPossessionConfirmed: true,
-      reason: '经营结束后正常回收',
-    },
-    {
-      expectedAllocationVersion: 3,
-      expectedAssetVersion: 7,
-      mode: 'NORMAL',
-      physicalPossessionConfirmed: true,
-      reason: '经营结束后正常回收',
-    },
-    {
-      expectedAllocationVersion: 3,
-      expectedAssetVersion: 7,
-      mode: 'EXCEPTIONAL',
-      physicalPossessionConfirmed: true,
-      reason: '设备故障，平台取回检查',
-    },
-    {
-      expectedAssetVersion: 8,
-      physicalPossessionConfirmed: true,
-      inspectionConfirmed: true,
-      reason: '更换主板后复检通过',
-    },
-    {
-      expectedAssetVersion: 9,
-      physicalPossessionConfirmed: true,
-      inspectionConfirmed: true,
-      reason: '更换主板后复检通过',
-    },
-    {
-      hardwareSn,
-      expectedAssetVersion: 10,
-      reason: '调拨到目标租户',
-    },
-    {
-      expectedAssetVersion: 10,
-      reason: '调拨到目标租户',
-    },
-    {
-      hardwareSn,
-      expectedAssetVersion: 11,
-      reason: '调拨到目标租户',
-    },
-  ]);
-});
-
-test('tenant closes business, returns a deployment to the pool, then creates a new deployment', async ({
-  page,
-}) => {
-  const hardwareSn = 'SN-TRANSFER-01';
-  const allocationUid = '70000000-0000-4000-8000-000000000001';
-  const tenantCode = 'tenant-a';
-  const orgA = 'org-a';
-  const orgB = 'org-b';
-  const oldDeploymentCode = 'dp-org-a-01';
-  const newDeploymentCode = 'dp-org-b-01';
-  let allocationVersion = 1;
-  let currentOrganization: string | null = orgA;
-  let currentDeployment: string | null = oldDeploymentCode;
-  let businessEnabled = true;
-  let oldDeploymentVersion = 3;
-  let newDeploymentCreated = false;
-  const mutations: Array<{ path: string; body: any; key?: string }> = [];
-  const session = {
-    ...tenantSession,
-    accountType: 'TENANT_PRINCIPAL',
-    tenantCode,
-    capabilities: [
-      'device.read',
-      'device.configuration.manage',
-      'device.allocation.manage',
-      'device.business.manage',
-    ],
-    organizations: [
-      { organizationCode: orgA, organizationName: '东门站点' },
-      { organizationCode: orgB, organizationName: '城北站点' },
-    ],
-  };
-  const allocation = () => ({
-    allocationUid,
-    tenantCode,
-    hardwareSn,
-    modelCode: 'ECOBIN-V1',
-    expectedPortCount: 1,
-    allocationStatus: 'ACTIVE',
-    assetLifecycleStatus: currentDeployment ? 'IN_USE' : 'ALLOCATED',
-    allocationSource: 'PLATFORM_ASSIGNMENT',
-    currentDeploymentCode: currentDeployment,
-    currentOrganizationCode: currentOrganization,
-    credentialRotationRequired: false,
-    allocationVersion,
-    assetVersion: 5,
-    allocatedAt: '2026-08-01T00:00:00.123Z',
-    endedAt: null,
-    endMode: null,
-    endReason: null,
-  });
-  const deployment = (organizationCode: string, deploymentCode: string) => ({
-    deploymentCode,
-    tenantCode,
-    organizationCode,
-    asset: {
-      hardwareSn,
-      modelCode: 'ECOBIN-V1',
-      expectedPortCount: 1,
-      lifecycleStatus: 'IN_USE',
-      version: 5,
-    },
-    lifecycleStatus: deploymentCode === oldDeploymentCode
-      ? (currentDeployment === oldDeploymentCode ? 'ENABLED' : 'ENDED')
-      : 'COMMISSIONING',
-    businessEnabled: deploymentCode === oldDeploymentCode
-      ? businessEnabled
-      : false,
-    portCount: 1,
-    latestConfigurationVersion: null,
-    appliedConfigurationVersion: null,
-    configurationApplicationStatus: null,
-    edgeConnectionStatus: 'ONLINE',
-    oneNetConnectionStatus: 'ONLINE',
-    oneNetStatusObservedAt: '2026-08-01T01:01:00.123Z',
-    trustedRuntimeReceivedAt: '2026-08-01T01:01:00.123Z',
-    version: deploymentCode === oldDeploymentCode ? oldDeploymentVersion : 0,
-    commissionedAt: null,
-    enabledAt: deploymentCode === oldDeploymentCode
-      ? '2026-08-01T01:00:00.123Z'
-      : null,
-    createdAt: '2026-08-01T00:30:00.123Z',
-    updatedAt: '2026-08-01T01:00:00.123Z',
-  });
-  const runtime = (organizationCode: string, deploymentCode: string) => ({
-    deploymentCode,
-    lifecycleStatus: deployment(organizationCode, deploymentCode).lifecycleStatus,
-    businessEnabled: deployment(organizationCode, deploymentCode).businessEnabled,
-    deploymentVersion: deployment(organizationCode, deploymentCode).version,
-    configuration: {
-      latestPublishedVersion: null,
-      latestAppliedVersion: null,
-      latestApplicationStatus: null,
-      latestPreciselyApplied: false,
-    },
-    health: {
-      edgeConnectionStatus: 'ONLINE',
-      oneNetConnectionStatus: 'ONLINE',
-      oneNetStatusObservedAt: '2026-08-01T01:01:00.123Z',
-      trustedRuntimeReceivedAt: '2026-08-01T01:01:00.123Z',
-      mcuLinkStatus: 'ONLINE',
-      safetyStatus: 'SAFE',
-      aggregateWeightHealth: 'HEALTHY',
-      cameraHealth: 'HEALTHY',
-      localStorageHealth: 'HEALTHY',
-      clockSyncHealth: 'HEALTHY',
-      edgeSoftwareVersion: '1.0.0',
-      mcuFirmwareVersion: 'fixed-frame',
-      uartState: 'ONLINE',
-      uartProtocolMajor: 1,
-      uartProtocolMinor: 0,
-      capabilityBitmapHex: '01',
-      lastHeartbeatAt: '2026-08-01T01:01:00.123Z',
-      lastDeviceEventAt: '2026-08-01T01:01:00.123Z',
-      runtimeVersion: 2,
-    },
-    occupied: false,
-    deliveryAllowed: businessEnabled,
-    cleaningAllowed: businessEnabled,
-    deliveryBlockers: businessEnabled ? [] : ['BUSINESS_SWITCH_DISABLED'],
-    cleaningBlockers: businessEnabled ? [] : ['BUSINESS_SWITCH_DISABLED'],
-  });
-
-  await page.route('**/api/v1/**', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const method = request.method();
-    if (url.pathname.endsWith('/auth/csrf-token')) {
-      await json(route, { token: 'csrf-transfer', headerName: 'X-CSRF-TOKEN' });
-      return;
-    }
-    if (
-      method === 'GET'
+      request.method() === 'GET'
       && url.pathname === '/api/v1/web/auth/sessions/current'
     ) {
       await json(route, session);
       return;
     }
     if (
-      method === 'GET'
-      && url.pathname === '/api/v1/web/device-asset-allocations'
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/device-assets'
     ) {
-      await json(route, { items: [allocation()], page: 1, pageSize: 20, total: 1 });
+      await json(route, { items: [asset], page: 1, pageSize: 20, total: 1 });
       return;
     }
-    const deploymentMatch = url.pathname.match(
-      /^\/api\/v1\/web\/organizations\/([^/]+)\/device-deployments(?:\/([^/]+))?(.*)$/,
-    );
-    if (deploymentMatch) {
-      const organizationCode = deploymentMatch[1];
-      const requestedDeployment = deploymentMatch[2];
-      const suffix = deploymentMatch[3];
-      if (!requestedDeployment && method === 'GET') {
-        const items = organizationCode === orgA
-          ? [deployment(orgA, oldDeploymentCode)]
-          : newDeploymentCreated
-            ? [deployment(orgB, newDeploymentCode)]
-            : [];
-        await json(route, { items, page: 1, pageSize: 20, total: items.length });
-        return;
-      }
-      if (!requestedDeployment && organizationCode === orgB && method === 'POST') {
-        mutations.push({
-          path: url.pathname,
-          body: request.postDataJSON(),
-          key: request.headers()['idempotency-key'],
-        });
-        newDeploymentCreated = true;
-        currentOrganization = orgB;
-        currentDeployment = newDeploymentCode;
-        allocationVersion += 1;
-        await json(route, deployment(orgB, newDeploymentCode), 201);
-        return;
-      }
-      if (!suffix && method === 'GET' && requestedDeployment) {
-        await json(route, deployment(organizationCode, requestedDeployment));
-        return;
-      }
-      if (suffix === '/runtime' && method === 'GET') {
-        await json(route, runtime(organizationCode, requestedDeployment));
-        return;
-      }
-      if (suffix === '/ports' && method === 'GET') {
-        await json(route, [{
-          portNo: 1,
-          displayName: null,
-          enabled: null,
-          unitPriceYuanPerKg: null,
-          fullnessMode: null,
-          configurationVersion: null,
-        }]);
-        return;
-      }
-      if (suffix === '/configuration-versions' && method === 'GET') {
-        await json(route, { items: [], nextBeforeVersionNo: null });
-        return;
-      }
-      if (suffix === '/business-switch/disablements' && method === 'POST') {
-        mutations.push({
-          path: url.pathname,
-          body: request.postDataJSON(),
-          key: request.headers()['idempotency-key'],
-        });
-        businessEnabled = false;
-        oldDeploymentVersion += 1;
-        await json(route, deployment(orgA, oldDeploymentCode));
-        return;
-      }
-      if (suffix === '/returns-to-tenant-pool' && method === 'POST') {
-        mutations.push({
-          path: url.pathname,
-          body: request.postDataJSON(),
-          key: request.headers()['idempotency-key'],
-        });
-        currentOrganization = null;
-        currentDeployment = null;
-        allocationVersion += 1;
-        await json(route, allocation());
-        return;
-      }
+    if (
+      request.method() === 'POST'
+      && url.pathname
+        === `/api/v1/web/device-assets/${hardwareSn}/organization-assignments`
+    ) {
+      assignmentRequest = {
+        body: request.postDataJSON(),
+        key: request.headers()['idempotency-key'],
+      };
+      asset = {
+        ...asset,
+        organizationCode: 'org-b',
+        organizationAssignedAt: '2026-08-07T01:12:00.123Z',
+        miniappQrStatus: 'READY',
+        version: 2,
+      };
+      await json(route, asset);
+      return;
     }
     await route.fulfill(problem(404));
   });
 
-  await page.goto(`/devices?organization=${orgA}`);
-  await page.getByText(oldDeploymentCode, { exact: true }).click();
-  const drawer = page.locator('.ant-drawer').filter({ hasText: '设备接入' });
-  await expect(drawer.getByRole('button', { name: '关闭经营' })).toBeVisible();
-  await drawer.getByRole('button', { name: '关闭经营' }).click();
-  const disableDialog = page.getByRole('dialog', { name: '关闭经营' });
-  await disableDialog.getByRole('button', { name: '确认提交' }).click();
-  await expect(drawer.getByRole('button', { name: '退回租户设备池' })).toBeEnabled();
-
-  await drawer.getByRole('button', { name: '退回租户设备池' }).click();
-  const returnDialog = page.getByRole('dialog', { name: '退回租户设备池' });
-  await returnDialog.getByLabel('原因').fill('调拨到城北站点');
-  await returnDialog.getByRole('button', { name: '确认提交' }).click();
-
-  await expect(page.getByRole('tab', { name: '租户设备池' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByText('租户池中，尚未部署', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '部署到机构' }).click();
-  const deployDialog = page.getByRole('dialog', { name: '从租户设备池部署到机构' });
-  await deployDialog.locator('.ant-select-selector').click();
+  await page.goto('/devices');
+  await expect(page.getByText('租户设备', { exact: true })).toBeVisible();
+  await expect(page.getByText(hardwareSn, { exact: true })).toBeVisible();
+  await page.getByText(hardwareSn, { exact: true }).click();
+  const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
+  await drawer.getByRole('button', { name: '永久分配机构' }).click();
+  const assignmentDialog = page.getByRole('dialog', { name: '永久分配机构' });
+  await assignmentDialog.getByLabel('目标机构').click();
   await page.locator('.ant-select-dropdown:visible')
     .getByText('城北站点 · org-b', { exact: true })
     .click();
-  await deployDialog.getByRole('button', { name: '创建新部署' }).click();
-  await expect(page.getByText(newDeploymentCode, { exact: true }).first()).toBeVisible();
+  await assignmentDialog.getByRole('button', { name: '确认永久归属' }).click();
 
-  expect(mutations).toHaveLength(3);
-  expect(mutations.every((mutation) => mutation.key)).toBe(true);
-  expect(mutations[0].body).toMatchObject({ expectedVersion: 3 });
-  expect(mutations[1].body).toEqual({
-    expectedDeploymentVersion: 4,
-    expectedAllocationVersion: 1,
-    reason: '调拨到城北站点',
+  await expect.poll(() => assignmentRequest).toEqual({
+    body: { organizationCode: 'org-b', expectedVersion: 1 },
+    key: expect.any(String),
   });
-  expect(mutations[2].body).toEqual({
-    allocationUid,
-    expectedAllocationVersion: 2,
-  });
-});
-
-test('platform accepts first deployment while a same-tenant redeployment is automatically ready', async ({
-  page,
-}) => {
-  const tenantCode = 'tenant-acceptance';
-  const organizationCode = 'org-acceptance';
-  const manualCode = 'dp-first-install';
-  const automaticCode = 'dp-same-tenant-transfer';
-  const acceptanceUid = '62000000-0000-4000-8000-000000000001';
-  let accepted = false;
-  let acceptanceAttempts = 0;
-  const mutations: Array<{ body: any; key?: string }> = [];
-  const session = {
-    ...platformSession,
-    capabilities: [
-      'device.read',
-      'device.manage',
-      'device.configuration.manage',
-    ],
-  };
-  const tenant = {
-    tenantCode,
-    enterpriseName: '验收测试租户',
-    status: 'ENABLED',
-    contactName: '验收联系人',
-    contactPhone: null,
-    contactAddress: null,
-    version: 1,
-    principalAccount: null,
-    createdAt: '2026-08-01T00:00:00.123Z',
-    updatedAt: '2026-08-01T00:00:00.123Z',
-  };
-  const organization = {
-    organizationCode,
-    organizationName: '验收机构',
-    contactPhone: null,
-    contactAddress: null,
-    status: 'ENABLED',
-    version: 1,
-    createdAt: '2026-08-01T00:00:00.123Z',
-    updatedAt: '2026-08-01T00:00:00.123Z',
-  };
-  const deployment = (deploymentCode: string) => ({
-    deploymentCode,
-    tenantCode,
-    organizationCode,
-    asset: {
-      hardwareSn: deploymentCode === manualCode ? 'SN-FIRST-01' : 'SN-MOVE-01',
-      modelCode: 'ECOBIN-V1',
-      expectedPortCount: 1,
-      lifecycleStatus: 'IN_USE',
-      version: 4,
-    },
-    lifecycleStatus: deploymentCode === manualCode && accepted
-      ? 'ENABLED'
-      : 'COMMISSIONING',
-    businessEnabled: false,
-    portCount: 1,
-    latestConfigurationVersion: 2,
-    appliedConfigurationVersion: 2,
-    configurationApplicationStatus: 'APPLIED',
-    edgeConnectionStatus: 'ONLINE',
-    oneNetConnectionStatus: 'ONLINE',
-    oneNetStatusObservedAt: '2026-08-01T02:00:00.123Z',
-    trustedRuntimeReceivedAt: '2026-08-01T02:00:00.123Z',
-    version: deploymentCode === manualCode && accepted ? 5 : 4,
-    commissionedAt: '2026-08-01T01:00:00.123Z',
-    enabledAt: deploymentCode === manualCode && accepted
-      ? '2026-08-01T02:10:00.123Z'
-      : null,
-    createdAt: '2026-08-01T00:30:00.123Z',
-    updatedAt: '2026-08-01T02:10:00.123Z',
-  });
-  const runtime = (deploymentCode: string) => ({
-    deploymentCode,
-    lifecycleStatus: deployment(deploymentCode).lifecycleStatus,
-    businessEnabled: false,
-    deploymentVersion: deployment(deploymentCode).version,
-    configuration: {
-      latestPublishedVersion: 2,
-      latestAppliedVersion: 2,
-      latestApplicationStatus: 'APPLIED',
-      latestPreciselyApplied: true,
-    },
-    health: {
-      edgeConnectionStatus: 'ONLINE',
-      oneNetConnectionStatus: 'ONLINE',
-      oneNetStatusObservedAt: '2026-08-01T02:00:00.123Z',
-      trustedRuntimeReceivedAt: '2026-08-01T02:00:00.123Z',
-      mcuLinkStatus: 'ONLINE',
-      safetyStatus: 'SAFE',
-      aggregateWeightHealth: 'HEALTHY',
-      cameraHealth: 'HEALTHY',
-      localStorageHealth: 'HEALTHY',
-      clockSyncHealth: 'HEALTHY',
-      edgeSoftwareVersion: '1.0.0',
-      mcuFirmwareVersion: 'fixed-frame',
-      uartState: 'ONLINE',
-      uartProtocolMajor: 1,
-      uartProtocolMinor: 0,
-      capabilityBitmapHex: '01',
-      lastHeartbeatAt: '2026-08-01T02:00:00.123Z',
-      lastDeviceEventAt: '2026-08-01T02:00:00.123Z',
-      runtimeVersion: 6,
-    },
-    occupied: false,
-    deliveryAllowed: false,
-    cleaningAllowed: false,
-    deliveryBlockers: ['BUSINESS_SWITCH_DISABLED'],
-    cleaningBlockers: ['BUSINESS_SWITCH_DISABLED'],
-  });
-  const readiness = (deploymentCode: string) => ({
-    deploymentCode,
-    readinessMode: deploymentCode === manualCode
-      ? 'PLATFORM_ACCEPTANCE_REQUIRED'
-      : 'AUTOMATIC_TRANSFER_READINESS',
-    ready: true,
-    blockers: [],
-    configuration: {
-      latestVersion: 2,
-      appliedVersion: 2,
-      applicationStatus: 'APPLIED',
-      preciselyApplied: true,
-    },
-    runtime: {
-      edgeConnectionStatus: 'ONLINE',
-      mcuLinkStatus: 'ONLINE',
-      uartState: 'ONLINE',
-      aggregateWeightHealth: 'HEALTHY',
-      cameraHealth: 'HEALTHY',
-      localStorageHealth: 'HEALTHY',
-      clockSyncHealth: 'HEALTHY',
-      edgeSoftwareVersion: '1.0.0',
-      mcuFirmwareVersion: 'fixed-frame',
-      pendingReliableEventCount: 0,
-      receivedAt: '2026-08-01T02:00:00.123Z',
-    },
-    ports: [{
-      portNo: 1,
-      cleanLockPowerState: 'OFF',
-      cleanSolenoidHealth: 'HEALTHY',
-      weightSensorHealth: 'HEALTHY',
-      infraredValue: 'CLEAR',
-      infraredSensorHealth: 'HEALTHY',
-      fullnessSensorKind: 'DIGITAL_INFRARED',
-      smokeState: 'CLEAR',
-      smokeSensorHealth: 'HEALTHY',
-      safetyStatus: 'SAFE',
-      runtimeFaultBitmap: 0,
-      runtimeEdgeEventId: 21,
-      observedAt: '2026-08-01T02:00:00.123Z',
-    }],
-  });
-  const acceptance = () => ({
-    acceptanceUid,
-    deploymentCode: manualCode,
-    configurationVersion: 2,
-    runtimeReceivedAt: '2026-08-01T02:00:00.123Z',
-    deliveryDoorObservedNormal: true,
-    camerasObservedNormal: true,
-    cleanDoorInstallationObservedNormal: true,
-    acceptedBy: '平台管理员',
-    reason: '现场逐项检查通过',
-    acceptedAt: '2026-08-01T02:10:00.123Z',
-  });
-
-  await page.route('**/api/v1/**', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const method = request.method();
-    if (url.pathname.endsWith('/auth/csrf-token')) {
-      await json(route, { token: 'csrf-acceptance', headerName: 'X-CSRF-TOKEN' });
-      return;
-    }
-    if (method === 'GET' && url.pathname === '/api/v1/web/auth/sessions/current') {
-      await route.fulfill(problem(401));
-      return;
-    }
-    if (
-      method === 'GET'
-      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
-    ) {
-      await json(route, session);
-      return;
-    }
-    if (method === 'GET' && url.pathname === '/api/v1/web/platform/tenants') {
-      await json(route, { items: [tenant], page: 1, pageSize: 200, total: 1 });
-      return;
-    }
-    if (
-      method === 'GET'
-      && url.pathname
-        === `/api/v1/web/platform/tenants/${tenantCode}/organizations`
-    ) {
-      await json(route, { items: [organization], page: 1, pageSize: 200, total: 1 });
-      return;
-    }
-    if (method === 'GET' && url.pathname === '/api/v1/web/platform/device-assets') {
-      await json(route, { items: [], page: 1, pageSize: 20, total: 0 });
-      return;
-    }
-    const base = `/api/v1/web/platform/tenants/${tenantCode}`
-      + `/organizations/${organizationCode}/device-deployments`;
-    if (url.pathname === base && method === 'GET') {
-      await json(route, {
-        items: [deployment(manualCode), deployment(automaticCode)],
-        page: 1,
-        pageSize: 20,
-        total: 2,
-      });
-      return;
-    }
-    const matchedCode = [manualCode, automaticCode].find(
-      (code) => url.pathname.startsWith(`${base}/${code}`),
-    );
-    if (matchedCode) {
-      const suffix = url.pathname.slice(`${base}/${matchedCode}`.length);
-      if (suffix === '' && method === 'GET') {
-        await json(route, deployment(matchedCode));
-        return;
-      }
-      if (suffix === '/runtime' && method === 'GET') {
-        await json(route, runtime(matchedCode));
-        return;
-      }
-      if (suffix === '/ports' && method === 'GET') {
-        await json(route, []);
-        return;
-      }
-      if (suffix === '/configuration-versions' && method === 'GET') {
-        await json(route, { items: [], nextBeforeVersionNo: null });
-        return;
-      }
-      if (suffix === '/acceptance-readiness' && method === 'GET') {
-        await json(route, readiness(matchedCode));
-        return;
-      }
-      if (suffix === '/acceptances' && method === 'GET') {
-        await json(route, matchedCode === manualCode && accepted
-          ? [acceptance()]
-          : []);
-        return;
-      }
-      if (
-        matchedCode === manualCode
-        && suffix === '/acceptances'
-        && method === 'POST'
-      ) {
-        acceptanceAttempts += 1;
-        mutations.push({
-          body: request.postDataJSON(),
-          key: request.headers()['idempotency-key'],
-        });
-        if (acceptanceAttempts === 1) {
-          await route.fulfill(problem(
-            403,
-            'SECURITY.FORBIDDEN',
-            '没有平台验收权限',
-          ));
-          return;
-        }
-        accepted = true;
-        await json(route, acceptance(), 201);
-        return;
-      }
-    }
-    await route.fulfill(problem(404, 'COMMON.NOT_FOUND', '接口不存在'));
-  });
-
-  await page.goto('/devices');
-  await page.getByRole('tab', { name: '机构部署' }).click();
-  await page.getByRole('row', { name: new RegExp(manualCode) })
-    .getByRole('button', { name: '接入管理' })
-    .click();
-  let drawer = page.locator('.ant-drawer').filter({ hasText: '设备接入' });
-  await drawer.getByRole('tab', { name: '验收记录' }).click();
-  await expect(drawer.getByText('当前可信事实已满足技术就绪条件')).toBeVisible();
-  await expect(drawer.getByRole('button', { name: '提交平台验收' })).toBeEnabled();
-  await expect(drawer.getByRole('button', { name: '开启经营' })).toHaveCount(0);
-  await drawer.getByRole('button', { name: '提交平台验收' }).click();
-  const acceptanceDialog = page.getByRole('dialog', {
-    name: '提交平台静态硬件验收',
-  });
-  await acceptanceDialog.getByRole('button', { name: '记录验收' }).click();
-  await expect(acceptanceDialog.getByText('该项尚未确认')).toHaveCount(3);
-  for (const name of [
-    '我已现场确认投递门安装与动作正常',
-    '我已现场确认内外摄像头安装正常',
-    '我已现场确认清运门安装正常',
-  ]) {
-    await acceptanceDialog.getByRole('checkbox', { name }).check();
-  }
-  await acceptanceDialog.getByLabel('验收说明').fill('现场逐项检查通过');
-  await acceptanceDialog.getByRole('button', { name: '记录验收' }).click();
-  await expect(acceptanceDialog.getByText(/没有平台验收权限/)).toBeVisible();
-  await acceptanceDialog.getByRole('button', { name: '记录验收' }).click();
-  await drawer.getByRole('tab', { name: '验收记录' }).click();
-  await expect(drawer.getByText('平台管理员', { exact: true })).toBeVisible();
-
-  await drawer.getByRole('button', { name: '关闭' }).click();
-  await page.getByRole('row', { name: new RegExp(automaticCode) })
-    .getByRole('button', { name: '接入管理' })
-    .click();
-  drawer = page.locator('.ant-drawer').filter({ hasText: '设备接入' });
-  await drawer.getByRole('tab', { name: '验收记录' }).click();
-  await expect(drawer.getByText('同租户内部调拨不重复平台验收')).toBeVisible();
-  await expect(drawer.getByRole('button', { name: '提交平台验收' })).toHaveCount(0);
-  await expect(drawer.getByRole('button', { name: '开启经营' })).toHaveCount(0);
-
-  const acceptancePayload = {
-    expectedDeploymentVersion: 4,
-    expectedConfigurationVersion: 2,
-    deliveryDoorObservedNormal: true,
-    camerasObservedNormal: true,
-    cleanDoorInstallationObservedNormal: true,
-    reason: '现场逐项检查通过',
-  };
-  expect(mutations).toHaveLength(2);
-  expect(mutations[0].body).toEqual(acceptancePayload);
-  expect(mutations[1].body).toEqual(acceptancePayload);
-  expect(mutations[0].key).toBeTruthy();
-  expect(mutations[1].key).toBeTruthy();
-  expect(mutations[0].key).not.toBe(mutations[1].key);
+  await expect(drawer.getByText('org-b', { exact: true })).toBeVisible();
+  await expect(page.getByText('部署进度')).toHaveCount(0);
+  await expect(page.getByText('租户设备池')).toHaveCount(0);
 });
 
 test('late delivery detail responses cannot replace or review the selected order', async ({

@@ -12,7 +12,6 @@ public record DeliveryCompletionPersistenceFacts(
         long tenantId,
         long organizationId,
         long assetId,
-        long deploymentId,
         long portId,
         long deliverySessionId,
         long organizationUserId,

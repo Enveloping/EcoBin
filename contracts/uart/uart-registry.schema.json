@@ -47,7 +47,7 @@
         "parity": { "const": "NONE" },
         "stopBits": { "const": 1 },
         "flowControl": { "const": "NONE" },
-        "devicePath": { "const": "DEPLOYMENT_CONFIGURED" }
+        "devicePath": { "const": "RUNTIME_CONFIGURED" }
       }
     },
     "protocol": {

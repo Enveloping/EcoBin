@@ -2,8 +2,8 @@ package org.enveloping.ecobin.device.web.v1;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.enveloping.ecobin.device.application.target.MiniappStaffDeviceQueryService;
-import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeploymentDetail;
-import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeploymentSummary;
+import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeviceDetail;
+import org.enveloping.ecobin.device.web.v1.MiniappStaffDeviceModels.DeviceSummary;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.springframework.http.CacheControl;
@@ -24,17 +24,17 @@ public class MiniappStaffDeviceController {
         this.service = service;
     }
 
-    @GetMapping("/api/v1/miniapp-staff/device-deployments")
-    public ResponseEntity<TargetApiEnvelope<List<DeploymentSummary>>> list(
+    @GetMapping("/api/v1/miniapp-staff/devices")
+    public ResponseEntity<TargetApiEnvelope<List<DeviceSummary>>> list(
             HttpServletRequest request) {
-        return noStore(service.deployments(), request);
+        return noStore(service.devices(), request);
     }
 
-    @GetMapping("/api/v1/miniapp-staff/device-deployments/{deploymentCode}")
-    public ResponseEntity<TargetApiEnvelope<DeploymentDetail>> detail(
-            @PathVariable String deploymentCode,
+    @GetMapping("/api/v1/miniapp-staff/devices/{deviceCode}")
+    public ResponseEntity<TargetApiEnvelope<DeviceDetail>> detail(
+            @PathVariable String deviceCode,
             HttpServletRequest request) {
-        return noStore(service.deployment(deploymentCode), request);
+        return noStore(service.device(deviceCode), request);
     }
 
     private static <T> ResponseEntity<TargetApiEnvelope<T>> noStore(

@@ -63,10 +63,9 @@ class OneNetEventDispatcherTest {
                         + ".cos.ap-guangzhou.myqcloud.com");
         TrustedInboxScopeResolver resolver =
                 writer -> writer.organization(11, 22);
-        when(sourceScopePort.resolverFor(
-                HARDWARE_SN, "Dp_demo_01"))
+        when(sourceScopePort.resolverForOrganizationAsset(HARDWARE_SN))
                 .thenReturn(resolver);
-        when(sourceScopePort.resolverForAsset(HARDWARE_SN))
+        when(sourceScopePort.resolverForPlatformAsset(HARDWARE_SN))
                 .thenReturn(TrustedInboxScopeResolver.platform());
         when(inboxPort.receive(any())).thenReturn(
                 new TrustedInboxReceipt(
@@ -239,7 +238,7 @@ class OneNetEventDispatcherTest {
                     assertThat(tenantKey).isNull();
                     assertThat(organizationKey).isNull();
                 });
-        verify(sourceScopePort).resolverForAsset(HARDWARE_SN);
+        verify(sourceScopePort).resolverForPlatformAsset(HARDWARE_SN);
     }
 
     @Test
@@ -309,7 +308,9 @@ class OneNetEventDispatcherTest {
 
         verify(inboxPort, never()).receive(any());
         verify(sourceScopePort, never())
-                .resolverFor(any(), any());
+                .resolverForOrganizationAsset(any());
+        verify(sourceScopePort, never())
+                .resolverForPlatformAsset(any());
     }
 
     @Test
@@ -352,7 +353,6 @@ class OneNetEventDispatcherTest {
                   "commandUid": "20000000-0000-4000-8000-000000000001",
                   "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "deliveryClass": 1,
-                  "deploymentCode": "Dp_demo_01",
                   "edgeEventSequence": 1047,
                   "errorCode": "",
                   "errorCodePresent": false,

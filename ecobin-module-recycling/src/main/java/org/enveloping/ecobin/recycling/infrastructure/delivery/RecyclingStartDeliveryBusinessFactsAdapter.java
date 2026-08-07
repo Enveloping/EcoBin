@@ -72,12 +72,12 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
     public LockedStartDeliveryBusinessFacts lockForStart(
             StartDeliveryBusinessFactsQuery query) {
         return query.devicePort().useOnce(
-                (tenantId, organizationId, deploymentId, portId) ->
+                (tenantId, organizationId, assetId, portId) ->
                         lockWithinScope(
                                 query,
                                 tenantId,
                                 organizationId,
-                                deploymentId,
+                                assetId,
                                 portId));
     }
 
@@ -85,7 +85,7 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
             StartDeliveryBusinessFactsQuery query,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long portId) {
         DeliveryConfiguration configuration =
                 lockCurrentConfiguration(

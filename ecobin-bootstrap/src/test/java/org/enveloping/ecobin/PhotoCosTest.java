@@ -30,7 +30,7 @@ class PhotoCosTest {
         CosUploadCredential credential = cosUploadCredentialPort.issue(
                 "SN-TEST-001",
                 1,
-                "ecobin/Dp_test_01/delivery-session/"
+                "ecobin/Dv_0123456789abcdefghijklmn/delivery-session/"
                         + "30000000-0000-4000-8000-000000000001/");
         assertNotNull(credential.tmpSecretId());
         assertNotNull(credential.tmpSecretKey());

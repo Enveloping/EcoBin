@@ -3,8 +3,8 @@
     <view class="operation-icon">
       <t-icon name="scan" size="58rpx" color="#119b2c" />
     </view>
-    <view class="operation-title">{{deploymentCode ? '设备已识别' : '等待识别设备'}}</view>
-    <view wx:if="{{deploymentCode}}" class="deployment-code">{{deploymentCode}}</view>
+    <view class="operation-title">{{deviceCode ? '设备已识别' : '等待识别设备'}}</view>
+    <view wx:if="{{deviceCode}}" class="device-code">{{deviceCode}}</view>
     <view class="operation-description">
       {{previewOnly
         ? '当前为界面预览，登录账号权限未改变。'

@@ -19,6 +19,8 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_SERIAL_BAUDRATE— 串口波特率（默认: 115200）
     ECOBIN_MCU_PROTOCOL   — MCU 协议模式（默认: fixed-frame；
                             可选 uart-v1，仅保留原 UART 1.0 实现）
+    ECOBIN_MCU_SIMULATED  — 当前串口对端是否为模拟器（默认: false；
+                            使用 PTY 模拟器时必须显式设为 true）
     ECOBIN_UART_PORT_COUNT— 设备端口数（fixed-frame 默认: 1；
                             uart-v1 默认: 6）
     ECOBIN_UART_HIL_REQUIRED_CAPABILITIES
@@ -29,7 +31,6 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
     ECOBIN_DATA_DIR       — 持久数据目录（默认: data/）
     ECOBIN_EDGE_STORE_PATH— SQLite 数据库路径（默认: data/edge.db）
     ECOBIN_EDGE_BOOT_ID   — 边缘启动 ID 持久文件（默认: data/edge-boot-id）
-    ECOBIN_DEPLOYMENT_CODE— 后端下发的当前部署编码
     ECOBIN_COS_REGION     — 当前环境 COS 地域（公开配置）
     ECOBIN_COS_BUCKET_NAME— 当前环境 COS 桶名称（公开配置）
     ECOBIN_COS_BASE_URL   — 当前环境 COS HTTPS 根 URL（公开配置）
@@ -75,7 +76,6 @@ def _first_environment_value(*names: str) -> str:
 PRODUCT_ID = os.getenv("ECOBIN_PRODUCT_ID", "")
 DEVICE_NAME = os.getenv("ECOBIN_DEVICE_NAME", "")
 DEVICE_KEY = os.getenv("ECOBIN_DEVICE_KEY", "")
-DEPLOYMENT_CODE = os.getenv("ECOBIN_DEPLOYMENT_CODE", "")
 
 # ── COS 可信公开环境 ──
 # 同时兼容项目根 .env 使用的 Spring 风格名称；永久密钥不会在设备侧读取。
@@ -122,6 +122,11 @@ MCU_PROTOCOL_MODE = os.getenv(
     "ECOBIN_MCU_PROTOCOL",
     "fixed-frame",
 ).strip().lower()
+_mcu_simulated_raw = os.getenv(
+    "ECOBIN_MCU_SIMULATED",
+    "false",
+).strip().lower()
+MCU_SIMULATED = _mcu_simulated_raw in {"true", "1", "yes"}
 UART_PORT_COUNT = int(os.getenv(
     "ECOBIN_UART_PORT_COUNT",
     "1" if MCU_PROTOCOL_MODE == "fixed-frame" else "6",
@@ -179,6 +184,10 @@ EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = float(os.getenv(
     "ECOBIN_RUNTIME_SNAPSHOT_INTERVAL_S",
     "300",
 ))
+EDGE_SOFTWARE_VERSION = os.getenv(
+    "ECOBIN_EDGE_VERSION",
+    "0.1.0",
+).strip()
 PHOTO_UPLOAD_POLL_SECONDS = float(os.getenv(
     "ECOBIN_PHOTO_UPLOAD_POLL_SECONDS",
     "1",
@@ -197,7 +206,6 @@ _REQUIRED = [
     "ECOBIN_PRODUCT_ID",
     "ECOBIN_DEVICE_NAME",
     "ECOBIN_DEVICE_KEY",
-    "ECOBIN_DEPLOYMENT_CODE",
 ]
 
 
@@ -206,6 +214,12 @@ def validate():
     if MCU_PROTOCOL_MODE not in {"fixed-frame", "uart-v1"}:
         raise ValueError(
             "ECOBIN_MCU_PROTOCOL must be fixed-frame or uart-v1"
+        )
+    if _mcu_simulated_raw not in {
+        "true", "1", "yes", "false", "0", "no",
+    }:
+        raise ValueError(
+            "ECOBIN_MCU_SIMULATED must be true or false"
         )
     camera_sources = (
         CAMERA_OUTSIDE_SOURCE,
@@ -237,6 +251,10 @@ def validate():
     if EDGE_RUNTIME_SNAPSHOT_INTERVAL_S <= 0:
         raise ValueError(
             "runtime snapshot interval must be positive"
+        )
+    if not EDGE_SOFTWARE_VERSION or len(EDGE_SOFTWARE_VERSION) > 64:
+        raise ValueError(
+            "edge software version must contain 1..64 characters"
         )
     if not all(TRUSTED_COS_ENVIRONMENT.values()):
         raise ValueError(

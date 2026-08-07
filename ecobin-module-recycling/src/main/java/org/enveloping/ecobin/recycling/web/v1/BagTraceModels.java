@@ -12,7 +12,7 @@ public final class BagTraceModels {
             UUID cycleUid,
             String status,
             String startBasis,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             Instant installedAt,
             Instant removedAt,
@@ -66,7 +66,7 @@ public final class BagTraceModels {
 
     public record BagCurrentOccupancy(
             String kind,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo,
             UUID cleanOperationUid,
             Instant since) { }
@@ -80,7 +80,7 @@ public final class BagTraceModels {
     public record BagOccupancyEventItem(
             UUID eventUid,
             String eventType,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             UUID cleanOperationUid,
             Instant occurredAt,
@@ -97,7 +97,7 @@ public final class BagTraceModels {
             String cleanRecordNo,
             UUID operationUid,
             UUID cleanerUserUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String relationRole,
             String removedBagQr,

@@ -41,6 +41,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 投递订单首次审核和后续纠错的统一用例。
+ *
+ * <p>设备原始重量永不覆盖；每次认定都追加 revision（审核版本），并在同一事务内把
+ * 新旧认定金额的差额交给 funds。首次审核把待审核金额转成正式钱包资金，后续纠错只补
+ * 或扣差额，避免重复把整单金额入账。</p>
+ */
 @Service
 public class DeliveryOrderReviewService {
 
@@ -166,6 +173,7 @@ public class DeliveryOrderReviewService {
             DeliveryOrderScope scope,
             String deliveryOrderNo,
             NormalizedReviewRequest request) {
+        // 预览只按当前订单版本计算结果，不写 revision、钱包或审计；真正提交仍会加锁重算。
         LockedDeliveryOrderRow order = repository.findOrder(
                         scope,
                         deliveryOrderNo)
@@ -269,6 +277,8 @@ public class DeliveryOrderReviewService {
                 scope.tenantId(),
                 scope.organizationId(),
                 null);
+        // 固定锁序先锁机构当前停投阈值，再锁订单，最后由 funds 锁钱包与提现。
+        // 审核和纠错都遵循同一顺序，避免并发事务形成反向等待。
         long currentStopThresholdCent =
                 repository.lockCurrentOpenBalanceFloor(orderScope);
         /*
@@ -348,6 +358,8 @@ public class DeliveryOrderReviewService {
                         request.reason(),
                         fingerprint.digest(),
                         reviewedAtDatabase);
+        // revision 只追加保存本次认定的前后值；订单主表仅指向“当前版本”，
+        // 所以历史认定和设备原始证据都可以追溯。
         InsertedDeliveryRevision revision =
                 repository.insertRevision(
                         orderScope,
@@ -363,6 +375,8 @@ public class DeliveryOrderReviewService {
 
         String walletEffect = "NO_CHANGE";
         if (amountDeltaCent != 0) {
+            // funds 使用 MANDATORY 加入当前事务。钱包写入失败时 revision 和订单更新也回滚，
+            // 不会出现“订单已审核但余额未变化”或相反的半完成状态。
             funds.applyDeliveryRevisionDelta(
                     new ApplyDeliveryRevisionDeltaCommand(
                             deliveryOrderNo,

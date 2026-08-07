@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": "82000000-0000-4000-8000-000000000002",
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1048,
   "eventType": "BASELINE_MEASUREMENT_COMPLETE",
   "eventUid": "86000000-0000-4000-8000-000000000001",
@@ -33,7 +32,7 @@
     }
   },
   "payloadSha256": "c0806bd4cd56f5cc8ecd480cbf4dc277687f7104ce07f8b1555bd18a451e87c8",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "BASELINE_MEASUREMENT",
     "uid": "82000000-0000-4000-8000-000000000001"

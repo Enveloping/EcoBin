@@ -23,6 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 import java.util.UUID;
 
+/**
+ * 普通用户投递的 HTTP 入口。
+ *
+ * <p>查询接口返回当前展示快照；开始接口只受理一次投递意图并返回 202，设备是否执行、
+ * 是否形成订单要由调用方通过会话查询继续观察。控制器不接收 tenantId、organizationId
+ * 或 userId，真实作用域始终来自已认证的小程序会话。</p>
+ */
 @RestController
 public class MiniappDeliveryController {
 
@@ -40,13 +47,13 @@ public class MiniappDeliveryController {
     }
 
     @GetMapping(
-            "/api/v1/miniapp/device-deployments/{deploymentCode}"
+            "/api/v1/miniapp/devices/{deviceCode}"
                     + "/delivery-options")
     public TargetApiEnvelope<DeliveryOptionsView> deliveryOptions(
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             HttpServletRequest request) {
         return TargetApiEnvelope.ok(
-                queryService.deliveryOptions(deploymentCode),
+                queryService.deliveryOptions(deviceCode),
                 TargetRequestIds.resolve(request));
     }
 
@@ -84,17 +91,21 @@ public class MiniappDeliveryController {
                 TargetRequestIds.resolve(request));
     }
 
+    /**
+     * Idempotency-Key 表示同一次用户意图；网络超时重试时必须复用原值。
+     * Location 指向后续状态资源，不能把本响应理解为“门已经打开”。
+     */
     @PostMapping(
-            "/api/v1/miniapp/device-deployments/{deploymentCode}"
+            "/api/v1/miniapp/devices/{deviceCode}"
                     + "/ports/{portNo}/delivery-sessions")
     public ResponseEntity<TargetApiEnvelope<DeliverySessionAccepted>> start(
             @RequestHeader("Idempotency-Key") UUID operationUid,
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             HttpServletRequest request) {
         DeliverySessionAccepted accepted = startService.start(
                 operationUid,
-                deploymentCode,
+                deviceCode,
                 portNo);
         return ResponseEntity.accepted()
                 .location(URI.create(accepted.statusUrl()))

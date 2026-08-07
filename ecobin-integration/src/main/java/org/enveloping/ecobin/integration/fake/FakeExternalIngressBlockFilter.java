@@ -5,6 +5,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -14,6 +16,7 @@ import java.util.List;
 /**
  * Fake 环境的真实设备/渠道入站闩锁。
  */
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public final class FakeExternalIngressBlockFilter
         extends OncePerRequestFilter {
 

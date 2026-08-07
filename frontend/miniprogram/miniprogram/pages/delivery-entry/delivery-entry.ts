@@ -34,6 +34,11 @@ import type {
   DeliverySessionView,
 } from '../../types/api'
 
+/**
+ * 投递入口页不是一次普通的表单提交，而是一个可恢复的物理操作入口：
+ * 先恢复扫码上下文，再读取展示快照，随后用持久化的幂等键创建会话，最后轮询结果。
+ * 页面退出或网络结果未知时不能随意清掉上下文，否则用户重进页面可能重复触发设备。
+ */
 interface DeliveryPortCard extends DeliveryPortOption {
   nameText: string
   priceText: string
@@ -59,8 +64,7 @@ function requirePendingEntry(entryId: string): PendingDeviceEntry {
 const BLOCKER_TEXT: Record<DeliveryOptionBlocker, string> = {
   PHONE_BINDING_REQUIRED: '请先验证手机号',
   WALLET_DELIVERY_LIMIT_REACHED: '账户余额已达到停投限制',
-  DEPLOYMENT_NOT_ENABLED: '设备尚未启用',
-  BUSINESS_SWITCH_DISABLED: '设备暂停接收投递',
+  ASSET_UNAVAILABLE: '设备不存在或当前不可用',
   CONFIGURATION_NOT_APPLIED: '设备配置尚未生效',
   EDGE_OFFLINE: '设备当前离线',
   DEVICE_BUSY: '设备正在执行其他作业',
@@ -165,6 +169,8 @@ Page({
     this.advancing = true
     let restartLatest = false
     try {
+      // 扫码上下文保存在本地，而不是只放在当前页面实例中；登录、绑手机号或
+      // 微信把页面重新创建后，仍能回到同一次投递意图。
       const entry = peekPendingDeviceEntry()
       if (!entry) {
         this.setData({
@@ -191,7 +197,7 @@ Page({
       }
 
       const session = await ensureLoggedIn({
-        deploymentCode: entry.deploymentCode,
+        deviceCode: entry.deviceCode,
       })
       requirePendingEntry(entry.entryId)
       if (
@@ -246,9 +252,11 @@ Page({
       message: '正在检查可用投口',
       ports: [],
     })
-    const options = await getDeliveryOptions(entry.deploymentCode)
+    // GET 结果只负责帮助用户选择投口。它和真正 POST 之间可能发生并发变化，
+    // 因此不能把 deliveryAllowed 当作最终授权。
+    const options = await getDeliveryOptions(entry.deviceCode)
     requirePendingEntry(entry.entryId)
-    if (options.deploymentCode !== entry.deploymentCode) {
+    if (options.deviceCode !== entry.deviceCode) {
       throw new Error('设备响应与二维码不一致')
     }
 
@@ -320,19 +328,21 @@ Page({
   async startPort(entryId: string, portNo: number) {
     if (this.starting) return
     this.starting = true
-    let deploymentCode: string | undefined
+    let deviceCode: string | undefined
     let restartLatest = false
     let attemptNumber = 0
     let attemptedKey: string | undefined
     try {
       const entry = requirePendingEntry(entryId)
-      deploymentCode = entry.deploymentCode
+      deviceCode = entry.deviceCode
       if (
         entry.idempotencyKey
         && entry.selectedPortNo !== portNo
       ) {
         throw new Error('正在恢复原投递请求，不能更换投口')
       }
+      // 先把“投口 + 幂等键”写入本地，再发 POST。只要请求可能已经离开设备，
+      // 后续恢复就必须继续使用这两个值，不能换投口或生成新键。
       let idempotencyKey = entry.selectedPortNo === portNo
         ? entry.idempotencyKey
         : undefined
@@ -363,7 +373,7 @@ Page({
         message: '正在提交投递请求，请勿重复操作',
       })
       const accepted = await startDeliverySession(
-        attempted.deploymentCode,
+        attempted.deviceCode,
         portNo,
         attempted.idempotencyKey,
       )
@@ -383,10 +393,10 @@ Page({
       } else if (
         error instanceof MiniappApiProblem
         && error.code === 'IDENTITY.PHONE_BINDING_REQUIRED'
-        && deploymentCode
+        && deviceCode
       ) {
         const session = await refreshSession({
-          deploymentCode,
+          deviceCode,
         }).catch(() => undefined)
         const firstAttemptReleased = attemptNumber === 1 && attemptedKey
           ? !!releasePendingDeviceStart(
@@ -457,6 +467,8 @@ Page({
     let unchangedCount = 0
     const backoffMs = [1000, 2000, 3000, 5000, 10000]
     try {
+      // 202 响应之后，设备执行、结果上报和后端建单都在异步推进。
+      // 轮询只读取权威状态；状态不变时逐步退避，避免长流程持续每秒打接口。
       while (this.pageVisible) {
         const current = peekPendingDeviceEntry()
         if (
@@ -468,7 +480,7 @@ Page({
         }
         const session = await getDeliverySession(
           current.accepted.sessionUid,
-          current.deploymentCode,
+          current.deviceCode,
         )
         this.presentSession(session)
         if (session.status !== 'ACTIVE') {

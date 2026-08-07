@@ -31,22 +31,26 @@ test('device registration source survives a login retry', () => {
   const loginSource = source(
     '../miniprogram/miniprogram/pages/login/login.ts',
   );
-  const firstAttempt = loginRegistrationSource('Dp_source_01');
+  const firstAttempt = loginRegistrationSource(
+    'Dv_0123456789abcdefghijklmn',
+  );
   const retryAttempt = loginRegistrationSource(
-    firstAttempt?.deploymentCode,
+    firstAttempt?.deviceCode,
   );
 
-  assert.deepEqual(firstAttempt, { deploymentCode: 'Dp_source_01' });
+  assert.deepEqual(firstAttempt, {
+    deviceCode: 'Dv_0123456789abcdefghijklmn',
+  });
   assert.deepEqual(retryAttempt, firstAttempt);
   assert.notEqual(retryAttempt, firstAttempt);
-  assert.equal(loginRegistrationSource('not-a-deployment-code'), undefined);
+  assert.equal(loginRegistrationSource('not-a-device-code'), undefined);
   assert.match(
     loginSource,
-    /peekPendingDeviceEntry\(\)\?\.deploymentCode/,
+    /peekPendingDeviceEntry\(\)\?\.deviceCode/,
   );
   assert.match(
     loginSource,
-    /loginRegistrationSource\(this\.registrationDeploymentCode\)/,
+    /loginRegistrationSource\(this\.registrationDeviceCode\)/,
   );
   assert.match(loginSource, /onRetry\(\)\s*\{\s*void this\.doLogin\(\)/);
 });
@@ -158,7 +162,7 @@ test('phone authorization is shown once and required operations stop when it is 
   assert.match(phoneGrantSource, /错误信息：\$\{errMsg\}/);
 });
 
-test('ordinary-link QR entry trusts WeChat routing and extracts only the deployment code', () => {
+test('ordinary-link QR entry trusts WeChat routing and extracts only the device code', () => {
   const registrationSource = source(
     '../miniprogram/miniprogram/utils/registration-source.ts',
   );
@@ -179,13 +183,13 @@ test('ordinary-link QR entry trusts WeChat routing and extracts only the deploym
   );
 
   assert.match(registrationSource, /parseOrdinaryDeviceLink\(options\.q/);
-  assert.match(ordinaryLinkSource, /key !== 'deploymentCode'/);
-  assert.match(ordinaryLinkSource, /DEPLOYMENT_CODE_PATTERN/);
+  assert.match(ordinaryLinkSource, /key !== 'deviceCode'/);
+  assert.match(ordinaryLinkSource, /DEVICE_CODE_PATTERN/);
   assert.doesNotMatch(ordinaryLinkSource, /jinshoubao\.com|ecobin\.com/);
   assert.doesNotMatch(ordinaryLinkSource, /APP_ID_PATTERN|currentMiniProgramAppId/);
   assert.doesNotMatch(ordinaryLinkSource, /tenantCode|tenantId/);
   assert.doesNotMatch(intentSource, /link\.appId|link\.tenantCode/);
-  assert.match(authApiSource, /export interface RegistrationSource\s*\{\s*deploymentCode: string/);
+  assert.match(authApiSource, /export interface RegistrationSource\s*\{\s*deviceCode: string/);
   assert.doesNotMatch(authApiSource, /tenantCode|tenantId/);
   assert.match(
     authApiSource,
@@ -195,7 +199,7 @@ test('ordinary-link QR entry trusts WeChat routing and extracts only the deploym
   assert.match(intentSource, /captureScannedDeviceEntry/);
   assert.match(intentSource, /pendingDeviceEntry/);
   assert.match(doorEntrySource, /captureScannedDeviceEntry/);
-  assert.match(deliveryApiSource, /\/api\/v1\/miniapp\/device-deployments/);
+  assert.match(deliveryApiSource, /\/api\/v1\/miniapp\/devices/);
   assert.match(deliveryApiSource, /requestAccepted/);
 });
 

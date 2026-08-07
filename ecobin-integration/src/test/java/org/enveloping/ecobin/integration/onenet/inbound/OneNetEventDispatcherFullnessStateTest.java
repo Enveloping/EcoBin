@@ -58,8 +58,7 @@ class OneNetEventDispatcherFullnessStateTest {
                         + ".cos.ap-guangzhou.myqcloud.com");
         TrustedInboxScopeResolver resolver =
                 writer -> writer.organization(11, 22);
-        when(sourceScopePort.resolverFor(
-                HARDWARE_SN, "Dp_demo_01"))
+        when(sourceScopePort.resolverForOrganizationAsset(HARDWARE_SN))
                 .thenReturn(resolver);
         when(inboxPort.receive(any())).thenReturn(
                 new TrustedInboxReceipt(

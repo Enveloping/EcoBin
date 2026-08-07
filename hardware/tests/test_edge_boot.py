@@ -76,7 +76,7 @@ def test_clock_state_remains_estimated_without_sync_evidence(monkeypatch):
 
 
 class FakeMqttClient:
-    deployment_code = "Dp_demo_01"
+    device_name = "SN-DEMO-0001"
 
     def __init__(self):
         self.published = []
@@ -534,7 +534,7 @@ def test_boot_restart_aborts_clean_and_requires_a_new_complete_clean(
     start_command = {
         "commandUid": start_command_uid,
         "commandType": "START_CLEAN_OPERATION",
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-DEMO-0001",
     }
     store.receive_command(
         start_command_uid,
@@ -600,7 +600,7 @@ def test_boot_restart_aborts_delivery_without_fake_completion(
     start_command = {
         "commandUid": start_command_uid,
         "commandType": "START_DELIVERY_SESSION",
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-DEMO-0001",
     }
     store.receive_command(
         start_command_uid,
@@ -616,7 +616,7 @@ def test_boot_restart_aborts_delivery_without_fake_completion(
             "session_uid": session_uid,
             "port_no": 1,
             "start_command_uid": start_command_uid,
-            "deployment_code": "Dp_demo_01",
+            "device_name": "SN-DEMO-0001",
             "unit_price_ten_thousandths": 4500,
             "phase": "WAITING_SELECTION",
             "first_measurement": {

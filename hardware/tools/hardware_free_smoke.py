@@ -70,6 +70,7 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
             str(link_path),
             edge_boot_id=77,
             timeout_s=0.1,
+            is_simulated=True,
         )
         store = EdgeStore(str(root / "edge.db"))
         store.initialize()
@@ -78,7 +79,7 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
             photo_dir=str(root / "photos"),
             outside_camera_source="simulated://outside",
             inside_camera_source="simulated://inside",
-            deployment_code="Dp_hardware_free_smoke",
+            device_name="SN-HARDWARE-FREE",
             start_upload_worker=False,
         )
         try:

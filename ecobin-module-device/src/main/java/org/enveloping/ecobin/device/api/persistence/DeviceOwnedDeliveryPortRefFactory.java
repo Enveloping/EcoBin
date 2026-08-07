@@ -13,7 +13,7 @@ final class DeviceOwnedDeliveryPortRefFactory
     public DeviceDeliveryPortRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long portKey) {
         if (!TransactionSynchronizationManager
                 .isActualTransactionActive()) {
@@ -29,7 +29,7 @@ final class DeviceOwnedDeliveryPortRefFactory
         DeviceDeliveryPortRef reference = new DeviceDeliveryPortRef(
                 tenantKey,
                 organizationKey,
-                deploymentKey,
+                assetKey,
                 portKey,
                 resources);
         TransactionSynchronizationManager.registerSynchronization(

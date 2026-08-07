@@ -103,7 +103,7 @@ function fingerprint(
   )
   return [
     source,
-    link.deploymentCode,
+    link.deviceCode,
     occurrence,
   ].join('|')
 }
@@ -201,7 +201,7 @@ export function peekPendingDeviceEntry(): PendingDeviceEntry | undefined {
   if (
     !entry.entryId
     || !entry.fingerprint
-    || !entry.deploymentCode
+    || !entry.deviceCode
     || isExpired(entry)
   ) {
     removePending()

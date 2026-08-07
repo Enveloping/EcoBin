@@ -55,7 +55,7 @@ class JdbcDeliveryOrderRepository {
                 SELECT o.id AS order_id,
                        o.delivery_order_no,
                        o.organization_user_id,
-                       o.deployment_id,
+                       o.asset_id,
                        o.port_id,
                        o.delivery_session_id,
                        o.physical_result_id,
@@ -131,9 +131,9 @@ class JdbcDeliveryOrderRepository {
             sql.append(" AND o.organization_user_id = ?");
             parameters.add(query.organizationUserId());
         }
-        if (query.deploymentId() != null) {
-            sql.append(" AND o.deployment_id = ?");
-            parameters.add(query.deploymentId());
+        if (query.assetId() != null) {
+            sql.append(" AND o.asset_id = ?");
+            parameters.add(query.assetId());
         }
         if (!query.portIds().isEmpty()) {
             sql.append(" AND o.port_id IN (");
@@ -227,7 +227,7 @@ class JdbcDeliveryOrderRepository {
                         SELECT o.id AS order_id,
                                o.delivery_order_no,
                                o.organization_user_id,
-                               o.deployment_id,
+                               o.asset_id,
                                o.port_id,
                                o.delivery_session_id,
                                o.physical_result_id,
@@ -610,7 +610,7 @@ class JdbcDeliveryOrderRepository {
                 rs.getLong("order_id"),
                 rs.getString("delivery_order_no"),
                 rs.getLong("organization_user_id"),
-                rs.getLong("deployment_id"),
+                rs.getLong("asset_id"),
                 rs.getLong("port_id"),
                 rs.getLong("delivery_session_id"),
                 rs.getLong("physical_result_id"),
@@ -641,7 +641,7 @@ class JdbcDeliveryOrderRepository {
                 rs.getLong("order_id"),
                 rs.getString("delivery_order_no"),
                 rs.getLong("organization_user_id"),
-                rs.getLong("deployment_id"),
+                rs.getLong("asset_id"),
                 rs.getLong("port_id"),
                 rs.getLong("delivery_session_id"),
                 rs.getLong("physical_result_id"),
@@ -777,7 +777,7 @@ record DeliveryOrderPageQuery(
         LocalDateTime occurredFrom,
         LocalDateTime occurredTo,
         Long organizationUserId,
-        Long deploymentId,
+        Long assetId,
         List<Long> portIds,
         String anomalyCode,
         String photoCompleteness,
@@ -794,7 +794,7 @@ record DeliveryOrderSummaryRow(
         long id,
         String deliveryOrderNo,
         long organizationUserId,
-        long deploymentId,
+        long assetId,
         long portId,
         long deliverySessionId,
         long physicalResultId,
@@ -817,7 +817,7 @@ record DeliveryOrderRootRow(
         long id,
         String deliveryOrderNo,
         long organizationUserId,
-        long deploymentId,
+        long assetId,
         long portId,
         long deliverySessionId,
         long physicalResultId,

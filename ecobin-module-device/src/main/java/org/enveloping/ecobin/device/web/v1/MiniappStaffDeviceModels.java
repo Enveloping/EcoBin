@@ -7,12 +7,10 @@ public final class MiniappStaffDeviceModels {
 
     private MiniappStaffDeviceModels() { }
 
-    public record DeploymentSummary(
-            String deploymentCode,
+    public record DeviceSummary(
+            String deviceCode,
             String displayName,
             String address,
-            String lifecycleStatus,
-            boolean businessEnabled,
             String edgeConnectionStatus,
             String mcuLinkStatus,
             String safetyStatus,
@@ -22,7 +20,7 @@ public final class MiniappStaffDeviceModels {
     public record PortSummary(
             int portNo,
             String displayName,
-            boolean businessEnabled,
+            boolean enabled,
             String deliveryDoorState,
             String weightSensorHealth,
             String infraredSensorHealth,
@@ -30,8 +28,8 @@ public final class MiniappStaffDeviceModels {
             String safetyStatus,
             Instant lastObservedAt) { }
 
-    public record DeploymentDetail(
-            DeploymentSummary deployment,
+    public record DeviceDetail(
+            DeviceSummary device,
             List<PortSummary> ports,
             Instant asOf) { }
 }

@@ -22,7 +22,7 @@ HARDWARE_DIR = Path(__file__).resolve().parents[1]
 if str(HARDWARE_DIR) not in sys.path:
     sys.path.insert(0, str(HARDWARE_DIR))
 
-from config import DEPLOYMENT_CODE, EDGE_STORE_PATH  # noqa: E402
+from config import DEVICE_NAME, EDGE_STORE_PATH  # noqa: E402
 from edge_store import EdgeStore  # noqa: E402
 from onenet_wire import canonical_payload_sha256, validate_command_envelope  # noqa: E402
 from uart_link import compute_mcu_payload_sha256  # noqa: E402
@@ -74,8 +74,8 @@ def build_start_delivery_command(
     if ttl_seconds <= 0:
         raise LocalCommandError("ttl_seconds must be greater than zero")
 
-    deployment_code = applied.get("deployment_code")
-    if not deployment_code:
+    device_name = applied.get("device_name")
+    if not device_name:
         raise LocalCommandError("the applied configuration has no deployment code")
 
     applied_payload = applied["payload"]
@@ -108,13 +108,13 @@ def build_start_delivery_command(
         "commandType": "START_DELIVERY_SESSION",
         "commandUid": command_uid,
         "cosGrant": None,
-        "deploymentCode": deployment_code,
+        "targetDeviceName": device_name,
         "expiresAt": _rfc3339(now + timedelta(seconds=ttl_seconds)),
         "issuedAt": _rfc3339(now),
         "payload": payload,
-        "payloadSchemaVersion": 1,
+        "payloadSchemaVersion": 2,
         "payloadSha256": canonical_payload_sha256(payload),
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "target": {
             "type": "DELIVERY_SESSION",
             "uid": session_uid,
@@ -126,7 +126,7 @@ def build_start_delivery_command(
 
 def build_sample_configuration_command(
     *,
-    deployment_code: str,
+    device_name: str,
     config_version: int,
     door_travel_wait_ms: int = 30000,
     command_uid: str | None = None,
@@ -136,8 +136,8 @@ def build_sample_configuration_command(
 ) -> dict[str, Any]:
     """Build the one-port configuration used by the UART HIL probe."""
 
-    if not deployment_code:
-        raise LocalCommandError("deployment_code is required")
+    if not device_name:
+        raise LocalCommandError("device_name is required")
     if not 1 <= config_version <= 9_007_199_254_740_991:
         raise LocalCommandError(
             "config_version must be in 1..9007199254740991"
@@ -208,13 +208,13 @@ def build_sample_configuration_command(
         "commandType": "APPLY_CONFIGURATION",
         "commandUid": command_uid,
         "cosGrant": None,
-        "deploymentCode": deployment_code,
+        "targetDeviceName": device_name,
         "expiresAt": _rfc3339(now + timedelta(seconds=ttl_seconds)),
         "issuedAt": _rfc3339(now),
         "payload": payload,
-        "payloadSchemaVersion": 1,
+        "payloadSchemaVersion": 2,
         "payloadSha256": canonical_payload_sha256(payload),
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "target": {
             "type": "CONFIGURATION_APPLICATION",
             "uid": application_uid,
@@ -227,7 +227,7 @@ def build_sample_configuration_command(
 def queue_sample_configuration(
     store: EdgeStore,
     *,
-    deployment_code: str,
+    device_name: str,
     config_version: int,
     door_travel_wait_ms: int = 30000,
     command_uid: str | None = None,
@@ -245,7 +245,7 @@ def queue_sample_configuration(
             f"(state={active.get('work_state')})"
         )
     command = build_sample_configuration_command(
-        deployment_code=deployment_code,
+        device_name=device_name,
         config_version=config_version,
         door_travel_wait_ms=door_travel_wait_ms,
         command_uid=command_uid,
@@ -408,9 +408,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     _add_db_argument(apply_config)
     apply_config.add_argument(
-        "--deployment-code",
-        default=DEPLOYMENT_CODE,
-        help="defaults to ECOBIN_DEPLOYMENT_CODE",
+        "--device-name",
+        default=DEVICE_NAME,
+        help="defaults to ECOBIN_DEVICE_NAME",
     )
     apply_config.add_argument("--config-version", type=int, required=True)
     apply_config.add_argument(
@@ -465,7 +465,7 @@ def run(argv: list[str] | None = None) -> int:
         if args.action == "apply-sample-configuration":
             disposition, command = queue_sample_configuration(
                 store,
-                deployment_code=args.deployment_code,
+                device_name=args.device_name,
                 config_version=args.config_version,
                 door_travel_wait_ms=args.door_travel_wait_ms,
                 command_uid=args.command_uid,

@@ -95,6 +95,30 @@ public final class FundsModels {
     public record CreateWithdrawalRequest(String amountYuan) {
     }
 
+    public record EmptyMerchantTransferAuthorizationRequest() {
+    }
+
+    public record MerchantTransferAuthorizationView(
+            String status,
+            String authorizationNo,
+            String appId,
+            String mchId,
+            String packageInfo,
+            boolean confirmationRequired,
+            Instant confirmationExpiresAt,
+            Instant authorizedAt,
+            Instant closedAt,
+            String closeReason,
+            Instant lastSuccessfulQueryAt) {
+    }
+
+    public record MerchantTransferAuthorizationAcceptedView(
+            String authorizationNo,
+            String status,
+            String statusUrl,
+            int recommendedPollAfterMs) {
+    }
+
     public record ReviewWithdrawalRequest(
             Long expectedVersion,
             String decision,
@@ -109,6 +133,7 @@ public final class FundsModels {
             String status,
             long version,
             String amountYuan,
+            String collectionMode,
             String channelState,
             String channelErrorCode,
             String channelStatusMessage,

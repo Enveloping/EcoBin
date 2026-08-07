@@ -36,16 +36,16 @@ public class DeviceOperationalAlertSourceQueryService
                 + "?,".repeat(referenced.size() - 1) + "?)";
         return jdbc.query("""
                 SELECT fault.tenant_id, fault.organization_id,
-                       fault.fault_uid, deployment.public_code,
+                       fault.fault_uid, asset.device_public_code,
                        port.port_no, fault.component_type,
                        fault.fault_code, fault.impact_level, fault.status,
                        fault.first_detected_at, fault.last_detected_at,
                        fault.recovered_at
                 FROM dev_device_fault_event fault
-                JOIN dev_device_deployment deployment
-                  ON deployment.tenant_id = fault.tenant_id
-                 AND deployment.organization_id = fault.organization_id
-                 AND deployment.id = fault.deployment_id
+                JOIN dev_device_asset asset
+                  ON asset.tenant_id = fault.tenant_id
+                 AND asset.organization_id = fault.organization_id
+                 AND asset.id = fault.asset_id
                 LEFT JOIN dev_port port
                   ON port.tenant_id = fault.tenant_id
                  AND port.organization_id = fault.organization_id
@@ -58,7 +58,7 @@ public class DeviceOperationalAlertSourceQueryService
                 refs.issue(rs.getLong("tenant_id"),
                         rs.getLong("organization_id")),
                 UUID.fromString(rs.getString("fault_uid")),
-                rs.getString("public_code"),
+                rs.getString("device_public_code"),
                 (Integer) rs.getObject("port_no"),
                 rs.getString("component_type"),
                 rs.getString("fault_code"),

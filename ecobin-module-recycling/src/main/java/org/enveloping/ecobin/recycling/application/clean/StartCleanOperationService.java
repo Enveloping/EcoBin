@@ -59,15 +59,39 @@ public class StartCleanOperationService {
     private static final long RECOMMENDED_POLL_AFTER_MS = 1_000L;
 
     static final String LOAD_LATEST_CONFIGURATION_SQL = """
-            SELECT id, version_no, content_sha256,
-                   mcu_payload_sha256,
-                   edge_heartbeat_interval_ms,
-                   edge_heartbeat_miss_threshold
-            FROM dev_config_version
-            WHERE tenant_id = ?
-              AND organization_id = ?
-              AND deployment_id = ?
-            ORDER BY version_no DESC
+            SELECT config.id, config.version_no,
+                   config.content_sha256,
+                   config.mcu_payload_sha256,
+                   config.edge_heartbeat_interval_ms,
+                   config.edge_heartbeat_miss_threshold,
+                   EXISTS (
+                       SELECT 1
+                       FROM dev_config_application application
+                       WHERE application.tenant_id = config.tenant_id
+                         AND application.organization_id = config.organization_id
+                         AND application.asset_id = config.asset_id
+                         AND application.config_version_id = config.id
+                         AND application.status = 'APPLIED'
+                         AND application.reported_version_no = config.version_no
+                         AND application.reported_content_sha256 = config.content_sha256
+                         AND application.reported_mcu_payload_sha256 = config.mcu_payload_sha256
+                   ) AS application_applied,
+                   EXISTS (
+                       SELECT 1
+                       FROM dev_device_runtime_state runtime
+                       WHERE runtime.asset_id = config.asset_id
+                         AND runtime.tenant_id = config.tenant_id
+                         AND runtime.organization_id = config.organization_id
+                         AND runtime.applied_config_version_no = config.version_no
+                         AND runtime.applied_config_content_sha256 = config.content_sha256
+                         AND runtime.applied_mcu_payload_sha256 = config.mcu_payload_sha256
+                         AND runtime.safety_status = 'SAFE'
+                   ) AS runtime_applied
+            FROM dev_config_version config
+            WHERE config.tenant_id = ?
+              AND config.organization_id = ?
+              AND config.asset_id = ?
+            ORDER BY config.version_no DESC
             LIMIT 1
             """;
 
@@ -76,7 +100,7 @@ public class StartCleanOperationService {
             FROM dev_port
             WHERE tenant_id = ?
               AND organization_id = ?
-              AND deployment_id = ?
+              AND asset_id = ?
               AND port_no = ?
             """;
 
@@ -85,7 +109,7 @@ public class StartCleanOperationService {
             FROM dev_port_config_snapshot
             WHERE tenant_id = ?
               AND organization_id = ?
-              AND deployment_id = ?
+              AND asset_id = ?
               AND config_version_id = ?
               AND port_id = ?
             """;
@@ -143,11 +167,11 @@ public class StartCleanOperationService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public CleanOperationAccepted start(
             UUID idempotencyKey,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String installedBagQr) {
         requireUuidV4(idempotencyKey);
-        String normalizedDeployment = deploymentCode(deploymentCode);
+        String normalizedDeviceCode = deviceCode(deviceCode);
         int normalizedPort = portNo(portNo);
         String normalizedBag = bagCode(installedBagQr);
 
@@ -160,7 +184,7 @@ public class StartCleanOperationService {
                 identity.lockCurrentCleaner(scope);
         String fingerprint = fingerprint(
                 cleaner.organizationUserUid().value(),
-                normalizedDeployment,
+                normalizedDeviceCode,
                 normalizedPort,
                 normalizedBag);
 
@@ -170,7 +194,7 @@ public class StartCleanOperationService {
                          organizationId,
                          organizationUserId) -> startOrReplay(
                                 idempotencyKey,
-                                normalizedDeployment,
+                                normalizedDeviceCode,
                                 normalizedPort,
                                 normalizedBag,
                                 fingerprint,
@@ -183,7 +207,7 @@ public class StartCleanOperationService {
 
     private CleanOperationAccepted startOrReplay(
             UUID idempotencyKey,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String installedBagQr,
             String fingerprint,
@@ -206,7 +230,7 @@ public class StartCleanOperationService {
 
         CreatedOperation created = create(
                 idempotencyKey,
-                deploymentCode,
+                deviceCode,
                 portNo,
                 installedBagQr,
                 cleanRule,
@@ -277,70 +301,56 @@ public class StartCleanOperationService {
 
     private CreatedOperation create(
             UUID correlationUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String installedBagQr,
             CleanRule cleanRule,
             long tenantId,
             long organizationId,
             long organizationUserId) {
-        long assetId = query("""
-                        SELECT asset_id
-                        FROM dev_device_deployment
-                        WHERE public_code = ?
-                        """,
-                (rs, ignored) -> rs.getLong("asset_id"),
-                deploymentCode)
-                .stream()
-                .findFirst()
-                .orElseThrow(StartCleanOperationService::notFound);
         Asset asset = one("""
-                        SELECT id, hardware_sn, lifecycle_status
+                        SELECT id, hardware_sn, device_public_code,
+                               lifecycle_status, acceptance_status,
+                               tenant_id, organization_id
                         FROM dev_device_asset
-                        WHERE id = ?
+                        WHERE device_public_code = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> new Asset(
                         rs.getLong("id"),
                         rs.getString("hardware_sn"),
-                        rs.getString("lifecycle_status")),
-                assetId).orElseThrow(StartCleanOperationService::notFound);
-        ActiveDeployment active = one("""
-                        SELECT tenant_id, organization_id, deployment_id
-                        FROM dev_asset_active_deployment
-                        WHERE asset_id = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new ActiveDeployment(
-                        rs.getLong("tenant_id"),
-                        rs.getLong("organization_id"),
-                        rs.getLong("deployment_id")),
-                asset.id()).orElseThrow(StartCleanOperationService::notFound);
-        Deployment deployment = one("""
-                        SELECT id, tenant_id, organization_id, asset_id,
-                               public_code, lifecycle_status,
-                               business_enabled
-                        FROM dev_device_deployment
+                        rs.getString("device_public_code"),
+                        rs.getString("lifecycle_status"),
+                        rs.getString("acceptance_status"),
+                        nullableLong(rs, "tenant_id"),
+                        nullableLong(rs, "organization_id")),
+                deviceCode).orElseThrow(StartCleanOperationService::notFound);
+        String tenantStatus = one("""
+                        SELECT status
+                        FROM iam_tenant
                         WHERE id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> new Deployment(
-                        rs.getLong("id"),
-                        rs.getLong("tenant_id"),
-                        rs.getLong("organization_id"),
-                        rs.getLong("asset_id"),
-                        rs.getString("public_code"),
-                        rs.getString("lifecycle_status"),
-                        rs.getBoolean("business_enabled")),
-                active.deploymentId())
+                (rs, ignored) -> rs.getString("status"),
+                tenantId).orElseThrow(StartCleanOperationService::notFound);
+        String organizationStatus = one("""
+                        SELECT status
+                        FROM iam_organization
+                        WHERE tenant_id = ?
+                          AND id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> rs.getString("status"),
+                tenantId,
+                organizationId)
                 .orElseThrow(StartCleanOperationService::notFound);
-        requireDeployment(
+        requireAssetAvailable(
                 asset,
-                active,
-                deployment,
+                tenantStatus,
+                organizationStatus,
                 tenantId,
                 organizationId,
-                deploymentCode);
+                deviceCode);
 
         String onenetStatus = one("""
                         SELECT onenet_connection_status
@@ -380,11 +390,17 @@ public class StartCleanOperationService {
                         rs.getBytes("content_sha256"),
                         rs.getBytes("mcu_payload_sha256"),
                         rs.getLong("edge_heartbeat_interval_ms"),
-                        rs.getLong("edge_heartbeat_miss_threshold")),
+                        rs.getLong("edge_heartbeat_miss_threshold"),
+                        rs.getBoolean("application_applied"),
+                        rs.getBoolean("runtime_applied")),
                 tenantId,
                 organizationId,
-                deployment.id()).orElseThrow(
+                asset.id()).orElseThrow(
                 StartCleanOperationService::configurationUnavailable);
+        if (!configuration.applicationApplied()
+                || !configuration.runtimeApplied()) {
+            throw configurationUnavailable();
+        }
         Port port = one(
                 LOAD_PORT_SQL,
                 (rs, ignored) -> new Port(
@@ -392,7 +408,7 @@ public class StartCleanOperationService {
                         rs.getInt("port_no")),
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 portNo).orElseThrow(StartCleanOperationService::notFound);
         PortConfiguration portConfiguration = one(
                 LOAD_PORT_CONFIGURATION_SQL,
@@ -402,7 +418,7 @@ public class StartCleanOperationService {
                         rs.getLong("calibration_version")),
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 configuration.id(),
                 port.id()).orElseThrow(
                 StartCleanOperationService::configurationUnavailable);
@@ -414,7 +430,7 @@ public class StartCleanOperationService {
                         FROM dev_port_runtime_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
@@ -424,7 +440,7 @@ public class StartCleanOperationService {
                                 "pending_delivery_result_session_id")),
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 port.id()).map(PendingDelivery::sessionId).orElse(null);
 
         LocalDateTime now = databaseNow();
@@ -491,7 +507,7 @@ public class StartCleanOperationService {
                 operationUid,
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 port.id(),
                 organizationUserId,
                 configuration.id(),
@@ -518,7 +534,6 @@ public class StartCleanOperationService {
                 asset.id(),
                 tenantId,
                 organizationId,
-                deployment.id(),
                 operationId,
                 now);
 
@@ -533,7 +548,7 @@ public class StartCleanOperationService {
         byte[] payloadSha256 = canonicalizer.payloadSha256(payload);
         Map<String, Object> envelope = commandEnvelope(
                 commandUid,
-                deploymentCode,
+                asset.hardwareSn(),
                 operationUid,
                 now,
                 authorizationExpiresAt,
@@ -544,7 +559,7 @@ public class StartCleanOperationService {
                 commandUid,
                 tenantId,
                 organizationId,
-                deployment.id(),
+                asset.id(),
                 operationId,
                 writeJson(envelope),
                 envelopeSha256,
@@ -553,7 +568,6 @@ public class StartCleanOperationService {
                 correlationUid,
                 operationUid,
                 commandUid,
-                deployment,
                 asset,
                 commandId,
                 envelopeSha256);
@@ -729,7 +743,7 @@ public class StartCleanOperationService {
             UUID operationUid,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long portId,
             long organizationUserId,
             long deviceConfigurationId,
@@ -743,7 +757,7 @@ public class StartCleanOperationService {
         return insertAndReturnKey("""
                 INSERT INTO rec_clean_operation (
                     operation_uid, tenant_id, organization_id,
-                    deployment_id, port_id,
+                    asset_id, port_id,
                     cleaner_organization_user_id,
                     device_config_version_id,
                     clean_config_version_id,
@@ -786,7 +800,7 @@ public class StartCleanOperationService {
                 operationUid.toString(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 portId,
                 organizationUserId,
                 deviceConfigurationId,
@@ -885,23 +899,21 @@ public class StartCleanOperationService {
             long assetId,
             long tenantId,
             long organizationId,
-            long deploymentId,
             long operationId,
             LocalDateTime now) {
         requireSingle(jdbc.update("""
                         INSERT INTO dev_device_occupancy (
                             asset_id, tenant_id, organization_id,
-                            deployment_id, occupancy_kind,
-                            delivery_session_id, clean_operation_id,
+                            occupancy_kind, delivery_session_id,
+                            clean_operation_id,
                             acquired_at, lock_version
                         ) VALUES (
-                            ?, ?, ?, ?, 'CLEAN', NULL, ?, ?, 0
+                            ?, ?, ?, 'CLEAN', NULL, ?, ?, 0
                         )
                         """,
                 assetId,
                 tenantId,
                 organizationId,
-                deploymentId,
                 operationId,
                 now), "acquire clean device occupancy");
     }
@@ -910,7 +922,7 @@ public class StartCleanOperationService {
             UUID commandUid,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long operationId,
             String envelopeJson,
             byte[] envelopeSha256,
@@ -918,7 +930,7 @@ public class StartCleanOperationService {
         return insertAndReturnKey("""
                 INSERT INTO dev_device_command (
                     command_uid, tenant_id, organization_id,
-                    deployment_id, command_type,
+                    asset_id, command_type,
                     delivery_session_id, clean_operation_id,
                     config_application_id, fullness_detection_id,
                     baseline_measurement_id,
@@ -930,14 +942,14 @@ public class StartCleanOperationService {
                 ) VALUES (
                     ?, ?, ?, ?, 'START_CLEAN_OPERATION',
                     NULL, ?, NULL, NULL, NULL,
-                    1, CAST(? AS JSON), ?, 'QUEUED',
+                    2, CAST(? AS JSON), ?, 'QUEUED',
                     ?, NULL, NULL, NULL, 0, ?, ?
                 )
                 """,
                 commandUid.toString(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 operationId,
                 envelopeJson,
                 envelopeSha256,
@@ -950,20 +962,19 @@ public class StartCleanOperationService {
             UUID correlationUid,
             UUID operationUid,
             UUID commandUid,
-            Deployment deployment,
             Asset asset,
             long commandId,
             byte[] envelopeSha256) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("schemaVersion", 1);
+        snapshot.put("schemaVersion", 2);
         snapshot.put("commandUid", commandUid.toString());
         snapshot.put("commandType", TASK_TYPE);
         snapshot.put("hardwareSn", asset.hardwareSn());
-        snapshot.put("deploymentCode", deployment.publicCode());
+        snapshot.put("targetDeviceName", asset.hardwareSn());
         snapshot.put("target", Map.of(
                 "type", TARGET_TYPE,
                 "uid", operationUid.toString()));
-        snapshot.put("payloadSchemaVersion", 1);
+        snapshot.put("payloadSchemaVersion", 2);
         snapshot.put(
                 "semanticPayloadSha256",
                 canonicalizer.hex(envelopeSha256));
@@ -975,11 +986,11 @@ public class StartCleanOperationService {
                 TARGET_TYPE,
                 operationUid.toString(),
                 taskRefFactory.issue(
-                        deployment.tenantId(),
-                        deployment.organizationId(),
-                        deployment.id(),
+                        asset.tenantId(),
+                        asset.organizationId(),
+                        asset.id(),
                         commandId),
-                1,
+                2,
                 writeJson(snapshot),
                 envelopeSha256,
                 correlationUid,
@@ -1026,23 +1037,23 @@ public class StartCleanOperationService {
 
     private Map<String, Object> commandEnvelope(
             UUID commandUid,
-            String deploymentCode,
+            String targetDeviceName,
             UUID operationUid,
             LocalDateTime issuedAt,
             LocalDateTime expiresAt,
             Map<String, Object> payload,
             byte[] payloadSha256) {
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("schemaVersion", 1);
+        envelope.put("schemaVersion", 2);
         envelope.put("commandUid", commandUid.toString());
         envelope.put("commandType", TASK_TYPE);
-        envelope.put("deploymentCode", deploymentCode);
+        envelope.put("targetDeviceName", targetDeviceName);
         envelope.put("target", Map.of(
                 "type", TARGET_TYPE,
                 "uid", operationUid.toString()));
         envelope.put("issuedAt", instant(issuedAt).toString());
         envelope.put("expiresAt", instant(expiresAt).toString());
-        envelope.put("payloadSchemaVersion", 1);
+        envelope.put("payloadSchemaVersion", 2);
         envelope.put(
                 "payloadSha256",
                 canonicalizer.hex(payloadSha256));
@@ -1068,22 +1079,20 @@ public class StartCleanOperationService {
         return new Baseline("UNTRUSTED", null, null);
     }
 
-    private static void requireDeployment(
+    private static void requireAssetAvailable(
             Asset asset,
-            ActiveDeployment active,
-            Deployment deployment,
+            String tenantStatus,
+            String organizationStatus,
             long tenantId,
             long organizationId,
-            String deploymentCode) {
-        boolean valid = asset.id() == deployment.assetId()
-                && active.tenantId() == tenantId
-                && active.organizationId() == organizationId
-                && deployment.tenantId() == tenantId
-                && deployment.organizationId() == organizationId
-                && deployment.publicCode().equals(deploymentCode)
-                && "IN_USE".equals(asset.lifecycleStatus())
-                && "ENABLED".equals(deployment.lifecycleStatus())
-                && deployment.businessEnabled();
+            String deviceCode) {
+        boolean valid = Objects.equals(asset.tenantId(), tenantId)
+                && Objects.equals(asset.organizationId(), organizationId)
+                && asset.devicePublicCode().equals(deviceCode)
+                && "NORMAL".equals(asset.lifecycleStatus())
+                && "PASSED".equals(asset.acceptanceStatus())
+                && "ENABLED".equals(tenantStatus)
+                && "ENABLED".equals(organizationStatus);
         if (!valid) {
             throw notFound();
         }
@@ -1197,10 +1206,10 @@ public class StartCleanOperationService {
 
     private static String fingerprint(
             UUID userUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String bagCode) {
-        String value = userUid + "\u0000" + deploymentCode
+        String value = userUid + "\u0000" + deviceCode
                 + "\u0000" + portNo + "\u0000" + bagCode;
         try {
             return HexFormat.of().formatHex(
@@ -1213,12 +1222,12 @@ public class StartCleanOperationService {
         }
     }
 
-    private static String deploymentCode(String value) {
+    private static String deviceCode(String value) {
         if (value == null) {
             throw notFound();
         }
         String normalized = value.trim();
-        if (!normalized.matches("Dp_[A-Za-z0-9_-]{6,61}")) {
+        if (!normalized.matches("Dv_[A-Za-z0-9_-]{24,61}")) {
             throw notFound();
         }
         return normalized;
@@ -1355,23 +1364,11 @@ public class StartCleanOperationService {
     private record Asset(
             long id,
             String hardwareSn,
-            String lifecycleStatus) {
-    }
-
-    private record ActiveDeployment(
-            long tenantId,
-            long organizationId,
-            long deploymentId) {
-    }
-
-    private record Deployment(
-            long id,
-            long tenantId,
-            long organizationId,
-            long assetId,
-            String publicCode,
+            String devicePublicCode,
             String lifecycleStatus,
-            boolean businessEnabled) {
+            String acceptanceStatus,
+            Long tenantId,
+            Long organizationId) {
     }
 
     private record Configuration(
@@ -1380,7 +1377,9 @@ public class StartCleanOperationService {
             byte[] contentSha256,
             byte[] mcuPayloadSha256,
             long heartbeatIntervalMs,
-            long heartbeatMissThreshold) {
+            long heartbeatMissThreshold,
+            boolean applicationApplied,
+            boolean runtimeApplied) {
     }
 
     private record Port(long id, int portNo) {

@@ -44,7 +44,7 @@ public class TargetMiniappLoginTransactionService {
             Set.of("statistics.read", "device.read", "alert.read");
 
     private final JdbcTemplate jdbc;
-    private final OrganizationUserRegistrationAttributionPort deploymentLookup;
+    private final OrganizationUserRegistrationAttributionPort assetLookup;
     private final OrganizationUserRegistrationParticipant registrationParticipant;
     private final OrganizationUserWalletOwnerRefFactory walletOwnerRefFactory;
     private final JwtTokenProvider tokenProvider;
@@ -52,14 +52,14 @@ public class TargetMiniappLoginTransactionService {
 
     public TargetMiniappLoginTransactionService(
             JdbcTemplate jdbc,
-            OrganizationUserRegistrationAttributionPort deploymentLookup,
+            OrganizationUserRegistrationAttributionPort assetLookup,
             OrganizationUserRegistrationParticipant registrationParticipant,
             OrganizationUserWalletOwnerRefFactory walletOwnerRefFactory,
             JwtTokenProvider tokenProvider,
             @Value("${ecobin.identity.miniapp-session-duration:PT2H}")
             Duration sessionDuration) {
         this.jdbc = jdbc;
-        this.deploymentLookup = deploymentLookup;
+        this.assetLookup = assetLookup;
         this.registrationParticipant = registrationParticipant;
         this.walletOwnerRefFactory = walletOwnerRefFactory;
         this.tokenProvider = tokenProvider;
@@ -79,18 +79,18 @@ public class TargetMiniappLoginTransactionService {
     public MiniappSessionCreated completeLogin(
             String appId,
             String openid,
-            String deploymentCode) {
+            String deviceCode) {
         MiniappRow candidate = configurationByAppId(appId, false);
         lockTenant(candidate.tenantId());
         lockOrganization(candidate.tenantId(), candidate.organizationId());
         MiniappRow configuration = configurationByAppId(appId, true);
         requireEnabled(configuration);
 
-        OrganizationUserRegistrationAttributionRef deploymentRef = null;
-        if (deploymentCode != null && !deploymentCode.isBlank()) {
-            deploymentRef = deploymentLookup.resolve(
+        OrganizationUserRegistrationAttributionRef assetRef = null;
+        if (deviceCode != null && !deviceCode.isBlank()) {
+            assetRef = assetLookup.resolve(
                             new RegistrationAttributionQuery(
-                                    deploymentCode.trim(),
+                                    deviceCode.trim(),
                                     configuration.tenantCode(),
                                     configuration.organizationCode()))
                     .map(OrganizationUserRegistrationAttributionPort
@@ -98,7 +98,7 @@ public class TargetMiniappLoginTransactionService {
                     .orElseThrow(() -> new TargetApiException(
                             422,
                             "IDENTITY.REGISTRATION_SOURCE_INVALID",
-                            "注册来源部署无效或不属于当前机构"));
+                            "注册来源设备无效或不属于当前机构"));
         }
 
         OrganizationUserRow user = organizationUser(
@@ -106,7 +106,7 @@ public class TargetMiniappLoginTransactionService {
         boolean newRegistration = user == null;
         if (newRegistration) {
             user = createOrganizationUser(
-                    configuration, openid, deploymentRef);
+                    configuration, openid, assetRef);
             registrationParticipant.initializeWallet(
                     new OrganizationUserRegistrationCommand(
                             new TenantUid(stableUid(
@@ -232,21 +232,21 @@ public class TargetMiniappLoginTransactionService {
     private OrganizationUserRow createOrganizationUser(
             MiniappRow configuration,
             String openid,
-            OrganizationUserRegistrationAttributionRef deploymentRef) {
-        long deploymentId = 0;
-        if (deploymentRef != null) {
+            OrganizationUserRegistrationAttributionRef assetRef) {
+        long assetId = 0;
+        if (assetRef != null) {
             long[] keys = new long[3];
-            deploymentRef.writeForeignKeyTo((tenant, organization, deployment) -> {
+            assetRef.writeForeignKeyTo((tenant, organization, asset) -> {
                 keys[0] = tenant;
                 keys[1] = organization;
-                keys[2] = deployment;
+                keys[2] = asset;
             });
             if (keys[0] != configuration.tenantId()
                     || keys[1] != configuration.organizationId()) {
                 throw new IllegalStateException(
-                        "registration deployment scope mismatch");
+                        "registration asset scope mismatch");
             }
-            deploymentId = keys[2];
+            assetId = keys[2];
         }
         UUID uid = UUID.randomUUID();
         Instant registeredAt =
@@ -260,7 +260,7 @@ public class TargetMiniappLoginTransactionService {
                             nickname, avatar_url, status,
                             auth_version, lock_version,
                             registered_at,
-                            registered_via_deployment_id,
+                            registered_via_asset_id,
                             frozen_at, created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, ?, ?,
@@ -274,7 +274,7 @@ public class TargetMiniappLoginTransactionService {
                 configuration.miniappId(),
                 openid,
                 timestamp(registeredAt),
-                deploymentId == 0 ? null : deploymentId,
+                assetId == 0 ? null : assetId,
                 timestamp(registeredAt),
                 timestamp(registeredAt));
         return organizationUserByUid(uid, true);
@@ -480,7 +480,7 @@ public class TargetMiniappLoginTransactionService {
                                phone_e164, phone_bound_at,
                                nickname, status, auth_version,
                                registered_at,
-                               registered_via_deployment_id
+                               registered_via_asset_id
                         FROM iam_organization_user
                         WHERE organization_miniapp_id = ?
                           AND openid = ?
@@ -501,7 +501,7 @@ public class TargetMiniappLoginTransactionService {
                                phone_e164, phone_bound_at,
                                nickname, status, auth_version,
                                registered_at,
-                               registered_via_deployment_id
+                               registered_via_asset_id
                         FROM iam_organization_user
                         WHERE organization_user_uid = ?
                         %s
@@ -607,8 +607,8 @@ public class TargetMiniappLoginTransactionService {
 
     private static OrganizationUserRow organizationUserRow(ResultSet rs)
             throws SQLException {
-        long deploymentId = rs.getLong("registered_via_deployment_id");
-        boolean deploymentIdWasNull = rs.wasNull();
+        long assetId = rs.getLong("registered_via_asset_id");
+        boolean assetIdWasNull = rs.wasNull();
         return new OrganizationUserRow(
                 rs.getLong("id"),
                 UUID.fromString(rs.getString("organization_user_uid")),
@@ -621,7 +621,7 @@ public class TargetMiniappLoginTransactionService {
                 rs.getString("status"),
                 rs.getLong("auth_version"),
                 instant(rs, "registered_at"),
-                deploymentIdWasNull ? null : deploymentId);
+                assetIdWasNull ? null : assetId);
     }
 
     private record MiniappRow(
@@ -651,7 +651,7 @@ public class TargetMiniappLoginTransactionService {
             String status,
             long authVersion,
             Instant registeredAt,
-            Long registeredViaDeploymentId) {
+            Long registeredViaAssetId) {
     }
 
     private record BindingRow(long id, long staffId) {

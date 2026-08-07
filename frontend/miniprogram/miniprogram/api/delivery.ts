@@ -9,40 +9,49 @@ import type {
   DeliverySessionView,
 } from '../types/api'
 
-export function getDeliveryOptions(deploymentCode: string) {
+/**
+ * 读取“此刻是否允许开始投递”的展示快照。
+ * 该结果只用于页面提示；真正创建会话时，后端会在写锁下重新检查全部条件。
+ */
+export function getDeliveryOptions(deviceCode: string) {
   return http.get<DeliveryOptionsView>(
-    `/api/v1/miniapp/device-deployments/${
-      encodeURIComponent(deploymentCode)
+    `/api/v1/miniapp/devices/${
+      encodeURIComponent(deviceCode)
     }/delivery-options`,
     undefined,
     {
       noStore: true,
       toast: false,
-      registrationSource: { deploymentCode },
+      registrationSource: { deviceCode },
     },
   )
 }
 
+/**
+ * 提交一次物理投递意图。成功返回 202 只表示后端已建立会话并排队下发，
+ * 不表示设备已经开门；调用方必须保留幂等键并继续查询会话状态。
+ */
 export function startDeliverySession(
-  deploymentCode: string,
+  deviceCode: string,
   portNo: number,
   idempotencyKey: string,
 ) {
   return requestAccepted<DeliverySessionAccepted>({
-    url: `/api/v1/miniapp/device-deployments/${
-      encodeURIComponent(deploymentCode)
+    url: `/api/v1/miniapp/devices/${
+      encodeURIComponent(deviceCode)
     }/ports/${portNo}/delivery-sessions`,
     method: 'POST',
     idempotencyKey,
     noStore: true,
     toast: false,
-    registrationSource: { deploymentCode },
+    registrationSource: { deviceCode },
   })
 }
 
+/** 查询当前用户拥有的投递会话，用于把设备异步进度投影到小程序页面。 */
 export function getDeliverySession(
   sessionUid: string,
-  deploymentCode: string,
+  deviceCode: string,
 ) {
   return http.get<DeliverySessionView>(
     `/api/v1/miniapp/delivery-sessions/${
@@ -52,7 +61,7 @@ export function getDeliverySession(
     {
       noStore: true,
       toast: false,
-      registrationSource: { deploymentCode },
+      registrationSource: { deviceCode },
     },
   )
 }

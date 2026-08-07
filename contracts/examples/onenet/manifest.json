@@ -61,6 +61,10 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "request-device-acceptance.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "device-command-observed.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },
@@ -94,6 +98,10 @@
     },
     {
       "file": "device-runtime-snapshot.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "device-acceptance-evidence.event.json",
       "schema": "../../onenet/events/events.schema.json"
     }
   ],

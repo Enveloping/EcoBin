@@ -10,7 +10,7 @@ import java.util.Objects;
  * 当前机构下某部署的 device 只读投递快照。
  */
 public record DeliveryDeviceOptionsSnapshot(
-        String deploymentCode,
+        String deviceCode,
         String displayName,
         String address,
         boolean deviceBusy,
@@ -19,9 +19,9 @@ public record DeliveryDeviceOptionsSnapshot(
         DeliveryOptionsBusinessQueryRef businessQueryRef) {
 
     public DeliveryDeviceOptionsSnapshot {
-        if (deploymentCode == null || deploymentCode.isBlank()) {
+        if (deviceCode == null || deviceCode.isBlank()) {
             throw new IllegalArgumentException(
-                    "deploymentCode must not be blank");
+                    "deviceCode must not be blank");
         }
         Objects.requireNonNull(asOf, "asOf");
         ports = List.copyOf(ports);

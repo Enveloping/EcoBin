@@ -1,30 +1,29 @@
-package org.enveloping.ecobin.device.api.persistence;
+package org.enveloping.ecobin.framework.reliability;
 
-import org.enveloping.ecobin.device.application.registration.RegistrationDeploymentRefFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Component
-final class DeviceOwnedRegistrationDeploymentRefFactory
-        implements RegistrationDeploymentRefFactory {
+final class TransactionBoundDeviceAssetTaskRefFactory
+        implements DeviceAssetTaskRefFactory {
 
     @Override
-    public RegistrationDeploymentRef issue(
+    public DeviceAssetTaskRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey) {
+            long assetKey) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
-                    "registration deployment reference requires an active transaction");
+                    "device asset task reference requires a transaction");
         }
         var resources = TransactionSynchronizationManager.getResourceMap();
         if (resources.isEmpty()) {
             throw new IllegalStateException(
-                    "registration deployment reference requires a bound transaction resource");
+                    "device asset task reference requires a bound resource");
         }
-        RegistrationDeploymentRef reference = new RegistrationDeploymentRef(
-                tenantKey, organizationKey, deploymentKey, resources);
+        DeviceAssetTaskRef reference = new DeviceAssetTaskRef(
+                tenantKey, organizationKey, assetKey, resources);
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override

@@ -10,15 +10,15 @@ interface MiniappDeliveryDeviceQueryRepository {
 
     LocalDateTime databaseNow();
 
-    Optional<DeploymentSnapshotRow> findCurrentDeployment(
+    Optional<AssetSnapshotRow> findAsset(
             long tenantId,
             long organizationId,
-            String deploymentCode);
+            String deviceCode);
 
     List<PortSnapshotRow> findPorts(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             Long configurationId);
 
     Optional<OwnedSessionRow> findOwnedSession(
@@ -27,13 +27,11 @@ interface MiniappDeliveryDeviceQueryRepository {
             long organizationUserId,
             UUID sessionUid);
 
-    record DeploymentSnapshotRow(
-            long deploymentId,
+    record AssetSnapshotRow(
             long assetId,
-            String deploymentCode,
-            String assetLifecycleStatus,
-            String deploymentLifecycleStatus,
-            boolean businessEnabled,
+            String deviceCode,
+            String acceptanceStatus,
+            String lifecycleStatus,
             boolean deviceBusy,
             Long configurationId,
             Long configurationVersion,
@@ -92,7 +90,7 @@ interface MiniappDeliveryDeviceQueryRepository {
             long sessionId,
             UUID sessionUid,
             String deviceStatus,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             LocalDateTime firstPhysicalProgressAt,
             LocalDateTime deviceCompletedAt,

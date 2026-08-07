@@ -13,9 +13,9 @@ from onenet_wire import canonical_payload_sha256, utc_now_rfc3339
 logger = logging.getLogger("edge-boot")
 
 
-def _deployment_code(mqtt_client) -> str:
+def _device_name(mqtt_client) -> str:
     return str(
-        getattr(mqtt_client, "deployment_code", "") or ""
+        getattr(mqtt_client, "device_name", "") or ""
     )
 
 
@@ -27,17 +27,17 @@ def _observe_edge_fault(
     severity,
     detail=None,
 ):
-    deployment_code = _deployment_code(mqtt_client)
-    if not deployment_code:
+    device_name = _device_name(mqtt_client)
+    if not device_name:
         logger.error(
-            "cannot persist reliable fault without deployment code: %s/%s",
+            "cannot persist reliable fault without immutable device name: %s/%s",
             component,
             fault_code,
         )
         return "REJECTED"
     try:
         return store.observe_fault_and_create_event(
-            deployment_code=deployment_code,
+            device_name=device_name,
             component=component,
             fault_code=fault_code,
             severity=severity,
@@ -62,11 +62,11 @@ def _recover_edge_fault(
     fault = store.get_active_edge_fault(component, fault_code)
     if fault is None:
         return "UNKNOWN"
-    deployment_code = _deployment_code(mqtt_client)
-    if not deployment_code:
+    device_name = _device_name(mqtt_client)
+    if not device_name:
         return "REJECTED"
     return store.recover_fault_and_create_event(
-        deployment_code=deployment_code,
+        device_name=device_name,
         fault_uid=fault["fault_uid"],
         component=component,
         fault_code=fault_code,
@@ -558,19 +558,18 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
         "capabilityBitmapHex": f"{int(mcu_info.get('mcu_capability', 0)):016x}",
         "ports": ports,
     }
-    deployment_code = (
-        getattr(mqtt_client, "deployment_code", "") or "Dp_unknown"
+    device_name = (
+        getattr(mqtt_client, "device_name", "") or "UNKNOWN_DEVICE"
     )
     payload = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": str(_uuid.uuid4()),
-        "deploymentCode": deployment_code,
         "edgeEventSequence": store.reserve_edge_event_sequence(),
         "eventType": "DEVICE_RUNTIME_SNAPSHOT",
         "deliveryClass": "TELEMETRY_SNAPSHOT",
         "target": {
-            "type": "DEVICE_DEPLOYMENT",
-            "uid": deployment_code,
+            "type": "DEVICE_ASSET",
+            "uid": device_name,
         },
         "commandUid": None,
         "occurredAt": utc_now_rfc3339(),

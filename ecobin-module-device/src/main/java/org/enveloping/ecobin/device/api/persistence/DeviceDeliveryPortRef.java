@@ -14,7 +14,7 @@ public final class DeviceDeliveryPortRef {
 
     private final long tenantKey;
     private final long organizationKey;
-    private final long deploymentKey;
+    private final long assetKey;
     private final long portKey;
     private final long ownerThreadId;
     private final Map<Object, Object> transactionResources;
@@ -24,16 +24,16 @@ public final class DeviceDeliveryPortRef {
     DeviceDeliveryPortRef(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long portKey,
             Map<Object, Object> transactionResources) {
         this.tenantKey = positive(tenantKey, "tenantKey");
         this.organizationKey = positive(
                 organizationKey,
                 "organizationKey");
-        this.deploymentKey = positive(
-                deploymentKey,
-                "deploymentKey");
+        this.assetKey = positive(
+                assetKey,
+                "assetKey");
         this.portKey = positive(portKey, "portKey");
         this.ownerThreadId = Thread.currentThread().threadId();
         this.transactionResources = new IdentityHashMap<>(
@@ -70,7 +70,7 @@ public final class DeviceDeliveryPortRef {
         return function.apply(
                 tenantKey,
                 organizationKey,
-                deploymentKey,
+                assetKey,
                 portKey);
     }
 
@@ -96,7 +96,7 @@ public final class DeviceDeliveryPortRef {
         T apply(
                 long tenantKey,
                 long organizationKey,
-                long deploymentKey,
+                long assetKey,
                 long portKey);
     }
 }

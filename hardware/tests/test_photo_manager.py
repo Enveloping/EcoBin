@@ -25,7 +25,7 @@ def test_async_capture_does_not_block_workflow_thread(tmp_path):
             "/dev/v4l/by-id/"
             "usb-icSpring_icspring_camera-video-index0"
         ),
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         trusted_cos_environment={
             "baseUrl": (
                 "https://ecobin-contract-1250000000.cos."
@@ -174,7 +174,7 @@ def test_clean_capture_phases_use_first_open_then_final_close_slots(
         str(tmp_path / "photos"),
         outside_camera_source="simulated://outside",
         inside_camera_source="simulated://inside",
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         start_upload_worker=False,
     )
 
@@ -234,7 +234,7 @@ def test_capture_failure_is_persisted_as_permanently_missing(tmp_path):
     photos = PhotoManager(
         store,
         str(tmp_path / "photos"),
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         start_upload_worker=False,
     )
 
@@ -287,7 +287,7 @@ def test_restart_recovers_durable_capture_reservations(tmp_path):
             "local_path": str(ready_path),
             "work_uid": "session-ready",
             "work_type": "DELIVERY_SESSION",
-            "deployment_code": "Dp_demo_01",
+            "device_name": "SN-DEMO-0001",
         },
         {
             "photo_uid": "photo-missing",
@@ -295,7 +295,7 @@ def test_restart_recovers_durable_capture_reservations(tmp_path):
             "local_path": str(tmp_path / "missing.jpg"),
             "work_uid": "session-missing",
             "work_type": "DELIVERY_SESSION",
-            "deployment_code": "Dp_demo_01",
+            "device_name": "SN-DEMO-0001",
         },
     ]
     store.reserve_photo_captures(captures)
@@ -303,7 +303,7 @@ def test_restart_recovers_durable_capture_reservations(tmp_path):
     photos = PhotoManager(
         store,
         str(tmp_path / "photos"),
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         start_upload_worker=False,
     )
 
@@ -326,7 +326,7 @@ def test_duplicate_capture_trigger_does_not_recapture_same_slots(
     photos = PhotoManager(
         store,
         str(tmp_path / "photos"),
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         start_upload_worker=False,
     )
     first_capture_started = threading.Event()

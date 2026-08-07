@@ -32,7 +32,7 @@ public final class TransactionBoundFullnessDetectionCommandRef
     public static FullnessDetectionCommandRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long portKey,
             long detectionKey,
             long deviceConfigVersionKey,
@@ -43,7 +43,7 @@ public final class TransactionBoundFullnessDetectionCommandRef
                         new ForeignKeys(
                                 tenantKey,
                                 organizationKey,
-                                deploymentKey,
+                                assetKey,
                                 portKey,
                                 detectionKey,
                                 deviceConfigVersionKey,

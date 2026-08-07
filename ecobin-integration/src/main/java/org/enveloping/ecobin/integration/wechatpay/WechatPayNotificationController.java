@@ -19,6 +19,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -113,6 +114,56 @@ public class WechatPayNotificationController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping(
+            value = "/api/v1/wechat-pay/notifications/merchant-transfer-authorizations",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> merchantTransferAuthorization(
+            @RequestHeader("Wechatpay-Serial") String serial,
+            @RequestHeader("Wechatpay-Timestamp") String timestamp,
+            @RequestHeader("Wechatpay-Nonce") String nonce,
+            @RequestHeader("Wechatpay-Signature") String signature,
+            @RequestBody String rawBody) {
+        Notification notification = verifyAndDecrypt(
+                serial, timestamp, nonce, signature, rawBody,
+                Set.of(
+                        "MCHTRANSFER.AUTHORIZATION.CONFIRMED",
+                        "MCHTRANSFER.AUTHORIZATION.CLOSED"),
+                "mch_payment");
+        JsonNode resource = notification.resource();
+        String outAuthorizationNo = requiredText(
+                resource, "out_authorization_no");
+        String state = requiredText(resource, "state");
+        if (("MCHTRANSFER.AUTHORIZATION.CONFIRMED".equals(
+                notification.eventType()) && !"TAKING_EFFECT".equals(state))
+                || ("MCHTRANSFER.AUTHORIZATION.CLOSED".equals(
+                notification.eventType()) && !"CLOSED".equals(state))) {
+            throw new IllegalArgumentException(
+                    "authorization notification event and state mismatch");
+        }
+        ObjectNode normalized = mapper.createObjectNode();
+        normalized.put("event_type", notification.eventType());
+        copyText(resource, normalized, "out_authorization_no");
+        copyText(resource, normalized, "authorization_id");
+        copyText(resource, normalized, "appid");
+        copyText(resource, normalized, "openid");
+        copyText(resource, normalized, "user_display_name");
+        copyText(resource, normalized, "state");
+        copyText(resource, normalized, "authorize_time");
+        if ("CLOSED".equals(state)) {
+            JsonNode sourceClose = resource.path("close_info");
+            ObjectNode close = normalized.putObject("close_info");
+            close.put("close_reason",
+                    requiredText(sourceClose, "close_reason"));
+            close.put("close_time",
+                    requiredText(sourceClose, "close_time"));
+        }
+        String mchid = properties.getMchid();
+        receive(notification, rawBody, serial,
+                WechatPayNotificationPort.TRANSFER_AUTHORIZATION_KIND,
+                mchid, outAuthorizationNo, normalized);
+        return ResponseEntity.noContent().build();
+    }
+
     private Notification verifyAndDecrypt(
             String serial,
             String timestamp,
@@ -121,11 +172,25 @@ public class WechatPayNotificationController {
             String rawBody,
             String expectedEventType,
             String expectedOriginalType) {
+        return verifyAndDecrypt(
+                serial, timestamp, nonce, signature, rawBody,
+                Set.of(expectedEventType), expectedOriginalType);
+    }
+
+    private Notification verifyAndDecrypt(
+            String serial,
+            String timestamp,
+            String nonce,
+            String signature,
+            String rawBody,
+            Set<String> expectedEventTypes,
+            String expectedOriginalType) {
         client.verifyNotification(
                 serial, timestamp, nonce, signature, rawBody);
         JsonNode envelope = mapper.readTree(rawBody);
         String id = requiredText(envelope, "id");
-        if (!expectedEventType.equals(requiredText(envelope, "event_type"))) {
+        String eventType = requiredText(envelope, "event_type");
+        if (!expectedEventTypes.contains(eventType)) {
             throw new IllegalArgumentException(
                     "unexpected WeChat Pay notification event type");
         }
@@ -135,7 +200,8 @@ public class WechatPayNotificationController {
             throw new IllegalArgumentException(
                     "unexpected WeChat Pay notification resource type");
         }
-        return new Notification(id, client.decryptResource(encrypted));
+        return new Notification(
+                id, eventType, client.decryptResource(encrypted));
     }
 
     private void receive(
@@ -204,6 +270,9 @@ public class WechatPayNotificationController {
         return value.asLong();
     }
 
-    private record Notification(String id, JsonNode resource) {
+    private record Notification(
+            String id,
+            String eventType,
+            JsonNode resource) {
     }
 }

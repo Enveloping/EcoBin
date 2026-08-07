@@ -48,20 +48,20 @@ class DeliveryOrderDeviceFactsContractTest {
                         "10000000-0000-4000-8000-000000000001"),
                 UUID.fromString(
                         "20000000-0000-4000-8000-000000000001"),
-                "Dp_demo_01",
+                "Dv_0123456789abcdefghijklmn",
                 2);
 
         assertThat(missing.resolved()).isFalse();
         assertThat(missing.eventUid()).isNull();
         assertThat(missing.sessionUid()).isNull();
-        assertThat(missing.deploymentCode()).isNull();
+        assertThat(missing.deviceCode()).isNull();
         assertThat(missing.portNo()).isNull();
         assertThat(resolved.resolved()).isTrue();
         assertThatThrownBy(() -> new DeliveryOrderDeviceFacts(
                 "row-3",
                 resolved.eventUid(),
                 null,
-                resolved.deploymentCode(),
+                resolved.deviceCode(),
                 resolved.portNo()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("fully resolved or fully missing");

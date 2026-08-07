@@ -139,7 +139,6 @@ class FixedFrameMcuAdapter:
     """Serial adapter implementing the negotiated fixed-frame wire protocol."""
 
     compatibility_mode = True
-
     def __init__(
         self,
         port: str,
@@ -148,6 +147,7 @@ class FixedFrameMcuAdapter:
         baudrate: int = 115200,
         timeout_s: float = 0.5,
         serial_factory: Optional[Callable[..., object]] = None,
+        is_simulated: bool = False,
     ):
         if port_count != 1:
             raise ValueError("fixed-frame MCU protocol supports exactly one port")
@@ -157,6 +157,7 @@ class FixedFrameMcuAdapter:
         self.baudrate = baudrate
         self.timeout_s = timeout_s
         self._serial_factory = serial_factory
+        self.is_simulated = bool(is_simulated)
         self._ser = None
         self._parser = FixedFrameParser()
         self._io_lock = threading.RLock()

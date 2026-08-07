@@ -10,7 +10,6 @@
           "commandUid": "60000000-0000-4000-8000-000000000002",
           "confirmationUid": "60000000-0000-4000-8000-000000000001",
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1045,
           "eventType": 1,
           "eventUid": "60000000-0000-4000-8000-000000000003",

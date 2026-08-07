@@ -32,7 +32,7 @@ logging:
   file:
     path: ${ecobinLogPath:./logs}
   pattern:
-    level: "%5p requestId=%X{requestId:-} mqMessageId=%X{mqMessageId:-} inboxUid=%X{inboxUid:-} taskUid=%X{taskUid:-} eventUid=%X{eventUid:-} hardwareSn=%X{hardwareSn:-} deploymentCode=%X{deploymentCode:-}"
+    level: "%5p requestId=%X{requestId:-} mqMessageId=%X{mqMessageId:-} inboxUid=%X{inboxUid:-} taskUid=%X{taskUid:-} eventUid=%X{eventUid:-} hardwareSn=%X{hardwareSn:-}"
   level:
     org.enveloping.ecobin.diagnostics.onenet: INFO
     org.enveloping.ecobin.diagnostics.sql: INFO

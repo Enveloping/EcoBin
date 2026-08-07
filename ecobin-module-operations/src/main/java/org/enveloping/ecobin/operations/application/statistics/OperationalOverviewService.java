@@ -10,7 +10,7 @@ import org.enveloping.ecobin.identity.api.query.ManagementScopeAuthorizationQuer
 import org.enveloping.ecobin.identity.api.persistence.ManagementScopePersistenceRef;
 import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.Cleaning;
 import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.Delivery;
-import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.DeploymentAttribution;
+import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.AssetAttribution;
 import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.Funds;
 import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.Metrics;
 import org.enveloping.ecobin.operations.web.v1.OperationalOverviewModels.OperationalOverview;
@@ -141,9 +141,9 @@ public class OperationalOverviewService {
                             new RegistrationAttribution(
                                     org.directEntryCount(),
                                     registrations.stream().map(value ->
-                                            new DeploymentAttribution(
-                                                    value.deploymentCode(),
-                                                    value.deploymentName(),
+                                            new AssetAttribution(
+                                                    value.deviceCode(),
+                                                    value.deviceName(),
                                                     value.registeredUserCount()))
                                             .toList()));
                 }).toList();
@@ -255,7 +255,7 @@ public class OperationalOverviewService {
             pending += m.delivery().currentPendingReviewCount();
             cleans += m.cleaning().createdRecordCount();
             anomalous += m.cleaning().anomalousRecordCount();
-            online += m.operations().currentOnlineDeploymentCount();
+            online += m.operations().currentOnlineDeviceCount();
             full += m.operations().currentFullPortCount();
             alerts += m.operations().currentOpenAlertCount();
             succeeded += cents(m.funds().succeededWithdrawalYuan());

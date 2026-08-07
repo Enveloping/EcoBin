@@ -30,7 +30,7 @@ public class ExpireUnstartedCleanService
                             operation.id AS operation_id,
                             operation.tenant_id,
                             operation.organization_id,
-                            operation.deployment_id,
+                            operation.asset_id,
                             operation.port_id,
                             operation.new_bag_id,
                             command_row.id AS command_id
@@ -39,8 +39,8 @@ public class ExpireUnstartedCleanService
                           ON command_row.tenant_id = operation.tenant_id
                          AND command_row.organization_id =
                              operation.organization_id
-                         AND command_row.deployment_id =
-                             operation.deployment_id
+                         AND command_row.asset_id =
+                             operation.asset_id
                          AND command_row.clean_operation_id = operation.id
                          AND command_row.command_type =
                              'START_CLEAN_OPERATION'
@@ -62,7 +62,7 @@ public class ExpireUnstartedCleanService
                         rs.getLong("operation_id"),
                         rs.getLong("tenant_id"),
                         rs.getLong("organization_id"),
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         rs.getLong("port_id"),
                         rs.getLong("new_bag_id"),
                         rs.getLong("command_id")),
@@ -86,7 +86,7 @@ public class ExpireUnstartedCleanService
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND status = 'PREPARED'
                         """,
                 now,
@@ -94,19 +94,19 @@ public class ExpireUnstartedCleanService
                 candidate.operationId(),
                 candidate.tenantId(),
                 candidate.organizationId(),
-                candidate.deploymentId()),
+                candidate.assetId()),
                 "expire clean authorization");
         requireSingle(jdbc.update("""
                         DELETE FROM dev_device_occupancy
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND occupancy_kind = 'CLEAN'
                           AND clean_operation_id = ?
                         """,
                 candidate.tenantId(),
                 candidate.organizationId(),
-                candidate.deploymentId(),
+                candidate.assetId(),
                 candidate.operationId()),
                 "release expired clean occupancy");
         int reservationReleased = jdbc.update("""
@@ -172,7 +172,7 @@ public class ExpireUnstartedCleanService
             long operationId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long portId,
             long newBagId,
             long commandId) {

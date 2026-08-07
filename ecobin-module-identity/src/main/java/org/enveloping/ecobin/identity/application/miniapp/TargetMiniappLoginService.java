@@ -50,13 +50,13 @@ public class TargetMiniappLoginService {
                     true,
                     Map.of());
         }
-        String deploymentCode = request.registrationSource() == null
+        String deviceCode = request.registrationSource() == null
                 ? null
-                : request.registrationSource().deploymentCode();
+                : request.registrationSource().deviceCode();
         return transactions.completeLogin(
                 configuration.appId(),
                 wechatSession.openid(),
-                deploymentCode);
+                deviceCode);
     }
 
     public record MiniappConfiguration(

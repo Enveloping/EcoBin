@@ -36,12 +36,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Persists the trusted Orange Pi's single normal delivery completion and
- * invokes recycling before releasing the device occupancy.
+ * 保存可信香橙派上报的唯一正常投递结果，并在释放整机占位前调用 recycling 建单。
  *
- * <p>This slice intentionally supports the normal stable-weight completion.
- * Timeout recovery, interrupted sessions and physical recovery remain outside
- * the current implementation.</p>
+ * <p>当前切片只处理正常稳定称重完成；超时、会话中断和现场物理恢复不在这里猜测或补造。
+ * eventUid 负责传输去重，sessionUid 才是“一次会话最多一单”的业务唯一根。</p>
  */
 @Service
 public class TrustedDeliveryCompletionService
@@ -52,7 +50,7 @@ public class TrustedDeliveryCompletionService
     private static final String TARGET_TYPE = "DELIVERY_SESSION";
 
     static final String FIND_EDGE_COLLISIONS_SQL = """
-            SELECT id, event_uid, deployment_id,
+            SELECT id, event_uid, asset_id,
                    edge_event_sequence,
                    LOWER(HEX(canonical_sha256))
                        AS canonical_sha256,
@@ -60,7 +58,7 @@ public class TrustedDeliveryCompletionService
             FROM dev_edge_event
             WHERE event_uid = ?
                OR (
-                    deployment_id = ?
+                    asset_id = ?
                     AND edge_event_sequence = ?
                )
                OR source_inbox_id = ?
@@ -72,7 +70,7 @@ public class TrustedDeliveryCompletionService
             WHERE port_id = ?
               AND tenant_id = ?
               AND organization_id = ?
-              AND deployment_id = ?
+              AND asset_id = ?
             FOR UPDATE
             """;
 
@@ -82,7 +80,7 @@ public class TrustedDeliveryCompletionService
             WHERE id = ?
               AND tenant_id = ?
               AND organization_id = ?
-              AND deployment_id = ?
+              AND asset_id = ?
             """;
 
     static final String LOAD_PORT_CONFIGURATION_SQL = """
@@ -101,15 +99,15 @@ public class TrustedDeliveryCompletionService
               ON port.tenant_id = snapshot.tenant_id
              AND port.organization_id =
                  snapshot.organization_id
-             AND port.deployment_id =
-                 snapshot.deployment_id
+             AND port.asset_id =
+                 snapshot.asset_id
              AND port.id = snapshot.port_id
             WHERE snapshot.id = ?
               AND snapshot.config_version_id = ?
               AND snapshot.port_id = ?
               AND snapshot.tenant_id = ?
               AND snapshot.organization_id = ?
-              AND snapshot.deployment_id = ?
+              AND snapshot.asset_id = ?
             """;
 
     private final JdbcTemplate jdbc;
@@ -160,16 +158,18 @@ public class TrustedDeliveryCompletionService
             long tenantId,
             long organizationId,
             DeliveryCompletionBusinessWriter businessWriter) {
+        // 锁序从永久资产向本次作业逐层收窄：资产 → 运行态 → session → 投口 →
+        // 整机占位 → 开始命令。完成既有作业不受资产后来禁用或报废影响。
         AssetRow asset = lockAsset(fact);
-        long deploymentId = lockDeployment(
-                fact,
-                asset.id(),
-                tenantId,
-                organizationId);
-        lockRuntime(deploymentId, tenantId, organizationId);
+        if (asset.tenantId() != tenantId
+                || asset.organizationId() != organizationId) {
+            throw untrusted();
+        }
+        long assetId = asset.id();
+        lockRuntime(assetId, tenantId, organizationId);
         SessionRow session = lockSession(
                 fact,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         if ("BUSINESS_CONFIRMED".equals(session.status())) {
@@ -178,43 +178,43 @@ public class TrustedDeliveryCompletionService
                     inboxId,
                     tenantId,
                     organizationId,
-                    deploymentId,
+                    assetId,
                     session);
         }
         lockPortRuntimeAndRequirePort(
                 session.portId(),
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         lockOccupancy(
-                asset.id(),
                 session.id(),
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         CommandRow command = lockCommand(
                 fact,
                 session.id(),
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         PortConfiguration portConfiguration =
                 loadPortConfiguration(
                         session,
-                        deploymentId,
+                        assetId,
                         tenantId,
                         organizationId);
+        // 重新核对袋、价格、配置、命令和目标；设备载荷不能改变开始时冻结的业务事实。
         verifyFrozenFacts(fact, session, command, portConfiguration);
 
         List<ExistingEdge> collisions = findEdgeCollisions(
                 fact,
-                deploymentId,
+                assetId,
                 inboxId);
         if (!collisions.isEmpty()) {
             if (collisions.size() == 1
                     && collisions.getFirst().matches(
                             fact,
-                            deploymentId,
+                            assetId,
                             inboxId)
                     && "BUSINESS_CONFIRMED".equals(session.status())) {
                 return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
@@ -224,12 +224,13 @@ public class TrustedDeliveryCompletionService
         }
 
         LocalDateTime receivedAt = databaseNow();
+        // 原始边缘事件和物理结果只追加、不覆盖。审核纠错只能创建业务修订，不能反写这里。
         long edgeEventId = insertEdgeEvent(
                 fact,
                 inboxId,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 receivedAt);
         long physicalResultId = insertPhysicalResult(
                 fact,
@@ -238,15 +239,14 @@ public class TrustedDeliveryCompletionService
                 edgeEventId,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 receivedAt);
 
         DeliveryCompletionPersistenceFacts persistenceFacts =
                 new DeliveryCompletionPersistenceFacts(
                         tenantId,
                         organizationId,
-                        asset.id(),
-                        deploymentId,
+                        assetId,
                         session.portId(),
                         session.id(),
                         session.organizationUserId(),
@@ -271,6 +271,8 @@ public class TrustedDeliveryCompletionService
                         portConfiguration.fullnessMeasurementTimeoutMs(),
                         receivedAt,
                         fact);
+        // recycling 在当前 MANDATORY 事务中创建订单。订单、设备完成状态、占位释放和
+        // 返回边缘的业务确认意图要么一起提交，要么一起回滚。
         DeliveryCompletionBusinessResult business =
                 businessWriter.write(
                         factsRefFactory.issue(persistenceFacts));
@@ -280,6 +282,8 @@ public class TrustedDeliveryCompletionService
                 TASK_TYPE,
                 TARGET_TYPE,
                 fact.sessionUid().toString());
+        // 必须在建单成功之后才结束 session 并释放整机占位，否则失败重试期间可能允许
+        // 新投递/清运进入，导致原结果无法再与冻结的袋和端口事实对应。
         requireSingle(jdbc.update("""
                         UPDATE dev_delivery_session
                         SET status = 'BUSINESS_CONFIRMED',
@@ -316,36 +320,36 @@ public class TrustedDeliveryCompletionService
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND occupancy_kind = 'DELIVERY'
                           AND delivery_session_id = ?
                         """,
                 asset.id(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 session.id()),
                 "release delivery occupancy");
         requireSingle(jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET last_device_event_at = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
-                        WHERE deployment_id = ?
+                        WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         """,
                 receivedAt,
                 receivedAt,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId),
                 "touch delivery runtime");
+        // 业务确认也是同事务可靠任务。香橙派落盘确认并回传回执后，边缘才可清理原事件。
         confirmationService.registerApplied(
                 tenantId,
                 organizationId,
-                deploymentId,
-                fact.deploymentCode(),
+                assetId,
                 fact.eventUid().toString(),
                 fact.payloadSha256(),
                 "CREATED",
@@ -359,33 +363,33 @@ public class TrustedDeliveryCompletionService
             long inboxId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             SessionRow session) {
         lockPortRuntimeAndRequirePort(
                 session.portId(),
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         CommandRow command = lockCommand(
                 fact,
                 session.id(),
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         PortConfiguration port = loadPortConfiguration(
                 session,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         verifyFrozenFacts(fact, session, command, port);
         List<ExistingEdge> collisions = findEdgeCollisions(
                 fact,
-                deploymentId,
+                assetId,
                 inboxId);
         if (collisions.size() == 1
                 && collisions.getFirst().matches(
                 fact,
-                deploymentId,
+                assetId,
                 inboxId)) {
             return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
         }
@@ -395,19 +399,19 @@ public class TrustedDeliveryCompletionService
 
     private List<ExistingEdge> findEdgeCollisions(
             DeliveryCompletePhysicalFact fact,
-            long deploymentId,
+            long assetId,
             long inboxId) {
         return jdbc.query(
                 FIND_EDGE_COLLISIONS_SQL,
                 (rs, ignored) -> new ExistingEdge(
                         rs.getLong("id"),
                         rs.getString("event_uid"),
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         rs.getLong("edge_event_sequence"),
                         rs.getString("canonical_sha256"),
                         rs.getLong("source_inbox_id")),
                 fact.eventUid().toString(),
-                deploymentId,
+                assetId,
                 fact.edgeEventSequence(),
                 inboxId);
     }
@@ -415,12 +419,16 @@ public class TrustedDeliveryCompletionService
     private AssetRow lockAsset(
             DeliveryCompletePhysicalFact fact) {
         List<AssetRow> rows = jdbc.query("""
-                        SELECT asset.id
+                        SELECT asset.id, asset.tenant_id,
+                               asset.organization_id
                         FROM dev_device_asset asset
                         WHERE asset.hardware_sn = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> new AssetRow(rs.getLong("id")),
+                (rs, ignored) -> new AssetRow(
+                        rs.getLong("id"),
+                        rs.getLong("tenant_id"),
+                        rs.getLong("organization_id")),
                 fact.hardwareSn());
         if (rows.size() != 1) {
             throw untrusted();
@@ -428,63 +436,20 @@ public class TrustedDeliveryCompletionService
         return rows.getFirst();
     }
 
-    private long lockDeployment(
-            DeliveryCompletePhysicalFact fact,
+    private void lockRuntime(
             long assetId,
             long tenantId,
             long organizationId) {
-        List<Long> active = jdbc.query("""
-                        SELECT deployment_id
-                        FROM dev_asset_active_deployment
+        List<Long> rows = jdbc.query("""
+                        SELECT asset_id
+                        FROM dev_device_runtime_state
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getLong("deployment_id"),
+                (rs, ignored) -> rs.getLong("asset_id"),
                 assetId,
-                tenantId,
-                organizationId);
-        if (active.size() != 1) {
-            throw untrusted();
-        }
-        long deploymentId = active.getFirst();
-        List<Long> rows = jdbc.query("""
-                        SELECT id
-                        FROM dev_device_deployment
-                        WHERE id = ?
-                          AND asset_id = ?
-                          AND tenant_id = ?
-                          AND organization_id = ?
-                          AND public_code = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> rs.getLong("id"),
-                deploymentId,
-                assetId,
-                tenantId,
-                organizationId,
-                fact.deploymentCode());
-        if (rows.size() != 1) {
-            throw untrusted();
-        }
-        return deploymentId;
-    }
-
-    private void lockRuntime(
-            long deploymentId,
-            long tenantId,
-            long organizationId) {
-        List<Long> rows = jdbc.query("""
-                        SELECT deployment_id
-                        FROM dev_deployment_runtime_state
-                        WHERE deployment_id = ?
-                          AND tenant_id = ?
-                          AND organization_id = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> rs.getLong("deployment_id"),
-                deploymentId,
                 tenantId,
                 organizationId);
         if (rows.size() != 1) {
@@ -494,7 +459,7 @@ public class TrustedDeliveryCompletionService
 
     private SessionRow lockSession(
             DeliveryCompletePhysicalFact fact,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<SessionRow> rows = jdbc.query("""
@@ -516,14 +481,14 @@ public class TrustedDeliveryCompletionService
                         WHERE session_uid = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> session(rs),
                 fact.sessionUid().toString(),
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         if (rows.size() != 1
                 || !Set.of(
                         "AUTHORIZATION_QUEUED",
@@ -537,9 +502,8 @@ public class TrustedDeliveryCompletionService
     }
 
     private void lockOccupancy(
-            long assetId,
             long sessionId,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<Long> rows = jdbc.query("""
@@ -548,7 +512,6 @@ public class TrustedDeliveryCompletionService
                         WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
                           AND occupancy_kind = 'DELIVERY'
                         FOR UPDATE
                         """,
@@ -556,8 +519,7 @@ public class TrustedDeliveryCompletionService
                         rs.getLong("delivery_session_id"),
                 assetId,
                 tenantId,
-                organizationId,
-                deploymentId);
+                organizationId);
         if (rows.size() != 1 || rows.getFirst() != sessionId) {
             throw untrusted();
         }
@@ -566,7 +528,7 @@ public class TrustedDeliveryCompletionService
     private CommandRow lockCommand(
             DeliveryCompletePhysicalFact fact,
             long sessionId,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<CommandRow> rows = jdbc.query("""
@@ -575,7 +537,7 @@ public class TrustedDeliveryCompletionService
                         WHERE command_uid = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND command_type =
                               'START_DELIVERY_SESSION'
                           AND delivery_session_id = ?
@@ -588,7 +550,7 @@ public class TrustedDeliveryCompletionService
                 fact.commandUid().toString(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 sessionId);
         if (rows.size() != 1) {
             throw untrusted();
@@ -634,7 +596,7 @@ public class TrustedDeliveryCompletionService
 
     private void lockPortRuntimeAndRequirePort(
             long portId,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<Long> runtime = jdbc.query(
@@ -643,14 +605,14 @@ public class TrustedDeliveryCompletionService
                 portId,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         List<Long> ports = jdbc.query(
                 LOAD_PORT_SQL,
                 (rs, ignored) -> rs.getLong("id"),
                 portId,
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         if (ports.size() != 1 || runtime.size() != 1) {
             throw untrusted();
         }
@@ -658,7 +620,7 @@ public class TrustedDeliveryCompletionService
 
     private PortConfiguration loadPortConfiguration(
             SessionRow session,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<PortConfiguration> rows = jdbc.query(
@@ -679,7 +641,7 @@ public class TrustedDeliveryCompletionService
                 session.portId(),
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         if (rows.size() != 1) {
             throw untrusted();
         }
@@ -744,12 +706,12 @@ public class TrustedDeliveryCompletionService
             long inboxId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime receivedAt) {
         requireSingle(jdbc.update("""
                         INSERT INTO dev_edge_event (
                             event_uid, tenant_id, organization_id,
-                            deployment_id, edge_event_sequence,
+                            asset_id, edge_event_sequence,
                             event_type, delivery_class, schema_version,
                             target_type, target_stable_key_sha256,
                             device_occurred_at, clock_quality,
@@ -765,7 +727,7 @@ public class TrustedDeliveryCompletionService
                 fact.eventUid().toString(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 fact.edgeEventSequence(),
                 sha256(fact.sessionUid().toString()),
                 instant(fact.deviceOccurredAt()),
@@ -797,7 +759,7 @@ public class TrustedDeliveryCompletionService
             long edgeEventId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime receivedAt) {
         DeliveryCompleteMeasurement before =
                 fact.firstPreOpenMeasurement();
@@ -807,7 +769,7 @@ public class TrustedDeliveryCompletionService
                 fact.finalDoorCommand();
         requireSingle(jdbc.update("""
                         INSERT INTO dev_physical_result (
-                            tenant_id, organization_id, deployment_id,
+                            tenant_id, organization_id, asset_id,
                             port_id, edge_event_id, edge_event_type,
                             command_id, command_type,
                             reported_config_version_no,
@@ -861,7 +823,7 @@ public class TrustedDeliveryCompletionService
                         """,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 session.portId(),
                 edgeEventId,
                 command.id(),
@@ -946,7 +908,7 @@ public class TrustedDeliveryCompletionService
                 uuid(event, "commandUid"),
                 sessionUid,
                 sourceHardwareSn,
-                requiredText(event, "deploymentCode"),
+                requiredText(event, "deviceCode"),
                 positiveLong(event, "edgeEventSequence"),
                 nullableInstant(event, "occurredAt"),
                 requiredText(event, "clockQuality"),
@@ -1256,7 +1218,10 @@ public class TrustedDeliveryCompletionService
                 "delivery completion target is not authoritative");
     }
 
-    private record AssetRow(long id) {
+    private record AssetRow(
+            long id,
+            long tenantId,
+            long organizationId) {
     }
 
     private record CommandRow(
@@ -1302,17 +1267,17 @@ public class TrustedDeliveryCompletionService
     private record ExistingEdge(
             long id,
             String eventUid,
-            long deploymentId,
+            long assetId,
             long sequence,
             String canonicalSha256,
             long inboxId) {
 
         private boolean matches(
                 DeliveryCompletePhysicalFact fact,
-                long expectedDeploymentId,
+                long expectedAssetId,
                 long expectedInboxId) {
             return eventUid.equals(fact.eventUid().toString())
-                    && deploymentId == expectedDeploymentId
+                    && assetId == expectedAssetId
                     && sequence == fact.edgeEventSequence()
                     && canonicalSha256.equals(
                     fact.canonicalSha256())

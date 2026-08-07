@@ -7,7 +7,7 @@ import {
 } from '../../utils/device-entry-intent'
 import { MiniappApiProblem } from '../../utils/request'
 import { loginRegistrationSource } from '../../utils/login-registration-source'
-import { registrationDeploymentCode } from '../../utils/registration-source'
+import { registrationDeviceCode } from '../../utils/registration-source'
 
 Page({
   data: {
@@ -16,27 +16,27 @@ Page({
     diagnostic: '',
   },
 
-  registrationDeploymentCode: undefined as string | undefined,
+  registrationDeviceCode: undefined as string | undefined,
   loadedAt: 0,
   loginAttempt: 0,
 
   onLoad(options: Record<string, string | undefined>) {
     const captured = captureOrdinaryDeviceEntryFromQuery(options)
-    const currentSource = registrationDeploymentCode(options)
+    const currentSource = registrationDeviceCode(options)
     const previousPending = peekPendingDeviceEntry()
     if (
       currentSource
       && previousPending
-      && previousPending.deploymentCode !== currentSource
+      && previousPending.deviceCode !== currentSource
       && !previousPending.idempotencyKey
       && !previousPending.accepted
     ) {
       clearPendingDeviceEntry()
     }
-    this.registrationDeploymentCode =
+    this.registrationDeviceCode =
       currentSource
-      ?? captured?.deploymentCode
-      ?? peekPendingDeviceEntry()?.deploymentCode
+      ?? captured?.deviceCode
+      ?? peekPendingDeviceEntry()?.deviceCode
     this.loadedAt = Date.now()
     void this.doLogin()
   },
@@ -46,9 +46,9 @@ Page({
     if (
       pending
       && pending.capturedAt > this.loadedAt
-      && pending.deploymentCode !== this.registrationDeploymentCode
+      && pending.deviceCode !== this.registrationDeviceCode
     ) {
-      this.registrationDeploymentCode = pending.deploymentCode
+      this.registrationDeviceCode = pending.deviceCode
       void this.doLogin()
     }
   },
@@ -58,7 +58,7 @@ Page({
     this.setData({ loading: true, error: '', diagnostic: '' })
     try {
       const session = await ensureLoggedIn(
-        loginRegistrationSource(this.registrationDeploymentCode),
+        loginRegistrationSource(this.registrationDeviceCode),
       )
       if (attempt !== this.loginAttempt) return
       if (!routePendingDeviceEntry(session)) routeToEntry(session)

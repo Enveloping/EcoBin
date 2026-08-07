@@ -20,7 +20,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     @Test
     void exactTrustedSnapshotLeavesHealthyPortUnblocked() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
-                deployment(
+                asset(
                         CONTENT_SHA,
                         CONTENT_SHA,
                         NOW.minusSeconds(2),
@@ -51,7 +51,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 0L);
 
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
-                deployment(
+                asset(
                         CONTENT_SHA,
                         CONTENT_SHA,
                         NOW.minusSeconds(2),
@@ -66,7 +66,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     @Test
     void oldTrustedSnapshotRemainsUsableWhileOccupancyStillBlocks() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
-                deployment(
+                asset(
                         CONTENT_SHA,
                         CONTENT_SHA,
                         NOW.minusMinutes(1),
@@ -83,9 +83,9 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     @Test
-    void configurationReceiptMismatchDoesNotBlockBackendAdmission() {
+    void configurationReceiptMismatchBlocksAdmission() {
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
-                deployment(
+                asset(
                         CONTENT_SHA,
                         java.util.HexFormat.of().parseHex(
                                 "cc".repeat(32)),
@@ -94,16 +94,20 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 List.of(healthyPort()),
                 NOW);
 
-        assertThat(evaluation.exactConfiguration()).isTrue();
-        assertThat(evaluation.commonBlockers()).isEmpty();
+        assertThat(evaluation.exactConfiguration()).isFalse();
+        assertThat(evaluation.commonBlockers())
+                .containsExactly(
+                        MiniappDeliveryDeviceQueryPolicy
+                                .CONFIGURATION_NOT_APPLIED);
         assertThat(evaluation.ports()).singleElement()
                 .satisfies(port -> {
-                    assertThat(port.displayName()).isEqualTo("塑料投口");
-                    assertThat(port.unitPriceYuanPerKg())
-                            .isEqualTo("0.4500");
-                    assertThat(port.fullnessMode())
-                            .isEqualTo("INFRARED_OR_WEIGHT");
-                    assertThat(port.blockers()).isEmpty();
+                    assertThat(port.displayName()).isNull();
+                    assertThat(port.unitPriceYuanPerKg()).isNull();
+                    assertThat(port.fullnessMode()).isNull();
+                    assertThat(port.blockers())
+                            .containsExactly(
+                                    MiniappDeliveryDeviceQueryPolicy
+                                            .CONFIGURATION_NOT_APPLIED);
                 });
     }
 
@@ -137,7 +141,7 @@ class MiniappDeliveryDeviceQueryPolicyTest {
                 1053L);
 
         var evaluation = MiniappDeliveryDeviceQueryPolicy.evaluate(
-                deployment(
+                asset(
                         CONTENT_SHA,
                         CONTENT_SHA,
                         NOW.minusSeconds(2),
@@ -149,19 +153,17 @@ class MiniappDeliveryDeviceQueryPolicyTest {
     }
 
     private static MiniappDeliveryDeviceQueryRepository
-            .DeploymentSnapshotRow deployment(
+            .AssetSnapshotRow asset(
                     byte[] applicationContentSha,
                     byte[] orangePiContentSha,
                     LocalDateTime receivedAt,
                     boolean busy) {
         return new MiniappDeliveryDeviceQueryRepository
-                .DeploymentSnapshotRow(
+                .AssetSnapshotRow(
                 101L,
-                201L,
-                "Dp_demo_01",
-                "IN_USE",
-                "ENABLED",
-                true,
+                "test-device-1",
+                "PASSED",
+                "NORMAL",
                 busy,
                 401L,
                 8L,

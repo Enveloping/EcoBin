@@ -1,7 +1,7 @@
 # EcoBin 后端 Docker 部署说明
 
 > 2026-08 更新：本文保留 F-07/V10 的历史安全边界说明；当前目标数据库和应用门已推进
-> 到 V34。服务器实际部署请以
+> 到 V35。服务器实际部署请以
 > [`target-single-host-deployment.md`](target-single-host-deployment.md) 为准，不再照本文
 > 的 V10 数量或旧启动示例执行。
 

@@ -47,6 +47,25 @@ def test_fixed_frame_link_selection_always_uses_configured_serial_boundary(
 
     assert isinstance(link, FixedFrameMcuAdapter)
     assert link.port == "/tmp/ecobin-fixed-frame-mcu"
+    assert link.is_simulated is False
+
+
+def test_fixed_frame_simulator_is_explicitly_marked_for_acceptance(
+    monkeypatch,
+):
+    monkeypatch.setattr(main, "MCU_PROTOCOL_MODE", "fixed-frame")
+
+    link = main._make_uart_link(
+        "/tmp/ecobin-fixed-frame-mcu",
+        boot_id=77,
+        baudrate=115200,
+        port_count=1,
+        hil_required_capabilities=None,
+        mcu_simulated=True,
+    )
+
+    assert isinstance(link, FixedFrameMcuAdapter)
+    assert link.is_simulated is True
 
 
 def test_obsolete_environment_value_cannot_relax_camera_path_validation(

@@ -11,21 +11,21 @@ public final class DeliveryOptionsBusinessQueryRef {
 
     private final long tenantKey;
     private final long organizationKey;
-    private final long deploymentKey;
+    private final long assetKey;
     private final List<PortKey> ports;
     private final DeliveryReadQueryRefGuard guard;
 
     DeliveryOptionsBusinessQueryRef(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             List<PortKey> ports,
             Map<Object, Object> transactionResources) {
         this.tenantKey = positive(tenantKey, "tenantKey");
         this.organizationKey = positive(
                 organizationKey,
                 "organizationKey");
-        this.deploymentKey = positive(deploymentKey, "deploymentKey");
+        this.assetKey = positive(assetKey, "assetKey");
         this.ports = List.copyOf(ports);
         if (this.ports.isEmpty()) {
             throw new IllegalArgumentException("ports must not be empty");
@@ -40,7 +40,7 @@ public final class DeliveryOptionsBusinessQueryRef {
         return function.apply(
                 tenantKey,
                 organizationKey,
-                deploymentKey,
+                assetKey,
                 ports);
     }
 
@@ -77,7 +77,7 @@ public final class DeliveryOptionsBusinessQueryRef {
         T apply(
                 long tenantKey,
                 long organizationKey,
-                long deploymentKey,
+                long assetKey,
                 List<PortKey> ports);
     }
 }

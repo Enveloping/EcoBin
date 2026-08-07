@@ -53,7 +53,7 @@ public class StaffOrganizationUserController {
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
                     Instant registeredTo,
                     @RequestParam(required = false)
-                    String sourceDeploymentCode,
+                    String sourceDeviceCode,
                     @RequestParam(required = false)
                     Boolean cleanOperation,
                     HttpServletRequest request) {
@@ -66,7 +66,7 @@ public class StaffOrganizationUserController {
                 phoneBound,
                 registeredFrom,
                 registeredTo,
-                sourceDeploymentCode,
+                sourceDeviceCode,
                 cleanOperation), request);
     }
 

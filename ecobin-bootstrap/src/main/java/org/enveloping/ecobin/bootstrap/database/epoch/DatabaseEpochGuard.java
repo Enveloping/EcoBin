@@ -59,7 +59,7 @@ public final class DatabaseEpochGuard
             return Health.up()
                     .withDetail("catalog", verification.catalog())
                     .withDetail("minimumVersion", verification.minimumVersion())
-                    .withDetail("epoch", "P0_V1_TO_V34")
+                    .withDetail("epoch", "P0_V1_TO_V36")
                     .build();
         } catch (DatabaseEpochException exception) {
             return Health.down()

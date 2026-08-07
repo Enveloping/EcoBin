@@ -75,7 +75,7 @@ Page({
     statusText: '',
     statusTone: 'pending',
     portText: '',
-    deploymentCode: '',
+    deviceCode: '',
     occurredAtText: '',
     receivedAtText: '',
     weightText: '',
@@ -139,7 +139,7 @@ Page({
         statusText: approved ? '已审核' : '待审核',
         statusTone: approved ? 'approved' : 'pending',
         portText: `${detail.source.portNo} 号投口`,
-        deploymentCode: detail.source.deploymentCode,
+        deviceCode: detail.source.deviceCode,
         occurredAtText: formatLocalDateTime(
           detail.source.deviceOccurredAt ?? detail.source.receivedAt,
         ),

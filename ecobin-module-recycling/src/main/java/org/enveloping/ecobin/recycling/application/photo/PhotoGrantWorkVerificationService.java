@@ -29,26 +29,26 @@ public class PhotoGrantWorkVerificationService
                                         FROM dev_delivery_session
                                         WHERE tenant_id = ?
                                           AND organization_id = ?
-                                          AND deployment_id = ?
+                                          AND asset_id = ?
                                           AND session_uid = ?
                                         """,
                                 Integer.class,
                                 work.tenantId(),
                                 work.organizationId(),
-                                work.deploymentId(),
+                                work.assetId(),
                                 work.workUid().toString())
                         : jdbc.queryForObject("""
                                         SELECT COUNT(*)
                                         FROM rec_clean_operation
                                         WHERE tenant_id = ?
                                           AND organization_id = ?
-                                          AND deployment_id = ?
+                                          AND asset_id = ?
                                           AND operation_uid = ?
                                         """,
                                 Integer.class,
                                 work.tenantId(),
                                 work.organizationId(),
-                                work.deploymentId(),
+                                work.assetId(),
                                 work.workUid().toString());
         if (workCount == null || workCount != 1) {
             return PhotoGrantWorkVerification.UNKNOWN_WORK;
@@ -60,7 +60,7 @@ public class PhotoGrantWorkVerificationService
                             FROM rec_photo_terminal_fact
                             WHERE tenant_id = ?
                               AND organization_id = ?
-                              AND deployment_id = ?
+                              AND asset_id = ?
                               AND work_type = ?
                               AND work_uid = ?
                               AND position = ?
@@ -68,7 +68,7 @@ public class PhotoGrantWorkVerificationService
                     Integer.class,
                     work.tenantId(),
                     work.organizationId(),
-                    work.deploymentId(),
+                    work.assetId(),
                     work.workType(),
                     work.workUid().toString(),
                     slot);

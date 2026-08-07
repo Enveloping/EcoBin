@@ -25,7 +25,7 @@ class JdbcDeliveryOrderDeviceQueryRepositorySqlTest {
                         "from dev_physical_result physical_result",
                         "join dev_edge_event edge_event",
                         "join dev_delivery_session delivery_session",
-                        "join dev_device_deployment deployment",
+                        "join dev_device_asset asset",
                         "join dev_port port",
                         "physical_result.tenant_id = ?",
                         "physical_result.organization_id = ?",
@@ -36,8 +36,8 @@ class JdbcDeliveryOrderDeviceQueryRepositorySqlTest {
                                 + "physical_result.tenant_id",
                         "edge_event.organization_id = "
                                 + "physical_result.organization_id",
-                        "edge_event.deployment_id = "
-                                + "physical_result.deployment_id",
+                        "edge_event.asset_id = "
+                                + "physical_result.asset_id",
                         "edge_event.id = physical_result.edge_event_id",
                         "edge_event.event_type = "
                                 + "physical_result.edge_event_type",
@@ -45,7 +45,7 @@ class JdbcDeliveryOrderDeviceQueryRepositorySqlTest {
                                 + "physical_result.port_id",
                         "delivery_session.id = "
                                 + "physical_result.delivery_session_id",
-                        "physical_result.deployment_id,",
+                        "physical_result.asset_id,",
                         "physical_result.port_id,",
                         "physical_result.delivery_session_id,",
                         "physical_result.id");
@@ -55,7 +55,7 @@ class JdbcDeliveryOrderDeviceQueryRepositorySqlTest {
     @Test
     void filterResolutionIsOrganizationScopedAndPortScoped() {
         String sql = JdbcDeliveryOrderDeviceQueryRepository
-                .RESOLVE_DEPLOYMENT_FILTER_SQL
+                .RESOLVE_ASSET_FILTER_SQL
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("\\s+", " ");
 
@@ -65,16 +65,16 @@ class JdbcDeliveryOrderDeviceQueryRepositorySqlTest {
                         "rec_",
                         "iam_")
                 .contains(
-                        "from dev_device_deployment deployment",
+                        "from dev_device_asset asset",
                         "left join dev_port port",
-                        "port.tenant_id = deployment.tenant_id",
+                        "port.tenant_id = asset.tenant_id",
                         "port.organization_id = "
-                                + "deployment.organization_id",
-                        "port.deployment_id = deployment.id",
+                                + "asset.organization_id",
+                        "port.asset_id = asset.id",
                         "port.port_no = ?",
-                        "deployment.tenant_id = ?",
-                        "deployment.organization_id = ?",
-                        "deployment.public_code = ?");
+                        "asset.tenant_id = ?",
+                        "asset.organization_id = ?",
+                        "asset.device_public_code = ?");
     }
 
     @Test
@@ -89,7 +89,7 @@ class JdbcDeliveryOrderDeviceQueryRepositorySqlTest {
                         " for update",
                         "rec_",
                         "iam_",
-                        "dev_device_deployment")
+                        "dev_device_asset")
                 .contains(
                         "from dev_port port",
                         "port.tenant_id = ?",

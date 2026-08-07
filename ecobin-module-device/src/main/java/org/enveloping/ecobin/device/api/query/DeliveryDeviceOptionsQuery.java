@@ -5,13 +5,13 @@ import org.enveloping.ecobin.identity.api.persistence.DeliveryQueryOrganizationU
 import java.util.Objects;
 
 public record DeliveryDeviceOptionsQuery(
-        String deploymentCode,
+        String deviceCode,
         DeliveryQueryOrganizationUserRef organizationUserRef) {
 
     public DeliveryDeviceOptionsQuery {
-        if (deploymentCode == null || deploymentCode.isBlank()) {
+        if (deviceCode == null || deviceCode.isBlank()) {
             throw new IllegalArgumentException(
-                    "deploymentCode must not be blank");
+                    "deviceCode must not be blank");
         }
         Objects.requireNonNull(
                 organizationUserRef,

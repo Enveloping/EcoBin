@@ -16,7 +16,7 @@ class DiagnosticPayloadSanitizerTest {
         String sanitized = sanitizer.json("""
                 {
                   "hardwareSn": "test-device-1",
-                  "deploymentCode": "Dp_example",
+                  "deviceCode": "Dv_0123456789abcdefghijklmn",
                   "accessKey": "ONENET_ACCESS_KEY",
                   "authorization": "version=2022&res=x&sign=secret",
                   "cosGrant": {
@@ -31,7 +31,7 @@ class DiagnosticPayloadSanitizerTest {
 
         assertThat(sanitized)
                 .contains("\"hardwareSn\":\"test-device-1\"")
-                .contains("\"deploymentCode\":\"Dp_example\"")
+                .contains("\"deviceCode\":\"Dv_0123456789abcdefghijklmn\"")
                 .contains("\"accessKey\":\"<redacted>\"")
                 .contains("\"secretId\":\"<redacted>\"")
                 .contains("\"sessionToken\":\"<redacted>\"")

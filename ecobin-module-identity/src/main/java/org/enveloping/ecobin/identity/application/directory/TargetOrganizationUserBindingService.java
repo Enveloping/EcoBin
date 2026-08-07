@@ -117,7 +117,7 @@ public class TargetOrganizationUserBindingService {
             Boolean phoneBound,
             Instant registeredFrom,
             Instant registeredTo,
-            String sourceDeploymentCode,
+            String sourceDeviceCode,
             Boolean cleanOperationEnabled) {
         Scope scope = scope(tenantCode, organizationCode, false);
         requireCapability(scope, "user.read");
@@ -131,14 +131,14 @@ public class TargetOrganizationUserBindingService {
                 && !registeredFrom.isBefore(registeredTo)) {
             throw invalidRequest();
         }
-        String deploymentCode = blankToNull(sourceDeploymentCode);
+        String deviceCode = blankToNull(sourceDeviceCode);
         Set<UUID> sourceUsers = null;
-        if (deploymentCode != null) {
+        if (deviceCode != null) {
             sourceUsers = sourceQuery.findOrganizationUsers(
                     new RegistrationSourceUsersQuery(
                             scope.tenantCode(),
                             scope.organizationCode(),
-                            deploymentCode));
+                            deviceCode));
             if (sourceUsers.isEmpty()) {
                 return new PageData<>(
                         List.of(), page, pageSize, 0);
@@ -214,7 +214,7 @@ public class TargetOrganizationUserBindingService {
                                u.nickname, u.avatar_url,
                                u.status, u.auth_version,
                                u.lock_version, u.registered_at,
-                               u.registered_via_deployment_id IS NOT NULL
+                               u.registered_via_asset_id IS NOT NULL
                                    AS registration_source_present,
                                EXISTS (
                                    SELECT 1
@@ -1126,7 +1126,7 @@ public class TargetOrganizationUserBindingService {
                                u.nickname, u.avatar_url,
                                u.status, u.auth_version,
                                u.lock_version, u.registered_at,
-                               u.registered_via_deployment_id IS NOT NULL
+                               u.registered_via_asset_id IS NOT NULL
                                    AS registration_source_present,
                                EXISTS (
                                    SELECT 1
@@ -1402,7 +1402,7 @@ public class TargetOrganizationUserBindingService {
                 sourceSummary == null
                         ? null
                         : new OrganizationUserRegistrationSource(
-                        sourceSummary.deploymentCode(),
+                        sourceSummary.deviceCode(),
                         sourceSummary.lifecycleStatus());
         return new OrganizationUserView(
                 user.uid(),

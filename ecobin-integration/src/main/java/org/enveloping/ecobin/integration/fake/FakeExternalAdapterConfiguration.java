@@ -2,6 +2,7 @@ package org.enveloping.ecobin.integration.fake;
 
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
+import org.enveloping.ecobin.funds.api.port.MerchantTransferAuthorizationChannelPort;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
 import org.enveloping.ecobin.integration.config.ExternalAdapterModeProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -41,6 +42,22 @@ public class FakeExternalAdapterConfiguration {
             @Value("${ecobin.external.fake.wechat-pay.auto-succeed:true}")
             boolean autoSucceed) {
         return new FakeNativePaymentAdapter(autoSucceed);
+    }
+
+    @Bean
+    FakeMerchantTransferAuthorizationStore
+            fakeMerchantTransferAuthorizationStore() {
+        return new FakeMerchantTransferAuthorizationStore();
+    }
+
+    @Bean
+    MerchantTransferAuthorizationChannelPort
+            fakeMerchantTransferAuthorizationChannelPort(
+            FakeMerchantTransferAuthorizationStore store,
+            @Value("${ecobin.external.fake.wechat-transfer-authorization.auto-succeed:true}")
+            boolean autoSucceed) {
+        return new FakeMerchantTransferAuthorizationAdapter(
+                store, autoSucceed);
     }
 
     @Bean

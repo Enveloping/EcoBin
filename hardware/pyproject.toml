@@ -12,3 +12,6 @@ dependencies = [
     "requests>=2.34.2",
     "tencentcloud-sdk-python-sts>=3.0.1459",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

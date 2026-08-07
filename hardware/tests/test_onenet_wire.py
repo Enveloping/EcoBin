@@ -49,7 +49,7 @@ def test_decode_start_delivery_session_wire_example():
 
     assert command["commandType"] == "START_DELIVERY_SESSION"
     assert command["commandUid"] == "30000000-0000-4000-8000-000000000003"
-    assert command["deploymentCode"] == "Dp_demo_01"
+    assert command["targetDeviceName"] == "SN-CONTRACT-0001"
     assert command["target"] == {
         "type": "DELIVERY_SESSION",
         "uid": "30000000-0000-4000-8000-000000000001",
@@ -151,16 +151,14 @@ def test_cos_grant_must_match_trusted_runtime_environment():
             "https://untrusted-1250000000.cos."
             "ap-beijing.myqcloud.com"
         ),
-        "keyPrefix": (
-            f"ecobin/Dp_demo_01/delivery-session/{work_uid}/"
-        ),
+        "keyPrefix": f"ecobin/delivery-session/{work_uid}/",
         "expiresAt": (
             datetime.now(timezone.utc) + timedelta(minutes=10)
         ).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
     }
     validate_cos_grant(
         grant,
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         work_type="DELIVERY_SESSION",
         work_uid=work_uid,
         trusted_environment={
@@ -176,7 +174,7 @@ def test_cos_grant_must_match_trusted_runtime_environment():
     ):
         validate_cos_grant(
             grant,
-            deployment_code="Dp_demo_01",
+            device_name="SN-DEMO-0001",
             work_type="DELIVERY_SESSION",
             work_uid=work_uid,
             trusted_environment={
@@ -223,7 +221,7 @@ def test_encode_receipt_uses_target_numeric_state():
     receipt = encode_command_receipt("cmd-1", "DUPLICATE_ACCEPTED", 9001)
 
     assert receipt == {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commandUid": "cmd-1",
         "receiptState": 2,
         "errorCodePresent": False,
@@ -234,9 +232,9 @@ def test_encode_receipt_uses_target_numeric_state():
 
 def test_encode_business_confirmation_receipt_event_shape():
     event = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": "60000000-0000-4000-8000-000000000003",
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-DEMO-0001",
         "edgeEventSequence": 1045,
         "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
         "deliveryClass": "CONTROL_RECEIPT",
@@ -265,9 +263,9 @@ def test_encode_business_confirmation_receipt_event_shape():
 
 def test_event_post_requires_bounded_numeric_edge_sequence():
     event = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": str(uuid.uuid4()),
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-DEMO-0001",
         "eventType": "BUSINESS_CONFIRMATION_RECEIPT",
         "deliveryClass": "CONTROL_RECEIPT",
         "target": {"type": "BUSINESS_CONFIRMATION", "uid": "conf-1"},
@@ -289,7 +287,7 @@ def test_event_post_requires_bounded_numeric_edge_sequence():
 
 def test_encode_configuration_progress_presence_and_enum_fields():
     event = build_configuration_progress_event(
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         command_uid="20000000-0000-4000-8000-000000000001",
         application_uid="10000000-0000-4000-8000-000000000001",
         stage="EDGE_SAVED",
@@ -355,7 +353,7 @@ def test_store_confirmation_creates_receipt_event(tmp_path):
 
     result = store.receive_business_confirmation_and_create_receipt(
         command_uid="60000000-0000-4000-8000-000000000002",
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         confirmation_payload={
             "confirmationUid": "60000000-0000-4000-8000-000000000001",
             "originalEventUid": "30000000-0000-4000-8000-000000000006",
@@ -398,10 +396,10 @@ def test_duplicate_confirmation_reuses_and_requeues_exact_receipt(
         "quarantineUid": None,
     }
     command = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commandUid": command_uid,
         "commandType": "CONFIRM_EDGE_EVENT",
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-DEMO-0001",
         "target": {
             "type": "EDGE_EVENT",
             "uid": original_event_uid,
@@ -410,13 +408,13 @@ def test_duplicate_confirmation_reuses_and_requeues_exact_receipt(
         "expiresAt": (
             datetime.now(timezone.utc) + timedelta(minutes=5)
         ).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-        "payloadSchemaVersion": 1,
+        "payloadSchemaVersion": 2,
         "payloadSha256": canonical_payload_sha256(confirmation),
         "payload": confirmation,
     }
 
     assert store.receive_business_confirmation_and_create_receipt(
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         command=command,
     ) == "ACCEPTED"
     receipt = store._conn.execute(
@@ -428,7 +426,7 @@ def test_duplicate_confirmation_reuses_and_requeues_exact_receipt(
     assert store.get_event(receipt_uid)["state"] == "CONFIRMED"
 
     assert store.receive_business_confirmation_and_create_receipt(
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         command=command,
     ) == "DUPLICATE"
     assert store.get_event(receipt_uid)["state"] == "PENDING"
@@ -451,7 +449,7 @@ def test_duplicate_confirmation_reuses_and_requeues_exact_receipt(
         conflicting["payload"]
     )
     assert store.receive_business_confirmation_and_create_receipt(
-        deployment_code="Dp_demo_01",
+        device_name="SN-DEMO-0001",
         command=conflicting,
     ) == "CONFLICT"
     store.close()

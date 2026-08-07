@@ -7,7 +7,7 @@
     "parity": "NONE",
     "stopBits": 1,
     "flowControl": "NONE",
-    "devicePath": "DEPLOYMENT_CONFIGURED"
+    "devicePath": "RUNTIME_CONFIGURED"
   },
   "protocol": {
     "magicHex": "ec42",

@@ -12,7 +12,7 @@ public record StartDeliveryDeviceResult(
         UUID sessionUid,
         UUID commandUid,
         Instant authorizationExpiresAt,
-        String deploymentCode,
+        String deviceCode,
         int portNo) {
 
     public StartDeliveryDeviceResult {
@@ -21,9 +21,9 @@ public record StartDeliveryDeviceResult(
         Objects.requireNonNull(
                 authorizationExpiresAt,
                 "authorizationExpiresAt");
-        if (deploymentCode == null || deploymentCode.isBlank()) {
+        if (deviceCode == null || deviceCode.isBlank()) {
             throw new IllegalArgumentException(
-                    "deploymentCode must not be blank");
+                    "deviceCode must not be blank");
         }
         if (portNo < 1 || portNo > 6) {
             throw new IllegalArgumentException(

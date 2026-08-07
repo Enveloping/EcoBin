@@ -97,7 +97,7 @@ public class RecyclingPhotoStatusService
                         FROM rec_photo_terminal_fact
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND work_type = 'DELIVERY_SESSION'
                           AND work_uid = ?
                           AND linked_at IS NULL
@@ -106,7 +106,7 @@ public class RecyclingPhotoStatusService
                 RecyclingPhotoStatusService::terminalFactRow,
                 facts.tenantId(),
                 facts.organizationId(),
-                facts.deploymentId(),
+                facts.assetId(),
                 facts.physicalFact().sessionUid().toString());
         for (TerminalFactRow terminal : staged) {
             TargetPhoto target = lockDeliveryPhoto(
@@ -156,7 +156,7 @@ public class RecyclingPhotoStatusService
                              AND photo.delivery_order_id = delivery.id
                             WHERE session.tenant_id = ?
                               AND session.organization_id = ?
-                              AND session.deployment_id = ?
+                              AND session.asset_id = ?
                               AND session.session_uid = ?
                               AND photo.position = ?
                             FOR UPDATE
@@ -165,7 +165,7 @@ public class RecyclingPhotoStatusService
                             rs, "DELIVERY_SESSION"),
                     fact.tenantId(),
                     fact.organizationId(),
-                    fact.deploymentId(),
+                    fact.assetId(),
                     fact.workUid().toString(),
                     fact.position());
             return exactlyZeroOrOne(rows);
@@ -184,7 +184,7 @@ public class RecyclingPhotoStatusService
                          AND photo.clean_operation_id = operation.id
                         WHERE operation.tenant_id = ?
                           AND operation.organization_id = ?
-                          AND operation.deployment_id = ?
+                          AND operation.asset_id = ?
                           AND operation.operation_uid = ?
                           AND photo.position = ?
                         FOR UPDATE
@@ -193,7 +193,7 @@ public class RecyclingPhotoStatusService
                         rs, "CLEAN_OPERATION"),
                 fact.tenantId(),
                 fact.organizationId(),
-                fact.deploymentId(),
+                fact.assetId(),
                 fact.workUid().toString(),
                 fact.position());
         return exactlyZeroOrOne(rows);
@@ -255,7 +255,7 @@ public class RecyclingPhotoStatusService
             TargetPhoto target) {
         int inserted = jdbc.update("""
                         INSERT INTO rec_photo_terminal_fact (
-                            tenant_id, organization_id, deployment_id,
+                            tenant_id, organization_id, asset_id,
                             edge_event_id, edge_event_type,
                             work_type, work_uid, position,
                             status, photo_uid, object_url,
@@ -278,7 +278,7 @@ public class RecyclingPhotoStatusService
                         """,
                 fact.tenantId(),
                 fact.organizationId(),
-                fact.deploymentId(),
+                fact.assetId(),
                 fact.edgeEventId(),
                 fact.workType(),
                 fact.workUid().toString(),

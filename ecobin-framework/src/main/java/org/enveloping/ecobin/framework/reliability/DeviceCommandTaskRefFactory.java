@@ -5,6 +5,6 @@ public interface DeviceCommandTaskRefFactory {
     DeviceCommandTaskRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long commandKey);
 }

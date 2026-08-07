@@ -19,7 +19,7 @@ public class TrustedDeviceSourceScopeService
     }
 
     @Override
-    public TrustedInboxScopeResolver resolverForAsset(String hardwareSn) {
+    public TrustedInboxScopeResolver resolverForPlatformAsset(String hardwareSn) {
         String trustedHardwareSn = requireHardwareSn(hardwareSn);
         return writer -> {
             Integer count = jdbc.queryForObject("""
@@ -38,36 +38,34 @@ public class TrustedDeviceSourceScopeService
     }
 
     @Override
-    public TrustedInboxScopeResolver resolverFor(
-            String hardwareSn,
-            String deploymentCode) {
+    public TrustedInboxScopeResolver resolverForOrganizationAsset(
+            String hardwareSn) {
         String trustedHardwareSn = requireHardwareSn(hardwareSn);
-        String trustedDeploymentCode =
-                requireDeploymentCode(deploymentCode);
         return writer -> {
-            List<OrganizationScope> rows = jdbc.query("""
-                            SELECT
-                                deployment.tenant_id,
-                                deployment.organization_id
-                            FROM dev_device_asset asset
-                            JOIN dev_device_deployment deployment
-                              ON deployment.asset_id = asset.id
-                            WHERE asset.hardware_sn = ?
-                              AND deployment.public_code = ?
-                            """,
-                    (rs, ignored) -> new OrganizationScope(
-                            rs.getLong("tenant_id"),
-                            rs.getLong("organization_id")),
-                    trustedHardwareSn,
-                    trustedDeploymentCode);
+            List<AssetScope> rows = assetScopes(trustedHardwareSn);
             if (rows.size() != 1) {
                 throw new UntrustedInboxSourceException(
-                        "authenticated device does not own the deployment");
+                        "authenticated device asset is not registered");
             }
-            OrganizationScope scope = rows.getFirst();
-            writer.organization(
-                    scope.tenantId(), scope.organizationId());
+            AssetScope scope = rows.getFirst();
+            if (scope.tenantId() == null || scope.organizationId() == null) {
+                throw new UntrustedInboxSourceException(
+                        "device asset is not yet assigned to an organization");
+            }
+            writer.organization(scope.tenantId(), scope.organizationId());
         };
+    }
+
+    private List<AssetScope> assetScopes(String hardwareSn) {
+        return jdbc.query("""
+                        SELECT tenant_id, organization_id
+                        FROM dev_device_asset
+                        WHERE hardware_sn = ?
+                        """,
+                (rs, ignored) -> new AssetScope(
+                        (Long) rs.getObject("tenant_id"),
+                        (Long) rs.getObject("organization_id")),
+                hardwareSn);
     }
 
     private static String requireHardwareSn(String value) {
@@ -79,17 +77,6 @@ public class TrustedDeviceSourceScopeService
         return value;
     }
 
-    private static String requireDeploymentCode(String value) {
-        if (value == null
-                || !value.matches("^Dp_[A-Za-z0-9_-]{6,61}$")) {
-            throw new UntrustedInboxSourceException(
-                    "deployment code is invalid");
-        }
-        return value;
-    }
-
-    private record OrganizationScope(
-            long tenantId,
-            long organizationId) {
+    private record AssetScope(Long tenantId, Long organizationId) {
     }
 }

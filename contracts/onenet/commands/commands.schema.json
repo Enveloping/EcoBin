@@ -11,7 +11,8 @@
     { "$ref": "#/$defs/sampleFullnessCommand" },
     { "$ref": "#/$defs/measureEmptyBagBaselineCommand" },
     { "$ref": "#/$defs/confirmEdgeEventCommand" },
-    { "$ref": "#/$defs/providePhotoUploadGrantCommand" }
+    { "$ref": "#/$defs/providePhotoUploadGrantCommand" },
+    { "$ref": "#/$defs/requestDeviceAcceptanceCommand" }
   ],
   "$defs": {
     "configIdentity": {
@@ -624,6 +625,24 @@
         }
       ]
     },
+    "requestDeviceAcceptancePayload": {
+      "type": "object",
+      "required": [
+        "challengeUid",
+        "expectedPortCount"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "challengeUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "expectedPortCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        }
+      }
+    },
     "applyConfigurationCommand": {
       "allOf": [
         { "$ref": "../command-envelope.schema.json" },
@@ -831,6 +850,32 @@
             },
             "payload": {
               "$ref": "#/$defs/providePhotoUploadGrantPayload"
+            },
+            "cosGrant": {
+              "$ref": "../common.schema.json#/$defs/cosGrant"
+            }
+          }
+        }
+      ]
+    },
+    "requestDeviceAcceptanceCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "REQUEST_DEVICE_ACCEPTANCE" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/requestDeviceAcceptancePayload"
             },
             "cosGrant": {
               "$ref": "../common.schema.json#/$defs/cosGrant"

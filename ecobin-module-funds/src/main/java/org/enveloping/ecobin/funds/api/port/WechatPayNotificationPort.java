@@ -7,6 +7,8 @@ public interface WechatPayNotificationPort {
 
     String PAYMENT_KIND = "WECHAT_PAYMENT_NOTIFICATION";
     String TRANSFER_KIND = "WECHAT_TRANSFER_NOTIFICATION";
+    String TRANSFER_AUTHORIZATION_KIND =
+            "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION";
 
     TrustedInboxScopeResolver scopeResolver(
             String messageKind,

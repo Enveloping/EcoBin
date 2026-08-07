@@ -40,8 +40,8 @@ public class MiniappDeliveryDeviceQueryService
             DeliveryDeviceOptionsQuery query) {
         requireReadOnlyTransaction();
         Objects.requireNonNull(query, "query");
-        String deploymentCode =
-                normalizeDeploymentCode(query.deploymentCode());
+        String deviceCode =
+                normalizeDeviceCode(query.deviceCode());
         return query.organizationUserRef()
                 .withDeliveryQueryUserOnce(
                         (tenantId,
@@ -50,7 +50,7 @@ public class MiniappDeliveryDeviceQueryService
                          organizationUserUid) -> optionsWithinScope(
                                 tenantId,
                                 organizationId,
-                                deploymentCode));
+                                deviceCode));
     }
 
     @Override
@@ -84,12 +84,12 @@ public class MiniappDeliveryDeviceQueryService
     private DeliveryDeviceOptionsSnapshot optionsWithinScope(
             long tenantId,
             long organizationId,
-            String deploymentCode) {
-        MiniappDeliveryDeviceQueryRepository.DeploymentSnapshotRow
-                deployment = repository.findCurrentDeployment(
+            String deviceCode) {
+        MiniappDeliveryDeviceQueryRepository.AssetSnapshotRow
+                asset = repository.findAsset(
                                 tenantId,
                                 organizationId,
-                                deploymentCode)
+                                deviceCode)
                         .orElseThrow(
                                 MiniappDeliveryDeviceQueryService
                                         ::notFound);
@@ -97,12 +97,12 @@ public class MiniappDeliveryDeviceQueryService
                 portRows = repository.findPorts(
                 tenantId,
                 organizationId,
-                deployment.deploymentId(),
-                deployment.configurationId());
+                asset.assetId(),
+                asset.configurationId());
         LocalDateTime now = repository.databaseNow();
         MiniappDeliveryDeviceQueryPolicy.Evaluation evaluation =
                 MiniappDeliveryDeviceQueryPolicy.evaluate(
-                        deployment,
+                        asset,
                         portRows,
                         now);
 
@@ -125,20 +125,20 @@ public class MiniappDeliveryDeviceQueryService
                                         port.portNo()))
                         .toList();
         return new DeliveryDeviceOptionsSnapshot(
-                deployment.deploymentCode(),
+                asset.deviceCode(),
                 evaluation.exactConfiguration()
-                        ? deployment.deviceDisplayName()
+                        ? asset.deviceDisplayName()
                         : null,
                 evaluation.exactConfiguration()
-                        ? deployment.locationAddress()
+                        ? asset.locationAddress()
                         : null,
-                deployment.deviceBusy(),
+                asset.deviceBusy(),
                 now.toInstant(ZoneOffset.UTC),
                 ports,
                 queryRefFactory.issueOptionsBusiness(
                         tenantId,
                         organizationId,
-                        deployment.deploymentId(),
+                        asset.assetId(),
                         businessPorts));
     }
 
@@ -149,7 +149,7 @@ public class MiniappDeliveryDeviceQueryService
         return new OwnedDeliverySessionSnapshot(
                 row.sessionUid(),
                 row.deviceStatus(),
-                row.deploymentCode(),
+                row.deviceCode(),
                 row.portNo(),
                 instant(row.firstPhysicalProgressAt()),
                 instant(row.deviceCompletedAt()),
@@ -167,9 +167,9 @@ public class MiniappDeliveryDeviceQueryService
                 : value.toInstant(ZoneOffset.UTC);
     }
 
-    private static String normalizeDeploymentCode(String value) {
+    private static String normalizeDeviceCode(String value) {
         String normalized = value.trim();
-        if (!normalized.matches("Dp_[A-Za-z0-9_-]{6,61}")) {
+        if (!normalized.matches("Dv_[A-Za-z0-9_-]{24,61}")) {
             throw notFound();
         }
         return normalized;

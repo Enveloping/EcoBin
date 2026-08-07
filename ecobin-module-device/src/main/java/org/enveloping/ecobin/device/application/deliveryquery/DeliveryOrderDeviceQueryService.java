@@ -25,8 +25,8 @@ public class DeliveryOrderDeviceQueryService
         implements DeliveryOrderDeviceFactsQueryPort,
         DeliveryOrderDeviceFilterQueryPort {
 
-    private static final Pattern DEPLOYMENT_CODE = Pattern.compile(
-            "Dp_[A-Za-z0-9_-]{6,61}");
+    private static final Pattern DEVICE_CODE = Pattern.compile(
+            "Dv_[A-Za-z0-9_-]{24,61}");
 
     private final DeliveryOrderDeviceQueryRepository repository;
     private final DeliveryReadQueryRefFactory queryRefFactory;
@@ -83,7 +83,7 @@ public class DeliveryOrderDeviceQueryService
                     computed.set(filterWithinScope(
                             tenantId,
                             organizationId,
-                            query.deploymentCode(),
+                            query.deviceCode(),
                             query.portNo()));
                     return null;
                 });
@@ -122,9 +122,9 @@ public class DeliveryOrderDeviceQueryService
     private Optional<DeliveryOrderDeviceFilterRef> filterWithinScope(
             long tenantId,
             long organizationId,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo) {
-        if (deploymentCode == null) {
+        if (deviceCode == null) {
             List<Long> portKeys = repository.findPortFilterKeys(
                     tenantId,
                     organizationId,
@@ -138,19 +138,19 @@ public class DeliveryOrderDeviceQueryService
                     null,
                     portKeys));
         }
-        if (!DEPLOYMENT_CODE.matcher(deploymentCode).matches()) {
+        if (!DEVICE_CODE.matcher(deviceCode).matches()) {
             return Optional.empty();
         }
-        return repository.resolveDeploymentFilter(
+        return repository.resolveAssetFilter(
                         tenantId,
                         organizationId,
-                        deploymentCode,
+                        deviceCode,
                         portNo)
                 .filter(row -> portNo == null || row.portId() != null)
                 .map(row -> queryRefFactory.issueOrderFilter(
                         tenantId,
                         organizationId,
-                        row.deploymentId(),
+                        row.assetId(),
                         row.portId() == null
                                 ? List.of()
                                 : List.of(row.portId())));
@@ -167,14 +167,14 @@ public class DeliveryOrderDeviceQueryService
                 requested.token(),
                 row.eventUid(),
                 row.sessionUid(),
-                row.deploymentCode(),
+                row.deviceCode(),
                 row.portNo());
     }
 
     private static FactTuple tuple(
             DeliveryOrderDeviceFactsRef.FactKey fact) {
         return new FactTuple(
-                fact.deploymentKey(),
+                fact.assetKey(),
                 fact.portKey(),
                 fact.deliverySessionKey(),
                 fact.physicalResultKey());
@@ -183,7 +183,7 @@ public class DeliveryOrderDeviceQueryService
     private static FactTuple tuple(
             DeliveryOrderDeviceQueryRepository.ResolvedFactRow row) {
         return new FactTuple(
-                row.deploymentId(),
+                row.assetId(),
                 row.portId(),
                 row.deliverySessionId(),
                 row.physicalResultId());
@@ -211,7 +211,7 @@ public class DeliveryOrderDeviceQueryService
     }
 
     private record FactTuple(
-            long deploymentId,
+            long assetId,
             long portId,
             long deliverySessionId,
             long physicalResultId) {

@@ -18,7 +18,7 @@ final class OneNetCanonicalJson {
     private static final long SAFE_INTEGER_MAX =
             9_007_199_254_740_991L;
     private static final byte[] EVENT_DOMAIN =
-            "ECOBIN:ONENET:EVENT:v1\0"
+            "ECOBIN:ONENET:EVENT:v2\0"
                     .getBytes(StandardCharsets.UTF_8);
 
     private OneNetCanonicalJson() {
@@ -40,7 +40,6 @@ final class OneNetCanonicalJson {
         for (String field : List.of(
                 "schemaVersion",
                 "eventUid",
-                "deploymentCode",
                 "edgeEventSequence",
                 "eventType",
                 "deliveryClass",

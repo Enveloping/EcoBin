@@ -19,30 +19,30 @@ final class StartDeliveryDevicePolicy {
         }
     }
 
-    static void requireDeploymentAvailable(
+    static void requireAssetAvailable(
             StartDeliveryDeviceRepository.AssetRow asset,
-            StartDeliveryDeviceRepository.ActiveDeploymentRow active,
-            StartDeliveryDeviceRepository.DeploymentRow deployment,
+            StartDeliveryDeviceRepository.SubjectStatusRow tenant,
+            StartDeliveryDeviceRepository.SubjectStatusRow organization,
             long tenantId,
             long organizationId,
-            String deploymentCode,
+            String deviceCode,
             int portNo) {
-        boolean valid = asset.id() == active.assetId()
-                && asset.id() == deployment.assetId()
-                && active.deploymentId() == deployment.id()
-                && active.tenantId() == tenantId
-                && active.organizationId() == organizationId
-                && deployment.tenantId() == tenantId
-                && deployment.organizationId() == organizationId
+        boolean valid = Objects.equals(asset.tenantId(), tenantId)
+                && Objects.equals(asset.organizationId(), organizationId)
+                && tenant.id() == tenantId
+                && organization.id() == organizationId
+                && "ENABLED".equals(tenant.status())
+                && "ENABLED".equals(organization.status())
                 && Objects.equals(
-                        deployment.publicCode(),
-                        deploymentCode)
-                && "IN_USE".equals(asset.lifecycleStatus())
-                && "ENABLED".equals(deployment.lifecycleStatus())
-                && deployment.businessEnabled()
+                        asset.devicePublicCode(),
+                        deviceCode)
+                && "NORMAL".equals(asset.lifecycleStatus())
+                && "PASSED".equals(asset.acceptanceStatus())
+                && "READY".equals(asset.miniappQrStatus())
+                && portNo > 0
                 && portNo <= asset.expectedPortCount();
         if (!valid) {
-            throw deploymentUnavailable();
+            throw assetUnavailable();
         }
     }
 
@@ -77,11 +77,19 @@ final class StartDeliveryDevicePolicy {
         }
     }
 
-    static TargetApiException deploymentUnavailable() {
+    static void requireConfigurationApplied(
+            StartDeliveryDeviceRepository.ConfigurationRow configuration) {
+        if (!configuration.applicationApplied()
+                || !configuration.runtimeApplied()) {
+            throw configurationNotApplied();
+        }
+    }
+
+    static TargetApiException assetUnavailable() {
         return new TargetApiException(
                 422,
-                "DEVICE.DEPLOYMENT_UNAVAILABLE",
-                "设备部署当前不可用于开始投递");
+                "DEVICE.ASSET_UNAVAILABLE",
+                "设备当前不可用于开始投递");
     }
 
     static TargetApiException configurationNotApplied() {

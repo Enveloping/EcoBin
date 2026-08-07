@@ -10,7 +10,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -26,16 +26,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -236,7 +226,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -252,16 +242,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -487,7 +467,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -503,16 +483,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -1426,7 +1396,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -1442,16 +1412,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -2371,7 +2331,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -2387,16 +2347,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -2965,7 +2915,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -2981,16 +2931,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -3508,7 +3448,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -3524,16 +3464,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -3951,7 +3881,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -3967,16 +3897,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -4017,7 +3937,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "DEVICE_DEPLOYMENT"
+          "1": "DEVICE_ASSET"
          },
          "type": "enum"
         },
@@ -4261,7 +4181,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -4277,16 +4197,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -4327,7 +4237,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "DEVICE_DEPLOYMENT"
+          "1": "DEVICE_ASSET"
          },
          "type": "enum"
         },
@@ -4571,7 +4481,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -4587,16 +4497,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -4637,7 +4537,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "DEVICE_DEPLOYMENT"
+          "1": "DEVICE_ASSET"
          },
          "type": "enum"
         },
@@ -4877,7 +4777,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -4893,16 +4793,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -5230,7 +5120,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -5246,16 +5136,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -5437,7 +5317,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -5453,16 +5333,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -5632,7 +5502,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -5648,16 +5518,6 @@
      },
      "identifier": "eventUid",
      "name": "eventUid"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 64
-      },
-      "type": "string"
-     },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
     },
     {
      "dataType": {
@@ -5698,7 +5558,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "DEVICE_DEPLOYMENT"
+          "1": "DEVICE_ASSET"
          },
          "type": "enum"
         },
@@ -6458,6 +6318,365 @@
      "name": "ports"
     }
    ]
+  },
+  {
+   "desc": "EcoBin 可靠边缘事件；以 JSON Schema 和语义校验为准",
+   "eventType": "info",
+   "functionType": "u",
+   "identifier": "deviceAcceptanceEvidence",
+   "name": "deviceAcceptanceEvidence",
+   "outputData": [
+    {
+     "dataType": {
+      "specs": {
+       "1": "2"
+      },
+      "type": "enum"
+     },
+     "identifier": "schemaVersion",
+     "name": "schemaVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "eventUid",
+     "name": "eventUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "9007199254740991",
+       "min": "1",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int64"
+     },
+     "identifier": "edgeEventSequence",
+     "name": "edgeEventSequence"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "DEV_ACCEPT_EVIDENCE"
+      },
+      "type": "enum"
+     },
+     "identifier": "eventType",
+     "name": "eventType"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "RELIABLE_FACT"
+      },
+      "type": "enum"
+     },
+     "identifier": "deliveryClass",
+     "name": "deliveryClass"
+    },
+    {
+     "dataType": {
+      "specs": [
+       {
+        "dataType": {
+         "specs": {
+          "1": "DEVICE_ASSET"
+         },
+         "type": "enum"
+        },
+        "identifier": "type",
+        "name": "type"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 64
+         },
+         "type": "string"
+        },
+        "identifier": "uid",
+        "name": "uid"
+       }
+      ],
+      "type": "struct"
+     },
+     "identifier": "target",
+     "name": "target"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "commandUid",
+     "name": "commandUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "occurredAtPresent",
+     "name": "occurredAtPresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 30
+      },
+      "type": "string"
+     },
+     "identifier": "occurredAt",
+     "name": "occurredAt"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "SYNCED",
+       "2": "ESTIMATED",
+       "3": "UNAVAILABLE"
+      },
+      "type": "enum"
+     },
+     "identifier": "clockQuality",
+     "name": "clockQuality"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "payloadSha256",
+     "name": "payloadSha256"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "1"
+      },
+      "type": "enum"
+     },
+     "identifier": "evidenceSchemaVersion",
+     "name": "evidenceSchemaVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "challengeUid",
+     "name": "challengeUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "edgeSoftwareVersion",
+     "name": "edgeSoftwareVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "2"
+      },
+      "type": "enum"
+     },
+     "identifier": "edgeProtocolVersion",
+     "name": "edgeProtocolVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "edgeStoreInstanceUid",
+     "name": "edgeStoreInstanceUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "mcuFirmwareVersion",
+     "name": "mcuFirmwareVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "persistentStoreHealthy",
+     "name": "persistentStoreHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "trustedTimeHealthy",
+     "name": "trustedTimeHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "configurationPersistenceHealthy",
+     "name": "configurationPersistenceHealth"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "mcuCommunicationHealthy",
+     "name": "mcuCommunicationHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "sensorsHealthy",
+     "name": "sensorsHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "camerasCaptureHealthy",
+     "name": "camerasCaptureHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "cameraUploadHealthy",
+     "name": "cameraUploadHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "mcuSimulated",
+     "name": "mcuSimulated"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "camerasSimulated",
+     "name": "camerasSimulated"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "6",
+       "min": "1",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int32"
+     },
+     "identifier": "verifiedPortCount",
+     "name": "verifiedPortCount"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "16",
+       "min": "0",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int32"
+     },
+     "identifier": "verifiedCameraCount",
+     "name": "verifiedCameraCount"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "sensorSampleSha256",
+     "name": "sensorSampleSha256"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "cameraCaptureSha256",
+     "name": "cameraCaptureSha256"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "cameraUploadSha256",
+     "name": "cameraUploadSha256"
+    }
+   ]
   }
  ],
  "properties": [],
@@ -6471,7 +6690,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -6505,8 +6724,8 @@
       },
       "type": "string"
      },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
+     "identifier": "targetDeviceName",
+     "name": "targetDeviceName"
     },
     {
      "dataType": {
@@ -6560,7 +6779,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -7022,7 +7241,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -7099,7 +7318,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -7133,8 +7352,8 @@
          },
          "type": "string"
         },
-        "identifier": "deploymentCode",
-        "name": "deploymentCode"
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
        },
        {
         "dataType": {
@@ -7159,7 +7378,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -7458,7 +7677,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -7535,7 +7754,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -7569,8 +7788,8 @@
          },
          "type": "string"
         },
-        "identifier": "deploymentCode",
-        "name": "deploymentCode"
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
        },
        {
         "dataType": {
@@ -7595,7 +7814,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -7910,7 +8129,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -7984,7 +8203,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -8018,8 +8237,8 @@
       },
       "type": "string"
      },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
+     "identifier": "targetDeviceName",
+     "name": "targetDeviceName"
     },
     {
      "dataType": {
@@ -8073,7 +8292,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -8142,7 +8361,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -8219,7 +8438,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -8253,8 +8472,8 @@
          },
          "type": "string"
         },
-        "identifier": "deploymentCode",
-        "name": "deploymentCode"
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
        },
        {
         "dataType": {
@@ -8279,7 +8498,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -8563,7 +8782,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -8640,7 +8859,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -8674,8 +8893,8 @@
          },
          "type": "string"
         },
-        "identifier": "deploymentCode",
-        "name": "deploymentCode"
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
        },
        {
         "dataType": {
@@ -8700,7 +8919,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -8933,7 +9152,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -9007,7 +9226,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -9041,8 +9260,8 @@
       },
       "type": "string"
      },
-     "identifier": "deploymentCode",
-     "name": "deploymentCode"
+     "identifier": "targetDeviceName",
+     "name": "targetDeviceName"
     },
     {
      "dataType": {
@@ -9096,7 +9315,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -9229,7 +9448,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -9306,7 +9525,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -9340,8 +9559,8 @@
          },
          "type": "string"
         },
-        "identifier": "deploymentCode",
-        "name": "deploymentCode"
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
        },
        {
         "dataType": {
@@ -9366,7 +9585,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -9591,7 +9810,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -9668,7 +9887,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -9702,8 +9921,8 @@
          },
          "type": "string"
         },
-        "identifier": "deploymentCode",
-        "name": "deploymentCode"
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
        },
        {
         "dataType": {
@@ -9728,7 +9947,7 @@
        {
         "dataType": {
          "specs": {
-          "1": "1"
+          "1": "2"
          },
          "type": "enum"
         },
@@ -9928,7 +10147,310 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
+      },
+      "type": "enum"
+     },
+     "identifier": "schemaVersion",
+     "name": "schemaVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "commandUid",
+     "name": "commandUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "ACCEPTED",
+       "2": "DUPLICATE_ACCEPTED",
+       "3": "REJECTED"
+      },
+      "type": "enum"
+     },
+     "identifier": "receiptState",
+     "name": "receiptState"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "errorCodePresent",
+     "name": "errorCodePresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "errorCode",
+     "name": "errorCode"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "9007199254740991",
+       "min": "1",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int64"
+     },
+     "identifier": "edgeBootId",
+     "name": "edgeBootId"
+    }
+   ]
+  },
+  {
+   "callType": "sync",
+   "desc": "同步回复仅证明香橙派已可靠受理；物理与业务结果走可靠事件",
+   "functionType": "u",
+   "identifier": "requestDeviceAcceptance",
+   "input": [
+    {
+     "dataType": {
+      "specs": {
+       "1": "2"
+      },
+      "type": "enum"
+     },
+     "identifier": "schemaVersion",
+     "name": "schemaVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "commandUid",
+     "name": "commandUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "REQUEST_DEV_ACCEPT"
+      },
+      "type": "enum"
+     },
+     "identifier": "commandType",
+     "name": "commandType"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "targetDeviceName",
+     "name": "targetDeviceName"
+    },
+    {
+     "dataType": {
+      "specs": [
+       {
+        "dataType": {
+         "specs": {
+          "1": "DEVICE_ASSET"
+         },
+         "type": "enum"
+        },
+        "identifier": "type",
+        "name": "type"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 64
+         },
+         "type": "string"
+        },
+        "identifier": "uid",
+        "name": "uid"
+       }
+      ],
+      "type": "struct"
+     },
+     "identifier": "target",
+     "name": "target"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 30
+      },
+      "type": "string"
+     },
+     "identifier": "issuedAt",
+     "name": "issuedAt"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 30
+      },
+      "type": "string"
+     },
+     "identifier": "expiresAt",
+     "name": "expiresAt"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "2"
+      },
+      "type": "enum"
+     },
+     "identifier": "payloadSchemaVersion",
+     "name": "payloadSchemaVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "payloadSha256",
+     "name": "payloadSha256"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "challengeUid",
+     "name": "challengeUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "6",
+       "min": "1",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int32"
+     },
+     "identifier": "expectedPortCount",
+     "name": "expectedPortCount"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantGrantUid",
+     "name": "cosGrantGrantUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 128
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantTmpSecretId",
+     "name": "cosGrantTmpSecretId"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 128
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantTmpSecretKey",
+     "name": "cosGrantTmpSecretKey"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 8,
+       "specs": {
+        "length": 512
+       },
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "identifier": "cosGrantSessionTokenParts",
+     "name": "cosGrantSessionTokenParts"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 128
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantBucket",
+     "name": "cosGrantBucket"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 32
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantRegion",
+     "name": "cosGrantRegion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 256
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantBaseUrl",
+     "name": "cosGrantBaseUrl"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 256
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantKeyPrefix",
+     "name": "cosGrantKeyPrefix"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 30
+      },
+      "type": "string"
+     },
+     "identifier": "cosGrantExpiresAt",
+     "name": "cosGrantExpiresAt"
+    }
+   ],
+   "name": "requestDeviceAcceptance",
+   "output": [
+    {
+     "dataType": {
+      "specs": {
+       "1": "2"
       },
       "type": "enum"
      },

@@ -2,7 +2,7 @@ package org.enveloping.ecobin.identity.api.persistence;
 
 /**
  * Relationship-specific, opaque persistence reference for the optional
- * device-deployment attribution of a newly created organization user.
+ * permanent-device attribution of a newly created organization user.
  *
  * <p>The device-owned implementation is non-serializable and permits one
  * same-thread, same-transaction expansion. Identity can only use the keys to
@@ -17,6 +17,6 @@ public interface OrganizationUserRegistrationAttributionRef {
         void write(
                 long tenantKey,
                 long organizationKey,
-                long deploymentKey);
+                long assetKey);
     }
 }

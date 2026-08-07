@@ -244,7 +244,7 @@ def test_fixed_frame_unsupported_service_is_rejected_synchronously(
     client.client = paho
     client.product_id = "product"
     client.device_name = "device"
-    client.deployment_code = "Dp_demo_01"
+    client.device_name = "SN-CONTRACT-0001"
     client.edge_boot_id = 9001
     client._trusted_cos_environment = None
     client._unsupported_command_types = frozenset({

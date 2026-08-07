@@ -120,7 +120,7 @@ class MiniappDeliveryDeviceQueryServiceTest {
                                 301L,
                                 SESSION_UID,
                                 "IN_PROGRESS",
-                                "Dp_demo_01",
+                                "Dv_0123456789abcdefghijklmn",
                                 2,
                                 STARTED_AT,
                                 null,
@@ -137,8 +137,8 @@ class MiniappDeliveryDeviceQueryServiceTest {
                         userRef));
 
         assertThat(result.sessionUid()).isEqualTo(SESSION_UID);
-        assertThat(result.deploymentCode())
-                .isEqualTo("Dp_demo_01");
+        assertThat(result.deviceCode())
+                .isEqualTo("Dv_0123456789abcdefghijklmn");
         assertThat(result.firstPhysicalProgressAt())
                 .isEqualTo(
                         STARTED_AT.toInstant(

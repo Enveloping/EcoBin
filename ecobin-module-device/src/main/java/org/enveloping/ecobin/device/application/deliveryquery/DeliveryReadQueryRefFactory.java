@@ -11,7 +11,7 @@ public interface DeliveryReadQueryRefFactory {
     DeliveryOptionsBusinessQueryRef issueOptionsBusiness(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             List<DeliveryOptionsBusinessQueryRef.PortKey> ports);
 
     DeliverySessionBusinessQueryRef issueSessionBusiness(
@@ -22,6 +22,6 @@ public interface DeliveryReadQueryRefFactory {
     DeliveryOrderDeviceFilterRef issueOrderFilter(
             long tenantKey,
             long organizationKey,
-            Long deploymentKey,
+            Long assetKey,
             List<Long> portKeys);
 }

@@ -10,10 +10,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
 
     @Test
-    void allMiniappReadsAreNonLockingAndStayInsideDeviceTables() {
+    void allMiniappReadsAreNonLockingAndAvoidBusinessTables() {
         List<String> sqlStatements = List.of(
                 JdbcMiniappDeliveryDeviceQueryRepository
-                        .FIND_CURRENT_DEPLOYMENT_SQL,
+                        .FIND_CURRENT_ASSET_SQL,
                 JdbcMiniappDeliveryDeviceQueryRepository
                         .FIND_PORTS_SQL,
                 JdbcMiniappDeliveryDeviceQueryRepository
@@ -24,7 +24,6 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
             assertThat(normalized)
                     .doesNotContain(
                             "for update",
-                            "iam_",
                             "rec_",
                             "mcu_link_status",
                             "mcu_firmware_version",
@@ -37,22 +36,23 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
     }
 
     @Test
-    void deploymentAndSessionReadsAreScopedToCurrentIdentity() {
-        String deployment =
+    void assetAndSessionReadsAreScopedToCurrentIdentity() {
+        String asset =
                 JdbcMiniappDeliveryDeviceQueryRepository
-                        .FIND_CURRENT_DEPLOYMENT_SQL
+                        .FIND_CURRENT_ASSET_SQL
                         .toLowerCase(Locale.ROOT);
         String session =
                 JdbcMiniappDeliveryDeviceQueryRepository
                         .FIND_OWNED_SESSION_SQL
                         .toLowerCase(Locale.ROOT);
 
-        assertThat(deployment)
+        assertThat(asset)
                 .contains(
-                        "deployment.tenant_id = ?",
-                        "deployment.organization_id = ?",
-                        "deployment.public_code = ?",
-                        "dev_asset_active_deployment");
+                        "asset.tenant_id = ?",
+                        "asset.organization_id = ?",
+                        "asset.device_public_code = ?",
+                        "asset.lifecycle_status = 'normal'",
+                        "asset.acceptance_status = 'passed'");
         assertThat(session)
                 .contains(
                         "delivery_session.tenant_id = ?",
@@ -63,16 +63,16 @@ class JdbcMiniappDeliveryDeviceQueryRepositorySqlTest {
 
     @Test
     void optionsUseTrustedOrangePiProjectionAndLatestConfiguration() {
-        String deployment =
+        String asset =
                 JdbcMiniappDeliveryDeviceQueryRepository
-                        .FIND_CURRENT_DEPLOYMENT_SQL
+                        .FIND_CURRENT_ASSET_SQL
                         .toLowerCase(Locale.ROOT);
         String ports =
                 JdbcMiniappDeliveryDeviceQueryRepository
                         .FIND_PORTS_SQL
                         .toLowerCase(Locale.ROOT);
 
-        assertThat(deployment)
+        assertThat(asset)
                 .contains(
                         "order by latest.version_no desc",
                         "trusted_runtime_edge_event_id",

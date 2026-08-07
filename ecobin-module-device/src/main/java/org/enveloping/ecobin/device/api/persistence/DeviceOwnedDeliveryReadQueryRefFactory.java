@@ -16,13 +16,13 @@ final class DeviceOwnedDeliveryReadQueryRefFactory
     public DeliveryOptionsBusinessQueryRef issueOptionsBusiness(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             List<DeliveryOptionsBusinessQueryRef.PortKey> ports) {
         DeliveryOptionsBusinessQueryRef reference =
                 new DeliveryOptionsBusinessQueryRef(
                         tenantKey,
                         organizationKey,
-                        deploymentKey,
+                        assetKey,
                         ports,
                         issuingResources());
         return register(reference, reference::markTransactionCompleted);
@@ -46,13 +46,13 @@ final class DeviceOwnedDeliveryReadQueryRefFactory
     public DeliveryOrderDeviceFilterRef issueOrderFilter(
             long tenantKey,
             long organizationKey,
-            Long deploymentKey,
+            Long assetKey,
             List<Long> portKeys) {
         DeliveryOrderDeviceFilterRef reference =
                 new DeliveryOrderDeviceFilterRef(
                         tenantKey,
                         organizationKey,
-                        deploymentKey,
+                        assetKey,
                         portKeys,
                         issuingResources());
         return register(reference, reference::markTransactionCompleted);

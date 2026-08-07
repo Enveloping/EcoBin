@@ -13,7 +13,7 @@ public record DeliveryCompletePhysicalFact(
         UUID commandUid,
         UUID sessionUid,
         String hardwareSn,
-        String deploymentCode,
+        String deviceCode,
         long edgeEventSequence,
         Instant deviceOccurredAt,
         String clockQuality,
@@ -38,7 +38,7 @@ public record DeliveryCompletePhysicalFact(
         Objects.requireNonNull(commandUid, "commandUid");
         Objects.requireNonNull(sessionUid, "sessionUid");
         Objects.requireNonNull(hardwareSn, "hardwareSn");
-        Objects.requireNonNull(deploymentCode, "deploymentCode");
+        Objects.requireNonNull(deviceCode, "deviceCode");
         Objects.requireNonNull(clockQuality, "clockQuality");
         Objects.requireNonNull(payloadSha256, "payloadSha256");
         Objects.requireNonNull(canonicalSha256, "canonicalSha256");

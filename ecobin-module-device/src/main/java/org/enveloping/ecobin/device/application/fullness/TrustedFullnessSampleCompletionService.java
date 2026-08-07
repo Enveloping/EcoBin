@@ -87,31 +87,27 @@ public class TrustedFullnessSampleCompletionService
             long tenantId,
             long organizationId,
             FullnessSampleBusinessWriter businessWriter) {
-        long assetId = lockAsset(fact.hardwareSn());
-        long deploymentId = lockDeployment(
-                fact,
+        long assetId = lockAsset(
+                fact.hardwareSn(), tenantId, organizationId);
+        lockRuntime(
                 assetId,
-                tenantId,
-                organizationId);
-        lockDeploymentRuntime(
-                deploymentId,
                 tenantId,
                 organizationId);
         PortRow port = lockPort(
                 fact,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         CommandRow command = lockCommand(
                 fact,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         verifyCommandEnvelope(fact, command);
         verifyConfiguration(
                 fact,
                 port,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId);
         if ("PHYSICAL_SUCCEEDED".equals(
@@ -131,7 +127,7 @@ public class TrustedFullnessSampleCompletionService
         requireNoEdgeCollision(
                 fact,
                 inboxId,
-                deploymentId);
+                assetId);
 
         LocalDateTime receivedAt = databaseNow();
         long edgeEventId = insertEdgeEvent(
@@ -139,7 +135,7 @@ public class TrustedFullnessSampleCompletionService
                 inboxId,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 receivedAt);
         long physicalResultId = insertPhysicalResult(
                 fact,
@@ -148,7 +144,7 @@ public class TrustedFullnessSampleCompletionService
                 edgeEventId,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 receivedAt);
         FullnessSampleBusinessResult business =
                 businessWriter.write(
@@ -156,7 +152,7 @@ public class TrustedFullnessSampleCompletionService
                                 new FullnessSamplePersistenceFacts(
                                         tenantId,
                                         organizationId,
-                                        deploymentId,
+                                        assetId,
                                         port.id(),
                                         command.detectionId(),
                                         command.id(),
@@ -178,7 +174,7 @@ public class TrustedFullnessSampleCompletionService
                         WHERE id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND physical_state IN (
                               'QUEUED',
                               'EDGE_ACCEPTED',
@@ -192,7 +188,7 @@ public class TrustedFullnessSampleCompletionService
                 command.id(),
                 tenantId,
                 organizationId,
-                deploymentId),
+                assetId),
                 "complete fullness sample command");
         taskProofPort.completeFromTrustedProof(
                 TASK_TYPE,
@@ -201,25 +197,24 @@ public class TrustedFullnessSampleCompletionService
                         fact.detectionUid(),
                         fact.sampleRole()));
         requireSingle(jdbc.update("""
-                        UPDATE dev_deployment_runtime_state
+                        UPDATE dev_device_runtime_state
                         SET last_device_event_at = ?,
                             lock_version = lock_version + 1,
                             updated_at = ?
-                        WHERE deployment_id = ?
+                        WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         """,
                 receivedAt,
                 receivedAt,
-                deploymentId,
+                assetId,
                 tenantId,
                 organizationId),
                 "touch fullness runtime");
         confirmationService.registerApplied(
                 tenantId,
                 organizationId,
-                deploymentId,
-                fact.deploymentCode(),
+                assetId,
                 fact.eventUid().toString(),
                 fact.payloadSha256(),
                 "UPDATED",
@@ -228,15 +223,22 @@ public class TrustedFullnessSampleCompletionService
         return TrustedDeviceEventApplyResult.APPLIED;
     }
 
-    private long lockAsset(String hardwareSn) {
+    private long lockAsset(
+            String hardwareSn,
+            long tenantId,
+            long organizationId) {
         List<Long> rows = jdbc.query("""
                         SELECT id
                         FROM dev_device_asset
                         WHERE hardware_sn = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> rs.getLong("id"),
-                hardwareSn);
+                hardwareSn,
+                tenantId,
+                organizationId);
         if (rows.size() != 1) {
             throw untrusted(
                     "fullness source asset is unavailable");
@@ -244,62 +246,31 @@ public class TrustedFullnessSampleCompletionService
         return rows.getFirst();
     }
 
-    private long lockDeployment(
-            FullnessSamplePhysicalFact fact,
+    private void lockRuntime(
             long assetId,
             long tenantId,
             long organizationId) {
         List<Long> rows = jdbc.query("""
-                        SELECT deployment.id
-                        FROM dev_asset_active_deployment active
-                        JOIN dev_device_deployment deployment
-                          ON deployment.id = active.deployment_id
-                         AND deployment.tenant_id = active.tenant_id
-                         AND deployment.organization_id =
-                             active.organization_id
-                        WHERE active.asset_id = ?
-                          AND active.tenant_id = ?
-                          AND active.organization_id = ?
-                          AND deployment.public_code = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> rs.getLong("id"),
-                assetId,
-                tenantId,
-                organizationId,
-                fact.deploymentCode());
-        if (rows.size() != 1) {
-            throw untrusted(
-                    "fullness deployment target differs");
-        }
-        return rows.getFirst();
-    }
-
-    private void lockDeploymentRuntime(
-            long deploymentId,
-            long tenantId,
-            long organizationId) {
-        List<Long> rows = jdbc.query("""
-                        SELECT deployment_id
-                        FROM dev_deployment_runtime_state
-                        WHERE deployment_id = ?
+                        SELECT asset_id
+                        FROM dev_device_runtime_state
+                        WHERE asset_id = ?
                           AND tenant_id = ?
                           AND organization_id = ?
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getLong("deployment_id"),
-                deploymentId,
+                (rs, ignored) -> rs.getLong("asset_id"),
+                assetId,
                 tenantId,
                 organizationId);
         if (rows.size() != 1) {
             throw untrusted(
-                    "fullness deployment runtime is missing");
+                    "fullness asset runtime is missing");
         }
     }
 
     private PortRow lockPort(
             FullnessSamplePhysicalFact fact,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<Long> ports = jdbc.query("""
@@ -307,13 +278,13 @@ public class TrustedFullnessSampleCompletionService
                         FROM dev_port port
                         WHERE port.tenant_id = ?
                           AND port.organization_id = ?
-                          AND port.deployment_id = ?
+                          AND port.asset_id = ?
                           AND port.port_no = ?
                         """,
                 (rs, ignored) -> rs.getLong("id"),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 fact.portNo());
         if (ports.size() != 1) {
             throw untrusted(
@@ -324,7 +295,7 @@ public class TrustedFullnessSampleCompletionService
                         FROM dev_port_runtime_state
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND port_id = ?
                         FOR UPDATE
                         """,
@@ -332,7 +303,7 @@ public class TrustedFullnessSampleCompletionService
                         rs.getLong("port_id")),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 ports.getFirst());
         if (runtimeRows.size() != 1) {
             throw untrusted(
@@ -343,7 +314,7 @@ public class TrustedFullnessSampleCompletionService
 
     private CommandRow lockCommand(
             FullnessSamplePhysicalFact fact,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<CommandRow> rows = jdbc.query("""
@@ -355,7 +326,7 @@ public class TrustedFullnessSampleCompletionService
                         WHERE command_uid = ?
                           AND tenant_id = ?
                           AND organization_id = ?
-                          AND deployment_id = ?
+                          AND asset_id = ?
                           AND command_type =
                               'SAMPLE_FULLNESS'
                         FOR UPDATE
@@ -368,7 +339,7 @@ public class TrustedFullnessSampleCompletionService
                 fact.commandUid().toString(),
                 tenantId,
                 organizationId,
-                deploymentId);
+                assetId);
         if (rows.size() != 1) {
             throw untrusted(
                     "fullness command target differs");
@@ -388,8 +359,8 @@ public class TrustedFullnessSampleCompletionService
                 requiredText(envelope, "commandUid"))
                 || !"SAMPLE_FULLNESS".equals(
                 requiredText(envelope, "commandType"))
-                || !fact.deploymentCode().equals(
-                requiredText(envelope, "deploymentCode"))
+                || !fact.deviceCode().equals(
+                requiredText(envelope, "deviceCode"))
                 || !"FULLNESS_DETECTION".equals(
                 requiredText(target, "type"))
                 || !fact.detectionUid().toString().equals(
@@ -417,7 +388,7 @@ public class TrustedFullnessSampleCompletionService
     private void verifyConfiguration(
             FullnessSamplePhysicalFact fact,
             PortRow port,
-            long deploymentId,
+            long assetId,
             long tenantId,
             long organizationId) {
         List<Long> rows = jdbc.query("""
@@ -427,13 +398,13 @@ public class TrustedFullnessSampleCompletionService
                           ON snapshot.tenant_id = version.tenant_id
                          AND snapshot.organization_id =
                              version.organization_id
-                         AND snapshot.deployment_id =
-                             version.deployment_id
+                         AND snapshot.asset_id =
+                             version.asset_id
                          AND snapshot.config_version_id = version.id
                          AND snapshot.port_id = ?
                         WHERE version.tenant_id = ?
                           AND version.organization_id = ?
-                          AND version.deployment_id = ?
+                          AND version.asset_id = ?
                           AND version.version_no = ?
                           AND version.content_sha256 = ?
                           AND version.mcu_payload_sha256 = ?
@@ -443,7 +414,7 @@ public class TrustedFullnessSampleCompletionService
                 port.id(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 fact.configurationVersion(),
                 digest(fact.configurationContentSha256()),
                 digest(fact.configurationMcuPayloadSha256()));
@@ -488,20 +459,20 @@ public class TrustedFullnessSampleCompletionService
     private void requireNoEdgeCollision(
             FullnessSamplePhysicalFact fact,
             long inboxId,
-            long deploymentId) {
+            long assetId) {
         Integer count = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM dev_edge_event
                         WHERE event_uid = ?
                            OR (
-                                deployment_id = ?
+                                asset_id = ?
                                 AND edge_event_sequence = ?
                            )
                            OR source_inbox_id = ?
                         """,
                 Integer.class,
                 fact.eventUid().toString(),
-                deploymentId,
+                assetId,
                 fact.edgeEventSequence(),
                 inboxId);
         if (count == null || count != 0) {
@@ -515,13 +486,13 @@ public class TrustedFullnessSampleCompletionService
             long inboxId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime receivedAt) {
         requireSingle(jdbc.update("""
                         INSERT INTO dev_edge_event (
                             event_uid,
                             tenant_id, organization_id,
-                            deployment_id,
+                            asset_id,
                             edge_event_sequence,
                             event_type, delivery_class,
                             schema_version,
@@ -556,7 +527,7 @@ public class TrustedFullnessSampleCompletionService
                 fact.eventUid().toString(),
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 fact.edgeEventSequence(),
                 sha256(fact.detectionUid().toString()),
                 LocalDateTime.ofInstant(
@@ -590,14 +561,14 @@ public class TrustedFullnessSampleCompletionService
             long edgeEventId,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             LocalDateTime receivedAt) {
         FullnessSampleMeasurement measurement =
                 fact.totalWeightMeasurement();
         requireSingle(jdbc.update("""
                         INSERT INTO dev_physical_result (
                             tenant_id, organization_id,
-                            deployment_id, port_id,
+                            asset_id, port_id,
                             edge_event_id, edge_event_type,
                             command_id, command_type,
                             reported_config_version_no,
@@ -657,7 +628,7 @@ public class TrustedFullnessSampleCompletionService
                         """,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 portId,
                 edgeEventId,
                 commandId,
@@ -728,7 +699,7 @@ public class TrustedFullnessSampleCompletionService
                 uuid(event, "commandUid"),
                 detectionUid,
                 requiredText(source, "deviceName"),
-                requiredText(event, "deploymentCode"),
+                requiredText(event, "deviceCode"),
                 positiveLong(event, "edgeEventSequence"),
                 Instant.parse(requiredText(
                         event,

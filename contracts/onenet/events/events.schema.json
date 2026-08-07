@@ -16,7 +16,8 @@
     { "$ref": "#/$defs/photoStatusReportedEvent" },
     { "$ref": "#/$defs/photoUploadGrantRequestedEvent" },
     { "$ref": "#/$defs/businessConfirmationReceiptEvent" },
-    { "$ref": "#/$defs/deviceRuntimeSnapshotEvent" }
+    { "$ref": "#/$defs/deviceRuntimeSnapshotEvent" },
+    { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" }
   ],
   "$defs": {
     "configSnapshot": {
@@ -887,6 +888,80 @@
         }
       }
     },
+    "deviceAcceptanceEvidencePayload": {
+      "type": "object",
+      "required": [
+        "evidenceSchemaVersion",
+        "challengeUid",
+        "edgeSoftwareVersion",
+        "edgeProtocolVersion",
+        "edgeStoreInstanceUid",
+        "mcuFirmwareVersion",
+        "persistentStoreHealthy",
+        "trustedTimeHealthy",
+        "configurationPersistenceHealthy",
+        "mcuCommunicationHealthy",
+        "sensorsHealthy",
+        "camerasCaptureHealthy",
+        "cameraUploadHealthy",
+        "mcuSimulated",
+        "camerasSimulated",
+        "verifiedPortCount",
+        "verifiedCameraCount",
+        "sensorSampleSha256",
+        "cameraCaptureSha256",
+        "cameraUploadSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "evidenceSchemaVersion": { "const": 1 },
+        "challengeUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "edgeSoftwareVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "edgeProtocolVersion": { "const": "2" },
+        "edgeStoreInstanceUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "mcuFirmwareVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "persistentStoreHealthy": { "type": "boolean" },
+        "trustedTimeHealthy": { "type": "boolean" },
+        "configurationPersistenceHealthy": { "type": "boolean" },
+        "mcuCommunicationHealthy": { "type": "boolean" },
+        "sensorsHealthy": { "type": "boolean" },
+        "camerasCaptureHealthy": { "type": "boolean" },
+        "cameraUploadHealthy": { "type": "boolean" },
+        "mcuSimulated": { "type": "boolean" },
+        "camerasSimulated": { "type": "boolean" },
+        "verifiedPortCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "verifiedCameraCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16
+        },
+        "sensorSampleSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "cameraCaptureSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
+        "cameraUploadSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
+    },
     "runtimePort": {
       "type": "object",
       "required": [
@@ -1350,7 +1425,7 @@
                 { "$ref": "../common.schema.json#/$defs/target" },
                 {
                   "properties": {
-                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                    "type": { "const": "DEVICE_ASSET" }
                   }
                 }
               ]
@@ -1374,7 +1449,7 @@
                 { "$ref": "../common.schema.json#/$defs/target" },
                 {
                   "properties": {
-                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                    "type": { "const": "DEVICE_ASSET" }
                   }
                 }
               ]
@@ -1400,7 +1475,7 @@
                 { "$ref": "../common.schema.json#/$defs/target" },
                 {
                   "properties": {
-                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                    "type": { "const": "DEVICE_ASSET" }
                   }
                 }
               ]
@@ -1505,7 +1580,7 @@
                 { "$ref": "../common.schema.json#/$defs/target" },
                 {
                   "properties": {
-                    "type": { "const": "DEVICE_DEPLOYMENT" }
+                    "type": { "const": "DEVICE_ASSET" }
                   }
                 }
               ]
@@ -1513,6 +1588,33 @@
             "commandUid": { "type": "null" },
             "payload": {
               "$ref": "#/$defs/deviceRuntimeSnapshotPayload"
+            }
+          }
+        }
+      ]
+    },
+    "deviceAcceptanceEvidenceEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "DEVICE_ACCEPTANCE_EVIDENCE" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/deviceAcceptanceEvidencePayload"
             }
           }
         }

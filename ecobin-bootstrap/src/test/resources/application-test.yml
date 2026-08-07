@@ -9,6 +9,9 @@ spring:
       mode: never
 
 ecobin:
+  device:
+    activation:
+      scheduler-enabled: false
   development:
     default-platform-admin:
       enabled: false

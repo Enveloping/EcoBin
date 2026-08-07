@@ -15,7 +15,6 @@
         "cosGrantPresent": false,
         "currentBaselineWeightGram": 1200,
         "currentBaselineWeightGramPresent": true,
-        "deploymentCode": "Dp_demo_01",
         "detectionUid": "50000000-0000-4000-8000-000000000001",
         "expiresAt": "2026-07-24T01:01:00.000Z",
         "fullnessMode": 3,
@@ -27,6 +26,7 @@
         "sampleRole": 1,
         "schemaVersion": 1,
         "settleWaitMs": 5000,
+        "targetDeviceName": "SN-CONTRACT-0001",
         "triggerType": 1
       },
       "target": {

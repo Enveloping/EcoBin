@@ -71,7 +71,7 @@ class MqttClient:
         edge_store,
         mqtt_host: str = "studio-mqtt.heclouds.com",
         mqtt_port: int = 1883,
-        deployment_code: str = "", edge_boot_id: int = 0,
+        edge_boot_id: int = 0,
         clean_session: bool = True,
         trusted_cos_environment=None,
         unsupported_command_types=None,
@@ -82,7 +82,6 @@ class MqttClient:
         self._store = edge_store
         self.mqtt_host = mqtt_host
         self.mqtt_port = mqtt_port
-        self.deployment_code = deployment_code
         self.edge_boot_id = edge_boot_id
         self.clean_session = clean_session
         self._trusted_cos_environment = trusted_cos_environment
@@ -214,9 +213,9 @@ class MqttClient:
                     "NETWORK",
                     "NETWORK_CONNECTIVITY",
                 )
-                if fault is not None and self.deployment_code:
+                if fault is not None and self.device_name:
                     self._store.recover_fault_and_create_event(
-                        deployment_code=self.deployment_code,
+                        device_name=self.device_name,
                         fault_uid=fault["fault_uid"],
                         component="NETWORK",
                         fault_code="NETWORK_CONNECTIVITY",
@@ -391,6 +390,7 @@ class MqttClient:
             self.on_command_received(cmd_id, cmd_type, payload)
 
     def _handle_service_call(self, topic: str, payload: dict) -> None:
+        """校验并可靠受理 OneNet 服务调用；本回调不直接执行普通物理命令。"""
         svc_id = topic.split("/")[-2] if "/invoke" in topic else ""
         msg_id = payload.get("id", "")
         params = payload.get("params", {})
@@ -398,9 +398,9 @@ class MqttClient:
         try:
             command = decode_service_command(svc_id, params)
             command_uid = command["commandUid"]
-            if command.get("deploymentCode") and self.deployment_code:
-                if command["deploymentCode"] != self.deployment_code:
-                    raise ValueError("deploymentCode mismatch")
+            if command.get("targetDeviceName") and self.device_name:
+                if command["targetDeviceName"] != self.device_name:
+                    raise ValueError("targetDeviceName mismatch")
             validate_command_envelope(
                 command,
                 trusted_environment=(
@@ -419,10 +419,12 @@ class MqttClient:
                 )
             elif command["commandType"] == "CONFIRM_EDGE_EVENT":
                 result = self._store.receive_business_confirmation_and_create_receipt(
-                    deployment_code=self.deployment_code or command.get("deploymentCode", ""),
+                    device_name=self.device_name or command.get("targetDeviceName", ""),
                     command=command,
                 )
             else:
+                # 必须先把稳定命令身份、摘要和载荷写入 SQLite，才能回复已受理。
+                # MQTT 回调若直接开门，进程在“动作后、落盘前”崩溃就无法判断是否执行过。
                 result = self._store.receive_command(command_uid, command["commandType"], command)
             control_dispatched = False
             control_error = None
@@ -468,13 +470,19 @@ class MqttClient:
             should_dispatch = result == "ACCEPTED" or (
                 result == "DUPLICATE"
                 and command["commandType"]
-                == "PROVIDE_PHOTO_UPLOAD_GRANT"
+                in {
+                    "PROVIDE_PHOTO_UPLOAD_GRANT",
+                    "REQUEST_DEVICE_ACCEPTANCE",
+                }
             )
             if (
                 should_dispatch
                 and command["commandType"] != "CONFIRM_EDGE_EVENT"
                 and not control_dispatched
             ):
+                # 普通命令在回复后只唤醒持久 inbox 消费者。验收命令的
+                # DUPLICATE 只补充内存中的短期 COS 凭证；已完成命令不会重跑。
+                # 物理开始命令的 DUPLICATE 仍不会触发，避免第二次开门。
                 if self.on_command_received:
                     self.on_command_received(command_uid, command["commandType"], command)
             if (

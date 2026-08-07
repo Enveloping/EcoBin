@@ -32,7 +32,7 @@
   font-weight: 700;
 }
 
-.deployment-code {
+.device-code {
   display: inline-block;
   margin-top: 18rpx;
   padding: 12rpx 20rpx;

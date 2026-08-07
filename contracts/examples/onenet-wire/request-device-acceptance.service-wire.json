@@ -1,0 +1,52 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "requestDeviceAcceptance",
+    "params": {
+      "challengeUid": "8a000000-0000-4000-8000-000000000003",
+      "commandType": 1,
+      "commandUid": "8a000000-0000-4000-8000-000000000004",
+      "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+      "cosGrantBucket": "ecobin-contract-1250000000",
+      "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
+      "cosGrantGrantUid": "71000000-0000-4000-8000-000000000006",
+      "cosGrantKeyPrefix": "ecobin/device-acceptance/8a000000-0000-4000-8000-000000000003/",
+      "cosGrantRegion": "ap-guangzhou",
+      "cosGrantSessionTokenParts": [
+        "TOKEN_6_PART_1",
+        "TOKEN_6_PART_2"
+      ],
+      "cosGrantTmpSecretId": "TMP_SECRET_ID_6",
+      "cosGrantTmpSecretKey": "TMP_SECRET_KEY_6",
+      "expectedPortCount": 2,
+      "expiresAt": "2026-07-24T01:01:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "43f36b2e34a79bf0b8053f62072504d5b8651a384331c943b0656d7ab0c47842",
+      "schemaVersion": 1,
+      "target": {
+        "type": 1,
+        "uid": "SN-CONTRACT-0001"
+      },
+      "targetDeviceName": "SN-CONTRACT-0001"
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "8a000000-0000-4000-8000-000000000004",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/requestDeviceAcceptance/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/requestDeviceAcceptance/invoke_reply",
+  "identifier": "requestDeviceAcceptance",
+  "kind": "SYNC_SERVICE"
+}

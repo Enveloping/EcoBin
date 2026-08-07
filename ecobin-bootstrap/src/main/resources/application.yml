@@ -72,8 +72,11 @@ ecobin:
         slow-query-threshold-ms: 200
 
   device:
-    # 创建设备部署时按型号选择初始硬件档案并发布 v1。
-    # 未列出的型号使用 default-profile，便于开发期新增型号后仍能完成部署。
+    activation:
+      # 永久分配机构后自动补齐初始配置和出厂袋皮重；定时器只负责失败补偿。
+      scheduler-enabled: true
+    # 永久分配机构时按型号选择初始硬件档案并发布首版配置。
+    # 未列出的型号使用 default-profile，便于开发期新增型号后仍可自动启用。
     initial-configuration:
       default-profile: fixed-frame-digital-infrared
       model-profiles:
@@ -148,6 +151,7 @@ ecobin:
       block-inbound: true
   funds:
     wechat-pay:
+      merchant-profile-registration-enabled: ${wechatPayMerchantProfileRegistrationEnabled:true}
       base-url: ${wechatPayBaseUrl:https://api.mch.weixin.qq.com}
       mchid: ${wechatPayMchid:}
       merchant-serial-number: ${wechatPayMerchantSerialNumber:}

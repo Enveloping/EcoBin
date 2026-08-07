@@ -84,7 +84,7 @@ public class WebBagTraceQueryService {
                             new BagCurrentOccupancy(
                                     row.occupancyType() == null
                                             ? "NONE" : row.occupancyType(),
-                                    port == null ? null : port.deploymentCode(),
+                                    port == null ? null : port.deviceCode(),
                                     port == null ? null : port.portNo(),
                                     row.operationUid(),
                                     instant(row.acquiredAt())),
@@ -416,7 +416,7 @@ public class WebBagTraceQueryService {
         if (value == null) {
             throw new IllegalStateException("bag trace port facts missing");
         }
-        return new PortFact(value.deploymentCode(), value.portNo());
+        return new PortFact(value.deviceCode(), value.portNo());
     }
 
     private Map<UUID, PortFact> ports(
@@ -438,7 +438,7 @@ public class WebBagTraceQueryService {
                 throw new IllegalStateException("bag trace port facts missing");
             }
             result.put(request.token(), new PortFact(
-                    value.deploymentCode(), value.portNo()));
+                    value.deviceCode(), value.portNo()));
         });
         return Map.copyOf(result);
     }
@@ -478,7 +478,7 @@ public class WebBagTraceQueryService {
         }
         return new BagOccupancyEventItem(
                 row.eventUid(), row.eventType(),
-                port.deploymentCode(), port.portNo(),
+                port.deviceCode(), port.portNo(),
                 row.operationUid(), instant(row.occurredAt()),
                 row.operationUid() == null
                         ? "BAG_REGISTRATION" : "CLEAN_OPERATION",
@@ -499,7 +499,7 @@ public class WebBagTraceQueryService {
         }
         return new BagCleanRecordItem(
                 row.recordNo(), row.operationUid(),
-                user.organizationUserUid(), port.deploymentCode(),
+                user.organizationUserUid(), port.deviceCode(),
                 port.portNo(),
                 bagQr.equals(row.removedBagQr()) ? "REMOVED" : "INSTALLED",
                 row.removedBagQr(), row.installedBagQr(),
@@ -734,7 +734,7 @@ public class WebBagTraceQueryService {
             UUID operationUid,
             LocalDateTime acquiredAt,
             LocalDateTime lastRelationChangedAt) { }
-    private record PortFact(String deploymentCode, int portNo) { }
+    private record PortFact(String deviceCode, int portNo) { }
     private record PortRequest(UUID token, long portId) { }
     private record UserRequest(UUID token, long userId) { }
     private record EventCursor(LocalDateTime occurredAt, UUID eventUid) { }

@@ -12,7 +12,7 @@ final class TransactionBoundDeviceCommandTaskRefFactory
     public DeviceCommandTaskRef issue(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long commandKey) {
         if (!TransactionSynchronizationManager
                 .isActualTransactionActive()) {
@@ -27,7 +27,7 @@ final class TransactionBoundDeviceCommandTaskRefFactory
         DeviceCommandTaskRef reference = new DeviceCommandTaskRef(
                 tenantKey,
                 organizationKey,
-                deploymentKey,
+                assetKey,
                 commandKey,
                 resources);
         TransactionSynchronizationManager.registerSynchronization(

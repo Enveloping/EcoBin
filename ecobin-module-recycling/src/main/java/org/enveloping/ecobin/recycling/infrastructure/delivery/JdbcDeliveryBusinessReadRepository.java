@@ -58,7 +58,7 @@ JdbcDeliveryBusinessReadRepository
              AND occupancy.occupancy_type = 'PORT_BOUND'
             WHERE capacity.tenant_id = ?
               AND capacity.organization_id = ?
-              AND capacity.deployment_id = ?
+              AND capacity.asset_id = ?
               AND capacity.port_id IN (%s)
             """;
 
@@ -67,7 +67,7 @@ JdbcDeliveryBusinessReadRepository
             FROM rec_port_baseline_measurement measurement
             WHERE measurement.tenant_id = ?
               AND measurement.organization_id = ?
-              AND measurement.deployment_id = ?
+              AND measurement.asset_id = ?
               AND measurement.status = 'PENDING'
               AND measurement.port_id IN (%s)
             """;
@@ -77,7 +77,7 @@ JdbcDeliveryBusinessReadRepository
             FROM rec_clean_operation clean
             WHERE clean.tenant_id = ?
               AND clean.organization_id = ?
-              AND clean.deployment_id = ?
+              AND clean.asset_id = ?
               AND clean.status IN (
                   'PREPARED',
                   'EDGE_SAVED',
@@ -92,7 +92,7 @@ JdbcDeliveryBusinessReadRepository
             FROM rec_port_clean_restart_interlock interlock
             WHERE interlock.tenant_id = ?
               AND interlock.organization_id = ?
-              AND interlock.deployment_id = ?
+              AND interlock.asset_id = ?
               AND interlock.port_id IN (%s)
             """;
 
@@ -114,7 +114,7 @@ JdbcDeliveryBusinessReadRepository
     public OptionsRows findCurrentOptions(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             List<Long> portIds) {
         List<Long> requestedPortIds = requirePortIds(portIds);
         OptionalLong openBalanceFloorCent =
@@ -158,7 +158,7 @@ JdbcDeliveryBusinessReadRepository
                 scopedPortArguments(
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         requestedPortIds));
 
         Set<Long> activeBaselineRemeasurements =
@@ -166,21 +166,21 @@ JdbcDeliveryBusinessReadRepository
                         FIND_ACTIVE_BASELINE_REMEASUREMENTS_SQL,
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         requestedPortIds);
         Set<Long> activeCleanOperations =
                 queryPortIds(
                         FIND_ACTIVE_CLEAN_OPERATIONS_SQL,
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         requestedPortIds);
         Set<Long> cleanRestartInterlocks =
                 queryPortIds(
                         FIND_CLEAN_RESTART_INTERLOCKS_SQL,
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         requestedPortIds);
 
         return new OptionsRows(
@@ -226,7 +226,7 @@ JdbcDeliveryBusinessReadRepository
             String sql,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             List<Long> portIds) {
         return Set.copyOf(jdbc.query(
                 withPortPlaceholders(sql, portIds.size()),
@@ -234,7 +234,7 @@ JdbcDeliveryBusinessReadRepository
                 scopedPortArguments(
                         tenantId,
                         organizationId,
-                        deploymentId,
+                        assetId,
                         portIds)));
     }
 
@@ -254,14 +254,14 @@ JdbcDeliveryBusinessReadRepository
     private static Object[] scopedPortArguments(
             long tenantId,
             long organizationId,
-            Long deploymentId,
+            Long assetId,
             List<Long> portIds) {
         List<Object> arguments = new ArrayList<>(
-                portIds.size() + (deploymentId == null ? 2 : 3));
+                portIds.size() + (assetId == null ? 2 : 3));
         arguments.add(tenantId);
         arguments.add(organizationId);
-        if (deploymentId != null) {
-            arguments.add(deploymentId);
+        if (assetId != null) {
+            arguments.add(assetId);
         }
         arguments.addAll(portIds);
         return arguments.toArray();

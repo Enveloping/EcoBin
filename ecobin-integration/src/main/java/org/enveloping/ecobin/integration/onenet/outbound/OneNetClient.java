@@ -61,8 +61,10 @@ public class OneNetClient
     private final OneNetDiagnosticLogger diagnosticLogger;
 
     /**
-     * Submits the exact command envelope frozen by the business transaction.
-     * A successful platform response is transport evidence only.
+     * 把业务事务冻结的命令信封投影成 OneNet 物模型服务调用。
+     *
+     * <p>OneNet 返回成功只证明平台受理了传输请求，不证明香橙派已落盘、MCU 已动作或
+     * 后端业务已完成；后续状态必须由设备命令观察和最终业务事件推进。</p>
      */
     @Override
     public DeviceCommandSubmissionResult submit(
@@ -77,8 +79,8 @@ public class OneNetClient
             requireEnvelopeIdentity(envelope, submission);
             if ("START_DELIVERY_SESSION".equals(
                     submission.commandType())) {
-                // Validate the frozen, credential-free command before the
-                // first external STS call.
+                // 先验证不含凭证的冻结语义，再调用 STS。临时 COS 凭证只在发送时附加，
+                // 不进入稳定摘要，也不会因为续期把同一命令变成另一条业务指令。
                 projectStartDeliverySession(envelope);
                 envelope = attachInitialDeliveryCosGrant(
                         envelope,
@@ -89,9 +91,20 @@ public class OneNetClient
                 envelope = attachInitialCleanCosGrant(
                         envelope,
                         submission);
+            } else if ("RESUME_CLEAN_OPERATION".equals(
+                    submission.commandType())) {
+                projectResumeCleanOperation(envelope);
+                envelope = attachInitialCleanCosGrant(
+                        envelope,
+                        submission);
             } else if ("PROVIDE_PHOTO_UPLOAD_GRANT".equals(
                     submission.commandType())) {
                 envelope = attachPhotoUploadGrant(
+                        envelope,
+                        submission);
+            } else if ("REQUEST_DEVICE_ACCEPTANCE".equals(
+                    submission.commandType())) {
+                envelope = attachDeviceAcceptanceGrant(
                         envelope,
                         submission);
             }
@@ -109,10 +122,22 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "startCleanOperation";
                 params = projectStartCleanOperation(envelope);
+            } else if ("END_CLEAN_BEFORE_UNLOCK".equals(
+                    submission.commandType())) {
+                identifier = "endCleanBeforeUnlock";
+                params = projectEndCleanBeforeUnlock(envelope);
+            } else if ("RESUME_CLEAN_OPERATION".equals(
+                    submission.commandType())) {
+                identifier = "resumeCleanOperation";
+                params = projectResumeCleanOperation(envelope);
             } else if ("SAMPLE_FULLNESS".equals(
                     submission.commandType())) {
                 identifier = "sampleFullness";
                 params = projectSampleFullness(envelope);
+            } else if ("MEASURE_EMPTY_BAG_BASELINE".equals(
+                    submission.commandType())) {
+                identifier = "measureEmptyBagBaseline";
+                params = projectMeasureEmptyBagBaseline(envelope);
             } else if ("CONFIRM_EDGE_EVENT".equals(
                     submission.commandType())) {
                 identifier = "confirmEdgeEvent";
@@ -121,6 +146,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "providePhotoUploadGrant";
                 params = projectProvidePhotoUploadGrant(envelope);
+            } else if ("REQUEST_DEVICE_ACCEPTANCE".equals(
+                    submission.commandType())) {
+                identifier = "requestDeviceAcceptance";
+                params = projectRequestDeviceAcceptance(envelope);
             } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
@@ -169,11 +198,6 @@ public class OneNetClient
         ObjectNode envelope =
                 (ObjectNode) frozenEnvelope.deepCopy();
         JsonNode payload = requiredObject(envelope, "payload");
-        String deploymentCode = requiredMatchingText(
-                envelope,
-                "deploymentCode",
-                "^Dp_[A-Za-z0-9_-]{6,61}$",
-                64);
         String sessionUid = requiredUuid(payload, "sessionUid");
         int portNo = Math.toIntExact(
                 requiredInteger(
@@ -182,9 +206,7 @@ public class OneNetClient
                         1,
                         6)
                         .longValue());
-        String keyPrefix = "ecobin/"
-                + deploymentCode
-                + "/delivery-session/"
+        String keyPrefix = "ecobin/delivery-session/"
                 + sessionUid
                 + "/";
         CosUploadCredential credential =
@@ -220,19 +242,12 @@ public class OneNetClient
         ObjectNode envelope =
                 (ObjectNode) frozenEnvelope.deepCopy();
         JsonNode payload = requiredObject(envelope, "payload");
-        String deploymentCode = requiredMatchingText(
-                envelope,
-                "deploymentCode",
-                "^Dp_[A-Za-z0-9_-]{6,61}$",
-                64);
         String operationUid = requiredUuid(
                 payload, "operationUid");
         int portNo = Math.toIntExact(
                 requiredInteger(payload, "portNo", 1, 6)
                         .longValue());
-        String keyPrefix = "ecobin/"
-                + deploymentCode
-                + "/clean-operation/"
+        String keyPrefix = "ecobin/clean-operation/"
                 + operationUid
                 + "/";
         CosUploadCredential credential =
@@ -285,11 +300,6 @@ public class OneNetClient
         ObjectNode envelope =
                 (ObjectNode) frozenEnvelope.deepCopy();
         JsonNode payload = requiredObject(envelope, "payload");
-        String deploymentCode = requiredMatchingText(
-                envelope,
-                "deploymentCode",
-                "^Dp_[A-Za-z0-9_-]{6,61}$",
-                64);
         String workType = requiredText(payload, "workType");
         String workUid = requiredUuid(payload, "workUid");
         String workPath = switch (workType) {
@@ -299,8 +309,6 @@ public class OneNetClient
                     "photo grant work type is unsupported");
         };
         String keyPrefix = "ecobin/"
-                + deploymentCode
-                + "/"
                 + workPath
                 + "/"
                 + workUid
@@ -333,6 +341,49 @@ public class OneNetClient
         envelope.put(
                 "expiresAt",
                 issuedAt.plusSeconds(600).toString());
+        return envelope;
+    }
+
+    private JsonNode attachDeviceAcceptanceGrant(
+            JsonNode frozenEnvelope,
+            DeviceCommandSubmission submission) {
+        ObjectNode envelope = (ObjectNode) frozenEnvelope.deepCopy();
+        JsonNode payload = requiredObject(envelope, "payload");
+        JsonNode target = requiredObject(envelope, "target");
+        String challengeUid = requiredUuid(payload, "challengeUid");
+        String deviceName = requiredBoundedText(
+                envelope, "targetDeviceName", 64);
+        if (!submission.hardwareSn().equals(deviceName)
+                || !"DEVICE_ASSET".equals(
+                        requiredText(target, "type"))
+                || !deviceName.equals(requiredText(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "acceptance target must be the authenticated device asset");
+        }
+        requiredInteger(payload, "expectedPortCount", 1, 6);
+        String keyPrefix = "ecobin/device-acceptance/"
+                + challengeUid
+                + "/";
+        CosUploadCredential credential = cosUploadCredentialPort.issue(
+                submission.hardwareSn(),
+                null,
+                keyPrefix);
+        ObjectNode grant = objectMapper.createObjectNode();
+        grant.put("grantUid", UUID.randomUUID().toString());
+        grant.put("tmpSecretId", credential.tmpSecretId());
+        grant.put("tmpSecretKey", credential.tmpSecretKey());
+        ArrayNode tokenParts = grant.putArray("sessionTokenParts");
+        splitSessionToken(credential.sessionToken())
+                .forEach(tokenParts::add);
+        grant.put("bucket", credential.bucket());
+        grant.put("region", credential.region());
+        grant.put("baseUrl", credential.baseUrl());
+        grant.put("keyPrefix", keyPrefix);
+        grant.put(
+                "expiresAt",
+                Instant.ofEpochSecond(
+                        credential.expiredTime()).toString());
+        envelope.set("cosGrant", grant);
         return envelope;
     }
 
@@ -428,6 +479,8 @@ public class OneNetClient
                         "OneNet returned an invalid response envelope");
             }
             if (responseJson.path("code").asInt(Integer.MIN_VALUE) == 0) {
+                // code=0 到此只跨过“OneNet 平台受理”这一层。可靠任务随后等待香橙派
+                // 的受理/物理证据，不允许在这里直接标记投递成功。
                 return new DeviceCommandSubmissionResult(
                         DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
                         requestSha256,
@@ -563,21 +616,23 @@ public class OneNetClient
             throw new IllegalArgumentException("ports must be a non-empty array");
         }
         Map<String, Object> params = new LinkedHashMap<>();
-        params.put("schemaVersion", envelope.path("schemaVersion").asInt());
-        params.put("commandUid", requiredText(envelope, "commandUid"));
+        // OneNet 的物模型枚举值 1 表示领域协议版本 "2"。
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
         params.put("commandType", 1);
         params.put(
-                "deploymentCode",
-                requiredText(envelope, "deploymentCode"));
+                "targetDeviceName",
+                requiredBoundedText(
+                        envelope, "targetDeviceName", 64));
         params.put("target", Map.of(
                 "type", configurationTargetCode(
                         requiredText(target, "type")),
                 "uid", requiredText(target, "uid")));
         params.put("issuedAt", requiredText(envelope, "issuedAt"));
         params.put("expiresAt", requiredText(envelope, "expiresAt"));
-        params.put(
-                "payloadSchemaVersion",
-                envelope.path("payloadSchemaVersion").asInt());
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
         params.put(
                 "payloadSha256",
                 requiredText(envelope, "payloadSha256"));
@@ -622,20 +677,16 @@ public class OneNetClient
 
         Map<String, Object> scalarFields1 =
                 new LinkedHashMap<>();
-        scalarFields1.put(
-                "schemaVersion",
-                requiredInteger(envelope, "schemaVersion", 1, 1));
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        scalarFields1.put("schemaVersion", 1);
         scalarFields1.put(
                 "commandUid",
                 requiredUuid(envelope, "commandUid"));
         scalarFields1.put("commandType", 1);
         scalarFields1.put(
-                "deploymentCode",
-                requiredMatchingText(
-                        envelope,
-                        "deploymentCode",
-                        "^Dp_[A-Za-z0-9_-]{6,61}$",
-                        64));
+                "targetDeviceName",
+                requiredBoundedText(
+                        envelope, "targetDeviceName", 64));
         String issuedAtText = requiredInstant(envelope, "issuedAt");
         String expiresAtText = requiredInstant(envelope, "expiresAt");
         Instant issuedAt = Instant.parse(issuedAtText);
@@ -646,13 +697,8 @@ public class OneNetClient
         }
         scalarFields1.put("issuedAt", issuedAtText);
         scalarFields1.put("expiresAt", expiresAtText);
-        scalarFields1.put(
-                "payloadSchemaVersion",
-                requiredInteger(
-                        envelope,
-                        "payloadSchemaVersion",
-                        1,
-                        1));
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        scalarFields1.put("payloadSchemaVersion", 1);
         scalarFields1.put(
                 "payloadSha256",
                 requiredMatchingText(
@@ -762,20 +808,16 @@ public class OneNetClient
 
         Map<String, Object> scalarFields1 =
                 new LinkedHashMap<>();
-        scalarFields1.put(
-                "schemaVersion",
-                requiredInteger(envelope, "schemaVersion", 1, 1));
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        scalarFields1.put("schemaVersion", 1);
         scalarFields1.put(
                 "commandUid",
                 requiredUuid(envelope, "commandUid"));
         scalarFields1.put("commandType", 1);
         scalarFields1.put(
-                "deploymentCode",
-                requiredMatchingText(
-                        envelope,
-                        "deploymentCode",
-                        "^Dp_[A-Za-z0-9_-]{6,61}$",
-                        64));
+                "targetDeviceName",
+                requiredBoundedText(
+                        envelope, "targetDeviceName", 64));
         String issuedAtText = requiredInstant(
                 envelope, "issuedAt");
         String expiresAtText = requiredInstant(
@@ -787,13 +829,8 @@ public class OneNetClient
         }
         scalarFields1.put("issuedAt", issuedAtText);
         scalarFields1.put("expiresAt", expiresAtText);
-        scalarFields1.put(
-                "payloadSchemaVersion",
-                requiredInteger(
-                        envelope,
-                        "payloadSchemaVersion",
-                        1,
-                        1));
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        scalarFields1.put("payloadSchemaVersion", 1);
         scalarFields1.put(
                 "payloadSha256",
                 requiredMatchingText(
@@ -902,6 +939,242 @@ public class OneNetClient
         return params;
     }
 
+    private Map<String, Object> projectEndCleanBeforeUnlock(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String operationUid = requiredUuid(payload, "operationUid");
+        if (!"CLEAN_OPERATION".equals(requiredText(target, "type"))
+                || !operationUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "end-clean target must identify the payload operation");
+        }
+        String issuedAt = requiredInstant(envelope, "issuedAt");
+        String expiresAt = requiredInstant(envelope, "expiresAt");
+        if (!Instant.parse(expiresAt).isAfter(Instant.parse(issuedAt))) {
+            throw new IllegalArgumentException(
+                    "end-clean command expiry must follow issue time");
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        params.put("target", Map.of("type", 1, "uid", operationUid));
+        params.put("issuedAt", issuedAt);
+        params.put("expiresAt", expiresAt);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        params.put("operationUid", operationUid);
+        params.put("portNo", requiredInteger(payload, "portNo", 1, 6));
+        params.put(
+                "reason",
+                switch (requiredText(payload, "reason")) {
+                    case "CLEANER_CANCELLED" -> 1;
+                    case "START_AUTH_EXPIRED" -> 2;
+                    case "PREUNLOCK_FAILURE" -> 3;
+                    default -> throw new IllegalArgumentException(
+                            "unsupported end-clean reason");
+                });
+        if (!envelope.path("cosGrant").isNull()) {
+            throw new IllegalArgumentException(
+                    "end-clean command must not carry COS credentials");
+        }
+        params.put("cosGrantPresent", false);
+        return params;
+    }
+
+    private Map<String, Object> projectResumeCleanOperation(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        JsonNode config = requiredObject(payload, "config");
+        String operationUid = requiredUuid(payload, "operationUid");
+        if (!"CLEAN_OPERATION".equals(requiredText(target, "type"))
+                || !operationUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "resume-clean target must identify the payload operation");
+        }
+        String issuedAt = requiredInstant(envelope, "issuedAt");
+        String expiresAt = requiredInstant(envelope, "expiresAt");
+        if (!Instant.parse(expiresAt).isAfter(Instant.parse(issuedAt))) {
+            throw new IllegalArgumentException(
+                    "resume-clean command expiry must follow issue time");
+        }
+        if (!payload.path("originalCleanerConfirmedOnsite").isBoolean()
+                || !payload.path("originalCleanerConfirmedOnsite")
+                .booleanValue()) {
+            throw new IllegalArgumentException(
+                    "resume-clean requires the original cleaner onsite");
+        }
+
+        Map<String, Object> first = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        first.put("schemaVersion", 1);
+        first.put("commandUid", requiredUuid(envelope, "commandUid"));
+        first.put("commandType", 1);
+        first.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        first.put("issuedAt", issuedAt);
+        first.put("expiresAt", expiresAt);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        first.put("payloadSchemaVersion", 1);
+        first.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        first.put("operationUid", operationUid);
+        first.put("portNo", requiredInteger(payload, "portNo", 1, 6));
+        first.put("newBagUid", requiredUuid(payload, "newBagUid"));
+        first.put(
+                "operationWindowMs",
+                requiredInteger(
+                        payload,
+                        "operationWindowMs",
+                        1,
+                        4_294_967_295L));
+        first.put(
+                "recoveryGeneration",
+                requiredInteger(
+                        payload,
+                        "recoveryGeneration",
+                        1,
+                        4_294_967_295L));
+        first.put("originalCleanerConfirmedOnsite", true);
+
+        Map<String, Object> second = new LinkedHashMap<>();
+        List<String> tokenParts = new ArrayList<>();
+        projectCosGrant(envelope, first, second, tokenParts);
+        first.put("cosGrantRegion", second.remove("cosGrantRegion"));
+
+        Map<String, Object> projectedConfig = new LinkedHashMap<>();
+        projectedConfig.put(
+                "version",
+                requiredInteger(
+                        config,
+                        "version",
+                        1,
+                        9_007_199_254_740_991L));
+        projectedConfig.put(
+                "contentSha256",
+                requiredMatchingText(
+                        config,
+                        "contentSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        projectedConfig.put(
+                "mcuPayloadSha256",
+                requiredMatchingText(
+                        config,
+                        "mcuPayloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields1", first);
+        params.put("scalarFields2", second);
+        params.put("target", Map.of("type", 1, "uid", operationUid));
+        params.put("config", projectedConfig);
+        params.put("cosGrantSessionTokenParts", tokenParts);
+        return params;
+    }
+
+    private Map<String, Object> projectMeasureEmptyBagBaseline(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        JsonNode config = requiredObject(payload, "config");
+        String measurementUid = requiredUuid(payload, "measurementUid");
+        if (!"BASELINE_MEASUREMENT".equals(
+                requiredText(target, "type"))
+                || !measurementUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "baseline target must identify the payload measurement");
+        }
+        String issuedAt = requiredInstant(envelope, "issuedAt");
+        String expiresAt = requiredInstant(envelope, "expiresAt");
+        if (!Instant.parse(expiresAt).isAfter(Instant.parse(issuedAt))) {
+            throw new IllegalArgumentException(
+                    "baseline command expiry must follow issue time");
+        }
+        if (!payload.path("emptyBagConfirmed").isBoolean()
+                || !payload.path("emptyBagConfirmed").booleanValue()) {
+            throw new IllegalArgumentException(
+                    "baseline command requires a confirmed empty bag");
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put(
+                "targetDeviceName",
+                requiredBoundedText(envelope, "targetDeviceName", 64));
+        params.put("target", Map.of("type", 1, "uid", measurementUid));
+        params.put("issuedAt", issuedAt);
+        params.put("expiresAt", expiresAt);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        params.put("measurementUid", measurementUid);
+        params.put("portNo", requiredInteger(payload, "portNo", 1, 6));
+        params.put("bagUid", requiredUuid(payload, "bagUid"));
+        params.put("emptyBagConfirmed", true);
+        params.put(
+                "measurementTimeoutMs",
+                requiredInteger(
+                        payload,
+                        "measurementTimeoutMs",
+                        1_000,
+                        6_000));
+        params.put(
+                "config",
+                Map.of(
+                        "version",
+                        requiredInteger(
+                                config,
+                                "version",
+                                1,
+                                9_007_199_254_740_991L),
+                        "contentSha256",
+                        requiredMatchingText(
+                                config,
+                                "contentSha256",
+                                "^[0-9a-f]{64}$",
+                                64),
+                        "mcuPayloadSha256",
+                        requiredMatchingText(
+                                config,
+                                "mcuPayloadSha256",
+                                "^[0-9a-f]{64}$",
+                                64)));
+        if (!envelope.path("cosGrant").isNull()) {
+            throw new IllegalArgumentException(
+                    "baseline command must not carry COS credentials");
+        }
+        params.put("cosGrantPresent", false);
+        return params;
+    }
+
     private Map<String, Object> projectSampleFullness(
             JsonNode envelope) {
         JsonNode target = requiredObject(envelope, "target");
@@ -918,24 +1191,16 @@ public class OneNetClient
         }
 
         Map<String, Object> scalar = new LinkedHashMap<>();
-        scalar.put(
-                "schemaVersion",
-                requiredInteger(
-                        envelope,
-                        "schemaVersion",
-                        1,
-                        1));
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        scalar.put("schemaVersion", 1);
         scalar.put(
                 "commandUid",
                 requiredUuid(envelope, "commandUid"));
         scalar.put("commandType", 1);
         scalar.put(
-                "deploymentCode",
-                requiredMatchingText(
-                        envelope,
-                        "deploymentCode",
-                        "^Dp_[A-Za-z0-9_-]{6,61}$",
-                        64));
+                "targetDeviceName",
+                requiredBoundedText(
+                        envelope, "targetDeviceName", 64));
         String issuedAt = requiredInstant(
                 envelope,
                 "issuedAt");
@@ -949,13 +1214,8 @@ public class OneNetClient
         }
         scalar.put("issuedAt", issuedAt);
         scalar.put("expiresAt", expiresAt);
-        scalar.put(
-                "payloadSchemaVersion",
-                requiredInteger(
-                        envelope,
-                        "payloadSchemaVersion",
-                        1,
-                        1));
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        scalar.put("payloadSchemaVersion", 1);
         scalar.put(
                 "payloadSha256",
                 requiredMatchingText(
@@ -1097,8 +1357,7 @@ public class OneNetClient
                 requiredMatchingText(
                         grant,
                         "keyPrefix",
-                        "^ecobin/Dp_[A-Za-z0-9_-]+/"
-                                + "(delivery-session|clean-operation)/"
+                        "^ecobin/(delivery-session|clean-operation)/"
                                 + "[0-9a-f-]{36}/$",
                         256));
         scalarFields2.put(
@@ -1130,20 +1389,20 @@ public class OneNetClient
                     "confirmation target type is invalid");
         }
         Map<String, Object> scalar = new LinkedHashMap<>();
-        scalar.put("schemaVersion", envelope.path(
-                "schemaVersion").asInt());
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        scalar.put("schemaVersion", 1);
         scalar.put(
                 "commandUid",
-                requiredText(envelope, "commandUid"));
+                requiredUuid(envelope, "commandUid"));
         scalar.put("commandType", 1);
         scalar.put(
-                "deploymentCode",
-                requiredText(envelope, "deploymentCode"));
+                "targetDeviceName",
+                requiredBoundedText(
+                        envelope, "targetDeviceName", 64));
         scalar.put("issuedAt", requiredText(envelope, "issuedAt"));
         scalar.put("expiresAt", requiredText(envelope, "expiresAt"));
-        scalar.put(
-                "payloadSchemaVersion",
-                envelope.path("payloadSchemaVersion").asInt());
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        scalar.put("payloadSchemaVersion", 1);
         scalar.put(
                 "payloadSha256",
                 requiredText(envelope, "payloadSha256"));
@@ -1252,21 +1511,16 @@ public class OneNetClient
         }
 
         Map<String, Object> scalar = new LinkedHashMap<>();
-        scalar.put(
-                "schemaVersion",
-                requiredInteger(
-                        envelope, "schemaVersion", 1, 1));
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        scalar.put("schemaVersion", 1);
         scalar.put(
                 "commandUid",
                 requiredUuid(envelope, "commandUid"));
         scalar.put("commandType", 1);
         scalar.put(
-                "deploymentCode",
-                requiredMatchingText(
-                        envelope,
-                        "deploymentCode",
-                        "^Dp_[A-Za-z0-9_-]{6,61}$",
-                        64));
+                "targetDeviceName",
+                requiredBoundedText(
+                        envelope, "targetDeviceName", 64));
         String issuedAtText = requiredInstant(
                 envelope, "issuedAt");
         String expiresAtText = requiredInstant(
@@ -1278,13 +1532,8 @@ public class OneNetClient
         }
         scalar.put("issuedAt", issuedAtText);
         scalar.put("expiresAt", expiresAtText);
-        scalar.put(
-                "payloadSchemaVersion",
-                requiredInteger(
-                        envelope,
-                        "payloadSchemaVersion",
-                        1,
-                        1));
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        scalar.put("payloadSchemaVersion", 1);
         scalar.put(
                 "payloadSha256",
                 requiredMatchingText(
@@ -1326,6 +1575,71 @@ public class OneNetClient
                         "type", 1,
                         "uid", requestEventUid));
         params.put("authorizedSlots", projectedSlots);
+        params.put(
+                "cosGrantSessionTokenParts",
+                sessionTokenParts);
+        return params;
+    }
+
+    private Map<String, Object> projectRequestDeviceAcceptance(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deviceName = requiredBoundedText(
+                envelope, "targetDeviceName", 64);
+        if (!"DEVICE_ASSET".equals(requiredText(target, "type"))
+                || !deviceName.equals(requiredText(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "acceptance target differs from targetDeviceName");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        if (!Instant.parse(expiresAtText).isAfter(
+                Instant.parse(issuedAtText))) {
+            throw new IllegalArgumentException(
+                    "acceptance command expiry must follow issue time");
+        }
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        // OneNet represents the domain constant "2" as local enum code 1.
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put("targetDeviceName", deviceName);
+        params.put("target", Map.of("type", 1, "uid", deviceName));
+        params.put("issuedAt", issuedAtText);
+        params.put("expiresAt", expiresAtText);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        params.put(
+                "challengeUid",
+                requiredUuid(payload, "challengeUid"));
+        params.put(
+                "expectedPortCount",
+                requiredInteger(payload, "expectedPortCount", 1, 6));
+
+        Map<String, Object> first = new LinkedHashMap<>();
+        Map<String, Object> second = new LinkedHashMap<>();
+        List<String> sessionTokenParts = new ArrayList<>();
+        projectCosGrant(
+                envelope,
+                first,
+                second,
+                sessionTokenParts);
+        if (!Boolean.TRUE.equals(first.remove("cosGrantPresent"))) {
+            throw new IllegalArgumentException(
+                    "acceptance command requires COS credentials");
+        }
+        params.putAll(first);
+        params.putAll(second);
         params.put(
                 "cosGrantSessionTokenParts",
                 sessionTokenParts);
@@ -1398,11 +1712,13 @@ public class OneNetClient
     private static void requireEnvelopeIdentity(
             JsonNode envelope, DeviceCommandSubmission submission) {
         if (!envelope.isObject()
-                || envelope.path("schemaVersion").asInt() != 1
+                || envelope.path("schemaVersion").asInt() != 2
                 || !submission.commandUid().toString().equals(
                         envelope.path("commandUid").asString())
                 || !submission.commandType().equals(
-                        envelope.path("commandType").asString())) {
+                        envelope.path("commandType").asString())
+                || !submission.hardwareSn().equals(
+                        envelope.path("targetDeviceName").asString())) {
             throw new IllegalArgumentException(
                     "frozen envelope identity does not match its command row");
         }

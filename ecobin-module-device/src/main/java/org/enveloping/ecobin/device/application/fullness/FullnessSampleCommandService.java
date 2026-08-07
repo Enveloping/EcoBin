@@ -94,7 +94,7 @@ public class FullnessSampleCommandService
                         INSERT INTO dev_device_command (
                             command_uid,
                             tenant_id, organization_id,
-                            deployment_id,
+                            asset_id,
                             command_type,
                             delivery_session_id,
                             clean_operation_id,
@@ -117,7 +117,7 @@ public class FullnessSampleCommandService
                             ?,
                             'SAMPLE_FULLNESS',
                             NULL, NULL, NULL, ?, NULL,
-                            1,
+                            2,
                             CAST(? AS JSON),
                             ?,
                             'QUEUED',
@@ -130,7 +130,7 @@ public class FullnessSampleCommandService
                 commandUid.toString(),
                 keys.tenantKey(),
                 keys.organizationKey(),
-                keys.deploymentKey(),
+                keys.assetKey(),
                 keys.detectionKey(),
                 envelopeJson,
                 envelopeSha256,
@@ -154,13 +154,10 @@ public class FullnessSampleCommandService
                 command.detectionUid(),
                 command.sampleRole());
         Map<String, Object> taskSnapshot = new LinkedHashMap<>();
-        taskSnapshot.put("schemaVersion", 1);
+        taskSnapshot.put("schemaVersion", 2);
         taskSnapshot.put("commandUid", commandUid.toString());
         taskSnapshot.put("commandType", TASK_TYPE);
-        taskSnapshot.put("hardwareSn", facts.hardwareSn());
-        taskSnapshot.put(
-                "deploymentCode",
-                facts.deploymentCode());
+        taskSnapshot.put("targetDeviceName", facts.hardwareSn());
         taskSnapshot.put(
                 "target",
                 Map.of(
@@ -185,9 +182,9 @@ public class FullnessSampleCommandService
                         taskRefFactory.issue(
                                 keys.tenantKey(),
                                 keys.organizationKey(),
-                                keys.deploymentKey(),
+                                keys.assetKey(),
                                 commandId),
-                        1,
+                        2,
                         objectMapper.writeValueAsString(taskSnapshot),
                         envelopeSha256,
                         command.correlationUid(),
@@ -206,8 +203,7 @@ public class FullnessSampleCommandService
     private ConfigurationFacts loadConfiguration(
             FullnessDetectionCommandRef.ForeignKeys keys) {
         List<ConfigurationFacts> rows = jdbc.query("""
-                        SELECT deployment.public_code,
-                               asset.hardware_sn,
+                        SELECT asset.hardware_sn,
                                port.port_no,
                                version.version_no,
                                LOWER(HEX(version.content_sha256))
@@ -219,35 +215,32 @@ public class FullnessSampleCommandService
                                snapshot.fullness_settle_wait_ms,
                                snapshot.fullness_confirmation_wait_ms,
                                snapshot.weight_measurement_timeout_ms
-                        FROM dev_device_deployment deployment
-                        JOIN dev_device_asset asset
-                          ON asset.id = deployment.asset_id
+                        FROM dev_device_asset asset
                         JOIN dev_port port
-                          ON port.tenant_id = deployment.tenant_id
+                          ON port.tenant_id = asset.tenant_id
                          AND port.organization_id =
-                             deployment.organization_id
-                         AND port.deployment_id = deployment.id
+                             asset.organization_id
+                         AND port.asset_id = asset.id
                          AND port.id = ?
                         JOIN dev_config_version version
-                          ON version.tenant_id = deployment.tenant_id
+                          ON version.tenant_id = asset.tenant_id
                          AND version.organization_id =
-                             deployment.organization_id
-                         AND version.deployment_id = deployment.id
+                             asset.organization_id
+                         AND version.asset_id = asset.id
                          AND version.id = ?
                         JOIN dev_port_config_snapshot snapshot
-                          ON snapshot.tenant_id = deployment.tenant_id
+                          ON snapshot.tenant_id = asset.tenant_id
                          AND snapshot.organization_id =
-                             deployment.organization_id
-                         AND snapshot.deployment_id = deployment.id
+                             asset.organization_id
+                         AND snapshot.asset_id = asset.id
                          AND snapshot.config_version_id = version.id
                          AND snapshot.port_id = port.id
                          AND snapshot.id = ?
-                        WHERE deployment.tenant_id = ?
-                          AND deployment.organization_id = ?
-                          AND deployment.id = ?
+                        WHERE asset.tenant_id = ?
+                          AND asset.organization_id = ?
+                          AND asset.id = ?
                         """,
                 (rs, ignored) -> new ConfigurationFacts(
-                        rs.getString("public_code"),
                         rs.getString("hardware_sn"),
                         rs.getInt("port_no"),
                         rs.getLong("version_no"),
@@ -263,7 +256,7 @@ public class FullnessSampleCommandService
                 keys.portConfigSnapshotKey(),
                 keys.tenantKey(),
                 keys.organizationKey(),
-                keys.deploymentKey());
+                keys.assetKey());
         if (rows.size() != 1) {
             throw new IllegalStateException(
                     "frozen fullness device configuration is missing");
@@ -341,12 +334,10 @@ public class FullnessSampleCommandService
             Map<String, Object> payload,
             byte[] payloadSha256) {
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("schemaVersion", 1);
+        envelope.put("schemaVersion", 2);
         envelope.put("commandUid", commandUid.toString());
         envelope.put("commandType", TASK_TYPE);
-        envelope.put(
-                "deploymentCode",
-                facts.deploymentCode());
+        envelope.put("targetDeviceName", facts.hardwareSn());
         envelope.put(
                 "target",
                 Map.of(
@@ -356,7 +347,7 @@ public class FullnessSampleCommandService
                         command.detectionUid().toString()));
         envelope.put("issuedAt", issuedAt.toString());
         envelope.put("expiresAt", expiresAt.toString());
-        envelope.put("payloadSchemaVersion", 1);
+        envelope.put("payloadSchemaVersion", 2);
         envelope.put(
                 "payloadSha256",
                 HexFormat.of().formatHex(payloadSha256));
@@ -402,7 +393,6 @@ public class FullnessSampleCommandService
     }
 
     private record ConfigurationFacts(
-            String deploymentCode,
             String hardwareSn,
             int portNo,
             long configVersion,

@@ -2,15 +2,12 @@ package org.enveloping.ecobin.device.api.port;
 
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 
-/**
- * Device-owned authority for mapping an authenticated OneNet device identity
- * and immutable deployment code to an organization scope.
- */
+/** 根据 OneNet 已认证设备名解析资产级或机构业务级可信范围。 */
 public interface TrustedDeviceSourceScopePort {
 
-    TrustedInboxScopeResolver resolverForAsset(String hardwareSn);
+    /** 设备在线状态和机器验收永远属于平台资产，不依赖租户或机构归属。 */
+    TrustedInboxScopeResolver resolverForPlatformAsset(String hardwareSn);
 
-    TrustedInboxScopeResolver resolverFor(
-            String hardwareSn,
-            String deploymentCode);
+    /** 只有已经永久分配到机构的设备才可提交日常业务事件。 */
+    TrustedInboxScopeResolver resolverForOrganizationAsset(String hardwareSn);
 }

@@ -240,7 +240,7 @@ public class DeliveryOrderQueryService {
             Instant occurredFrom,
             Instant occurredTo,
             UUID organizationUserUid,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo,
             String anomalyCode,
             String requestedPhotoCompleteness) {
@@ -278,12 +278,12 @@ public class DeliveryOrderQueryService {
                     "occurredTo",
                     "occurredTo 必须晚于 occurredFrom");
         }
-        String normalizedDeployment = blankToNull(deploymentCode);
+        String normalizedDeployment = blankToNull(deviceCode);
         if (normalizedDeployment != null
                 && normalizedDeployment.length() > 64) {
             throw validation(
-                    "deploymentCode",
-                    "deploymentCode 长度不能超过 64");
+                    "deviceCode",
+                    "deviceCode 长度不能超过 64");
         }
         if (portNo != null && (portNo < 1 || portNo > 6)) {
             throw validation(
@@ -315,7 +315,7 @@ public class DeliveryOrderQueryService {
                 "organizationUserUid",
                 nullMarker(organizationUserUid));
         fingerprintFields.put(
-                "deploymentCode",
+                "deviceCode",
                 nullMarker(normalizedDeployment));
         fingerprintFields.put(
                 "portNo",
@@ -353,7 +353,7 @@ public class DeliveryOrderQueryService {
             resolvedScope = new ResolvedScope(
                     device.tenantId(),
                     device.organizationId(),
-                    device.deploymentId(),
+                    device.assetId(),
                     device.portIds());
         } else {
             resolvedScope = authorized.persistenceRef()
@@ -392,7 +392,7 @@ public class DeliveryOrderQueryService {
                 toDatabaseTime(occurredFrom),
                 toDatabaseTime(occurredTo),
                 userId,
-                resolvedScope.deploymentId(),
+                resolvedScope.assetId(),
                 resolvedScope.portIds(),
                 normalizedAnomalyCode,
                 photoCompleteness);
@@ -494,7 +494,7 @@ public class DeliveryOrderQueryService {
             LocalDateTime occurredFrom,
             LocalDateTime occurredTo,
             Long organizationUserId,
-            Long deploymentId,
+            Long assetId,
             List<Long> portIds,
             String anomalyCode,
             String photoCompleteness) {
@@ -515,7 +515,7 @@ public class DeliveryOrderQueryService {
                         occurredFrom,
                         occurredTo,
                         organizationUserId,
-                        deploymentId,
+                        assetId,
                         portIds,
                         anomalyCode,
                         photoCompleteness,
@@ -558,14 +558,14 @@ public class DeliveryOrderQueryService {
 
     private Optional<ResolvedDeviceFilter> resolveDeviceFilter(
             AuthorizedDeliveryScope authorized,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo) {
-        if (deploymentCode == null && portNo == null) {
+        if (deviceCode == null && portNo == null) {
             return Optional.empty();
         }
         var reference = deviceFilters.resolveFilter(
                 new DeliveryOrderDeviceFilterQuery(
-                        deploymentCode,
+                        deviceCode,
                         portNo,
                         authorized.persistenceRef()));
         if (reference.isEmpty()) {
@@ -590,7 +590,7 @@ public class DeliveryOrderQueryService {
             orderIds.put(token, row.id());
             keys.add(new DeliveryOrderDeviceFactsRef.FactKey(
                     token,
-                    row.deploymentId(),
+                    row.assetId(),
                     row.portId(),
                     row.deliverySessionId(),
                     row.physicalResultId()));
@@ -610,7 +610,7 @@ public class DeliveryOrderQueryService {
                         scope,
                         List.of(new DeliveryOrderDeviceFactsRef.FactKey(
                                 token,
-                                row.deploymentId(),
+                                row.assetId(),
                                 row.portId(),
                                 row.deliverySessionId(),
                                 row.physicalResultId())),
@@ -760,7 +760,7 @@ public class DeliveryOrderQueryService {
                 row.netWeightInconsistent());
         return new MiniappDeliveryOrderItem(
                 row.deliveryOrderNo(),
-                device.deploymentCode(),
+                device.deviceCode(),
                 device.portNo(),
                 instant(row.deviceOccurredAt()),
                 instant(row.receivedAt()),
@@ -790,7 +790,7 @@ public class DeliveryOrderQueryService {
         return new WebDeliveryOrderItem(
                 row.deliveryOrderNo(),
                 user.value(),
-                device.deploymentCode(),
+                device.deviceCode(),
                 device.portNo(),
                 instant(row.deviceOccurredAt()),
                 instant(row.receivedAt()),
@@ -816,7 +816,7 @@ public class DeliveryOrderQueryService {
         return new DeliverySource(
                 device.eventUid(),
                 device.sessionUid(),
-                device.deploymentCode(),
+                device.deviceCode(),
                 device.portNo(),
                 instant(root.deviceOccurredAt()),
                 instant(root.receivedAt()));
@@ -1219,7 +1219,7 @@ public class DeliveryOrderQueryService {
     private record ResolvedScope(
             long tenantId,
             long organizationId,
-            Long deploymentId,
+            Long assetId,
             List<Long> portIds) {
 
         private ResolvedScope {
@@ -1236,7 +1236,7 @@ public class DeliveryOrderQueryService {
     private record ResolvedDeviceFilter(
             long tenantId,
             long organizationId,
-            Long deploymentId,
+            Long assetId,
             List<Long> portIds) {
 
         private ResolvedDeviceFilter {

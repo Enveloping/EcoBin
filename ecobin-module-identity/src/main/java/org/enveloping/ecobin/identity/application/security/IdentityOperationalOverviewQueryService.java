@@ -2,7 +2,7 @@ package org.enveloping.ecobin.identity.application.security;
 
 import org.enveloping.ecobin.identity.api.port.IdentityOperationalOverviewQueryPort;
 import org.enveloping.ecobin.identity.api.result.IdentityOperationalOverview;
-import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedRegistrationDeploymentAttributionRefFactory;
+import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedRegistrationAssetAttributionRefFactory;
 import org.enveloping.ecobin.identity.api.persistence.ManagementScopePersistenceRef;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -22,11 +22,11 @@ public class IdentityOperationalOverviewQueryService
         implements IdentityOperationalOverviewQueryPort {
 
     private final JdbcTemplate jdbc;
-    private final IdentityOwnedRegistrationDeploymentAttributionRefFactory refs;
+    private final IdentityOwnedRegistrationAssetAttributionRefFactory refs;
 
     public IdentityOperationalOverviewQueryService(
             JdbcTemplate jdbc,
-            IdentityOwnedRegistrationDeploymentAttributionRefFactory refs) {
+            IdentityOwnedRegistrationAssetAttributionRefFactory refs) {
         this.jdbc = jdbc;
         this.refs = refs;
     }
@@ -68,7 +68,7 @@ public class IdentityOperationalOverviewQueryService
                                organization.organization_name,
                                COUNT(user.id) registered_count,
                                SUM(CASE WHEN user.id IS NOT NULL
-                                        AND user.registered_via_deployment_id
+                                        AND user.registered_via_asset_id
                                             IS NULL
                                    THEN 1 ELSE 0 END) direct_count
                         FROM iam_organization organization
@@ -101,21 +101,21 @@ public class IdentityOperationalOverviewQueryService
     }
 
     private List<org.enveloping.ecobin.identity.api.persistence
-            .RegistrationDeploymentAttributionRef> attribution(
+            .RegistrationAssetAttributionRef> attribution(
             long organizationId, Instant from, Instant to) {
         return jdbc.query("""
-                        SELECT user.registered_via_deployment_id deployment_id,
+                        SELECT user.registered_via_asset_id asset_id,
                                COUNT(*) registered_count
                         FROM iam_organization_user user
                         WHERE user.organization_id = ?
-                          AND user.registered_via_deployment_id IS NOT NULL
+                          AND user.registered_via_asset_id IS NOT NULL
                           AND user.registered_at >= ?
                           AND user.registered_at < ?
-                        GROUP BY user.registered_via_deployment_id
-                        ORDER BY user.registered_via_deployment_id
+                        GROUP BY user.registered_via_asset_id
+                        ORDER BY user.registered_via_asset_id
                         """,
                 (rs, ignored) -> refs.issue(
-                        rs.getLong("deployment_id"),
+                        rs.getLong("asset_id"),
                         rs.getLong("registered_count")),
                 organizationId, time(from), time(to));
     }

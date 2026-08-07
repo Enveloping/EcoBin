@@ -6,7 +6,7 @@ import java.util.UUID;
 
 /**
  * Registers an immutable device protocol-control intent. Unlike a physical
- * device command, this task is anchored to a deployment and has no row in
+ * device command, this task is anchored to a permanent asset and has no row in
  * {@code dev_device_command}.
  */
 public record ReliableDeviceControlTaskRegistration(
@@ -14,7 +14,7 @@ public record ReliableDeviceControlTaskRegistration(
         String taskKey,
         String targetType,
         String targetStableKey,
-        DeviceDeploymentTaskRef sourceDeployment,
+        DeviceAssetTaskRef sourceAsset,
         int payloadSchemaVersion,
         String executionEnvelope,
         byte[] payloadSha256,
@@ -31,7 +31,7 @@ public record ReliableDeviceControlTaskRegistration(
         }
         requireCode(targetType, "targetType");
         Objects.requireNonNull(targetStableKey, "targetStableKey");
-        Objects.requireNonNull(sourceDeployment, "sourceDeployment");
+        Objects.requireNonNull(sourceAsset, "sourceAsset");
         if (payloadSchemaVersion <= 0) {
             throw new IllegalArgumentException(
                     "payloadSchemaVersion must be positive");

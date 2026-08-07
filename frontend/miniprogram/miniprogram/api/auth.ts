@@ -6,7 +6,7 @@ import type {
 } from '../types/api'
 
 export interface RegistrationSource {
-  deploymentCode: string
+  deviceCode: string
 }
 
 export interface PhoneBinding {

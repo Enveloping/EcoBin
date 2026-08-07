@@ -416,7 +416,7 @@ public class BagTraceQueryService {
                 row.uid(),
                 row.boundaryEndAt() == null ? "ACTIVE" : "CLOSED",
                 row.eventType(),
-                row.deploymentCode(),
+                row.deviceCode(),
                 row.portNo(),
                 instant(row.installedAt()),
                 instant(row.removedAt()),
@@ -443,7 +443,7 @@ public class BagTraceQueryService {
                     row.id(), row.uid(), row.eventType(),
                     row.boundaryStartAt(), row.boundaryEndAt(),
                     row.installedAt(), row.removedAt(),
-                    port.deploymentCode(), port.portNo(),
+                    port.deviceCode(), port.portNo(),
                     deliveryCount(scope, row), row.portToken(),
                     row.bagId(), row.portId());
         }).toList();
@@ -660,7 +660,7 @@ public class BagTraceQueryService {
             LocalDateTime boundaryEndAt,
             LocalDateTime installedAt,
             LocalDateTime removedAt,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             long deliveryCount,
             UUID portToken,

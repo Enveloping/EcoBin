@@ -213,7 +213,7 @@ export default function DeliveryOrderDetailDrawer({
               size="small"
             >
               <Descriptions.Item label="设备 / 投口">
-                {order.source.deploymentCode} / {order.source.portNo}
+                {order.source.deviceCode} / {order.source.portNo}
               </Descriptions.Item>
               <Descriptions.Item label="机构用户">
                 <Typography.Text copyable>

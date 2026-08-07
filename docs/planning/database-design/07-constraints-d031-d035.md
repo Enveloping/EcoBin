@@ -236,6 +236,8 @@ M0 不自动删除订单、资金明细、渠道观察、设备物理结果、in
 | `fund_miniapp_merchant_binding` | 机构小程序/商户复合 FK；UQ 小程序/AppID；验证状态时间/锁版本 CHECK；IX 商户状态、机构 | P |
 | `fund_wechat_transfer` | 提现/商户/绑定复合 FK；UQ 提现、out bill、可空 transfer bill；固定请求/内部终态形状 CHECK；IX 渠道状态更新时间、双单号 | P |
 | `fund_wechat_transfer_observation` | 转账单及 inbox/attempt XOR 复合 FK；UQ observation UUID、每来源；来源类型 CHECK；IX 转账时间/外部身份 | A |
+| `fund_wechat_transfer_authorization` | 机构用户/商户/绑定复合 FK；UQ 授权 UUID、商户授权单号、可空微信授权单号及当前授权槽；状态/时间/请求形状 CHECK；IX 用户状态、确认期限和渠道状态 | P |
+| `fund_wechat_transfer_authorization_observation` | 授权及 inbox/attempt XOR 复合 FK；UQ observation UUID、每来源；来源类型/身份/时间 CHECK；IX 授权时间线 | A |
 | `fund_payout_gate` | PK/FK 商户；当前暂停事件同商户强回指；状态形状 CHECK；IX 状态 | P |
 | `fund_payout_gate_event` | 商户/触发观察/恢复原事件/管理员 FK；UQ event UUID、触发观察、原暂停恢复一次；事件列组 CHECK；IX 商户时间线 | A |
 | `ops_inbox_message` | 作用域 FK；UQ inbox UUID、来源主体+消息 ID；状态/计数 CHECK；IX 待处理、作用域时间 | P |

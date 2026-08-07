@@ -2621,14 +2621,14 @@ def _command(
     cos_grant: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commandUid": uid,
         "commandType": command_type,
-        "deploymentCode": "Dp_demo_01",
+        "targetDeviceName": "SN-CONTRACT-0001",
         "target": {"type": target_type, "uid": target_uid},
         "issuedAt": "2026-07-24T01:00:00.000Z",
         "expiresAt": "2026-07-24T01:01:00.000Z",
-        "payloadSchemaVersion": 1,
+        "payloadSchemaVersion": 2,
         "payloadSha256": payload_sha256(payload),
         "payload": payload,
         "cosGrant": cos_grant,
@@ -2647,9 +2647,8 @@ def _event(
     command_uid: str | None,
 ) -> dict[str, Any]:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "eventUid": uid,
-        "deploymentCode": "Dp_demo_01",
         "edgeEventSequence": sequence,
         "eventType": event_type,
         "deliveryClass": delivery_class,
@@ -2918,7 +2917,7 @@ def build_onenet_examples() -> dict[str, Any]:
         command_uid=confirm_command["commandUid"],
     )
     command_receipt = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commandUid": start_delivery_uid,
         "receiptState": "ACCEPTED",
         "errorCode": None,
@@ -2944,7 +2943,6 @@ def build_onenet_examples() -> dict[str, Any]:
         start_clean_payload,
         cos_grant=_fake_cos_grant(
             tag="3",
-            deployment_code="Dp_demo_01",
             work_type="CLEAN_OPERATION",
             work_uid=operation_uid,
         ),
@@ -2976,7 +2974,6 @@ def build_onenet_examples() -> dict[str, Any]:
         },
         cos_grant=_fake_cos_grant(
             tag="4",
-            deployment_code="Dp_demo_01",
             work_type="CLEAN_OPERATION",
             work_uid=operation_uid,
         ),
@@ -3035,7 +3032,6 @@ def build_onenet_examples() -> dict[str, Any]:
         },
         cos_grant=_fake_cos_grant(
             tag="5",
-            deployment_code="Dp_demo_01",
             work_type="DELIVERY_SESSION",
             work_uid=session_uid,
         ),
@@ -3111,8 +3107,8 @@ def build_onenet_examples() -> dict[str, Any]:
         1049,
         "DEVICE_FAULT_OBSERVED",
         "RELIABLE_FACT",
-        "DEVICE_DEPLOYMENT",
-        "Dp_demo_01",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
         fault_payload,
         command_uid=None,
     )
@@ -3123,8 +3119,8 @@ def build_onenet_examples() -> dict[str, Any]:
         1050,
         "DEVICE_FAULT_RECOVERED",
         "RELIABLE_FACT",
-        "DEVICE_DEPLOYMENT",
-        "Dp_demo_01",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
         recovered_payload,
         command_uid=None,
     )
@@ -3133,8 +3129,8 @@ def build_onenet_examples() -> dict[str, Any]:
         1054,
         "SAFETY_SENSOR_STATE_CHANGED",
         "RELIABLE_FACT",
-        "DEVICE_DEPLOYMENT",
-        "Dp_demo_01",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
         {
             "portNo": 2,
             "smokeState": "ALARM",
@@ -3164,7 +3160,7 @@ def build_onenet_examples() -> dict[str, Any]:
                 "photoUid": photo_uid,
                 "url": (
                     "https://ecobin-contract-1250000000.cos.ap-guangzhou."
-                    f"myqcloud.com/ecobin/Dp_demo_01/delivery-session/{session_uid}/"
+                    f"myqcloud.com/ecobin/delivery-session/{session_uid}/"
                     f"AFTER_INNER/{photo_uid}.jpg"
                 ),
                 "sha256": "c" * 64,
@@ -3195,8 +3191,8 @@ def build_onenet_examples() -> dict[str, Any]:
         1053,
         "DEVICE_RUNTIME_SNAPSHOT",
         "TELEMETRY_SNAPSHOT",
-        "DEVICE_DEPLOYMENT",
-        "Dp_demo_01",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
         {
             "edgeBootId": 9001,
             "edgeVersion": "1.0.0-rc.3",
@@ -3247,6 +3243,60 @@ def build_onenet_examples() -> dict[str, Any]:
             ],
         },
         command_uid=None,
+    )
+    acceptance_challenge_uid = (
+        "8a000000-0000-4000-8000-000000000003"
+    )
+    acceptance_command_uid = (
+        "8a000000-0000-4000-8000-000000000004"
+    )
+    request_acceptance_command = _command(
+        acceptance_command_uid,
+        "REQUEST_DEVICE_ACCEPTANCE",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "challengeUid": acceptance_challenge_uid,
+            "expectedPortCount": 2,
+        },
+        cos_grant=_fake_cos_grant(
+            tag="6",
+            work_type="DEVICE_ACCEPTANCE",
+            work_uid=acceptance_challenge_uid,
+        ),
+    )
+    acceptance_evidence_event = _event(
+        "8a000000-0000-4000-8000-000000000001",
+        1055,
+        "DEVICE_ACCEPTANCE_EVIDENCE",
+        "RELIABLE_FACT",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "evidenceSchemaVersion": 1,
+            "challengeUid": acceptance_challenge_uid,
+            "edgeSoftwareVersion": "0.1.0",
+            "edgeProtocolVersion": "2",
+            "edgeStoreInstanceUid": (
+                "8a000000-0000-4000-8000-000000000002"
+            ),
+            "mcuFirmwareVersion": "fixed-frame-1.0.0",
+            "persistentStoreHealthy": True,
+            "trustedTimeHealthy": True,
+            "configurationPersistenceHealthy": True,
+            "mcuCommunicationHealthy": True,
+            "sensorsHealthy": True,
+            "camerasCaptureHealthy": True,
+            "cameraUploadHealthy": True,
+            "mcuSimulated": False,
+            "camerasSimulated": False,
+            "verifiedPortCount": 2,
+            "verifiedCameraCount": 2,
+            "sensorSampleSha256": "d" * 64,
+            "cameraCaptureSha256": "e" * 64,
+            "cameraUploadSha256": "f" * 64,
+        },
+        command_uid=acceptance_command_uid,
     )
 
     return {
@@ -3310,6 +3360,10 @@ def build_onenet_examples() -> dict[str, Any]:
             provide_photo_grant_command,
             "../../onenet/commands/commands.schema.json",
         ),
+        "request-device-acceptance.command.json": (
+            request_acceptance_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
         "device-command-observed.event.json": (
             command_observed_event,
             "../../onenet/events/events.schema.json",
@@ -3344,6 +3398,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "device-runtime-snapshot.event.json": (
             runtime_snapshot_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "device-acceptance-evidence.event.json": (
+            acceptance_evidence_event,
             "../../onenet/events/events.schema.json",
         ),
     }
@@ -3392,13 +3450,13 @@ def build_canonicalization_vectors(examples: Mapping[str, Any]) -> list[dict[str
 def _fake_cos_grant(
     *,
     tag: str,
-    deployment_code: str,
     work_type: str,
     work_uid: str,
 ) -> dict[str, Any]:
     path_type = {
         "DELIVERY_SESSION": "delivery-session",
         "CLEAN_OPERATION": "clean-operation",
+        "DEVICE_ACCEPTANCE": "device-acceptance",
     }[work_type]
     return {
         "grantUid": f"71000000-0000-4000-8000-00000000000{tag}",
@@ -3408,9 +3466,7 @@ def _fake_cos_grant(
         "bucket": "ecobin-contract-1250000000",
         "region": "ap-guangzhou",
         "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
-        "keyPrefix": (
-            f"ecobin/{deployment_code}/{path_type}/{work_uid}/"
-        ),
+        "keyPrefix": f"ecobin/{path_type}/{work_uid}/",
         "expiresAt": "2026-07-24T01:30:00.000Z",
     }
 
@@ -3425,14 +3481,12 @@ def build_onenet_identity_digest_vectors(
     refreshed = copy.deepcopy(base_command)
     refreshed["cosGrant"] = _fake_cos_grant(
         tag="1",
-        deployment_code=base_command["deploymentCode"],
         work_type="DELIVERY_SESSION",
         work_uid=work_uid,
     )
     refreshed_again = copy.deepcopy(refreshed)
     refreshed_again["cosGrant"] = _fake_cos_grant(
         tag="2",
-        deployment_code=base_command["deploymentCode"],
         work_type="DELIVERY_SESSION",
         work_uid=work_uid,
     )
@@ -3534,9 +3588,9 @@ import java.util.Map;
 public final class EcobinCanonicalJson {
     public static final long SAFE_INTEGER_MAX = 9_007_199_254_740_991L;
     private static final byte[] COMMAND_DOMAIN =
-        domain("ECOBIN:ONENET:COMMAND:v1");
+        domain("ECOBIN:ONENET:COMMAND:v2");
     private static final byte[] EVENT_DOMAIN =
-        domain("ECOBIN:ONENET:EVENT:v1");
+        domain("ECOBIN:ONENET:EVENT:v2");
 
     private EcobinCanonicalJson() {}
 
@@ -3559,7 +3613,7 @@ public final class EcobinCanonicalJson {
 
     public static Map<String, Object> commandProjection(Map<String, Object> command) {
         String[] fields = {
-            "schemaVersion", "commandUid", "commandType", "deploymentCode",
+            "schemaVersion", "commandUid", "commandType", "targetDeviceName",
             "target", "issuedAt", "expiresAt", "payloadSchemaVersion",
             "payloadSha256"
         };
@@ -3588,7 +3642,7 @@ public final class EcobinCanonicalJson {
             throw new IllegalArgumentException("trusted OneNet source is required");
         }
         String[] fields = {
-            "schemaVersion", "eventUid", "deploymentCode", "edgeEventSequence",
+            "schemaVersion", "eventUid", "edgeEventSequence",
             "eventType", "deliveryClass", "target", "commandUid", "occurredAt",
             "clockQuality", "payloadSha256"
         };
@@ -4831,7 +4885,7 @@ def build_onenet_wire_examples(
                 enum_display,
             )
             receipt = {
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "commandUid": instance["commandUid"],
                 "receiptState": "ACCEPTED",
                 "errorCode": None,
@@ -5184,11 +5238,11 @@ def build_outputs(*, include_hardware_mcu: bool = False) -> dict[Path, str]:
         GENERATED_EXAMPLES_ROOT / "onenet" / "stable-identity-vectors.json"
     ] = json_text(
         {
-            "profile": "EcoBin OneNet stable command/event identity v1",
+            "profile": "EcoBin OneNet stable command/event identity v2",
             "commandDomainUtf8WithNullHex":
-                "ECOBIN:ONENET:COMMAND:v1".encode("utf-8").hex() + "00",
+                "ECOBIN:ONENET:COMMAND:v2".encode("utf-8").hex() + "00",
             "eventDomainUtf8WithNullHex":
-                "ECOBIN:ONENET:EVENT:v1".encode("utf-8").hex() + "00",
+                "ECOBIN:ONENET:EVENT:v2".encode("utf-8").hex() + "00",
             "vectors": identity_digest_vectors,
         }
     )

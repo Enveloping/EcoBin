@@ -2,10 +2,11 @@ package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference;
 import org.enveloping.ecobin.device.api.port.ReliableEdgeConfirmationPort;
-import org.enveloping.ecobin.framework.reliability.DeviceDeploymentTaskRefFactory;
+import org.enveloping.ecobin.framework.reliability.DeviceAssetTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceControlTaskRegistrationPort;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -33,17 +34,20 @@ public class ReliableEdgeConfirmationService
     static final int MAX_AUTO_ATTEMPTS = 100;
 
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbc;
     private final DeviceConfigurationCanonicalizer canonicalizer;
-    private final DeviceDeploymentTaskRefFactory taskRefFactory;
+    private final DeviceAssetTaskRefFactory taskRefFactory;
     private final ReliableDeviceControlTaskRegistrationPort
             taskRegistrationPort;
 
     public ReliableEdgeConfirmationService(
             ObjectMapper objectMapper,
+            JdbcTemplate jdbc,
             DeviceConfigurationCanonicalizer canonicalizer,
-            DeviceDeploymentTaskRefFactory taskRefFactory,
+            DeviceAssetTaskRefFactory taskRefFactory,
             ReliableDeviceControlTaskRegistrationPort taskRegistrationPort) {
         this.objectMapper = objectMapper;
+        this.jdbc = jdbc;
         this.canonicalizer = canonicalizer;
         this.taskRefFactory = taskRefFactory;
         this.taskRegistrationPort = taskRegistrationPort;
@@ -53,8 +57,7 @@ public class ReliableEdgeConfirmationService
     public UUID registerApplied(
             long tenantId,
             long organizationId,
-            long deploymentId,
-            String deploymentCode,
+            long assetId,
             String originalEventUid,
             String originalPayloadSha256,
             String effectKind,
@@ -62,8 +65,7 @@ public class ReliableEdgeConfirmationService
         return registerApplied(
                 tenantId,
                 organizationId,
-                deploymentId,
-                deploymentCode,
+                assetId,
                 originalEventUid,
                 originalPayloadSha256,
                 effectKind,
@@ -76,8 +78,7 @@ public class ReliableEdgeConfirmationService
     public UUID registerApplied(
             long tenantId,
             long organizationId,
-            long deploymentId,
-            String deploymentCode,
+            long assetId,
             String originalEventUid,
             String originalPayloadSha256,
             String effectKind,
@@ -86,8 +87,7 @@ public class ReliableEdgeConfirmationService
         return register(
                 tenantId,
                 organizationId,
-                deploymentId,
-                deploymentCode,
+                assetId,
                 originalEventUid,
                 originalPayloadSha256,
                 TASK_TYPE + ":"
@@ -104,8 +104,7 @@ public class ReliableEdgeConfirmationService
     public UUID registerQuarantined(
             long tenantId,
             long organizationId,
-            long deploymentId,
-            String deploymentCode,
+            long assetId,
             String originalEventUid,
             String originalPayloadSha256,
             String errorCode,
@@ -119,8 +118,7 @@ public class ReliableEdgeConfirmationService
         return register(
                 tenantId,
                 organizationId,
-                deploymentId,
-                deploymentCode,
+                assetId,
                 originalEventUid,
                 originalPayloadSha256,
                 TASK_TYPE + ":"
@@ -139,8 +137,7 @@ public class ReliableEdgeConfirmationService
     private UUID register(
             long tenantId,
             long organizationId,
-            long deploymentId,
-            String deploymentCode,
+            long assetId,
             String originalEventUid,
             String originalPayloadSha256,
             String taskKey,
@@ -179,16 +176,18 @@ public class ReliableEdgeConfirmationService
         target.put("type", "EDGE_EVENT");
         target.put("uid", originalEventUid);
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("schemaVersion", 1);
+        envelope.put("schemaVersion", 2);
         envelope.put("commandUid", commandUid.toString());
         envelope.put("commandType", TASK_TYPE);
-        envelope.put("deploymentCode", deploymentCode);
+        envelope.put(
+                "targetDeviceName",
+                hardwareSn(tenantId, organizationId, assetId));
         envelope.put("target", target);
         envelope.put("issuedAt", instant(processedAt));
         envelope.put(
                 "expiresAt",
                 instant(processedAt.plusYears(10)));
-        envelope.put("payloadSchemaVersion", 1);
+        envelope.put("payloadSchemaVersion", 2);
         envelope.put(
                 "payloadSha256",
                 canonicalizer.hex(
@@ -209,14 +208,36 @@ public class ReliableEdgeConfirmationService
                         taskRefFactory.issue(
                                 tenantId,
                                 organizationId,
-                                deploymentId),
-                        1,
+                                assetId),
+                        2,
                         envelopeJson,
                         envelopeSha256,
                         UUID.fromString(originalEventUid),
                         UUID.fromString(originalEventUid),
                         MAX_AUTO_ATTEMPTS));
         return confirmationUid;
+    }
+
+    private String hardwareSn(
+            long tenantId,
+            long organizationId,
+            long assetId) {
+        List<String> rows = jdbc.query("""
+                        SELECT hardware_sn
+                        FROM dev_device_asset
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                        """,
+                (rs, ignored) -> rs.getString("hardware_sn"),
+                assetId,
+                tenantId,
+                organizationId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "confirmation device asset is not authoritative");
+        }
+        return rows.getFirst();
     }
 
     private static String instant(LocalDateTime value) {

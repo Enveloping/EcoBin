@@ -15,13 +15,13 @@ interface StartDeliveryDeviceRepository {
             long organizationId,
             long organizationUserId);
 
-    Optional<Long> findAssetIdByDeploymentCode(String deploymentCode);
+    Optional<AssetRow> lockAssetByDeviceCode(String deviceCode);
 
-    Optional<AssetRow> lockAsset(long assetId);
+    Optional<SubjectStatusRow> lockTenant(long tenantId);
 
-    Optional<ActiveDeploymentRow> lockActiveDeployment(long assetId);
-
-    Optional<DeploymentRow> lockDeployment(long deploymentId);
+    Optional<SubjectStatusRow> lockOrganization(
+            long tenantId,
+            long organizationId);
 
     Optional<TransportPresenceRow> lockTransportPresence(long assetId);
 
@@ -30,18 +30,18 @@ interface StartDeliveryDeviceRepository {
     Optional<ConfigurationRow> lockLatestConfiguration(
             long tenantId,
             long organizationId,
-            long deploymentId);
+            long assetId);
 
     Optional<PortRow> lockPort(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             int portNo);
 
     Optional<PortConfigurationRow> lockPortConfiguration(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long configurationId,
             long portId);
 
@@ -51,7 +51,6 @@ interface StartDeliveryDeviceRepository {
             long assetId,
             long tenantId,
             long organizationId,
-            long deploymentId,
             long sessionId,
             LocalDateTime acquiredAt);
 
@@ -60,25 +59,16 @@ interface StartDeliveryDeviceRepository {
     record AssetRow(
             long id,
             String hardwareSn,
+            String devicePublicCode,
             String lifecycleStatus,
+            String acceptanceStatus,
+            String miniappQrStatus,
+            Long tenantId,
+            Long organizationId,
             int expectedPortCount) {
     }
 
-    record ActiveDeploymentRow(
-            long assetId,
-            long tenantId,
-            long organizationId,
-            long deploymentId) {
-    }
-
-    record DeploymentRow(
-            long id,
-            long tenantId,
-            long organizationId,
-            long assetId,
-            String publicCode,
-            String lifecycleStatus,
-            boolean businessEnabled) {
+    record SubjectStatusRow(long id, String status) {
     }
 
     record TransportPresenceRow(String onenetConnectionStatus) {
@@ -96,7 +86,9 @@ interface StartDeliveryDeviceRepository {
             long edgeHeartbeatMissThreshold,
             long continueDeliveryWaitMs,
             long negativeWeightThresholdGrams,
-            long deliveryAutoCloseMs) {
+            long deliveryAutoCloseMs,
+            boolean applicationApplied,
+            boolean runtimeApplied) {
     }
 
     record PortRow(long id, int portNo) {
@@ -114,7 +106,7 @@ interface StartDeliveryDeviceRepository {
             UUID sessionUid,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long portId,
             long organizationUserId,
             long deviceConfigurationId,
@@ -141,7 +133,7 @@ interface StartDeliveryDeviceRepository {
             UUID commandUid,
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long deliverySessionId,
             String semanticEnvelopeJson,
             byte[] semanticEnvelopeSha256,

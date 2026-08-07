@@ -12,7 +12,6 @@
           "deliveryClass": 1,
           "deliveryNetWeightGrams": 1250,
           "deliveryNetWeightGramsPresent": true,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1042,
           "eventType": 1,
           "eventUid": "30000000-0000-4000-8000-000000000006",

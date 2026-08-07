@@ -13,7 +13,7 @@ public final class DeviceCommandTaskRef {
 
     private final long tenantKey;
     private final long organizationKey;
-    private final long deploymentKey;
+    private final long assetKey;
     private final long commandKey;
     private final long ownerThreadId;
     private final Map<Object, Object> transactionResources;
@@ -23,12 +23,12 @@ public final class DeviceCommandTaskRef {
     DeviceCommandTaskRef(
             long tenantKey,
             long organizationKey,
-            long deploymentKey,
+            long assetKey,
             long commandKey,
             Map<Object, Object> transactionResources) {
         this.tenantKey = positive(tenantKey, "tenantKey");
         this.organizationKey = positive(organizationKey, "organizationKey");
-        this.deploymentKey = positive(deploymentKey, "deploymentKey");
+        this.assetKey = positive(assetKey, "assetKey");
         this.commandKey = positive(commandKey, "commandKey");
         this.ownerThreadId = Thread.currentThread().threadId();
         this.transactionResources = new IdentityHashMap<>(
@@ -62,7 +62,7 @@ public final class DeviceCommandTaskRef {
         writer.write(
                 tenantKey,
                 organizationKey,
-                deploymentKey,
+                assetKey,
                 commandKey);
     }
 
@@ -87,7 +87,7 @@ public final class DeviceCommandTaskRef {
         void write(
                 long tenantKey,
                 long organizationKey,
-                long deploymentKey,
+                long assetKey,
                 long commandKey);
     }
 }

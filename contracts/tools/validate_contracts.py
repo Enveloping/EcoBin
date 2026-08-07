@@ -85,6 +85,7 @@ ONENET_ENUM_DESCRIPTION_PATTERN = re.compile(
 WORK_PATH_SEGMENT = {
     "DELIVERY_SESSION": "delivery-session",
     "CLEAN_OPERATION": "clean-operation",
+    "DEVICE_ACCEPTANCE": "device-acceptance",
 }
 
 
@@ -101,7 +102,6 @@ def _validate_ordered_subset(
 def _validate_photo_url(
     photo: Mapping[str, Any],
     *,
-    deployment_code: str,
     work_type: str,
     work_uid: str,
     trusted_cos: Mapping[str, Any],
@@ -129,7 +129,7 @@ def _validate_photo_url(
     ):
         raise ContractError("AVAILABLE photo URL origin differs from trusted COS environment")
     expected_path = (
-        f"/ecobin/{deployment_code}/{WORK_PATH_SEGMENT[work_type]}/{work_uid}/"
+        f"/ecobin/{WORK_PATH_SEGMENT[work_type]}/{work_uid}/"
         f"{photo['slot']}/{photo['photoUid']}.jpg"
     )
     if parsed.path != expected_path:
@@ -152,12 +152,12 @@ def _validate_cos_grant(
                 f"{command['commandType']}: COS {field} differs from trusted environment"
             )
     expected_prefix = (
-        f"ecobin/{command['deploymentCode']}/{WORK_PATH_SEGMENT[work_type]}/"
+        f"ecobin/{WORK_PATH_SEGMENT[work_type]}/"
         f"{work_uid}/"
     )
     if grant["keyPrefix"] != expected_prefix:
         raise ContractError(
-            f"{command['commandType']}: COS keyPrefix differs from deployment/work"
+            f"{command['commandType']}: COS keyPrefix differs from work"
         )
 
 
@@ -643,6 +643,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "FULLNESS_SAMPLE_COMPLETE",
         "BASELINE_MEASUREMENT_COMPLETE",
         "BUSINESS_CONFIRMATION_RECEIPT",
+        "DEVICE_ACCEPTANCE_EVIDENCE",
     }
     if event_type in command_bound_events and instance["commandUid"] is None:
         raise ContractError(f"{event_type}: originating commandUid is required")
@@ -722,7 +723,6 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         for photo in payload["photos"]:
             _validate_photo_url(
                 photo,
-                deployment_code=instance["deploymentCode"],
                 work_type="DELIVERY_SESSION",
                 work_uid=payload["sessionUid"],
                 trusted_cos=mapping["trustedCosEnvironment"]["contractTestProfile"],
@@ -775,7 +775,6 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         for photo in payload["photos"]:
             _validate_photo_url(
                 photo,
-                deployment_code=instance["deploymentCode"],
                 work_type="CLEAN_OPERATION",
                 work_uid=payload["operationUid"],
                 trusted_cos=mapping["trustedCosEnvironment"]["contractTestProfile"],
@@ -800,7 +799,6 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
                 raise ContractError("PHOTO_STATUS_REPORTED must be a terminal photo update")
             _validate_photo_url(
                 photo,
-                deployment_code=instance["deploymentCode"],
                 work_type=payload["workType"],
                 work_uid=payload["workUid"],
                 trusted_cos=mapping["trustedCosEnvironment"]["contractTestProfile"],
@@ -813,8 +811,6 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
             )
 
     if event_type in {"DEVICE_FAULT_OBSERVED", "DEVICE_FAULT_RECOVERED"}:
-        if instance["target"]["uid"] != instance["deploymentCode"]:
-            raise ContractError(f"{event_type}: deployment target differs from envelope")
         fault_codes_by_component = {
             "UART": {"UART_PROTOCOL", "UART_STORAGE"},
             "DELIVERY_DOOR": {
@@ -846,15 +842,26 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
             raise ContractError(f"{event_type}: MCU boot and event sequence form one identity")
 
     if event_type == "DEVICE_RUNTIME_SNAPSHOT":
-        if instance["target"]["uid"] != instance["deploymentCode"]:
-            raise ContractError(
-                "DEVICE_RUNTIME_SNAPSHOT target differs from current deployment"
-            )
         ports = [port["portNo"] for port in payload["ports"]]
         if ports != list(range(1, len(ports) + 1)):
             raise ContractError(
                 "DEVICE_RUNTIME_SNAPSHOT ports must be unique, ordered and contiguous"
             )
+
+    if event_type == "DEVICE_ACCEPTANCE_EVIDENCE":
+        if instance["target"]["uid"] == "":
+            raise ContractError(
+                "DEVICE_ACCEPTANCE_EVIDENCE requires a device target"
+            )
+        for field in (
+            "sensorSampleSha256",
+            "cameraCaptureSha256",
+            "cameraUploadSha256",
+        ):
+            if payload[field] == "0" * 64:
+                raise ContractError(
+                    f"DEVICE_ACCEPTANCE_EVIDENCE {field} is empty"
+                )
 
 
 def _validate_command_semantics(
@@ -875,6 +882,7 @@ def _validate_command_semantics(
     )
     if issued >= expires:
         raise ContractError(f"{instance['commandType']}: issuedAt must precede expiresAt")
+    command_type = instance["commandType"]
     uid_field = {
         "APPLY_CONFIGURATION": "applicationUid",
         "START_DELIVERY_SESSION": "sessionUid",
@@ -885,11 +893,15 @@ def _validate_command_semantics(
         "MEASURE_EMPTY_BAG_BASELINE": "measurementUid",
         "CONFIRM_EDGE_EVENT": "originalEventUid",
         "PROVIDE_PHOTO_UPLOAD_GRANT": "grantRequestEventUid",
-    }[instance["commandType"]]
-    if instance["target"]["uid"] != instance["payload"][uid_field]:
-        raise ContractError(f"{instance['commandType']}: target UID differs from payload")
+    }.get(command_type)
+    if command_type == "REQUEST_DEVICE_ACCEPTANCE":
+        if instance["target"]["uid"] != instance["targetDeviceName"]:
+            raise ContractError(
+                "REQUEST_DEVICE_ACCEPTANCE target differs from device name"
+            )
+    elif instance["target"]["uid"] != instance["payload"][uid_field]:
+        raise ContractError(f"{command_type}: target UID differs from payload")
 
-    command_type = instance["commandType"]
     payload = instance["payload"]
     if command_type == "APPLY_CONFIGURATION":
         ports = payload["ports"]
@@ -928,6 +940,9 @@ def _validate_command_semantics(
             expected_slots,
             "PROVIDE_PHOTO_UPLOAD_GRANT",
         )
+    elif command_type == "REQUEST_DEVICE_ACCEPTANCE":
+        work_type = "DEVICE_ACCEPTANCE"
+        work_uid = payload["challengeUid"]
     if work_type is not None and work_uid is not None:
         _validate_cos_grant(
             instance,

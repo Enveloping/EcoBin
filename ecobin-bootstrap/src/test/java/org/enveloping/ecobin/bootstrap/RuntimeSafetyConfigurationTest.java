@@ -53,7 +53,8 @@ class RuntimeSafetyConfigurationTest {
             "V31__native_request_freeze_and_wallet_adjustment.sql",
             "V32__organization_miniapp_database_secret.sql",
             "V33__operations_governance_idempotency.sql",
-            "V34__operations_audit_organization_user_index.sql"
+            "V34__operations_audit_organization_user_index.sql",
+            "V35__merchant_transfer_authorization.sql"
     };
 
     @Test

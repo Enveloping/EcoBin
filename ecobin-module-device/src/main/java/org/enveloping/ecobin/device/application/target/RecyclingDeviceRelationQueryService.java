@@ -63,16 +63,18 @@ public class RecyclingDeviceRelationQueryService
                 new LinkedHashMap<>();
         for (PortKey key : keys) {
             var value = jdbc.query("""
-                            SELECT deployment.public_code, port.port_no
+                            SELECT asset.device_public_code, port.port_no
                             FROM dev_port port
-                            JOIN dev_device_deployment deployment
-                              ON deployment.id = port.deployment_id
+                            JOIN dev_device_asset asset
+                              ON asset.id = port.asset_id
+                             AND asset.tenant_id = port.tenant_id
+                             AND asset.organization_id = port.organization_id
                             WHERE port.tenant_id = ?
                               AND port.organization_id = ?
                               AND port.id = ?
                             """,
                     (rs, ignored) -> new RecyclingDeviceRelationFacts.Port(
-                            rs.getString("public_code"),
+                            rs.getString("device_public_code"),
                             rs.getInt("port_no")),
                     key.tenant(), key.organization(), key.key()).stream()
                     .findFirst().orElseThrow(() -> new IllegalStateException(

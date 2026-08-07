@@ -1,10 +1,15 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
+import org.enveloping.ecobin.device.api.port.DeviceAcceptanceChallengeCoordinatorPort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceEvidencePort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
+import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
+import org.enveloping.ecobin.device.api.result.DeviceTransportPresenceApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRef;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
+import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRef;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRefFactory;
 import org.enveloping.ecobin.recycling.api.port.ApplyCleanCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
@@ -17,6 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -35,8 +41,12 @@ class ReliableDeviceInboxWorkerServiceTest {
                 mock(TrustedOrganizationInboxRefFactory.class);
         TrustedDeviceInboxEventPort deviceEvents =
                 mock(TrustedDeviceInboxEventPort.class);
+        TrustedDeviceAcceptanceEvidencePort acceptanceEvidence =
+                mock(TrustedDeviceAcceptanceEvidencePort.class);
         TrustedDeviceTransportPresencePort transportPresence =
                 mock(TrustedDeviceTransportPresencePort.class);
+        DeviceAcceptanceChallengeCoordinatorPort acceptanceChallenges =
+                mock(DeviceAcceptanceChallengeCoordinatorPort.class);
         ReliableDeviceTaskGateService taskGates =
                 mock(ReliableDeviceTaskGateService.class);
         CanonicalJson canonicalJson = mock(CanonicalJson.class);
@@ -75,7 +85,9 @@ class ReliableDeviceInboxWorkerServiceTest {
                         platformFactory,
                         organizationFactory,
                         deviceEvents,
+                        acceptanceEvidence,
                         transportPresence,
+                        acceptanceChallenges,
                         taskGates,
                         canonicalJson,
                         delivery,
@@ -87,6 +99,115 @@ class ReliableDeviceInboxWorkerServiceTest {
 
         verify(taskGates, never()).reconcileAll();
         verify(taskGates).reconcileHardwareSn("HW-A");
+        verify(acceptanceChallenges, never()).requestIfNeeded(anyLong());
+    }
+
+    @Test
+    void onlinePlatformTransportAutomaticallyRequestsAcceptanceChallenge() {
+        ReliableInboxTaskRunner runner = mock(ReliableInboxTaskRunner.class);
+        TrustedPlatformInboxRefFactory platformFactory =
+                mock(TrustedPlatformInboxRefFactory.class);
+        TrustedOrganizationInboxRefFactory organizationFactory =
+                mock(TrustedOrganizationInboxRefFactory.class);
+        TrustedDeviceInboxEventPort deviceEvents =
+                mock(TrustedDeviceInboxEventPort.class);
+        TrustedDeviceAcceptanceEvidencePort acceptanceEvidence =
+                mock(TrustedDeviceAcceptanceEvidencePort.class);
+        TrustedDeviceTransportPresencePort transportPresence =
+                mock(TrustedDeviceTransportPresencePort.class);
+        DeviceAcceptanceChallengeCoordinatorPort acceptanceChallenges =
+                mock(DeviceAcceptanceChallengeCoordinatorPort.class);
+        ReliableDeviceTaskGateService taskGates =
+                mock(ReliableDeviceTaskGateService.class);
+        TrustedPlatformInboxRef inboxRef = mock(TrustedPlatformInboxRef.class);
+        when(platformFactory.issue(41L)).thenReturn(inboxRef);
+        when(transportPresence.apply(any())).thenReturn(
+                new DeviceTransportPresenceApplyResult(99L, "ONLINE", true));
+        when(runner.runBatch(
+                eq(ReliableTaskChannel.IOT_DEVICE), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    InboxTaskHandler handler = invocation.getArgument(2);
+                    assertEquals(InboxTaskHandlerResult.APPLIED,
+                            handler.handle(platformTask(
+                                    "DEVICE_TRANSPORT_STATUS_CHANGED")));
+                    return new ReliableBatchResult(1, 1, 0);
+                });
+
+        ReliableDeviceInboxWorkerService service =
+                new ReliableDeviceInboxWorkerService(
+                        runner,
+                        platformFactory,
+                        organizationFactory,
+                        deviceEvents,
+                        acceptanceEvidence,
+                        transportPresence,
+                        acceptanceChallenges,
+                        taskGates,
+                        mock(CanonicalJson.class),
+                        mock(ApplyDeliveryCompleteUseCase.class),
+                        mock(ApplyCleanCompleteUseCase.class),
+                        mock(ApplyFullnessSampleCompleteUseCase.class),
+                        mock(ApplyFullnessStateChangedUseCase.class));
+
+        service.runBatch("worker-a");
+
+        verify(taskGates).reconcileAsset(99L);
+        verify(acceptanceChallenges).requestIfNeeded(99L);
+        verify(acceptanceEvidence, never()).apply(any());
+    }
+
+    @Test
+    void platformAcceptanceEvidenceUpdatesAssetAndDoesNotNeedManualAction() {
+        ReliableInboxTaskRunner runner = mock(ReliableInboxTaskRunner.class);
+        TrustedPlatformInboxRefFactory platformFactory =
+                mock(TrustedPlatformInboxRefFactory.class);
+        TrustedOrganizationInboxRefFactory organizationFactory =
+                mock(TrustedOrganizationInboxRefFactory.class);
+        TrustedDeviceInboxEventPort deviceEvents =
+                mock(TrustedDeviceInboxEventPort.class);
+        TrustedDeviceAcceptanceEvidencePort acceptanceEvidence =
+                mock(TrustedDeviceAcceptanceEvidencePort.class);
+        TrustedDeviceTransportPresencePort transportPresence =
+                mock(TrustedDeviceTransportPresencePort.class);
+        DeviceAcceptanceChallengeCoordinatorPort acceptanceChallenges =
+                mock(DeviceAcceptanceChallengeCoordinatorPort.class);
+        ReliableDeviceTaskGateService taskGates =
+                mock(ReliableDeviceTaskGateService.class);
+        when(platformFactory.issue(41L))
+                .thenReturn(mock(TrustedPlatformInboxRef.class));
+        when(acceptanceEvidence.apply(any())).thenReturn(
+                new DeviceAcceptanceEvidenceApplyResult(99L, "PASSED", true));
+        when(runner.runBatch(
+                eq(ReliableTaskChannel.IOT_DEVICE), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    InboxTaskHandler handler = invocation.getArgument(2);
+                    assertEquals(InboxTaskHandlerResult.APPLIED,
+                            handler.handle(platformTask(
+                                    "DEVICE_ACCEPTANCE_EVIDENCE")));
+                    return new ReliableBatchResult(1, 1, 0);
+                });
+
+        ReliableDeviceInboxWorkerService service =
+                new ReliableDeviceInboxWorkerService(
+                        runner,
+                        platformFactory,
+                        organizationFactory,
+                        deviceEvents,
+                        acceptanceEvidence,
+                        transportPresence,
+                        acceptanceChallenges,
+                        taskGates,
+                        mock(CanonicalJson.class),
+                        mock(ApplyDeliveryCompleteUseCase.class),
+                        mock(ApplyCleanCompleteUseCase.class),
+                        mock(ApplyFullnessSampleCompleteUseCase.class),
+                        mock(ApplyFullnessStateChangedUseCase.class));
+
+        service.runBatch("worker-a");
+
+        verify(acceptanceEvidence).apply(any());
+        verify(taskGates).reconcileAsset(99L);
+        verify(acceptanceChallenges, never()).requestIfNeeded(anyLong());
     }
 
     private static ClaimedInboxTask organizationTask() {
@@ -105,6 +226,26 @@ class ReliableDeviceInboxWorkerServiceTest {
                 0L,
                 "ORANGE_PI_RUNTIME_SNAPSHOT",
                 1,
+                "{}",
+                now,
+                now.plusMinutes(1));
+    }
+
+    private static ClaimedInboxTask platformTask(String messageKind) {
+        LocalDateTime now = LocalDateTime.of(2026, 8, 7, 0, 0);
+        return new ClaimedInboxTask(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                41L,
+                "PLATFORM",
+                null,
+                null,
+                UUID.randomUUID(),
+                42L,
+                UUID.randomUUID(),
+                0L,
+                messageKind,
+                "DEVICE_ACCEPTANCE_EVIDENCE".equals(messageKind) ? 2 : 1,
                 "{}",
                 now,
                 now.plusMinutes(1));

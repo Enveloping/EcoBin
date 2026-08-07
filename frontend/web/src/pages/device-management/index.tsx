@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   PageContainer,
   ProTable,
@@ -8,62 +8,51 @@ import {
 import {
   Alert,
   Button,
-  Descriptions,
-  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
   Select,
   Space,
-  Spin,
-  Tabs,
   Tag,
   Typography,
   message,
 } from 'antd';
 import {
-  DeploymentUnitOutlined,
-  PlusOutlined,
+  AppstoreAddOutlined,
+  ArrowRightOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import {
-  createOrganizationDeviceDeploymentFromTenantPool,
+  assignPlatformDeviceTenant,
+  assignTenantDeviceOrganization,
   createPlatformDeviceAsset,
-  listDeviceDeployments,
-  listPlatformDeviceAssetAllocations,
+  disablePlatformDevice,
+  listOrganizationDevices,
   listPlatformDeviceAssets,
-  listTenantDeviceAssetAllocations,
+  listTenantDeviceAssets,
+  reevaluateDeviceAcceptance,
+  restorePlatformDevice,
+  retirePlatformDevice,
   type CreateDeviceAssetRequest,
   type DeviceAsset,
-  type DeviceAssetLifecycleStatus,
-  type DeviceConfigurationApplicationStatus,
-  type DeviceDeployment,
-  type DeviceDeploymentLifecycleStatus,
-  type DeviceTenantAllocation,
-  type DeviceTenantAllocationStatus,
 } from '@/api/deviceDirectory';
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
-import DirectoryScopeBar from '@/pages/identity/DirectoryScopeBar';
 import { useDirectoryScope } from '@/pages/identity/useDirectoryScope';
 import { useOrganizationScope } from '@/pages/identity/useOrganizationScope';
 import { useAuthStore } from '@/stores/authStore';
 import { formatShanghaiTime } from '@/utils/decimal';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
-import DeviceAccessDrawer from './DeviceAccessDrawer';
-import DeviceAssetDrawer from './DeviceAssetDrawer';
+import DeviceAssetDrawer, {
+  type DeviceControlKind,
+  type DeviceManagementMode,
+} from './DeviceAssetDrawer';
 import {
-  allocationColors,
-  allocationLabels,
+  acceptanceColors,
+  acceptanceLabels,
   assetColors,
   assetLabels,
-  configurationColors,
-  configurationLabels,
-  connectionStatusColor,
-  connectionStatusLabel,
-  lifecycleColors,
-  lifecycleLabels,
 } from './devicePresentation';
 
 interface AssetFormValues {
@@ -71,27 +60,56 @@ interface AssetFormValues {
   modelCode: string;
   productionBatch?: string;
   expectedPortCount: number;
+  factoryBags: Array<{ bagCode: string }>;
 }
 
-interface DeploymentFormValues {
-  organizationCode: string;
+interface AssignmentFormValues {
+  targetCode: string;
 }
 
-interface SelectedDeployment {
-  organizationCode: string;
-  deploymentCode: string;
+interface ControlFormValues {
+  reason: string;
 }
 
-type DeviceTab = 'assets' | 'allocations' | 'deployments' | 'pool';
+interface AssignmentState {
+  kind: 'tenant' | 'organization';
+  asset: DeviceAsset;
+}
 
-function requestErrorMessage(error: unknown): string {
+interface ControlState {
+  kind: DeviceControlKind;
+  asset: DeviceAsset;
+}
+
+function errorMessage(error: unknown): string {
   if (error instanceof ApiProblem) {
     return error.requestId
       ? `${error.message}（请求 ID：${error.requestId}）`
       : error.message;
   }
-  return error instanceof Error ? error.message : '设备数据加载失败';
+  return error instanceof Error ? error.message : '设备操作失败';
 }
+
+const controlCopy: Record<
+  DeviceControlKind,
+  { title: string; action: string; warning: string }
+> = {
+  disable: {
+    title: '禁用设备',
+    action: '确认禁用',
+    warning: '禁用后租户和机构立即看不到设备，也不能开始新业务；已创建作业继续收敛。',
+  },
+  restore: {
+    title: '恢复设备',
+    action: '确认恢复',
+    warning: '恢复只重新参加实时准入判断，不会跳过联网、配置、皮重或安全条件。',
+  },
+  retire: {
+    title: '报废设备',
+    action: '永久报废',
+    warning: '报废不可恢复，永久归属和历史业务仍保留，但设备永远不能开始新业务。',
+  },
+};
 
 export default function DeviceManagementPage() {
   const directoryScope = useDirectoryScope();
@@ -99,227 +117,106 @@ export default function DeviceManagementPage() {
   const accountType = useAuthStore((state) => state.session?.accountType);
   const hasCapability = useAuthStore((state) => state.hasCapability);
   const executeCommand = useCommandExecutor();
-  const platform = directoryScope.platform;
-  const tenantPrincipal = accountType === 'TENANT_PRINCIPAL';
-  const canManageTenantPool = !platform
-    && (tenantPrincipal || hasCapability('device.allocation.manage'));
-  const deploymentActionRef = useRef<ActionType>(null);
-  const assetActionRef = useRef<ActionType>(null);
-  const allocationActionRef = useRef<ActionType>(null);
+  const actionRef = useRef<ActionType>(null);
   const [assetForm] = Form.useForm<AssetFormValues>();
-  const [deploymentForm] = Form.useForm<DeploymentFormValues>();
-  const [activeTab, setActiveTab] = useState<DeviceTab>(
-    platform ? 'assets' : 'deployments',
-  );
-  const [tableError, setTableError] = useState<string>();
-  const [assetError, setAssetError] = useState<string>();
-  const [allocationError, setAllocationError] = useState<string>();
-  const [selectedDeployment, setSelectedDeployment] =
-    useState<SelectedDeployment>();
-  const [selectedHardwareSn, setSelectedHardwareSn] = useState<string>();
+  const [assignmentForm] = Form.useForm<AssignmentFormValues>();
+  const [controlForm] = Form.useForm<ControlFormValues>();
+  const [selected, setSelected] = useState<DeviceAsset>();
   const [assetModalOpen, setAssetModalOpen] = useState(false);
-  const [assetSubmitting, setAssetSubmitting] = useState(false);
-  const [deployingAllocation, setDeployingAllocation] =
-    useState<DeviceTenantAllocation>();
-  const [deploymentSubmitting, setDeploymentSubmitting] = useState(false);
+  const [assignment, setAssignment] = useState<AssignmentState>();
+  const [control, setControl] = useState<ControlState>();
+  const [submitting, setSubmitting] = useState(false);
+  const [portCount, setPortCount] = useState(1);
 
-  useEffect(() => {
-    setTableError(undefined);
-    setSelectedDeployment(undefined);
-    deploymentActionRef.current?.reload();
-  }, [directoryScope.context, organizationScope.organizationCode]);
+  const platform = directoryScope.platform;
+  const tenantManager = !platform && (
+    accountType === 'TENANT_PRINCIPAL'
+    || hasCapability('device.assignment.manage')
+  );
+  const mode: DeviceManagementMode = platform
+    ? 'platform'
+    : tenantManager
+      ? 'tenant'
+      : 'organization';
+  const canCreate = platform && hasCapability('device.manage');
 
-  useEffect(() => {
-    if (platform && !['assets', 'allocations', 'deployments'].includes(activeTab)) {
-      setActiveTab('assets');
+  const pageCopy = mode === 'platform'
+    ? {
+      title: '永久设备资产',
+      description: '平台登记真实机器、查看自动验收证据，并只分配一次租户。',
     }
-    if (!platform && !canManageTenantPool && activeTab !== 'deployments') {
-      setActiveTab('deployments');
-    }
-  }, [activeTab, canManageTenantPool, platform]);
+    : mode === 'tenant'
+      ? {
+        title: '租户设备',
+        description: '这里只展示当前可管理的永久资产；选定机构后归属不能再修改。',
+      }
+      : {
+        title: '机构设备',
+        description: '安装、通电、联网即可使用；本页只查看设备并管理日常价格与配置。',
+      };
 
-  const openDeployment = (deployment: DeviceDeployment) => {
-    setSelectedDeployment({
-      organizationCode: deployment.organizationCode,
-      deploymentCode: deployment.deploymentCode,
-    });
-  };
-
-  const deploymentColumns: ProColumns<DeviceDeployment>[] = [
+  const columns = useMemo<ProColumns<DeviceAsset>[]>(() => [
     {
-      title: '部署',
-      dataIndex: 'deploymentCode',
-      search: false,
-      width: 220,
-      render: (_, deployment) => (
-        <div>
+      title: '设备',
+      dataIndex: 'hardwareSn',
+      width: 250,
+      fieldProps: { placeholder: '搜索硬件 SN' },
+      render: (_, asset) => (
+        <Space direction="vertical" size={1}>
           <Typography.Link
             strong
-            copyable
-            onClick={() => openDeployment(deployment)}
+            onClick={() => setSelected(asset)}
           >
-            {deployment.deploymentCode}
+            {asset.hardwareSn}
           </Typography.Link>
-          <br />
-          <Typography.Text type="secondary">
-            {deployment.organizationCode}
-          </Typography.Text>
-        </div>
-      ),
-    },
-    {
-      title: '硬件',
-      dataIndex: 'hardwareSn',
-      width: 220,
-      fieldProps: { placeholder: '输入硬件序列号' },
-      render: (_, deployment) => (
-        <div>
-          <Typography.Text copyable>
-            {deployment.asset.hardwareSn}
-          </Typography.Text>
-          <br />
-          <Typography.Text type="secondary">
-            {deployment.asset.modelCode}
-          </Typography.Text>
-        </div>
-      ),
-    },
-    {
-      title: '部署状态',
-      dataIndex: 'lifecycleStatus',
-      valueType: 'select',
-      valueEnum: Object.fromEntries(
-        Object.entries(lifecycleLabels).map(([key, text]) => [key, { text }]),
-      ),
-      render: (_, deployment) => (
-        <Tag color={lifecycleColors[deployment.lifecycleStatus]}>
-          {lifecycleLabels[deployment.lifecycleStatus]}
-        </Tag>
-      ),
-    },
-    {
-      title: '经营开关',
-      dataIndex: 'businessEnabled',
-      valueType: 'select',
-      valueEnum: {
-        true: { text: '已开启' },
-        false: { text: '已关闭' },
-      },
-      render: (_, deployment) => (
-        <Tag color={deployment.businessEnabled ? 'success' : 'default'}>
-          {deployment.businessEnabled ? '已开启' : '已关闭'}
-        </Tag>
-      ),
-    },
-    {
-      title: 'OneNet 传输',
-      dataIndex: 'oneNetConnectionStatus',
-      valueType: 'select',
-      width: 140,
-      valueEnum: {
-        ONLINE: { text: '在线' },
-        OFFLINE: { text: '离线' },
-        UNKNOWN: { text: '未知' },
-      },
-      render: (_, deployment) => (
-        <Tag color={connectionStatusColor(deployment.oneNetConnectionStatus)}>
-          {connectionStatusLabel(deployment.oneNetConnectionStatus)}
-        </Tag>
-      ),
-    },
-    {
-      title: '业务有效在线',
-      dataIndex: 'edgeConnectionStatus',
-      valueType: 'select',
-      width: 140,
-      valueEnum: {
-        ONLINE: { text: '在线' },
-        OFFLINE: { text: '离线' },
-        UNKNOWN: { text: '未知' },
-      },
-      render: (_, deployment) => (
-        <Tag color={connectionStatusColor(deployment.edgeConnectionStatus)}>
-          {connectionStatusLabel(deployment.edgeConnectionStatus)}
-        </Tag>
-      ),
-    },
-    {
-      title: '配置应用',
-      dataIndex: 'configurationApplicationStatus',
-      valueType: 'select',
-      width: 190,
-      valueEnum: Object.fromEntries(
-        Object.entries(configurationLabels).map(([key, text]) => [key, { text }]),
-      ),
-      render: (_, deployment) => (
-        <Space direction="vertical" size={2}>
-          {deployment.configurationApplicationStatus ? (
-            <Tag color={configurationColors[deployment.configurationApplicationStatus]}>
-              {configurationLabels[deployment.configurationApplicationStatus]}
-            </Tag>
-          ) : <Tag>尚无配置</Tag>}
-          <Typography.Text type="secondary">
-            最新 {deployment.latestConfigurationVersion === null
-              ? '—'
-              : `v${deployment.latestConfigurationVersion}`}
-            {' / '}已应用 {deployment.appliedConfigurationVersion === null
-              ? '—'
-              : `v${deployment.appliedConfigurationVersion}`}
+          <Typography.Text type="secondary" copyable>
+            {asset.deviceCode}
           </Typography.Text>
         </Space>
       ),
     },
     {
-      title: '更新时间',
-      dataIndex: 'updatedAt',
+      title: '型号 / 投口',
+      dataIndex: 'modelCode',
       search: false,
-      width: 190,
-      render: (_, deployment) => formatShanghaiTime(deployment.updatedAt),
-    },
-    {
-      title: '操作',
-      valueType: 'option',
-      width: 120,
-      fixed: 'right',
-      render: (_, deployment) => (
-        <Button
-          type="link"
-          icon={<SafetyCertificateOutlined />}
-          onClick={() => openDeployment(deployment)}
-        >
-          接入管理
-        </Button>
-      ),
-    },
-  ];
-
-  const assetColumns: ProColumns<DeviceAsset>[] = [
-    {
-      title: '硬件序列号',
-      dataIndex: 'hardwareSn',
-      width: 210,
-      fieldProps: { placeholder: '输入硬件序列号' },
       render: (_, asset) => (
-        <Typography.Link
-          strong
-          copyable
-          onClick={() => setSelectedHardwareSn(asset.hardwareSn)}
-        >
-          {asset.hardwareSn}
-        </Typography.Link>
+        <span>{asset.modelCode} · {asset.expectedPortCount} 口</span>
       ),
     },
-    { title: '型号', dataIndex: 'modelCode', width: 160 },
     {
-      title: '生产批次',
-      dataIndex: 'productionBatch',
-      width: 150,
-      render: (_, asset) => asset.productionBatch || '—',
+      title: '永久归属',
+      dataIndex: 'tenantCode',
+      search: false,
+      render: (_, asset) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>
+            {asset.tenantCode ?? '尚未分配租户'}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {asset.organizationCode ?? '尚未分配机构'}
+          </Typography.Text>
+        </Space>
+      ),
     },
     {
-      title: '资产状态',
+      title: '机器验收',
+      dataIndex: 'acceptanceStatus',
+      valueType: 'select',
+      hideInSearch: mode !== 'platform',
+      valueEnum: Object.fromEntries(
+        Object.entries(acceptanceLabels).map(([key, text]) => [key, { text }]),
+      ),
+      render: (_, asset) => (
+        <Tag color={acceptanceColors[asset.acceptanceStatus]}>
+          {acceptanceLabels[asset.acceptanceStatus]}
+        </Tag>
+      ),
+    },
+    {
+      title: '生命周期',
       dataIndex: 'lifecycleStatus',
       valueType: 'select',
+      hideInSearch: mode !== 'platform',
       valueEnum: Object.fromEntries(
         Object.entries(assetLabels).map(([key, text]) => [key, { text }]),
       ),
@@ -330,580 +227,410 @@ export default function DeviceManagementPage() {
       ),
     },
     {
-      title: '当前部署',
-      dataIndex: 'currentDeployment',
-      search: false,
-      render: (_, asset) => asset.currentDeployment ? (
-        <div>
-          <Typography.Text copyable>
-            {asset.currentDeployment.deploymentCode}
-          </Typography.Text>
-          <br />
-          <Typography.Text type="secondary">
-            {asset.currentDeployment.tenantCode}
-            {' / '}
-            {asset.currentDeployment.organizationCode}
-          </Typography.Text>
-        </div>
-      ) : <Typography.Text type="secondary">尚未部署</Typography.Text>,
-    },
-    {
-      title: 'OneNet 映射',
-      dataIndex: 'oneNetMapping',
-      search: false,
-      render: (_, asset) => asset.oneNetMapping ? (
-        <Space direction="vertical" size={0}>
-          <Typography.Text>{asset.oneNetMapping.productId}</Typography.Text>
-          <Typography.Text type="secondary" copyable>
-            {asset.oneNetMapping.deviceName}
-          </Typography.Text>
-        </Space>
-      ) : '—',
-    },
-    {
-      title: '登记时间',
-      dataIndex: 'createdAt',
+      title: '更新时间',
+      dataIndex: 'updatedAt',
       search: false,
       width: 180,
-      render: (_, asset) => formatShanghaiTime(asset.createdAt),
+      render: (_, asset) => formatShanghaiTime(asset.updatedAt),
     },
     {
-      title: '操作',
+      title: '',
       valueType: 'option',
-      fixed: 'right',
-      width: 90,
+      width: 70,
       render: (_, asset) => (
-        <Button type="link" onClick={() => setSelectedHardwareSn(asset.hardwareSn)}>
-          详情
-        </Button>
-      ),
-    },
-  ];
-
-  const allocationColumns: ProColumns<DeviceTenantAllocation>[] = [
-    ...(platform ? [{
-      title: '租户',
-      dataIndex: 'tenantCode',
-      width: 160,
-      fieldProps: { placeholder: '输入租户编码' },
-    } satisfies ProColumns<DeviceTenantAllocation>] : []),
-    {
-      title: '硬件',
-      dataIndex: 'hardwareSn',
-      width: 220,
-      render: (_, allocation) => (
-        <Space direction="vertical" size={0}>
-          {platform ? (
-            <Typography.Link
-              copyable
-              onClick={() => setSelectedHardwareSn(allocation.hardwareSn)}
-            >
-              {allocation.hardwareSn}
-            </Typography.Link>
-          ) : (
-            <Typography.Text copyable>{allocation.hardwareSn}</Typography.Text>
-          )}
-          <Typography.Text type="secondary">{allocation.modelCode}</Typography.Text>
-        </Space>
-      ),
-    },
-    {
-      title: '分配状态',
-      dataIndex: 'status',
-      valueType: 'select',
-      valueEnum: Object.fromEntries(
-        Object.entries(allocationLabels).map(([key, text]) => [key, { text }]),
-      ),
-      render: (_, allocation) => (
-        <Tag color={allocationColors[allocation.allocationStatus]}>
-          {allocationLabels[allocation.allocationStatus]}
-        </Tag>
-      ),
-    },
-    {
-      title: '所在位置',
-      dataIndex: 'currentOrganizationCode',
-      search: false,
-      render: (_, allocation) => allocation.currentDeploymentCode ? (
-        <Space direction="vertical" size={0}>
-          <Typography.Text copyable>
-            {allocation.currentDeploymentCode}
-          </Typography.Text>
-          <Typography.Text type="secondary">
-            {allocation.currentOrganizationCode}
-          </Typography.Text>
-        </Space>
-      ) : allocation.allocationStatus === 'ACTIVE' ? (
-        <Tag color="processing">租户池中，尚未部署</Tag>
-      ) : '—',
-    },
-    {
-      title: 'Device Key',
-      dataIndex: 'credentialRotationRequired',
-      search: false,
-      width: 130,
-      render: (_, allocation) => allocation.credentialRotationRequired
-        ? <Tag color="warning">待轮换</Tag>
-        : <Tag>无待办</Tag>,
-    },
-    {
-      title: '分配时间',
-      dataIndex: 'allocatedAt',
-      search: false,
-      width: 180,
-      render: (_, allocation) => formatShanghaiTime(allocation.allocatedAt),
-    },
-    {
-      title: '结束事实',
-      dataIndex: 'endedAt',
-      search: false,
-      render: (_, allocation) => allocation.endedAt ? (
-        <Space direction="vertical" size={0}>
-          <span>{formatShanghaiTime(allocation.endedAt)}</span>
-          <Typography.Text type="secondary">
-            {allocation.endMode || '—'}
-            {allocation.endReason ? ` · ${allocation.endReason}` : ''}
-          </Typography.Text>
-        </Space>
-      ) : '—',
-    },
-    ...(canManageTenantPool ? [{
-      title: '操作',
-      valueType: 'option' as const,
-      width: 130,
-      fixed: 'right' as const,
-      render: (_: unknown, allocation: DeviceTenantAllocation) => {
-        const deployable =
-          allocation.allocationStatus === 'ACTIVE'
-          && !allocation.currentDeploymentCode
-          && allocation.assetLifecycleStatus === 'ALLOCATED'
-          && !allocation.credentialRotationRequired;
-        return deployable ? (
-          <Button
-            type="link"
-            icon={<DeploymentUnitOutlined />}
-            onClick={() => {
-              deploymentForm.setFieldsValue({
-                organizationCode: organizationScope.organizationCode,
-              });
-              setDeployingAllocation(allocation);
-            }}
-          >
-            部署到机构
-          </Button>
-        ) : <Typography.Text type="secondary">不可部署</Typography.Text>;
-      },
-    } satisfies ProColumns<DeviceTenantAllocation>] : []),
-  ];
-
-  const deploymentTable = (
-    <ProTable<DeviceDeployment>
-      {...proTableConfig}
-      actionRef={deploymentActionRef}
-      rowKey="deploymentCode"
-      columns={deploymentColumns}
-      scroll={{ x: 1560 }}
-      headerTitle={(
-        <Space>
-          <Typography.Text strong>目标机构</Typography.Text>
-          <Select
-            aria-label="目标机构"
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 360 }}
-            value={organizationScope.organizationCode}
-            options={organizationScope.organizationOptions}
-            onChange={organizationScope.setOrganizationCode}
-            placeholder="选择机构"
-          />
-        </Space>
-      )}
-      request={async (params) => {
-        if (!directoryScope.context || !organizationScope.organizationCode) {
-          return { data: [], total: 0, success: true };
-        }
-        try {
-          setTableError(undefined);
-          const page = await listDeviceDeployments(
-            directoryScope.context,
-            organizationScope.organizationCode,
-            {
-              page: params.current,
-              pageSize: params.pageSize,
-              lifecycleStatus: params.lifecycleStatus as
-                | DeviceDeploymentLifecycleStatus
-                | undefined,
-              businessEnabled: params.businessEnabled === undefined
-                ? undefined
-                : String(params.businessEnabled) === 'true',
-              hardwareSn: typeof params.hardwareSn === 'string'
-                ? params.hardwareSn.trim() || undefined
-                : undefined,
-              edgeConnectionStatus:
-                params.edgeConnectionStatus as string | undefined,
-              oneNetConnectionStatus:
-                params.oneNetConnectionStatus as string | undefined,
-              configurationApplicationStatus:
-                params.configurationApplicationStatus as
-                  | DeviceConfigurationApplicationStatus
-                  | undefined,
-            },
-          );
-          return { data: page.items, total: page.total, success: true };
-        } catch (error) {
-          setTableError(requestErrorMessage(error));
-          return { data: [], total: 0, success: false };
-        }
-      }}
-    />
-  );
-
-  const assetTable = (
-    <ProTable<DeviceAsset>
-      {...proTableConfig}
-      actionRef={assetActionRef}
-      rowKey="hardwareSn"
-      columns={assetColumns}
-      scroll={{ x: 1300 }}
-      headerTitle="平台物理设备资产"
-      toolBarRender={() => [
         <Button
-          key="register"
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            assetForm.resetFields();
-            assetForm.setFieldValue('expectedPortCount', 1);
-            setAssetModalOpen(true);
-          }}
-        >
-          登记硬件
-        </Button>,
-      ]}
-      request={async (params) => {
-        try {
-          setAssetError(undefined);
-          const page = await listPlatformDeviceAssets({
-            page: params.current,
-            pageSize: params.pageSize,
-            hardwareSn: typeof params.hardwareSn === 'string'
-              ? params.hardwareSn.trim() || undefined
-              : undefined,
-            modelCode: typeof params.modelCode === 'string'
-              ? params.modelCode.trim() || undefined
-              : undefined,
-            productionBatch: typeof params.productionBatch === 'string'
-              ? params.productionBatch.trim() || undefined
-              : undefined,
-            lifecycleStatus: params.lifecycleStatus as
-              | DeviceAssetLifecycleStatus
-              | undefined,
-          });
-          return { data: page.items, total: page.total, success: true };
-        } catch (error) {
-          setAssetError(requestErrorMessage(error));
-          return { data: [], total: 0, success: false };
-        }
-      }}
-    />
-  );
+          type="text"
+          icon={<ArrowRightOutlined />}
+          aria-label={`查看设备 ${asset.hardwareSn}`}
+          onClick={() => setSelected(asset)}
+        />
+      ),
+    },
+  ], [mode]);
 
-  const allocationTable = (
-    <ProTable<DeviceTenantAllocation>
-      {...proTableConfig}
-      actionRef={allocationActionRef}
-      rowKey="allocationUid"
-      columns={allocationColumns}
-      scroll={{ x: 1320 }}
-      headerTitle={platform ? '租户分配历史' : '租户设备池与分配历史'}
-      request={async (params) => {
-        try {
-          setAllocationError(undefined);
-          const query = {
-            page: params.current,
-            pageSize: params.pageSize,
-            status: params.status as DeviceTenantAllocationStatus | undefined,
-            hardwareSn: typeof params.hardwareSn === 'string'
-              ? params.hardwareSn.trim() || undefined
-              : undefined,
-          };
-          const page = platform
-            ? await listPlatformDeviceAssetAllocations({
-                ...query,
-                tenantCode: typeof params.tenantCode === 'string'
-                  ? params.tenantCode.trim() || undefined
-                  : undefined,
-              })
-            : await listTenantDeviceAssetAllocations(query);
-          return { data: page.items, total: page.total, success: true };
-        } catch (error) {
-          setAllocationError(requestErrorMessage(error));
-          return { data: [], total: 0, success: false };
-        }
-      }}
-    />
-  );
+  const reload = () => actionRef.current?.reload();
 
-  const submitAsset = async () => {
+  const createAsset = async () => {
     const values = await assetForm.validateFields();
     const payload: CreateDeviceAssetRequest = {
       hardwareSn: values.hardwareSn.trim(),
       modelCode: values.modelCode.trim(),
       productionBatch: values.productionBatch?.trim() || null,
       expectedPortCount: values.expectedPortCount,
+      factoryBags: values.factoryBags
+        .slice(0, values.expectedPortCount)
+        .map((bag, index) => ({
+          portNo: index + 1,
+          bagCode: bag.bagCode.trim(),
+        })),
     };
-    setAssetSubmitting(true);
+    setSubmitting(true);
     try {
       const created = await executeCommand(
         commandKey('device.asset.create', payload.hardwareSn, payload),
         (intent) => createPlatformDeviceAsset(payload, intent),
       );
-      message.success('硬件资产已登记；这不表示 OneNet 设备或密钥已创建');
+      message.success('设备资产已创建，真实设备联网后会自动验收');
       setAssetModalOpen(false);
-      assetActionRef.current?.reload();
-      setSelectedHardwareSn(created.hardwareSn);
-    } catch {
-      // The request layer presents the traceable problem. Retryable failures
-      // keep the same caller-owned command intent.
-    } finally {
-      setAssetSubmitting(false);
-    }
-  };
-
-  const submitDeployment = async () => {
-    if (!deployingAllocation || !directoryScope.context) return;
-    const values = await deploymentForm.validateFields();
-    const payload = {
-      allocationUid: deployingAllocation.allocationUid,
-      expectedAllocationVersion: deployingAllocation.allocationVersion,
-    };
-    setDeploymentSubmitting(true);
-    try {
-      const created = await executeCommand(
-        commandKey(
-          'device.deployment.create-from-pool',
-          `${values.organizationCode}:${deployingAllocation.allocationUid}`,
-          payload,
-        ),
-        (intent) => createOrganizationDeviceDeploymentFromTenantPool(
-          directoryScope.context!,
-          values.organizationCode,
-          payload,
-          intent,
-        ),
-      );
-      message.success('已创建新机构部署，请重新发布配置并等待技术就绪');
-      setDeployingAllocation(undefined);
-      organizationScope.setOrganizationCode(values.organizationCode);
-      setActiveTab('deployments');
-      setSelectedDeployment({
-        organizationCode: values.organizationCode,
-        deploymentCode: created.deploymentCode,
-      });
-      allocationActionRef.current?.reload();
-      deploymentActionRef.current?.reload();
+      assetForm.resetFields();
+      setSelected(created);
+      reload();
     } catch (error) {
-      if (error instanceof ApiProblem && error.isVersionConflict) {
-        message.warning('分配状态已变化，已刷新租户设备池，请重新确认');
-        allocationActionRef.current?.reload();
-      }
+      message.error(errorMessage(error));
     } finally {
-      setDeploymentSubmitting(false);
+      setSubmitting(false);
     }
   };
 
-  const tabError = activeTab === 'assets'
-    ? assetError
-    : activeTab === 'deployments'
-      ? tableError
-      : allocationError;
-
-  const content = (() => {
-    if (directoryScope.loading || organizationScope.loading) {
-      return (
-        <div style={{ padding: '48px 0', textAlign: 'center' }}>
-          <Spin tip="正在加载设备目录" />
-        </div>
+  const submitAssignment = async () => {
+    if (!assignment) return;
+    const { targetCode } = await assignmentForm.validateFields();
+    setSubmitting(true);
+    try {
+      const payload = assignment.kind === 'tenant'
+        ? { tenantCode: targetCode, expectedVersion: assignment.asset.version }
+        : { organizationCode: targetCode, expectedVersion: assignment.asset.version };
+      const updated = await executeCommand(
+        commandKey(
+          `device.asset.assign-${assignment.kind}`,
+          assignment.asset.hardwareSn,
+          payload,
+        ),
+        (intent) => assignment.kind === 'tenant'
+          ? assignPlatformDeviceTenant(
+            assignment.asset.hardwareSn,
+            payload as { tenantCode: string; expectedVersion: number },
+            intent,
+          )
+          : assignTenantDeviceOrganization(
+            assignment.asset.hardwareSn,
+            payload as { organizationCode: string; expectedVersion: number },
+            intent,
+          ),
       );
+      message.success(
+        assignment.kind === 'tenant'
+          ? '租户永久归属已写入'
+          : '机构永久归属已写入，机构安装联网即可使用',
+      );
+      setAssignment(undefined);
+      assignmentForm.resetFields();
+      setSelected(updated);
+      reload();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setSubmitting(false);
     }
-    if (!platform && !directoryScope.context) {
-      return <Empty description="当前会话没有可用租户范围" />;
+  };
+
+  const submitControl = async () => {
+    if (!control) return;
+    const { reason } = await controlForm.validateFields();
+    const payload = {
+      expectedVersion: control.asset.version,
+      reason: reason.trim(),
+    };
+    setSubmitting(true);
+    try {
+      const updated = await executeCommand(
+        commandKey(
+          `device.asset.${control.kind}`,
+          control.asset.hardwareSn,
+          payload,
+        ),
+        (intent) => {
+          if (control.kind === 'disable') {
+            return disablePlatformDevice(
+              control.asset.hardwareSn, payload, intent,
+            );
+          }
+          if (control.kind === 'restore') {
+            return restorePlatformDevice(
+              control.asset.hardwareSn, payload, intent,
+            );
+          }
+          return retirePlatformDevice(
+            control.asset.hardwareSn, payload, intent,
+          );
+        },
+      );
+      message.success(`${controlCopy[control.kind].title}成功`);
+      setControl(undefined);
+      controlForm.resetFields();
+      setSelected(updated);
+      reload();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setSubmitting(false);
     }
-    const items = platform ? [
-      { key: 'assets', label: '平台资产', children: assetTable },
-      { key: 'allocations', label: '租户分配', children: allocationTable },
-      { key: 'deployments', label: '机构部署', children: deploymentTable },
-    ] : canManageTenantPool ? [
-      { key: 'deployments', label: '机构部署', children: deploymentTable },
-      { key: 'pool', label: '租户设备池', children: allocationTable },
-    ] : [
-      { key: 'deployments', label: '机构部署', children: deploymentTable },
-    ];
-    return (
-      <>
-        {tabError && (
-          <Alert
-            showIcon
-            type="error"
-            message="设备数据加载失败"
-            description={tabError}
-            style={{ marginBottom: 16 }}
-          />
-        )}
-        <Tabs
-          activeKey={activeTab}
-          onChange={(key) => setActiveTab(key as DeviceTab)}
-          items={items}
-        />
-      </>
-    );
-  })();
+  };
 
   return (
     <PageContainer
-      {...pageHeader(
-        '设备管理',
-        '按平台资产、租户分配和机构部署分层管理，调拨始终经过租户设备池。',
-      )}
+      header={pageHeader(pageCopy.title, pageCopy.description)}
+      extra={canCreate ? [
+        <Button
+          key="create"
+          type="primary"
+          icon={<AppstoreAddOutlined />}
+          onClick={() => {
+            assetForm.setFieldsValue({
+              expectedPortCount: 1,
+              factoryBags: [{ bagCode: '' }],
+            });
+            setPortCount(1);
+            setAssetModalOpen(true);
+          }}
+        >
+          登记真实设备
+        </Button>,
+      ] : undefined}
     >
-      {platform && <DirectoryScopeBar scope={directoryScope} />}
-      {content}
-
-      <DeviceAccessDrawer
-        open={!!selectedDeployment}
-        context={directoryScope.context}
-        organizationCode={selectedDeployment?.organizationCode}
-        deploymentCode={selectedDeployment?.deploymentCode}
-        onClose={() => setSelectedDeployment(undefined)}
-        onUpdated={() => {
-          deploymentActionRef.current?.reload();
-          allocationActionRef.current?.reload();
-        }}
-        onReturnedToPool={() => {
-          setSelectedDeployment(undefined);
-          setActiveTab('pool');
-          deploymentActionRef.current?.reload();
-          allocationActionRef.current?.reload();
-        }}
+      <Alert
+        type="info"
+        showIcon
+        icon={<SafetyCertificateOutlined />}
+        message="永久归属 · 自动验收 · 联网即用"
+        description={
+          mode === 'platform'
+            ? '机器验收发生在分配租户之前，只接受真实 MCU、真实摄像头和可信运行证据。'
+            : mode === 'tenant'
+              ? '租户界面不展示安装或启用进度；设备只能永久分配一次机构。'
+              : '系统自动下发配置、重测厂家初始袋皮重并计算业务资格，不需要现场确认或经营开关。'
+        }
+        style={{ marginBottom: 16, borderLeft: '4px solid #1677ff' }}
       />
 
-      {platform && (
-        <DeviceAssetDrawer
-          open={!!selectedHardwareSn}
-          hardwareSn={selectedHardwareSn}
-          tenantOptions={directoryScope.tenantOptions}
-          onClose={() => setSelectedHardwareSn(undefined)}
-          onUpdated={() => {
-            assetActionRef.current?.reload();
-            allocationActionRef.current?.reload();
+      {mode === 'organization' && !organizationScope.organizationCode ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="请选择机构后查看设备"
+        />
+      ) : (
+        <ProTable<DeviceAsset>
+          {...proTableConfig}
+          actionRef={actionRef}
+          rowKey="assetUid"
+          columns={columns}
+          request={async (params) => {
+            try {
+              const query = {
+                page: params.current,
+                pageSize: params.pageSize,
+                hardwareSn:
+                  typeof params.hardwareSn === 'string'
+                    ? params.hardwareSn.trim() || undefined
+                    : undefined,
+              };
+              const page = mode === 'platform'
+                ? await listPlatformDeviceAssets({
+                  ...query,
+                  lifecycleStatus:
+                    typeof params.lifecycleStatus === 'string'
+                      ? params.lifecycleStatus as DeviceAsset['lifecycleStatus']
+                      : undefined,
+                  acceptanceStatus:
+                    typeof params.acceptanceStatus === 'string'
+                      ? params.acceptanceStatus as DeviceAsset['acceptanceStatus']
+                      : undefined,
+                })
+                : mode === 'tenant'
+                  ? await listTenantDeviceAssets(query)
+                  : await listOrganizationDevices(
+                    organizationScope.organizationCode!,
+                    query,
+                  );
+              return {
+                data: page.items,
+                total: page.total,
+                success: true,
+              };
+            } catch (error) {
+              message.error(errorMessage(error));
+              return { data: [], total: 0, success: false };
+            }
           }}
+          search={{ labelWidth: 'auto' }}
+          pagination={{ defaultPageSize: 20, showSizeChanger: true }}
         />
       )}
 
+      <DeviceAssetDrawer
+        open={Boolean(selected)}
+        mode={mode}
+        asset={selected}
+        organizationCode={organizationScope.organizationCode}
+        onClose={() => setSelected(undefined)}
+        onAssignTenant={(asset) => {
+          assignmentForm.resetFields();
+          setAssignment({ kind: 'tenant', asset });
+        }}
+        onAssignOrganization={(asset) => {
+          assignmentForm.resetFields();
+          setAssignment({ kind: 'organization', asset });
+        }}
+        onControl={(asset, kind) => {
+          controlForm.resetFields();
+          setControl({ asset, kind });
+        }}
+        onReevaluateAcceptance={async (asset) => {
+          try {
+            const updated = await executeCommand(
+              commandKey(
+                'device.acceptance.reevaluate',
+                asset.hardwareSn,
+                {},
+              ),
+              (intent) => reevaluateDeviceAcceptance(
+                asset.hardwareSn, intent,
+              ),
+            );
+            setSelected(updated);
+            reload();
+            message.success('已根据最新真实证据重新计算验收结果');
+          } catch (error) {
+            message.error(errorMessage(error));
+            throw error;
+          }
+        }}
+        onChanged={reload}
+      />
+
       <Modal
-        title="登记平台物理设备"
+        title="登记真实设备资产"
         open={assetModalOpen}
-        confirmLoading={assetSubmitting}
-        okText="确认登记"
-        onOk={() => void submitAsset()}
-        onCancel={() => !assetSubmitting && setAssetModalOpen(false)}
-        destroyOnClose
+        confirmLoading={submitting}
+        okText="创建资产"
+        onOk={() => void createAsset()}
+        onCancel={() => setAssetModalOpen(false)}
       >
         <Alert
+          type="warning"
           showIcon
-          type="info"
-          message="这里登记的是 EcoBin 本地库存事实"
-          description="网页不创建 OneNet 设备或生成 Device Key。运维人员仍需预先在 OneNet 建立同名设备，并把密钥配置到对应香橙派。"
-          style={{ marginBottom: 16 }}
+          message="硬件 SN 和厂家初始袋创建后不能替换"
+          description="OneNet 设备名固定等于硬件 SN；每个投口必须登记一个真实、唯一的空袋码。"
+          style={{ marginBottom: 20 }}
         />
-        <Form<AssetFormValues>
-          form={assetForm}
-          layout="vertical"
-          disabled={assetSubmitting}
-        >
+        <Form form={assetForm} layout="vertical">
           <Form.Item
             name="hardwareSn"
-            label="硬件序列号"
-            extra="全平台唯一、区分大小写，登记后不可修改。"
-            rules={[
-              { required: true, message: '请输入硬件序列号' },
-              { max: 64, message: '最多 64 个字符' },
-            ]}
+            label="硬件 SN / OneNet 设备名"
+            rules={[{ required: true }, {
+              pattern: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/,
+              message: '请输入 1～64 位合法硬件 SN',
+            }]}
           >
-            <Input placeholder="例如 SN-001" />
+            <Input maxLength={64} />
           </Form.Item>
+          <Space size={16} align="start" style={{ width: '100%' }}>
+            <Form.Item
+              name="modelCode"
+              label="设备型号"
+              rules={[{ required: true }]}
+              style={{ flex: 1 }}
+            >
+              <Input maxLength={100} />
+            </Form.Item>
+            <Form.Item
+              name="productionBatch"
+              label="生产批次"
+              style={{ flex: 1 }}
+            >
+              <Input maxLength={64} />
+            </Form.Item>
+            <Form.Item
+              name="expectedPortCount"
+              label="投口数量"
+              rules={[{ required: true }]}
+            >
+              <InputNumber
+                min={1}
+                max={6}
+                precision={0}
+                onChange={(value) => setPortCount(Number(value) || 1)}
+              />
+            </Form.Item>
+          </Space>
+          {Array.from({ length: portCount }, (_, index) => (
+            <Form.Item
+              key={index}
+              name={['factoryBags', index, 'bagCode']}
+              label={`${index + 1} 号投口厂家初始袋码`}
+              rules={[
+                { required: true },
+                {
+                  pattern: /^[A-Za-z0-9_-]{8,64}$/,
+                  message: '请输入 8～64 位袋码',
+                },
+              ]}
+            >
+              <Input maxLength={64} />
+            </Form.Item>
+          ))}
+        </Form>
+      </Modal>
+
+      <Modal
+        title={assignment?.kind === 'tenant' ? '永久分配租户' : '永久分配机构'}
+        open={Boolean(assignment)}
+        confirmLoading={submitting}
+        okText="确认永久归属"
+        onOk={() => void submitAssignment()}
+        onCancel={() => setAssignment(undefined)}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="该归属写入后不能修改、清空或调拨"
+          description="如果选错，只能由平台报废设备，不能把同一台机器改给其他主体。"
+          style={{ marginBottom: 20 }}
+        />
+        <Form form={assignmentForm} layout="vertical">
           <Form.Item
-            name="modelCode"
-            label="设备型号"
-            rules={[
-              { required: true, message: '请输入设备型号' },
-              { max: 100, message: '最多 100 个字符' },
-            ]}
+            name="targetCode"
+            label={assignment?.kind === 'tenant' ? '目标租户' : '目标机构'}
+            rules={[{ required: true, message: '请选择目标主体' }]}
           >
-            <Input placeholder="例如 ECOBIN-V1" />
-          </Form.Item>
-          <Form.Item
-            name="productionBatch"
-            label="生产批次"
-            rules={[{ max: 64, message: '最多 64 个字符' }]}
-          >
-            <Input placeholder="可选，例如 2026-08" />
-          </Form.Item>
-          <Form.Item
-            name="expectedPortCount"
-            label="设备投口数量"
-            rules={[
-              { required: true, message: '请输入投口数量' },
-              { type: 'integer', min: 1, max: 6, message: '投口数量为 1 至 6' },
-            ]}
-          >
-            <InputNumber min={1} max={6} precision={0} style={{ width: '100%' }} />
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={
+                assignment?.kind === 'tenant'
+                  ? directoryScope.tenantOptions
+                  : organizationScope.organizationOptions
+              }
+            />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title="从租户设备池部署到机构"
-        open={!!deployingAllocation}
-        confirmLoading={deploymentSubmitting}
-        okText="创建新部署"
-        onOk={() => void submitDeployment()}
-        onCancel={() => !deploymentSubmitting && setDeployingAllocation(undefined)}
-        destroyOnClose
+        title={control ? controlCopy[control.kind].title : '设备控制'}
+        open={Boolean(control)}
+        confirmLoading={submitting}
+        okText={control ? controlCopy[control.kind].action : '确认'}
+        okButtonProps={{ danger: control?.kind === 'retire' }}
+        onOk={() => void submitControl()}
+        onCancel={() => setControl(undefined)}
       >
-        <Alert
-          showIcon
-          type="info"
-          message="这是调拨的第二步"
-          description="系统会创建全新部署实例。原机构的已结束部署、订单、清运和统计不会迁移或覆盖。"
-          style={{ marginBottom: 16 }}
-        />
-        {deployingAllocation && (
-          <Descriptions size="small" column={1} bordered style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="租户池硬件">
-              {deployingAllocation.hardwareSn} · {deployingAllocation.modelCode}
-            </Descriptions.Item>
-            <Descriptions.Item label="投口数量">
-              {deployingAllocation.expectedPortCount}
-            </Descriptions.Item>
-          </Descriptions>
+        {control && (
+          <Alert
+            type={control.kind === 'retire' ? 'error' : 'warning'}
+            showIcon
+            message={controlCopy[control.kind].warning}
+            style={{ marginBottom: 20 }}
+          />
         )}
-        <Form<DeploymentFormValues>
-          form={deploymentForm}
-          layout="vertical"
-          disabled={deploymentSubmitting}
-        >
+        <Form form={controlForm} layout="vertical">
           <Form.Item
-            name="organizationCode"
-            label="目标机构"
-            rules={[{ required: true, message: '请选择目标机构' }]}
+            name="reason"
+            label="原因"
+            rules={[{ required: true, message: '请填写原因' }]}
           >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={organizationScope.organizationOptions}
-              placeholder="选择机构"
-            />
+            <Input.TextArea maxLength={500} showCount rows={3} />
           </Form.Item>
         </Form>
       </Modal>

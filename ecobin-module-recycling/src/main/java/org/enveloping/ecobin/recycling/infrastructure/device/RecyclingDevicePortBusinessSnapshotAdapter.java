@@ -29,7 +29,7 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
     public DevicePortBusinessSnapshot find(
             String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             int portNo) {
         List<DevicePortBusinessSnapshot> rows = jdbc.query("""
                         SELECT
@@ -45,10 +45,10 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
                             EXISTS (
                                 SELECT 1
                                 FROM rec_clean_operation clean
-                                WHERE clean.tenant_id = d.tenant_id
+                                WHERE clean.tenant_id = a.tenant_id
                                   AND clean.organization_id =
-                                      d.organization_id
-                                  AND clean.deployment_id = d.id
+                                      a.organization_id
+                                  AND clean.asset_id = a.id
                                   AND clean.port_id = p.id
                                   AND clean.status IN (
                                       'PREPARED',
@@ -60,13 +60,13 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
                         FROM iam_tenant t
                         JOIN iam_organization o
                           ON o.tenant_id = t.id
-                        JOIN dev_device_deployment d
-                          ON d.tenant_id = t.id
-                         AND d.organization_id = o.id
+                        JOIN dev_device_asset a
+                          ON a.tenant_id = t.id
+                         AND a.organization_id = o.id
                         JOIN dev_port p
-                          ON p.tenant_id = d.tenant_id
-                         AND p.organization_id = d.organization_id
-                         AND p.deployment_id = d.id
+                          ON p.tenant_id = a.tenant_id
+                         AND p.organization_id = a.organization_id
+                         AND p.asset_id = a.id
                         LEFT JOIN rec_bag_current_occupancy b
                           ON b.tenant_id = p.tenant_id
                          AND b.organization_id = p.organization_id
@@ -75,11 +75,13 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
                         LEFT JOIN rec_port_capacity_state c
                           ON c.tenant_id = p.tenant_id
                          AND c.organization_id = p.organization_id
-                         AND c.deployment_id = p.deployment_id
+                         AND c.asset_id = p.asset_id
                          AND c.port_id = p.id
                         WHERE t.tenant_code = ?
                           AND o.organization_code = ?
-                          AND d.public_code = ?
+                          AND a.device_public_code = ?
+                          AND a.lifecycle_status = 'NORMAL'
+                          AND a.acceptance_status = 'PASSED'
                           AND p.port_no = ?
                         """,
                 (rs, ignored) -> {
@@ -98,7 +100,7 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
                 },
                 tenantCode,
                 organizationCode,
-                deploymentCode,
+                deviceCode,
                 portNo);
         return rows.stream().findFirst()
                 .orElse(DevicePortBusinessSnapshot.empty());

@@ -2,7 +2,6 @@
   "commandType": "END_CLEAN_BEFORE_UNLOCK",
   "commandUid": "81000000-0000-4000-8000-000000000002",
   "cosGrant": null,
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -10,11 +9,12 @@
     "portNo": 2,
     "reason": "CLEANER_CANCELLED"
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "8d3fd7ba6fe19c2e11d3322fc0e0c56fda0d19aed65a1f350c34dab97d077ea6",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "CLEAN_OPERATION",
     "uid": "40000000-0000-4000-8000-000000000001"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

@@ -21,8 +21,9 @@ from config import (
     PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT,
     SERIAL_PORT, SERIAL_BAUDRATE, UART_PORT_COUNT,
     UART_HIL_REQUIRED_CAPABILITIES, EDGE_STORE_PATH,
-    EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S, DEPLOYMENT_CODE,
-    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE,
+    EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S,
+    EDGE_SOFTWARE_VERSION,
+    MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE, MCU_SIMULATED,
     CAMERA_OUTSIDE_SOURCE, CAMERA_INSIDE_SOURCE, CAMERA_WARMUP_FRAMES,
     EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
@@ -40,6 +41,7 @@ from mqtt_client import MqttClient
 from photo_manager import PhotoManager
 from work_manager import WorkManager
 from command_processor import CommandProcessor
+from device_acceptance import DeviceAcceptanceRunner
 from edge_boot import boot_sequence, recover_after_online_mcu_hello
 
 logging.basicConfig(
@@ -81,6 +83,7 @@ class EcoBinEdge:
             SERIAL_BAUDRATE,
             UART_PORT_COUNT,
             UART_HIL_REQUIRED_CAPABILITIES,
+            MCU_SIMULATED,
         )
 
         # -- MQTT Client --
@@ -88,7 +91,7 @@ class EcoBinEdge:
             product_id=PRODUCT_ID, device_name=DEVICE_NAME,
             device_key=DEVICE_KEY, edge_store=self.store,
             mqtt_host=MQTT_HOST, mqtt_port=MQTT_PORT,
-            deployment_code=DEPLOYMENT_CODE, edge_boot_id=self._edge_boot_id,
+            edge_boot_id=self._edge_boot_id,
             clean_session=MQTT_CLEAN_SESSION,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
             unsupported_command_types=(
@@ -106,16 +109,17 @@ class EcoBinEdge:
         )
 
         # -- Photo Manager --
+        self.cos_uploader = CosPhotoUploader(
+            timeout_seconds=COS_REQUEST_TIMEOUT_SECONDS,
+        )
         self.photo = PhotoManager(
             self.store,
             photo_dir=EDGE_PHOTO_DIR,
             outside_camera_source=CAMERA_OUTSIDE_SOURCE,
             inside_camera_source=CAMERA_INSIDE_SOURCE,
             camera_warmup_frames=CAMERA_WARMUP_FRAMES,
-            deployment_code=DEPLOYMENT_CODE,
-            uploader=CosPhotoUploader(
-                timeout_seconds=COS_REQUEST_TIMEOUT_SECONDS,
-            ),
+            device_name=DEVICE_NAME,
+            uploader=self.cos_uploader,
             upload_poll_seconds=PHOTO_UPLOAD_POLL_SECONDS,
             grant_expiry_skew_seconds=(
                 PHOTO_GRANT_EXPIRY_SKEW_SECONDS
@@ -126,10 +130,19 @@ class EcoBinEdge:
 
         # -- Work Manager --
         self.work = WorkManager(self.store, self.uart, self.mqtt, self.photo)
+        self.acceptance = DeviceAcceptanceRunner(
+            self.store,
+            self.uart,
+            self.photo,
+            self.cos_uploader,
+            device_name=DEVICE_NAME,
+            edge_software_version=EDGE_SOFTWARE_VERSION,
+        )
         self.commands = CommandProcessor(
             self.store,
             self.uart,
             self.work,
+            acceptance_runner=self.acceptance,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
         )
 
@@ -458,6 +471,7 @@ def _make_uart_link(
     baudrate,
     port_count,
     hil_required_capabilities,
+    mcu_simulated=False,
 ):
     """Create the explicitly configured MCU link."""
     if MCU_PROTOCOL_MODE == "fixed-frame":
@@ -473,6 +487,7 @@ def _make_uart_link(
             edge_boot_id=boot_id,
             port_count=1,
             baudrate=baudrate,
+            is_simulated=mcu_simulated,
         )
     from uart_link import UartLink
     kwargs = {

@@ -55,6 +55,11 @@ const CHANNEL_STATE: Record<string, { text: string; color: string }> = {
   CANCELLED: { text: '微信转账已撤销', color: 'default' },
 };
 
+const COLLECTION_MODE = {
+  AUTHORIZED: { text: '授权后自动收款', color: 'green' },
+  USER_CONFIRM: { text: '历史逐笔确认', color: 'default' },
+} as const;
+
 function errorText(error: unknown): string {
   if (error instanceof ApiProblem) {
     return error.requestId
@@ -135,7 +140,9 @@ export default function WithdrawalsPage() {
       );
       message.success(
         reviewing.decision === 'APPROVED'
-          ? '提现已审核通过，可靠任务将提交微信转账'
+          ? reviewing.order.collectionMode === 'AUTHORIZED'
+            ? '提现已审核通过，将按用户授权自动转入微信零钱'
+            : '提现已审核通过，可靠任务将提交历史逐笔确认转账'
           : '提现已拒绝，双方冻结资金已释放',
       );
       setReviewing(null);
@@ -183,7 +190,7 @@ export default function WithdrawalsPage() {
           type="info"
           showIcon
           message="所有提现都需要人工审核"
-          description="创建提现时已经同步冻结用户余额和机构出款额度；审核拒绝会释放双方冻结，审核通过才进入微信商家转账。"
+          description="创建提现时已经同步冻结用户余额和机构出款额度；审核拒绝会释放双方冻结。新提现在用户完成一次授权后，审核通过即自动转入微信零钱；历史单仍保留逐笔确认模式。"
         />
         {error && <Alert type="error" showIcon message="提现订单加载失败" description={error} />}
         <Card title="提现订单">
@@ -196,6 +203,14 @@ export default function WithdrawalsPage() {
             columns={[
               { title: '提现单号', dataIndex: 'withdrawalNo', render: (value) => <Typography.Text copyable>{value}</Typography.Text> },
               { title: '金额', dataIndex: 'amountYuan', align: 'right', render: (value) => <Typography.Text strong>¥{formatMoneyCny(value)}</Typography.Text> },
+              {
+                title: '收款方式',
+                dataIndex: 'collectionMode',
+                render: (value: WithdrawalOrder['collectionMode']) => {
+                  const mode = COLLECTION_MODE[value];
+                  return <Tag color={mode.color}>{mode.text}</Tag>;
+                },
+              },
               {
                 title: '业务状态',
                 dataIndex: 'status',
@@ -280,7 +295,9 @@ export default function WithdrawalsPage() {
             ? '通过后将可靠提交微信转账'
             : '拒绝后会同步释放用户和机构冻结金额'}
           description={reviewing?.decision === 'APPROVED'
-            ? '微信返回未知、超时或余额不足时，系统不会擅自释放冻结，也不会更换外部单号。'
+            ? reviewing.order.collectionMode === 'AUTHORIZED'
+              ? '用户已在创建提现前完成自动收款授权。通过后系统会直接转账；微信返回未知、超时或余额不足时，不会擅自释放冻结或更换外部单号。'
+              : '这是历史逐笔确认单。微信返回未知、超时或余额不足时，系统不会擅自释放冻结，也不会更换外部单号。'
             : '该决定不可通过修改订单回退，请确认审核事实。'}
         />
         {reviewing && (

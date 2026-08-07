@@ -49,6 +49,13 @@ public interface FundsOperationalControlPort {
             String withdrawalNo,
             LocalDateTime wakeAt);
 
+    AuthorizationQueryTaskWakeResult
+    wakeMerchantTransferAuthorizationQuery(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime wakeAt);
+
     void observeReconciliationIssue(ReconciliationIssue issue);
 
     enum WithdrawalSubmitTaskWakeResult {
@@ -57,6 +64,11 @@ public interface FundsOperationalControlPort {
         /** 任务仍在等待出款闸门等其他独立条件，本次不能立即派发。 */
         WAITING_ON_ANOTHER_CONDITION,
         /** 精确任务缺失，或其当前状态不满足本次受控恢复条件。 */
+        NOT_WAKEABLE
+    }
+
+    enum AuthorizationQueryTaskWakeResult {
+        WOKEN,
         NOT_WAKEABLE
     }
 

@@ -15,7 +15,7 @@ public record DeviceOperationalOverview(
     }
 
     public record RegistrationAttribution(
-            String deploymentCode,
-            String deploymentName,
+            String deviceCode,
+            String deviceName,
             long registeredUserCount) { }
 }

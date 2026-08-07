@@ -1,4 +1,4 @@
-"""Persistent OneNet command consumer and MCU execution coordinator."""
+"""持久 OneNet 命令消费者：把 MQTT 受理与 MCU 物理执行隔离开。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger("command-processor")
 
 
 class CommandProcessor:
-    """Consume command_inbox rows without doing physical work in MQTT callbacks."""
+    """从 command_inbox 消费命令，避免在 MQTT 网络回调中直接执行物理动作。"""
 
     def __init__(
         self,
@@ -22,11 +22,13 @@ class CommandProcessor:
         uart_link,
         work_manager=None,
         *,
+        acceptance_runner=None,
         trusted_cos_environment=None,
     ):
         self._store = store
         self._uart = uart_link
         self._work = work_manager
+        self._acceptance = acceptance_runner
         self._trusted_cos_environment = trusted_cos_environment
         self._wake_event = threading.Event()
         self._grant_lock = threading.Lock()
@@ -44,15 +46,23 @@ class CommandProcessor:
         if not row:
             return False
         if row["state"] == "COMPLETED":
+            if row["command_type"] != "PROVIDE_PHOTO_UPLOAD_GRANT":
+                return False
             if not self._store.requeue_completed_photo_grant_command(
                 command_uid
             ):
                 return False
             row = self._store.get_command(command_uid)
         if row["state"] == "FAILED":
+            expected_error = (
+                "ACCEPTANCE_GRANT_NOT_AVAILABLE"
+                if row["command_type"]
+                == "REQUEST_DEVICE_ACCEPTANCE"
+                else "PHOTO_GRANT_NOT_AVAILABLE"
+            )
             if not self._store.requeue_failed_command(
                 command_uid,
-                "PHOTO_GRANT_NOT_AVAILABLE",
+                expected_error,
             ):
                 return False
         with self._grant_lock:
@@ -108,6 +118,8 @@ class CommandProcessor:
         self._wake_event.clear()
 
     def process_next(self) -> bool:
+        # claim_next_command 先把一条 SQLite 记录置为处理中。进程重启后的恢复逻辑
+        # 依据持久状态判断，不依赖 MQTT 回调栈或内存队列是否还存在。
         row = self._store.claim_next_command()
         if not row:
             return False
@@ -124,15 +136,25 @@ class CommandProcessor:
                 command = {**command, "cosGrant": grant}
             if (
                 command.get("commandType")
-                == "PROVIDE_PHOTO_UPLOAD_GRANT"
+                in {
+                    "PROVIDE_PHOTO_UPLOAD_GRANT",
+                    "REQUEST_DEVICE_ACCEPTANCE",
+                }
                 and not command.get("cosGrant")
             ):
+                if (
+                    command.get("commandType")
+                    == "REQUEST_DEVICE_ACCEPTANCE"
+                ):
+                    raise ValueError("acceptance grant not available")
                 raise ValueError("photo grant not available")
             validate_command_envelope(
                 command,
                 trusted_environment=self._trusted_cos_environment,
             )
             validated = True
+            # 校验成功后才按命令类型进入 WorkManager；现场安全、满溢、配置和本地
+            # 单作业槽等“此刻事实”由 WorkManager 在写串口前再次判断。
             if command["commandType"] == "APPLY_CONFIGURATION":
                 self._apply_configuration(command)
             elif command["commandType"] == "START_DELIVERY_SESSION":
@@ -152,6 +174,11 @@ class CommandProcessor:
                 == "PROVIDE_PHOTO_UPLOAD_GRANT"
             ):
                 self._provide_photo_upload_grant(command)
+            elif (
+                command["commandType"]
+                == "REQUEST_DEVICE_ACCEPTANCE"
+            ):
+                self._request_device_acceptance(command)
             else:
                 self._store.fail_command(command_uid, "COMMAND_NOT_IMPLEMENTED")
                 logger.warning(
@@ -185,6 +212,11 @@ class CommandProcessor:
             raise RuntimeError("work manager is required")
         result = self._work.accept_photo_upload_grant(command)
         self._store.complete_command(command["commandUid"], result)
+
+    def _request_device_acceptance(self, command: dict) -> None:
+        if self._acceptance is None:
+            raise RuntimeError("device acceptance runner is required")
+        self._acceptance.run(command)
 
     def _start_delivery_session(self, command: dict) -> None:
         if self._work is None:
@@ -388,6 +420,8 @@ def _last_part_uid(result: dict) -> Optional[str]:
 
 def _error_code(error: Exception) -> str:
     message = str(error).upper()
+    if "ACCEPTANCE GRANT NOT AVAILABLE" in message:
+        return "ACCEPTANCE_GRANT_NOT_AVAILABLE"
     if "PHOTO GRANT NOT AVAILABLE" in message:
         return "PHOTO_GRANT_NOT_AVAILABLE"
     if "EXPIRED" in message:

@@ -17,7 +17,6 @@
           "clockState": 1,
           "commandUidPresent": false,
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeBootId": 9001,
           "edgeEventSequence": 1053,
           "edgeVersion": "1.0.0-rc.3",
@@ -109,7 +108,7 @@
           "schemaVersion": 1,
           "target": {
             "type": 1,
-            "uid": "Dp_demo_01"
+            "uid": "SN-CONTRACT-0001"
           },
           "uartProtocolMajor": 1,
           "uartProtocolMajorPresent": true,

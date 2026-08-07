@@ -56,38 +56,38 @@ public class DeviceOperationalOverviewQueryService
         args.add(tenantId);
         args.addAll(organizationIds);
         LinkedHashMap<String, Long> online = new LinkedHashMap<>();
-        LinkedHashMap<Long, DeploymentRow> deployments =
+        LinkedHashMap<Long, AssetRow> assets =
                 new LinkedHashMap<>();
         jdbc.query("""
-                        SELECT deployment.id, deployment.organization_id,
-                               deployment.public_code,
+                        SELECT asset.id, asset.organization_id,
+                               asset.device_public_code,
                                COALESCE(configuration.device_display_name,
-                                        deployment.public_code) display_name,
-                               deployment.lifecycle_status,
+                                        asset.device_public_code) display_name,
+                               asset.lifecycle_status,
                                runtime.edge_connection_status
-                        FROM dev_device_deployment deployment
-                        LEFT JOIN dev_deployment_runtime_state runtime
-                          ON runtime.deployment_id = deployment.id
+                        FROM dev_device_asset asset
+                        LEFT JOIN dev_device_runtime_state runtime
+                          ON runtime.asset_id = asset.id
                         LEFT JOIN dev_config_version configuration
                           ON configuration.id = (
                             SELECT latest.id FROM dev_config_version latest
-                            WHERE latest.deployment_id = deployment.id
+                            WHERE latest.asset_id = asset.id
                             ORDER BY latest.version_no DESC LIMIT 1
                           )
-                        WHERE deployment.tenant_id = ?
-                          AND deployment.organization_id IN (
+                        WHERE asset.tenant_id = ?
+                          AND asset.organization_id IN (
                         """ + placeholders + ")" + """
-                        ORDER BY deployment.organization_id, deployment.id
+                        ORDER BY asset.organization_id, asset.id
                         """,
                 (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
-                    long deploymentId = rs.getLong("id");
+                    long assetId = rs.getLong("id");
                     long organizationId = rs.getLong("organization_id");
-                    deployments.put(deploymentId,
-                            new DeploymentRow(
+                    assets.put(assetId,
+                            new AssetRow(
                                     organizationId,
-                                    rs.getString("public_code"),
+                                    rs.getString("device_public_code"),
                                     rs.getString("display_name")));
-                    if ("ENABLED".equals(rs.getString("lifecycle_status"))
+                    if ("NORMAL".equals(rs.getString("lifecycle_status"))
                             && "ONLINE".equals(rs.getString(
                             "edge_connection_status"))) {
                         online.merge(organizationCodes.get(organizationId),
@@ -100,17 +100,17 @@ public class DeviceOperationalOverviewQueryService
         for (IdentityOperationalOverview.Organization organization : identities) {
             java.util.ArrayList<DeviceOperationalOverview
                     .RegistrationAttribution> values = new java.util.ArrayList<>();
-            for (var reference : organization.byDeployment()) {
-                values.add(reference.resolveOnce((deploymentId, count) -> {
-                    DeploymentRow deployment = deployments.get(deploymentId);
-                    if (deployment == null
+            for (var reference : organization.byAsset()) {
+                values.add(reference.resolveOnce((assetId, count) -> {
+                    AssetRow asset = assets.get(assetId);
+                    if (asset == null
                             || !organization.organizationCode().equals(
-                            organizationCodes.get(deployment.organizationId()))) {
+                            organizationCodes.get(asset.organizationId()))) {
                         throw new IllegalStateException(
-                                "registration deployment is outside its authorized organization");
+                                "registration asset is outside its authorized organization");
                     }
                     return new DeviceOperationalOverview.RegistrationAttribution(
-                            deployment.code(), deployment.name(), count);
+                            asset.code(), asset.name(), count);
                 }));
             }
             attributions.put(organization.organizationCode(), values);
@@ -123,6 +123,6 @@ public class DeviceOperationalOverviewQueryService
         return value.substring(0, value.length() - 1);
     }
 
-    private record DeploymentRow(
+    private record AssetRow(
             long organizationId, String code, String name) { }
 }

@@ -14,7 +14,7 @@ import org.enveloping.ecobin.identity.application.security.IdentityOperationalOv
 import org.enveloping.ecobin.identity.application.security.GovernanceIdentityQueryService;
 import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedGovernanceFilterRefFactory;
 import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedManagementScopePersistenceRefFactory;
-import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedRegistrationDeploymentAttributionRefFactory;
+import org.enveloping.ecobin.identity.api.persistence.IdentityOwnedRegistrationAssetAttributionRefFactory;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
@@ -557,7 +557,7 @@ class ReliableInboxMysqlIntegrationTest {
                                 new DeviceFaultAlertFact(
                                         faultScopes.issue(
                                                 tenantId, organizationId),
-                                        faultUid, "f08-deployment", 1,
+                                        faultUid, "f08-asset", 1,
                                         "SCALE", "OFFLINE",
                                         "BUSINESS_BLOCKING", faultState.get(),
                                         firstObserved, lastObserved,
@@ -566,7 +566,7 @@ class ReliableInboxMysqlIntegrationTest {
                                 new PortFullnessAlertFact(
                                         fullnessScopes.issue(
                                                 tenantId, organizationId),
-                                        "f08-deployment", 1,
+                                        "f08-asset", 1,
                                         fullnessState.get(), fullnessUid,
                                         recoveredAtRef.get() == null
                                                 ? lastObserved
@@ -768,7 +768,7 @@ class ReliableInboxMysqlIntegrationTest {
 
         var scopeRefs = new IdentityOwnedManagementScopePersistenceRefFactory();
         var attributionRefs =
-                new IdentityOwnedRegistrationDeploymentAttributionRefFactory();
+                new IdentityOwnedRegistrationAssetAttributionRefFactory();
         var identityService = new IdentityOperationalOverviewQueryService(
                 jdbc, attributionRefs);
         var deviceService = new DeviceOperationalOverviewQueryService(jdbc);

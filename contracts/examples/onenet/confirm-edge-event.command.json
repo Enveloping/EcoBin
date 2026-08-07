@@ -2,7 +2,6 @@
   "commandType": "CONFIRM_EDGE_EVENT",
   "commandUid": "60000000-0000-4000-8000-000000000002",
   "cosGrant": null,
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -21,11 +20,12 @@
       }
     ]
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "bf5fe266dd4921b308b03638d8740d1e39ec54dd666b952f0db63fcb4a38d856",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "EDGE_EVENT",
     "uid": "30000000-0000-4000-8000-000000000006"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

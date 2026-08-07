@@ -9,6 +9,12 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+/**
+ * 从可靠任务表认领设备命令并调用外部下发适配器。
+ *
+ * <p>业务事务只负责登记任务，真实 OneNet HTTP 调用发生在事务外。每次尝试先记录
+ * “外部调用可能已经开始”，即使进程在请求途中崩溃，也不会把未知结果误当成从未发送。</p>
+ */
 @Service
 public class ReliableDeviceCommandTaskRunner
         implements ReliableDeviceCommandWorkerPort {
@@ -77,6 +83,7 @@ public class ReliableDeviceCommandTaskRunner
                      "taskUid", claim.taskUid().toString());
              MDC.MDCCloseable ignoredDevice = MDC.putCloseable(
                      "hardwareSn", claim.hardwareSn())) {
+            // 这是外部不可逆边界的本地证据，必须早于网络调用落库。
             attemptService.markExternalCallMayHaveStarted(claim);
             try {
                 result = submissionPort.submit(claim.submission());
@@ -90,6 +97,8 @@ public class ReliableDeviceCommandTaskRunner
                         "device submission Adapter raised "
                                 + safeClassName(failure));
             }
+            // completionService 按平台受理、离线、身份不存在、临时失败和永久失败分别收敛；
+            // 平台受理后的物理命令会等待设备证据，不在这里宣告投递完成。
             completionService.complete(
                     claim, result, elapsedMillis(startedAt));
         }

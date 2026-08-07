@@ -58,7 +58,7 @@ public interface DeliveryOrderDeviceFactsRef {
      */
     record FactKey(
             String token,
-            long deploymentKey,
+            long assetKey,
             long portKey,
             long deliverySessionKey,
             long physicalResultKey) {
@@ -68,7 +68,7 @@ public interface DeliveryOrderDeviceFactsRef {
                 throw new IllegalArgumentException(
                         "token must not be blank");
             }
-            positive(deploymentKey, "deploymentKey");
+            positive(assetKey, "assetKey");
             positive(portKey, "portKey");
             positive(deliverySessionKey, "deliverySessionKey");
             positive(physicalResultKey, "physicalResultKey");

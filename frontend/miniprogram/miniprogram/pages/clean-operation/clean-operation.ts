@@ -3,20 +3,20 @@ import { requireEntryMode } from '../../utils/guard'
 
 Page({
   data: {
-    deploymentCode: '',
+    deviceCode: '',
     previewOnly: false,
   },
 
   onLoad(options: Record<string, string | undefined>) {
     if (!requireEntryMode(['CLEANING'])) return
-    const deploymentCode = this.decodeDeploymentCode(options.deploymentCode)
+    const deviceCode = this.decodeDeviceCode(options.deviceCode)
     this.setData({
-      deploymentCode,
+      deviceCode,
       previewOnly: getEntryMode() !== 'CLEANING',
     })
   },
 
-  decodeDeploymentCode(value?: string): string {
+  decodeDeviceCode(value?: string): string {
     if (!value) return ''
     try {
       return decodeURIComponent(value)

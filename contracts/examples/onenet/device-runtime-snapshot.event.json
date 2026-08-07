@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": null,
   "deliveryClass": "TELEMETRY_SNAPSHOT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1053,
   "eventType": "DEVICE_RUNTIME_SNAPSHOT",
   "eventUid": "89000000-0000-4000-8000-000000000001",
@@ -88,9 +87,9 @@
     "uartState": "READY"
   },
   "payloadSha256": "754c170c8b901684d2640ff0c2573e06725a700edfc753ebcce7cbe5810edf23",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
-    "type": "DEVICE_DEPLOYMENT",
-    "uid": "Dp_demo_01"
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
   }
 }

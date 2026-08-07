@@ -1,714 +1,588 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Checkbox,
+  Card,
   Descriptions,
+  Divider,
   Drawer,
   Empty,
   Form,
   Input,
+  InputNumber,
+  List,
   Modal,
-  Select,
   Space,
   Spin,
-  Table,
+  Switch,
   Tag,
   Typography,
   message,
 } from 'antd';
 import {
-  KeyOutlined,
+  CloudSyncOutlined,
+  EditOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import {
-  allocatePlatformDeviceAssetToTenant,
-  clearPlatformDeviceMaintenanceIsolation,
-  confirmPlatformOneNetCredentialRotation,
-  getPlatformDeviceAsset,
-  listPlatformDeviceAssetAllocations,
-  reclaimPlatformDeviceAssetAllocation,
+  getDeviceConfigurationVersion,
+  listDeviceAcceptanceEvidence,
+  listDeviceConfigurationVersions,
+  releaseDeviceConfiguration,
+  type DeviceAcceptanceEvidence,
   type DeviceAsset,
-  type DeviceTenantAllocation,
+  type DeviceConfigurationReleaseRequest,
+  type DeviceConfigurationVersion,
+  type DeviceConfigurationVersionSummary,
 } from '@/api/deviceDirectory';
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
 import {
-  allocationColors,
-  allocationLabels,
+  acceptanceColors,
+  acceptanceLabels,
   assetColors,
   assetLabels,
-  blockerLabel,
+  booleanEvidence,
+  configurationColors,
+  configurationLabels,
 } from './devicePresentation';
+
+export type DeviceManagementMode = 'platform' | 'tenant' | 'organization';
+export type DeviceControlKind = 'disable' | 'restore' | 'retire';
 
 interface DeviceAssetDrawerProps {
   open: boolean;
-  hardwareSn?: string;
-  tenantOptions: Array<{ label: string; value: string }>;
+  mode: DeviceManagementMode;
+  asset?: DeviceAsset;
+  organizationCode?: string;
   onClose: () => void;
-  onUpdated: () => void;
+  onAssignTenant: (asset: DeviceAsset) => void;
+  onAssignOrganization: (asset: DeviceAsset) => void;
+  onControl: (asset: DeviceAsset, kind: DeviceControlKind) => void;
+  onReevaluateAcceptance: (asset: DeviceAsset) => Promise<void>;
+  onChanged: () => void;
 }
 
-interface AllocateFormValues {
-  tenantCode: string;
-  reason?: string;
-}
-
-interface ReclaimFormValues {
-  mode: 'NORMAL' | 'EXCEPTIONAL';
-  physicalPossessionConfirmed?: boolean;
+interface DailyConfigurationEdits {
   reason: string;
+  device?: {
+    displayName?: string;
+    address?: string;
+  };
+  ports?: Array<{
+    displayName?: string;
+    enabled?: boolean;
+    unitPriceYuanPerKg?: string;
+    fullnessWeightKg?: string;
+  }>;
 }
 
-interface ClearanceFormValues {
-  physicalPossessionConfirmed?: boolean;
-  inspectionConfirmed?: boolean;
-  reason: string;
-}
-
-function problemMessage(error: unknown): string {
+function errorMessage(error: unknown): string {
   if (error instanceof ApiProblem) {
     return error.requestId
       ? `${error.message}（请求 ID：${error.requestId}）`
       : error.message;
   }
-  return error instanceof Error ? error.message : '设备资产详情加载失败';
+  return error instanceof Error ? error.message : '设备数据加载失败';
 }
 
-function blockersFrom(error: unknown): string[] {
-  if (!(error instanceof ApiProblem)) return [];
-  const blockers = error.details.blockers;
-  return Array.isArray(blockers)
-    ? blockers.filter((value): value is string => typeof value === 'string')
-    : [];
+function mergeConfiguration(
+  current: DeviceConfigurationVersion,
+  edits: DailyConfigurationEdits,
+): DeviceConfigurationReleaseRequest {
+  return {
+    expectedLatestVersion: current.versionNo,
+    reason: edits.reason,
+    locationCorrectionConfirmed:
+      (edits.device?.address ?? null) !== current.device.address,
+    device: {
+      ...current.device,
+      displayName: edits.device?.displayName ?? current.device.displayName,
+      address: edits.device?.address?.trim() || null,
+    },
+    ports: current.ports.map((port, index) => ({
+      ...port,
+      displayName: edits.ports?.[index]?.displayName ?? port.displayName,
+      enabled: edits.ports?.[index]?.enabled ?? port.enabled,
+      unitPriceYuanPerKg:
+        edits.ports?.[index]?.unitPriceYuanPerKg
+        ?? port.unitPriceYuanPerKg,
+      fullnessWeightKg:
+        edits.ports?.[index]?.fullnessWeightKg
+        ?? port.fullnessWeightKg,
+    })),
+  };
+}
+
+function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
+  if (!rows.length) {
+    return (
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="真实设备联网后会自动提交验收证据"
+      />
+    );
+  }
+  const latest = rows[0];
+  const facts = [
+    ['OneNet 在线', latest.oneNetOnline],
+    ['持久化存储', latest.persistentStoreHealthy],
+    ['可信时间', latest.trustedTimeHealthy],
+    ['配置持久化', latest.configurationPersistenceHealthy],
+    ['MCU 通信', latest.mcuCommunicationHealthy],
+    ['真实传感器', latest.sensorsHealthy],
+    ['摄像头采集', latest.camerasCaptureHealthy],
+    ['测试图片上传', latest.cameraUploadHealthy],
+  ] as const;
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Alert
+        showIcon
+        type={latest.evaluationStatus === 'PASSED' ? 'success' : 'warning'}
+        message={
+          latest.evaluationStatus === 'PASSED'
+            ? '最新真实证据已通过机器验收'
+            : '最新证据尚未满足机器验收'
+        }
+        description={
+          latest.failureReasons.length
+            ? latest.failureReasons.join('、')
+            : `设备软件 ${latest.edgeSoftwareVersion} · 协议 ${latest.edgeProtocolVersion}`
+        }
+      />
+      <Descriptions size="small" column={2} bordered>
+        {facts.map(([label, value]) => (
+          <Descriptions.Item key={label} label={label}>
+            <Tag color={value ? 'success' : 'error'}>
+              {booleanEvidence(value)}
+            </Tag>
+          </Descriptions.Item>
+        ))}
+        <Descriptions.Item label="MCU 来源">
+          <Tag color={latest.mcuSimulated ? 'error' : 'success'}>
+            {latest.mcuSimulated ? '模拟器（不能通过）' : '真实硬件'}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="摄像头来源">
+          <Tag color={latest.camerasSimulated ? 'error' : 'success'}>
+            {latest.camerasSimulated ? '模拟器（不能通过）' : '真实摄像头'}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="观测时间" span={2}>
+          {formatShanghaiTime(latest.observedAt)}
+        </Descriptions.Item>
+      </Descriptions>
+      {rows.length > 1 && (
+        <Typography.Text type="secondary">
+          共保存 {rows.length} 次验收证据；历史失败不会因后来通过而被删除。
+        </Typography.Text>
+      )}
+    </Space>
+  );
 }
 
 export default function DeviceAssetDrawer({
   open,
-  hardwareSn,
-  tenantOptions,
+  mode,
+  asset,
+  organizationCode,
   onClose,
-  onUpdated,
+  onAssignTenant,
+  onAssignOrganization,
+  onControl,
+  onReevaluateAcceptance,
+  onChanged,
 }: DeviceAssetDrawerProps) {
   const executeCommand = useCommandExecutor();
-  const [allocateForm] = Form.useForm<AllocateFormValues>();
-  const [reclaimForm] = Form.useForm<ReclaimFormValues>();
-  const [clearanceForm] = Form.useForm<ClearanceFormValues>();
-  const requestSequence = useRef(0);
-  const selectedTarget = useRef<string>();
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string>();
-  const [asset, setAsset] = useState<DeviceAsset>();
-  const [allocations, setAllocations] = useState<DeviceTenantAllocation[]>([]);
-  const [allocateOpen, setAllocateOpen] = useState(false);
-  const [reclaiming, setReclaiming] = useState<DeviceTenantAllocation>();
-  const [clearanceOpen, setClearanceOpen] = useState(false);
-  const [rotationRequired, setRotationRequired] = useState(false);
+  const [configForm] = Form.useForm<DailyConfigurationEdits>();
+  const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
+  const [versions, setVersions] = useState<DeviceConfigurationVersionSummary[]>([]);
+  const [latestVersion, setLatestVersion] = useState<DeviceConfigurationVersion>();
+  const [loadingEvidence, setLoadingEvidence] = useState(false);
+  const [loadingConfiguration, setLoadingConfiguration] = useState(false);
+  const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [commandError, setCommandError] = useState<string>();
-  const [commandBlockers, setCommandBlockers] = useState<string[]>([]);
+  const [reevaluating, setReevaluating] = useState(false);
 
-  selectedTarget.current = open ? hardwareSn : undefined;
-  const currentAllocation = allocations.find(
-    (allocation) => allocation.allocationStatus === 'ACTIVE',
-  );
+  const canConfigure = mode === 'organization'
+    && Boolean(asset && organizationCode);
 
-  const load = useCallback(async () => {
-    if (!open || !hardwareSn) return;
-    const sequence = ++requestSequence.current;
-    setLoading(true);
-    setLoadError(undefined);
-    setAsset(undefined);
-    setAllocations([]);
+  const loadEvidence = async () => {
+    if (!asset || mode !== 'platform') return;
+    setLoadingEvidence(true);
     try {
-      const [loadedAsset, allocationPage] = await Promise.all([
-        getPlatformDeviceAsset(hardwareSn),
-        listPlatformDeviceAssetAllocations({
-          hardwareSn,
-          page: 1,
-          pageSize: 200,
-        }),
-      ]);
-      if (
-        sequence !== requestSequence.current
-        || selectedTarget.current !== hardwareSn
-      ) return;
-      setAsset(loadedAsset);
-      setAllocations(allocationPage.items);
+      setEvidence(await listDeviceAcceptanceEvidence(asset.hardwareSn));
     } catch (error) {
-      if (
-        sequence === requestSequence.current
-        && selectedTarget.current === hardwareSn
-      ) setLoadError(problemMessage(error));
+      message.error(errorMessage(error));
     } finally {
-      if (
-        sequence === requestSequence.current
-        && selectedTarget.current === hardwareSn
-      ) setLoading(false);
+      setLoadingEvidence(false);
     }
-  }, [hardwareSn, open]);
+  };
+
+  const loadConfiguration = async () => {
+    if (!asset || !organizationCode || !canConfigure) return;
+    setLoadingConfiguration(true);
+    try {
+      const page = await listDeviceConfigurationVersions(
+        organizationCode,
+        asset.deviceCode,
+        { limit: 20 },
+      );
+      setVersions(page.items);
+      if (page.items.length) {
+        setLatestVersion(await getDeviceConfigurationVersion(
+          organizationCode,
+          asset.deviceCode,
+          page.items[0].versionNo,
+        ));
+      } else {
+        setLatestVersion(undefined);
+      }
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setLoadingConfiguration(false);
+    }
+  };
 
   useEffect(() => {
-    if (open) void load();
-    return () => {
-      requestSequence.current += 1;
-    };
-  }, [load, open]);
+    if (!open) return;
+    setEvidence([]);
+    setVersions([]);
+    setLatestVersion(undefined);
+    void loadEvidence();
+    void loadConfiguration();
+    // The stable identities below intentionally define a new drawer target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, asset?.hardwareSn, asset?.deviceCode, organizationCode]);
 
-  const resetCommandFeedback = () => {
-    setCommandError(undefined);
-    setCommandBlockers([]);
-  };
-
-  const reloadAfterConflict = async (error: unknown) => {
-    if (error instanceof ApiProblem && error.isVersionConflict) {
-      setAllocateOpen(false);
-      setReclaiming(undefined);
-      setClearanceOpen(false);
-      setRotationRequired(false);
-      allocateForm.resetFields();
-      reclaimForm.resetFields();
-      clearanceForm.resetFields();
-      resetCommandFeedback();
-      message.warning('资产或分配状态已更新，已刷新详情，请重新确认');
-      await load();
+  const actionButtons = useMemo(() => {
+    if (!asset) return null;
+    if (mode === 'platform') {
+      return (
+        <Space wrap>
+          {!asset.tenantCode && (
+            <Button type="primary" onClick={() => onAssignTenant(asset)}>
+              永久分配租户
+            </Button>
+          )}
+          <Button
+            icon={<ReloadOutlined />}
+            loading={reevaluating}
+            onClick={async () => {
+              setReevaluating(true);
+              try {
+                await onReevaluateAcceptance(asset);
+                await loadEvidence();
+              } finally {
+                setReevaluating(false);
+              }
+            }}
+          >
+            重新读取验收证据
+          </Button>
+          {asset.lifecycleStatus === 'NORMAL' && (
+            <Button onClick={() => onControl(asset, 'disable')}>禁用</Button>
+          )}
+          {asset.lifecycleStatus === 'DISABLED' && (
+            <Button type="primary" onClick={() => onControl(asset, 'restore')}>
+              恢复
+            </Button>
+          )}
+          {asset.lifecycleStatus !== 'RETIRED' && (
+            <Button danger onClick={() => onControl(asset, 'retire')}>
+              报废
+            </Button>
+          )}
+        </Space>
+      );
     }
+    if (mode === 'tenant' && !asset.organizationCode) {
+      return (
+        <Button type="primary" onClick={() => onAssignOrganization(asset)}>
+          永久分配机构
+        </Button>
+      );
+    }
+    return null;
+  }, [asset, mode, onAssignOrganization, onAssignTenant, onControl, reevaluating]);
+
+  const openConfigurationEditor = () => {
+    if (!latestVersion) return;
+    configForm.setFieldsValue({
+      reason: '',
+      device: {
+        displayName: latestVersion.device.displayName,
+        address: latestVersion.device.address ?? undefined,
+      },
+      ports: latestVersion.ports.map((port) => ({
+        displayName: port.displayName,
+        enabled: port.enabled,
+        unitPriceYuanPerKg: port.unitPriceYuanPerKg,
+        fullnessWeightKg: port.fullnessWeightKg,
+      })),
+    });
+    setConfigurationModalOpen(true);
   };
 
-  const submitAllocation = async () => {
-    if (!asset) return;
-    const values = await allocateForm.validateFields();
-    const payload = {
-      hardwareSn: asset.hardwareSn,
-      expectedAssetVersion: asset.version,
-      reason: values.reason?.trim() || null,
-    };
-    resetCommandFeedback();
+  const publishConfiguration = async () => {
+    if (!asset || !organizationCode || !latestVersion) return;
+    const edits = await configForm.validateFields();
+    const payload = mergeConfiguration(latestVersion, edits);
     setSubmitting(true);
     try {
       await executeCommand(
-        commandKey(
-          'device.allocation.create',
-          `${values.tenantCode}:${asset.hardwareSn}`,
-          payload,
-        ),
-        (intent) => allocatePlatformDeviceAssetToTenant(
-          values.tenantCode,
+        commandKey('device.configuration.release', asset.deviceCode, payload),
+        (intent) => releaseDeviceConfiguration(
+          organizationCode,
+          asset.deviceCode,
           payload,
           intent,
         ),
       );
-      message.success('设备已分配到租户设备池，尚未选择机构');
-      setAllocateOpen(false);
-      setRotationRequired(false);
-      await load();
-      onUpdated();
+      message.success('新配置已发布，设备联网后会自动应用');
+      setConfigurationModalOpen(false);
+      await loadConfiguration();
+      onChanged();
     } catch (error) {
-      if (
-        error instanceof ApiProblem
-        && error.code === 'DEVICE.CREDENTIAL_ROTATION_REQUIRED'
-      ) {
-        setRotationRequired(true);
-        setCommandError(
-          '该设备将跨租户重新分配。请先在 OneNet 线下更换 Device Key，再确认已轮换。EcoBin 不接收或保存密钥值。',
-        );
-      } else {
-        setCommandError(problemMessage(error));
-        setCommandBlockers(blockersFrom(error));
-        await reloadAfterConflict(error);
-      }
+      message.error(errorMessage(error));
     } finally {
       setSubmitting(false);
     }
   };
-
-  const confirmRotation = async () => {
-    if (!asset) return;
-    const values = await allocateForm.validateFields();
-    const reason = values.reason?.trim()
-      || `为分配到租户 ${values.tenantCode} 完成线下 Device Key 轮换`;
-    const payload = { expectedAssetVersion: asset.version, reason };
-    setSubmitting(true);
-    try {
-      await executeCommand(
-        commandKey('device.credential.rotate.confirm', asset.hardwareSn, payload),
-        (intent) => confirmPlatformOneNetCredentialRotation(
-          asset.hardwareSn,
-          payload,
-          intent,
-        ),
-      );
-      message.success('已记录密钥轮换确认，请重新提交租户分配');
-      setRotationRequired(false);
-      resetCommandFeedback();
-      await load();
-      onUpdated();
-    } catch (error) {
-      setCommandError(problemMessage(error));
-      await reloadAfterConflict(error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const submitReclaim = async () => {
-    if (!reclaiming) return;
-    const values = await reclaimForm.validateFields();
-    const payload = {
-      expectedAllocationVersion: reclaiming.allocationVersion,
-      expectedAssetVersion: reclaiming.assetVersion,
-      mode: values.mode,
-      physicalPossessionConfirmed:
-        values.physicalPossessionConfirmed === true,
-      reason: values.reason.trim(),
-    };
-    resetCommandFeedback();
-    setSubmitting(true);
-    try {
-      await executeCommand(
-        commandKey('device.allocation.reclaim', reclaiming.allocationUid, payload),
-        (intent) => reclaimPlatformDeviceAssetAllocation(
-          reclaiming.allocationUid,
-          payload,
-          intent,
-        ),
-      );
-      message.success(
-        values.mode === 'NORMAL'
-          ? '设备已正常收回平台库存'
-          : '设备已异常收回并进入维修隔离',
-      );
-      setReclaiming(undefined);
-      await load();
-      onUpdated();
-    } catch (error) {
-      setCommandError(problemMessage(error));
-      setCommandBlockers(blockersFrom(error));
-      await reloadAfterConflict(error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const submitClearance = async () => {
-    if (!asset) return;
-    const values = await clearanceForm.validateFields();
-    const payload = {
-      expectedAssetVersion: asset.version,
-      physicalPossessionConfirmed:
-        values.physicalPossessionConfirmed === true,
-      inspectionConfirmed: values.inspectionConfirmed === true,
-      reason: values.reason.trim(),
-    };
-    resetCommandFeedback();
-    setSubmitting(true);
-    try {
-      await executeCommand(
-        commandKey('device.maintenance.clear', asset.hardwareSn, payload),
-        (intent) => clearPlatformDeviceMaintenanceIsolation(
-          asset.hardwareSn,
-          payload,
-          intent,
-        ),
-      );
-      message.success('维修隔离已解除，设备已回到平台库存');
-      setClearanceOpen(false);
-      await load();
-      onUpdated();
-    } catch (error) {
-      setCommandError(problemMessage(error));
-      setCommandBlockers(blockersFrom(error));
-      await reloadAfterConflict(error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const commandAlert = commandError ? (
-    <Alert
-      showIcon
-      type="error"
-      message={commandError}
-      description={commandBlockers.length ? (
-        <ul style={{ margin: 0, paddingInlineStart: 20 }}>
-          {commandBlockers.map((blocker) => (
-            <li key={blocker}>{blockerLabel(blocker)}</li>
-          ))}
-        </ul>
-      ) : undefined}
-      style={{ marginBottom: 16 }}
-    />
-  ) : null;
 
   return (
     <>
       <Drawer
-        title={(
-          <Space>
-            <span>平台资产详情</span>
-            {hardwareSn && (
-              <Typography.Text type="secondary" copyable>
-                {hardwareSn}
-              </Typography.Text>
-            )}
-          </Space>
-        )}
+        width={720}
         open={open}
-        width={920}
         onClose={onClose}
         destroyOnClose
-        extra={(
-          <Space>
-            <Button
-              icon={<ReloadOutlined spin={loading} />}
-              onClick={() => void load()}
-              disabled={loading}
+        title={
+          <Space direction="vertical" size={0}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              PERMANENT DEVICE ASSET
+            </Typography.Text>
+            <Typography.Text strong>{asset?.hardwareSn ?? '设备详情'}</Typography.Text>
+          </Space>
+        }
+        extra={actionButtons}
+      >
+        {!asset ? (
+          <Empty description="请选择设备" />
+        ) : (
+          <Space direction="vertical" size={24} style={{ width: '100%' }}>
+            <Card
+              styles={{ body: { padding: 0 } }}
+              style={{ borderLeft: '4px solid #1677ff' }}
             >
-              刷新
-            </Button>
-            {asset?.lifecycleStatus === 'IN_STOCK' && (
-              <Button
-                type="primary"
-                onClick={() => {
-                  resetCommandFeedback();
-                  setRotationRequired(false);
-                  allocateForm.resetFields();
-                  setAllocateOpen(true);
-                }}
-              >
-                分配给租户
-              </Button>
+              <Descriptions column={2} bordered size="small">
+                <Descriptions.Item label="设备公开码" span={2}>
+                  <Typography.Text copyable code>{asset.deviceCode}</Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="硬件 SN">
+                  <Typography.Text copyable>{asset.hardwareSn}</Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="型号">{asset.modelCode}</Descriptions.Item>
+                <Descriptions.Item label="机器验收">
+                  <Tag color={acceptanceColors[asset.acceptanceStatus]}>
+                    {acceptanceLabels[asset.acceptanceStatus]}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="生命周期">
+                  <Tag color={assetColors[asset.lifecycleStatus]}>
+                    {assetLabels[asset.lifecycleStatus]}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="永久租户">
+                  {asset.tenantCode ?? '尚未分配'}
+                </Descriptions.Item>
+                <Descriptions.Item label="永久机构">
+                  {asset.organizationCode ?? '尚未分配'}
+                </Descriptions.Item>
+                <Descriptions.Item label="投口数量">
+                  {asset.expectedPortCount}
+                </Descriptions.Item>
+                <Descriptions.Item label="二维码">
+                  {asset.miniappQrStatus}
+                </Descriptions.Item>
+                <Descriptions.Item label="OneNet 设备名" span={2}>
+                  {asset.oneNetMapping.deviceName}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+
+            {mode === 'platform' && (
+              <section>
+                <Space style={{ marginBottom: 12 }}>
+                  <SafetyCertificateOutlined />
+                  <Typography.Title level={5} style={{ margin: 0 }}>
+                    自动机器验收证据
+                  </Typography.Title>
+                </Space>
+                <Spin spinning={loadingEvidence}>
+                  <EvidencePanel rows={evidence} />
+                </Spin>
+              </section>
             )}
-            {asset?.lifecycleStatus === 'MAINTENANCE' && (
-              <Button
-                type="primary"
-                icon={<SafetyCertificateOutlined />}
-                onClick={() => {
-                  resetCommandFeedback();
-                  clearanceForm.resetFields();
-                  setClearanceOpen(true);
-                }}
-              >
-                解除维修隔离
-              </Button>
+
+            {canConfigure && (
+              <section>
+                <Space
+                  align="center"
+                  style={{ width: '100%', justifyContent: 'space-between' }}
+                >
+                  <Space>
+                    <CloudSyncOutlined />
+                    <Typography.Title level={5} style={{ margin: 0 }}>
+                      日常价格与设备配置
+                    </Typography.Title>
+                  </Space>
+                  <Button
+                    icon={<EditOutlined />}
+                    disabled={!latestVersion}
+                    onClick={openConfigurationEditor}
+                  >
+                    基于最新版发布
+                  </Button>
+                </Space>
+                <Alert
+                  style={{ margin: '12px 0' }}
+                  type="info"
+                  showIcon
+                  message="安装、通电和联网后无需机构确认"
+                  description="系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。"
+                />
+                <Spin spinning={loadingConfiguration}>
+                  {!versions.length ? (
+                    <Empty description="系统正在创建并下发初始配置" />
+                  ) : (
+                    <List
+                      dataSource={versions}
+                      renderItem={(version) => (
+                        <List.Item>
+                          <List.Item.Meta
+                            title={
+                              <Space>
+                                <Typography.Text strong>
+                                  v{version.versionNo}
+                                </Typography.Text>
+                                <Tag color={configurationColors[version.application.status]}>
+                                  {configurationLabels[version.application.status]}
+                                </Tag>
+                              </Space>
+                            }
+                            description={
+                              `${version.deviceDisplayName} · ${version.publishedBy}`
+                              + ` · ${formatShanghaiTime(version.publishedAt)}`
+                            }
+                          />
+                        </List.Item>
+                      )}
+                    />
+                  )}
+                </Spin>
+              </section>
             )}
           </Space>
         )}
-      >
-        {loading && !asset ? (
-          <div style={{ padding: '72px 0', textAlign: 'center' }}>
-            <Spin tip="正在读取资产与分配事实" />
-          </div>
-        ) : loadError && !asset ? (
-          <Alert
-            showIcon
-            type="error"
-            message="资产详情加载失败"
-            description={loadError}
-            action={<Button onClick={() => void load()}>重新加载</Button>}
-          />
-        ) : asset ? (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            {loadError && (
-              <Alert showIcon type="error" message={loadError} />
-            )}
-            <Descriptions title="资产资料" bordered size="small" column={2}>
-              <Descriptions.Item label="硬件序列号">
-                <Typography.Text copyable>{asset.hardwareSn}</Typography.Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="资产状态">
-                <Tag color={assetColors[asset.lifecycleStatus]}>
-                  {assetLabels[asset.lifecycleStatus]}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="设备型号">
-                {asset.modelCode}
-              </Descriptions.Item>
-              <Descriptions.Item label="生产批次">
-                {asset.productionBatch || '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="预期投口数">
-                {asset.expectedPortCount}
-              </Descriptions.Item>
-              <Descriptions.Item label="资产版本">
-                v{asset.version}
-              </Descriptions.Item>
-              <Descriptions.Item label="登记时间">
-                {formatShanghaiTime(asset.createdAt)}
-              </Descriptions.Item>
-              <Descriptions.Item label="最后更新">
-                {formatShanghaiTime(asset.updatedAt)}
-              </Descriptions.Item>
-            </Descriptions>
-
-            <Descriptions title="OneNet 计算映射" bordered size="small" column={2}>
-              <Descriptions.Item label="产品 ID">
-                {asset.oneNetMapping?.productId || '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="设备名">
-                {asset.oneNetMapping?.deviceName ? (
-                  <Typography.Text copyable>
-                    {asset.oneNetMapping.deviceName}
-                  </Typography.Text>
-                ) : '—'}
-              </Descriptions.Item>
-            </Descriptions>
-
-            <Descriptions title="当前归属与部署" bordered size="small" column={2}>
-              <Descriptions.Item label="当前租户">
-                {currentAllocation?.tenantCode || '尚未分配'}
-              </Descriptions.Item>
-              <Descriptions.Item label="分配状态">
-                {currentAllocation ? (
-                  <Tag color={allocationColors[currentAllocation.allocationStatus]}>
-                    {allocationLabels[currentAllocation.allocationStatus]}
-                  </Tag>
-                ) : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="当前部署">
-                {asset.currentDeployment ? (
-                  <Space direction="vertical" size={0}>
-                    <Typography.Text copyable>
-                      {asset.currentDeployment.deploymentCode}
-                    </Typography.Text>
-                    <Typography.Text type="secondary">
-                      {asset.currentDeployment.tenantCode}
-                      {' / '}
-                      {asset.currentDeployment.organizationCode}
-                    </Typography.Text>
-                  </Space>
-                ) : '尚未部署'}
-              </Descriptions.Item>
-              <Descriptions.Item label="平台收回">
-                {currentAllocation ? (
-                  <Space>
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        resetCommandFeedback();
-                        reclaimForm.setFieldsValue({
-                          mode: 'NORMAL',
-                          physicalPossessionConfirmed: false,
-                          reason: '',
-                        });
-                        setReclaiming(currentAllocation);
-                      }}
-                    >
-                      正常 / 异常收回
-                    </Button>
-                  </Space>
-                ) : '—'}
-              </Descriptions.Item>
-            </Descriptions>
-
-            <div>
-              <Typography.Title level={5}>租户分配历史</Typography.Title>
-              {allocations.length ? (
-                <Table<DeviceTenantAllocation>
-                  size="small"
-                  rowKey="allocationUid"
-                  pagination={false}
-                  dataSource={allocations}
-                  scroll={{ x: 920 }}
-                  columns={[
-                    { title: '租户', dataIndex: 'tenantCode', width: 160 },
-                    {
-                      title: '状态',
-                      dataIndex: 'allocationStatus',
-                      width: 100,
-                      render: (value: DeviceTenantAllocation['allocationStatus']) => (
-                        <Tag color={allocationColors[value]}>
-                          {allocationLabels[value]}
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: '分配时间',
-                      dataIndex: 'allocatedAt',
-                      width: 180,
-                      render: (value) => formatShanghaiTime(value),
-                    },
-                    {
-                      title: '结束时间',
-                      dataIndex: 'endedAt',
-                      width: 180,
-                      render: (value) => value ? formatShanghaiTime(value) : '—',
-                    },
-                    { title: '结束方式', dataIndex: 'endMode', width: 110 },
-                    { title: '原因', dataIndex: 'endReason' },
-                  ]}
-                />
-              ) : (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="这台资产还没有租户分配记录"
-                />
-              )}
-            </div>
-          </Space>
-        ) : null}
       </Drawer>
 
       <Modal
-        title="分配给租户"
-        open={allocateOpen}
-        okText="提交分配"
+        width={760}
+        title="发布日常价格与设备配置"
+        open={configurationModalOpen}
         confirmLoading={submitting}
-        onOk={() => void submitAllocation()}
-        onCancel={() => !submitting && setAllocateOpen(false)}
-        destroyOnClose
-        footer={rotationRequired ? (
-          <Space>
-            <Button onClick={() => setAllocateOpen(false)} disabled={submitting}>
-              取消
-            </Button>
-            <Button
-              type="primary"
-              icon={<KeyOutlined />}
-              loading={submitting}
-              onClick={() => void confirmRotation()}
-            >
-              确认已轮换 Device Key
-            </Button>
-          </Space>
-        ) : undefined}
+        onOk={() => void publishConfiguration()}
+        onCancel={() => setConfigurationModalOpen(false)}
+        okText="发布并自动下发"
       >
         <Alert
-          showIcon
-          type="info"
-          message="分配只确定租户归属"
-          description="此处不选择机构，也不开启经营。分配完成后，租户再从设备池发起机构部署。"
-          style={{ marginBottom: 16 }}
-        />
-        {commandAlert}
-        <Form<AllocateFormValues>
-          form={allocateForm}
-          layout="vertical"
-          disabled={submitting}
-        >
-          <Form.Item
-            name="tenantCode"
-            label="目标租户"
-            rules={[{ required: true, message: '请选择目标租户' }]}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={tenantOptions}
-              placeholder="选择租户"
-            />
-          </Form.Item>
-          <Form.Item
-            name="reason"
-            label="分配原因"
-            rules={[{ max: 500, message: '最多 500 个字符' }]}
-          >
-            <Input.TextArea rows={3} placeholder="可选" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="平台收回设备"
-        open={!!reclaiming}
-        okText="确认收回"
-        confirmLoading={submitting}
-        onOk={() => void submitReclaim()}
-        onCancel={() => !submitting && setReclaiming(undefined)}
-        destroyOnClose
-      >
-        <Alert
-          showIcon
           type="warning"
-          message="请以实物已收回为事实依据"
-          description="正常收回会检查经营、作业、离线和待上传事实；异常收回会直接进入维修隔离，后续不能分配。"
-          style={{ marginBottom: 16 }}
+          showIcon
+          message="发布会生成一个不可修改的新版本"
+          description="当前进行中的投递或清运继续使用启动时冻结的旧配置；新业务只在新版本精确应用后使用它。"
+          style={{ marginBottom: 20 }}
         />
-        {commandAlert}
-        <Form<ReclaimFormValues>
-          form={reclaimForm}
-          layout="vertical"
-          disabled={submitting}
-        >
-          <Form.Item name="mode" label="收回方式" rules={[{ required: true }]}>
-            <Select options={[
-              { label: '正常收回（回平台库存）', value: 'NORMAL' },
-              { label: '异常收回（进维修隔离）', value: 'EXCEPTIONAL' },
-            ]} />
-          </Form.Item>
-          <Form.Item
-            name="physicalPossessionConfirmed"
-            valuePropName="checked"
-            rules={[{
-              validator: (_, value) => value
-                ? Promise.resolve()
-                : Promise.reject(new Error('必须确认实物已收回')),
-            }]}
-          >
-            <Checkbox>我确认设备实物已由平台收回</Checkbox>
-          </Form.Item>
+        <Form form={configForm} layout="vertical">
           <Form.Item
             name="reason"
-            label="收回原因"
-            rules={[
-              { required: true, message: '请填写收回原因' },
-              { max: 500, message: '最多 500 个字符' },
-            ]}
+            label="修改原因"
+            rules={[{ required: true, message: '请说明为什么修改配置' }]}
           >
-            <Input.TextArea rows={3} />
+            <Input.TextArea maxLength={500} showCount rows={2} />
           </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="解除维修隔离"
-        open={clearanceOpen}
-        okText="确认解除"
-        confirmLoading={submitting}
-        onOk={() => void submitClearance()}
-        onCancel={() => !submitting && setClearanceOpen(false)}
-        destroyOnClose
-      >
-        {commandAlert}
-        <Form<ClearanceFormValues>
-          form={clearanceForm}
-          layout="vertical"
-          disabled={submitting}
-        >
-          <Form.Item
-            name="physicalPossessionConfirmed"
-            valuePropName="checked"
-            rules={[{
-              validator: (_, value) => value
-                ? Promise.resolve()
-                : Promise.reject(new Error('请确认实物已收回')),
-            }]}
-          >
-            <Checkbox>设备实物已在平台手中</Checkbox>
-          </Form.Item>
-          <Form.Item
-            name="inspectionConfirmed"
-            valuePropName="checked"
-            rules={[{
-              validator: (_, value) => value
-                ? Promise.resolve()
-                : Promise.reject(new Error('请确认检查已通过')),
-            }]}
-          >
-            <Checkbox>维修检查已通过，可重新入库</Checkbox>
-          </Form.Item>
-          <Form.Item
-            name="reason"
-            label="解除原因"
-            rules={[
-              { required: true, message: '请填写检查结论' },
-              { max: 500, message: '最多 500 个字符' },
-            ]}
-          >
-            <Input.TextArea rows={3} />
-          </Form.Item>
+          <Space size={16} style={{ width: '100%' }} align="start">
+            <Form.Item
+              name={['device', 'displayName']}
+              label="设备显示名"
+              rules={[{ required: true }]}
+              style={{ flex: 1 }}
+            >
+              <Input maxLength={100} />
+            </Form.Item>
+            <Form.Item
+              name={['device', 'address']}
+              label="安装地址"
+              style={{ flex: 2 }}
+            >
+              <Input maxLength={500} />
+            </Form.Item>
+          </Space>
+          <Divider orientation="left">投口日常参数</Divider>
+          {latestVersion?.ports.map((port, index) => (
+            <Card
+              key={port.portNo}
+              size="small"
+              title={`${port.portNo} 号投口`}
+              style={{ marginBottom: 12 }}
+              extra={
+                <Form.Item
+                  name={['ports', index, 'enabled']}
+                  valuePropName="checked"
+                  noStyle
+                >
+                  <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                </Form.Item>
+              }
+            >
+              <Space size={16} align="start" wrap>
+                <Form.Item
+                  name={['ports', index, 'displayName']}
+                  label="显示名"
+                  rules={[{ required: true }]}
+                >
+                  <Input maxLength={32} style={{ width: 180 }} />
+                </Form.Item>
+                <Form.Item
+                  name={['ports', index, 'unitPriceYuanPerKg']}
+                  label="单价（元/千克）"
+                  rules={[{ required: true }]}
+                >
+                  <InputNumber
+                    stringMode
+                    min="0.0001"
+                    precision={4}
+                    style={{ width: 180 }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name={['ports', index, 'fullnessWeightKg']}
+                  label="满载重量（千克）"
+                  rules={[{ required: true }]}
+                >
+                  <InputNumber
+                    stringMode
+                    min="0.001"
+                    precision={3}
+                    style={{ width: 180 }}
+                  />
+                </Form.Item>
+              </Space>
+            </Card>
+          ))}
         </Form>
       </Modal>
     </>

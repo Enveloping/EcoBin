@@ -73,4 +73,20 @@ class WechatChannelEvidencePolicyTest {
         assertTrue(validation.violations().contains("AMOUNT_MISSING"));
         assertTrue(validation.violations().contains("OPENID_MISSING"));
     }
+
+    @Test
+    void authorizedTransferRejectsUserConfirmationState() {
+        assertFalse(WechatChannelEvidencePolicy
+                .isTransferStateCompatibleWithCollectionMode(
+                        "AUTHORIZED",
+                        MerchantTransferResult.Outcome.WAIT_USER_CONFIRM));
+        assertTrue(WechatChannelEvidencePolicy
+                .isTransferStateCompatibleWithCollectionMode(
+                        "AUTHORIZED",
+                        MerchantTransferResult.Outcome.PROCESSING));
+        assertTrue(WechatChannelEvidencePolicy
+                .isTransferStateCompatibleWithCollectionMode(
+                        "USER_CONFIRM",
+                        MerchantTransferResult.Outcome.WAIT_USER_CONFIRM));
+    }
 }

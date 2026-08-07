@@ -141,6 +141,8 @@ public class OneNetMqConsumer implements SmartLifecycle {
             } finally {
                 if (message != null) {
                     try {
+                        // acknowledge=true 只在消息已可靠落库或已判定为永久毒消息时出现。
+                        // 暂时性失败 negative ACK，让 Pulsar 保留并重投原消息。
                         if (acknowledge) {
                             consumer.acknowledge(message);
                         } else {

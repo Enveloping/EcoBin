@@ -1,9 +1,12 @@
 import { bindCurrentPhone } from '../../api/auth'
 import {
+  createMerchantTransferAuthorization,
   createWithdrawal,
+  merchantTransferAuthorization,
   merchantTransferConfirmation,
   myWithdrawal,
   myWithdrawals,
+  queryMerchantTransferAuthorization,
   withdrawalConfiguration,
 } from '../../api/withdrawal'
 import { myWallet } from '../../api/wallet'
@@ -38,6 +41,7 @@ import {
   type WithdrawalAmountError,
 } from '../../utils/withdrawal-validation'
 import type {
+  MerchantTransferAuthorizationView,
   WithdrawalConfigurationView,
   WithdrawalStatus,
   WithdrawalView,
@@ -66,6 +70,8 @@ type MerchantTransferWx = typeof wx & {
 const PAGE_SIZE = 20
 const POLL_DELAYS_MS = [2000, 3000, 5000]
 const MAX_POLL_ELAPSED_MS = 60_000
+const AUTHORIZATION_POLL_DELAYS_MS = [1000, 1500, 2000, 3000]
+const MAX_AUTHORIZATION_POLL_ELAPSED_MS = 45_000
 
 const TERMINAL_STATUSES = new Set<WithdrawalStatus>([
   'SUCCEEDED',
@@ -171,6 +177,7 @@ function wait(milliseconds: number): Promise<void> {
 Page({
   requestGeneration: 0,
   pollGeneration: 0,
+  authorizationPollGeneration: 0,
   cursorRecoveryUsed: false,
   phoneBindingIntentKey: '',
   createIntent: null as PendingWithdrawalIntent | null,
@@ -184,6 +191,10 @@ Page({
     minimumText: '—',
     maximumText: '—',
     configuration: null as WithdrawalConfigurationView | null,
+    authorization: null as MerchantTransferAuthorizationView | null,
+    authorizationLoading: true,
+    authorizationError: '',
+    authorizationSubmitting: false,
     eligibilityLoading: true,
     eligibilityError: '',
     items: [] as WithdrawalListItem[],
@@ -213,7 +224,11 @@ Page({
   },
 
   onShow() {
-    if (!this.data.initialLoading && !this.data.submitting) {
+    if (
+      !this.data.initialLoading
+      && !this.data.submitting
+      && !this.data.authorizationSubmitting
+    ) {
       void this.reload()
     }
   },
@@ -229,6 +244,7 @@ Page({
   onUnload() {
     this.requestGeneration += 1
     this.pollGeneration += 1
+    this.authorizationPollGeneration += 1
     cancelAfterPhoneBindingPrompt()
   },
 
@@ -242,6 +258,8 @@ Page({
       eligibilityLoading: true,
       eligibilityError: '',
       canSubmit: false,
+      authorizationLoading: true,
+      authorizationError: '',
       listLoading: true,
       loadingMore: false,
       listError: '',
@@ -252,6 +270,7 @@ Page({
     try {
       await Promise.all([
         this.loadEligibility(generation),
+        this.loadAuthorization(generation),
         this.fetchPage(undefined, generation),
       ])
     } finally {
@@ -292,6 +311,31 @@ Page({
       if (generation === this.requestGeneration) {
         this.setData(
           { eligibilityLoading: false },
+          () => this.refreshAmountValidation(),
+        )
+      }
+    }
+  },
+
+  async loadAuthorization(generation: number) {
+    try {
+      const authorization = await merchantTransferAuthorization(false)
+      if (generation !== this.requestGeneration) return
+      this.setData({
+        authorization,
+        authorizationError: '',
+      })
+    } catch (error) {
+      if (generation !== this.requestGeneration) return
+      this.setData({
+        authorization: null,
+        authorizationError: errorText(error),
+        canSubmit: false,
+      })
+    } finally {
+      if (generation === this.requestGeneration) {
+        this.setData(
+          { authorizationLoading: false },
           () => this.refreshAmountValidation(),
         )
       }
@@ -376,7 +420,11 @@ Page({
           this.data.configuration,
           this.data.availableBalanceYuan,
         ),
-      canSubmit: result.ok && !this.data.eligibilityLoading,
+      canSubmit: result.ok
+        && !this.data.eligibilityLoading
+        && !this.data.authorizationLoading
+        && !this.data.authorizationSubmitting
+        && this.data.authorization?.status === 'ACTIVE',
     })
   },
 
@@ -402,8 +450,192 @@ Page({
     )
   },
 
+  onAuthorizationAction() {
+    if (this.data.authorizationSubmitting) return
+    const proceed = () => void this.startAuthorizationAction()
+    if (requestPhoneBindingBeforeAction(getSession(), proceed)) return
+    proceed()
+  },
+
+  async startAuthorizationAction() {
+    if (this.data.authorizationSubmitting) return
+    this.setData({
+      authorizationSubmitting: true,
+      authorizationError: '',
+    })
+    try {
+      let current = this.data.authorization
+        ?? await merchantTransferAuthorization(false)
+      this.setAuthorization(current)
+      if (
+        current.status === 'NOT_OPENED'
+        || current.status === 'CLOSED'
+        || current.status === 'EXPIRED'
+      ) {
+        await createMerchantTransferAuthorization(
+          await createIdempotencyKey(),
+        )
+        current = await this.pollAuthorizationUntil(
+          (item) => item.status !== 'PREPARING',
+          '微信授权申请仍在准备中，请稍后重试',
+        )
+      }
+      if (current.status === 'ACTIVE') {
+        wx.showToast({ title: '自动收款已开通', icon: 'success' })
+        return
+      }
+      if (current.status === 'PREPARING') {
+        current = await this.pollAuthorizationUntil(
+          (item) => item.status !== 'PREPARING',
+          '微信授权申请仍在准备中，请稍后重试',
+        )
+      }
+      if (current.status === 'UNKNOWN') {
+        await queryMerchantTransferAuthorization(
+          await createIdempotencyKey(),
+        )
+        current = await this.pollAuthorizationUntil(
+          (item) => item.status !== 'UNKNOWN',
+          '授权状态仍在核对，请稍后再试',
+        )
+      }
+      if (current.status !== 'WAIT_USER_CONFIRM') {
+        if (current.status === 'ACTIVE') {
+          wx.showToast({ title: '自动收款已开通', icon: 'success' })
+          return
+        }
+        throw new Error('当前授权已结束，请重新发起授权')
+      }
+      await this.refreshAndOpenAuthorization(current)
+    } catch (error) {
+      const message = errorText(error)
+      this.setData({ authorizationError: message })
+      wx.showToast({ title: message, icon: 'none' })
+    } finally {
+      this.setData({ authorizationSubmitting: false })
+      this.refreshAmountValidation()
+    }
+  },
+
+  async refreshAndOpenAuthorization(
+    current: MerchantTransferAuthorizationView,
+  ) {
+    const previousQueryAt = current.lastSuccessfulQueryAt
+    await queryMerchantTransferAuthorization(await createIdempotencyKey())
+    const refreshed = await this.pollAuthorizationUntil(
+      (item) => item.status !== 'WAIT_USER_CONFIRM'
+        || (
+          item.lastSuccessfulQueryAt !== null
+          && item.lastSuccessfulQueryAt !== previousQueryAt
+        ),
+      '微信授权参数刷新超时，请稍后重试',
+    )
+    if (refreshed.status === 'ACTIVE') {
+      wx.showToast({ title: '自动收款已开通', icon: 'success' })
+      return
+    }
+    if (
+      refreshed.status !== 'WAIT_USER_CONFIRM'
+      || !refreshed.confirmationRequired
+      || !refreshed.appId
+      || !refreshed.mchId
+      || !refreshed.packageInfo
+    ) {
+      throw new Error('微信授权参数当前不可用，请稍后重试')
+    }
+    const currentAppId = wx.getAccountInfoSync().miniProgram.appId
+    if (refreshed.appId !== currentAppId) {
+      throw new Error('当前小程序与授权 AppID 不一致，已停止调起授权页')
+    }
+    if (!wx.canIUse('requestMerchantTransfer')) {
+      throw new Error('当前微信版本过低，请更新后再开通自动收款')
+    }
+    const returned = await this.requestAuthorizationPage(refreshed)
+    if (!returned) {
+      wx.showToast({ title: '你暂未完成自动收款授权', icon: 'none' })
+      return
+    }
+    const beforeConfirmationQuery = refreshed.lastSuccessfulQueryAt
+    await queryMerchantTransferAuthorization(await createIdempotencyKey())
+    const confirmed = await this.pollAuthorizationUntil(
+      (item) => item.status !== 'WAIT_USER_CONFIRM'
+        || (
+          item.lastSuccessfulQueryAt !== null
+          && item.lastSuccessfulQueryAt !== beforeConfirmationQuery
+        ),
+      '微信授权结果仍在核对，请稍后下拉刷新',
+    )
+    if (confirmed.status === 'ACTIVE') {
+      wx.showToast({ title: '自动收款已开通', icon: 'success' })
+    } else if (confirmed.status === 'WAIT_USER_CONFIRM') {
+      wx.showToast({ title: '尚未确认授权，可稍后继续', icon: 'none' })
+    } else {
+      throw new Error('微信授权未生效，请重新发起授权')
+    }
+  },
+
+  requestAuthorizationPage(
+    authorization: MerchantTransferAuthorizationView,
+  ): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const merchantWx = wx as MerchantTransferWx
+      merchantWx.requestMerchantTransfer({
+        mchId: authorization.mchId as string,
+        appId: authorization.appId as string,
+        package: authorization.packageInfo as string,
+        success: () => resolve(true),
+        fail: (result) => {
+          if (result.errMsg.includes('cancel')) {
+            resolve(false)
+            return
+          }
+          reject(new Error('微信自动收款授权页调起失败'))
+        },
+      })
+    })
+  },
+
+  async pollAuthorizationUntil(
+    completed: (item: MerchantTransferAuthorizationView) => boolean,
+    timeoutMessage: string,
+  ): Promise<MerchantTransferAuthorizationView> {
+    const generation = ++this.authorizationPollGeneration
+    const startedAt = Date.now()
+    let delayIndex = 0
+    while (
+      generation === this.authorizationPollGeneration
+      && Date.now() - startedAt < MAX_AUTHORIZATION_POLL_ELAPSED_MS
+    ) {
+      const delay = AUTHORIZATION_POLL_DELAYS_MS[Math.min(
+        delayIndex,
+        AUTHORIZATION_POLL_DELAYS_MS.length - 1,
+      )]
+      delayIndex += 1
+      await wait(delay)
+      if (generation !== this.authorizationPollGeneration) {
+        throw new Error('授权状态读取已停止')
+      }
+      const current = await merchantTransferAuthorization(false)
+      this.setAuthorization(current)
+      if (completed(current)) return current
+    }
+    throw new Error(timeoutMessage)
+  },
+
+  setAuthorization(authorization: MerchantTransferAuthorizationView) {
+    this.setData({
+      authorization,
+      authorizationLoading: false,
+      authorizationError: '',
+    }, () => this.refreshAmountValidation())
+  },
+
   onCreate() {
     if (this.data.submitting) return
+    if (this.data.authorization?.status !== 'ACTIVE') {
+      wx.showToast({ title: '请先开通微信自动收款', icon: 'none' })
+      return
+    }
     const result = validateWithdrawalAmount(
       this.data.amountYuan,
       this.data.configuration,

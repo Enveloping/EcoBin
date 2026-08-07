@@ -2,7 +2,6 @@
   "commandType": "APPLY_CONFIGURATION",
   "commandUid": "20000000-0000-4000-8000-000000000001",
   "cosGrant": null,
-  "deploymentCode": "Dp_demo_01",
   "expiresAt": "2026-07-24T01:01:00.000Z",
   "issuedAt": "2026-07-24T01:00:00.000Z",
   "payload": {
@@ -68,11 +67,12 @@
       }
     ]
   },
-  "payloadSchemaVersion": 1,
+  "payloadSchemaVersion": 2,
   "payloadSha256": "281de5721b8bdabd0c903f290c841b90c2c4cd90433c4d5fe7256651c3b04f11",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "CONFIGURATION_APPLICATION",
     "uid": "10000000-0000-4000-8000-000000000001"
-  }
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
 }

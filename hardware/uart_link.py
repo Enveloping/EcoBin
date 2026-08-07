@@ -79,6 +79,8 @@ class UartError(Exception):
 class UartLink:
     """UART 1.0 串行链路。"""
 
+    is_simulated = False
+
     def __init__(self, port: str, edge_boot_id: int, port_count: int = 6,
                  baudrate: int = 115200, timeout_s: float = 0.5,
                  required_capability_bitmap: int = REQUIRED_MCU_CAPABILITY_BITMAP):

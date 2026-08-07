@@ -14,8 +14,7 @@ public interface ReliableEdgeConfirmationPort {
     UUID registerApplied(
             long tenantId,
             long organizationId,
-            long deploymentId,
-            String deploymentCode,
+            long assetId,
             String originalEventUid,
             String originalPayloadSha256,
             String effectKind,

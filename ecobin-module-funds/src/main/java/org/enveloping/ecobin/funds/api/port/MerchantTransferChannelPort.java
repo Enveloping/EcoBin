@@ -8,6 +8,9 @@ public interface MerchantTransferChannelPort {
 
     MerchantTransferResult submit(MerchantTransferRequest request);
 
+    MerchantTransferResult submitAuthorized(
+            AuthorizedMerchantTransferRequest request);
+
     MerchantTransferResult query(MerchantTransferQuery query);
 
     record MerchantTransferRequest(
@@ -45,6 +48,35 @@ public interface MerchantTransferChannelPort {
         public MerchantTransferQuery {
             requireText(mchid, "mchid");
             requireText(outBillNo, "outBillNo");
+        }
+    }
+
+    record AuthorizedMerchantTransferRequest(
+            String mchid,
+            String appid,
+            String outBillNo,
+            long amountCent,
+            String sceneId,
+            String reportType,
+            String reportContent,
+            String remark,
+            String authorizationId,
+            String expectedOpenid) {
+
+        public AuthorizedMerchantTransferRequest {
+            requireText(mchid, "mchid");
+            requireText(appid, "appid");
+            requireText(outBillNo, "outBillNo");
+            if (amountCent <= 0) {
+                throw new IllegalArgumentException(
+                        "amountCent must be positive");
+            }
+            requireText(sceneId, "sceneId");
+            requireText(reportType, "reportType");
+            requireText(reportContent, "reportContent");
+            requireText(remark, "remark");
+            requireText(authorizationId, "authorizationId");
+            requireText(expectedOpenid, "expectedOpenid");
         }
     }
 

@@ -1,0 +1,32 @@
+{
+  "commandType": "REQUEST_DEVICE_ACCEPTANCE",
+  "commandUid": "8a000000-0000-4000-8000-000000000004",
+  "cosGrant": {
+    "baseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+    "bucket": "ecobin-contract-1250000000",
+    "expiresAt": "2026-07-24T01:30:00.000Z",
+    "grantUid": "71000000-0000-4000-8000-000000000006",
+    "keyPrefix": "ecobin/device-acceptance/8a000000-0000-4000-8000-000000000003/",
+    "region": "ap-guangzhou",
+    "sessionTokenParts": [
+      "TOKEN_6_PART_1",
+      "TOKEN_6_PART_2"
+    ],
+    "tmpSecretId": "TMP_SECRET_ID_6",
+    "tmpSecretKey": "TMP_SECRET_KEY_6"
+  },
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "challengeUid": "8a000000-0000-4000-8000-000000000003",
+    "expectedPortCount": 2
+  },
+  "payloadSchemaVersion": 2,
+  "payloadSha256": "43f36b2e34a79bf0b8053f62072504d5b8651a384331c943b0656d7ab0c47842",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
+}

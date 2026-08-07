@@ -2,12 +2,16 @@ package org.enveloping.ecobin.integration.wechatpay;
 
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -16,6 +20,11 @@ class WechatPayChannelEvidenceAdapterTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final WechatPayApiV3Client client = mock(WechatPayApiV3Client.class);
+
+    @BeforeEach
+    void configureMerchant() {
+        when(client.usesMerchant("190001")).thenReturn(true);
+    }
 
     @Test
     void nativeQueryKeepsWechatOrderIdentityAndAmount() throws Exception {
@@ -216,6 +225,46 @@ class WechatPayChannelEvidenceAdapterTest {
                 result.outcome());
         assertNull(result.channelState());
         assertEquals("SIGNATURE_ERROR", result.errorCode());
+    }
+
+    @Test
+    void authorizedTransferUsesDedicatedEndpointAndOmitsPerOrderConfirmation()
+            throws Exception {
+        ArgumentCaptor<JsonNode> body = ArgumentCaptor.forClass(JsonNode.class);
+        when(client.post(
+                org.mockito.ArgumentMatchers.eq(
+                        "/v3/fund-app/mch-transfer/transfer-bills/transfer"),
+                body.capture())).thenReturn(mapper.readTree("""
+                        {
+                          "mch_id":"190001",
+                          "out_bill_no":"MTAUTH123",
+                          "transfer_bill_no":"WXAUTH420001",
+                          "appid":"wx-app-1",
+                          "state":"PROCESSING",
+                          "transfer_amount":100,
+                          "openid":"openid-1",
+                          "create_time":"2026-08-06T10:00:00+08:00",
+                          "update_time":"2026-08-06T10:00:01+08:00"
+                        }
+                        """));
+
+        var result = new WechatPayMerchantTransferAdapter(client, mapper)
+                .submitAuthorized(new MerchantTransferChannelPort
+                        .AuthorizedMerchantTransferRequest(
+                        "190001", "wx-app-1", "MTAUTH123", 100,
+                        "1001", "RECYCLED_GOODS_NAME",
+                        "MIXED_RECYCLABLES", "test transfer",
+                        "AUTHORIZATION123", "openid-1"));
+
+        assertEquals(
+                MerchantTransferChannelPort.MerchantTransferResult.Outcome
+                        .PROCESSING,
+                result.outcome());
+        assertEquals("AUTHORIZATION123",
+                body.getValue().path("authorization_id").asText());
+        assertFalse(body.getValue().has("openid"));
+        assertFalse(body.getValue().has("notify_url"));
+        assertFalse(body.getValue().has("user_recv_style"));
     }
 
     private MerchantTransferChannelPort.MerchantTransferRequest transferRequest(

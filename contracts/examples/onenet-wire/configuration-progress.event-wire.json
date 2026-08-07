@@ -11,7 +11,6 @@
           "commandUid": "20000000-0000-4000-8000-000000000001",
           "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1047,
           "errorCode": "",
           "errorCodePresent": false,

@@ -6,6 +6,19 @@ Set-StrictMode -Version Latest
 
 $catalogPath = Join-Path $PSScriptRoot "../h02-runtime-grants.psd1"
 $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
+$provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
+$provisionSource = Get-Content -LiteralPath $provisionPath -Raw
+
+if ($provisionSource -notmatch '\$tables\.Count -ne 93' -or
+        $provisionSource -notmatch 'Expected 93 domain tables') {
+    throw "H-02 provisioning must enforce the V36 93-table shape"
+}
+if ($provisionSource -match 'Expected 99 domain tables') {
+    throw "H-02 provisioning still enforces the removed V35 table count"
+}
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 36') {
+    throw "H-02 provisioning must migrate through V36"
+}
 
 foreach ($entry in $catalog.UpdateColumns.GetEnumerator()) {
     $columns = @($entry.Value)
@@ -15,6 +28,55 @@ foreach ($entry in $catalog.UpdateColumns.GetEnumerator()) {
     if (@($columns | Sort-Object -Unique).Count -ne $columns.Count) {
         throw "Runtime update grant list contains duplicates for $($entry.Key)"
     }
+}
+
+$removedDeviceTables = @(
+    "dev_device_deployment"
+    "dev_asset_tenant_allocation"
+    "dev_asset_active_deployment"
+    "dev_asset_active_tenant_allocation"
+    "dev_deployment_runtime_state"
+)
+$catalogTables = @(
+    $catalog.ReadOnlyTables
+    $catalog.SlotTables
+    $catalog.UpdateColumns.Keys
+    $catalog.PendingUpdateTables
+)
+foreach ($removedTable in $removedDeviceTables) {
+    if ($catalogTables -contains $removedTable) {
+        throw "V36 removed table remains in runtime grants: $removedTable"
+    }
+}
+
+$assetRequiredColumns = @(
+    "tenant_id"
+    "tenant_assigned_at"
+    "organization_id"
+    "organization_assigned_at"
+    "acceptance_status"
+    "accepted_at"
+    "acceptance_evidence_sha256"
+    "last_acceptance_evaluated_at"
+    "acceptance_failure_json"
+    "miniapp_qr_status"
+    "miniapp_qr_object_key"
+    "miniapp_qr_generated_at"
+    "lifecycle_status"
+    "disabled_at"
+    "disable_reason"
+    "retired_at"
+    "retirement_reason"
+    "control_version"
+    "updated_at"
+)
+$assetColumns = @($catalog.UpdateColumns.dev_device_asset)
+if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
+    throw "dev_device_asset runtime UPDATE grants do not match V36"
+}
+
+if (-not $catalog.UpdateColumns.ContainsKey("dev_device_runtime_state")) {
+    throw "V36 dev_device_runtime_state runtime UPDATE grants are missing"
 }
 
 $opsAlertColumns = @($catalog.UpdateColumns.ops_alert)
@@ -54,6 +116,47 @@ if ($missingMerchantBindingColumns.Count -ne 0 -or
         "match the frozen projection columns; missing=" +
         ($missingMerchantBindingColumns -join ", ") + "; unexpected=" +
         ($unexpectedMerchantBindingColumns -join ", ")
+    )
+}
+
+$transferAuthorizationAllowedColumns = @(
+    "authorization_id"
+    "local_state"
+    "channel_state"
+    "package_info"
+    "last_api_error_code"
+    "close_reason"
+    "state_conflict"
+    "submitted_at"
+    "channel_created_at"
+    "confirmation_deadline_at"
+    "authorized_at"
+    "closed_at"
+    "channel_updated_at"
+    "lock_version"
+    "updated_at"
+)
+$transferAuthorizationColumns = @(
+    $catalog.UpdateColumns.fund_wechat_transfer_authorization
+)
+$unexpectedTransferAuthorizationColumns = @(
+    $transferAuthorizationColumns |
+        Where-Object {
+            $transferAuthorizationAllowedColumns -notcontains $_
+        }
+)
+$missingTransferAuthorizationColumns = @(
+    $transferAuthorizationAllowedColumns |
+        Where-Object { $transferAuthorizationColumns -notcontains $_ }
+)
+if ($missingTransferAuthorizationColumns.Count -ne 0 -or
+        $unexpectedTransferAuthorizationColumns.Count -ne 0) {
+    throw (
+        "fund_wechat_transfer_authorization runtime UPDATE grants must " +
+        "exclude immutable request and recipient snapshots; missing=" +
+        ($missingTransferAuthorizationColumns -join ", ") +
+        "; unexpected=" +
+        ($unexpectedTransferAuthorizationColumns -join ", ")
     )
 }
 

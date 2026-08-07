@@ -59,12 +59,12 @@ public class FullnessQueryService {
             boolean platform,
             String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             int portNo) {
         AuthorizedManagementScope scope = webScope(
                 platform, tenantCode, organizationCode, "device.read");
         return capacity(ports.requirePort(
-                scope.persistenceRef(), deploymentCode, portNo));
+                scope.persistenceRef(), deviceCode, portNo));
     }
 
     @Transactional(readOnly = true)
@@ -72,18 +72,18 @@ public class FullnessQueryService {
             boolean platform,
             String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String cursor,
             Integer requestedLimit) {
         AuthorizedManagementScope scope = webScope(
                 platform, tenantCode, organizationCode, "device.read");
         ResolvedRecyclingDevicePort port = ports.requirePort(
-                scope.persistenceRef(), deploymentCode, portNo);
+                scope.persistenceRef(), deviceCode, portNo);
         int limit = limit(requestedLimit);
         String cursorScope = cursorScope(
                 scope.tenantCode(), scope.organizations().getFirst().code(),
-                port.deploymentCode(), port.portNo());
+                port.deviceCode(), port.portNo());
         HistoryCursor anchor = cursor(cursorScope, cursor);
         return port.persistenceRef().consumeOnce(
                 (tenantId, organizationId, portId) -> historyOwned(
@@ -130,13 +130,13 @@ public class FullnessQueryService {
             boolean platform,
             String tenantCode,
             String organizationCode,
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             UUID stateChangeUid) {
         AuthorizedManagementScope scope = webScope(
                 platform, tenantCode, organizationCode, "device.read");
         ResolvedRecyclingDevicePort port = ports.requirePort(
-                scope.persistenceRef(), deploymentCode, portNo);
+                scope.persistenceRef(), deviceCode, portNo);
         if (stateChangeUid == null) {
             throw notFound();
         }
@@ -155,13 +155,13 @@ public class FullnessQueryService {
 
     @Transactional(readOnly = true)
     public PortCapacityView staffCapacity(
-            String deploymentCode, int portNo) {
+            String deviceCode, int portNo) {
         var authorized = authorization.authorize(
                 new ManagementScopeAuthorizationQuery(
                         Channel.MINIAPP_STAFF,
                         false, null, null, "device.read"));
         return capacity(ports.requirePort(
-                authorized.persistenceRef(), deploymentCode, portNo));
+                authorized.persistenceRef(), deviceCode, portNo));
     }
 
     private AuthorizedManagementScope webScope(
@@ -206,7 +206,7 @@ public class FullnessQueryService {
                           AND capacity.port_id = ?
                         """,
                 (rs, ignored) -> new PortCapacityView(
-                        port.deploymentCode(),
+                        port.deviceCode(),
                         port.portNo(),
                         rs.getString("bag_code"),
                         value(rs, "baseline_state", "UNINITIALIZED"),
@@ -231,7 +231,7 @@ public class FullnessQueryService {
                 tenantId, organizationId, portId)
                 .stream().findFirst().orElseGet(() ->
                         new PortCapacityView(
-                                port.deploymentCode(), port.portNo(), null,
+                                port.deviceCode(), port.portNo(), null,
                                 "UNINITIALIZED", null, null, null, null,
                                 "UNKNOWN", "UNKNOWN", "NO_DEVICE_REPORT",
                                 null, null, 0, asOf)));
@@ -363,9 +363,9 @@ public class FullnessQueryService {
 
     private static String cursorScope(
             String tenantCode, String organizationCode,
-            String deploymentCode, int portNo) {
+            String deviceCode, int portNo) {
         return tenantCode + ":" + organizationCode
-                + ":" + deploymentCode + ":" + portNo;
+                + ":" + deviceCode + ":" + portNo;
     }
 
     private static String value(

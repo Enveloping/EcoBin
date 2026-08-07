@@ -20,25 +20,25 @@ public class MiniappStaffFullnessController {
         this.service = service;
     }
 
-    @GetMapping("/api/v1/miniapp-staff/device-deployments/{deploymentCode}"
+    @GetMapping("/api/v1/miniapp-staff/devices/{deviceCode}"
             + "/ports/{portNo}/capacity")
     public ResponseEntity<TargetApiEnvelope<PortCapacityView>> capacity(
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             HttpServletRequest request) {
         return noStore(
-                service.staffCapacity(deploymentCode, portNo),
+                service.staffCapacity(deviceCode, portNo),
                 request);
     }
 
-    @GetMapping("/api/v1/miniapp-staff/device-deployments/{deploymentCode}"
+    @GetMapping("/api/v1/miniapp-staff/devices/{deviceCode}"
             + "/ports/{portNo}/fullness-state/current")
     public ResponseEntity<TargetApiEnvelope<PortCapacityView>> current(
-            @PathVariable String deploymentCode,
+            @PathVariable String deviceCode,
             @PathVariable int portNo,
             HttpServletRequest request) {
         return noStore(
-                service.staffCapacity(deploymentCode, portNo),
+                service.staffCapacity(deviceCode, portNo),
                 request);
     }
 

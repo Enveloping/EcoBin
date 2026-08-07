@@ -36,7 +36,7 @@ function enterDeviceLink(): void {
   wx.showModal({
     title: '填写设备二维码链接',
     editable: true,
-    placeholderText: '粘贴包含 deploymentCode 的完整设备链接',
+    placeholderText: '粘贴包含 deviceCode 的完整设备链接',
     confirmText: '识别',
     success: (result) => {
       if (result.confirm) acceptDeviceLink(result.content || '')

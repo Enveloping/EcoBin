@@ -6,35 +6,35 @@ import java.util.Objects;
 
 /**
  * Device-owned, single-use query scope for filtering Recycling delivery
- * orders by a resolved deployment, one port within that deployment, or all
+ * orders by a resolved asset, one port within that asset, or all
  * ports with the requested number inside an organization.
  */
 public final class DeliveryOrderDeviceFilterRef {
 
     private final long tenantKey;
     private final long organizationKey;
-    private final Long deploymentKey;
+    private final Long assetKey;
     private final List<Long> portKeys;
     private final DeliveryReadQueryRefGuard guard;
 
     DeliveryOrderDeviceFilterRef(
             long tenantKey,
             long organizationKey,
-            Long deploymentKey,
+            Long assetKey,
             List<Long> portKeys,
             Map<Object, Object> transactionResources) {
         this.tenantKey = positive(tenantKey, "tenantKey");
         this.organizationKey = positive(
                 organizationKey,
                 "organizationKey");
-        this.deploymentKey = nullablePositive(
-                deploymentKey,
-                "deploymentKey");
+        this.assetKey = nullablePositive(
+                assetKey,
+                "assetKey");
         this.portKeys = List.copyOf(
                 Objects.requireNonNull(portKeys, "portKeys"));
-        if (deploymentKey == null && this.portKeys.isEmpty()) {
+        if (assetKey == null && this.portKeys.isEmpty()) {
             throw new IllegalArgumentException(
-                    "deploymentKey or portKeys is required");
+                    "assetKey or portKeys is required");
         }
         for (Long portKey : this.portKeys) {
             nullablePositive(
@@ -57,7 +57,7 @@ public final class DeliveryOrderDeviceFilterRef {
         return function.apply(
                 tenantKey,
                 organizationKey,
-                deploymentKey,
+                assetKey,
                 portKeys);
     }
 
@@ -92,7 +92,7 @@ public final class DeliveryOrderDeviceFilterRef {
         T apply(
                 long tenantKey,
                 long organizationKey,
-                Long deploymentKey,
+                Long assetKey,
                 List<Long> portKeys);
     }
 }

@@ -1,6 +1,6 @@
 """Generated from contracts/uart/uart-registry.yaml.
 
-DO NOT EDIT. Registry SHA-256: 11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2
+DO NOT EDIT. Registry SHA-256: d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75
 Compatible with Python 3.11+.
 """
 
@@ -11,7 +11,7 @@ import hashlib
 import uuid
 from typing import Any, Mapping
 
-REGISTRY_SHA256 = "11bed613eba4a0302a914b197e37be1d36661912d197dfa162530ca6f20954a2"
+REGISTRY_SHA256 = "d2b73386e99e7f5be3b05129617afcfe4499cbc4d3f2e8401a4ce5342ca90b75"
 BAUD_RATE = 115200
 DATA_BITS = 8
 PARITY = "NONE"
@@ -1298,7 +1298,7 @@ REGISTRY = {'bitmaps': {'PortFaultBitmap': {'bits': {'CLEAN_SOLENOID_FAULT': 1,
                            {'name': 'snapshotSha256', 'type': 'sha256'}]}],
  'physicalLink': {'baudRate': 115200,
                   'dataBits': 8,
-                  'devicePath': 'DEPLOYMENT_CONFIGURED',
+                  'devicePath': 'RUNTIME_CONFIGURED',
                   'flowControl': 'NONE',
                   'parity': 'NONE',
                   'stopBits': 1},

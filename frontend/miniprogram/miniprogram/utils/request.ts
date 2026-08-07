@@ -32,7 +32,7 @@ export interface RequestOptions {
   /** 401 后是否允许受控重登录，默认 true。 */
   retryAfterLogin?: boolean
   /** 设备入口请求在会话失效重建用户时必须继续携带首次注册来源。 */
-  registrationSource?: { deploymentCode: string }
+  registrationSource?: { deviceCode: string }
   /** 内部标记：最多重登录并重试一次。 */
   _retried?: boolean
 }

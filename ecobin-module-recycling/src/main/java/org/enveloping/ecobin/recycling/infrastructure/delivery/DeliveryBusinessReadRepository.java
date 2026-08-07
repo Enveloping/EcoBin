@@ -12,7 +12,7 @@ interface DeliveryBusinessReadRepository {
     OptionsRows findCurrentOptions(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             List<Long> portIds);
 
     Optional<String> findDeliveryOrderNo(

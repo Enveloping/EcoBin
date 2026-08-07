@@ -9,15 +9,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 
 @Service
-public class TargetRegistrationDeploymentLookup
+public class TargetRegistrationAssetLookup
         implements OrganizationUserRegistrationAttributionPort {
 
     private final JdbcTemplate jdbc;
-    private final RegistrationDeploymentRefFactory referenceFactory;
+    private final RegistrationAssetRefFactory referenceFactory;
 
-    public TargetRegistrationDeploymentLookup(
+    public TargetRegistrationAssetLookup(
             JdbcTemplate jdbc,
-            RegistrationDeploymentRefFactory referenceFactory) {
+            RegistrationAssetRefFactory referenceFactory) {
         this.jdbc = jdbc;
         this.referenceFactory = referenceFactory;
     }
@@ -27,30 +27,28 @@ public class TargetRegistrationDeploymentLookup
     public Optional<ResolvedRegistrationAttribution> resolve(
             RegistrationAttributionQuery query) {
         return jdbc.query("""
-                        SELECT d.tenant_id, d.organization_id, d.id,
-                               d.public_code
-                        FROM dev_device_deployment d
-                        JOIN dev_asset_active_deployment active
-                          ON active.tenant_id = d.tenant_id
-                         AND active.organization_id = d.organization_id
-                         AND active.deployment_id = d.id
-                        JOIN iam_tenant t ON t.id = d.tenant_id
+                        SELECT a.tenant_id, a.organization_id, a.id,
+                               a.device_public_code
+                        FROM dev_device_asset a
+                        JOIN iam_tenant t ON t.id = a.tenant_id
                         JOIN iam_organization o
-                          ON o.tenant_id = d.tenant_id
-                         AND o.id = d.organization_id
-                        WHERE d.public_code = ?
+                          ON o.tenant_id = a.tenant_id
+                         AND o.id = a.organization_id
+                        WHERE a.device_public_code = ?
                           AND t.tenant_code = ?
                           AND o.organization_code = ?
-                          AND d.lifecycle_status <> 'ENDED'
+                          AND a.lifecycle_status = 'NORMAL'
+                          AND a.acceptance_status = 'PASSED'
+                          AND a.miniapp_qr_status = 'READY'
                         FOR UPDATE
                         """,
                 (rs, ignored) -> new ResolvedRegistrationAttribution(
-                        rs.getString("public_code"),
+                        rs.getString("device_public_code"),
                         referenceFactory.issue(
                                 rs.getLong("tenant_id"),
                                 rs.getLong("organization_id"),
                                 rs.getLong("id"))),
-                query.deploymentCode(),
+                query.deviceCode(),
                 query.tenantCode(),
                 query.organizationCode())
                 .stream()

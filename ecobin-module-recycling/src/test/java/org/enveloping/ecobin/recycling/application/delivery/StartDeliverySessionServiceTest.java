@@ -63,7 +63,8 @@ class StartDeliverySessionServiceTest {
             "40000000-0000-4000-8000-000000000001");
     private static final UUID COMMAND_UID = UUID.fromString(
             "50000000-0000-4000-8000-000000000001");
-    private static final String DEPLOYMENT_CODE = "Dp_demo_01";
+    private static final String DEVICE_CODE =
+            "Dv_0123456789abcdefghijklmn";
     private static final Instant AUTHORIZATION_EXPIRES_AT =
             Instant.parse("2026-07-29T03:01:00Z");
     private static final DeliveryRuleSnapshot DELIVERY_RULE =
@@ -175,7 +176,7 @@ class StartDeliverySessionServiceTest {
                         DELIVERY_SESSION_UID,
                         COMMAND_UID,
                         AUTHORIZATION_EXPIRES_AT,
-                        DEPLOYMENT_CODE,
+                        DEVICE_CODE,
                         2));
         when(audit.findSuccessful(OPERATION_UID))
                 .thenReturn(Optional.empty());
@@ -190,7 +191,7 @@ class StartDeliverySessionServiceTest {
 
         assertThatThrownBy(() -> service.start(
                 OPERATION_UID,
-                DEPLOYMENT_CODE,
+                DEVICE_CODE,
                 2))
                 .isInstanceOfSatisfying(
                         TargetApiException.class,
@@ -209,7 +210,7 @@ class StartDeliverySessionServiceTest {
     void sameActorAndRequestReplayTheStoredSuccessWithoutStartingAgain() {
         var first = service.start(
                 OPERATION_UID,
-                DEPLOYMENT_CODE,
+                DEVICE_CODE,
                 2);
         ArgumentCaptor<AuditEntry> auditCaptor =
                 ArgumentCaptor.forClass(AuditEntry.class);
@@ -220,7 +221,7 @@ class StartDeliverySessionServiceTest {
 
         var replayed = service.start(
                 OPERATION_UID,
-                DEPLOYMENT_CODE,
+                DEVICE_CODE,
                 2);
 
         assertThat(replayed).isEqualTo(first);

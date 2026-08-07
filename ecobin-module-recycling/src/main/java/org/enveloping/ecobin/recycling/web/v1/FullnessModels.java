@@ -9,7 +9,7 @@ public final class FullnessModels {
     private FullnessModels() { }
 
     public record PortCapacityView(
-            String deploymentCode,
+            String deviceCode,
             int portNo,
             String currentBagQr,
             String baselineState,

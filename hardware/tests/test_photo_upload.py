@@ -14,7 +14,7 @@ from photo_manager import PhotoManager
 from work_manager import WorkManager
 
 
-DEPLOYMENT_CODE = "Dp_demo_01"
+DEVICE_NAME = "SN-DEMO-0001"
 
 
 def _instant(delta: timedelta) -> str:
@@ -66,10 +66,7 @@ def _grant(work_uid):
             "https://ecobin-contract-1250000000.cos."
             "ap-guangzhou.myqcloud.com"
         ),
-        "keyPrefix": (
-            f"ecobin/{DEPLOYMENT_CODE}/delivery-session/"
-            f"{work_uid}/"
-        ),
+        "keyPrefix": f"ecobin/delivery-session/{work_uid}/",
         "expiresAt": _instant(timedelta(minutes=10)),
     }
 
@@ -84,17 +81,17 @@ def _grant_command(work_uid, request_event_uid, grant):
         ),
     }
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commandUid": str(uuid.uuid4()),
         "commandType": "PROVIDE_PHOTO_UPLOAD_GRANT",
-        "deploymentCode": DEPLOYMENT_CODE,
+        "targetDeviceName": DEVICE_NAME,
         "target": {
             "type": "PHOTO_GRANT_REQUEST",
             "uid": request_event_uid,
         },
         "issuedAt": _instant(timedelta()),
         "expiresAt": _instant(timedelta(minutes=5)),
-        "payloadSchemaVersion": 1,
+        "payloadSchemaVersion": 2,
         "payloadSha256": canonical_payload_sha256(payload),
         "payload": payload,
         "cosGrant": grant,
@@ -118,7 +115,7 @@ def test_photo_grant_upload_and_status_report_without_secret_persistence(
         str(local_path),
         work_uid=work_uid,
         work_type="DELIVERY_SESSION",
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         content_sha256=hashlib.sha256(content).hexdigest(),
         size_bytes=len(content),
         captured_at=_instant(timedelta()),
@@ -127,7 +124,7 @@ def test_photo_grant_upload_and_status_report_without_secret_persistence(
     photos = PhotoManager(
         store,
         photo_dir=str(tmp_path / "photos"),
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         uploader=uploader,
         start_upload_worker=False,
     )
@@ -221,14 +218,14 @@ def test_expired_photo_becomes_permanently_missing_without_grant(
         str(local_path),
         work_uid=work_uid,
         work_type="DELIVERY_SESSION",
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         content_sha256="a" * 64,
         size_bytes=10,
         captured_at=_instant(timedelta(hours=-73)),
     )
     photos = PhotoManager(
         store,
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         uploader=FakeUploader(),
         start_upload_worker=False,
     )
@@ -268,7 +265,7 @@ def test_quarantined_photo_status_does_not_delete_local_photo(tmp_path):
         str(local_path),
         work_uid=work_uid,
         work_type="DELIVERY_SESSION",
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         content_sha256=hashlib.sha256(content).hexdigest(),
         size_bytes=len(content),
         captured_at=_instant(timedelta()),
@@ -301,7 +298,7 @@ def test_quarantined_photo_status_does_not_delete_local_photo(tmp_path):
     ) == "ACCEPTED"
     photos = PhotoManager(
         store,
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         uploader=FakeUploader(),
         start_upload_worker=False,
     )
@@ -330,7 +327,7 @@ def test_business_applied_photo_status_deletes_local_photo(tmp_path):
         str(local_path),
         work_uid=work_uid,
         work_type="DELIVERY_SESSION",
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         content_sha256=hashlib.sha256(content).hexdigest(),
         size_bytes=len(content),
         captured_at=_instant(timedelta()),
@@ -367,7 +364,7 @@ def test_business_applied_photo_status_deletes_local_photo(tmp_path):
         "DELIVERY_COMPLETE",
         {"sessionUid": work_uid},
         work_uid=work_uid,
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         target_type="DELIVERY_SESSION",
     )
     store.receive_business_confirmation(
@@ -377,7 +374,7 @@ def test_business_applied_photo_status_deletes_local_photo(tmp_path):
     )
     photos = PhotoManager(
         store,
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         uploader=FakeUploader(),
         start_upload_worker=False,
     )
@@ -401,11 +398,11 @@ def test_grant_request_event_and_photo_assignment_are_atomic(tmp_path):
         str(tmp_path / "photo.jpg"),
         work_uid=work_uid,
         work_type="DELIVERY_SESSION",
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
     )
     photos = PhotoManager(
         store,
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         start_upload_worker=False,
     )
 
@@ -445,7 +442,7 @@ def test_completion_urls_remain_empty_until_upload_succeeds(
         photo_dir=str(tmp_path / "photos"),
         outside_camera_source="simulated://outside",
         inside_camera_source="simulated://inside",
-        deployment_code=DEPLOYMENT_CODE,
+        device_name=DEVICE_NAME,
         uploader=uploader,
         start_upload_worker=False,
         trusted_cos_environment={

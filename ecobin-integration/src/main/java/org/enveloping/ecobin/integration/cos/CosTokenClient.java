@@ -54,8 +54,7 @@ public class CosTokenClient implements CosUploadCredentialPort {
                     "REAL mode requires complete COS configuration");
         }
         if (keyPrefix == null || !keyPrefix.matches(
-                "^ecobin/Dp_[A-Za-z0-9_-]{6,61}/"
-                        + "(delivery-session|clean-operation)/"
+                "^ecobin/(delivery-session|clean-operation|device-acceptance)/"
                         + "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                         + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}/$")) {
             throw new IllegalArgumentException(
@@ -83,15 +82,21 @@ public class CosTokenClient implements CosUploadCredentialPort {
         Policy policy = new Policy();
         Statement statement = new Statement();
         statement.setEffect("allow");
-        statement.addActions(new String[]{
+        java.util.ArrayList<String> actions = new java.util.ArrayList<>(
+                java.util.List.of(
                 "name/cos:PutObject",
                 "name/cos:PostObject",
                 "cos:InitiateMultipartUpload",
                 "cos:ListMultipartUploads",
                 "cos:ListParts",
                 "cos:UploadPart",
-                "cos:CompleteMultipartUpload",
-        });
+                "cos:CompleteMultipartUpload"));
+        if (keyPrefix.startsWith("ecobin/device-acceptance/")) {
+            // Machine acceptance proves that COS can return the exact bytes
+            // just uploaded. Business-photo grants remain upload-only.
+            actions.add("name/cos:GetObject");
+        }
+        statement.addActions(actions.toArray(String[]::new));
         statement.addResources(new String[]{
                 String.format(
                         "qcs::cos:%s:uid/%s:%s/%s*",

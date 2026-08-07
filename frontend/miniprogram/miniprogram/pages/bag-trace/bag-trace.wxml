@@ -32,7 +32,7 @@
       hover-class="card--pressed"
     >
       <view class="cycle-head">
-        <text class="cycle-title">{{item.deploymentCode}} · {{item.portNo}} 号投口</text>
+        <text class="cycle-title">{{item.deviceCode}} · {{item.portNo}} 号投口</text>
         <text class="status status-{{item.status}}">{{item.statusText}}</text>
       </view>
       <text class="cycle-period">{{item.periodText}}</text>

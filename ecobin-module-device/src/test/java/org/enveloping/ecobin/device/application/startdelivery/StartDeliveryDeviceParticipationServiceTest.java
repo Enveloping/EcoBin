@@ -50,11 +50,11 @@ class StartDeliveryDeviceParticipationServiceTest {
     private static final long ORGANIZATION_ID = 12L;
     private static final long USER_ID = 13L;
     private static final long ASSET_ID = 101L;
-    private static final long DEPLOYMENT_ID = 102L;
     private static final long CONFIGURATION_ID = 201L;
     private static final long PORT_ID = 202L;
     private static final long PORT_CONFIGURATION_ID = 203L;
-    private static final String DEPLOYMENT_CODE = "Dp_demo_01";
+    private static final String DEVICE_CODE =
+            "Dv_0123456789abcdefghijklmn";
     private static final UUID OPERATION_UID = UUID.fromString(
             "10000000-0000-4000-8000-000000000001");
     private static final UUID BAG_UID = UUID.fromString(
@@ -160,11 +160,11 @@ class StartDeliveryDeviceParticipationServiceTest {
         JsonNode envelope = objectMapper.readTree(
                 persistedCommand.semanticEnvelopeJson());
         JsonNode payload = envelope.get("payload");
-        assertThat(envelope.get("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(envelope.get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(envelope.get("commandType").asText())
                 .isEqualTo("START_DELIVERY_SESSION");
-        assertThat(envelope.get("deploymentCode").asText())
-                .isEqualTo(DEPLOYMENT_CODE);
+        assertThat(envelope.get("targetDeviceName").asText())
+                .isEqualTo("SN-DEMO-001");
         assertThat(envelope.get("target").get("type").asText())
                 .isEqualTo("DELIVERY_SESSION");
         assertThat(envelope.get("target").get("uid").asText())
@@ -241,24 +241,26 @@ class StartDeliveryDeviceParticipationServiceTest {
                 TENANT_ID,
                 ORGANIZATION_ID,
                 USER_ID);
-        order.verify(repository).lockAsset(ASSET_ID);
-        order.verify(repository).lockActiveDeployment(ASSET_ID);
-        order.verify(repository).lockDeployment(DEPLOYMENT_ID);
+        order.verify(repository).lockAssetByDeviceCode(DEVICE_CODE);
+        order.verify(repository).lockTenant(TENANT_ID);
+        order.verify(repository).lockOrganization(
+                TENANT_ID,
+                ORGANIZATION_ID);
         order.verify(repository).lockTransportPresence(ASSET_ID);
         order.verify(repository).lockOccupancy(ASSET_ID);
         order.verify(repository).lockLatestConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID);
+                ASSET_ID);
         order.verify(repository).lockPort(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
+                ASSET_ID,
                 2);
         order.verify(repository).lockPortConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
+                ASSET_ID,
                 CONFIGURATION_ID,
                 PORT_ID);
         order.verify(businessFacts).lockForStart(any());
@@ -267,7 +269,6 @@ class StartDeliveryDeviceParticipationServiceTest {
                 ASSET_ID,
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
                 301L,
                 NOW);
         order.verify(repository).insertCommand(any());
@@ -325,7 +326,7 @@ class StartDeliveryDeviceParticipationServiceTest {
                                     "DELIVERY.SESSION_ALREADY_ACTIVE");
                         });
 
-        verify(repository, never()).findAssetIdByDeploymentCode(any());
+        verify(repository, never()).lockAssetByDeviceCode(any());
     }
 
     private void stubHappyPath() {
@@ -333,32 +334,32 @@ class StartDeliveryDeviceParticipationServiceTest {
                 TENANT_ID,
                 ORGANIZATION_ID,
                 USER_ID)).thenReturn(List.of());
-        when(repository.findAssetIdByDeploymentCode(DEPLOYMENT_CODE))
-                .thenReturn(Optional.of(ASSET_ID));
-        when(repository.lockAsset(ASSET_ID)).thenReturn(Optional.of(
+        when(repository.lockAssetByDeviceCode(DEVICE_CODE))
+                .thenReturn(Optional.of(
                 new StartDeliveryDeviceRepository.AssetRow(
                         ASSET_ID,
                         "SN-DEMO-001",
-                        "IN_USE",
+                        DEVICE_CODE,
+                        "NORMAL",
+                        "PASSED",
+                        "READY",
+                        TENANT_ID,
+                        ORGANIZATION_ID,
                         2)));
-        when(repository.lockActiveDeployment(ASSET_ID))
+        when(repository.lockTenant(TENANT_ID))
                 .thenReturn(Optional.of(
                         new StartDeliveryDeviceRepository
-                                .ActiveDeploymentRow(
-                                ASSET_ID,
+                                .SubjectStatusRow(
                                 TENANT_ID,
-                                ORGANIZATION_ID,
-                                DEPLOYMENT_ID)));
-        when(repository.lockDeployment(DEPLOYMENT_ID))
+                                "ENABLED")));
+        when(repository.lockOrganization(
+                TENANT_ID,
+                ORGANIZATION_ID))
                 .thenReturn(Optional.of(
-                        new StartDeliveryDeviceRepository.DeploymentRow(
-                                DEPLOYMENT_ID,
-                                TENANT_ID,
+                        new StartDeliveryDeviceRepository
+                                .SubjectStatusRow(
                                 ORGANIZATION_ID,
-                                ASSET_ID,
-                                DEPLOYMENT_CODE,
-                                "ENABLED",
-                                true)));
+                                "ENABLED")));
         when(repository.lockTransportPresence(ASSET_ID))
                 .thenReturn(Optional.of(
                         new StartDeliveryDeviceRepository
@@ -368,11 +369,11 @@ class StartDeliveryDeviceParticipationServiceTest {
         lenient().when(repository.lockLatestConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID)).thenReturn(Optional.of(configuration()));
+                ASSET_ID)).thenReturn(Optional.of(configuration()));
         lenient().when(repository.lockPort(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
+                ASSET_ID,
                 2)).thenReturn(Optional.of(
                         new StartDeliveryDeviceRepository.PortRow(
                                 PORT_ID,
@@ -380,7 +381,7 @@ class StartDeliveryDeviceParticipationServiceTest {
         lenient().when(repository.lockPortConfiguration(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
+                ASSET_ID,
                 CONFIGURATION_ID,
                 PORT_ID)).thenReturn(Optional.of(
                         new StartDeliveryDeviceRepository
@@ -394,7 +395,7 @@ class StartDeliveryDeviceParticipationServiceTest {
         lenient().when(portRefFactory.issue(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
+                ASSET_ID,
                 PORT_ID)).thenReturn(devicePortRef);
         lenient().when(businessFacts.lockForStart(any())).thenReturn(
                 new LockedStartDeliveryBusinessFacts(
@@ -408,7 +409,7 @@ class StartDeliveryDeviceParticipationServiceTest {
         lenient().when(taskRefFactory.issue(
                 TENANT_ID,
                 ORGANIZATION_ID,
-                DEPLOYMENT_ID,
+                ASSET_ID,
                 401L)).thenReturn(commandTaskRef);
         lenient().when(taskRegistration.register(any())).thenReturn(
                 UUID.fromString(
@@ -418,7 +419,7 @@ class StartDeliveryDeviceParticipationServiceTest {
     private StartDeliveryDeviceCommand command() {
         return new StartDeliveryDeviceCommand(
                 OPERATION_UID,
-                DEPLOYMENT_CODE,
+                DEVICE_CODE,
                 2,
                 userRef,
                 new DeliveryRuleSnapshot(
@@ -439,7 +440,9 @@ class StartDeliveryDeviceParticipationServiceTest {
                 3,
                 30_000,
                 500,
-                120_000);
+                120_000,
+                true,
+                true);
     }
 
     private static DeliverySessionBusinessFactsRef businessReference() {
@@ -488,10 +491,10 @@ class StartDeliveryDeviceParticipationServiceTest {
             Map<String, Object> payload,
             byte[] payloadSha) {
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("schemaVersion", 1);
+        envelope.put("schemaVersion", 2);
         envelope.put("commandUid", commandUid.toString());
         envelope.put("commandType", "START_DELIVERY_SESSION");
-        envelope.put("deploymentCode", DEPLOYMENT_CODE);
+        envelope.put("targetDeviceName", "SN-DEMO-001");
         envelope.put(
                 "target",
                 Map.of(
@@ -507,7 +510,7 @@ class StartDeliveryDeviceParticipationServiceTest {
                 NOW.plusSeconds(60)
                         .toInstant(ZoneOffset.UTC)
                         .toString());
-        envelope.put("payloadSchemaVersion", 1);
+        envelope.put("payloadSchemaVersion", 2);
         envelope.put(
                 "payloadSha256",
                 canonicalizer.hex(payloadSha));

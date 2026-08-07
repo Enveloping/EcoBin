@@ -296,7 +296,7 @@ public final class DirectoryModels {
     }
 
     public record OrganizationUserRegistrationSource(
-            String deploymentCode,
+            String deviceCode,
             String lifecycleStatus) {
     }
 

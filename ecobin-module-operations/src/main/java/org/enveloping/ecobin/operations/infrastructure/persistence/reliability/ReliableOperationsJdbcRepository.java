@@ -222,7 +222,7 @@ public class ReliableOperationsJdbcRepository {
                     task_uid, scope_kind, tenant_id, organization_id,
                     task_category, task_type, execution_lane, task_key,
                     target_type, target_stable_key,
-                    source_inbox_id, source_device_deployment_id,
+                    source_inbox_id, source_device_asset_id,
                     source_device_command_id, payload_schema_version,
                     redacted_execution_snapshot, payload_sha256,
                     correlation_uid, causation_uid, initiating_audit_id,
@@ -265,7 +265,7 @@ public class ReliableOperationsJdbcRepository {
     public UUID insertDeviceBusinessTask(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             long commandId,
             String taskType,
             String taskKey,
@@ -285,7 +285,7 @@ public class ReliableOperationsJdbcRepository {
                     task_uid, scope_kind, tenant_id, organization_id,
                     task_category, task_type, execution_lane, task_key,
                     target_type, target_stable_key,
-                    source_inbox_id, source_device_deployment_id,
+                    source_inbox_id, source_device_asset_id,
                     source_device_command_id, payload_schema_version,
                     redacted_execution_snapshot, payload_sha256,
                     correlation_uid, causation_uid, initiating_audit_id,
@@ -313,7 +313,7 @@ public class ReliableOperationsJdbcRepository {
                 taskKey,
                 targetType,
                 targetStableKey,
-                deploymentId,
+                assetId,
                 commandId,
                 payloadSchemaVersion,
                 redactedExecutionSnapshot,
@@ -331,7 +331,7 @@ public class ReliableOperationsJdbcRepository {
     public UUID insertDeviceControlTask(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             String taskType,
             String taskKey,
             String targetType,
@@ -349,7 +349,7 @@ public class ReliableOperationsJdbcRepository {
                     task_uid, scope_kind, tenant_id, organization_id,
                     task_category, task_type, execution_lane, task_key,
                     target_type, target_stable_key,
-                    source_inbox_id, source_device_deployment_id,
+                    source_inbox_id, source_device_asset_id,
                     source_device_command_id, payload_schema_version,
                     redacted_execution_snapshot, payload_sha256,
                     correlation_uid, causation_uid, initiating_audit_id,
@@ -377,7 +377,7 @@ public class ReliableOperationsJdbcRepository {
                 taskKey,
                 targetType,
                 targetStableKey,
-                deploymentId,
+                assetId,
                 payloadSchemaVersion,
                 executionEnvelope,
                 payloadSha256,
@@ -391,10 +391,69 @@ public class ReliableOperationsJdbcRepository {
         return taskUid;
     }
 
+    public UUID insertPlatformDeviceControlTask(
+            long assetId,
+            String taskType,
+            String taskKey,
+            String targetType,
+            String targetStableKey,
+            int payloadSchemaVersion,
+            String executionEnvelope,
+            byte[] payloadSha256,
+            UUID correlationUid,
+            UUID causationUid,
+            int maxAutoAttempts,
+            LocalDateTime now) {
+        UUID taskUid = UUID.randomUUID();
+        int inserted = jdbcTemplate.update("""
+                INSERT INTO ops_reliable_task (
+                    task_uid, scope_kind, tenant_id, organization_id,
+                    task_category, task_type, execution_lane, task_key,
+                    target_type, target_stable_key,
+                    source_inbox_id, source_device_asset_id,
+                    source_device_command_id, payload_schema_version,
+                    redacted_execution_snapshot, payload_sha256,
+                    correlation_uid, causation_uid, initiating_audit_id,
+                    priority, retry_policy_version, max_auto_attempts,
+                    state, next_run_at, lease_token, lease_worker, lease_until,
+                    attempt_sequence, consecutive_failure_count, wake_version,
+                    handled_wake_version, completed_at, blocked_reason_code,
+                    blocked_diagnostic, lock_version, created_at, updated_at
+                ) VALUES (
+                    ?, 'PLATFORM', NULL, NULL,
+                    'BUSINESS_INTENT', ?, 'DEVICE', ?,
+                    ?, ?,
+                    NULL, ?, NULL, ?,
+                    CAST(? AS JSON), ?,
+                    ?, ?, NULL,
+                    50, 1, ?,
+                    'PENDING', ?, NULL, NULL, NULL,
+                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                )
+                """,
+                taskUid.toString(),
+                taskType,
+                taskKey,
+                targetType,
+                targetStableKey,
+                assetId,
+                payloadSchemaVersion,
+                executionEnvelope,
+                payloadSha256,
+                nullableUuid(correlationUid),
+                nullableUuid(causationUid),
+                maxAutoAttempts,
+                now,
+                now,
+                now);
+        requireSingleRow(inserted, "insert platform device control task");
+        return taskUid;
+    }
+
     public void cancelSupersededDeviceTasks(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             String taskType,
             LocalDateTime now) {
         jdbcTemplate.update("""
@@ -414,7 +473,7 @@ public class ReliableOperationsJdbcRepository {
                 WHERE scope_kind = 'ORGANIZATION'
                   AND tenant_id = ?
                   AND organization_id = ?
-                  AND source_device_deployment_id = ?
+                  AND source_device_asset_id = ?
                   AND task_type = ?
                   AND state IN ('PENDING', 'BLOCKED')
                   AND lease_token IS NULL
@@ -423,14 +482,14 @@ public class ReliableOperationsJdbcRepository {
                 now,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 taskType);
     }
 
     public void cancelPendingDeviceControlTask(
             long tenantId,
             long organizationId,
-            long deploymentId,
+            long assetId,
             String taskType,
             String targetType,
             String targetStableKey,
@@ -452,7 +511,7 @@ public class ReliableOperationsJdbcRepository {
                 WHERE scope_kind = 'ORGANIZATION'
                   AND tenant_id = ?
                   AND organization_id = ?
-                  AND source_device_deployment_id = ?
+                  AND source_device_asset_id = ?
                   AND source_device_command_id IS NULL
                   AND task_type = ?
                   AND target_type = ?
@@ -464,7 +523,7 @@ public class ReliableOperationsJdbcRepository {
                 now,
                 tenantId,
                 organizationId,
-                deploymentId,
+                assetId,
                 taskType,
                 targetType,
                 targetStableKey);
@@ -763,6 +822,7 @@ public class ReliableOperationsJdbcRepository {
                 SELECT
                     t.id AS task_id,
                     t.task_uid,
+                    t.scope_kind,
                     t.tenant_id,
                     t.organization_id,
                     t.lease_token AS previous_lease_token,
@@ -796,13 +856,14 @@ public class ReliableOperationsJdbcRepository {
                     SELECT
                         candidate.id,
                         candidate.task_uid,
+                        candidate.scope_kind,
                         candidate.tenant_id,
                         candidate.organization_id,
                         candidate.lease_token,
                         candidate.attempt_sequence,
                         candidate.wake_version,
                         candidate.task_type,
-                        candidate.source_device_deployment_id,
+                        candidate.source_device_asset_id,
                         candidate.source_device_command_id,
                         candidate.redacted_execution_snapshot,
                         candidate.payload_sha256,
@@ -817,27 +878,37 @@ public class ReliableOperationsJdbcRepository {
                       AND candidate.claimable_at <= UTC_TIMESTAMP(3)
                       AND EXISTS (
                           SELECT 1
-                          FROM dev_device_deployment eligible_deployment
-                          JOIN dev_device_asset eligible_asset
-                            ON eligible_asset.id =
-                                eligible_deployment.asset_id
+                          FROM dev_device_asset eligible_asset
                           LEFT JOIN dev_device_command eligible_command
                             ON eligible_command.tenant_id =
                                 candidate.tenant_id
                            AND eligible_command.organization_id =
                                 candidate.organization_id
-                           AND eligible_command.deployment_id =
-                                candidate.source_device_deployment_id
+                           AND eligible_command.asset_id =
+                                candidate.source_device_asset_id
                            AND eligible_command.id =
                                 candidate.source_device_command_id
                           LEFT JOIN dev_device_transport_state transport
                             ON transport.asset_id = eligible_asset.id
-                          WHERE eligible_deployment.tenant_id =
-                                candidate.tenant_id
-                            AND eligible_deployment.organization_id =
-                                candidate.organization_id
-                            AND eligible_deployment.id =
-                                candidate.source_device_deployment_id
+                          WHERE eligible_asset.id =
+                                candidate.source_device_asset_id
+                            AND (
+                                (
+                                    candidate.scope_kind = 'ORGANIZATION'
+                                    AND eligible_asset.tenant_id =
+                                        candidate.tenant_id
+                                    AND eligible_asset.organization_id =
+                                        candidate.organization_id
+                                )
+                                OR
+                                (
+                                    candidate.scope_kind = 'PLATFORM'
+                                    AND candidate.tenant_id IS NULL
+                                    AND candidate.organization_id IS NULL
+                                    AND candidate.task_type =
+                                        'REQUEST_DEVICE_ACCEPTANCE'
+                                )
+                            )
                             AND (
                                 (
                                     candidate.task_type IN (
@@ -855,7 +926,8 @@ public class ReliableOperationsJdbcRepository {
                                 (
                                     candidate.task_type IN (
                                         'CONFIRM_EDGE_EVENT',
-                                        'PROVIDE_PHOTO_UPLOAD_GRANT'
+                                        'PROVIDE_PHOTO_UPLOAD_GRANT',
+                                        'REQUEST_DEVICE_ACCEPTANCE'
                                     )
                                     AND eligible_command.id IS NULL
                                 )
@@ -871,7 +943,8 @@ public class ReliableOperationsJdbcRepository {
                                 (
                                     candidate.task_type IN (
                                         'CONFIRM_EDGE_EVENT',
-                                        'PROVIDE_PHOTO_UPLOAD_GRANT'
+                                        'PROVIDE_PHOTO_UPLOAD_GRANT',
+                                        'REQUEST_DEVICE_ACCEPTANCE'
                                     )
                                     AND transport.onenet_connection_status =
                                         'ONLINE'
@@ -901,13 +974,25 @@ public class ReliableOperationsJdbcRepository {
                 LEFT JOIN dev_device_command c
                   ON c.tenant_id = t.tenant_id
                  AND c.organization_id = t.organization_id
-                 AND c.deployment_id = t.source_device_deployment_id
+                 AND c.asset_id = t.source_device_asset_id
                  AND c.id = t.source_device_command_id
-                JOIN dev_device_deployment d
-                  ON d.tenant_id = t.tenant_id
-                 AND d.organization_id = t.organization_id
-                 AND d.id = t.source_device_deployment_id
-                JOIN dev_device_asset a ON a.id = d.asset_id
+                JOIN dev_device_asset a
+                  ON a.id = t.source_device_asset_id
+                 AND (
+                    (
+                        t.scope_kind = 'ORGANIZATION'
+                        AND a.tenant_id = t.tenant_id
+                        AND a.organization_id = t.organization_id
+                    )
+                    OR
+                    (
+                        t.scope_kind = 'PLATFORM'
+                        AND t.tenant_id IS NULL
+                        AND t.organization_id IS NULL
+                        AND t.task_type =
+                            'REQUEST_DEVICE_ACCEPTANCE'
+                    )
+                 )
                 ORDER BY t.claimable_at, t.priority, t.id
                 """;
         List<DeviceClaimCandidate> candidates = jdbcTemplate.query(
@@ -919,8 +1004,9 @@ public class ReliableOperationsJdbcRepository {
                 (resultSet, rowNumber) -> new DeviceClaimCandidate(
                         resultSet.getLong("task_id"),
                         UUID.fromString(resultSet.getString("task_uid")),
-                        resultSet.getLong("tenant_id"),
-                        resultSet.getLong("organization_id"),
+                        resultSet.getString("scope_kind"),
+                        nullableLong(resultSet, "tenant_id"),
+                        nullableLong(resultSet, "organization_id"),
                         nullableUuid(
                                 resultSet.getString(
                                         "previous_lease_token")),
@@ -986,7 +1072,7 @@ public class ReliableOperationsJdbcRepository {
                     external_api_error_code, duration_ms,
                     redacted_diagnostic, created_at
                 ) VALUES (
-                    ?, ?, 'ORGANIZATION', ?,
+                    ?, ?, ?, ?,
                     ?, ?, ?,
                     ?, ?, ?, ?,
                     NULL, NULL,
@@ -997,6 +1083,7 @@ public class ReliableOperationsJdbcRepository {
                 """,
                 attemptUid.toString(),
                 candidate.taskId(),
+                candidate.scopeKind(),
                 candidate.tenantId(),
                 candidate.organizationId(),
                 attemptNo,
@@ -1087,7 +1174,8 @@ public class ReliableOperationsJdbcRepository {
                       (
                           t.task_type IN (
                               'CONFIRM_EDGE_EVENT',
-                              'PROVIDE_PHOTO_UPLOAD_GRANT'
+                              'PROVIDE_PHOTO_UPLOAD_GRANT',
+                              'REQUEST_DEVICE_ACCEPTANCE'
                           )
                           AND c.id IS NULL
                       )
@@ -1547,7 +1635,7 @@ public class ReliableOperationsJdbcRepository {
             LocalDateTime now) {
         String assetPredicate = assetId == null
                 ? ""
-                : " AND deployment.asset_id = ?";
+                : " AND asset.id = ?";
         String desiredWait = """
                 CASE
                     WHEN task.dispatch_wait_reason =
@@ -1568,10 +1656,23 @@ public class ReliableOperationsJdbcRepository {
                 """;
         String sql = """
                 UPDATE ops_reliable_task task
-                JOIN dev_device_deployment deployment
-                  ON deployment.id = task.source_device_deployment_id
                 JOIN dev_device_asset asset
-                  ON asset.id = deployment.asset_id
+                  ON asset.id = task.source_device_asset_id
+                 AND (
+                    (
+                        task.scope_kind = 'ORGANIZATION'
+                        AND asset.tenant_id = task.tenant_id
+                        AND asset.organization_id = task.organization_id
+                    )
+                    OR
+                    (
+                        task.scope_kind = 'PLATFORM'
+                        AND task.tenant_id IS NULL
+                        AND task.organization_id IS NULL
+                        AND task.task_type =
+                            'REQUEST_DEVICE_ACCEPTANCE'
+                    )
+                 )
                 LEFT JOIN dev_device_transport_state transport
                   ON transport.asset_id = asset.id
                 SET task.dispatch_wait_reason =
@@ -1603,12 +1704,12 @@ public class ReliableOperationsJdbcRepository {
         return jdbcTemplate.update(sql, now, now, assetId);
     }
 
-    public int reconcileDeploymentRuntimeFreshness(
+    public int reconcileAssetRuntimeFreshness(
             Long assetId,
             LocalDateTime now) {
         String assetPredicate = assetId == null
                 ? ""
-                : " AND deployment.asset_id = ?";
+                : " AND runtime.asset_id = ?";
         String desiredStatus = """
                 CASE
                     WHEN transport.onenet_connection_status = 'OFFLINE'
@@ -1620,19 +1721,9 @@ public class ReliableOperationsJdbcRepository {
                 END
                 """;
         String sql = """
-                UPDATE dev_deployment_runtime_state runtime
-                JOIN dev_device_deployment deployment
-                  ON deployment.id = runtime.deployment_id
+                UPDATE dev_device_runtime_state runtime
                 JOIN dev_device_transport_state transport
-                  ON transport.asset_id = deployment.asset_id
-                LEFT JOIN dev_config_version config
-                  ON config.id = (
-                      SELECT latest.id
-                      FROM dev_config_version latest
-                      WHERE latest.deployment_id = deployment.id
-                      ORDER BY latest.version_no DESC
-                      LIMIT 1
-                  )
+                  ON transport.asset_id = runtime.asset_id
                 SET runtime.edge_connection_status =
                 %s,
                     runtime.lock_version = runtime.lock_version + 1,
@@ -1796,8 +1887,9 @@ public class ReliableOperationsJdbcRepository {
     private record DeviceClaimCandidate(
             long taskId,
             UUID taskUid,
-            long tenantId,
-            long organizationId,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
             UUID previousLeaseToken,
             long attemptSequence,
             long wakeVersion,

@@ -1,12 +1,12 @@
-# 06｜钱包、机构账户、充值、提现与微信渠道
+# 06｜钱包、机构账户、充值、免确认授权、提现与微信渠道
 
 > 上级索引：[EcoBin P0 详细设计与任务拆分](../detailed-design-draft.md)
 >
-> 状态：**已批准；真实微信验收当前外部阻塞；尚未授权实施**
+> 状态：**已批准；2026-08-06 已按 D-046/I-056 增补“先授权、后自动收款”；V35 数据模型已建立，授权运行时代码尚未实施**
 >
 > 审查日期：2026-07-23
 >
-> 适用基线：R-101～R-125、D-021～D-025、D-036～D-040、I-031～I-035、I-052～I-055
+> 适用基线：R-101～R-125、D-021～D-025、D-036～D-040、D-046、I-031～I-035、I-052～I-056
 
 ## 1. 本章裁决
 
@@ -17,6 +17,7 @@
 | DD-013 | 微信外调统一采用固定商户单号、可靠任务、调用前边界、追加观察和统一归并器；未知结果绝不换单或本地判失败。 |
 | DD-014 | `NOT_ENOUGH` 只暂停共用系统商户的平台出款闸门，保留原提现及双侧冻结；恢复由平台管理员人工确认并复用原单。 |
 | DD-015 | 微信未就绪期间允许显式 Fake 验证软件状态机，但生产缺少真实能力时必须失败为 `CHANNEL_UNAVAILABLE`，不能回退为本地成功。 |
+| DD-016 | 新提现强制要求当前微信免确认收款授权已经可信确认为 `ACTIVE`；授权与提现分离建模，创建和提交各复核一次，历史逐笔确认提现继续按原模式收敛。 |
 
 ## 2. 当前实现退出边界
 
@@ -60,10 +61,13 @@ org.enveloping.ecobin.funds
 │  ├─ withdrawal/
 │  │  ├─ CreateWithdrawalUseCase
 │  │  ├─ ReviewWithdrawalUseCase
-│  │  ├─ CancelWithdrawalUseCase
 │  │  ├─ AbortBeforeChannelUseCase
 │  │  ├─ PrepareTransferSubmissionUseCase
 │  │  └─ MergeTransferObservationUseCase
+│  ├─ transferauthorization/
+│  │  ├─ QueryCurrentTransferAuthorizationUseCase
+│  │  ├─ CreateTransferAuthorizationUseCase
+│  │  └─ MergeTransferAuthorizationObservationUseCase
 │  └─ gate/
 │     └─ RestorePayoutGateUseCase
 ├─ domain/
@@ -84,6 +88,8 @@ NativePaymentChannelPort
   closePayment
 
 MerchantTransferChannelPort
+  createUserConfirmAuthorization
+  queryUserConfirmAuthorization
   submitTransfer
   queryTransfer
 ```
@@ -314,7 +320,7 @@ postSubmissionRisk
 longUnsettledAt
 ```
 
-P0 全部新提现固定进入 `PENDING_REVIEW`。免审阈值固定 0；自动提现、自动恢复和免确认收款授权不进入 DTO 或数据库字段。
+P0 全部新提现固定进入 `PENDING_REVIEW`，免审阈值固定 0。D-046/I-056 已把免确认收款授权纳入 DTO 和 V35 数据库模型；这只改变审核后的收款交互，不引入投递后自动提现、自动审核或自动恢复闸门。
 
 ## 9. 提现事务
 
@@ -330,6 +336,7 @@ tenant
 → payout gate
 → withdraw config head/version
 → miniapp-merchant binding
+→ current transfer authorization
 → user wallet
 → active withdrawal slot
 → withdrawal order
@@ -344,10 +351,11 @@ tenant
 - 用户可用余额和机构可用额度均足够；
 - 平台出款闸门开放；
 - 当前 AppID/OpenID/商户绑定有效。
+- 当前系统商户号、AppID、OpenID 和场景下的授权为 `ACTIVE`，且同时具有原商户授权单号和微信授权单号。
 
 同一事务：
 
-- 创建提现单并冻结配置、AppID、OpenID、商户身份快照；
+- 创建提现单并冻结配置、AppID、OpenID、商户身份、`AUTHORIZED` 收款模式及授权身份快照；
 - 创建钱包唯一活动槽位；
 - 用户可用转用户冻结；
 - 机构可用转机构冻结；
@@ -390,11 +398,11 @@ and no wechat transfer row
 
 ### 10.1 建立不可取消边界
 
-提交 worker 从完整锁根复核闸门、绑定、钱包、活动槽位、提现和机构账户，随后在短事务内：
+提交 worker 从完整锁根按“闸门 → 绑定 → 授权 → 钱包 → 活动槽位 → 提现 → 机构账户”复核。授权必须仍为 `ACTIVE`，并与提现固化的商户号、AppID、OpenID、场景、商户授权单号和微信授权单号逐项一致；不匹配且尚无微信转账单时禁止调用微信，并在同一事务推进 `LOCAL_ABORTED_BEFORE_CHANNEL`、释放双方冻结、追加双方释放明细并删除活动槽。用户重新授权后创建新提现，原提现不替换授权。只有复核通过才在短事务内：
 
 - 创建唯一 `fund_wechat_transfer`；
 - 生成全平台唯一固定 `outBillNo`；
-- 保存通知地址及全部请求参数快照和不可变请求摘要；
+- 保存授权后转账的全部请求参数快照和不可变请求摘要；新 `AUTHORIZED` 单不保存逐笔确认页样式或转账通知地址；
 - 提现推进 `CHANNEL_PROCESSING`；
 - 建立不可本地取消的渠道边界。
 
@@ -406,7 +414,8 @@ and no wechat transfer row
 
 | 微信原始状态 | 是否终态 | 本地处理 |
 |---|---|---|
-| `ACCEPTED/PROCESSING/WAIT_USER_CONFIRM/TRANSFERING/CANCELING` | 否 | 保持 `CHANNEL_PROCESSING` 和双侧冻结 |
+| `ACCEPTED/PROCESSING/TRANSFERING/CANCELING` | 否 | 保持 `CHANNEL_PROCESSING` 和双侧冻结 |
+| `WAIT_USER_CONFIRM` | 否 | 仅历史 `USER_CONFIRM` 单可接受；新 `AUTHORIZED` 单观察到该状态时保持冻结、停止自动归并并建对账异常 |
 | `SUCCESS` | 是 | 双侧冻结结算，提现 `SUCCEEDED`，删除活动槽 |
 | `FAIL` | 是 | 双侧释放，提现 `CHANNEL_FAILED`，删除活动槽 |
 | `CANCELLED` | 是 | 双侧释放，提现 `CHANNEL_CANCELLED`，删除活动槽 |
@@ -420,9 +429,29 @@ HTTP 错误、超时、`SYSTEM_ERROR`、限频、`ALREADY_EXISTS` 和未知错�
 
 调用结果不确定时先查原单。只有微信明确返回原单不存在，或提交响应明确为 `ACCEPTED` 时，才复用保存的原 `outBillNo` 和全部原参数续办；明确处理中只查单，永久参数/权限错误立即阻断并建立对账异常，未知新状态同样停止自动资金归并。
 
-### 10.3 用户确认收款
+### 10.3 免确认收款授权
 
-只有微信原始状态为 `WAIT_USER_CONFIRM` 且保存了 `packageInfo` 时，小程序才可获取：
+授权申请状态机与提现状态机分离：
+
+```text
+CREATED
+  └─ 微信受理 → WAIT_USER_CONFIRM
+                    ├─ 可信查单/通知 TAKING_EFFECT → ACTIVE
+                    ├─ 可信查单/通知 CLOSED → CLOSED
+                    └─ 超过保留期且查单 NOT_FOUND → EXPIRED
+任一身份冲突或未知新状态 → UNKNOWN + 对账异常
+```
+
+1. 用户在机构小程序读取当前授权；没有 `ACTIVE` 授权时，以 `Idempotency-Key` 发起授权。
+2. 本地先生成全平台唯一 `outAuthorizationNo`，冻结系统商户号、机构 AppID、用户 OpenID、场景、展示名、授权通知地址与完整请求摘要，并建立唯一 `CREATE_MERCHANT_TRANSFER_AUTHORIZATION` 任务。
+3. 微信受理后保存 `packageInfo`、渠道创建时间和精确 24 小时确认截止时间；小程序使用原 AppID 调起微信官方授权页。前端返回不能把授权改为 `ACTIVE`。
+4. `QUERY_MERCHANT_TRANSFER_AUTHORIZATION` 使用原 `outAuthorizationNo` 查询，并逐项核对微信返回的商户授权单号、微信授权单号、AppID、OpenID、场景和展示名。只有全部匹配且状态为 `TAKING_EFFECT` 才写 `ACTIVE`。
+5. 微信明确 `CLOSED` 后关闭本地当前授权槽；关闭原因原样保存。服务离线跨过保留期时，只有可信待确认创建事实、确认期限已超过 30 天、从未取得生效证据且查单明确 `NOT_FOUND`，才进入本地 `EXPIRED`；其他 404 保持 `UNKNOWN`。系统不提供应用内撤销授权接口，用户可在微信侧关闭，系统通过通知或查单收敛。
+6. 授权成功后长期有效但不是永久假设；每次新建提现和每次真正提交微信前均锁定复核。身份变化后重新授权，不修改旧授权或旧提现。
+
+### 10.4 历史逐笔用户确认收款
+
+只有历史 `collectionMode=USER_CONFIRM`、微信原始状态为 `WAIT_USER_CONFIRM` 且保存了 `packageInfo` 时，小程序才可获取：
 
 ```text
 appId
@@ -434,7 +463,7 @@ channelState
 
 小程序校验 `appId` 等于当前机构小程序，再调用 `wx.requestMerchantTransfer`。调用成功只代表确认页被调起；返回页面后必须查询后端，不能本地标记到账。
 
-### 10.4 长时间未结算
+### 10.5 长时间未结算
 
 进入 `CHANNEL_PROCESSING` 超过 30 分钟：
 
@@ -491,6 +520,8 @@ CREATE_NATIVE_PAYMENT
 QUERY_NATIVE_PAYMENT
 CLOSE_NATIVE_PAYMENT
 POST_RECHARGE_NET_AMOUNT
+CREATE_MERCHANT_TRANSFER_AUTHORIZATION
+QUERY_MERCHANT_TRANSFER_AUTHORIZATION
 SUBMIT_MERCHANT_TRANSFER
 QUERY_MERCHANT_TRANSFER
 MARK_WITHDRAWAL_LONG_UNSETTLED
@@ -530,12 +561,14 @@ M0 资金工作台至少包括：
 ### 13.2 小程序
 
 - 钱包展示待审核、可提现、处理中三项；
+- 提现页先展示当前授权状态；未授权、授权已关闭或身份变化时只允许发起/继续一次性授权，不允许创建提现；
+- 授权页返回后主动刷新后端状态，只有后端确认为 `ACTIVE` 才开放提现表单；
 - 手动提现读取当前机构配置；
 - 提现申请使用幂等键；
-- 用户只可取消合法的待审核手动提现；
+- 用户不能取消已创建提现；
 - 提现详情显示 EcoBin 业务状态与微信处理状态，不能合成一个“成功/失败”布尔值；
-- `WAIT_USER_CONFIRM` 才显示确认收款入口；
-- 确认页返回后轮询后端终态。
+- 新 `AUTHORIZED` 提现不显示逐笔确认收款入口；历史 `USER_CONFIRM + WAIT_USER_CONFIRM` 才显示旧确认入口；
+- 授权页或历史确认页返回后都轮询后端可信状态。
 
 工作人员小程序不扩展完整资金管理；当前机构精简统计/告警仍为只读。
 
@@ -544,10 +577,11 @@ M0 资金工作台至少包括：
 ### 14.1 当前可完成
 
 - V6 资金表、状态机、双账本、锁序和并发约束；
+- V35 授权主表、授权观察表、新旧收款模式与授权快照约束；
 - 微信端口、可靠任务、inbox 和统一状态归并器；
 - 显式 `fake-wechat` profile；
 - Web 充值/提现/闸门页面；
-- 小程序确认收款代码分支；
+- 小程序一次性授权和历史确认收款代码分支；
 - 回调重复、乱序、超时、`FAIL/CANCELLED/NOT_ENOUGH` 模拟；
 - MySQL 并发、进程崩溃、幂等和对账；
 - 软件模拟闭环。
@@ -557,7 +591,8 @@ M0 资金工作台至少包括：
 - 真实 Native 扫码支付和真实回调/查单；
 - 真实充值净额入账证据；
 - 商家转账被微信受理；
-- 用户确认页真实调起；
+- 免确认收款授权页真实调起及授权状态真实生效；
+- 授权后转账真实受理；
 - 零钱真实到账；
 - 真实 AppID/商户绑定核查；
 - 真实渠道查单、撤销及错误码行为；
@@ -591,6 +626,10 @@ M0 资金工作台至少包括：
 12. 闸门恢复与新提现/旧提交并发按版本线性化；
 13. 手续费在 1 元、分界值、20 万元和溢出边界计算正确；
 14. 对账发现投影/明细差异只建 issue，不自动覆盖资金。
+15. 同一授权作用域并发申请最多产生一个未关闭授权，幂等重试复用原 `outAuthorizationNo`。
+16. 授权创建响应、通知和查单乱序时，只有身份逐项一致的 `TAKING_EFFECT/CLOSED` 可以推进状态；未知或冲突只建对账异常。
+17. 提现创建与授权关闭并发、提交与授权关闭并发均按授权行锁线性化；关闭后不允许新建，尚无转账行的提现渠道前终止并双侧释放，不回退已越过渠道边界的转账。
+18. V34 历史提现升级到 V35 后仍为 `USER_CONFIRM`，不会被批量改为授权模式；新代码显式写 `AUTHORIZED`。
 
 H2 和单线程测试不能证明这些性质。
 
@@ -607,11 +646,12 @@ H2 和单线程测试不能证明这些性质。
 | FND-F04 | 提现创建、审核和渠道前终止 | AFK | FND-F01、身份 | 双侧冻结、单活动槽、审核不等于到账且新流程不可取消。 |
 | FND-F05 | Native 充值与净额入账 | AFK + 真实支付 HITL | reliable task、微信端口 | 1～20 万、0.6% 向上取整、两事务幂等。 |
 | FND-F06 | 商家转账与统一渠道归并 | AFK + HITL | FND-F04、微信端口 | 固定原单、三终态双侧结算、未知态不释放。 |
+| FND-F06A | 免确认收款授权与授权后转账 | AFK + 真机 HITL | FND-F04、FND-F06、V35、微信端口 | 一次授权可信收敛；新提现两次复核后自动收款；历史逐笔确认不回归。 |
 | FND-F07 | NOT_ENOUGH 闸门和人工恢复 | AFK + HITL | FND-F06 | 全平台暂停、原单冻结、单一告警和版本化恢复。 |
 | FND-F08 | Web 资金工作台 | AFK | FND-F03～07 接口 | 充值、审核、账本、闸门只显示真实状态。 |
-| FND-F09 | 小程序钱包与确认收款 | AFK + 真机 HITL | FND-F04、06 | 三项钱包、手动提现、确认页后仍查终态。 |
+| FND-F09 | 小程序钱包与授权后自动收款 | AFK + 真机 HITL | FND-F04、06、06A | 三项钱包、一次性授权、手动提现和自动收款；页面返回仍查可信状态。 |
 | FND-F10 | 资金并发、故障恢复与每日对账 | AFK + 演练 HITL | FND-F01～09 | 重复、乱序和崩溃不多扣、不多退、不换单。 |
-| FND-F11 | 小额真实微信验收 | HITL | 微信条件、FND-F05～10 | 一笔真实充值和一笔真实转账到账，证据与账本一致。 |
+| FND-F11 | 小额真实微信验收 | HITL | 微信条件、FND-F05～10 | 一笔真实充值、一次真实授权和一笔授权后真实转账到账，证据与账本一致。 |
 
 ## 17. 主审否决项
 
@@ -624,6 +664,8 @@ H2 和单线程测试不能证明这些性质。
 - `NOT_ENOUGH`、超时、HTTP 错误或未知状态释放冻结；
 - 换 `outBillNo` 重试；
 - 前端、确认页返回或微信“受理”直接驱动本地成功；
+- 把授权保存成用户表布尔值、跳过授权身份快照或只凭前端授权页返回开放提现；
+- 授权关闭后继续创建或提交新提现，或把历史 `USER_CONFIRM` 提现批量改挂新授权；
 - 渠道网络调用持有资金数据库事务；
 - 回调绕过 inbox 直接结算；
 - 充值成功和机构净额入账压成一个不可恢复事务；

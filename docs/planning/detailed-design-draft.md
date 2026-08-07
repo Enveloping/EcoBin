@@ -1,9 +1,12 @@
 # EcoBin P0 详细设计与任务拆分总索引
 
 > [!IMPORTANT]
+> 2026-08-07 已批准 D-047 / I-057 / V36 的破坏式实施：先重新冻结永久归属需求，再成对修改数据库、后端、客户端、OneNet 与香橙派；不保留部署码或旧 Schema v1 兼容层。完整施工边界见 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md)。
+
+> [!IMPORTANT]
 > 2026-08-02：满溢准入的现行详细设计为设备被动上报当前袋状态，见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)；旧章节中的后端主动检测 gate 与失败阻断不再适用。
 
-> 状态：**详细设计已批准；H-01、H-02、F-01～F-11、V-01、V-02 已完成；H-03、V-09 已 ready 但仍须单独授权；V-02 设备来源问题由非阻塞 P0-FOLLOWUP-01 延期跟踪**
+> 状态：**详细设计已批准；2026-08-06 已按 D-046/I-056 增补“先授权、后自动收款”冻结设计与 V35 数据模型，运行时代码仍待实施**
 >
 > 启动日期：2026-07-23
 >
@@ -18,7 +21,7 @@
 本阶段把已经冻结的“做什么”和“接口是什么”落实为可以直接实施的施工方案：
 
 1. 目标 9 个 Maven 模块的实际 POM、包、配置、公开端口和代码搬迁设计；
-2. 新数据库 V1～V10 的逐版本 DDL 责任、Flyway 执行、seed、权限和旧新栈切换设计；
+2. 独立目标数据库 V1～V35 的逐版本 DDL 责任、Flyway 执行、seed、权限和旧新栈切换设计；
 3. HTTP、OneNet、COS、香橙派 SQLite、UART 与 MCU 状态机的跨端映射；
 4. 投递及其审核与钱包、清运记录及直接修改留痕、充值和提现各纵向切片的类/端口/事务/状态机/页面与失败恢复；
 5. 可靠 inbox、唯一任务、审计、告警、对账和运行恢复的执行器设计；
@@ -37,7 +40,7 @@ MCU 固件。其后项目负责人已单独授权并完成 H-01、F-01、F-02、
 | 条件 | 当前事实 | 设计处理 |
 |---|---|---|
 | 任务载体 | 不使用远程 issue tracker | 任务以 Markdown 保存在本项目 `docs/` 下 |
-| 软件开发 | H-01、H-02、F-01～F-11、V-01、V-02 已完成；最终九模块 reactor 已收口，独立目标 V1～V10 的 83 表、Fake bootstrap、reliable tracer、HTTP 客户端传输基础、身份/Web 纵切、机构用户注册/钱包纵切和边缘基础已验证 | H-02 当前试验期 `.ecobin` 凭证保管例外已接受；V-02 微信环境限制由非阻塞 P0-FOLLOWUP-01 跟踪；H-03、V-09 已 ready 但仍须单独授权；后续仍按冻结基线、任务依赖和逐项授权推进 |
+| 软件开发 | 最终九模块 reactor 已收口；独立目标数据库已推进到 V35、99 张领域表。V35 只增加授权模型和新旧收款模式快照 | 授权用例、可靠任务、微信适配、OpenAPI 和小程序授权页尚未实施；运行态切换必须另行完成并验收 |
 | 历史待办 | `open-items.md` 已由项目负责人明确删除 | 不恢复、不继续引用；新任务从冻结基线重新形成 |
 | MCU 固件 | 现有单片机修改成本高，当前使用已确定的固定帧协议 | F-11 在香橙派侧显式适配；H-03 负责固定帧线路和真实物理行为验收，不要求现有单片机原生实现 UART 1.0 |
 | OneNet、COS、真机 | 已具备联调条件 | 可进入首版真实设备关键路径 |
@@ -75,7 +78,7 @@ MCU 固件。其后项目负责人已单独授权并完成 H-01、F-01、F-02、
 | 03 | [可靠 inbox/任务、OneNet/COS、边缘 SQLite 与 UART 公共链](detailed-design/03-reliable-edge-contracts.md) | 已批准；F-10 已完成，固定帧适配由 F-11/H-03 收口 |
 | 04 | [用户投递、审核纠错和钱包入账纵向闭环](detailed-design/04-delivery-review-wallet.md) | 已批准；2026-07-24 改为 session 一单、本地继续 |
 | 05 | [清运、袋、重量基准、满溢和安全恢复纵向闭环](detailed-design/05-cleaning-fullness-recovery.md) | 已批准；2026-07-24 改为电磁阀解锁/人工关门 |
-| 06 | [机构充值、手动提现和微信渠道收敛纵向闭环](detailed-design/06-funds-wechat.md) | 已批准；真实微信仍是外部阻塞 |
+| 06 | [机构充值、免确认收款授权、手动提现和微信渠道收敛纵向闭环](detailed-design/06-funds-wechat.md) | 已按 D-046/I-056 增补；授权运行态待实施 |
 | 07 | [Web/小程序运营入口、告警对账、部署切换与 M0 验收](detailed-design/07-clients-operations-acceptance.md) | 已批准 |
 | 08 | [实施任务依赖图、7 月 30 日关键路径和领取规则](detailed-design/08-implementation-sequence.md) | 已批准；29 项任务已发布 |
 

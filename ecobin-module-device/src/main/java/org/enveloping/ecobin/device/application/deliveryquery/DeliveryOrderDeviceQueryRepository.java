@@ -13,10 +13,10 @@ interface DeliveryOrderDeviceQueryRepository {
             long organizationId,
             List<DeliveryOrderDeviceFactsRef.FactKey> facts);
 
-    Optional<DeploymentFilterKeyRow> resolveDeploymentFilter(
+    Optional<AssetFilterKeyRow> resolveAssetFilter(
             long tenantId,
             long organizationId,
-            String deploymentCode,
+            String deviceCode,
             Integer portNo);
 
     List<Long> findPortFilterKeys(
@@ -25,18 +25,18 @@ interface DeliveryOrderDeviceQueryRepository {
             int portNo);
 
     record ResolvedFactRow(
-            long deploymentId,
+            long assetId,
             long portId,
             long deliverySessionId,
             long physicalResultId,
             UUID eventUid,
             UUID sessionUid,
-            String deploymentCode,
+            String deviceCode,
             int portNo) {
     }
 
-    record DeploymentFilterKeyRow(
-            long deploymentId,
+    record AssetFilterKeyRow(
+            long assetId,
             Long portId) {
     }
 }

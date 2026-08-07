@@ -14,7 +14,6 @@
           "configuredFullWeightGrams": 50000,
           "confirmationBasis": 1,
           "deliveryClass": 1,
-          "deploymentCode": "Dp_demo_01",
           "edgeEventSequence": 1045,
           "eventType": 1,
           "eventUid": "51000000-0000-4000-8000-000000000002",

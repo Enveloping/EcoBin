@@ -49,7 +49,7 @@ export interface OrganizationUserPageParams {
   phoneBound?: boolean;
   registeredFrom?: string;
   registeredTo?: string;
-  sourceDeploymentCode?: string;
+  sourceDeviceCode?: string;
   cleanOperation?: boolean;
 }
 

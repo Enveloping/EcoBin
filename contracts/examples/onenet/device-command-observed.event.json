@@ -2,7 +2,6 @@
   "clockQuality": "SYNCED",
   "commandUid": "30000000-0000-4000-8000-000000000003",
   "deliveryClass": "RELIABLE_FACT",
-  "deploymentCode": "Dp_demo_01",
   "edgeEventSequence": 1046,
   "eventType": "DEVICE_COMMAND_OBSERVED",
   "eventUid": "84000000-0000-4000-8000-000000000001",
@@ -14,7 +13,7 @@
     "stage": "MCU_ACCEPTED"
   },
   "payloadSha256": "e693e48114cfcb69b849750fc8740ad26fe8afdf8b391a591e39a80f2ee0efe5",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": {
     "type": "DEVICE_COMMAND",
     "uid": "30000000-0000-4000-8000-000000000003"
