@@ -4,12 +4,14 @@ import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceEvidencePort;
 import org.enveloping.ecobin.device.api.port.DeviceAcceptanceChallengeCoordinatorPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
+import org.enveloping.ecobin.device.api.port.TrustedPlatformConfirmationReceiptPort;
 import org.enveloping.ecobin.device.api.result.DeviceTransportPresenceApplyResult;
 import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceAcceptanceEvent;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceTransportEvent;
+import org.enveloping.ecobin.device.api.result.TrustedPlatformConfirmationReceiptEvent;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRefFactory;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
@@ -29,6 +31,8 @@ public class ReliableDeviceInboxWorkerService
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final TrustedDeviceInboxEventPort deviceEventPort;
     private final TrustedDeviceAcceptanceEvidencePort acceptanceEvidencePort;
+    private final TrustedPlatformConfirmationReceiptPort
+            platformConfirmationReceiptPort;
     private final TrustedDeviceTransportPresencePort transportPresencePort;
     private final DeviceAcceptanceChallengeCoordinatorPort
             acceptanceChallengeCoordinator;
@@ -45,6 +49,8 @@ public class ReliableDeviceInboxWorkerService
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             TrustedDeviceInboxEventPort deviceEventPort,
             TrustedDeviceAcceptanceEvidencePort acceptanceEvidencePort,
+            TrustedPlatformConfirmationReceiptPort
+                    platformConfirmationReceiptPort,
             TrustedDeviceTransportPresencePort transportPresencePort,
             DeviceAcceptanceChallengeCoordinatorPort
                     acceptanceChallengeCoordinator,
@@ -59,6 +65,8 @@ public class ReliableDeviceInboxWorkerService
         this.inboxRefFactory = inboxRefFactory;
         this.deviceEventPort = deviceEventPort;
         this.acceptanceEvidencePort = acceptanceEvidencePort;
+        this.platformConfirmationReceiptPort =
+                platformConfirmationReceiptPort;
         this.transportPresencePort = transportPresencePort;
         this.acceptanceChallengeCoordinator =
                 acceptanceChallengeCoordinator;
@@ -119,6 +127,23 @@ public class ReliableDeviceInboxWorkerService
                         return applied.changed()
                                 ? InboxTaskHandlerResult.APPLIED
                                 : InboxTaskHandlerResult.NO_ACTION_REQUIRED;
+                    }
+                    if ("BUSINESS_CONFIRMATION_RECEIPT".equals(
+                            task.messageKind())
+                            && "PLATFORM".equals(task.scopeKind())) {
+                        if (task.tenantId() != null
+                                || task.organizationId() != null) {
+                            throw new ReliableTaskInvariantException(
+                                    "platform confirmation receipt carries "
+                                            + "organization keys");
+                        }
+                        platformConfirmationReceiptPort.apply(
+                                new TrustedPlatformConfirmationReceiptEvent(
+                                        platformInboxRefFactory.issue(
+                                                task.inboxId()),
+                                        task.normalizedSchemaVersion(),
+                                        task.normalizedPayload()));
+                        return InboxTaskHandlerResult.APPLIED;
                     }
                     if (!"ORGANIZATION".equals(task.scopeKind())
                             || task.tenantId() == null

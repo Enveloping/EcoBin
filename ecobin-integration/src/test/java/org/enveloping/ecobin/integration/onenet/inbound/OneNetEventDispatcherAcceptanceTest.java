@@ -32,6 +32,8 @@ class OneNetEventDispatcherAcceptanceTest {
 
     private static final String PRODUCT_ID = "ecobin-product-contract";
     private static final String HARDWARE_SN = "SN-CONTRACT-0001";
+    private static final String CONFIRMATION_UID =
+            "60000000-0000-4000-8000-000000000001";
     private static final byte[] RAW_TRANSPORT =
             "encrypted-acceptance-transport-evidence"
                     .getBytes(StandardCharsets.UTF_8);
@@ -51,6 +53,8 @@ class OneNetEventDispatcherAcceptanceTest {
         TrustedInboxScopeResolver resolver = writer -> writer.platform();
         when(sourceScopePort.resolverForPlatformAsset(HARDWARE_SN))
                 .thenReturn(resolver);
+        when(sourceScopePort.resolverForBusinessConfirmation(
+                HARDWARE_SN, CONFIRMATION_UID)).thenReturn(resolver);
         when(inboxPort.receive(any())).thenReturn(
                 new TrustedInboxReceipt(
                         TrustedInboxReceiptState.ACCEPTED,
@@ -71,7 +75,9 @@ class OneNetEventDispatcherAcceptanceTest {
     void acceptanceEvidenceConvertsOneNetEnumAndUsesPlatformScope()
             throws Exception {
         dispatcher.handle(
-                decrypted(acceptanceWireValue()),
+                decrypted(
+                        "deviceAcceptanceEvidence",
+                        acceptanceWireValue()),
                 "mq-device-acceptance",
                 RAW_TRANSPORT);
 
@@ -94,16 +100,58 @@ class OneNetEventDispatcherAcceptanceTest {
                 .path("edgeProtocolVersion").asText());
     }
 
-    private String decrypted(ObjectNode value) {
+    @Test
+    void confirmationReceiptResolvesScopeFromItsFrozenTask()
+            throws Exception {
+        dispatcher.handle(
+                decrypted(
+                        "businessConfirmationReceipt",
+                        confirmationReceiptWireValue()),
+                "mq-confirmation-receipt",
+                RAW_TRANSPORT);
+
+        ArgumentCaptor<TrustedInboxMessage> captor =
+                ArgumentCaptor.forClass(TrustedInboxMessage.class);
+        verify(inboxPort).receive(captor.capture());
+        verify(sourceScopePort).resolverForBusinessConfirmation(
+                HARDWARE_SN, CONFIRMATION_UID);
+        TrustedInboxMessage message = captor.getValue();
+        assertEquals(
+                "BUSINESS_CONFIRMATION_RECEIPT",
+                message.messageKind());
+
+        JsonNode normalized = objectMapper.readTree(
+                        message.normalizedPayload())
+                .path("event");
+        JsonNode expected = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet/"
+                                + "business-confirmation-receipt.event.json")));
+        assertEquals(canonicalHash(expected), canonicalHash(normalized));
+    }
+
+    private String decrypted(String identifier, ObjectNode value) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("msgType", "thingEvent");
         ObjectNode subData = root.putObject("subData");
         subData.put("productId", PRODUCT_ID);
         subData.put("deviceName", HARDWARE_SN);
         subData.putObject("params")
-                .putObject("deviceAcceptanceEvidence")
+                .putObject(identifier)
                 .set("value", value);
         return objectMapper.writeValueAsString(root);
+    }
+
+    private ObjectNode confirmationReceiptWireValue() throws Exception {
+        JsonNode example = objectMapper.readTree(Files.readString(
+                contractPath(
+                        "contracts/examples/onenet-wire/"
+                                + "business-confirmation-receipt.event-wire.json")));
+        return (ObjectNode) example.path("oneJsonPayload")
+                .path("params")
+                .path("businessConfirmationReceipt")
+                .path("value")
+                .deepCopy();
     }
 
     private ObjectNode acceptanceWireValue() throws Exception {

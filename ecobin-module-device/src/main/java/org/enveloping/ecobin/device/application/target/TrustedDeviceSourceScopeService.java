@@ -38,6 +38,73 @@ public class TrustedDeviceSourceScopeService
     }
 
     @Override
+    public TrustedInboxScopeResolver resolverForBusinessConfirmation(
+            String hardwareSn,
+            String confirmationUid) {
+        String trustedHardwareSn = requireHardwareSn(hardwareSn);
+        String trustedConfirmationUid = requireConfirmationUid(
+                confirmationUid);
+        return writer -> {
+            List<ConfirmationScope> rows = jdbc.query("""
+                            SELECT task.scope_kind,
+                                   task.tenant_id,
+                                   task.organization_id
+                            FROM ops_reliable_task task
+                            JOIN dev_device_asset asset
+                              ON asset.id = task.source_device_asset_id
+                            WHERE asset.hardware_sn = ?
+                              AND task.task_type = 'CONFIRM_EDGE_EVENT'
+                              AND task.target_type =
+                                  'BUSINESS_CONFIRMATION'
+                              AND task.target_stable_key = ?
+                              AND task.source_device_command_id IS NULL
+                              AND (
+                                  (
+                                      task.scope_kind = 'PLATFORM'
+                                      AND task.tenant_id IS NULL
+                                      AND task.organization_id IS NULL
+                                  )
+                                  OR
+                                  (
+                                      task.scope_kind = 'ORGANIZATION'
+                                      AND asset.tenant_id = task.tenant_id
+                                      AND asset.organization_id =
+                                          task.organization_id
+                                  )
+                              )
+                            """,
+                    (rs, ignored) -> new ConfirmationScope(
+                            rs.getString("scope_kind"),
+                            (Long) rs.getObject("tenant_id"),
+                            (Long) rs.getObject("organization_id")),
+                    trustedHardwareSn,
+                    trustedConfirmationUid);
+            if (rows.size() != 1) {
+                throw new UntrustedInboxSourceException(
+                        "business confirmation does not belong to the "
+                                + "authenticated device");
+            }
+            ConfirmationScope scope = rows.getFirst();
+            if ("PLATFORM".equals(scope.scopeKind())
+                    && scope.tenantId() == null
+                    && scope.organizationId() == null) {
+                writer.platform();
+                return;
+            }
+            if ("ORGANIZATION".equals(scope.scopeKind())
+                    && scope.tenantId() != null
+                    && scope.organizationId() != null) {
+                writer.organization(
+                        scope.tenantId(), scope.organizationId());
+                return;
+            }
+            throw new UntrustedInboxSourceException(
+                    "business confirmation has an invalid authoritative "
+                            + "scope");
+        };
+    }
+
+    @Override
     public TrustedInboxScopeResolver resolverForOrganizationAsset(
             String hardwareSn) {
         String trustedHardwareSn = requireHardwareSn(hardwareSn);
@@ -77,6 +144,22 @@ public class TrustedDeviceSourceScopeService
         return value;
     }
 
+    private static String requireConfirmationUid(String value) {
+        if (value == null || !value.matches(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
+                        + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) {
+            throw new UntrustedInboxSourceException(
+                    "business confirmation identity is invalid");
+        }
+        return value;
+    }
+
     private record AssetScope(Long tenantId, Long organizationId) {
+    }
+
+    private record ConfirmationScope(
+            String scopeKind,
+            Long tenantId,
+            Long organizationId) {
     }
 }

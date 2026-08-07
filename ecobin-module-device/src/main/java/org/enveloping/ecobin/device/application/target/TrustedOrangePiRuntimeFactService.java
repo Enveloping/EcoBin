@@ -2,11 +2,13 @@ package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
 import org.enveloping.ecobin.device.api.port.TrustedEdgeRestartedBusinessPort;
+import org.enveloping.ecobin.device.api.port.TrustedPlatformConfirmationReceiptPort;
 import org.enveloping.ecobin.device.api.result.PhotoStatusBusinessResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.device.api.result.TrustedEdgeRestartedWork;
 import org.enveloping.ecobin.device.api.result.TrustedPhotoStatusFact;
+import org.enveloping.ecobin.device.api.result.TrustedPlatformConfirmationReceiptEvent;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
@@ -40,7 +42,8 @@ import java.util.UUID;
  * not interpreted as backend activation gates.</p>
  */
 @Service
-public class TrustedOrangePiRuntimeFactService {
+public class TrustedOrangePiRuntimeFactService
+        implements TrustedPlatformConfirmationReceiptPort {
 
     private static final Set<String> SUPPORTED = Set.of(
             "DEVICE_COMMAND_OBSERVED",
@@ -115,6 +118,29 @@ public class TrustedOrangePiRuntimeFactService {
                                 inboxId,
                                 tenantId,
                                 organizationId));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void apply(
+            TrustedPlatformConfirmationReceiptEvent inboxEvent) {
+        if (inboxEvent.normalizedSchemaVersion() != 2) {
+            throw new IllegalArgumentException(
+                    "unsupported platform confirmation receipt schema");
+        }
+        ParsedEvent event = parse(
+                "BUSINESS_CONFIRMATION_RECEIPT",
+                inboxEvent.normalizedPayload());
+        inboxEvent.sourceInbox().use(ignoredInboxId -> {
+            AssetTarget asset = loadPlatformAsset(event);
+            applyConfirmationReceipt(
+                    event,
+                    asset,
+                    "PLATFORM",
+                    null,
+                    null);
+            return null;
+        });
     }
 
     private TrustedDeviceEventApplyResult applyWithinScope(
@@ -323,7 +349,10 @@ public class TrustedOrangePiRuntimeFactService {
             case "BUSINESS_CONFIRMATION_RECEIPT" -> {
                 applyConfirmationReceipt(
                         event,
-                        asset);
+                        asset,
+                        "ORGANIZATION",
+                        tenantId,
+                        organizationId);
                 return TrustedDeviceEventApplyResult.APPLIED;
             }
             default -> throw new IllegalStateException(
@@ -2168,7 +2197,10 @@ public class TrustedOrangePiRuntimeFactService {
 
     private void applyConfirmationReceipt(
             ParsedEvent event,
-            AssetTarget asset) {
+            AssetTarget asset,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId) {
         JsonNode receipt = event.payload();
         String confirmationUid = requiredText(
                 receipt, "confirmationUid");
@@ -2186,13 +2218,19 @@ public class TrustedOrangePiRuntimeFactService {
                           AND task.target_stable_key = ?
                           AND task.source_device_asset_id = ?
                           AND task.source_device_command_id IS NULL
+                          AND task.scope_kind = ?
+                          AND task.tenant_id <=> ?
+                          AND task.organization_id <=> ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> new ConfirmationTarget(
                         rs.getString("state"),
                         rs.getString("semantic_payload")),
                 confirmationUid,
-                asset.assetId());
+                asset.assetId(),
+                scopeKind,
+                tenantId,
+                organizationId);
         if (rows.size() != 1) {
             throw new UntrustedInboxSourceException(
                     "confirmation receipt target is not authoritative");
@@ -2220,6 +2258,23 @@ public class TrustedOrangePiRuntimeFactService {
                 ReliableEdgeConfirmationService.TASK_TYPE,
                 ReliableEdgeConfirmationService.TARGET_TYPE,
                 confirmationUid);
+    }
+
+    private AssetTarget loadPlatformAsset(ParsedEvent event) {
+        List<AssetTarget> assets = jdbc.query("""
+                        SELECT id, expected_port_count
+                        FROM dev_device_asset
+                        WHERE hardware_sn = ?
+                        """,
+                (rs, ignored) -> new AssetTarget(
+                        rs.getLong("id"),
+                        rs.getInt("expected_port_count")),
+                event.hardwareSn());
+        if (assets.size() != 1) {
+            throw new UntrustedInboxSourceException(
+                    "platform confirmation device is not registered");
+        }
+        return assets.getFirst();
     }
 
     private void refreshSafetyProjection(

@@ -3,6 +3,7 @@ package org.enveloping.ecobin.integration.onenet.inbound;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
+import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.outbound.OneNetProperties;
@@ -486,12 +487,10 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             eventUid,
                             commandUid,
                             TrustedInboxExecutionLane.DEVICE,
-                            "DEVICE_ACCEPTANCE_EVIDENCE".equals(
-                                    contract.messageKind())
-                                    ? sourceScopePort
-                                            .resolverForPlatformAsset(hardwareSn)
-                                    : sourceScopePort
-                                            .resolverForOrganizationAsset(hardwareSn)));
+                            sourceScopeResolver(
+                                    contract,
+                                    hardwareSn,
+                                    payload)));
                 if (!receipt.transportAcknowledgementAllowed()) {
                     throw new IllegalStateException(
                             "reliable inbox did not permit transport ACK");
@@ -537,6 +536,23 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     rejected.getMessage());
             throw rejected;
         }
+    }
+
+    private TrustedInboxScopeResolver sourceScopeResolver(
+            EventContract contract,
+            String hardwareSn,
+            Map<String, Object> payload) {
+        if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
+                contract.messageKind())) {
+            return sourceScopePort.resolverForPlatformAsset(hardwareSn);
+        }
+        if ("BUSINESS_CONFIRMATION_RECEIPT".equals(
+                contract.messageKind())) {
+            return sourceScopePort.resolverForBusinessConfirmation(
+                    hardwareSn,
+                    (String) payload.get("confirmationUid"));
+        }
+        return sourceScopePort.resolverForOrganizationAsset(hardwareSn);
     }
 
     private void quarantine(

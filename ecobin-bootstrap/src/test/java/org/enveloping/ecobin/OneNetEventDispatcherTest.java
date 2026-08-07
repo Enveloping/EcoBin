@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,6 +67,8 @@ class OneNetEventDispatcherTest {
                 writer -> writer.organization(11, 22);
         when(sourceScopePort.resolverForOrganizationAsset(HARDWARE_SN))
                 .thenReturn(resolver);
+        when(sourceScopePort.resolverForBusinessConfirmation(
+                eq(HARDWARE_SN), anyString())).thenReturn(resolver);
         when(sourceScopePort.resolverForPlatformAsset(HARDWARE_SN))
                 .thenReturn(TrustedInboxScopeResolver.platform());
         when(inboxPort.receive(any())).thenReturn(
