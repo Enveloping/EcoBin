@@ -103,7 +103,8 @@ ECOBIN_UART_PORT_COUNT=1
 
 当前没有会放宽业务校验的全局测试模式开关。`main.py` 始终根据
 `ECOBIN_MCU_PROTOCOL` 和 `ECOBIN_SERIAL_PORT` 连接所配置的串口边界；连接 PTY 时还必须
-显式设置 `ECOBIN_MCU_SIMULATED=true`，确保平台验收不会把模拟证据当成真机证据。当前
+显式设置 `ECOBIN_MCU_SIMULATED=true`，使平台验收证据能够如实显示当前来源。自 V38
+起该标记只用于诊断，不再影响机器验收通过或失败；当前
 `config.py` 会以 `.env` 覆盖同名进程环境变量，所以已有
 `.env` 时应修改其中的 `ECOBIN_SERIAL_PORT`，不能只在 shell 中临时 `export`。
 

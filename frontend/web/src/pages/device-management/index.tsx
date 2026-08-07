@@ -143,7 +143,7 @@ export default function DeviceManagementPage() {
   const pageCopy = mode === 'platform'
     ? {
       title: '永久设备资产',
-      description: '平台登记真实机器、查看自动验收证据，并只分配一次租户。',
+      description: '平台登记物理设备资产、查看自动验收证据，并只分配一次租户。',
     }
     : mode === 'tenant'
       ? {
@@ -270,7 +270,7 @@ export default function DeviceManagementPage() {
         commandKey('device.asset.create', payload.hardwareSn, payload),
         (intent) => createPlatformDeviceAsset(payload, intent),
       );
-      message.success('设备资产已创建，真实设备联网后会自动验收');
+      message.success('设备资产已创建，设备联网后会自动验收');
       setAssetModalOpen(false);
       assetForm.resetFields();
       setSelected(created);
@@ -395,7 +395,7 @@ export default function DeviceManagementPage() {
         message="永久归属 · 自动验收 · 联网即用"
         description={
           mode === 'platform'
-            ? '机器验收发生在分配租户之前，只接受真实 MCU、真实摄像头和可信运行证据。'
+            ? '机器验收发生在分配租户之前；MCU 和摄像头是否模拟仅作诊断，平台依据联网、通信、采集、上传等功能证据自动判定。'
             : mode === 'tenant'
               ? '租户界面不展示安装或启用进度；设备只能永久分配一次机构。'
               : '系统自动下发配置、重测厂家初始袋皮重并计算业务资格，不需要现场确认或经营开关。'
@@ -490,7 +490,7 @@ export default function DeviceManagementPage() {
             );
             setSelected(updated);
             reload();
-            message.success('已根据最新真实证据重新计算验收结果');
+            message.success('已根据最新功能证据重新计算验收结果');
           } catch (error) {
             message.error(errorMessage(error));
             throw error;

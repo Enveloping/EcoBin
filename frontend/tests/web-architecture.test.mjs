@@ -281,7 +281,9 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(pageSource, /联网即可使用/);
   assert.match(drawerSource, /mcuSimulated/);
   assert.match(drawerSource, /camerasSimulated/);
-  assert.match(drawerSource, /真实设备联网后会自动提交验收证据/);
+  assert.match(drawerSource, /设备联网后会自动提交功能验收证据/);
+  assert.match(drawerSource, /模拟器（仅诊断）/);
+  assert.doesNotMatch(drawerSource, /模拟器（不能通过）/);
   assert.match(drawerSource, /expectedLatestVersion:\s*current\.versionNo/);
   assert.match(drawerSource, /系统会自动下发配置并测量厂家初始袋皮重/);
   assert.doesNotMatch(apiSource, /device-deployments|deploymentCode|TenantPool/);

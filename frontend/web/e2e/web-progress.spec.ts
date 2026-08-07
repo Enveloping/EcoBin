@@ -2415,7 +2415,7 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
   expect(idempotencyKeys[0]).toBeTruthy();
   expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
   await expect(
-    page.getByText('已根据最新真实证据重新计算验收结果'),
+    page.getByText('已根据最新功能证据重新计算验收结果'),
   ).toBeVisible();
   await expect(
     drawer.getByText('机器验收通过', { exact: true }),
@@ -2569,7 +2569,7 @@ test('platform creates a real asset and writes its only tenant ownership', async
     key: expect.any(String),
   });
   const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
-  await expect(drawer.getByText('真实设备联网后会自动提交验收证据')).toBeVisible();
+  await expect(drawer.getByText('设备联网后会自动提交功能验收证据')).toBeVisible();
   await drawer.getByRole('button', { name: '永久分配租户' }).click();
   const assignmentDialog = page.getByRole('dialog', { name: '永久分配租户' });
   await assignmentDialog.getByLabel('目标租户').click();

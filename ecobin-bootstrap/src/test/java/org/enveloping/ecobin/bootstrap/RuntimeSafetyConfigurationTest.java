@@ -56,7 +56,8 @@ class RuntimeSafetyConfigurationTest {
             "V34__operations_audit_organization_user_index.sql",
             "V35__merchant_transfer_authorization.sql",
             "V36__permanent_device_ownership.sql",
-            "V37__platform_acceptance_confirmations.sql"
+            "V37__platform_acceptance_confirmations.sql",
+            "V38__simulator_neutral_device_acceptance.sql"
     };
 
     @Test
@@ -279,6 +280,22 @@ class RuntimeSafetyConfigurationTest {
         assertTrue(secretReferenceDrop > staffSessionRevocation);
         assertTrue(migration.contains(
                 "MINIAPP_CREDENTIAL_STORAGE_MIGRATED"));
+    }
+
+    @Test
+    void v38KeepsSimulationMarkersDiagnosticOnly() throws IOException {
+        String migration = Files.readString(
+                moduleSource("src/main/resources/db/p0-migration/"
+                        + "V38__simulator_neutral_device_acceptance.sql"),
+                StandardCharsets.UTF_8);
+
+        assertTrue(migration.contains(
+                "ck_dev_acceptance_evidence_result_v38"));
+        assertFalse(migration.contains("mcu_simulated = 0"));
+        assertFalse(migration.contains("cameras_simulated = 0"));
+        assertTrue(migration.contains("mcu_communication_healthy = 1"));
+        assertTrue(migration.contains("cameras_capture_healthy = 1"));
+        assertTrue(migration.contains("camera_upload_healthy = 1"));
     }
 
     private static Path moduleSource(String relativePath) {

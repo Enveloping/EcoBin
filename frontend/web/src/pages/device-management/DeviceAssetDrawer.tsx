@@ -121,7 +121,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
     return (
       <Empty
         image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="真实设备联网后会自动提交验收证据"
+        description="设备联网后会自动提交功能验收证据"
       />
     );
   }
@@ -132,7 +132,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
     ['可信时间', latest.trustedTimeHealthy],
     ['配置持久化', latest.configurationPersistenceHealthy],
     ['MCU 通信', latest.mcuCommunicationHealthy],
-    ['真实传感器', latest.sensorsHealthy],
+    ['传感器数据', latest.sensorsHealthy],
     ['摄像头采集', latest.camerasCaptureHealthy],
     ['测试图片上传', latest.cameraUploadHealthy],
   ] as const;
@@ -143,7 +143,7 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
         type={latest.evaluationStatus === 'PASSED' ? 'success' : 'warning'}
         message={
           latest.evaluationStatus === 'PASSED'
-            ? '最新真实证据已通过机器验收'
+            ? '最新功能证据已通过机器验收'
             : '最新证据尚未满足机器验收'
         }
         description={
@@ -161,13 +161,13 @@ function EvidencePanel({ rows }: { rows: DeviceAcceptanceEvidence[] }) {
           </Descriptions.Item>
         ))}
         <Descriptions.Item label="MCU 来源">
-          <Tag color={latest.mcuSimulated ? 'error' : 'success'}>
-            {latest.mcuSimulated ? '模拟器（不能通过）' : '真实硬件'}
+          <Tag color={latest.mcuSimulated ? 'default' : 'success'}>
+            {latest.mcuSimulated ? '模拟器（仅诊断）' : '真实硬件'}
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="摄像头来源">
-          <Tag color={latest.camerasSimulated ? 'error' : 'success'}>
-            {latest.camerasSimulated ? '模拟器（不能通过）' : '真实摄像头'}
+          <Tag color={latest.camerasSimulated ? 'default' : 'success'}>
+            {latest.camerasSimulated ? '模拟器（仅诊断）' : '真实摄像头'}
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="观测时间" span={2}>

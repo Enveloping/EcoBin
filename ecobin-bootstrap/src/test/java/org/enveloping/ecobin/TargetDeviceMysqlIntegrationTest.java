@@ -357,7 +357,7 @@ class TargetDeviceMysqlIntegrationTest {
                             observed_at, received_at, created_at
                         ) VALUES (
                             ?, ?, ?, ?, 1, ?, '0.1.0', '2', 'mcu-real',
-                            1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
+                            1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                             'PASSED', JSON_ARRAY(), JSON_OBJECT(
                                 'verifiedPortCount', 2,
                                 'verifiedCameraCount', 2

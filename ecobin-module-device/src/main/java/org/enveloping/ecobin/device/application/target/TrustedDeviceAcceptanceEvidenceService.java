@@ -314,7 +314,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                 requiredPattern(payload, "cameraUploadSha256", SHA256));
     }
 
-    private List<String> failures(
+    List<String> failures(
             AssetState asset,
             Evidence evidence,
             LocalDateTime observedAt,
@@ -348,8 +348,6 @@ public class TrustedDeviceAcceptanceEvidenceService
                 "CAMERA_CAPTURE_FAILED");
         addUnless(result, evidence.cameraUploadHealthy(),
                 "CAMERA_UPLOAD_READBACK_FAILED");
-        addUnless(result, !evidence.mcuSimulated(), "MCU_SIMULATED");
-        addUnless(result, !evidence.camerasSimulated(), "CAMERAS_SIMULATED");
         addUnless(result,
                 evidence.verifiedPortCount() == asset.expectedPortCount(),
                 "PORT_COUNT_MISMATCH");
@@ -478,7 +476,7 @@ public class TrustedDeviceAcceptanceEvidenceService
         }
     }
 
-    private record AssetState(
+    record AssetState(
             long id,
             int expectedPortCount,
             String acceptanceStatus,
@@ -488,7 +486,7 @@ public class TrustedDeviceAcceptanceEvidenceService
     private record ExistingEvidence(String evidenceUid) {
     }
 
-    private record Evidence(
+    record Evidence(
             String challengeUid,
             String edgeSoftwareVersion,
             String edgeProtocolVersion,

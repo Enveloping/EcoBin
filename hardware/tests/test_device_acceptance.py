@@ -194,7 +194,7 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     store.close()
 
 
-def test_simulators_are_reported_and_cannot_look_like_real_hardware(
+def test_simulators_are_diagnostic_and_functional_checks_still_pass(
     tmp_path,
     monkeypatch,
 ):
@@ -208,6 +208,10 @@ def test_simulators_are_reported_and_cannot_look_like_real_hardware(
     assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
     assert event["payload"]["mcuSimulated"] is True
     assert event["payload"]["camerasSimulated"] is True
+    assert event["payload"]["mcuCommunicationHealthy"] is True
+    assert event["payload"]["sensorsHealthy"] is True
+    assert event["payload"]["camerasCaptureHealthy"] is True
+    assert event["payload"]["cameraUploadHealthy"] is True
     store.close()
 
 

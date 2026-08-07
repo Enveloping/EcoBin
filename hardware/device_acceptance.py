@@ -24,7 +24,9 @@ class DeviceAcceptanceRunner:
 
     This class never decides the authoritative acceptance status.  It reports
     concrete hardware facts; the platform evaluates those facts against the
-    registered asset and its current OneNet connection state.
+    registered asset and its current OneNet connection state.  Simulation
+    provenance remains diagnostic evidence and does not change functional
+    health.
     """
 
     def __init__(
@@ -136,8 +138,6 @@ class DeviceAcceptanceRunner:
                 sensor_result["healthy"],
                 camera_result["captureHealthy"],
                 camera_result["uploadHealthy"],
-                not mcu_simulated,
-                not camera_result["camerasSimulated"],
             )),
         )
         return {
