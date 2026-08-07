@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
@@ -65,9 +64,14 @@ public class AutomaticDeviceAcceptanceChallengeService
     }
 
     @Override
-    @Transactional(
-            propagation = Propagation.REQUIRES_NEW,
-            isolation = Isolation.READ_COMMITTED)
+    /*
+     * ONLINE inbox handling already owns the asset/transport row locks.  Join
+     * that transaction so the presence projection and its reliable challenge
+     * are committed atomically.  A new transaction would wait on the caller's
+     * locks and eventually roll the ONLINE event back.  The scheduler has no
+     * caller transaction, so REQUIRED still opens one for scheduled retries.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public boolean requestIfNeeded(long assetId) {
         if (!realExternalMode) {
             return false;
