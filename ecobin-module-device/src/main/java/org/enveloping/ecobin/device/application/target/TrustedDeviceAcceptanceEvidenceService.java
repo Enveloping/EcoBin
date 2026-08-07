@@ -44,6 +44,7 @@ public class TrustedDeviceAcceptanceEvidenceService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final TrustedDeviceAcceptanceChallengePort challengePort;
+    private final ReliablePlatformEdgeConfirmationService confirmationService;
     private final Set<String> supportedSoftwareVersions;
     private final Duration maximumEvidenceAge;
 
@@ -51,6 +52,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             TrustedDeviceAcceptanceChallengePort challengePort,
+            ReliablePlatformEdgeConfirmationService confirmationService,
             @Value("${ecobin.device.acceptance.supported-edge-software-versions:0.1.0}")
             String supportedSoftwareVersions,
             @Value("${ecobin.device.acceptance.maximum-evidence-age:PT10M}")
@@ -58,6 +60,7 @@ public class TrustedDeviceAcceptanceEvidenceService
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.challengePort = challengePort;
+        this.confirmationService = confirmationService;
         this.supportedSoftwareVersions = parseVersions(
                 supportedSoftwareVersions);
         if (maximumEvidenceAge == null
@@ -100,11 +103,19 @@ public class TrustedDeviceAcceptanceEvidenceService
             }
 
             String eventUid = requiredText(event, "eventUid", 36);
-            byte[] evidenceSha256 = HexFormat.of().parseHex(
-                    requiredPattern(event, "payloadSha256", SHA256));
+            String payloadSha256 = requiredPattern(
+                    event, "payloadSha256", SHA256);
+            byte[] evidenceSha256 = HexFormat.of().parseHex(payloadSha256);
             ExistingEvidence existing = existingEvidence(
                     asset.id(), eventUid, evidenceSha256);
             if (existing != null) {
+                confirmationService.ensureApplied(
+                        asset.id(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        "NO_ACTION_REQUIRED",
+                        receivedAt);
                 return new DeviceAcceptanceEvidenceApplyResult(
                         asset.id(), asset.acceptanceStatus(), false);
             }
@@ -222,6 +233,13 @@ public class TrustedDeviceAcceptanceEvidenceService
                         receivedAt,
                         asset.id()), "review accepted device evidence");
             }
+            confirmationService.ensureApplied(
+                    asset.id(),
+                    hardwareSn,
+                    eventUid,
+                    payloadSha256,
+                    "UPDATED",
+                    receivedAt);
             return new DeviceAcceptanceEvidenceApplyResult(
                     asset.id(),
                     "PASSED".equals(asset.acceptanceStatus())

@@ -54,7 +54,9 @@ class RuntimeSafetyConfigurationTest {
             "V32__organization_miniapp_database_secret.sql",
             "V33__operations_governance_idempotency.sql",
             "V34__operations_audit_organization_user_index.sql",
-            "V35__merchant_transfer_authorization.sql"
+            "V35__merchant_transfer_authorization.sql",
+            "V36__permanent_device_ownership.sql",
+            "V37__platform_acceptance_confirmations.sql"
     };
 
     @Test

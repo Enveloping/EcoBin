@@ -11,13 +11,13 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 93' -or
         $provisionSource -notmatch 'Expected 93 domain tables') {
-    throw "H-02 provisioning must enforce the V36 93-table shape"
+    throw "H-02 provisioning must enforce the V37 93-table shape"
 }
 if ($provisionSource -match 'Expected 99 domain tables') {
     throw "H-02 provisioning still enforces the removed V35 table count"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 36') {
-    throw "H-02 provisioning must migrate through V36"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 37') {
+    throw "H-02 provisioning must migrate through V37"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
