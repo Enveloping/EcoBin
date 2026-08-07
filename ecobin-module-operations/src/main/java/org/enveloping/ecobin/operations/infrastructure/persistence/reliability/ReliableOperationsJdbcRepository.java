@@ -905,8 +905,10 @@ public class ReliableOperationsJdbcRepository {
                                     candidate.scope_kind = 'PLATFORM'
                                     AND candidate.tenant_id IS NULL
                                     AND candidate.organization_id IS NULL
-                                    AND candidate.task_type =
-                                        'REQUEST_DEVICE_ACCEPTANCE'
+                                    AND candidate.task_type IN (
+                                        'REQUEST_DEVICE_ACCEPTANCE',
+                                        'CONFIRM_EDGE_EVENT'
+                                    )
                                 )
                             )
                             AND (
@@ -989,8 +991,10 @@ public class ReliableOperationsJdbcRepository {
                         t.scope_kind = 'PLATFORM'
                         AND t.tenant_id IS NULL
                         AND t.organization_id IS NULL
-                        AND t.task_type =
-                            'REQUEST_DEVICE_ACCEPTANCE'
+                        AND t.task_type IN (
+                            'REQUEST_DEVICE_ACCEPTANCE',
+                            'CONFIRM_EDGE_EVENT'
+                        )
                     )
                  )
                 ORDER BY t.claimable_at, t.priority, t.id
@@ -1669,8 +1673,10 @@ public class ReliableOperationsJdbcRepository {
                         task.scope_kind = 'PLATFORM'
                         AND task.tenant_id IS NULL
                         AND task.organization_id IS NULL
-                        AND task.task_type =
-                            'REQUEST_DEVICE_ACCEPTANCE'
+                        AND task.task_type IN (
+                            'REQUEST_DEVICE_ACCEPTANCE',
+                            'CONFIRM_EDGE_EVENT'
+                        )
                     )
                  )
                 LEFT JOIN dev_device_transport_state transport
