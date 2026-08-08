@@ -104,7 +104,8 @@ public class TrustedOrangePiRuntimeFactService
     public TrustedDeviceEventApplyResult apply(
             TrustedDeviceInboxEvent inboxEvent) {
         if (!SUPPORTED.contains(inboxEvent.messageKind())
-                || inboxEvent.normalizedSchemaVersion() != 2) {
+                || inboxEvent.normalizedSchemaVersion()
+                != TrustedDeviceInboxEvent.CURRENT_NORMALIZED_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "unsupported trusted Orange Pi inbox message");
         }
@@ -124,7 +125,8 @@ public class TrustedOrangePiRuntimeFactService
     @Transactional(propagation = Propagation.MANDATORY)
     public void apply(
             TrustedPlatformConfirmationReceiptEvent inboxEvent) {
-        if (inboxEvent.normalizedSchemaVersion() != 2) {
+        if (inboxEvent.normalizedSchemaVersion()
+                != TrustedDeviceInboxEvent.CURRENT_NORMALIZED_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "unsupported platform confirmation receipt schema");
         }

@@ -68,7 +68,8 @@ public class TrustedConfigurationProgressService
     public TrustedDeviceEventApplyResult apply(
             TrustedDeviceInboxEvent inboxEvent) {
         if (!MESSAGE_KIND.equals(inboxEvent.messageKind())
-                || inboxEvent.normalizedSchemaVersion() != 2) {
+                || inboxEvent.normalizedSchemaVersion()
+                != TrustedDeviceInboxEvent.CURRENT_NORMALIZED_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "unsupported trusted device inbox message");
         }

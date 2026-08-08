@@ -135,7 +135,8 @@ public class TrustedDeliveryCompletionService
             TrustedDeviceInboxEvent event,
             DeliveryCompletionBusinessWriter businessWriter) {
         if (!MESSAGE_KIND.equals(event.messageKind())
-                || event.normalizedSchemaVersion() != 1) {
+                || event.normalizedSchemaVersion()
+                != TrustedDeviceInboxEvent.CURRENT_NORMALIZED_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "unsupported delivery completion inbox message");
         }

@@ -110,7 +110,8 @@ public class ApplyCleanCompleteService
     public TrustedDeviceEventApplyResult apply(
         TrustedDeviceInboxEvent event) {
         if (!MESSAGE_KIND.equals(event.messageKind())
-                || event.normalizedSchemaVersion() != 2) {
+                || event.normalizedSchemaVersion()
+                != TrustedDeviceInboxEvent.CURRENT_NORMALIZED_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "unsupported clean completion inbox message");
         }

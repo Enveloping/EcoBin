@@ -10,6 +10,8 @@ public record TrustedDeviceInboxEvent(
         int normalizedSchemaVersion,
         String normalizedPayload) {
 
+    public static final int CURRENT_NORMALIZED_SCHEMA_VERSION = 2;
+
     public TrustedDeviceInboxEvent {
         Objects.requireNonNull(sourceInbox, "sourceInbox");
         Objects.requireNonNull(messageKind, "messageKind");

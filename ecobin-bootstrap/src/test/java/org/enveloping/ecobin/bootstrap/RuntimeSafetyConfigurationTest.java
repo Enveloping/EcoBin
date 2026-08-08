@@ -58,7 +58,8 @@ class RuntimeSafetyConfigurationTest {
             "V36__permanent_device_ownership.sql",
             "V37__platform_acceptance_confirmations.sql",
             "V38__simulator_neutral_device_acceptance.sql",
-            "V39__shared_miniapp_multi_organization_identity.sql"
+            "V39__shared_miniapp_multi_organization_identity.sql",
+            "V40__permanent_asset_edge_event_targets.sql"
     };
 
     @Test

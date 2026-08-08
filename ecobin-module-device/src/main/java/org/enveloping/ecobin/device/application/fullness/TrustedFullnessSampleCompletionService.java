@@ -64,7 +64,8 @@ public class TrustedFullnessSampleCompletionService
             TrustedDeviceInboxEvent event,
             FullnessSampleBusinessWriter businessWriter) {
         if (!MESSAGE_KIND.equals(event.messageKind())
-                || event.normalizedSchemaVersion() != 1) {
+                || event.normalizedSchemaVersion()
+                != TrustedDeviceInboxEvent.CURRENT_NORMALIZED_SCHEMA_VERSION) {
             throw new IllegalArgumentException(
                     "unsupported fullness completion inbox message");
         }

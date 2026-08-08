@@ -1,6 +1,7 @@
 package org.enveloping.ecobin;
 
 import org.enveloping.ecobin.device.api.port.TrustedDeviceSourceScopePort;
+import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 import org.enveloping.ecobin.integration.cos.CosProperties;
 import org.enveloping.ecobin.integration.onenet.inbound.OneNetEventDispatcher;
@@ -105,6 +106,10 @@ class OneNetEventDispatcherTest {
                         "85000000-0000-4000-8000-000000000001");
         assertThat(message.messageKind())
                 .isEqualTo("CONFIGURATION_PROGRESS");
+        assertThat(message.normalizedSchemaVersion())
+                .isEqualTo(
+                        TrustedDeviceInboxEvent
+                                .CURRENT_NORMALIZED_SCHEMA_VERSION);
         assertThat(message.rawTransportBody())
                 .isEqualTo(RAW_TRANSPORT);
         assertThat(message.authenticationPrincipalRef())
@@ -187,6 +192,10 @@ class OneNetEventDispatcherTest {
                 .extracting(TrustedInboxMessage::messageKind)
                 .containsExactlyInAnyOrderElementsOf(contracts.values());
         for (TrustedInboxMessage message : captor.getAllValues()) {
+            assertThat(message.normalizedSchemaVersion())
+                    .isEqualTo(
+                            TrustedDeviceInboxEvent
+                                    .CURRENT_NORMALIZED_SCHEMA_VERSION);
             JsonNode normalized =
                     objectMapper.readTree(message.normalizedPayload());
             assertThat(normalized.path("event")
