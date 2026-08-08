@@ -56,6 +56,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.external.fake.block-inbound=true",
         "ecobin.operations.reliable.workers-enabled=false",
         "ecobin.device.activation.scheduler-enabled=false",
+        "ecobin.miniapp.device-entry-base-url=https://example.test/ecobin/device",
         "ecobin.development.default-platform-admin.enabled=false",
         "ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
         "onenet.subscription.enabled=false",
@@ -121,7 +122,7 @@ class TargetDeviceMysqlIntegrationTest {
         String principalLogin = "device-principal-" + run;
         createEnabledScope(platform, tenantCode, organizationCode,
                 otherOrganizationCode, principalLogin);
-        String entryBaseUrl = "https://example.test/ecobin/device";
+        String globalEntryBaseUrl = "https://example.test/ecobin/device";
         long tenantId = jdbc.queryForObject(
                 "SELECT id FROM iam_tenant WHERE tenant_code = ?",
                 Long.class,
@@ -138,18 +139,17 @@ class TargetDeviceMysqlIntegrationTest {
         jdbc.update("""
                         INSERT INTO iam_miniapp_channel (
                             channel_uid, appid, display_name,
-                            login_enabled, app_secret, entry_base_url,
+                            login_enabled, app_secret,
                             activated_at, lock_version,
                             configured_at, created_at, updated_at
                         ) VALUES (
-                            ?, ?, 'Device QR channel', 1, 'test-secret', ?,
+                            ?, ?, 'Device QR channel', 1, 'test-secret',
                             UTC_TIMESTAMP(3), 0, UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
                         )
-                        """,
+                """,
                 UUID.randomUUID().toString(),
-                appId,
-                entryBaseUrl);
+                appId);
         long channelId = jdbc.queryForObject(
                 "SELECT id FROM iam_miniapp_channel WHERE appid = ?",
                 Long.class,
@@ -283,7 +283,7 @@ class TargetDeviceMysqlIntegrationTest {
         assertEquals(organizationCode,
                 organizationAssigned.path("organizationCode").asText());
         assertEquals(
-                entryBaseUrl + "?deviceCode=" + deviceCode,
+                globalEntryBaseUrl + "?deviceCode=" + deviceCode,
                 organizationAssigned.path("deviceEntryUrl").asText());
         assertEquals(3, organizationAssigned.path("version").asLong());
 

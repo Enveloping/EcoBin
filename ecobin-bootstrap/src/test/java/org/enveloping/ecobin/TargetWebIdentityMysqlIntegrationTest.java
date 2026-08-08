@@ -3193,27 +3193,11 @@ class TargetWebIdentityMysqlIntegrationTest {
         String appId = "wx" + UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 16);
         String initialSecret = "fake-initial-app-secret-" + run;
-        String entryBaseUrl = "https://example.test/device-entry";
-        MvcResult duplicateDeviceCode = write(
-                platform,
-                put(base + "/miniapp-configuration"),
-                UUID.randomUUID(),
-                Map.of(
-                        "appId", appId,
-                        "displayName", "Miniapp A",
-                        "appSecret", initialSecret,
-                        "entryBaseUrl", entryBaseUrl
-                                + "?deviceCode=Dv_already-present"),
-                400);
-        assertEquals(
-                "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
-                json(duplicateDeviceCode).path("code").asText());
         UUID initialConfigurationUid = UUID.randomUUID();
         Map<String, Object> initialConfiguration = Map.of(
                 "appId", appId,
                 "displayName", "Miniapp A",
-                "appSecret", initialSecret,
-                "entryBaseUrl", entryBaseUrl);
+                "appSecret", initialSecret);
         MvcResult createdResult = write(
                 platform,
                 put(base + "/miniapp-configuration"),
@@ -3223,7 +3207,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         JsonNode created = data(createdResult);
         assertEquals(appId, created.path("appId").asText());
         assertTrue(created.path("appSecretConfigured").asBoolean());
-        assertEquals(entryBaseUrl, created.path("entryBaseUrl").asText());
+        assertFalse(created.has("entryBaseUrl"));
         assertFalse(created.path("activated").asBoolean());
         assertFalse(created.path("loginEnabled").asBoolean());
         assertEquals(0, created.path("version").asLong());
@@ -3244,8 +3228,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 Map.of(
                         "appId", appId,
                         "displayName", "Miniapp A",
-                        "appSecret", initialSecret + "-different",
-                        "entryBaseUrl", entryBaseUrl),
+                        "appSecret", initialSecret + "-different"),
                 409);
         assertEquals(
                 "COMMON.IDEMPOTENCY_KEY_CONFLICT",
@@ -3289,7 +3272,6 @@ class TargetWebIdentityMysqlIntegrationTest {
                         "appId", "wx" + UUID.randomUUID().toString()
                                 .replace("-", "").substring(0, 16),
                         "displayName", "Changed",
-                        "entryBaseUrl", entryBaseUrl,
                         "expectedVersion", 1),
                 409);
         assertEquals(
@@ -3305,7 +3287,6 @@ class TargetWebIdentityMysqlIntegrationTest {
                         "appId", appId,
                         "displayName", "Miniapp A rotated",
                         "appSecret", rotatedSecret,
-                        "entryBaseUrl", entryBaseUrl,
                         "expectedVersion", 1),
                 200));
         assertEquals(2, rotated.path("version").asLong());
@@ -3331,8 +3312,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertTrue(tenantConfiguration.path("appSecret").isNull());
         assertTrue(tenantConfiguration.path("appSecretConfigured")
                 .asBoolean());
-        assertEquals(entryBaseUrl,
-                tenantConfiguration.path("entryBaseUrl").asText());
+        assertFalse(tenantConfiguration.has("entryBaseUrl"));
 
         JsonNode enabled = data(write(
                 platform,
@@ -3653,9 +3633,9 @@ class TargetWebIdentityMysqlIntegrationTest {
         jdbc.update("""
                 INSERT INTO iam_miniapp_channel (
                     channel_uid, appid, display_name, login_enabled,
-                    app_secret, entry_base_url, activated_at, lock_version,
+                    app_secret, activated_at, lock_version,
                     configured_at, created_at, updated_at
-                ) VALUES (?, ?, 'Lock order miniapp', 1, ?, NULL, ?, 0,
+                ) VALUES (?, ?, 'Lock order miniapp', 1, ?, ?, 0,
                           ?, ?, ?)
                 """, UUID.randomUUID().toString(), appid,
                 "test-app-secret-" + run, now, now, now, now);
@@ -3999,9 +3979,9 @@ class TargetWebIdentityMysqlIntegrationTest {
             jdbc.update("""
                     INSERT INTO iam_miniapp_channel (
                         channel_uid, appid, display_name, login_enabled,
-                        app_secret, entry_base_url, activated_at, lock_version,
+                        app_secret, activated_at, lock_version,
                         configured_at, created_at, updated_at
-                    ) VALUES (?, ?, 'Payout wake test', 1, ?, NULL, ?, 0,
+                    ) VALUES (?, ?, 'Payout wake test', 1, ?, ?, 0,
                               ?, ?, ?)
                     """, UUID.randomUUID().toString(), appid,
                     "test-app-secret-" + run, now, now, now, now);

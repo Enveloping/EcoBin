@@ -14,9 +14,6 @@ import {
   sessionEntryChanged,
   sessionInstanceChanged,
 } from '../miniprogram/miniprogram/utils/session-transition.ts';
-import {
-  isDeviceEntryBaseUrl,
-} from '../web/src/utils/deviceEntryBaseUrl.ts';
 
 test('web startup migration removes the legacy persisted Bearer store', () => {
   const removed = [];
@@ -192,26 +189,15 @@ test('the deleted login-page mini-program-code generator is not retained', () =>
   );
 });
 
-test('device entry base URL cannot carry a pre-existing deviceCode', () => {
+test('the WeChat ordinary-link validation file is published byte-for-byte', () => {
+  const validation = readFileSync(new URL(
+    '../web/public/device-entry/5JOZivQ9vw.txt',
+    import.meta.url,
+  ));
+  assert.equal(validation.length, 32);
   assert.equal(
-    isDeviceEntryBaseUrl('https://entry.example/device'),
-    true,
-  );
-  assert.equal(
-    isDeviceEntryBaseUrl('https://entry.example/device?source=poster'),
-    true,
-  );
-  assert.equal(
-    isDeviceEntryBaseUrl('https://entry.example/device?deviceCode=old'),
-    false,
-  );
-  assert.equal(
-    isDeviceEntryBaseUrl('https://user:secret@entry.example/device'),
-    false,
-  );
-  assert.equal(
-    isDeviceEntryBaseUrl('https:///device'),
-    false,
+    validation.toString('utf8'),
+    'cd850e2c9d0e24abfd68ed19dc5afc79',
   );
 });
 

@@ -1718,7 +1718,6 @@ test('platform configures, activates and enables a shared miniapp channel', asyn
   const tenantCode = 'tenant-miniapp';
   const organizationCode = 'org-miniapp';
   const fullSecret = 'miniapp-secret-only-in-memory';
-  const entryBaseUrl = 'https://example.test/device-entry';
   const session = {
     ...platformSession,
     capabilities: ['tenant.read', 'organization.read', 'miniapp.manage'],
@@ -1740,7 +1739,6 @@ test('platform configures, activates and enables a shared miniapp channel', asyn
         appSecret: string | null;
         appSecretConfigured: true;
         maskedAppSecret: string;
-        entryBaseUrl: string;
         activated: boolean;
         loginEnabled: boolean;
         version: number;
@@ -1841,7 +1839,6 @@ test('platform configures, activates and enables a shared miniapp channel', asyn
         appSecret: String(body.appSecret),
         appSecretConfigured: true,
         maskedAppSecret: 'mini****mory',
-        entryBaseUrl: String(body.entryBaseUrl),
         activated: false,
         loginEnabled: false,
         version: 1,
@@ -1910,8 +1907,6 @@ test('platform configures, activates and enables a shared miniapp channel', asyn
   await page
     .getByPlaceholder('用于识别共享小程序渠道')
     .fill('滨江环保小程序');
-  await page.getByPlaceholder('https://example.com/device-entry')
-    .fill(entryBaseUrl);
   await page
     .getByPlaceholder('已有渠道可留空，新渠道请输入 AppSecret')
     .fill(fullSecret);
@@ -1923,7 +1918,6 @@ test('platform configures, activates and enables a shared miniapp channel', asyn
     appId: 'wx1234567890abcdef',
     displayName: '滨江环保小程序',
     appSecret: fullSecret,
-    entryBaseUrl,
     expectedVersion: null,
   });
 

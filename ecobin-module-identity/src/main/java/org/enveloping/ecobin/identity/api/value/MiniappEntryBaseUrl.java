@@ -9,8 +9,8 @@ import java.nio.charset.StandardCharsets;
 /**
  * 普通链接二维码的入口地址规则。
  *
- * <p>平台保存的是不含设备码的 HTTPS 基础地址；设备模块只在生成二维码时追加唯一的
- * {@code deviceCode}。规则集中在这里，避免配置端和二维码生成端各自解释。</p>
+ * <p>应用全局配置保存不含设备码的 HTTPS 基础地址；设备模块只在生成二维码时追加
+ * 唯一的 {@code deviceCode}。规则集中在这里，避免启动校验和二维码生成各自解释。</p>
  */
 public final class MiniappEntryBaseUrl {
 

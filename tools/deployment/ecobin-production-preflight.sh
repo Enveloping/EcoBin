@@ -67,6 +67,21 @@ backend_image="$(env_value "${deployment_env}" ECOBIN_BACKEND_IMAGE)"
 backend_image_id="$(env_value "${deployment_env}" ECOBIN_BACKEND_IMAGE_ID)"
 web_image="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE)"
 web_image_id="$(env_value "${deployment_env}" ECOBIN_WEB_IMAGE_ID)"
+backend_log_directory="$(env_value \
+    "${deployment_env}" ECOBIN_BACKEND_LOG_DIRECTORY)"
+
+[[ "${backend_log_directory}" =~ ^/[A-Za-z0-9._/-]+$ \
+    && "${backend_log_directory}" != / \
+    && "/${backend_log_directory#/}/" != *"/../"* ]] \
+    || fail "ECOBIN_BACKEND_LOG_DIRECTORY must be a safe absolute path"
+[[ -d "${backend_log_directory}" && ! -L "${backend_log_directory}" ]] \
+    || fail "backend persistent log directory is missing or is a link"
+[[ "$(readlink -f -- "${backend_log_directory}")" = \
+    "${backend_log_directory}" ]] \
+    || fail "backend persistent log directory traverses a symbolic link"
+[[ "$(stat -c '%u:%g:%a' "${backend_log_directory}")" = \
+    10001:10001:750 ]] \
+    || fail "backend persistent log directory metadata must be 10001:10001:750"
 
 [[ "${image_mode}" = local ]] \
     || fail "ECOBIN_IMAGE_MODE must be local"
@@ -148,6 +163,10 @@ db_url="$(env_value "${runtime_env}" dbUrl)"
     || fail "runtime database identity must be ecobin_app"
 [[ "$(env_value "${runtime_env}" defaultPlatformAdminEnabled)" = false ]] \
     || fail "development administrator initializer must be disabled"
+configured_log_path="$(optional_env_value "${runtime_env}" ecobinLogPath)"
+[[ -z "${configured_log_path}" \
+    || "${configured_log_path}" = /var/log/ecobin/backend ]] \
+    || fail "ecobinLogPath must match the backend container log mount"
 [[ "$(env_value "${runtime_env}" TZ)" = UTC ]] \
     || fail "production runtime timezone must be UTC"
 

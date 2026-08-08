@@ -161,12 +161,12 @@ class TargetMiniappV02MysqlIntegrationTest {
         jdbc.update("""
                         INSERT INTO iam_miniapp_channel (
                             channel_uid, appid, display_name,
-                            login_enabled, app_secret, entry_base_url,
+                            login_enabled, app_secret,
                             activated_at, lock_version,
                             configured_at, created_at, updated_at
                         ) VALUES (
                             ?, ?, 'V02 shared channel', 1,
-                            'test-app-secret', 'https://example.test/device',
+                            'test-app-secret',
                             UTC_TIMESTAMP(3), 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3)

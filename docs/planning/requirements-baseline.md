@@ -1,6 +1,6 @@
 # EcoBin 产品需求基线
 
-> 状态：**需求及全部设计基线已重新冻结；2026-08-08 已确认 D-048 / I-058 共享小程序、多机构账号与登录后置模型，实施版本为 V39**
+> 状态：**需求及全部设计基线已重新冻结；2026-08-08 已确认 D-048 / I-058 共享小程序身份模型及 V41 全局设备二维码入口**
 > 初次整理：2026-07-21
 > 最近同步：2026-08-08
 > 确认人：项目负责人（单人确认）
@@ -17,6 +17,9 @@
 
 > [!IMPORTANT]
 > 2026-08-08 普通用户身份已由 D-048 / I-058 重新冻结：AppID 只标识共享小程序渠道，不再决定机构；有效设备公开码决定机构，OpenID 决定微信身份，同一微信身份可以拥有多个相互隔离的机构账号。无扫码新用户禁止注册，已有用户无扫码选择最近注册的可用账号；游客可先浏览，登录和手机号授权后置。本文中“每机构独立 AppID”“直接进入可注册”和强制登录页语义均由 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md) 覆盖。
+
+> [!IMPORTANT]
+> 2026-08-08 设备普通二维码入口进一步由 V41 冻结为全局固定地址，默认 `https://www.jinshoubao.com/device-entry/`；渠道、租户和机构不再保存或展示入口地址，每台设备只通过唯一公开码形成不同二维码。详见 [`../architecture/global-miniapp-device-entry-v41.md`](../architecture/global-miniapp-device-entry-v41.md)。
 
 ## 1. 文档定位与效力
 

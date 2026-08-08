@@ -1,7 +1,6 @@
 package org.enveloping.ecobin.identity.application.directory;
 
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
-import org.enveloping.ecobin.identity.api.value.MiniappEntryBaseUrl;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.VersionCommand;
 import org.enveloping.ecobin.identity.web.v1.directory.MiniappConfigurationModels.MiniappConfigurationMutationView;
 import org.enveloping.ecobin.identity.web.v1.directory.MiniappConfigurationModels.MiniappConfigurationView;
@@ -12,7 +11,8 @@ import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
 import java.util.UUID;
 
 /**
- * 机构小程序配置入口。AppSecret 与机构配置保存在同一数据库事务中。
+ * 平台共享小程序渠道的机构绑定入口。渠道密钥与绑定关系在同一事务中维护；普通设备
+ * 二维码入口属于应用全局配置，不进入渠道或机构数据。
  */
 @Service
 public class TargetMiniappConfigurationService {
@@ -37,7 +37,6 @@ public class TargetMiniappConfigurationService {
                 platform ? metadata.appSecret() : null,
                 metadata.appSecretConfigured(),
                 mask(metadata.appSecret()),
-                metadata.entryBaseUrl(),
                 metadata.activated(),
                 metadata.loginEnabled(),
                 metadata.version(),
@@ -52,7 +51,6 @@ public class TargetMiniappConfigurationService {
             String organizationCode,
             PutMiniappConfigurationRequest request) {
         requireOperationUid(operationUid);
-        requireValidEntryBaseUrl(request.entryBaseUrl());
         String appSecret = normalizeOptionalSecret(request.appSecret());
         MiniappConfigurationMetadata metadata =
                 directory.putMiniappConfiguration(
@@ -115,7 +113,6 @@ public class TargetMiniappConfigurationService {
                 metadata.displayName(),
                 metadata.appSecretConfigured(),
                 mask(metadata.appSecret()),
-                metadata.entryBaseUrl(),
                 metadata.activated(),
                 metadata.loginEnabled(),
                 metadata.version(),
@@ -141,18 +138,6 @@ public class TargetMiniappConfigurationService {
                     "AppSecret 首尾不能包含空白字符");
         }
         return value;
-    }
-
-    private static void requireValidEntryBaseUrl(String value) {
-        if (value == null) {
-            return;
-        }
-        if (!MiniappEntryBaseUrl.isValid(value)) {
-            throw new TargetApiException(
-                    400,
-                    "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
-                    "设备二维码入口必须是完整 HTTPS 地址，且不能包含账号信息、片段或 deviceCode 参数");
-        }
     }
 
     private static void requireOperationUid(UUID operationUid) {

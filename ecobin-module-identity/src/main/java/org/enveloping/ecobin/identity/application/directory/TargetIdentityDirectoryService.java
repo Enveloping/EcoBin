@@ -787,12 +787,12 @@ public class TargetIdentityDirectoryService {
                                             INSERT INTO iam_miniapp_channel (
                                                 channel_uid, appid,
                                                 display_name, login_enabled,
-                                                app_secret, entry_base_url,
+                                                app_secret,
                                                 activated_at, lock_version,
                                                 configured_at, created_at,
                                                 updated_at
                                             ) VALUES (
-                                                ?, ?, ?, 0, ?, ?, NULL, 0,
+                                                ?, ?, ?, 0, ?, NULL, 0,
                                                 UTC_TIMESTAMP(3),
                                                 UTC_TIMESTAMP(3),
                                                 UTC_TIMESTAMP(3)
@@ -801,9 +801,7 @@ public class TargetIdentityDirectoryService {
                                     UUID.randomUUID().toString(),
                                     appId,
                                     request.displayName().trim(),
-                                    newAppSecret,
-                                    normalizeEntryBaseUrl(
-                                            request.entryBaseUrl()));
+                                    newAppSecret);
                             channelId = jdbc.queryForObject("""
                                             SELECT id
                                             FROM iam_miniapp_channel
@@ -867,7 +865,6 @@ public class TargetIdentityDirectoryService {
                                             SET appid = ?,
                                                 display_name = ?,
                                                 app_secret = ?,
-                                                entry_base_url = ?,
                                                 lock_version = lock_version + 1,
                                                 configured_at =
                                                     UTC_TIMESTAMP(3),
@@ -877,8 +874,6 @@ public class TargetIdentityDirectoryService {
                                     appId,
                                     request.displayName().trim(),
                                     appSecret,
-                                    normalizeEntryBaseUrl(
-                                            request.entryBaseUrl()),
                                     current.id());
                         } catch (DataIntegrityViolationException exception) {
                             throw conflict(
@@ -2460,7 +2455,7 @@ public class TargetIdentityDirectoryService {
         List<MiniappConfigurationMetadata> rows = jdbc.query("""
                         SELECT c.id, b.tenant_id, b.organization_id,
                                c.appid, c.display_name, c.login_enabled,
-                               c.app_secret, c.entry_base_url,
+                               c.app_secret,
                                c.activated_at, c.lock_version,
                                c.configured_at, c.updated_at
                         FROM iam_organization_miniapp_binding b
@@ -2479,7 +2474,6 @@ public class TargetIdentityDirectoryService {
                         rs.getString("display_name"),
                         rs.getBoolean("login_enabled"),
                         rs.getString("app_secret"),
-                        rs.getString("entry_base_url"),
                         nullableInstant(rs, "activated_at"),
                         rs.getLong("lock_version"),
                         instant(rs, "configured_at"),
@@ -2502,7 +2496,7 @@ public class TargetIdentityDirectoryService {
             boolean lock) {
         return jdbc.query("""
                         SELECT id, appid, display_name, login_enabled,
-                               app_secret, entry_base_url, activated_at,
+                               app_secret, activated_at,
                                lock_version, configured_at, updated_at
                         FROM iam_miniapp_channel
                         WHERE appid = ?
@@ -2516,7 +2510,6 @@ public class TargetIdentityDirectoryService {
                         rs.getString("display_name"),
                         rs.getBoolean("login_enabled"),
                         rs.getString("app_secret"),
-                        rs.getString("entry_base_url"),
                         nullableInstant(rs, "activated_at"),
                         rs.getLong("lock_version"),
                         instant(rs, "configured_at"),
@@ -2957,20 +2950,6 @@ public class TargetIdentityDirectoryService {
 
     private static String normalizeLogin(String value) {
         return value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static String normalizeEntryBaseUrl(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim();
-        if (normalized.isEmpty()
-                || !normalized.equals(value)
-                || !normalized.startsWith("https://")
-                || normalized.contains("#")) {
-            throw invalid("小程序设备入口必须是无片段的 HTTPS 地址");
-        }
-        return normalized;
     }
 
     private static Set<String> normalizePermissions(

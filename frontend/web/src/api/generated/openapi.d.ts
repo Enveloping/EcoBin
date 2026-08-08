@@ -4992,11 +4992,6 @@ export interface components {
             displayName: string;
             /** @description Required for initial configuration and optional for later secret rotation. Blank values are invalid. */
             appSecret?: string;
-            /**
-             * Format: uri
-             * @description HTTPS base URL used to derive an ordinary device entry URL. It must have a host and must not contain user info, a fragment, or an existing deviceCode query parameter.
-             */
-            entryBaseUrl?: string;
             /** @description Omit or send null only when the organization has no mini-program configuration yet. */
             expectedVersion?: components["schemas"]["ExpectedVersion"] | null;
         };
@@ -5007,7 +5002,6 @@ export interface components {
             readonly appSecret: string | null;
             appSecretConfigured: boolean;
             maskedAppSecret: string | null;
-            entryBaseUrl: string | null;
             activated: boolean;
             loginEnabled: boolean;
             version: components["schemas"]["ExpectedVersion"];
@@ -5020,7 +5014,6 @@ export interface components {
             displayName: string;
             appSecretConfigured: boolean;
             maskedAppSecret: string | null;
-            entryBaseUrl: string | null;
             activated: boolean;
             loginEnabled: boolean;
             version: components["schemas"]["ExpectedVersion"];
@@ -7050,7 +7043,7 @@ export interface components {
             acceptanceStatus: components["schemas"]["DeviceAcceptanceStatus"];
             /**
              * Format: uri
-             * @description Derived ordinary HTTPS miniapp entry containing only the full public deviceCode as its business query parameter.
+             * @description Derived from the application-wide HTTPS entry base when the asset organization has an active miniapp-channel binding. The only business query parameter added by the server is the full public deviceCode.
              */
             deviceEntryUrl: string | null;
             lifecycleStatus: components["schemas"]["DeviceAssetLifecycleStatus"];

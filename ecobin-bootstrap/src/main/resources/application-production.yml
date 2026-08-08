@@ -8,6 +8,11 @@ server:
   forward-headers-strategy: native
   shutdown: graceful
 
+logging:
+  # 容器内路径与宿主机持久目录保持一致；控制台日志仍由 Docker 收集。
+  file:
+    path: ${ecobinLogPath:/var/log/ecobin/backend}
+
 ecobin:
   development:
     default-platform-admin:

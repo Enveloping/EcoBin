@@ -48,6 +48,10 @@ cos:
 
 # 中心可靠任务：三类 worker 使用互斥领取策略和有界容量；数据库轮询是恢复真相
 ecobin:
+  miniapp:
+    # 所有机构共享同一个普通二维码入口；设备模块只追加唯一 deviceCode。
+    device-entry-base-url: ${miniappDeviceEntryBaseUrl:https://www.jinshoubao.com/device-entry/}
+
   observability:
     # 所有环境记录请求到达、响应状态和耗时；生产默认不记录请求体。
     http-request-logging:

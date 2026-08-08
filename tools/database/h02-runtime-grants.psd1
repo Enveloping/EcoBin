@@ -47,7 +47,6 @@
             "display_name"
             "login_enabled"
             "app_secret"
-            "entry_base_url"
             "activated_at"
             "lock_version"
             "configured_at"

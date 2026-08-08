@@ -22,6 +22,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ${ECOBIN_BACKEND_LOG_DIRECTORY:-/var/log/ecobin/backend}
+        target: /var/log/ecobin/backend
+        read_only: false
+        bind:
+          create_host_path: false
     networks:
       target-app:
         aliases:

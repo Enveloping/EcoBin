@@ -7882,13 +7882,6 @@
             "writeOnly": true,
             "description": "Required for initial configuration and optional for later secret rotation. Blank values are invalid."
           },
-          "entryBaseUrl": {
-            "type": "string",
-            "format": "uri",
-            "pattern": "^https://[^#]+$",
-            "maxLength": 512,
-            "description": "HTTPS base URL used to derive an ordinary device entry URL. It must have a host and must not contain user info, a fragment, or an existing deviceCode query parameter."
-          },
           "expectedVersion": {
             "oneOf": [
               {"$ref": "#/components/schemas/ExpectedVersion"},
@@ -7907,7 +7900,6 @@
           "appSecret",
           "appSecretConfigured",
           "maskedAppSecret",
-          "entryBaseUrl",
           "activated",
           "loginEnabled",
           "version",
@@ -7950,12 +7942,6 @@
               {"type": "null"}
             ]
           },
-          "entryBaseUrl": {
-            "oneOf": [
-              {"type": "string", "format": "uri", "maxLength": 512},
-              {"type": "null"}
-            ]
-          },
           "activated": {"type": "boolean"},
           "loginEnabled": {"type": "boolean"},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
@@ -7977,7 +7963,6 @@
           "displayName",
           "appSecretConfigured",
           "maskedAppSecret",
-          "entryBaseUrl",
           "activated",
           "loginEnabled",
           "version",
@@ -8005,12 +7990,6 @@
                 "minLength": 1,
                 "maxLength": 24
               },
-              {"type": "null"}
-            ]
-          },
-          "entryBaseUrl": {
-            "oneOf": [
-              {"type": "string", "format": "uri", "maxLength": 512},
               {"type": "null"}
             ]
           },
@@ -11739,7 +11718,7 @@
           "deviceEntryUrl": {
             "type": ["string", "null"],
             "format": "uri",
-            "description": "Derived ordinary HTTPS miniapp entry containing only the full public deviceCode as its business query parameter."
+            "description": "Derived from the application-wide HTTPS entry base when the asset organization has an active miniapp-channel binding. The only business query parameter added by the server is the full public deviceCode."
           },
           "lifecycleStatus": {
             "$ref": "#/components/schemas/DeviceAssetLifecycleStatus"

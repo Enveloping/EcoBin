@@ -12,7 +12,8 @@
         </encoder>
     </appender>
 
-    <springProfile name="local-real">
+    <!-- local-real 与 production 都保留控制台日志，并额外写入可持久化目录。 -->
+    <springProfile name="local-real | production">
         <appender name="GENERAL_FILE"
                   class="ch.qos.logback.core.rolling.RollingFileAppender">
             <file>${ECOBIN_LOG_PATH}/ecobin.log</file>
@@ -27,6 +28,28 @@
                 <totalSizeCap>1GB</totalSizeCap>
             </rollingPolicy>
         </appender>
+
+        <appender name="ERROR_FILE"
+                  class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>ERROR</level>
+            </filter>
+            <file>${ECOBIN_LOG_PATH}/errors.log</file>
+            <encoder>
+                <pattern>${FILE_LOG_PATTERN}</pattern>
+                <charset>${FILE_LOG_CHARSET}</charset>
+            </encoder>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${ECOBIN_LOG_PATH}/archive/errors.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+                <maxFileSize>50MB</maxFileSize>
+                <maxHistory>14</maxHistory>
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+        </appender>
+    </springProfile>
+
+    <!-- 逐报文 OneNet 与 SQL 摘要只允许在显式 local-real 诊断环境落盘。 -->
+    <springProfile name="local-real">
 
         <appender name="ONENET_FILE"
                   class="ch.qos.logback.core.rolling.RollingFileAppender">
@@ -58,24 +81,6 @@
             </rollingPolicy>
         </appender>
 
-        <appender name="ERROR_FILE"
-                  class="ch.qos.logback.core.rolling.RollingFileAppender">
-            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-                <level>ERROR</level>
-            </filter>
-            <file>${ECOBIN_LOG_PATH}/errors.log</file>
-            <encoder>
-                <pattern>${FILE_LOG_PATTERN}</pattern>
-                <charset>${FILE_LOG_CHARSET}</charset>
-            </encoder>
-            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-                <fileNamePattern>${ECOBIN_LOG_PATH}/archive/errors.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-                <maxFileSize>50MB</maxFileSize>
-                <maxHistory>14</maxHistory>
-                <totalSizeCap>1GB</totalSizeCap>
-            </rollingPolicy>
-        </appender>
-
         <logger name="org.enveloping.ecobin.diagnostics.onenet"
                 level="INFO" additivity="false">
             <appender-ref ref="CONSOLE"/>
@@ -96,7 +101,15 @@
         </root>
     </springProfile>
 
-    <springProfile name="!local-real">
+    <springProfile name="production">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="GENERAL_FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="!local-real &amp; !production">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>

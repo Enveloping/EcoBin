@@ -59,7 +59,8 @@ class RuntimeSafetyConfigurationTest {
             "V37__platform_acceptance_confirmations.sql",
             "V38__simulator_neutral_device_acceptance.sql",
             "V39__shared_miniapp_multi_organization_identity.sql",
-            "V40__permanent_asset_edge_event_targets.sql"
+            "V40__permanent_asset_edge_event_targets.sql",
+            "V41__global_miniapp_device_entry_url.sql"
     };
 
     @Test
@@ -94,6 +95,11 @@ class RuntimeSafetyConfigurationTest {
                 property(
                         sources,
                         "ecobin.observability.diagnostic-logging.sql.enabled"));
+        assertEquals(
+                "${miniappDeviceEntryBaseUrl:https://www.jinshoubao.com/device-entry/}",
+                property(
+                        sources,
+                        "ecobin.miniapp.device-entry-base-url"));
         assertEquals(
                 "${defaultPlatformAdminEnabled:true}",
                 property(
@@ -238,8 +244,32 @@ class RuntimeSafetyConfigurationTest {
         assertEquals(
                 "graceful",
                 property(productionSources, "server.shutdown"));
-        assertNull(property(productionSources, "logging.file.path"));
+        assertEquals(
+                "${ecobinLogPath:/var/log/ecobin/backend}",
+                property(productionSources, "logging.file.path"));
         assertNull(property(productionSources, "ecobin.external.mode"));
+    }
+
+    @Test
+    void productionKeepsConsoleLogsAndWritesBoundedPersistentFiles()
+            throws IOException {
+        String logback = new ClassPathResource("logback-spring.xml")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(logback.contains(
+                "<springProfile name=\"local-real | production\">"));
+        assertTrue(logback.contains(
+                "<springProfile name=\"production\">"));
+        assertTrue(logback.contains(
+                "<appender-ref ref=\"CONSOLE\"/>"));
+        assertTrue(logback.contains(
+                "<appender-ref ref=\"GENERAL_FILE\"/>"));
+        assertTrue(logback.contains(
+                "<appender-ref ref=\"ERROR_FILE\"/>"));
+        assertTrue(logback.contains(
+                "${ECOBIN_LOG_PATH}/archive/ecobin.%d{yyyy-MM-dd}.%i.log.gz"));
+        assertTrue(logback.contains("<maxFileSize>50MB</maxFileSize>"));
+        assertTrue(logback.contains("<totalSizeCap>1GB</totalSizeCap>"));
     }
 
     @Test

@@ -78,12 +78,12 @@ ecobin-target-mysql84:3306
     └── pub_key.pem                         root:root 0644
 
 /run/ecobin-secrets/backend/                root:10001 0750；每次启动重新生成
+/var/log/ecobin/backend/                    10001:10001 0750；容器重建后继续保留
 /var/lib/ecobin/releases/<release-id>/      root:root 0750；发布制品和镜像身份记录
 ```
 
-每个机构的小程序 AppID/AppSecret 都保存在目标数据库
-`iam_organization_miniapp` 中，由具备 `miniapp.manage` 权限的人员配置。不存在全局
-小程序 AppID/AppSecret 文件，也不再维护机构密钥文件目录。数据库备份因此包含
+共享小程序渠道的 AppID/AppSecret 保存在目标数据库 `iam_miniapp_channel` 中，由平台
+管理员配置并绑定机构。不存在全局小程序 AppID/AppSecret 文件。数据库备份因此包含
 AppSecret 明文，备份的访问控制、加密和恢复验收必须按秘密数据处理；应用日志和审计
 不得记录完整值。
 
@@ -319,7 +319,7 @@ sudo systemctl daemon-reload
 
 顺序如下：
 
-1. 确认目标 MySQL 已是完整 V35、99 张领域表、77 条权限定义；是否要求业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
+1. 确认目标 MySQL 已是完整 V41、95 张领域表、76 条权限定义；是否要求业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
 2. 上传、校验并安装同一干净 Git 提交生成的本地发布包；
 3. 确认安装脚本已写入本地标签和对应 image ID，再写入其余运行配置和秘密；
 4. 执行秘密暂存；
@@ -344,7 +344,14 @@ sudo /usr/local/sbin/ecobin-runtime-secret-probe
 ```bash
 sudo docker exec ecobin-target-backend \
   /usr/local/bin/ecobin-backend-healthcheck
+sudo test "$(stat -c '%u:%g:%a' /var/log/ecobin/backend)" = \
+  '10001:10001:750'
+sudo tail -n 100 /var/log/ecobin/backend/ecobin.log
 ```
+
+`docker logs -f ecobin-target-backend` 仍可用于实时观察；持久文件用于跨容器重建保留和按
+日期回查。不要直接修改日志文件，也不要把包含密钥、手机号或用户数据的日志复制到公开
+位置。
 
 不得打印 `docker compose config` 的完整展开内容到普通日志。预检只使用
 `docker compose config --quiet`。
@@ -385,7 +392,7 @@ sudo systemctl reload nginx
 3. 如需回到上一应用版本，使用安装脚本在每次切换前原子保存的
    `/etc/ecobin/deployment.env.previous` 恢复部署参数，重新执行预检后再启动；不得回滚
    数据库纪元或删除新业务数据；
-4. 保留目标 MySQL、发布目录、机构小程序秘密库、容器日志和脱敏证据；
+4. 保留目标 MySQL、发布目录、持久日志目录、容器日志和脱敏证据；
 5. 诊断并前滚。目标库一旦产生权威业务写入，不得直接切旧库继续写。
 
 始终禁止：

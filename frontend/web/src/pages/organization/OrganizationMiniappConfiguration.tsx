@@ -28,7 +28,6 @@ import {
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
-import { isDeviceEntryBaseUrl } from '@/utils/deviceEntryBaseUrl';
 
 interface OrganizationMiniappConfigurationProps {
   active: boolean;
@@ -40,14 +39,12 @@ interface MiniappDraft {
   appId: string;
   displayName: string;
   appSecret: string;
-  entryBaseUrl: string;
 }
 
 const EMPTY_DRAFT: MiniappDraft = {
   appId: '',
   displayName: '',
   appSecret: '',
-  entryBaseUrl: '',
 };
 
 export default function OrganizationMiniappConfiguration({
@@ -81,7 +78,6 @@ export default function OrganizationMiniappConfiguration({
         appId: loaded.appId,
         displayName: loaded.displayName,
         appSecret: '',
-        entryBaseUrl: loaded.entryBaseUrl ?? '',
       });
     } catch (error) {
       if (requestSequence.current !== sequence) return;
@@ -122,7 +118,6 @@ export default function OrganizationMiniappConfiguration({
     if (!platformManaged) return;
     const appId = draft.appId.trim();
     const displayName = draft.displayName.trim();
-    const entryBaseUrl = draft.entryBaseUrl.trim();
     if (!/^wx[0-9A-Za-z]{16}$/.test(appId)) {
       message.warning('AppID 应为 wx 开头的 18 位标识');
       return;
@@ -135,15 +130,9 @@ export default function OrganizationMiniappConfiguration({
       message.warning('AppSecret 不能超过 256 个字符');
       return;
     }
-    if (!isDeviceEntryBaseUrl(entryBaseUrl)) {
-      message.warning('设备二维码入口必须是完整 HTTPS 地址，且不能包含账号信息、# 片段或 deviceCode 参数');
-      return;
-    }
-
     const payload: PutMiniappConfigurationRequest = {
       appId,
       displayName,
-      entryBaseUrl,
       expectedVersion: configuration?.version ?? null,
       ...(draft.appSecret ? { appSecret: draft.appSecret } : {}),
     };
@@ -311,7 +300,7 @@ export default function OrganizationMiniappConfiguration({
             ? configuration.appSecretConfigured
               ? platformManaged
                 ? '同一个 AppID 可供多个机构使用；设备公开码决定用户进入哪个机构。AppSecret 仅由平台维护。'
-                : '租户和机构只能查看渠道摘要，不能读取或修改 AppSecret、AppID、入口地址及登录开关。'
+                : '租户和机构只能查看渠道摘要，不能读取或修改 AppSecret、AppID 及登录开关。'
               : '旧测试密钥已被清除；请填写新的 AppSecret 后保存，登录才能继续使用。'
             : platformManaged
               ? '平台填写渠道资料后绑定当前机构；相同 AppID 可继续绑定其他机构。'
@@ -369,24 +358,6 @@ export default function OrganizationMiniappConfiguration({
             setDraft((current) => ({
               ...current,
               displayName: event.target.value,
-            }))
-          }
-        />
-      </Form.Item>
-      <Form.Item
-        label="设备二维码入口"
-        required={platformManaged}
-        extra="后台只会在该 HTTPS 地址后附加 deviceCode；二维码不包含租户、机构或任何密钥。"
-      >
-        <Input
-          value={draft.entryBaseUrl}
-          disabled={!platformManaged || busy}
-          placeholder="https://example.com/device-entry"
-          maxLength={512}
-          onChange={(event) =>
-            setDraft((current) => ({
-              ...current,
-              entryBaseUrl: event.target.value,
             }))
           }
         />

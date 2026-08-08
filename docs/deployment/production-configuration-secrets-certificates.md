@@ -12,10 +12,10 @@
 
 1. 服务器上的配置分为两类：非秘密写入 `/etc/ecobin/*.env`，密码、Secret 和私钥按
    “一个值一个文件”写入 `/etc/ecobin/secrets`。不要把秘密写进 `.env`。
-2. 机构小程序没有全局 AppID/AppSecret。每个机构自己的 AppID/AppSecret 在系统启动后
-   通过有权限的管理接口写入目标数据库 `iam_organization_miniapp`。
-3. 微信支付使用公司同一个普通商户号，但每个机构的 AppID 都必须在微信侧分别绑定到
-   该商户号，并在系统中记录绑定核验结果。
+2. 小程序 AppID/AppSecret 属于平台共享渠道，启动后由平台管理接口写入目标数据库；
+   设备二维码入口是单独的全局非秘密配置，不属于机构或渠道。
+3. 微信支付使用公司同一个普通商户号；共享小程序 AppID 需要在微信侧绑定该商户号，
+   机构资金绑定核验事实仍分别记录。
 4. 当前实现只使用“微信支付公钥”模式，即 `pub_key.pem + PUB_KEY_ID_...`。不需要、
    也不支持微信支付平台证书。`apiclient_cert.pem` 是公司自己的商户 API 证书，和
    “微信支付平台证书”不是同一种证书。
@@ -46,13 +46,16 @@
 └── backup-public/                          root:root；数据库备份接收方公钥证书
 
 /run/ecobin-secrets/backend/                root:10001 0750；启动时生成
+/var/log/ecobin/backend/                    10001:10001 0750；后端持久滚动日志
 /var/lib/ecobin/releases/<release-id>/      root:root 0750；发布制品和镜像身份记录
 /etc/nginx/sites-available/jinshoubao        Nginx 站点配置
 /etc/letsencrypt/live/www.jinshoubao.com/   Certbot 管理的 HTTPS 证书与私钥
 ```
 
 `/run/ecobin-secrets` 位于运行时目录，服务器重启后会重新生成。长期原件必须留在
-`/etc/ecobin/secrets`，不能只放在 `/run` 下。
+`/etc/ecobin/secrets`，不能只放在 `/run` 下。`/var/log/ecobin/backend` 是宿主机持久
+目录，由发布安装器和 systemd 以容器用户 `10001:10001`、模式 `0750` 创建；容器重建
+不会删除其中的历史日志。
 
 当前试验期在操作机使用仓库外的
 `C:\Users\24217\.ecobin\production\115.159.67.35\` 保存受 ACL 限制的长期原件。
@@ -75,6 +78,7 @@ ECOBIN_BACKEND_IMAGE_ID=sha256:<服务器构建后的不可变镜像ID>
 ECOBIN_WEB_IMAGE=ecobin-local/web:<同一发布ID>
 ECOBIN_WEB_IMAGE_ID=sha256:<服务器构建后的不可变镜像ID>
 ECOBIN_RUNTIME_ENV_FILE=/etc/ecobin/runtime.env
+ECOBIN_BACKEND_LOG_DIRECTORY=/var/log/ecobin/backend
 ECOBIN_PUBLIC_ORIGIN=https://www.jinshoubao.com
 ECOBIN_WEB_LOOPBACK_PORT=18080
 
@@ -106,12 +110,19 @@ dbUrl=jdbc:mysql://ecobin-target-mysql84:3306/ecobin?useUnicode=true&characterEn
 dbUsername=ecobin_app
 defaultPlatformAdminEnabled=false
 externalMode=fake
+ecobinLogPath=/var/log/ecobin/backend
+miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
 onenetSubscriptionEnabled=false
 TZ=UTC
 ```
 
 Fake 模式不要提前混入任何 Real 参数。它能验证数据库、后端、Web、登录、机构、钱包和
 Fake 资金状态机，但不能证明真实 OneNet、COS、微信充值、微信通知或微信零钱提现可用。
+
+生产后端同时向控制台和持久文件写日志：控制台继续由 `docker logs` 查看；通用日志写入
+`/var/log/ecobin/backend/ecobin.log`，ERROR 及以上另写
+`/var/log/ecobin/backend/errors.log`。归档位于 `archive/`：单段 50 MB，通用日志保留
+7 天且总上限 1 GB，错误日志保留 14 天且总上限 1 GB。
 
 ### 3.3 Real 模式 `/etc/ecobin/runtime.env`
 
@@ -122,6 +133,8 @@ dbUrl=jdbc:mysql://ecobin-target-mysql84:3306/ecobin?useUnicode=true&characterEn
 dbUsername=ecobin_app
 defaultPlatformAdminEnabled=false
 externalMode=real
+ecobinLogPath=/var/log/ecobin/backend
+miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
 TZ=UTC
 
 iotSubscriptionName=<OneNet北向订阅名称>
@@ -170,7 +183,7 @@ H02_VOLUME_NAME=ecobin-target-mysql84-data
 H02_NETWORK_NAME=ecobin-target-db
 ```
 
-当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V35。V35 是数据库纪元门禁，
+当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V41。V41 是数据库纪元门禁，
 不是可以通过修改 `runtime.env` 绕过的配置项。
 
 ### 3.5 从仓库安装到服务器的固定文件
@@ -254,7 +267,7 @@ YAML 或整个仓库根目录挂进容器。
 - 平台证书自动下载任务；
 - `apiclient_cert.p12` 运行时文件；
 - APIv2 密钥；
-- 全局小程序 AppID/AppSecret。
+- 把共享小程序 AppID/AppSecret 写成服务器启动配置。
 
 `.p12` 如果已经从商户平台下载，可以作为商户 API 证书的离线恢复材料保存，但不要
 上传到应用服务器，也不要挂入容器。
@@ -289,16 +302,18 @@ HTTPS，必须先让 DNS 生效，再把根域名加入证书 SAN（证书覆盖
 不能放到服务器。它不是应用启动必需项，但在正式产生业务数据前必须确保“可加密、
 异机可解密、可恢复”的备份链路仍然有效。
 
-## 7. 每个机构的小程序配置放在哪里
+## 7. 共享小程序渠道与设备入口放在哪里
 
-机构 AppID/AppSecret 不属于服务器启动配置，不能写进 `runtime.env` 或
-`/etc/ecobin/secrets`。正确顺序是：
+共享渠道的 AppID/AppSecret 不属于服务器启动配置，不能写进 `runtime.env` 或
+`/etc/ecobin/secrets`。设备入口地址是非秘密全局配置，统一由
+`miniappDeviceEntryBaseUrl` 提供，默认值为 `https://www.jinshoubao.com/device-entry/`。
+正确顺序是：
 
 1. 平台创建租户和机构；系统在机构创建事务中同步建立该机构的钱包/资金账户；
-2. 具备 `miniapp.manage` 权限的人员，通过管理接口写入该机构的 AppID、AppSecret 和
-   小程序名称；
-3. 核对配置版本后激活小程序，再启用小程序登录；
-4. 在微信侧把该机构 AppID 绑定到公司的 `wechatPayMchid`；
+2. 平台管理员通过管理接口创建或选择共享小程序渠道，填写 AppID、AppSecret 和展示名称，
+   再把机构绑定到该渠道；机构页面不配置二维码入口；
+3. 核对配置版本后激活渠道，再启用小程序登录；
+4. 在微信侧把共享 AppID 绑定到公司的 `wechatPayMchid`；
 5. 平台管理员在“机构资金”中核查外部绑定后，记录本地 `VERIFIED` 事实；未核验时该
    机构不能创建真实充值或提现。
 
@@ -311,9 +326,8 @@ POST /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/
 POST /api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/wechat-merchant-binding/verifications
 ```
 
-目前后端和 OpenAPI 已提供机构小程序配置接口；如果当前 Web 版本尚未提供该表单，应该
-补齐管理页面或使用经过认证、带 CSRF 和幂等键的管理客户端，不要直接改数据库，也不要
-为了方便重新引入全局 AppID/AppSecret。
+目前后端和 OpenAPI 已提供平台共享渠道配置接口。不要直接改数据库，也不要把
+AppID/AppSecret 或每机构二维码入口重新放回服务器全局文件和机构表单。
 
 AppSecret 以明文保存在目标数据库中，因此数据库备份也包含 AppSecret。备份密文、恢复
 环境和能读取 `iam_organization_miniapp` 的账号都要按秘密数据管理；日志、审计、告警和
@@ -328,7 +342,7 @@ AppSecret 以明文保存在目标数据库中，因此数据库备份也包含 
 | Certbot/Nginx | HTTPS 证书有效、自动续期、Nginx 反向代理 `/api` | 登录、API 和微信回调 |
 | 微信商户平台 | 普通商户启用 Native 支付、商家转账；设置 APIv3 密钥；取得商户 API 证书、微信支付公钥和公钥 ID | 真实充值与提现 |
 | 微信商户平台 | 每个机构 AppID 分别绑定到同一个公司商户号；场景 ID `1010` 与产品权限一致 | 对应机构的真实提现 |
-| 微信公众平台 | 每个机构小程序配置合法 request 域名 `https://www.jinshoubao.com` | 小程序调用后端 API |
+| 微信公众平台 | 共享小程序配置合法 request 域名；普通二维码规则匹配 `https://www.jinshoubao.com/device-entry/`，校验文件可直接访问 | 小程序调用后端 API 和设备扫码入口 |
 | OneNet | 产品 ID、北向订阅名称/Access ID/Secret Key、下行 AccessKey 正确 | 设备上报和后端下行命令 |
 | 腾讯云 COS/CAM | Bucket、地域、访问域名和最小权限 CAM 身份一致 | 设备照片 STS 直传 |
 
@@ -344,7 +358,7 @@ ICP备案或回调域名未完成时，代码和文件可以先准备好，但 `
 # 1. 重新从持久源暂存运行秘密；脚本会检查权限、APIv3 长度、证书/私钥配对和序列号
 sudo systemctl restart ecobin-stage-runtime-secrets.service
 
-# 2. 检查本地标签/image ID/发布记录、Fake/Real 配置、通知域名和数据库网络
+# 2. 检查镜像身份、配置、日志目录权限、通知域名和数据库网络
 sudo /usr/local/sbin/ecobin-production-preflight
 
 # 3. 启动并等待后端/Web 健康
@@ -359,10 +373,12 @@ curl --fail --silent http://127.0.0.1:18080/ >/dev/null
 
 Real 模式切换前还应人工确认：
 
-- [ ] 目标数据库已经是 V35，且共有 99 张领域表；
+- [ ] 目标数据库已经是 V41，且共有 95 张领域表；
 - [ ] 发布包来自干净 Git 提交，归档和包内逐文件 SHA-256 校验均通过；
 - [ ] 两个本地镜像的标签、image ID、发布记录和镜像标签一致；
 - [ ] `deployment.env` 与 `runtime.env` 均为 `root:root 0600` 且使用 LF；
+- [ ] `/var/log/ecobin/backend` 为真实目录、不是符号链接，权限精确为
+  `10001:10001 0750`；
 - [ ] `/etc/ecobin/secrets` 的基础四项和 Real 七项全部存在；
 - [ ] APIv3 密钥正好 32 字节且没有换行；
 - [ ] 商户私钥、商户 API 证书和证书序列号互相匹配；
@@ -384,7 +400,7 @@ Real 模式切换前还应人工确认：
 | 微信支付公钥 | 新 `pub_key.pem` 与对应 `wechatPayPublicKeyId` 一起发布 |
 | APIv3 密钥 | 微信商户平台与服务器 `wechatpay-api-v3-key` 同步变更，避免新旧回调无法解密 |
 | OneNet/COS 凭证 | 先建立新凭证和最小权限，再更新对应文件并验证，最后撤销旧凭证 |
-| 机构 AppSecret | 只通过机构小程序配置接口更新，不改服务器全局文件；更新后验证该机构登录 |
+| 共享渠道 AppSecret | 只通过平台小程序渠道配置接口更新，不改服务器全局文件；更新后验证所有绑定机构登录 |
 
 修改任何持久秘密前先停止目标应用。更新完成后重新运行秘密暂存、生产预检和运行时秘密
 探针；不要在容器运行时直接覆盖 bind mount 内的文件并假设进程会安全热加载。

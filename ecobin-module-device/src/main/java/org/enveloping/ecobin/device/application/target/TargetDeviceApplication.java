@@ -98,6 +98,7 @@ public class TargetDeviceApplication {
     private final ReliableTaskWakePort taskWakePort;
     private final DeviceCommandTaskRefFactory taskRefFactory;
     private final String oneNetProductId;
+    private final String deviceEntryBaseUrl;
     private final AutomaticDeviceActivationService activationService;
 
     public TargetDeviceApplication(
@@ -111,7 +112,9 @@ public class TargetDeviceApplication {
             ReliableDeviceTaskStatusPort taskStatusPort,
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
-            @Value("${onenet.product-id:}") String oneNetProductId) {
+            @Value("${onenet.product-id:}") String oneNetProductId,
+            @Value("${ecobin.miniapp.device-entry-base-url}")
+            String deviceEntryBaseUrl) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
@@ -123,6 +126,11 @@ public class TargetDeviceApplication {
         this.taskWakePort = taskWakePort;
         this.taskRefFactory = taskRefFactory;
         this.oneNetProductId = blankToNull(oneNetProductId);
+        if (!MiniappEntryBaseUrl.isValid(deviceEntryBaseUrl)) {
+            throw new IllegalArgumentException(
+                    "ecobin.miniapp.device-entry-base-url must be a valid HTTPS base URL without deviceCode");
+        }
+        this.deviceEntryBaseUrl = deviceEntryBaseUrl;
     }
 
     @Transactional(readOnly = true)
@@ -1868,7 +1876,8 @@ public class TargetDeviceApplication {
                        asset.hardware_sn, asset.model_name,
                        asset.production_batch, asset.expected_port_count,
                        tenant.tenant_code, organization.organization_code,
-                       asset.acceptance_status, channel.entry_base_url,
+                       asset.acceptance_status,
+                       channel_binding.miniapp_channel_id,
                        asset.lifecycle_status, asset.control_version,
                        asset.tenant_assigned_at,
                        asset.organization_assigned_at, asset.accepted_at,
@@ -1888,8 +1897,6 @@ public class TargetDeviceApplication {
                   ON channel_binding.tenant_id = asset.tenant_id
                  AND channel_binding.organization_id = asset.organization_id
                  AND channel_binding.status = 'ACTIVE'
-                LEFT JOIN iam_miniapp_channel channel
-                  ON channel.id = channel_binding.miniapp_channel_id
                 """;
     }
 
@@ -1906,7 +1913,7 @@ public class TargetDeviceApplication {
                 rs.getString("organization_code"),
                 rs.getString("acceptance_status"),
                 deviceEntryUrl(
-                        rs.getString("entry_base_url"),
+                        rs.getObject("miniapp_channel_id") != null,
                         rs.getString("device_public_code")),
                 rs.getString("lifecycle_status"),
                 rs.getLong("control_version"),
@@ -2263,19 +2270,19 @@ public class TargetDeviceApplication {
                 .withoutPadding().encodeToString(random);
     }
 
-    private static String deviceEntryUrl(
-            String entryBaseUrl,
+    private String deviceEntryUrl(
+            boolean miniappChannelBound,
             String deviceCode) {
-        if (entryBaseUrl == null || entryBaseUrl.isBlank()) {
+        if (!miniappChannelBound) {
             return null;
         }
         try {
             return MiniappEntryBaseUrl.appendDeviceCode(
-                    entryBaseUrl, deviceCode);
+                    deviceEntryBaseUrl, deviceCode);
         } catch (IllegalArgumentException invalidEntryUrl) {
             throw unprocessable(
                     "IDENTITY.MINIAPP_ENTRY_URL_INVALID",
-                    "小程序设备入口配置无效，请先由平台管理员修正");
+                    "全局小程序设备入口配置无效，请联系平台管理员修正");
         }
     }
 

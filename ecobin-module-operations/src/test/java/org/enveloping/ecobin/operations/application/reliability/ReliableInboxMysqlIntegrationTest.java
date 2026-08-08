@@ -729,11 +729,11 @@ class ReliableInboxMysqlIntegrationTest {
         jdbc.update("""
                 INSERT INTO iam_miniapp_channel (
                     channel_uid, appid, display_name,
-                    login_enabled, app_secret, entry_base_url,
+                    login_enabled, app_secret,
                     activated_at, lock_version,
                     configured_at, created_at, updated_at
                 ) VALUES (?, ?, 'F08 audit miniapp',
-                    0, NULL, NULL, NULL, 0,
+                    0, NULL, NULL, 0,
                     UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
                 """, UUID.randomUUID().toString(), "wx" + suffix);
         long miniappId = jdbc.queryForObject("""

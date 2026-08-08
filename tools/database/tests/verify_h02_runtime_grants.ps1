@@ -11,13 +11,13 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 95' -or
         $provisionSource -notmatch 'Expected 95 domain tables') {
-    throw "H-02 provisioning must enforce the V40 95-table shape"
+    throw "H-02 provisioning must enforce the V41 95-table shape"
 }
 if ($provisionSource -match 'Expected 99 domain tables') {
     throw "H-02 provisioning still enforces the removed V35 table count"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 40') {
-    throw "H-02 provisioning must migrate through V40"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 41') {
+    throw "H-02 provisioning must migrate through V41"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -64,8 +64,8 @@ if ($catalog.UpdateColumns.ContainsKey("iam_organization_miniapp")) {
     throw "V39 removed iam_organization_miniapp remains in runtime grants"
 }
 $channelColumns = @($catalog.UpdateColumns.iam_miniapp_channel)
-if ($channelColumns -notcontains "entry_base_url") {
-    throw "V39 iam_miniapp_channel.entry_base_url UPDATE grant is missing"
+if ($channelColumns -contains "entry_base_url") {
+    throw "V41 removed iam_miniapp_channel.entry_base_url remains in runtime grants"
 }
 $bindingColumns = @(
     $catalog.UpdateColumns.iam_organization_miniapp_binding
@@ -98,7 +98,7 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V39"
+    throw "dev_device_asset runtime UPDATE grants do not match V41"
 }
 $removedQrColumns = @(
     "miniapp_qr_status"

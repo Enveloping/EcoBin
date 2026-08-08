@@ -24,6 +24,11 @@ class MiniappEntryBaseUrlTest {
                 MiniappEntryBaseUrl.appendDeviceCode(
                         "https://entry.example/device?source=poster",
                         "Dv_public-code"));
+        assertEquals(
+                "https://www.jinshoubao.com/device-entry/?deviceCode=Dv_public-code",
+                MiniappEntryBaseUrl.appendDeviceCode(
+                        "https://www.jinshoubao.com/device-entry/",
+                        "Dv_public-code"));
     }
 
     @Test

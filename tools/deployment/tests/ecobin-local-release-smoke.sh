@@ -28,6 +28,7 @@ runtime_env="${test_root}/runtime.env"
 compose_file="${test_root}/compose.yml"
 release_store="${test_root}/release-store"
 runtime_secret_root="${test_root}/runtime-secrets"
+backend_log_directory="${test_root}/backend-logs"
 
 mkdir -p "${bundle}/backend" "${bundle}/web/dist" "${fake_bin}"
 printf 'dummy executable jar\n' > "${bundle}/backend/app.jar"
@@ -124,6 +125,7 @@ dbUrl=jdbc:mysql://ecobin-target-mysql84:3306/ecobin?useUnicode=true&characterEn
 dbUsername=ecobin_app
 defaultPlatformAdminEnabled=false
 externalMode=fake
+ecobinLogPath=/var/log/ecobin/backend
 onenetSubscriptionEnabled=false
 TZ=UTC
 EOF
@@ -135,6 +137,7 @@ export FAKE_DOCKER_STATE="${fake_state}"
 export ECOBIN_DEPLOYMENT_ENV_FILE="${deployment_env}"
 export ECOBIN_RELEASE_STORE="${release_store}"
 export ECOBIN_PULL_RUNTIME_BASE_IMAGES=false
+export ECOBIN_BACKEND_LOG_DIRECTORY="${backend_log_directory}"
 
 bash "${repository_root}/tools/deployment/ecobin-install-local-release.sh" \
     "${bundle}" >/dev/null
@@ -142,6 +145,11 @@ bash "${repository_root}/tools/deployment/ecobin-install-local-release.sh" \
 grep -qx 'ECOBIN_RELEASE_ID=test-release' "${deployment_env}"
 grep -Eq '^ECOBIN_BACKEND_IMAGE_ID=sha256:1{64}$' "${deployment_env}"
 grep -Eq '^ECOBIN_WEB_IMAGE_ID=sha256:2{64}$' "${deployment_env}"
+grep -Fxq \
+    "ECOBIN_BACKEND_LOG_DIRECTORY=${backend_log_directory}" \
+    "${deployment_env}"
+[[ "$(stat -c '%u:%g:%a' "${backend_log_directory}")" = \
+    10001:10001:750 ]]
 
 # A repeated activation must reuse the recorded immutable image IDs instead
 # of rebuilding the same release ID against potentially changed base tags.
@@ -158,5 +166,14 @@ ECOBIN_RUNTIME_ENV_FILE="${runtime_env}" \
 ECOBIN_RUNTIME_SECRET_DIR="${runtime_secret_root}" \
 bash "${repository_root}/tools/deployment/ecobin-production-preflight.sh" \
     | grep -qx 'production-preflight=PASS mode=fake'
+
+grep -Fq \
+    'source: ${ECOBIN_BACKEND_LOG_DIRECTORY:-/var/log/ecobin/backend}' \
+    "${repository_root}/deploy/production/docker-compose.target-app.yml"
+grep -Fq 'target: /var/log/ecobin/backend' \
+    "${repository_root}/deploy/production/docker-compose.target-app.yml"
+grep -Fq \
+    'ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0750 ${ECOBIN_BACKEND_LOG_DIRECTORY}' \
+    "${repository_root}/tools/deployment/systemd/ecobin-target-app.service"
 
 printf 'ecobin-local-release-smoke=PASS\n'

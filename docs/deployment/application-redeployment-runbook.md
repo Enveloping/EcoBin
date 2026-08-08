@@ -213,7 +213,9 @@ sudo /usr/local/sbin/ecobin-production-preflight
 ```
 
 预检会核对：发布 ID、两个标签、不可变 image ID、镜像内 Git/制品标签、发布记录、
-Fake/Real 配置、通知根域名、运行秘密目录、内部数据库网络和 Compose 语法。
+Fake/Real 配置、通知根域名、运行秘密目录、持久日志目录的 UID/权限、内部数据库网络和
+Compose 语法。发布安装器会创建 `/var/log/ecobin/backend`，systemd 启动前还会再次确保
+它是 `10001:10001 0750`。
 
 如果应用已经运行，使用 reload 让 Compose 按新标签重建变更的容器并等待健康：
 
@@ -239,7 +241,14 @@ curl --fail --silent http://127.0.0.1:18080/ >/dev/null
 sudo docker exec ecobin-target-backend \
   /usr/local/bin/ecobin-backend-healthcheck
 sudo /usr/local/sbin/ecobin-runtime-secret-probe
+sudo test "$(stat -c '%u:%g:%a' /var/log/ecobin/backend)" = \
+  '10001:10001:750'
+sudo test -s /var/log/ecobin/backend/ecobin.log
 ```
+
+后端仍向控制台输出，因此 `sudo docker logs -f --tail 200 ecobin-target-backend` 可实时查看；
+需要跨容器版本回查时使用 `/var/log/ecobin/backend/ecobin.log`、`errors.log` 和
+`archive/*.gz`。
 
 如果公网入口已经启用，再从外部检查 `https://www.jinshoubao.com`。涉及真实 OneNet、COS、
 微信充值或提现的代码变更，还必须执行对应的小流量真实验收；容器健康只能证明应用可运行，
@@ -251,6 +260,7 @@ sudo /usr/local/sbin/ecobin-runtime-secret-probe
 - 安装器输出的后端/Web image ID；
 - 数据库 epoch（如果本次涉及迁移）；
 - 生产预检、systemd 健康、回环请求和运行时秘密探针的结果；
+- 持久日志目录权限及新容器成功写入 `ecobin.log` 的结果；
 - 本次是否执行真实渠道/设备验收及其脱敏结论。
 
 ## 10. 失败处理与应用版本回退
