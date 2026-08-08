@@ -121,6 +121,53 @@ class TargetDeviceMysqlIntegrationTest {
         String principalLogin = "device-principal-" + run;
         createEnabledScope(platform, tenantCode, organizationCode,
                 otherOrganizationCode, principalLogin);
+        String entryBaseUrl = "https://example.test/ecobin/device";
+        long tenantId = jdbc.queryForObject(
+                "SELECT id FROM iam_tenant WHERE tenant_code = ?",
+                Long.class,
+                tenantCode);
+        long organizationId = jdbc.queryForObject("""
+                        SELECT id FROM iam_organization
+                        WHERE tenant_id = ? AND organization_code = ?
+                        """,
+                Long.class,
+                tenantId,
+                organizationCode);
+        String appId = "wx" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 16);
+        jdbc.update("""
+                        INSERT INTO iam_miniapp_channel (
+                            channel_uid, appid, display_name,
+                            login_enabled, app_secret, entry_base_url,
+                            activated_at, lock_version,
+                            configured_at, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, 'Device QR channel', 1, 'test-secret', ?,
+                            UTC_TIMESTAMP(3), 0, UTC_TIMESTAMP(3),
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                UUID.randomUUID().toString(),
+                appId,
+                entryBaseUrl);
+        long channelId = jdbc.queryForObject(
+                "SELECT id FROM iam_miniapp_channel WHERE appid = ?",
+                Long.class,
+                appId);
+        jdbc.update("""
+                        INSERT INTO iam_organization_miniapp_binding (
+                            binding_uid, tenant_id, organization_id,
+                            miniapp_channel_id, status, bound_at,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, ?, 'ACTIVE', UTC_TIMESTAMP(3), 0,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                UUID.randomUUID().toString(),
+                tenantId,
+                organizationId,
+                channelId);
         createAndEnableTenant(
                 platform,
                 otherTenantCode,
@@ -150,7 +197,7 @@ class TargetDeviceMysqlIntegrationTest {
         assertTrue(deviceCode.matches("Dv_[A-Za-z0-9_-]{24,61}"));
         assertEquals("NORMAL", created.path("lifecycleStatus").asText());
         assertEquals("PENDING", created.path("acceptanceStatus").asText());
-        assertEquals("NOT_ASSIGNED", created.path("miniappQrStatus").asText());
+        assertTrue(created.path("deviceEntryUrl").isNull());
         assertEquals(hardwareSn,
                 created.path("oneNetMapping").path("deviceName").asText());
         assertEquals(2, jdbc.queryForObject("""
@@ -235,8 +282,9 @@ class TargetDeviceMysqlIntegrationTest {
                 200));
         assertEquals(organizationCode,
                 organizationAssigned.path("organizationCode").asText());
-        assertEquals("PENDING",
-                organizationAssigned.path("miniappQrStatus").asText());
+        assertEquals(
+                entryBaseUrl + "?deviceCode=" + deviceCode,
+                organizationAssigned.path("deviceEntryUrl").asText());
         assertEquals(3, organizationAssigned.path("version").asLong());
 
         JsonNode wrongOrganization = json(write(

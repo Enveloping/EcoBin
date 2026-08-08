@@ -22,6 +22,9 @@ export interface PendingDeviceEntry extends DeviceLink {
   startAttemptCount?: number
   lastStartAttemptAt?: number
   accepted?: DeliverySessionAccepted
+  /** 最近一次由该设备码明确选中的机构账号。 */
+  selectedOrganizationUserUid?: string
+  identitySelectedAt?: number
 }
 
 interface LastHandledDeviceEntry {
@@ -292,6 +295,21 @@ export function markPendingDeviceEntryStarted(
   if (!started) return undefined
   rememberHandled(started)
   return started
+}
+
+export function markPendingDeviceIdentitySelected(
+  entryId: string,
+  organizationUserUid: string,
+): PendingDeviceEntry | undefined {
+  const entry = peekPendingDeviceEntry()
+  if (!entry || entry.entryId !== entryId || !organizationUserUid) {
+    return undefined
+  }
+  return writePending({
+    ...entry,
+    selectedOrganizationUserUid: organizationUserUid,
+    identitySelectedAt: Date.now(),
+  })
 }
 
 /** 只供用户主动退出登录使用，不把该二维码标为已处理。 */

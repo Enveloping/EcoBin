@@ -24,7 +24,7 @@ class JdbcStartDeliveryIdentityLockRepositoryTest {
         List<String> expectedTables = List.of(
                 "iam_tenant",
                 "iam_organization",
-                "iam_organization_miniapp",
+                "iam_organization_miniapp_binding",
                 "iam_organization_user",
                 "iam_organization_user_session");
 
@@ -33,7 +33,11 @@ class JdbcStartDeliveryIdentityLockRepositoryTest {
             assertTrue(sql.contains(
                     "from " + expectedTables.get(index)));
             assertTrue(sql.endsWith("for update"));
-            assertFalse(sql.contains(" join "));
+            if (index == 2) {
+                assertTrue(sql.contains("join iam_miniapp_channel"));
+            } else {
+                assertFalse(sql.contains(" join "));
+            }
         }
     }
 

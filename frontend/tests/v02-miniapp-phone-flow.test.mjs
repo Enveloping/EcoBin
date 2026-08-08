@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
-import { loginRegistrationSource } from '../miniprogram/miniprogram/utils/login-registration-source.ts';
+import { normalizeDeviceCode } from '../miniprogram/miniprogram/utils/device-code.ts';
 import { isWechatPhoneGrantCancelled } from '../miniprogram/miniprogram/utils/wechat-phone-grant.ts';
 
 function source(relativePath) {
@@ -27,32 +27,31 @@ test('every registered miniapp page has its source files on disk', () => {
   }
 });
 
-test('device registration source survives a login retry', () => {
-  const loginSource = source(
-    '../miniprogram/miniprogram/pages/login/login.ts',
-  );
-  const firstAttempt = loginRegistrationSource(
-    'Dv_0123456789abcdefghijklmn',
-  );
-  const retryAttempt = loginRegistrationSource(
-    firstAttempt?.deviceCode,
+test('guest startup has no login page and scanned identity wins login races', () => {
+  const appJson = JSON.parse(source(
+    '../miniprogram/miniprogram/app.json',
+  ));
+  const appSource = source('../miniprogram/miniprogram/app.ts');
+  const authSource = source(
+    '../miniprogram/miniprogram/utils/auth.ts',
   );
 
-  assert.deepEqual(firstAttempt, {
-    deviceCode: 'Dv_0123456789abcdefghijklmn',
-  });
-  assert.deepEqual(retryAttempt, firstAttempt);
-  assert.notEqual(retryAttempt, firstAttempt);
-  assert.equal(loginRegistrationSource('not-a-device-code'), undefined);
+  assert.equal(appJson.pages[0], 'pages/home/home');
+  assert.equal(appJson.pages.includes('pages/login/login'), false);
+  assert.equal(
+    normalizeDeviceCode(' Dv_0123456789abcdefghijklmn '),
+    'Dv_0123456789abcdefghijklmn',
+  );
+  assert.equal(normalizeDeviceCode('not-a-device-code'), undefined);
   assert.match(
-    loginSource,
-    /peekPendingDeviceEntry\(\)\?\.deviceCode/,
+    appSource,
+    /ensureLoggedIn\(\{ deviceCode: pending\.deviceCode \}\)/,
   );
   assert.match(
-    loginSource,
-    /loginRegistrationSource\(this\.registrationDeviceCode\)/,
+    authSource,
+    /activeLogin\.sourceDeviceCode === sourceDeviceCode/,
   );
-  assert.match(loginSource, /onRetry\(\)\s*\{\s*void this\.doLogin\(\)/);
+  assert.match(authSource, /const sequence = \+\+loginSequence/);
 });
 
 test('only an explicit WeChat phone authorization cancellation is treated as skip', () => {
@@ -79,7 +78,7 @@ test('only an explicit WeChat phone authorization cancellation is treated as ski
   }
 });
 
-test('phone authorization is shown once and required operations stop when it is declined', () => {
+test('phone authorization is action-driven and stops when it is declined', () => {
   const authSource = source(
     '../miniprogram/miniprogram/utils/auth.ts',
   );
@@ -91,9 +90,6 @@ test('phone authorization is shown once and required operations stop when it is 
   );
   const profileMarkup = source(
     '../miniprogram/miniprogram/pages/profile/profile.wxml',
-  );
-  const loginSource = source(
-    '../miniprogram/miniprogram/pages/login/login.ts',
   );
   const homeSource = source(
     '../miniprogram/miniprogram/pages/home/home.ts',
@@ -120,9 +116,8 @@ test('phone authorization is shown once and required operations stop when it is 
     '../miniprogram/miniprogram/utils/wechat-phone-grant.ts',
   );
 
-  assert.match(loginSource, /routeToEntry\(session\)/);
   assert.doesNotMatch(authSource, /routeAfterLogin/);
-  assert.match(authSource, /resetPhoneBindingAutoPrompt\(\)/);
+  assert.match(authSource, /resetPhoneBindingPromptState\(\)/);
   assert.doesNotMatch(homeMarkup, /可选：验证手机号/);
   assert.doesNotMatch(homeMarkup, /phone-notice/);
   assert.match(homeMarkup, /open-type="getPhoneNumber"/);
@@ -140,8 +135,9 @@ test('phone authorization is shown once and required operations stop when it is 
   assert.match(homeSource, /markPhoneBound\(\)/);
   assert.match(profileSource, /markPhoneBound\(\)/);
   assert.match(cleanSource, /reportWechatPhoneGrantError\(event\.detail\)/);
-  assert.match(homeSource, /consumePhoneBindingAutoPrompt\(session\)/);
-  assert.match(promptSource, /phoneAutoPrompted/);
+  assert.doesNotMatch(homeSource, /consumePhoneBindingAutoPrompt/);
+  assert.match(homeSource, /consumePendingPhoneBindingPrompt\(\)/);
+  assert.doesNotMatch(promptSource, /phoneAutoPrompted/);
   assert.match(promptSource, /requestPhoneBindingBeforeAction/);
   assert.match(promptSource, /continueAfterPhoneBindingPrompt/);
   assert.match(promptSource, /cancelAfterPhoneBindingPrompt/);

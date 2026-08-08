@@ -50,7 +50,7 @@ export function setEntryPreview(mode?: EntryMode): void {
 function routeToPreview(mode?: EntryMode): void {
   const destination = mode ?? getEntryMode()
   if (!destination) {
-    wx.reLaunch({ url: '/pages/login/login' })
+    wx.reLaunch({ url: '/pages/home/home' })
     return
   }
   wx.reLaunch({ url: entryUrlFor(destination) })

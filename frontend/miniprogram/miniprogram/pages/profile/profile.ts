@@ -1,7 +1,17 @@
-import { bindCurrentPhone } from '../../api/auth'
+import {
+  bindCurrentPhone,
+  listOrganizationAccounts,
+  selectOrganizationAccount,
+} from '../../api/auth'
 import { myWallet } from '../../api/wallet'
 import { FEATURES } from '../../config/index'
-import { getSession, logout, markPhoneBound } from '../../utils/auth'
+import {
+  adoptSession,
+  getSession,
+  logout,
+  markPhoneBound,
+  requestLoginBeforeAction,
+} from '../../utils/auth'
 import { createIdempotencyKey } from '../../utils/command-intent'
 import {
   dismissUnstartedPendingDeviceEntry,
@@ -24,19 +34,22 @@ import {
   showEntryPreviewSwitcher,
 } from '../../utils/test-entry-preview'
 import { toWalletDisplay } from '../../utils/user-view'
+import type { OrganizationAccountSummary } from '../../types/api'
 
 interface MenuItem {
   text: string
   icon: string
   url: string
+  requiresLogin?: boolean
 }
 
 Page({
   phoneBindingIntentKey: '',
 
   data: {
-    nickname: '小程序用户2168',
-    organizationName: '当前机构',
+    loggedIn: false,
+    nickname: '请登录',
+    organizationName: '游客浏览',
     phoneBound: false,
     showPhoneGrant: false,
     phoneGrantSubmitting: false,
@@ -44,7 +57,7 @@ Page({
     availableBalanceText: '—',
     pendingRewardText: '—',
     withdrawalProcessingText: '—',
-    walletLoading: FEATURES.targetWalletApi,
+    walletLoading: false,
     walletError: false,
     hasAvailableBalance: false,
     hasWithdrawalProcessing: false,
@@ -52,10 +65,14 @@ Page({
     canWithdraw: false,
     entryPreviewEnabled: false,
     entryPreviewNotice: ENTRY_PREVIEW_NOTICE,
+    showAccountSwitcher: false,
+    accountLoading: false,
+    accountSwitchingUid: '',
+    organizationAccounts: [] as OrganizationAccountSummary[],
     shortcuts: [
-      { text: '投递订单', icon: 'root-list', url: '/pages/orders/orders' },
-      { text: '钱包明细', icon: 'wallet', url: '/pages/wallet/wallet' },
-      { text: '提现记录', icon: 'time', url: '/pages/withdrawals/withdrawals' },
+      { text: '投递订单', icon: 'root-list', url: '/pages/orders/orders', requiresLogin: true },
+      { text: '钱包明细', icon: 'wallet', url: '/pages/wallet/wallet', requiresLogin: true },
+      { text: '提现记录', icon: 'time', url: '/pages/withdrawals/withdrawals', requiresLogin: true },
     ] as MenuItem[],
     helpers: [
       { text: '常见问题', icon: 'info-circle', url: '/pages/placeholder/placeholder?title=常见问题' },
@@ -70,6 +87,7 @@ Page({
     const session = getSession()
     if (session) {
       this.setData({
+        loggedIn: true,
         nickname: session.displayName,
         organizationName: session.organization.displayName,
         phoneBound: session.phoneBound,
@@ -82,8 +100,18 @@ Page({
     }
 
     this.setData({
+      loggedIn: false,
+      nickname: '请登录',
+      organizationName: '游客浏览',
       phoneBound: false,
       showPhoneGrant: false,
+      showAccountSwitcher: false,
+      organizationAccounts: [],
+      walletLoading: false,
+      walletError: false,
+      availableBalanceText: '—',
+      pendingRewardText: '—',
+      withdrawalProcessingText: '—',
       entryPreviewEnabled: isEntryPreviewEnabled(),
     })
     this.setPhoneGrantTabBarHidden(false)
@@ -130,12 +158,89 @@ Page({
 
   onWalletRetry() {
     if (!FEATURES.targetWalletApi) return
+    const session = getSession()
+    if (requestLoginBeforeAction(session, () => this.onShow())) return
     void this.loadWallet()
   },
 
   onMenuTap(e: WechatMiniprogram.TouchEvent) {
     const url = String(e.currentTarget.dataset.url || '')
+    const requiresLogin = e.currentTarget.dataset.requiresLogin === true
+      || e.currentTarget.dataset.requiresLogin === 'true'
+    if (
+      requiresLogin
+      && requestLoginBeforeAction(getSession(), () => {
+        this.onShow()
+        if (url) wx.navigateTo({ url })
+      })
+    ) {
+      return
+    }
     if (url) wx.navigateTo({ url })
+  },
+
+  onIdentityTap() {
+    const session = getSession()
+    if (requestLoginBeforeAction(session, () => this.onShow())) return
+    void this.openAccountSwitcher()
+  },
+
+  onOrganizationTap() {
+    if (!getSession()) return
+    void this.openAccountSwitcher()
+  },
+
+  async openAccountSwitcher() {
+    if (this.data.accountLoading) return
+    this.setData({ showAccountSwitcher: true, accountLoading: true })
+    try {
+      const result = await listOrganizationAccounts()
+      this.setData({ organizationAccounts: result.accounts })
+    } catch {
+      this.setData({ showAccountSwitcher: false })
+    } finally {
+      this.setData({ accountLoading: false })
+    }
+  },
+
+  onAccountSwitcherClose() {
+    if (this.data.accountSwitchingUid) return
+    this.setData({ showAccountSwitcher: false })
+  },
+
+  onAccountSheetPanelTap() {
+    // 阻止点击面板内容时触发遮罩关闭。
+  },
+
+  async onAccountTap(e: WechatMiniprogram.TouchEvent) {
+    const organizationUserUid = String(
+      e.currentTarget.dataset.organizationUserUid || '',
+    )
+    const selected = e.currentTarget.dataset.selected === true
+      || e.currentTarget.dataset.selected === 'true'
+    if (!organizationUserUid || selected || this.data.accountSwitchingUid) {
+      if (selected) this.setData({ showAccountSwitcher: false })
+      return
+    }
+    this.setData({ accountSwitchingUid: organizationUserUid })
+    try {
+      const idempotencyKey = await createIdempotencyKey()
+      const session = await selectOrganizationAccount(
+        organizationUserUid,
+        idempotencyKey,
+      )
+      adoptSession(session)
+      this.setData({ showAccountSwitcher: false })
+      this.onShow()
+      wx.showToast({ title: '已切换机构', icon: 'success' })
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : '机构切换失败'
+      wx.showToast({ title: message, icon: 'none' })
+    } finally {
+      this.setData({ accountSwitchingUid: '' })
+    }
   },
 
   onEntryPreview() {
@@ -145,6 +250,14 @@ Page({
   onWithdraw() {
     if (!FEATURES.targetWithdrawalApi) {
       wx.showToast({ title: '提现服务正在接入', icon: 'none' })
+      return
+    }
+    if (
+      requestLoginBeforeAction(getSession(), () => {
+        this.onShow()
+        this.onWithdraw()
+      })
+    ) {
       return
     }
     if (

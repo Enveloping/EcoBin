@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
@@ -558,7 +559,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "configuration-user");
         when(identity.currentMiniapp(false)).thenReturn(actor);
         WithdrawalApplicationService service =
@@ -600,7 +601,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "withdrawal-audit-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.lockWithdrawalTransferIdentity(any()))
@@ -677,7 +678,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "lock-order-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.currentMiniapp(false)).thenReturn(actor);
@@ -786,7 +787,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "transfer-retry-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.currentMiniapp(false)).thenReturn(actor);
@@ -973,7 +974,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "identity-recheck-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         FundsIdentityAccessService identityVerifier =
@@ -1072,7 +1073,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "callback-conflict-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.lockWithdrawalTransferIdentity(any()))
@@ -1192,7 +1193,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "manual-query-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.lockWithdrawalTransferIdentity(any()))
@@ -1531,34 +1532,15 @@ class TargetWebIdentityMysqlIntegrationTest {
                         "1.00", "/api/v1/web/recharges"));
         String legacyRechargeNo = RechargeApplicationService.stableNo(
                 "RC", legacyOperation);
-        jdbc.update("""
+        assertThrows(DataAccessException.class, () -> jdbc.update("""
                 UPDATE fund_wechat_payment payment
                 JOIN fund_recharge_order recharge
                   ON recharge.id = payment.recharge_order_id
                 SET payment.notify_url_snapshot = NULL
                 WHERE recharge.recharge_order_no = ?
-                """, legacyRechargeNo);
-        FundsTaskRef legacyCreate = fundsTask(
-                "CREATE_NATIVE_PAYMENT", legacyRechargeNo);
-        ReliableFundsTaskExecutorPort.Result legacyBlocked =
-                service.executeTask(fundsCommand(
-                        legacyCreate.taskUid(), legacyCreate.taskId(), 1,
-                        fixture, "CREATE_NATIVE_PAYMENT", legacyRechargeNo));
-        assertEquals(
-                ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
-                legacyBlocked.outcome());
+                """, legacyRechargeNo));
         assertEquals(1, channel.createCount,
-                "an unverifiable legacy URL must be blocked before WeChat");
-        assertEquals(1, jdbc.queryForObject("""
-                SELECT COUNT(*) FROM ops_reconciliation_issue issue_row
-                JOIN fund_wechat_payment payment
-                  ON payment.out_trade_no = issue_row.subject_stable_key
-                JOIN fund_recharge_order recharge
-                  ON recharge.id = payment.recharge_order_id
-                WHERE recharge.recharge_order_no = ?
-                  AND issue_row.issue_code =
-                      'FUNDS.NATIVE_PAYMENT_ORIGINAL_REQUEST_UNAVAILABLE'
-                """, Integer.class, legacyRechargeNo));
+                "runtime identity must not mutate immutable request snapshots");
     }
 
     @Test
@@ -1686,7 +1668,14 @@ class TargetWebIdentityMysqlIntegrationTest {
         WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
                 tenantCode, organizationCode);
         assertEquals(1, jdbc.update("""
-                DELETE FROM fund_wechat_transfer_authorization
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
                 WHERE tenant_id = ? AND organization_id = ?
                   AND organization_user_id = ?
                 """, fixture.tenantId(), fixture.organizationId(),
@@ -1696,14 +1685,13 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "authorization-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.currentMiniapp(false)).thenReturn(actor);
         when(identity.lockWithdrawalTransferIdentity(any()))
                 .thenReturn(true);
-        AuditPort audit = mock(AuditPort.class);
-        when(audit.append(any())).thenReturn(1L);
+        AuditPort audit = auditPort;
         ScriptedAuthorizationChannel authorizationChannel =
                 new ScriptedAuthorizationChannel();
         MerchantTransferAuthorizationApplicationService service =
@@ -1741,6 +1729,89 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 queryResult.outcome());
         assertEquals("ACTIVE", service.current().status());
+
+        String sharedOrganizationCode = code("ob");
+        createAndActivateOrganization(
+                platform, tenantCode, sharedOrganizationCode,
+                "Shared authorization organization");
+        long sharedOrganizationId = jdbc.queryForObject("""
+                SELECT id
+                FROM iam_organization
+                WHERE tenant_id = ? AND organization_code = ?
+                """, Long.class, fixture.tenantId(), sharedOrganizationCode);
+        LocalDateTime sharedNow = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        jdbc.update("""
+                INSERT INTO iam_organization_miniapp_binding (
+                    binding_uid, tenant_id, organization_id,
+                    miniapp_channel_id, status, bound_at, lock_version,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, ?, ?)
+                """, UUID.randomUUID().toString(), fixture.tenantId(),
+                sharedOrganizationId, fixture.miniappId(),
+                sharedNow, sharedNow, sharedNow);
+        UUID sharedUserUid = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO iam_organization_user (
+                    organization_user_uid, tenant_id, organization_id,
+                    miniapp_channel_id, wechat_subject_id, phone_e164,
+                    phone_bound_at, status, auth_version, lock_version,
+                    registered_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, '+8613900000000', ?,
+                          'ACTIVE', 0, 0, ?, ?, ?)
+                """, sharedUserUid.toString(), fixture.tenantId(),
+                sharedOrganizationId, fixture.miniappId(),
+                fixture.subjectId(), sharedNow, sharedNow, sharedNow,
+                sharedNow);
+        long sharedUserId = jdbc.queryForObject("""
+                SELECT id
+                FROM iam_organization_user
+                WHERE organization_user_uid = ?
+                """, Long.class, sharedUserUid.toString());
+        jdbc.update("""
+                INSERT INTO fund_miniapp_merchant_binding (
+                    binding_uid, tenant_id, organization_id,
+                    miniapp_channel_id, appid,
+                    miniapp_lock_version_snapshot, merchant_profile_id,
+                    status, verified_by_platform_admin_id, verified_at,
+                    disabled_at, lock_version, created_at, updated_at
+                )
+                SELECT ?, tenant_id, ?, miniapp_channel_id, appid,
+                       miniapp_lock_version_snapshot, merchant_profile_id,
+                       'VERIFIED', verified_by_platform_admin_id, ?,
+                       NULL, 0, ?, ?
+                FROM fund_miniapp_merchant_binding
+                WHERE id = ?
+                """, UUID.randomUUID().toString(), sharedOrganizationId,
+                sharedNow, sharedNow, sharedNow, fixture.bindingId());
+        CurrentMiniappIdentity sharedActor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, sharedOrganizationId,
+                sharedOrganizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), sharedUserId, sharedUserUid,
+                UUID.randomUUID(), "shared-authorization-user");
+        when(identity.currentMiniapp(true)).thenReturn(sharedActor);
+        when(identity.currentMiniapp(false)).thenReturn(sharedActor);
+
+        assertEquals("ACTIVE", service.current().status());
+        UUID sharedCreateOperation = UUID.randomUUID();
+        var sharedAccepted = new TransactionTemplate(transactionManager)
+                .execute(status -> service.create(sharedCreateOperation));
+        assertNotNull(sharedAccepted);
+        assertEquals(accepted.authorizationNo(),
+                sharedAccepted.authorizationNo());
+        var sharedReplay = new TransactionTemplate(transactionManager)
+                .execute(status -> service.create(sharedCreateOperation));
+        assertNotNull(sharedReplay);
+        assertEquals(sharedAccepted, sharedReplay);
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM fund_wechat_transfer_authorization
+                WHERE miniapp_channel_id = ? AND wechat_subject_id = ?
+                  AND current_authorization_slot = 1
+                """, Integer.class, fixture.miniappId(), fixture.subjectId()));
+
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
 
         WithdrawalApplicationService withdrawals =
                 new WithdrawalApplicationService(
@@ -1866,7 +1937,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
                 fixture.tenantId(), tenantCode, fixture.organizationId(),
                 organizationCode, fixture.miniappId(), fixture.appid(),
-                fixture.userId(), fixture.userUid(), UUID.randomUUID(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(), UUID.randomUUID(),
                 "wallet-adjustment-user");
         when(identity.currentMiniapp(true)).thenReturn(actor);
         when(identity.lockWithdrawalTransferIdentity(any()))
@@ -3106,7 +3177,7 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
-    void organizationMiniappConfigurationControlsAppIdAndLiveLoginSessions()
+    void sharedMiniappChannelControlsLoginAndKeepsTenantViewReadOnly()
             throws Exception {
         BrowserClient platform = platformClient();
         String tenantCode = code("miniapp-t");
@@ -3122,11 +3193,27 @@ class TargetWebIdentityMysqlIntegrationTest {
         String appId = "wx" + UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 16);
         String initialSecret = "fake-initial-app-secret-" + run;
+        String entryBaseUrl = "https://example.test/device-entry";
+        MvcResult duplicateDeviceCode = write(
+                platform,
+                put(base + "/miniapp-configuration"),
+                UUID.randomUUID(),
+                Map.of(
+                        "appId", appId,
+                        "displayName", "Miniapp A",
+                        "appSecret", initialSecret,
+                        "entryBaseUrl", entryBaseUrl
+                                + "?deviceCode=Dv_already-present"),
+                400);
+        assertEquals(
+                "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                json(duplicateDeviceCode).path("code").asText());
         UUID initialConfigurationUid = UUID.randomUUID();
         Map<String, Object> initialConfiguration = Map.of(
                 "appId", appId,
                 "displayName", "Miniapp A",
-                "appSecret", initialSecret);
+                "appSecret", initialSecret,
+                "entryBaseUrl", entryBaseUrl);
         MvcResult createdResult = write(
                 platform,
                 put(base + "/miniapp-configuration"),
@@ -3136,6 +3223,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         JsonNode created = data(createdResult);
         assertEquals(appId, created.path("appId").asText());
         assertTrue(created.path("appSecretConfigured").asBoolean());
+        assertEquals(entryBaseUrl, created.path("entryBaseUrl").asText());
         assertFalse(created.path("activated").asBoolean());
         assertFalse(created.path("loginEnabled").asBoolean());
         assertEquals(0, created.path("version").asLong());
@@ -3156,7 +3244,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                 Map.of(
                         "appId", appId,
                         "displayName", "Miniapp A",
-                        "appSecret", initialSecret + "-different"),
+                        "appSecret", initialSecret + "-different",
+                        "entryBaseUrl", entryBaseUrl),
                 409);
         assertEquals(
                 "COMMON.IDEMPOTENCY_KEY_CONFLICT",
@@ -3200,6 +3289,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         "appId", "wx" + UUID.randomUUID().toString()
                                 .replace("-", "").substring(0, 16),
                         "displayName", "Changed",
+                        "entryBaseUrl", entryBaseUrl,
                         "expectedVersion", 1),
                 409);
         assertEquals(
@@ -3215,6 +3305,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         "appId", appId,
                         "displayName", "Miniapp A rotated",
                         "appSecret", rotatedSecret,
+                        "entryBaseUrl", entryBaseUrl,
                         "expectedVersion", 1),
                 200));
         assertEquals(2, rotated.path("version").asLong());
@@ -3231,14 +3322,17 @@ class TargetWebIdentityMysqlIntegrationTest {
                 "principal-" + tenantCode,
                 PRINCIPAL_PASSWORD,
                 201);
-        assertEquals(
-                rotatedSecret,
-                data(read(
-                        tenantPrincipal,
-                        "/api/v1/web/organizations/"
-                                + organizationCode
-                                + "/miniapp-configuration",
-                        200)).path("appSecret").asText());
+        JsonNode tenantConfiguration = data(read(
+                tenantPrincipal,
+                "/api/v1/web/organizations/"
+                        + organizationCode
+                        + "/miniapp-configuration",
+                200));
+        assertTrue(tenantConfiguration.path("appSecret").isNull());
+        assertTrue(tenantConfiguration.path("appSecretConfigured")
+                .asBoolean());
+        assertEquals(entryBaseUrl,
+                tenantConfiguration.path("entryBaseUrl").asText());
 
         JsonNode enabled = data(write(
                 platform,
@@ -3249,7 +3343,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertTrue(enabled.path("loginEnabled").asBoolean());
         assertEquals(3, enabled.path("version").asLong());
 
-        MvcResult miniappLogin = mockMvc.perform(
+        MvcResult noScanRegistration = mockMvc.perform(
                         post("/api/v1/miniapp/auth/sessions")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsBytes(
@@ -3257,6 +3351,71 @@ class TargetWebIdentityMysqlIntegrationTest {
                                                 "appId", appId,
                                                 "wxLoginCode",
                                                 "fake:miniapp-" + run))))
+                .andReturn();
+        assertEquals(
+                422,
+                noScanRegistration.getResponse().getStatus(),
+                noScanRegistration.getResponse().getContentAsString());
+        assertEquals(
+                "IDENTITY.DEVICE_REGISTRATION_REQUIRED",
+                json(noScanRegistration).path("code").asText());
+
+        long tenantId = jdbc.queryForObject(
+                "SELECT id FROM iam_tenant WHERE tenant_code = ?",
+                Long.class,
+                tenantCode);
+        long organizationId = jdbc.queryForObject("""
+                        SELECT id FROM iam_organization
+                        WHERE tenant_id = ? AND organization_code = ?
+                        """,
+                Long.class,
+                tenantId,
+                organizationCode);
+        String deviceCode = "Dv_" + UUID.randomUUID().toString()
+                .replace("-", "").substring(0, 24);
+        jdbc.update("""
+                        INSERT INTO dev_device_asset (
+                            asset_uid, device_public_code,
+                            hardware_sn, model_name, production_batch,
+                            expected_port_count,
+                            tenant_id, tenant_assigned_at,
+                            organization_id, organization_assigned_at,
+                            acceptance_status, accepted_at,
+                            acceptance_evidence_sha256,
+                            last_acceptance_evaluated_at,
+                            acceptance_failure_json,
+                            lifecycle_status, disabled_at, disable_reason,
+                            retired_at, retirement_reason, control_version,
+                            created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, 'Shared miniapp test model', NULL, 1,
+                            ?, UTC_TIMESTAMP(3),
+                            ?, UTC_TIMESTAMP(3),
+                            'PASSED', UTC_TIMESTAMP(3),
+                            UNHEX(SHA2(?, 256)), UTC_TIMESTAMP(3), NULL,
+                            'NORMAL', NULL, NULL, NULL, NULL, 0,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                UUID.randomUUID().toString(),
+                deviceCode,
+                "SHARED-MINIAPP-SN-" + run,
+                tenantId,
+                organizationId,
+                deviceCode);
+
+        MvcResult miniappLogin = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/sessions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "appId", appId,
+                                                "wxLoginCode",
+                                                "fake:miniapp-" + run,
+                                                "registrationSource",
+                                                Map.of(
+                                                        "deviceCode",
+                                                        deviceCode)))))
                 .andReturn();
         assertEquals(
                 201,
@@ -3326,7 +3485,7 @@ class TargetWebIdentityMysqlIntegrationTest {
             String tenantCode,
             String organizationCode) {
         return jdbc.queryForMap("""
-                SELECT b.organization_miniapp_id, b.appid,
+                SELECT b.miniapp_channel_id, b.appid,
                        b.miniapp_lock_version_snapshot,
                        b.merchant_profile_id,
                        b.verified_by_platform_admin_id,
@@ -3492,34 +3651,53 @@ class TargetWebIdentityMysqlIntegrationTest {
                 "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
         String appid = "wxlock" + run;
         jdbc.update("""
-                INSERT INTO iam_organization_miniapp (
-                    tenant_id, organization_id, appid, display_name,
-                    login_enabled, app_secret, activated_at, lock_version,
+                INSERT INTO iam_miniapp_channel (
+                    channel_uid, appid, display_name, login_enabled,
+                    app_secret, entry_base_url, activated_at, lock_version,
                     configured_at, created_at, updated_at
-                ) VALUES (?, ?, ?, 'Lock order miniapp', 1, ?, ?, 0,
+                ) VALUES (?, ?, 'Lock order miniapp', 1, ?, NULL, ?, 0,
                           ?, ?, ?)
-                """, scope[0], scope[1], appid,
+                """, UUID.randomUUID().toString(), appid,
                 "test-app-secret-" + run, now, now, now, now);
         long miniappId = jdbc.queryForObject(
-                "SELECT id FROM iam_organization_miniapp WHERE appid = ?",
+                "SELECT id FROM iam_miniapp_channel WHERE appid = ?",
                 Long.class, appid);
+        jdbc.update("""
+                INSERT INTO iam_organization_miniapp_binding (
+                    binding_uid, tenant_id, organization_id,
+                    miniapp_channel_id, status, bound_at, lock_version,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, ?, ?)
+                """, UUID.randomUUID().toString(), scope[0], scope[1],
+                miniappId, now, now, now);
         UUID userUid = UUID.randomUUID();
+        UUID subjectUid = UUID.randomUUID();
         String openid = "lock-openid-" + run;
         String phone = "+8613" + String.format(
                 "%09d", Math.floorMod(run.hashCode(), 1_000_000_000));
         jdbc.update("""
+                INSERT INTO iam_wechat_subject (
+                    wechat_subject_uid, miniapp_channel_id, openid, status,
+                    auth_version, lock_version, created_at, updated_at
+                ) VALUES (?, ?, ?, 'ACTIVE', 0, 0, ?, ?)
+                """, subjectUid.toString(), miniappId, openid, now, now);
+        long subjectId = jdbc.queryForObject("""
+                SELECT id FROM iam_wechat_subject
+                WHERE miniapp_channel_id = ? AND openid = ?
+                """, Long.class, miniappId, openid);
+        jdbc.update("""
                 INSERT INTO iam_organization_user (
                     organization_user_uid, tenant_id, organization_id,
-                    organization_miniapp_id, openid, phone_e164,
+                    miniapp_channel_id, wechat_subject_id, phone_e164,
                     phone_bound_at, status, auth_version, lock_version,
                     registered_at, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 0, ?, ?, ?)
                 """, userUid.toString(), scope[0], scope[1], miniappId,
-                openid, phone, now, now, now, now);
+                subjectId, phone, now, now, now, now);
         long userId = jdbc.queryForObject("""
                 SELECT id FROM iam_organization_user
-                WHERE organization_miniapp_id = ? AND openid = ?
-                """, Long.class, miniappId, openid);
+                WHERE miniapp_channel_id = ? AND wechat_subject_id = ?
+                """, Long.class, miniappId, subjectId);
         jdbc.update("""
                 INSERT INTO fund_user_wallet (
                     wallet_uid, tenant_id, organization_id,
@@ -3538,7 +3716,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         jdbc.update("""
                 INSERT INTO fund_miniapp_merchant_binding (
                     binding_uid, tenant_id, organization_id,
-                    organization_miniapp_id, appid,
+                    miniapp_channel_id, appid,
                     miniapp_lock_version_snapshot, merchant_profile_id,
                     status, verified_by_platform_admin_id, verified_at,
                     disabled_at, lock_version, created_at, updated_at
@@ -3548,7 +3726,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 miniappId, appid, scope[2], scope[3], now, now, now);
         long bindingId = jdbc.queryForObject("""
                 SELECT id FROM fund_miniapp_merchant_binding
-                WHERE organization_miniapp_id = ?
+                WHERE miniapp_channel_id = ?
                 """, Long.class, miniappId);
         String[] merchant = jdbc.queryForObject("""
                 SELECT mchid, scene_id
@@ -3567,8 +3745,9 @@ class TargetWebIdentityMysqlIntegrationTest {
         jdbc.update("""
                 INSERT INTO fund_wechat_transfer_authorization (
                     authorization_uid, tenant_id, organization_id,
-                    organization_user_id, merchant_profile_id,
-                    miniapp_merchant_binding_id, organization_miniapp_id,
+                    organization_user_id, wechat_subject_id,
+                    merchant_profile_id,
+                    miniapp_merchant_binding_id, miniapp_channel_id,
                     out_authorization_no, authorization_id,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
                     scene_id_snapshot, user_display_name_snapshot,
@@ -3580,13 +3759,13 @@ class TargetWebIdentityMysqlIntegrationTest {
                     submitted_at, channel_created_at,
                     confirmation_deadline_at, authorized_at, closed_at,
                     channel_updated_at, lock_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                           '测试用户', NULL, ?, ?, ?, 'ACTIVE',
                           'TAKING_EFFECT', NULL, NULL, NULL, 0,
                           ?, ?, DATE_ADD(?, INTERVAL 24 HOUR), ?, NULL,
                           ?, 0, ?, ?)
                 """, authorizationUid.toString(), scope[0], scope[1],
-                userId, scope[2], bindingId, miniappId,
+                userId, subjectId, scope[2], bindingId, miniappId,
                 outAuthorizationNo, authorizationId, merchant[0], appid,
                 openid, merchant[1], authorizationNotifyUrl,
                 RechargeApplicationService.sha256(authorizationNotifyUrl),
@@ -3606,7 +3785,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 """, Integer.class, scope[0], scope[1]));
         return new WithdrawalCreationFixture(
                 scope[0], scope[1], miniappId, appid,
-                userId, userUid, bindingId, openid);
+                subjectId, userId, userUid, bindingId, openid);
     }
 
     private void assertDefaultDeliveryRule(
@@ -3818,33 +3997,53 @@ class TargetWebIdentityMysqlIntegrationTest {
                     "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
             String appid = "wxwake" + run;
             jdbc.update("""
-                    INSERT INTO iam_organization_miniapp (
-                        tenant_id, organization_id, appid, display_name,
-                        login_enabled, app_secret, activated_at, lock_version,
+                    INSERT INTO iam_miniapp_channel (
+                        channel_uid, appid, display_name, login_enabled,
+                        app_secret, entry_base_url, activated_at, lock_version,
                         configured_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, 'Payout wake test', 1, ?, ?, 0,
+                    ) VALUES (?, ?, 'Payout wake test', 1, ?, NULL, ?, 0,
                               ?, ?, ?)
-                    """, fixture.tenantId(), fixture.organizationId(), appid,
+                    """, UUID.randomUUID().toString(), appid,
                     "test-app-secret-" + run, now, now, now, now);
             long miniappId = jdbc.queryForObject(
-                    "SELECT id FROM iam_organization_miniapp WHERE appid = ?",
+                    "SELECT id FROM iam_miniapp_channel WHERE appid = ?",
                     Long.class, appid);
+            jdbc.update("""
+                    INSERT INTO iam_organization_miniapp_binding (
+                        binding_uid, tenant_id, organization_id,
+                        miniapp_channel_id, status, bound_at, lock_version,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, 0, ?, ?)
+                    """, UUID.randomUUID().toString(), fixture.tenantId(),
+                    fixture.organizationId(), miniappId, now, now, now);
             String openid = "wake-openid-" + run;
+            jdbc.update("""
+                    INSERT INTO iam_wechat_subject (
+                        wechat_subject_uid, miniapp_channel_id, openid,
+                        status, auth_version, lock_version,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, 'ACTIVE', 0, 0, ?, ?)
+                    """, UUID.randomUUID().toString(), miniappId, openid,
+                    now, now);
+            long subjectId = jdbc.queryForObject("""
+                    SELECT id FROM iam_wechat_subject
+                    WHERE miniapp_channel_id = ? AND openid = ?
+                    """, Long.class, miniappId, openid);
             jdbc.update("""
                     INSERT INTO iam_organization_user (
                         organization_user_uid, tenant_id, organization_id,
-                        organization_miniapp_id, openid, phone_e164,
+                        miniapp_channel_id, wechat_subject_id, phone_e164,
                         phone_bound_at, status, auth_version, lock_version,
                         registered_at, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, NULL, NULL, 'ACTIVE', 0, 0,
                               ?, ?, ?)
                     """, UUID.randomUUID().toString(), fixture.tenantId(),
-                    fixture.organizationId(), miniappId, openid,
+                    fixture.organizationId(), miniappId, subjectId,
                     now, now, now);
             long userId = jdbc.queryForObject("""
                     SELECT id FROM iam_organization_user
-                    WHERE organization_miniapp_id = ? AND openid = ?
-                    """, Long.class, miniappId, openid);
+                    WHERE miniapp_channel_id = ? AND wechat_subject_id = ?
+                    """, Long.class, miniappId, subjectId);
             jdbc.update("""
                     INSERT INTO fund_user_wallet (
                         wallet_uid, tenant_id, organization_id,
@@ -3864,7 +4063,7 @@ class TargetWebIdentityMysqlIntegrationTest {
             jdbc.update("""
                     INSERT INTO fund_miniapp_merchant_binding (
                         binding_uid, tenant_id, organization_id,
-                        organization_miniapp_id, appid,
+                        miniapp_channel_id, appid,
                         miniapp_lock_version_snapshot, merchant_profile_id,
                         status, verified_by_platform_admin_id, verified_at,
                         disabled_at, lock_version, created_at, updated_at
@@ -3876,7 +4075,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                     now, now, now);
             long bindingId = jdbc.queryForObject("""
                     SELECT id FROM fund_miniapp_merchant_binding
-                    WHERE organization_miniapp_id = ?
+                    WHERE miniapp_channel_id = ?
                     """, Long.class, miniappId);
             String withdrawalNo = "WDWAKE" + run;
             jdbc.update("""
@@ -3888,7 +4087,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         manual_min_cent_snapshot, manual_max_cent_snapshot,
                         manual_review_free_threshold_cent_snapshot,
                         amount_cent, miniapp_merchant_binding_id,
-                        organization_miniapp_id, merchant_profile_id,
+                        miniapp_channel_id, merchant_profile_id,
                         mchid_snapshot, appid_snapshot, openid_snapshot,
                         business_state, negative_balance_pause,
                         post_boundary_risk, pre_channel_block_reason,
@@ -3946,7 +4145,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                         transfer_uid, tenant_id, organization_id,
                         withdrawal_order_id, merchant_profile_id,
                         miniapp_merchant_binding_id,
-                        organization_miniapp_id, out_bill_no,
+                        miniapp_channel_id, out_bill_no,
                         transfer_bill_no, amount_cent, mchid_snapshot,
                         appid_snapshot, openid_snapshot, scene_id_snapshot,
                         report_type_snapshot, report_content_snapshot,
@@ -4188,6 +4387,7 @@ class TargetWebIdentityMysqlIntegrationTest {
             long organizationId,
             long miniappId,
             String appid,
+            long subjectId,
             long userId,
             UUID userUid,
             long bindingId,

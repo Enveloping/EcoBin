@@ -342,7 +342,6 @@ class StartDeliveryDeviceParticipationServiceTest {
                         DEVICE_CODE,
                         "NORMAL",
                         "PASSED",
-                        "READY",
                         TENANT_ID,
                         ORGANIZATION_ID,
                         2)));

@@ -39,7 +39,7 @@
     <view class="card-copy">
       <text class="card-label">我的钱包</text>
       <text class="wallet-value {{walletError ? 'wallet-value--error' : ''}}">
-        {{!walletDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取，点击重试' : walletBalanceText))}}
+        {{!loggedIn ? '登录后查看' : (!walletDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取，点击重试' : walletBalanceText)))}}
       </text>
     </view>
     <t-icon name="chevron-right" size="32rpx" color="#a3aaa3" />
@@ -59,7 +59,11 @@
       </view>
     </view>
 
-    <view class="recent-loading" wx:if="{{recentLoading}}">
+    <view wx:if="{{!loggedIn}}" class="recent-empty" bindtap="onOpenOrders">
+      <t-icon name="user" size="52rpx" color="#b4bbb4" />
+      <text>登录后查看个人投递记录</text>
+    </view>
+    <view class="recent-loading" wx:elif="{{recentLoading}}">
       <view class="loading-icon"></view>
       <view class="loading-copy"><view></view><view></view></view>
       <view class="loading-value"></view>

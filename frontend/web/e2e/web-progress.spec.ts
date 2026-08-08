@@ -1712,14 +1712,16 @@ test('tenant sidebar preset and name link apply real directory filters', async (
   await expect.poll(() => scopedOrganizationsRequested).toBe(true);
 });
 
-test('organization edit configures, activates and enables miniapp identity login', async ({
+test('platform configures, activates and enables a shared miniapp channel', async ({
   page,
 }) => {
+  const tenantCode = 'tenant-miniapp';
   const organizationCode = 'org-miniapp';
   const fullSecret = 'miniapp-secret-only-in-memory';
+  const entryBaseUrl = 'https://example.test/device-entry';
   const session = {
-    ...tenantSession,
-    capabilities: ['organization.read', 'miniapp.manage'],
+    ...platformSession,
+    capabilities: ['tenant.read', 'organization.read', 'miniapp.manage'],
   };
   const organization = {
     organizationCode,
@@ -1735,9 +1737,10 @@ test('organization edit configures, activates and enables miniapp identity login
     | {
         appId: string;
         displayName: string;
-        appSecret: string;
+        appSecret: string | null;
         appSecretConfigured: true;
         maskedAppSecret: string;
+        entryBaseUrl: string;
         activated: boolean;
         loginEnabled: boolean;
         version: number;
@@ -1761,6 +1764,13 @@ test('organization edit configures, activates and enables miniapp identity login
       request.method() === 'GET'
       && url.pathname === '/api/v1/web/auth/sessions/current'
     ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
+    ) {
       await json(route, session);
       return;
     }
@@ -1776,7 +1786,27 @@ test('organization edit configures, activates and enables miniapp identity login
     }
     if (
       request.method() === 'GET'
-      && url.pathname === '/api/v1/web/organizations'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      await json(route, {
+        items: [{
+          tenantCode,
+          enterpriseName: '共享小程序测试租户',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-07-01T00:00:00Z',
+          updatedAt: '2026-07-01T00:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/tenants/${tenantCode}/organizations`
     ) {
       await json(route, {
         items: [organization],
@@ -1787,7 +1817,7 @@ test('organization edit configures, activates and enables miniapp identity login
       return;
     }
     const configurationPath =
-      `/api/v1/web/organizations/${organizationCode}/miniapp-configuration`;
+      `/api/v1/web/platform/tenants/${tenantCode}/organizations/${organizationCode}/miniapp-configuration`;
     if (request.method() === 'GET' && url.pathname === configurationPath) {
       if (!configuration) {
         await route.fulfill(
@@ -1811,6 +1841,7 @@ test('organization edit configures, activates and enables miniapp identity login
         appSecret: String(body.appSecret),
         appSecretConfigured: true,
         maskedAppSecret: 'mini****mory',
+        entryBaseUrl: String(body.entryBaseUrl),
         activated: false,
         loginEnabled: false,
         version: 1,
@@ -1847,7 +1878,7 @@ test('organization edit configures, activates and enables miniapp identity login
     if (
       request.method() === 'POST'
       && url.pathname
-        === `/api/v1/web/organizations/${organizationCode}/miniapp-login/enablements`
+        === `/api/v1/web/platform/tenants/${tenantCode}/organizations/${organizationCode}/miniapp-login/enablements`
       && configuration
     ) {
       const body = request.postDataJSON() as Record<string, unknown>;
@@ -1869,17 +1900,21 @@ test('organization edit configures, activates and enables miniapp identity login
     await route.fulfill(problem(404));
   });
 
-  await page.goto('/organizations');
+  await page.goto(`/organizations?tenant=${tenantCode}`);
   await expect(page.getByText('滨江回收中心', { exact: true })).toBeVisible();
   await page.getByText('编辑', { exact: true }).click();
   await page.getByText('小程序登录', { exact: true }).click();
-  await expect(page.getByText('尚未配置小程序身份登录')).toBeVisible();
+  await expect(page.getByText('尚未绑定小程序渠道')).toBeVisible();
 
   await page.getByPlaceholder('wx1234567890abcdef').fill('wx1234567890abcdef');
   await page
-    .getByPlaceholder('用于识别该机构对应的小程序')
+    .getByPlaceholder('用于识别共享小程序渠道')
     .fill('滨江环保小程序');
-  await page.getByPlaceholder('请输入 AppSecret').fill(fullSecret);
+  await page.getByPlaceholder('https://example.com/device-entry')
+    .fill(entryBaseUrl);
+  await page
+    .getByPlaceholder('已有渠道可留空，新渠道请输入 AppSecret')
+    .fill(fullSecret);
   await page.getByRole('button', { name: '创建配置' }).click();
 
   await expect(page.getByText('待激活', { exact: true })).toBeVisible();
@@ -1888,6 +1923,7 @@ test('organization edit configures, activates and enables miniapp identity login
     appId: 'wx1234567890abcdef',
     displayName: '滨江环保小程序',
     appSecret: fullSecret,
+    entryBaseUrl,
     expectedVersion: null,
   });
 
@@ -2283,7 +2319,7 @@ function permanentDeviceAsset(overrides: Record<string, unknown> = {}) {
     tenantCode: null,
     organizationCode: null,
     acceptanceStatus: 'PENDING',
-    miniappQrStatus: 'NOT_ASSIGNED',
+    deviceEntryUrl: null,
     lifecycleStatus: 'NORMAL',
     version: 0,
     tenantAssignedAt: null,
@@ -2524,7 +2560,7 @@ test('platform creates a real asset and writes its only tenant ownership', async
         tenantCode,
         version: 1,
         tenantAssignedAt: '2026-08-07T01:05:00.123Z',
-        miniappQrStatus: 'PENDING',
+        deviceEntryUrl: null,
         updatedAt: '2026-08-07T01:05:00.123Z',
       });
       await json(route, asset);
@@ -2606,7 +2642,7 @@ test('tenant writes the only organization ownership without deployment progress'
     hardwareSn,
     tenantCode: 'tenant-a',
     acceptanceStatus: 'PASSED',
-    miniappQrStatus: 'PENDING',
+    deviceEntryUrl: null,
     version: 1,
     tenantAssignedAt: '2026-08-07T01:10:00.123Z',
     acceptedAt: '2026-08-07T01:09:00.123Z',
@@ -2652,7 +2688,8 @@ test('tenant writes the only organization ownership without deployment progress'
         ...asset,
         organizationCode: 'org-b',
         organizationAssignedAt: '2026-08-07T01:12:00.123Z',
-        miniappQrStatus: 'READY',
+        deviceEntryUrl:
+          `https://example.test/device-entry?deviceCode=${deviceCode}`,
         version: 2,
       };
       await json(route, asset);

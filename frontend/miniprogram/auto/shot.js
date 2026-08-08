@@ -14,7 +14,7 @@ const name = process.argv[2] || 'shot'
   if (!mp) { console.error('连接失败'); process.exit(1) }
   console.log('connected.')
   try {
-    await mp.reLaunch('/pages/login/login')
+    await mp.reLaunch('/pages/home/home')
     await sleep(5000)
     await mp.switchTab('/pages/home/home').catch(() => {})
     await sleep(3000) // 等字体/样式渲染
@@ -22,8 +22,8 @@ const name = process.argv[2] || 'shot'
     console.log('route:', page.path)
     await mp.screenshot({ path: path.join(SHOT_DIR, name + '.png') })
     console.log(name + '.png saved')
-    const role = await mp.evaluate(() => { const a = getApp(); return a && a.globalData ? a.globalData.role : null })
-    console.log('ROLE:', role)
+    const audience = await mp.evaluate(() => { const a = getApp(); return a && a.globalData && a.globalData.session ? a.globalData.session.audience : null })
+    console.log('AUDIENCE:', audience)
   } catch (e) {
     console.error('ERR:', e && e.stack ? e.stack : e)
   } finally {

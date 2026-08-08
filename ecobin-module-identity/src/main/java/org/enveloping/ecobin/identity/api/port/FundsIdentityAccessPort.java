@@ -40,8 +40,9 @@ public interface FundsIdentityAccessPort {
             String tenantCode,
             long organizationId,
             String organizationCode,
-            long organizationMiniappId,
+            long miniappChannelId,
             String appid,
+            long wechatSubjectId,
             long organizationUserId,
             UUID organizationUserUid,
             UUID sessionUid,
@@ -58,7 +59,7 @@ public interface FundsIdentityAccessPort {
     record WithdrawalTransferIdentity(
             long tenantId,
             long organizationId,
-            long organizationMiniappId,
+            long miniappChannelId,
             String appid,
             long organizationUserId,
             String openid) {

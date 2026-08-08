@@ -60,7 +60,8 @@ public class FundsIdentityAccessService implements FundsIdentityAccessPort {
         return new CurrentMiniappIdentity(
                 actor.tenantId(), actor.tenantCode(),
                 actor.organizationId(), actor.organizationCode(),
-                actor.organizationMiniappId(), actor.appId(),
+                actor.miniappChannelId(), actor.appId(),
+                actor.wechatSubjectId(),
                 actor.organizationUserId(), actor.principalUid(),
                 actor.sessionUid(), actor.displayName());
     }
@@ -81,7 +82,7 @@ public class FundsIdentityAccessService implements FundsIdentityAccessPort {
         if (identity == null
                 || identity.tenantId() <= 0
                 || identity.organizationId() <= 0
-                || identity.organizationMiniappId() <= 0
+                || identity.miniappChannelId() <= 0
                 || identity.organizationUserId() <= 0
                 || identity.appid() == null
                 || identity.appid().isBlank()
@@ -105,22 +106,32 @@ public class FundsIdentityAccessService implements FundsIdentityAccessPort {
             return false;
         }
         if (!lockExists("""
-                SELECT id FROM iam_organization_miniapp
-                WHERE tenant_id = ? AND organization_id = ? AND id = ?
-                  AND appid = ? AND login_enabled = 1
+                SELECT c.id
+                FROM iam_organization_miniapp_binding b
+                JOIN iam_miniapp_channel c
+                  ON c.id = b.miniapp_channel_id
+                WHERE b.tenant_id = ? AND b.organization_id = ?
+                  AND b.miniapp_channel_id = ?
+                  AND b.status = 'ACTIVE'
+                  AND c.appid = ? AND c.login_enabled = 1
                 FOR UPDATE
                 """, identity.tenantId(), identity.organizationId(),
-                identity.organizationMiniappId(), identity.appid())) {
+                identity.miniappChannelId(), identity.appid())) {
             return false;
         }
         return lockExists("""
-                SELECT id FROM iam_organization_user
-                WHERE tenant_id = ? AND organization_id = ?
-                  AND organization_miniapp_id = ? AND id = ?
-                  AND openid = ? AND status = 'ACTIVE'
+                SELECT u.id
+                FROM iam_organization_user u
+                JOIN iam_wechat_subject s
+                  ON s.miniapp_channel_id = u.miniapp_channel_id
+                 AND s.id = u.wechat_subject_id
+                WHERE u.tenant_id = ? AND u.organization_id = ?
+                  AND u.miniapp_channel_id = ? AND u.id = ?
+                  AND s.openid = ? AND s.status = 'ACTIVE'
+                  AND u.status = 'ACTIVE'
                 FOR UPDATE
                 """, identity.tenantId(), identity.organizationId(),
-                identity.organizationMiniappId(),
+                identity.miniappChannelId(),
                 identity.organizationUserId(), identity.openid());
     }
 

@@ -11,9 +11,33 @@ import type {
   MiniappAudience,
 } from '../types/api'
 import { clearPendingDeviceEntry } from './device-entry-intent'
-import { resetPhoneBindingAutoPrompt } from './phone-binding-prompt'
+import { resetPhoneBindingPromptState } from './phone-binding-prompt'
 
 let sessionClearedLocally = false
+
+function writeSilentLoginSuppressed(suppressed: boolean): void {
+  try {
+    if (suppressed) {
+      wx.setStorageSync(STORAGE_KEYS.silentLoginSuppressed, true)
+    } else {
+      wx.removeStorageSync(STORAGE_KEYS.silentLoginSuppressed)
+    }
+  } catch {
+    // 本地存储不可用时，当前进程仍可继续作为游客或完成主动登录。
+  }
+}
+
+export function isSilentLoginSuppressed(): boolean {
+  try {
+    return wx.getStorageSync(STORAGE_KEYS.silentLoginSuppressed) === true
+  } catch {
+    return false
+  }
+}
+
+export function allowSilentLogin(): void {
+  writeSilentLoginSuppressed(false)
+}
 
 function getLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -40,6 +64,15 @@ function persistSession(session: LoginResponse): void {
   const app = getApp<IAppOption>()
   if (app) app.globalData.session = session
   sessionClearedLocally = false
+  allowSilentLogin()
+}
+
+/** 接受后端新签发的单机构会话，例如用户手工切换机构之后。 */
+export function adoptSession(session: LoginResponse): void {
+  // 手工选择机构是更新的用户意图；任何更早开始的静默登录都不得覆盖它。
+  cancelActiveLogin()
+  persistSession(session)
+  resetPhoneBindingPromptState()
 }
 
 export function markPhoneBound(): void {
@@ -59,12 +92,22 @@ export function clearSession(): void {
       // globalData 仍会在下方清空。
     }
   }
-  resetPhoneBindingAutoPrompt()
+  resetPhoneBindingPromptState()
   const app = getApp<IAppOption>()
   if (app) {
     app.globalData.session = undefined
     app.globalData.testViewMode = undefined
   }
+}
+
+/** 只清理发出请求时的那一个会话，避免迟到的 401 删除后来登录/切换的会话。 */
+export function clearSessionIfCurrent(
+  expected: LoginResponse | undefined,
+): boolean {
+  const current = getSession()
+  if (current?.accessToken !== expected?.accessToken) return false
+  clearSession()
+  return true
 }
 
 export function getSession(): LoginResponse | undefined {
@@ -115,25 +158,28 @@ export function isSessionExpired(
 
 interface ActiveLogin {
   sequence: number
+  sourceDeviceCode?: string
   promise: Promise<LoginResponse>
 }
 
 let loginSequence = 0
 let activeLogin: ActiveLogin | null = null
-let refreshing: Promise<LoginResponse> | null = null
 
 function cancelActiveLogin(): void {
   loginSequence += 1
   activeLogin = null
-  refreshing = null
 }
 
 export function login(
   registrationSource?: RegistrationSource,
 ): Promise<LoginResponse> {
-  // 注册归因不可变，因此登录请求必须单飞：第一个已经发出的登录意图
-  // 决定首次来源，后续热启动/扫码只等待它，不能并发争抢后端创建顺序。
-  if (activeLogin?.sequence === loginSequence) {
+  const sourceDeviceCode = registrationSource?.deviceCode
+  // 同一来源单飞；新的设备扫码必须优先于正在进行的无来源静默登录，
+  // 否则旧请求可能先选中“最近账号”，覆盖扫码明确选择的机构。
+  if (
+    activeLogin?.sequence === loginSequence
+    && activeLogin.sourceDeviceCode === sourceDeviceCode
+  ) {
     return activeLogin.promise
   }
 
@@ -143,11 +189,11 @@ export function login(
     const session = await wxLogin(code, getAppId(), registrationSource)
     if (sequence === loginSequence) {
       persistSession(session)
-      resetPhoneBindingAutoPrompt()
+      resetPhoneBindingPromptState()
     }
     return session
   })()
-  activeLogin = { sequence, promise }
+  activeLogin = { sequence, sourceDeviceCode, promise }
   void promise.finally(() => {
     if (activeLogin?.sequence === sequence) activeLogin = null
   }).catch(() => undefined)
@@ -158,46 +204,15 @@ export function login(
 export function refreshSession(
   registrationSource?: RegistrationSource,
 ): Promise<LoginResponse> {
-  if (!refreshing) {
-    let tracked: Promise<LoginResponse>
-    tracked = login(registrationSource).finally(() => {
-      if (refreshing === tracked) refreshing = null
-    })
-    refreshing = tracked
-  }
-  return refreshing
+  return login(registrationSource)
 }
 
 export async function ensureLoggedIn(
   registrationSource?: RegistrationSource,
 ): Promise<LoginResponse> {
   if (registrationSource) {
-    // Registration attribution is immutable and only accepted by the first
-    // source-bearing wx.login. A deleted/expired server session can leave a
-    // stale local projection behind; validating it would trigger the generic
-    // source-less refresh path before the QR source reaches the backend.
-    // Existing server users remain the same user, so later QR scans still
-    // cannot backfill or overwrite their original attribution.
-    const sourcedSession = getSession()
-    if (sourcedSession && !isSessionExpired(sourcedSession)) {
-      try {
-        const current = await getCurrentSession(
-          sourcedSession.audience,
-          false,
-        )
-        const validated: LoginResponse = {
-          ...sourcedSession,
-          ...current,
-          organization: { ...current.organization },
-          capabilities: [...current.capabilities],
-        }
-        persistSession(validated)
-        return validated
-      } catch {
-        // 服务端会话已失效时，必须带设备来源重新登录，不能无源刷新。
-      }
-    }
-    clearSession()
+    // 扫码是一次明确的机构选择。即使本地已有有效会话，也必须把设备公开码
+    // 交给后端重新选择/创建该设备所属机构账号；失败时保留原会话。
     return login(registrationSource)
   }
   const session = getSession()
@@ -233,7 +248,7 @@ export function entryUrlFor(entryMode: EntryMode): string {
 
 export function routeToEntry(session = getSession()): void {
   if (!session) {
-    wx.reLaunch({ url: '/pages/login/login' })
+    wx.reLaunch({ url: '/pages/home/home' })
     return
   }
   wx.reLaunch({ url: entryUrlFor(session.entryMode) })
@@ -247,6 +262,56 @@ export async function logout(): Promise<void> {
     cancelActiveLogin()
     clearPendingDeviceEntry()
     clearSession()
-    wx.reLaunch({ url: '/pages/login/login' })
+    writeSilentLoginSuppressed(true)
+    wx.reLaunch({ url: '/pages/home/home' })
   }
+}
+
+function problemCode(error: unknown): string {
+  if (!error || typeof error !== 'object') return ''
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : ''
+}
+
+function reportInteractiveLoginFailure(error: unknown): void {
+  if (problemCode(error) === 'IDENTITY.DEVICE_REGISTRATION_REQUIRED') {
+    wx.showModal({
+      title: '请先扫描设备码',
+      content: '当前微信尚未注册 EcoBin 账号。请扫描任一已验收设备上的公开二维码，系统会为该设备所属机构创建账号。',
+      showCancel: false,
+      confirmText: '我知道了',
+    })
+    return
+  }
+  const message = error instanceof Error && error.message
+    ? error.message
+    : '登录失败，请稍后重试'
+  wx.showToast({ title: message, icon: 'none' })
+}
+
+/**
+ * 受保护功能的统一登录门槛。返回 true 表示本次动作已经暂停；用户确认并且
+ * 登录成功后才调用 action。游客取消时页面保持原样，不再跳独立登录页。
+ */
+export function requestLoginBeforeAction(
+  session: LoginResponse | undefined,
+  action: (authenticated: LoginResponse) => void,
+): boolean {
+  if (session && !isSessionExpired(session)) return false
+  wx.showModal({
+    title: '登录后继续',
+    content: '该功能需要使用当前微信身份登录。首次使用请先扫描设备上的 EcoBin 二维码完成注册。',
+    confirmText: '微信登录',
+    cancelText: '暂不登录',
+    success: (result) => {
+      if (!result.confirm) return
+      allowSilentLogin()
+      wx.showLoading({ title: '正在登录', mask: true })
+      void ensureLoggedIn()
+        .then(action)
+        .catch(reportInteractiveLoginFailure)
+        .finally(() => wx.hideLoading())
+    },
+  })
+  return true
 }

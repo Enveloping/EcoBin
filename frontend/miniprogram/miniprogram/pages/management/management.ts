@@ -34,6 +34,10 @@ Page({
     showEntryPreviewSwitcher()
   },
 
+  onSwitchOrganization() {
+    wx.navigateTo({ url: '/pages/account-switcher/account-switcher' })
+  },
+
   onLogout() {
     logout()
   },

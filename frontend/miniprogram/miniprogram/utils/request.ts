@@ -6,13 +6,17 @@
  */
 import { BASE_URL, TIMEOUT } from '../config/index'
 import {
-  clearSession,
+  clearSessionIfCurrent,
   getAccessToken,
   getSession,
+  isSilentLoginSuppressed,
   refreshSession,
   routeToEntry,
 } from './auth'
-import { sessionEntryChanged } from './session-transition'
+import {
+  sessionEntryChanged,
+  sessionInstanceChanged,
+} from './session-transition'
 import type { ProblemDetail, Result } from '../types/api'
 
 type Method = 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'DELETE'
@@ -97,19 +101,6 @@ function isSafeMethod(method: Method): boolean {
   return method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
 }
 
-let redirecting = false
-function gotoLogin(): void {
-  if (redirecting) return
-  redirecting = true
-  clearSession()
-  wx.reLaunch({
-    url: '/pages/login/login',
-    complete: () => {
-      redirecting = false
-    },
-  })
-}
-
 function requestOnce<T>(
   options: RequestOptions,
   headers: Record<string, string>,
@@ -157,6 +148,9 @@ function requestOnce<T>(
 
 async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
   const method = options.method ?? 'GET'
+  // 必须记录真正发出请求时的机构账号，不能在 401 返回后才读取；等待期间
+  // 用户可能已经切换机构或主动退出。
+  const previousSession = getSession()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (options.noStore) {
     headers['Cache-Control'] = 'no-store'
@@ -184,22 +178,47 @@ async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
       && options.retryAfterLogin !== false
       && !options._retried
       && mayReplay
+      && !isSilentLoginSuppressed()
+      && !sessionInstanceChanged(previousSession, getSession())
     ) {
-      const previousSession = getSession()
       try {
         const renewed = await refreshSession(options.registrationSource)
+        const activeSession = getSession()
+        if (sessionInstanceChanged(renewed, activeSession)) {
+          if (
+            activeSession
+            && sessionEntryChanged(previousSession, activeSession)
+          ) {
+            routeToEntry(activeSession)
+          }
+          throw new MiniappApiProblem(401, {
+            code: 'SECURITY.SESSION_ENTRY_CHANGED',
+            message: '登录状态已被新的操作更新，请在当前页面重试',
+            requestId: problem.requestId,
+            retryable: false,
+            details: {
+              previousOrganizationUserUid:
+                previousSession?.organizationUserUid,
+              currentOrganizationUserUid:
+                activeSession?.organizationUserUid,
+            },
+          })
+        }
         if (sessionEntryChanged(previousSession, renewed)) {
           routeToEntry(renewed)
           throw new MiniappApiProblem(401, {
             code: 'SECURITY.SESSION_ENTRY_CHANGED',
-            message: '登录入口已变化，已切换到正确入口',
+            message: '登录账号或入口已变化，已切换到正确入口',
             requestId: problem.requestId,
             retryable: false,
             details: {
               previousAudience: previousSession?.audience,
               previousEntryMode: previousSession?.entryMode,
+              previousOrganizationUserUid:
+                previousSession?.organizationUserUid,
               currentAudience: renewed.audience,
               currentEntryMode: renewed.entryMode,
+              currentOrganizationUserUid: renewed.organizationUserUid,
             },
           })
         }
@@ -211,7 +230,7 @@ async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
         ) {
           throw renewError
         }
-        gotoLogin()
+        clearSessionIfCurrent(previousSession)
         throw problem
       }
     }
@@ -220,7 +239,7 @@ async function execute<T>(options: RequestOptions): Promise<Execution<T>> {
       && options.auth !== false
       && options.retryAfterLogin !== false
     ) {
-      gotoLogin()
+      clearSessionIfCurrent(previousSession)
     }
     throw problem
   }

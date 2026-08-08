@@ -10,7 +10,10 @@ interface StartDeliveryIdentityLockRepository {
 
     Optional<OrganizationRow> lockOrganization(long organizationId);
 
-    Optional<MiniappRow> lockMiniapp(long miniappId);
+    Optional<MiniappRow> lockMiniapp(
+            long tenantId,
+            long organizationId,
+            long miniappId);
 
     Optional<OrganizationUserRow> lockOrganizationUser(
             long organizationUserId);

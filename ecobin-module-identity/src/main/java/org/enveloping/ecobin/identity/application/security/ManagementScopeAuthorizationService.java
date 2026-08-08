@@ -144,15 +144,18 @@ public class ManagementScopeAuthorizationService
                           ON o.tenant_id = s.tenant_id
                          AND o.id = ?
                          AND o.status = 'ENABLED'
-                        JOIN iam_organization_miniapp app
-                          ON app.tenant_id = o.tenant_id
-                         AND app.organization_id = o.id
-                         AND app.id = ?
+                        JOIN iam_organization_miniapp_binding ob
+                          ON ob.tenant_id = o.tenant_id
+                         AND ob.organization_id = o.id
+                         AND ob.miniapp_channel_id = ?
+                         AND ob.status = 'ACTIVE'
+                        JOIN iam_miniapp_channel app
+                          ON app.id = ob.miniapp_channel_id
                          AND app.login_enabled = 1
                         JOIN iam_staff_miniapp_binding binding
                           ON binding.tenant_id = o.tenant_id
                          AND binding.organization_id = o.id
-                         AND binding.organization_miniapp_id = app.id
+                         AND binding.miniapp_channel_id = app.id
                          AND binding.id = ?
                          AND binding.staff_account_id = s.id
                          AND binding.status = 'ACTIVE'
@@ -169,7 +172,7 @@ public class ManagementScopeAuthorizationService
                         rs.getString("organization_code"),
                         rs.getString("organization_name")),
                 actor.organizationId(),
-                actor.organizationMiniappId(),
+                actor.miniappChannelId(),
                 actor.staffMiniappBindingId(),
                 actor.principalId(),
                 actor.principalUid().toString(),

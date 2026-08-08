@@ -67,12 +67,15 @@ public class StartDeliveryIdentityParticipationService
                         && "ENABLED".equals(organization.status()));
 
         StartDeliveryIdentityLockRepository.MiniappRow miniapp =
-                repository.lockMiniapp(actor.organizationMiniappId())
+                repository.lockMiniapp(
+                        actor.tenantId(),
+                        actor.organizationId(),
+                        actor.miniappChannelId())
                         .orElseThrow(
                                 StartDeliveryIdentityParticipationService
                                         ::invalidSession);
         requireSessionState(
-                miniapp.id() == actor.organizationMiniappId()
+                miniapp.id() == actor.miniappChannelId()
                         && miniapp.tenantId() == tenant.id()
                         && miniapp.organizationId() == organization.id()
                         && miniapp.appId().equals(actor.appId())
@@ -95,7 +98,7 @@ public class StartDeliveryIdentityParticipationService
                         result,
                         actor.tenantId(),
                         actor.organizationId(),
-                        actor.organizationMiniappId(),
+                        actor.miniappChannelId(),
                         actor.organizationUserId(),
                         actor.sessionUid()));
         return result;
@@ -125,7 +128,7 @@ public class StartDeliveryIdentityParticipationService
                         && user.tenantId() == actor.tenantId()
                         && user.organizationId() == actor.organizationId()
                         && user.miniappId()
-                        == actor.organizationMiniappId()
+                        == actor.miniappChannelId()
                         && "ACTIVE".equals(user.status())
                         && user.authVersion() == actor.authVersion());
 
@@ -277,7 +280,7 @@ public class StartDeliveryIdentityParticipationService
         private boolean matches(TargetMiniappActor actor) {
             return actor.tenantId() == tenantId
                     && actor.organizationId() == organizationId
-                    && actor.organizationMiniappId() == miniappId
+                    && actor.miniappChannelId() == miniappId
                     && actor.organizationUserId() == organizationUserId
                     && actor.sessionUid().equals(sessionUid);
         }

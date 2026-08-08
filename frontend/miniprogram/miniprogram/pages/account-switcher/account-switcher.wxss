@@ -1,0 +1,33 @@
+.account-page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx calc(48rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: #f4f7f3;
+}
+
+.intro-card,
+.state-card,
+.account-item {
+  background: #fff;
+  border: 1rpx solid #e3e9e3;
+  border-radius: 24rpx;
+}
+
+.intro-card { padding: 30rpx; }
+.intro-title { color: #1d2920; font-size: 32rpx; font-weight: 720; }
+.intro-copy { margin-top: 12rpx; color: #748078; font-size: 23rpx; line-height: 1.65; }
+.staff-note { margin-top: 20rpx; padding: 18rpx; color: #176f37; font-size: 22rpx; line-height: 1.55; background: #edf8ef; border-radius: 16rpx; }
+
+.state-card { margin-top: 24rpx; padding: 42rpx 28rpx; color: #758078; font-size: 24rpx; text-align: center; }
+.retry-button { width: auto; margin: 24rpx auto 0; padding: 0 30rpx; color: #117b31; font-size: 23rpx; line-height: 68rpx; background: #edf8ef; border-radius: 18rpx; }
+.retry-button::after { border: 0; }
+
+.account-list { margin-top: 24rpx; }
+.account-item { display: flex; margin-top: 18rpx; padding: 28rpx; align-items: center; justify-content: space-between; }
+.account-item:first-child { margin-top: 0; }
+.account-item--selected { border-color: #b8ddc0; background: #fbfefb; }
+.account-item--pressed { opacity: .72; }
+.account-copy { min-width: 0; padding-right: 24rpx; flex: 1; }
+.account-name { overflow: hidden; color: #202c23; font-size: 28rpx; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.account-meta { margin-top: 10rpx; color: #8a938c; font-size: 21rpx; line-height: 1.45; }
+.account-status { flex: 0 0 auto; color: #15823a; font-size: 22rpx; }

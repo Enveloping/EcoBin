@@ -1,4 +1,3 @@
-import { STORAGE_KEYS } from '../config/index'
 import type { LoginResponse } from '../types/api'
 
 interface PhoneGrantHost {
@@ -8,7 +7,6 @@ interface PhoneGrantHost {
 let pendingPhoneBindingPrompt = false
 let pendingPhoneAction: (() => void) | undefined
 let pendingPhoneCancellation: (() => void) | undefined
-let autoPromptedInMemory = false
 
 function isUnboundUserSession(
   session: LoginResponse | undefined,
@@ -19,62 +17,22 @@ function isUnboundUserSession(
     && !session.phoneBound
 }
 
-function markAutoPrompted(): void {
-  autoPromptedInMemory = true
-  try {
-    wx.setStorageSync(STORAGE_KEYS.phoneAutoPrompted, true)
-  } catch (error) {
-    console.warn('[phone-auth] 无法保存自动提示状态', error)
-  }
-}
-
 function currentPhoneGrantHost(): PhoneGrantHost | undefined {
   const pages = getCurrentPages()
   return pages[pages.length - 1] as unknown as PhoneGrantHost | undefined
 }
 
-/**
- * 新的 wx.login 会话获得一次自动提示机会；缓存会话的页面重建不会重置。
- */
-export function resetPhoneBindingAutoPrompt(): void {
-  autoPromptedInMemory = false
+/** 清除上一个会话尚未消费的手机号授权界面和受保护操作。 */
+export function resetPhoneBindingPromptState(): void {
   pendingPhoneBindingPrompt = false
   pendingPhoneAction = undefined
   pendingPhoneCancellation = undefined
-  try {
-    wx.removeStorageSync(STORAGE_KEYS.phoneAutoPrompted)
-  } catch (error) {
-    console.warn('[phone-auth] 无法重置自动提示状态', error)
-  }
-}
-
-/**
- * 只供普通用户首页 onShow 消费。读取和写入在同一同步调用中完成，
- * 因此同一登录会话即使多次创建页面也只会返回一次 true。
- */
-export function consumePhoneBindingAutoPrompt(
-  session: LoginResponse | undefined,
-): boolean {
-  if (!isUnboundUserSession(session) || autoPromptedInMemory) return false
-
-  try {
-    if (wx.getStorageSync(STORAGE_KEYS.phoneAutoPrompted) === true) {
-      autoPromptedInMemory = true
-      return false
-    }
-  } catch (error) {
-    console.warn('[phone-auth] 无法读取自动提示状态', error)
-  }
-
-  markAutoPrompted()
-  return true
 }
 
 function showPhoneBindingPrompt(
   afterPrompt?: () => void,
   afterCancel?: () => void,
 ): void {
-  markAutoPrompted()
   pendingPhoneAction = afterPrompt
   pendingPhoneCancellation = afterCancel
   const host = currentPhoneGrantHost()

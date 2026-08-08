@@ -287,6 +287,136 @@
   opacity: .64;
 }
 
+.organization-card {
+  display: flex;
+  min-height: 128rpx;
+  padding: 24rpx 34rpx;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.organization-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.organization-label {
+  color: #8c948d;
+  font-size: 22rpx;
+}
+
+.organization-value {
+  overflow: hidden;
+  color: #29322b;
+  font-size: 29rpx;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organization-action {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  color: #6f7971;
+  font-size: 23rpx;
+}
+
+.account-sheet-mask {
+  position: fixed;
+  z-index: 9998;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(11, 30, 18, .42);
+}
+
+.account-sheet {
+  width: 100%;
+  max-height: 76vh;
+  padding: 18rpx 30rpx calc(28rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: #fff;
+  border-radius: 32rpx 32rpx 0 0;
+}
+
+.account-sheet-head {
+  position: relative;
+  padding: 0 62rpx 24rpx 4rpx;
+}
+
+.account-sheet-title {
+  color: #1f2c22;
+  font-size: 34rpx;
+  font-weight: 760;
+}
+
+.account-sheet-subtitle {
+  margin-top: 8rpx;
+  color: #879088;
+  font-size: 22rpx;
+}
+
+.account-list {
+  max-height: 52vh;
+}
+
+.account-item {
+  display: flex;
+  min-height: 116rpx;
+  margin-top: 14rpx;
+  padding: 20rpx 24rpx;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  background: #f6f8f6;
+  border: 2rpx solid transparent;
+  border-radius: 22rpx;
+}
+
+.account-item--selected {
+  background: #edf8ef;
+  border-color: #bfe8c6;
+}
+
+.account-item-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.account-name {
+  overflow: hidden;
+  font-size: 28rpx;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-meta {
+  color: #8a938b;
+  font-size: 21rpx;
+}
+
+.account-item-status {
+  margin-left: 20rpx;
+  color: #0a9a24;
+  font-size: 23rpx;
+}
+
+.account-sheet-state {
+  padding: 64rpx 20rpx;
+  color: #8c948d;
+  font-size: 24rpx;
+  text-align: center;
+}
+
 .entry-preview-card {
   display: flex;
   min-height: 128rpx;

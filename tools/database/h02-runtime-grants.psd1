@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 14
+    CatalogVersion = 16
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -42,15 +42,25 @@
             "lock_version"
             "updated_at"
         )
-        iam_organization_miniapp = @(
+        iam_miniapp_channel = @(
             "appid"
             "display_name"
             "login_enabled"
             "app_secret"
+            "entry_base_url"
             "activated_at"
             "lock_version"
             "configured_at"
             "updated_at"
+        )
+        # These two identity roots participate in SELECT ... FOR UPDATE.
+        # MySQL requires an UPDATE-class privilege for locking reads, so only
+        # the otherwise inert lock_version column is exposed.
+        iam_organization_miniapp_binding = @(
+            "lock_version"
+        )
+        iam_wechat_subject = @(
+            "lock_version"
         )
         iam_staff_account = @(
             "password_hash"
@@ -119,9 +129,6 @@
             "acceptance_evidence_sha256"
             "last_acceptance_evaluated_at"
             "acceptance_failure_json"
-            "miniapp_qr_status"
-            "miniapp_qr_object_key"
-            "miniapp_qr_generated_at"
             "lifecycle_status"
             "disabled_at"
             "disable_reason"

@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappActor;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappActorContext;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappLoginService;
+import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappOrganizationAccountService;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappPhoneBindingService;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappSessionService;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
@@ -15,6 +16,8 @@ import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappSessio
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.BindPhoneRequest;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.PhoneBindingResult;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.PhoneBindingView;
+import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.OrganizationAccountList;
+import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.OrganizationAccountSelectionRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,14 +34,17 @@ public class TargetMiniappAuthController {
     private final TargetMiniappLoginService loginService;
     private final TargetMiniappSessionService sessionService;
     private final TargetMiniappPhoneBindingService phoneBindingService;
+    private final TargetMiniappOrganizationAccountService organizationAccountService;
 
     public TargetMiniappAuthController(
             TargetMiniappLoginService loginService,
             TargetMiniappSessionService sessionService,
-            TargetMiniappPhoneBindingService phoneBindingService) {
+            TargetMiniappPhoneBindingService phoneBindingService,
+            TargetMiniappOrganizationAccountService organizationAccountService) {
         this.loginService = loginService;
         this.sessionService = sessionService;
         this.phoneBindingService = phoneBindingService;
+        this.organizationAccountService = organizationAccountService;
     }
 
     @PostMapping("/api/v1/miniapp/auth/sessions")
@@ -88,6 +94,33 @@ public class TargetMiniappAuthController {
                 : ResponseEntity.ok();
         return response.body(TargetApiEnvelope.ok(
                 result.binding(), TargetRequestIds.resolve(request)));
+    }
+
+    @GetMapping({
+            "/api/v1/miniapp/me/organization-accounts",
+            "/api/v1/miniapp-staff/me/organization-accounts"
+    })
+    public TargetApiEnvelope<OrganizationAccountList> organizationAccounts(
+            HttpServletRequest request) {
+        return TargetApiEnvelope.ok(
+                organizationAccountService.list(actor()),
+                TargetRequestIds.resolve(request));
+    }
+
+    @PostMapping({
+            "/api/v1/miniapp/auth/organization-account-selections",
+            "/api/v1/miniapp-staff/auth/organization-account-selections"
+    })
+    public TargetApiEnvelope<MiniappSessionCreated> selectOrganizationAccount(
+            @RequestHeader("Idempotency-Key") java.util.UUID operationUid,
+            @Valid @RequestBody OrganizationAccountSelectionRequest body,
+            HttpServletRequest request) {
+        return TargetApiEnvelope.ok(
+                organizationAccountService.select(
+                        operationUid,
+                        body.organizationUserUid(),
+                        actor()),
+                TargetRequestIds.resolve(request));
     }
 
     private static TargetMiniappActor actor() {

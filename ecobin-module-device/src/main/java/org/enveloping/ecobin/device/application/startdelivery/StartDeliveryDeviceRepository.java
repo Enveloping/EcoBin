@@ -62,7 +62,6 @@ interface StartDeliveryDeviceRepository {
             String devicePublicCode,
             String lifecycleStatus,
             String acceptanceStatus,
-            String miniappQrStatus,
             Long tenantId,
             Long organizationId,
             int expectedPortCount) {

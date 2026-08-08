@@ -9,15 +9,15 @@ $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 93' -or
-        $provisionSource -notmatch 'Expected 93 domain tables') {
-    throw "H-02 provisioning must enforce the V38 93-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 95' -or
+        $provisionSource -notmatch 'Expected 95 domain tables') {
+    throw "H-02 provisioning must enforce the V39 95-table shape"
 }
 if ($provisionSource -match 'Expected 99 domain tables') {
     throw "H-02 provisioning still enforces the removed V35 table count"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 38') {
-    throw "H-02 provisioning must migrate through V38"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 39') {
+    throw "H-02 provisioning must migrate through V39"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -60,6 +60,24 @@ foreach ($removedTable in $removedDeviceTables) {
     }
 }
 
+if ($catalog.UpdateColumns.ContainsKey("iam_organization_miniapp")) {
+    throw "V39 removed iam_organization_miniapp remains in runtime grants"
+}
+$channelColumns = @($catalog.UpdateColumns.iam_miniapp_channel)
+if ($channelColumns -notcontains "entry_base_url") {
+    throw "V39 iam_miniapp_channel.entry_base_url UPDATE grant is missing"
+}
+$bindingColumns = @(
+    $catalog.UpdateColumns.iam_organization_miniapp_binding
+)
+if (@(Compare-Object @("lock_version") $bindingColumns).Count -ne 0) {
+    throw "V39 organization-channel binding locking grant is not minimal"
+}
+$subjectColumns = @($catalog.UpdateColumns.iam_wechat_subject)
+if (@(Compare-Object @("lock_version") $subjectColumns).Count -ne 0) {
+    throw "V39 WeChat subject locking grant is not minimal"
+}
+
 $assetRequiredColumns = @(
     "tenant_id"
     "tenant_assigned_at"
@@ -70,9 +88,6 @@ $assetRequiredColumns = @(
     "acceptance_evidence_sha256"
     "last_acceptance_evaluated_at"
     "acceptance_failure_json"
-    "miniapp_qr_status"
-    "miniapp_qr_object_key"
-    "miniapp_qr_generated_at"
     "lifecycle_status"
     "disabled_at"
     "disable_reason"
@@ -83,7 +98,17 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V36"
+    throw "dev_device_asset runtime UPDATE grants do not match V39"
+}
+$removedQrColumns = @(
+    "miniapp_qr_status"
+    "miniapp_qr_object_key"
+    "miniapp_qr_generated_at"
+)
+foreach ($removedQrColumn in $removedQrColumns) {
+    if ($assetColumns -contains $removedQrColumn) {
+        throw "V39 removed QR column remains in runtime grants: $removedQrColumn"
+    }
 }
 
 if (-not $catalog.UpdateColumns.ContainsKey("dev_device_runtime_state")) {

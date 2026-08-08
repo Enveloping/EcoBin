@@ -159,22 +159,37 @@ class TargetMiniappV02MysqlIntegrationTest {
                         WHERE tenant_id = ? AND organization_code = ?
                         """, Long.class, tenantId, organizationCode);
         jdbc.update("""
-                        INSERT INTO iam_organization_miniapp (
-                            tenant_id, organization_id, appid,
-                            display_name, login_enabled, app_secret,
+                        INSERT INTO iam_miniapp_channel (
+                            channel_uid, appid, display_name,
+                            login_enabled, app_secret, entry_base_url,
                             activated_at, lock_version,
                             configured_at, created_at, updated_at
                         ) VALUES (
-                            ?, ?, ?, 'V02 miniapp', 1, 'test-app-secret',
+                            ?, ?, 'V02 shared channel', 1,
+                            'test-app-secret', 'https://example.test/device',
                             UTC_TIMESTAMP(3), 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3)
                         )
-                        """, tenantId, organizationId, appId);
+                        """, UUID.randomUUID().toString(), appId);
         miniappId = jdbc.queryForObject("""
-                        SELECT id FROM iam_organization_miniapp
+                        SELECT id FROM iam_miniapp_channel
                         WHERE appid = ?
                         """, Long.class, appId);
+        jdbc.update("""
+                        INSERT INTO iam_organization_miniapp_binding (
+                            binding_uid, tenant_id, organization_id,
+                            miniapp_channel_id, status, bound_at,
+                            lock_version, created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, ?, 'ACTIVE', UTC_TIMESTAMP(3), 0,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                UUID.randomUUID().toString(),
+                tenantId,
+                organizationId,
+                miniappId);
 
         staffUid = UUID.randomUUID();
         jdbc.update("""
@@ -206,8 +221,6 @@ class TargetMiniappV02MysqlIntegrationTest {
                             acceptance_evidence_sha256,
                             last_acceptance_evaluated_at,
                             acceptance_failure_json,
-                            miniapp_qr_status, miniapp_qr_object_key,
-                            miniapp_qr_generated_at,
                             lifecycle_status, disabled_at, disable_reason,
                             retired_at, retirement_reason, control_version,
                             created_at, updated_at
@@ -217,7 +230,6 @@ class TargetMiniappV02MysqlIntegrationTest {
                             ?, UTC_TIMESTAMP(3),
                             'PASSED', UTC_TIMESTAMP(3),
                             UNHEX(SHA2(?, 256)), UTC_TIMESTAMP(3), NULL,
-                            'READY', ?, UTC_TIMESTAMP(3),
                             'NORMAL', NULL, NULL, NULL, NULL, 0,
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
                         )
@@ -227,8 +239,7 @@ class TargetMiniappV02MysqlIntegrationTest {
                 "V02-SN-" + run,
                 tenantId,
                 organizationId,
-                deviceCode,
-                "miniapp/device/" + deviceCode + ".png");
+                deviceCode);
         long assetId = jdbc.queryForObject("""
                         SELECT id FROM dev_device_asset WHERE hardware_sn = ?
                         """, Long.class, "V02-SN-" + run);
@@ -243,19 +254,25 @@ class TargetMiniappV02MysqlIntegrationTest {
     void registrationPhoneBindingAndStaffBindingFormOneAtomicIdentityFlow()
             throws Exception {
         String ordinaryCode = "fake:ordinary:" + run;
-        JsonNode first = login(ordinaryCode, null, 201);
+        JsonNode registrationRequired = login(ordinaryCode, null, 422);
+        assertEquals(
+                "IDENTITY.DEVICE_REGISTRATION_REQUIRED",
+                registrationRequired.path("code").asText());
+        JsonNode first = login(ordinaryCode, deviceCode, 201);
         assertEquals("miniapp", first.path("audience").asText());
         assertEquals("USER", first.path("entryMode").asText());
         assertFalse(first.path("phoneBound").asBoolean());
         assertTrue(first.path("isNewRegistration").asBoolean());
         String ordinaryToken = first.path("accessToken").asText();
         UUID organizationUserUid = UUID.fromString(
-                first.path("subjectUid").asText());
+                first.path("organizationUserUid").asText());
+        String wechatSubjectUid = first.path("subjectUid").asText();
 
         JsonNode repeat = login(ordinaryCode, null, 201);
         assertFalse(repeat.path("isNewRegistration").asBoolean());
+        assertEquals(wechatSubjectUid, repeat.path("subjectUid").asText());
         assertEquals(organizationUserUid.toString(),
-                repeat.path("subjectUid").asText());
+                repeat.path("organizationUserUid").asText());
         assertUserAndWalletCounts(1, 1);
 
         UUID phoneOperation = UUID.randomUUID();
@@ -276,7 +293,7 @@ class TargetMiniappV02MysqlIntegrationTest {
         JsonNode sourced = login(sourcedCode, deviceCode, 201);
         String sourcedToken = sourced.path("accessToken").asText();
         UUID sourcedUid = UUID.fromString(
-                sourced.path("subjectUid").asText());
+                sourced.path("organizationUserUid").asText());
         Long attributedAsset = jdbc.queryForObject("""
                         SELECT registered_via_asset_id
                         FROM iam_organization_user
@@ -346,10 +363,51 @@ class TargetMiniappV02MysqlIntegrationTest {
                 management.path("audience").asText());
         assertEquals("MANAGEMENT",
                 management.path("entryMode").asText());
-        assertEquals(staffUid.toString(),
+        assertEquals(wechatSubjectUid,
                 management.path("subjectUid").asText());
         String managementToken =
                 management.path("accessToken").asText();
+
+        MvcResult staffAccountsResult = mockMvc.perform(
+                        get("/api/v1/miniapp-staff/me/organization-accounts")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + managementToken))
+                .andReturn();
+        assertEquals(
+                200,
+                staffAccountsResult.getResponse().getStatus(),
+                staffAccountsResult.getResponse().getContentAsString());
+        JsonNode staffAccounts = json(staffAccountsResult)
+                .path("data").path("accounts");
+        assertEquals(1, staffAccounts.size());
+        assertTrue(staffAccounts.get(0).path("selected").asBoolean());
+
+        MvcResult leaveManagementResult = mockMvc.perform(
+                        post("/api/v1/miniapp-staff/auth/"
+                                + "organization-account-selections")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + managementToken)
+                                .header(
+                                        "Idempotency-Key",
+                                        UUID.randomUUID().toString())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "organizationUserUid",
+                                                organizationUserUid
+                                                        .toString()))))
+                .andReturn();
+        assertEquals(
+                200,
+                leaveManagementResult.getResponse().getStatus(),
+                leaveManagementResult.getResponse().getContentAsString());
+        JsonNode leftManagement = json(leaveManagementResult).path("data");
+        assertEquals("miniapp", leftManagement.path("audience").asText());
+        assertEquals(
+                organizationUserUid.toString(),
+                leftManagement.path("organizationUserUid").asText());
 
         asPlatformActor();
         StaffMiniappBindingView revoked = bindingService.revokeBinding(
@@ -387,12 +445,12 @@ class TargetMiniappV02MysqlIntegrationTest {
     void walletFailureRollsBackAndConcurrentFirstLoginConverges()
             throws Exception {
         participant.failAfterDelegate();
-        login("fake:rollback:" + run, null, 500);
+        login("fake:rollback:" + run, deviceCode, 500);
         assertUserAndWalletCounts(0, 0);
         assertEquals(0, organizationWalletEntryCounterCount());
         assertEquals(0, sessionCount());
 
-        login("fake:rollback:" + run, null, 201);
+        login("fake:rollback:" + run, deviceCode, 201);
         assertUserAndWalletCounts(1, 1);
         assertOrganizationWalletEntryCounter(0L, 0L);
         assertEquals(1, sessionCount());
@@ -403,11 +461,11 @@ class TargetMiniappV02MysqlIntegrationTest {
         try {
             Future<JsonNode> first = executor.submit(() -> {
                 start.await();
-                return login(concurrentCode, null, 201);
+                return login(concurrentCode, deviceCode, 201);
             });
             Future<JsonNode> second = executor.submit(() -> {
                 start.await();
-                return login(concurrentCode, null, 201);
+                return login(concurrentCode, deviceCode, 201);
             });
             start.countDown();
             JsonNode firstResult = first.get();
@@ -431,7 +489,7 @@ class TargetMiniappV02MysqlIntegrationTest {
             throws Exception {
         assertEquals(0, organizationWalletEntryCounterCount());
 
-        login("fake:counter-first:" + run, null, 201);
+        login("fake:counter-first:" + run, deviceCode, 201);
         assertOrganizationWalletEntryCounter(0L, 0L);
 
         assertEquals(1, jdbc.update("""
@@ -445,7 +503,7 @@ class TargetMiniappV02MysqlIntegrationTest {
                 tenantId,
                 organizationId));
 
-        login("fake:counter-second:" + run, null, 201);
+        login("fake:counter-second:" + run, deviceCode, 201);
         login("fake:counter-second:" + run, null, 201);
 
         assertUserAndWalletCounts(2, 2);
@@ -456,23 +514,23 @@ class TargetMiniappV02MysqlIntegrationTest {
     void concurrentCrossingRebindsUseStableLocksAndOnlyOneSucceeds()
             throws Exception {
         JsonNode firstUser = login(
-                "fake:cross-user-a:" + run, null, 201);
+                "fake:cross-user-a:" + run, deviceCode, 201);
         phoneBind(
                 firstUser.path("accessToken").asText(),
                 UUID.randomUUID(),
                 "fake-phone:+8613900000001",
                 201);
         JsonNode secondUser = login(
-                "fake:cross-user-b:" + run, null, 201);
+                "fake:cross-user-b:" + run, deviceCode, 201);
         phoneBind(
                 secondUser.path("accessToken").asText(),
                 UUID.randomUUID(),
                 "fake-phone:+8613900000002",
                 201);
         UUID firstUserUid = UUID.fromString(
-                firstUser.path("subjectUid").asText());
+                firstUser.path("organizationUserUid").asText());
         UUID secondUserUid = UUID.fromString(
-                secondUser.path("subjectUid").asText());
+                secondUser.path("organizationUserUid").asText());
         UUID secondStaffUid = createOrganizationManager("cross-second");
         PlatformActor secondOperator =
                 createPlatformActor("cross-second");
@@ -543,8 +601,8 @@ class TargetMiniappV02MysqlIntegrationTest {
     void sameWechatIdentityCreatesIndependentUsersAndWalletsAcrossOrganizations()
             throws Exception {
         String secondOrganizationCode = code("o2");
-        String secondAppId = "wx" + UUID.randomUUID().toString()
-                .replace("-", "").substring(0, 16);
+        String secondDeviceCode = "Dv_" +
+                ("2" + run + "0".repeat(24)).substring(0, 24);
         jdbc.update("""
                         INSERT INTO iam_organization (
                             tenant_id, organization_code,
@@ -569,30 +627,166 @@ class TargetMiniappV02MysqlIntegrationTest {
                 tenantId,
                 secondOrganizationCode);
         jdbc.update("""
-                        INSERT INTO iam_organization_miniapp (
-                            tenant_id, organization_id, appid,
-                            display_name, login_enabled, app_secret,
-                            activated_at, lock_version,
-                            configured_at, created_at, updated_at
+                        INSERT INTO iam_organization_miniapp_binding (
+                            binding_uid, tenant_id, organization_id,
+                            miniapp_channel_id, status, bound_at,
+                            lock_version, created_at, updated_at
                         ) VALUES (
-                            ?, ?, ?, 'V02 second miniapp', 1,
-                            'test-app-secret', UTC_TIMESTAMP(3), 0,
-                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
-                            UTC_TIMESTAMP(3)
+                            ?, ?, ?, ?, 'ACTIVE', UTC_TIMESTAMP(3), 0,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
                         )
                         """,
+                UUID.randomUUID().toString(),
                 tenantId,
                 secondOrganizationId,
-                secondAppId);
+                miniappId);
+        jdbc.update("""
+                        INSERT INTO dev_device_asset (
+                            asset_uid, device_public_code,
+                            hardware_sn, model_name, production_batch,
+                            expected_port_count,
+                            tenant_id, tenant_assigned_at,
+                            organization_id, organization_assigned_at,
+                            acceptance_status, accepted_at,
+                            acceptance_evidence_sha256,
+                            last_acceptance_evaluated_at,
+                            acceptance_failure_json,
+                            lifecycle_status, disabled_at, disable_reason,
+                            retired_at, retirement_reason, control_version,
+                            created_at, updated_at
+                        ) VALUES (
+                            ?, ?, ?, 'V02 model', NULL, 1,
+                            ?, UTC_TIMESTAMP(3),
+                            ?, UTC_TIMESTAMP(3),
+                            'PASSED', UTC_TIMESTAMP(3),
+                            UNHEX(SHA2(?, 256)), UTC_TIMESTAMP(3), NULL,
+                            'NORMAL', NULL, NULL, NULL, NULL, 0,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                UUID.randomUUID().toString(),
+                secondDeviceCode,
+                "V02-SN-SECOND-" + run,
+                tenantId,
+                secondOrganizationId,
+                secondDeviceCode);
 
         String sharedWechatCode = "fake:cross-org:" + run;
-        JsonNode first = loginForApp(
-                appId, sharedWechatCode, null, 201);
-        JsonNode second = loginForApp(
-                secondAppId, sharedWechatCode, null, 201);
-        assertNotEquals(
+        JsonNode first = login(
+                sharedWechatCode, deviceCode, 201);
+        JsonNode second = login(
+                sharedWechatCode, secondDeviceCode, 201);
+        assertEquals(
                 first.path("subjectUid").asText(),
                 second.path("subjectUid").asText());
+        assertNotEquals(
+                first.path("organizationUserUid").asText(),
+                second.path("organizationUserUid").asText());
+        assertEquals(
+                secondOrganizationCode,
+                second.path("organization")
+                        .path("organizationCode").asText());
+
+        JsonNode mostRecent = login(sharedWechatCode, null, 201);
+        assertEquals(
+                second.path("organizationUserUid").asText(),
+                mostRecent.path("organizationUserUid").asText());
+
+        String secondToken = second.path("accessToken").asText();
+        MvcResult accountsResult = mockMvc.perform(
+                        get("/api/v1/miniapp/me/organization-accounts")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + secondToken))
+                .andReturn();
+        assertEquals(
+                200,
+                accountsResult.getResponse().getStatus(),
+                accountsResult.getResponse().getContentAsString());
+        JsonNode accounts = json(accountsResult).path("data")
+                .path("accounts");
+        assertEquals(2, accounts.size());
+        assertEquals(
+                second.path("organizationUserUid").asText(),
+                accounts.get(0).path("organizationUserUid").asText());
+        assertTrue(accounts.get(0).path("selected").asBoolean());
+
+        UUID selectionOperationUid = UUID.randomUUID();
+        Map<String, Object> selectionRequest = Map.of(
+                "organizationUserUid",
+                first.path("organizationUserUid").asText());
+        MvcResult selectionResult = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/"
+                                + "organization-account-selections")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + secondToken)
+                                .header(
+                                        "Idempotency-Key",
+                                        selectionOperationUid.toString())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        selectionRequest)))
+                .andReturn();
+        assertEquals(
+                200,
+                selectionResult.getResponse().getStatus(),
+                selectionResult.getResponse().getContentAsString());
+        JsonNode selected = json(selectionResult).path("data");
+        assertEquals(
+                first.path("organizationUserUid").asText(),
+                selected.path("organizationUserUid").asText());
+        assertEquals(
+                organizationCode,
+                selected.path("organization")
+                        .path("organizationCode").asText());
+
+        MvcResult selectionReplay = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/"
+                                + "organization-account-selections")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + secondToken)
+                                .header(
+                                        "Idempotency-Key",
+                                        selectionOperationUid.toString())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        selectionRequest)))
+                .andReturn();
+        assertEquals(
+                200,
+                selectionReplay.getResponse().getStatus(),
+                selectionReplay.getResponse().getContentAsString());
+        assertEquals(
+                selected.path("accessToken").asText(),
+                json(selectionReplay).path("data")
+                        .path("accessToken").asText());
+
+        MvcResult selectionConflict = mockMvc.perform(
+                        post("/api/v1/miniapp/auth/"
+                                + "organization-account-selections")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + secondToken)
+                                .header(
+                                        "Idempotency-Key",
+                                        selectionOperationUid.toString())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "organizationUserUid",
+                                                second.path(
+                                                        "organizationUserUid")
+                                                        .asText()))))
+                .andReturn();
+        assertEquals(
+                409,
+                selectionConflict.getResponse().getStatus(),
+                selectionConflict.getResponse().getContentAsString());
+        assertEquals(
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                json(selectionConflict).path("code").asText());
 
         phoneBind(
                 first.path("accessToken").asText(),
@@ -653,7 +847,7 @@ class TargetMiniappV02MysqlIntegrationTest {
         String wxLoginCode = "fake:directory:" + run;
         JsonNode first = login(wxLoginCode, deviceCode, 201);
         UUID userUid = UUID.fromString(
-                first.path("subjectUid").asText());
+                first.path("organizationUserUid").asText());
         String ordinaryToken = first.path("accessToken").asText();
 
         asPlatformActor();
@@ -731,7 +925,7 @@ class TargetMiniappV02MysqlIntegrationTest {
                 401);
         JsonNode frozenLogin = login(wxLoginCode, null, 403);
         assertEquals(
-                "IDENTITY.ORGANIZATION_USER_FROZEN",
+                "IDENTITY.ORGANIZATION_ACCOUNT_UNAVAILABLE",
                 frozenLogin.path("code").asText());
 
         TargetApiException duplicateFreeze = assertThrows(
@@ -994,7 +1188,7 @@ class TargetMiniappV02MysqlIntegrationTest {
         assertEquals(expectedUsers, jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM iam_organization_user
-                        WHERE organization_miniapp_id = ?
+                        WHERE miniapp_channel_id = ?
                         """, Integer.class, miniappId));
         assertEquals(expectedWallets, jdbc.queryForObject("""
                         SELECT COUNT(*)

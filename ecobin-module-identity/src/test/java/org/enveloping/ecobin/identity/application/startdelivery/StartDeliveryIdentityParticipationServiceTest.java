@@ -208,7 +208,10 @@ class StartDeliveryIdentityParticipationServiceTest {
                 "试点回收站",
                 33,
                 "wx-pilot-app",
+                40,
+                UUID.randomUUID(),
                 44,
+                userUid,
                 null,
                 sessionUid,
                 5,
@@ -270,10 +273,13 @@ class StartDeliveryIdentityParticipationServiceTest {
         }
 
         @Override
-        public Optional<MiniappRow> lockMiniapp(long miniappId) {
+        public Optional<MiniappRow> lockMiniapp(
+                long tenantId,
+                long organizationId,
+                long miniappId) {
             calls.add("miniapp");
             return Optional.of(new MiniappRow(
-                    actor.organizationMiniappId(),
+                    actor.miniappChannelId(),
                     actor.tenantId(),
                     actor.organizationId(),
                     actor.appId(),
@@ -290,7 +296,7 @@ class StartDeliveryIdentityParticipationServiceTest {
                     actor.principalUid(),
                     actor.tenantId(),
                     actor.organizationId(),
-                    actor.organizationMiniappId(),
+                    actor.miniappChannelId(),
                     actor.phoneE164(),
                     actor.phoneBoundAt(),
                     "ACTIVE",
@@ -305,7 +311,7 @@ class StartDeliveryIdentityParticipationServiceTest {
                     actor.sessionUid(),
                     actor.tenantId(),
                     actor.organizationId(),
-                    actor.organizationMiniappId(),
+                    actor.miniappChannelId(),
                     actor.organizationUserId(),
                     Instant.now().minusSeconds(300),
                     actor.expiresAt(),

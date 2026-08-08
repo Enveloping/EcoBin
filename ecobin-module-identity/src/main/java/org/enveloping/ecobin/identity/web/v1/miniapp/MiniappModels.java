@@ -43,6 +43,7 @@ public final class MiniappModels {
             Instant expiresAt,
             OrganizationSummary organization,
             UUID subjectUid,
+            UUID organizationUserUid,
             String displayName,
             List<String> capabilities,
             boolean phoneBound) {
@@ -60,6 +61,7 @@ public final class MiniappModels {
             Instant expiresAt,
             OrganizationSummary organization,
             UUID subjectUid,
+            UUID organizationUserUid,
             String displayName,
             List<String> capabilities,
             boolean phoneBound,
@@ -85,5 +87,26 @@ public final class MiniappModels {
     public record PhoneBindingResult(
             PhoneBindingView binding,
             boolean created) {
+    }
+
+    public record OrganizationAccountSummary(
+            UUID organizationUserUid,
+            OrganizationSummary organization,
+            Instant registeredAt,
+            boolean selected,
+            boolean phoneBound) {
+    }
+
+    public record OrganizationAccountList(
+            List<OrganizationAccountSummary> accounts) {
+
+        public OrganizationAccountList {
+            accounts = List.copyOf(accounts);
+        }
+    }
+
+    public record OrganizationAccountSelectionRequest(
+            @jakarta.validation.constraints.NotNull
+            UUID organizationUserUid) {
     }
 }

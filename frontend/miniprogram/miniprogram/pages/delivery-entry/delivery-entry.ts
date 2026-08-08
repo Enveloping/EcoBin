@@ -19,6 +19,7 @@ import {
   dismissUnstartedPendingDeviceEntry,
   markPendingDeviceStartAttempt,
   markPendingDeviceEntryStarted,
+  markPendingDeviceIdentitySelected,
   peekPendingDeviceEntry,
   preparePendingDeviceStart,
   releasePendingDeviceStart,
@@ -191,14 +192,16 @@ Page({
       }
 
       const cachedSession = getSession()
-      if (!cachedSession || isSessionExpired(cachedSession)) {
-        wx.reLaunch({ url: '/pages/login/login' })
-        return
-      }
-
-      const session = await ensureLoggedIn({
-        deviceCode: entry.deviceCode,
-      })
+      const canReuseSelectedSession = !!cachedSession
+        && !isSessionExpired(cachedSession)
+        && entry.selectedOrganizationUserUid === cachedSession.organizationUserUid
+      const session = canReuseSelectedSession
+        ? cachedSession
+        : await ensureLoggedIn({ deviceCode: entry.deviceCode })
+      markPendingDeviceIdentitySelected(
+        entry.entryId,
+        session.organizationUserUid,
+      )
       requirePendingEntry(entry.entryId)
       if (
         session.audience !== 'miniapp'

@@ -1,6 +1,9 @@
 # EcoBin P0 详细设计与任务拆分总索引
 
 > [!IMPORTANT]
+> 2026-08-08 已批准 D-048 / I-058 / V39 的前向切换：先冻结共享小程序身份边界，再成对修改数据库、后端、Web 和小程序；不保留机构 AppID/OpenID 旧模型或二维码等待流程。完整施工边界见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
+
+> [!IMPORTANT]
 > 2026-08-07 已批准 D-047 / I-057 / V36 的破坏式实施：先重新冻结永久归属需求，再成对修改数据库、后端、客户端、OneNet 与香橙派；不保留部署码或旧 Schema v1 兼容层。完整施工边界见 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md)。
 
 > [!IMPORTANT]

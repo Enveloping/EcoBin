@@ -1,6 +1,9 @@
 # EcoBin P0 系统架构设计基线
 
 > [!IMPORTANT]
+> 2026-08-08 的 D-048 / I-058 增加平台级小程序渠道和微信身份层，但不创建跨租户业务令牌：账号枚举/切换是身份服务的受控特权用例，切换后的普通业务仍只带一个租户和机构上下文。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
+
+> [!IMPORTANT]
 > 2026-08-07 的 D-047 / I-057 将设备边界收敛为“资产永久归属 + 实时新业务准入”，并将 OneNet/COS/边缘契约切换为无部署码 v2。本文中的部署实例、部署内事件序号、部署码 COS 前缀、重新部署和人工经营开关设计均由 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 覆盖。
 
 > 状态：**系统架构基线已冻结；DD-004 保留，PDD-001 已按 2026-07-24 决策收窄为首次投递会话协调**

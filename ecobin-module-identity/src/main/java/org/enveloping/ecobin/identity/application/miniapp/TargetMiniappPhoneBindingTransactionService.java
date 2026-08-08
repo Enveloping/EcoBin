@@ -135,21 +135,29 @@ public class TargetMiniappPhoneBindingTransactionService {
         UserRow user = jdbc.query("""
                         SELECT u.id, u.organization_user_uid,
                                u.tenant_id, u.organization_id,
-                               u.organization_miniapp_id,
+                               u.miniapp_channel_id,
+                               u.wechat_subject_id,
                                u.phone_e164, u.phone_bound_at,
                                u.status, u.auth_version,
                                t.status AS tenant_status,
                                o.status AS organization_status,
+                               ws.status AS subject_status,
                                m.login_enabled, m.activated_at
                         FROM iam_organization_user u
                         JOIN iam_tenant t ON t.id = u.tenant_id
                         JOIN iam_organization o
                           ON o.tenant_id = u.tenant_id
                          AND o.id = u.organization_id
-                        JOIN iam_organization_miniapp m
-                          ON m.tenant_id = u.tenant_id
-                         AND m.organization_id = u.organization_id
-                         AND m.id = u.organization_miniapp_id
+                        JOIN iam_wechat_subject ws
+                          ON ws.miniapp_channel_id = u.miniapp_channel_id
+                         AND ws.id = u.wechat_subject_id
+                        JOIN iam_organization_miniapp_binding b
+                          ON b.tenant_id = u.tenant_id
+                         AND b.organization_id = u.organization_id
+                         AND b.miniapp_channel_id = u.miniapp_channel_id
+                         AND b.status = 'ACTIVE'
+                        JOIN iam_miniapp_channel m
+                          ON m.id = u.miniapp_channel_id
                         WHERE u.id = ?
                         FOR UPDATE
                         """,
@@ -164,7 +172,9 @@ public class TargetMiniappPhoneBindingTransactionService {
         valid = valid
                 && user.tenantId() == actor.tenantId()
                 && user.organizationId() == actor.organizationId()
-                && user.miniappId() == actor.organizationMiniappId()
+                && user.miniappChannelId() == actor.miniappChannelId()
+                && user.wechatSubjectId() == actor.wechatSubjectId()
+                && "ACTIVE".equals(user.subjectStatus())
                 && "ACTIVE".equals(user.status())
                 && "ENABLED".equals(user.tenantStatus())
                 && "ENABLED".equals(user.organizationStatus())
@@ -334,13 +344,15 @@ public class TargetMiniappPhoneBindingTransactionService {
                 UUID.fromString(rs.getString("organization_user_uid")),
                 rs.getLong("tenant_id"),
                 rs.getLong("organization_id"),
-                rs.getLong("organization_miniapp_id"),
+                rs.getLong("miniapp_channel_id"),
+                rs.getLong("wechat_subject_id"),
                 rs.getString("phone_e164"),
                 nullableInstant(rs, "phone_bound_at"),
                 rs.getString("status"),
                 rs.getLong("auth_version"),
                 rs.getString("tenant_status"),
                 rs.getString("organization_status"),
+                rs.getString("subject_status"),
                 rs.getBoolean("login_enabled"),
                 nullableInstant(rs, "activated_at"));
     }
@@ -361,13 +373,15 @@ public class TargetMiniappPhoneBindingTransactionService {
             UUID uid,
             long tenantId,
             long organizationId,
-            long miniappId,
+            long miniappChannelId,
+            long wechatSubjectId,
             String phoneE164,
             Instant phoneBoundAt,
             String status,
             long authVersion,
             String tenantStatus,
             String organizationStatus,
+            String subjectStatus,
             boolean loginEnabled,
             Instant activatedAt) {
     }

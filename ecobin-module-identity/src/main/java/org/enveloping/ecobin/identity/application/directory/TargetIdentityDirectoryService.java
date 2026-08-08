@@ -743,6 +743,7 @@ public class TargetIdentityDirectoryService {
             PutMiniappConfigurationRequest request,
             String newAppSecret) {
         TargetWebActor actor = TargetWebActorContext.required();
+        requirePlatformMiniappAdministration(actor);
         String tenant = normalizeCode(tenantCode);
         String organization = normalizeCode(organizationCode);
         String appId = request.appId().trim();
@@ -769,36 +770,75 @@ public class TargetIdentityDirectoryService {
                         if (request.expectedVersion() != null) {
                             throw versionConflict(0);
                         }
-                        if (newAppSecret == null) {
-                            throw unprocessable(
-                                    "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
-                                    "首次配置必须提供 AppSecret");
-                        }
-                        try {
+                        MiniappConfigurationMetadata existingChannel =
+                                miniappChannelByAppId(
+                                        appId,
+                                        tenantRow.id(),
+                                        organizationRow.id(),
+                                        true);
+                        long channelId;
+                        if (existingChannel == null) {
+                            if (newAppSecret == null) {
+                                throw unprocessable(
+                                        "IDENTITY.MINIAPP_CONFIGURATION_INVALID",
+                                        "首次创建渠道必须提供 AppSecret");
+                            }
                             jdbc.update("""
-                                            INSERT INTO iam_organization_miniapp (
-                                                tenant_id, organization_id,
-                                                appid, display_name,
-                                                login_enabled, app_secret,
+                                            INSERT INTO iam_miniapp_channel (
+                                                channel_uid, appid,
+                                                display_name, login_enabled,
+                                                app_secret, entry_base_url,
                                                 activated_at, lock_version,
                                                 configured_at, created_at,
                                                 updated_at
                                             ) VALUES (
-                                                ?, ?, ?, ?, 0, ?, NULL, 0,
+                                                ?, ?, ?, 0, ?, ?, NULL, 0,
                                                 UTC_TIMESTAMP(3),
                                                 UTC_TIMESTAMP(3),
                                                 UTC_TIMESTAMP(3)
                                             )
                                             """,
-                                    tenantRow.id(),
-                                    organizationRow.id(),
+                                    UUID.randomUUID().toString(),
                                     appId,
                                     request.displayName().trim(),
-                                    newAppSecret);
+                                    newAppSecret,
+                                    normalizeEntryBaseUrl(
+                                            request.entryBaseUrl()));
+                            channelId = jdbc.queryForObject("""
+                                            SELECT id
+                                            FROM iam_miniapp_channel
+                                            WHERE appid = ?
+                                            """,
+                                    Long.class,
+                                    appId);
+                        } else {
+                            channelId = existingChannel.id();
+                        }
+                        try {
+                            jdbc.update("""
+                                            INSERT INTO
+                                                iam_organization_miniapp_binding (
+                                                    binding_uid, tenant_id,
+                                                    organization_id,
+                                                    miniapp_channel_id,
+                                                    status, bound_at,
+                                                    lock_version, created_at,
+                                                    updated_at
+                                                ) VALUES (
+                                                    ?, ?, ?, ?, 'ACTIVE',
+                                                    UTC_TIMESTAMP(3), 0,
+                                                    UTC_TIMESTAMP(3),
+                                                    UTC_TIMESTAMP(3)
+                                                )
+                                            """,
+                                    UUID.randomUUID().toString(),
+                                    tenantRow.id(),
+                                    organizationRow.id(),
+                                    channelId);
                         } catch (DataIntegrityViolationException exception) {
                             throw conflict(
-                                    "IDENTITY.MINIAPP_APPID_ALREADY_USED",
-                                    "该 AppID 已关联其他机构");
+                                    "IDENTITY.MINIAPP_BINDING_CONFLICT",
+                                    "该机构已经绑定其他小程序渠道");
                         }
                     } else {
                         if (request.expectedVersion() == null) {
@@ -823,23 +863,22 @@ public class TargetIdentityDirectoryService {
                         }
                         try {
                             jdbc.update("""
-                                            UPDATE iam_organization_miniapp
+                                            UPDATE iam_miniapp_channel
                                             SET appid = ?,
                                                 display_name = ?,
                                                 app_secret = ?,
+                                                entry_base_url = ?,
                                                 lock_version = lock_version + 1,
                                                 configured_at =
                                                     UTC_TIMESTAMP(3),
                                                 updated_at = UTC_TIMESTAMP(3)
-                                            WHERE tenant_id = ?
-                                              AND organization_id = ?
-                                              AND id = ?
+                                            WHERE id = ?
                                             """,
                                     appId,
                                     request.displayName().trim(),
                                     appSecret,
-                                    tenantRow.id(),
-                                    organizationRow.id(),
+                                    normalizeEntryBaseUrl(
+                                            request.entryBaseUrl()),
                                     current.id());
                         } catch (DataIntegrityViolationException exception) {
                             throw conflict(
@@ -873,6 +912,7 @@ public class TargetIdentityDirectoryService {
             String organizationCode,
             VersionCommand request) {
         TargetWebActor actor = TargetWebActorContext.required();
+        requirePlatformMiniappAdministration(actor);
         String tenant = normalizeCode(tenantCode);
         String organization = normalizeCode(organizationCode);
         return command(
@@ -907,16 +947,12 @@ public class TargetIdentityDirectoryService {
                                 "小程序配置已经激活");
                     }
                     jdbc.update("""
-                                    UPDATE iam_organization_miniapp
+                                    UPDATE iam_miniapp_channel
                                     SET activated_at = UTC_TIMESTAMP(3),
                                         lock_version = lock_version + 1,
                                         updated_at = UTC_TIMESTAMP(3)
-                                    WHERE tenant_id = ?
-                                      AND organization_id = ?
-                                      AND id = ?
+                                    WHERE id = ?
                                     """,
-                            tenantRow.id(),
-                            organizationRow.id(),
                             current.id());
                     MiniappConfigurationMetadata after =
                             miniappByOrganization(
@@ -945,6 +981,7 @@ public class TargetIdentityDirectoryService {
             VersionCommand request,
             boolean enabled) {
         TargetWebActor actor = TargetWebActorContext.required();
+        requirePlatformMiniappAdministration(actor);
         String tenant = normalizeCode(tenantCode);
         String organization = normalizeCode(organizationCode);
         String action = enabled
@@ -998,24 +1035,33 @@ public class TargetIdentityDirectoryService {
                         }
                     }
                     jdbc.update("""
-                                    UPDATE iam_organization_miniapp
+                                    UPDATE iam_miniapp_channel
                                     SET login_enabled = ?,
                                         lock_version = lock_version + 1,
                                         updated_at = UTC_TIMESTAMP(3)
-                                    WHERE tenant_id = ?
-                                      AND organization_id = ?
-                                      AND id = ?
+                                    WHERE id = ?
                                     """,
                             enabled,
-                            tenantRow.id(),
-                            organizationRow.id(),
                             current.id());
                     if (!enabled) {
-                        sessionRepository.revokeOrganizationMiniappSessions(
-                                tenantRow.id(),
-                                organizationRow.id(),
-                                current.id(),
-                                "MINIAPP_LOGIN_DISABLED");
+                        jdbc.update("""
+                                        UPDATE iam_organization_user_session
+                                        SET revoked_at = UTC_TIMESTAMP(3),
+                                            revocation_reason =
+                                                'MINIAPP_LOGIN_DISABLED'
+                                        WHERE miniapp_channel_id = ?
+                                          AND revoked_at IS NULL
+                                        """,
+                                current.id());
+                        jdbc.update("""
+                                        UPDATE iam_staff_login_session
+                                        SET revoked_at = UTC_TIMESTAMP(3),
+                                            revocation_reason =
+                                                'MINIAPP_LOGIN_DISABLED'
+                                        WHERE miniapp_channel_id = ?
+                                          AND revoked_at IS NULL
+                                        """,
+                                current.id());
                     }
                     MiniappConfigurationMetadata after =
                             miniappByOrganization(
@@ -2412,13 +2458,17 @@ public class TargetIdentityDirectoryService {
             boolean lock,
             boolean required) {
         List<MiniappConfigurationMetadata> rows = jdbc.query("""
-                        SELECT id, tenant_id, organization_id, appid,
-                               display_name, login_enabled, app_secret,
-                               activated_at, lock_version, configured_at,
-                               updated_at
-                        FROM iam_organization_miniapp
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
+                        SELECT c.id, b.tenant_id, b.organization_id,
+                               c.appid, c.display_name, c.login_enabled,
+                               c.app_secret, c.entry_base_url,
+                               c.activated_at, c.lock_version,
+                               c.configured_at, c.updated_at
+                        FROM iam_organization_miniapp_binding b
+                        JOIN iam_miniapp_channel c
+                          ON c.id = b.miniapp_channel_id
+                        WHERE b.tenant_id = ?
+                          AND b.organization_id = ?
+                          AND b.status = 'ACTIVE'
                         %s
                         """.formatted(lock ? "FOR UPDATE" : ""),
                 (rs, ignored) -> new MiniappConfigurationMetadata(
@@ -2429,6 +2479,7 @@ public class TargetIdentityDirectoryService {
                         rs.getString("display_name"),
                         rs.getBoolean("login_enabled"),
                         rs.getString("app_secret"),
+                        rs.getString("entry_base_url"),
                         nullableInstant(rs, "activated_at"),
                         rs.getLong("lock_version"),
                         instant(rs, "configured_at"),
@@ -2442,6 +2493,35 @@ public class TargetIdentityDirectoryService {
             return null;
         }
         return rows.getFirst();
+    }
+
+    private MiniappConfigurationMetadata miniappChannelByAppId(
+            String appId,
+            long tenantId,
+            long organizationId,
+            boolean lock) {
+        return jdbc.query("""
+                        SELECT id, appid, display_name, login_enabled,
+                               app_secret, entry_base_url, activated_at,
+                               lock_version, configured_at, updated_at
+                        FROM iam_miniapp_channel
+                        WHERE appid = ?
+                        %s
+                        """.formatted(lock ? "FOR UPDATE" : ""),
+                (rs, ignored) -> new MiniappConfigurationMetadata(
+                        rs.getLong("id"),
+                        tenantId,
+                        organizationId,
+                        rs.getString("appid"),
+                        rs.getString("display_name"),
+                        rs.getBoolean("login_enabled"),
+                        rs.getString("app_secret"),
+                        rs.getString("entry_base_url"),
+                        nullableInstant(rs, "activated_at"),
+                        rs.getLong("lock_version"),
+                        instant(rs, "configured_at"),
+                        instant(rs, "updated_at")),
+                appId).stream().findFirst().orElse(null);
     }
 
     private StaffAccountView replayStaff(
@@ -2879,6 +2959,20 @@ public class TargetIdentityDirectoryService {
         return value.trim().toLowerCase(Locale.ROOT);
     }
 
+    private static String normalizeEntryBaseUrl(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()
+                || !normalized.equals(value)
+                || !normalized.startsWith("https://")
+                || normalized.contains("#")) {
+            throw invalid("小程序设备入口必须是无片段的 HTTPS 地址");
+        }
+        return normalized;
+    }
+
     private static Set<String> normalizePermissions(
             Collection<String> values) {
         if (values == null) {
@@ -2951,6 +3045,13 @@ public class TargetIdentityDirectoryService {
             throw forbidden();
         }
         return actor;
+    }
+
+    private static void requirePlatformMiniappAdministration(
+            TargetWebActor actor) {
+        if (!actor.platform()) {
+            throw forbidden();
+        }
     }
 
     private static TargetWebActor requireStaffActor() {

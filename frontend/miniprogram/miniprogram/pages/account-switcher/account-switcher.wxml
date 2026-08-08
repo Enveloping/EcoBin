@@ -1,0 +1,36 @@
+<view class="account-page">
+  <view class="intro-card">
+    <view class="intro-title">选择要使用的机构</view>
+    <view class="intro-copy">每个机构账号的钱包、订单和手机号相互独立，切换不会转移任何业务数据。</view>
+    <view wx:if="{{staffSession}}" class="staff-note">当前是管理入口；选择账号后会进入该账号的普通用户或清运入口。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="state-card">正在读取机构账号…</view>
+  <view wx:elif="{{errorText}}" class="state-card">
+    <view>{{errorText}}</view>
+    <button class="retry-button" bindtap="onRetry">重新读取</button>
+  </view>
+  <view wx:else class="account-list">
+    <view
+      class="account-item {{item.selected ? 'account-item--selected' : ''}}"
+      wx:for="{{accounts}}"
+      wx:key="organizationUserUid"
+      data-organization-user-uid="{{item.organizationUserUid}}"
+      data-selected="{{item.selected}}"
+      bindtap="onAccountTap"
+      hover-class="account-item--pressed"
+    >
+      <view class="account-copy">
+        <view class="account-name">{{item.organization.displayName}}</view>
+        <view class="account-meta">{{item.phoneBound ? '手机号已验证' : '手机号未验证'}} · 注册于 {{item.registeredAt}}</view>
+      </view>
+      <view class="account-status">
+        <text wx:if="{{switchingUid === item.organizationUserUid}}">切换中…</text>
+        <text wx:elif="{{item.selected && !staffSession}}">当前</text>
+        <text wx:elif="{{item.selected}}">进入用户端</text>
+        <t-icon wx:else name="chevron-right" size="32rpx" color="#8d968f" />
+      </view>
+    </view>
+    <view wx:if="{{accounts.length === 0}}" class="state-card">暂无可用机构账号</view>
+  </view>
+</view>

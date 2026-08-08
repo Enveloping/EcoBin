@@ -1,12 +1,15 @@
 # EcoBin P0 目标接口设计基线
 
 > [!IMPORTANT]
+> 2026-08-08 已新增并冻结 I-058：游客页面、设备扫码注册、最近机构账号登录、账号列表/切换、平台共享渠道和即时设备二维码 URL 取代旧接口语义。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
+
+> [!IMPORTANT]
 > 2026-08-07 已新增并冻结 I-057：HTTP/小程序统一使用永久 `deviceCode`，OneNet/COS/边缘切换到不含部署码的 v2 契约；平台自动机器验收并拥有禁用/恢复/报废权，租户只做一次性机构分配，机构没有部署或激活操作。冲突内容以 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 为准。
 
 > [!IMPORTANT]
 > 2026-08-02：满溢接口由 V25 更新为设备状态变化被动入站；只有当前袋明确 `FULL` 阻止下一次投递，旧主动检测/人工重检前置要求不再生效。详见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)。
 
-> 状态：**接口设计基线已完成；I-001～I-056 均已确认；2026-08-06 已增加微信免确认收款授权与授权后自动收款契约**
+> 状态：**接口设计基线已完成；I-001～I-058 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)、[`database-design-draft.md`](database-design-draft.md)
 > 当前运行接口：[`../api/api-frontend.md`](../api/api-frontend.md)、当前 Controller、Web/小程序请求封装、OneNet 物模型及香橙派实现

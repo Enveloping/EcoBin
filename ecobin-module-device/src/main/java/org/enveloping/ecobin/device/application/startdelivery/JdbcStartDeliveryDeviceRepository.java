@@ -34,7 +34,7 @@ class JdbcStartDeliveryDeviceRepository
 
     static final String LOCK_ASSET_SQL = """
             SELECT id, hardware_sn, device_public_code,
-                   lifecycle_status, acceptance_status, miniapp_qr_status,
+                   lifecycle_status, acceptance_status,
                    tenant_id, organization_id, expected_port_count
             FROM dev_device_asset
             WHERE device_public_code = ?
@@ -268,7 +268,6 @@ class JdbcStartDeliveryDeviceRepository
                         rs.getString("device_public_code"),
                         rs.getString("lifecycle_status"),
                         rs.getString("acceptance_status"),
-                        rs.getString("miniapp_qr_status"),
                         nullableLong(rs, "tenant_id"),
                         nullableLong(rs, "organization_id"),
                         rs.getInt("expected_port_count")),

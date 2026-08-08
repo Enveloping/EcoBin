@@ -15,6 +15,7 @@
 }
 
 .identity-card,
+.account-switch,
 .preview-card {
   margin-top: 30rpx;
   background: #fff;
@@ -22,6 +23,27 @@
   border-radius: 28rpx;
   box-shadow: 0 10rpx 28rpx rgba(40, 67, 43, .06);
 }
+
+.account-switch {
+  display: flex;
+  padding: 28rpx 30rpx;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.account-switch-title {
+  color: #273129;
+  font-size: 27rpx;
+  font-weight: 650;
+}
+
+.account-switch-copy {
+  margin-top: 8rpx;
+  color: #89918a;
+  font-size: 21rpx;
+}
+
+.account-switch--pressed { opacity: .72; }
 
 .identity-card {
   display: flex;

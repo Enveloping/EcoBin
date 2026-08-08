@@ -136,7 +136,7 @@ public class TargetIdentitySessionRepository {
                         INSERT INTO iam_staff_login_session (
                             session_uid, tenant_id, staff_account_id,
                             client_kind, staff_miniapp_binding_id,
-                            organization_miniapp_id, active_organization_id,
+                            miniapp_channel_id, active_organization_id,
                             issued_at, expires_at, revoked_at,
                             revocation_reason, login_ip, user_agent_sha256,
                             auth_version_snapshot, created_at
@@ -262,7 +262,7 @@ public class TargetIdentitySessionRepository {
     public void revokeOrganizationMiniappSessions(
             long tenantId,
             long organizationId,
-            long organizationMiniappId,
+            long miniappChannelId,
             String reason) {
         jdbc.update("""
                         UPDATE iam_organization_user_session
@@ -270,25 +270,25 @@ public class TargetIdentitySessionRepository {
                             revocation_reason = ?
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND organization_miniapp_id = ?
+                          AND miniapp_channel_id = ?
                           AND revoked_at IS NULL
                         """,
                 reason,
                 tenantId,
                 organizationId,
-                organizationMiniappId);
+                miniappChannelId);
         jdbc.update("""
                         UPDATE iam_staff_login_session
                         SET revoked_at = UTC_TIMESTAMP(3),
                             revocation_reason = ?
                         WHERE tenant_id = ?
-                          AND organization_miniapp_id = ?
+                          AND miniapp_channel_id = ?
                           AND client_kind = 'MINIAPP_MANAGEMENT'
                           AND revoked_at IS NULL
                         """,
                 reason,
                 tenantId,
-                organizationMiniappId);
+                miniappChannelId);
     }
 
     public void revokeMiniappBindingSessions(

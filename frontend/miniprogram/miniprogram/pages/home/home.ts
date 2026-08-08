@@ -2,7 +2,11 @@ import { bindCurrentPhone } from '../../api/auth'
 import { myDeliveries } from '../../api/delivery'
 import { myWallet } from '../../api/wallet'
 import { FEATURES } from '../../config/index'
-import { getSession, markPhoneBound } from '../../utils/auth'
+import {
+  getSession,
+  markPhoneBound,
+  requestLoginBeforeAction,
+} from '../../utils/auth'
 import { createIdempotencyKey } from '../../utils/command-intent'
 import {
   dismissUnstartedPendingDeviceEntry,
@@ -13,7 +17,6 @@ import {
   cancelAfterPhoneBindingPrompt,
   continueAfterPhoneBindingPrompt,
   consumePendingPhoneBindingPrompt,
-  consumePhoneBindingAutoPrompt,
 } from '../../utils/phone-binding-prompt'
 import {
   isWechatPhoneGrantCancelled,
@@ -31,6 +34,7 @@ Page({
   phoneBindingIntentKey: '',
 
   data: {
+    loggedIn: false,
     phoneBound: false,
     showPhoneGrant: false,
     phoneGrantSubmitting: false,
@@ -38,10 +42,10 @@ Page({
     deliveryOrderDataAvailable: FEATURES.targetDeliveryOrderApi,
     organizationName: '',
     walletBalanceText: '—',
-    walletLoading: FEATURES.targetWalletApi,
+    walletLoading: false,
     walletError: false,
     recentDelivery: null as DeliveryListItem | null,
-    recentLoading: FEATURES.targetDeliveryOrderApi,
+    recentLoading: false,
     recentError: false,
     ongoingDelivery: false,
   },
@@ -66,7 +70,6 @@ Page({
         return
       }
       const pendingPhoneGrant = consumePendingPhoneBindingPrompt()
-      const autoPhoneGrant = consumePhoneBindingAutoPrompt(session)
       const canRequestPhone =
         session.audience === 'miniapp'
         && session.entryMode === 'USER'
@@ -75,10 +78,10 @@ Page({
         && (
           this.data.showPhoneGrant
           || pendingPhoneGrant
-          || autoPhoneGrant
           || !!pendingDeviceEntry
         )
       this.setData({
+        loggedIn: true,
         phoneBound: session.phoneBound,
         showPhoneGrant,
         organizationName: session.organization.displayName,
@@ -91,9 +94,17 @@ Page({
 
     consumePendingPhoneBindingPrompt()
     this.setData({
+      loggedIn: false,
       phoneBound: false,
       showPhoneGrant: false,
       ongoingDelivery: false,
+      organizationName: '',
+      walletBalanceText: '—',
+      walletLoading: false,
+      walletError: false,
+      recentDelivery: null,
+      recentLoading: false,
+      recentError: false,
     })
     this.setPhoneGrantTabBarHidden(false)
   },
@@ -144,6 +155,14 @@ Page({
   },
 
   onWalletTap() {
+    if (
+      requestLoginBeforeAction(getSession(), () => {
+        this.onShow()
+        this.onWalletTap()
+      })
+    ) {
+      return
+    }
     if (!FEATURES.targetWalletApi) {
       this.onOpenProfile()
       return
@@ -156,10 +175,26 @@ Page({
   },
 
   onOpenOrders() {
+    if (
+      requestLoginBeforeAction(getSession(), () => {
+        this.onShow()
+        this.onOpenOrders()
+      })
+    ) {
+      return
+    }
     wx.navigateTo({ url: '/pages/orders/orders' })
   },
 
   onOpenRecentOrder() {
+    if (
+      requestLoginBeforeAction(getSession(), () => {
+        this.onShow()
+        this.onOpenRecentOrder()
+      })
+    ) {
+      return
+    }
     const deliveryOrderNo = this.data.recentDelivery?.deliveryOrderNo
     if (!deliveryOrderNo) {
       this.onOpenOrders()

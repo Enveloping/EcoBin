@@ -32,6 +32,7 @@ import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskStatusPort;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.identity.api.value.MiniappEntryBaseUrl;
 import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.identity.api.port.DeviceScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.DeviceScopeAuthorizationQuery;
@@ -953,8 +954,6 @@ public class TargetDeviceApplication {
                                 acceptance_evidence_sha256,
                                 last_acceptance_evaluated_at,
                                 acceptance_failure_json,
-                                miniapp_qr_status, miniapp_qr_object_key,
-                                miniapp_qr_generated_at,
                                 lifecycle_status, disabled_at,
                                 disable_reason, retired_at,
                                 retirement_reason, control_version,
@@ -963,7 +962,6 @@ public class TargetDeviceApplication {
                                 ?, ?, ?, ?, ?, ?,
                                 NULL, NULL, NULL, NULL,
                                 'PENDING', NULL, NULL, NULL, NULL,
-                                'NOT_ASSIGNED', NULL, NULL,
                                 'NORMAL', NULL, NULL, NULL, NULL, 0, ?, ?
                             )
                             """,
@@ -1109,7 +1107,6 @@ public class TargetDeviceApplication {
         requireSingle(jdbc.update("""
                         UPDATE dev_device_asset
                         SET organization_id = ?, organization_assigned_at = ?,
-                            miniapp_qr_status = 'PENDING',
                             control_version = control_version + 1,
                             updated_at = ?
                         WHERE id = ? AND organization_id IS NULL
@@ -1871,7 +1868,7 @@ public class TargetDeviceApplication {
                        asset.hardware_sn, asset.model_name,
                        asset.production_batch, asset.expected_port_count,
                        tenant.tenant_code, organization.organization_code,
-                       asset.acceptance_status, asset.miniapp_qr_status,
+                       asset.acceptance_status, channel.entry_base_url,
                        asset.lifecycle_status, asset.control_version,
                        asset.tenant_assigned_at,
                        asset.organization_assigned_at, asset.accepted_at,
@@ -1887,6 +1884,12 @@ public class TargetDeviceApplication {
                 LEFT JOIN iam_organization organization
                   ON organization.tenant_id = asset.tenant_id
                  AND organization.id = asset.organization_id
+                LEFT JOIN iam_organization_miniapp_binding channel_binding
+                  ON channel_binding.tenant_id = asset.tenant_id
+                 AND channel_binding.organization_id = asset.organization_id
+                 AND channel_binding.status = 'ACTIVE'
+                LEFT JOIN iam_miniapp_channel channel
+                  ON channel.id = channel_binding.miniapp_channel_id
                 """;
     }
 
@@ -1902,7 +1905,9 @@ public class TargetDeviceApplication {
                 rs.getString("tenant_code"),
                 rs.getString("organization_code"),
                 rs.getString("acceptance_status"),
-                rs.getString("miniapp_qr_status"),
+                deviceEntryUrl(
+                        rs.getString("entry_base_url"),
+                        rs.getString("device_public_code")),
                 rs.getString("lifecycle_status"),
                 rs.getLong("control_version"),
                 instant(rs, "tenant_assigned_at"),
@@ -2256,6 +2261,22 @@ public class TargetDeviceApplication {
         PUBLIC_CODE_RANDOM.nextBytes(random);
         return "Dv_" + Base64.getUrlEncoder()
                 .withoutPadding().encodeToString(random);
+    }
+
+    private static String deviceEntryUrl(
+            String entryBaseUrl,
+            String deviceCode) {
+        if (entryBaseUrl == null || entryBaseUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return MiniappEntryBaseUrl.appendDeviceCode(
+                    entryBaseUrl, deviceCode);
+        } catch (IllegalArgumentException invalidEntryUrl) {
+            throw unprocessable(
+                    "IDENTITY.MINIAPP_ENTRY_URL_INVALID",
+                    "小程序设备入口配置无效，请先由平台管理员修正");
+        }
     }
 
     private static BigDecimal nullableDecimal(String value) {

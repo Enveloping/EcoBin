@@ -7,7 +7,11 @@
       draggable="{{false}}"
     />
     <view class="page-title">我的</view>
-    <view class="profile-identity">
+    <view
+      class="profile-identity"
+      bindtap="onIdentityTap"
+      hover-class="profile-action--pressed"
+    >
       <view class="avatar">
         <view class="avatar-ring">
           <t-icon name="user" size="76rpx" color="#10a625" />
@@ -15,7 +19,7 @@
       </view>
       <view class="identity-copy">
         <text class="name">{{nickname}}</text>
-        <text class="identity-role">普通用户</text>
+        <text class="identity-role">{{loggedIn ? organizationName : '点击这里使用微信登录'}}</text>
       </view>
     </view>
   </view>
@@ -24,7 +28,7 @@
     <view class="wallet-main">
       <view class="wallet-copy">
         <text class="wallet-label">账户余额</text>
-        <text class="wallet-value">{{!walletDataAvailable ? '—' : (walletLoading ? '读取中' : availableBalanceText)}}</text>
+        <text class="wallet-value">{{!loggedIn ? '登录后查看' : (!walletDataAvailable ? '—' : (walletLoading ? '读取中' : availableBalanceText))}}</text>
       </view>
       <view
         class="withdraw-button"
@@ -40,7 +44,7 @@
       <view class="wallet-meta-item">
         <text>待审核返现</text>
         <view class="wallet-meta-tail">
-          <text class="wallet-meta-value">{{!walletDataAvailable ? '服务接入中' : (walletLoading ? '读取中' : (walletError ? '点击重试' : pendingRewardText))}}</text>
+          <text class="wallet-meta-value">{{!loggedIn ? '登录后查看' : (!walletDataAvailable ? '服务接入中' : (walletLoading ? '读取中' : (walletError ? '点击重试' : pendingRewardText)))}}</text>
           <t-icon name="chevron-right" size="32rpx" color="#9da49e" />
         </view>
       </view>
@@ -53,6 +57,7 @@
       wx:for="{{shortcuts}}"
       wx:key="text"
       data-url="{{item.url}}"
+      data-requires-login="{{item.requiresLogin}}"
       bindtap="onMenuTap"
       hover-class="profile-action--pressed"
     >
@@ -60,6 +65,22 @@
         <t-icon name="{{item.icon}}" size="64rpx" color="#10a625" />
       </view>
       <text>{{item.text}}</text>
+    </view>
+  </view>
+
+  <view
+    wx:if="{{loggedIn}}"
+    class="organization-card profile-card"
+    bindtap="onOrganizationTap"
+    hover-class="profile-action--pressed"
+  >
+    <view class="organization-copy">
+      <text class="organization-label">当前机构账号</text>
+      <text class="organization-value">{{organizationName}}</text>
+    </view>
+    <view class="organization-action">
+      <text>切换</text>
+      <t-icon name="chevron-right" size="34rpx" color="#8f978f" />
     </view>
   </view>
 
@@ -90,7 +111,48 @@
     <button class="entry-preview-button" bindtap="onEntryPreview">切换端</button>
   </view>
 
-  <view class="logout" bindtap="onLogout" hover-class="logout--pressed">退出登录</view>
+  <view wx:if="{{loggedIn}}" class="logout" bindtap="onLogout" hover-class="logout--pressed">退出登录</view>
+
+  <view
+    wx:if="{{showAccountSwitcher}}"
+    class="account-sheet-mask"
+    bindtap="onAccountSwitcherClose"
+    catchtouchmove="onAccountSheetPanelTap"
+  >
+    <view class="account-sheet" catchtap="onAccountSheetPanelTap">
+      <view class="sheet-handle"></view>
+      <view class="account-sheet-head">
+        <view>
+          <view class="account-sheet-title">选择机构账号</view>
+          <view class="account-sheet-subtitle">钱包、订单和手机号按机构独立保存</view>
+        </view>
+        <view class="sheet-close" bindtap="onAccountSwitcherClose">×</view>
+      </view>
+      <view wx:if="{{accountLoading}}" class="account-sheet-state">正在读取账号…</view>
+      <scroll-view wx:else class="account-list" scroll-y>
+        <view
+          class="account-item {{item.selected ? 'account-item--selected' : ''}}"
+          wx:for="{{organizationAccounts}}"
+          wx:key="organizationUserUid"
+          data-organization-user-uid="{{item.organizationUserUid}}"
+          data-selected="{{item.selected}}"
+          bindtap="onAccountTap"
+          hover-class="profile-action--pressed"
+        >
+          <view class="account-item-copy">
+            <text class="account-name">{{item.organization.displayName}}</text>
+            <text class="account-meta">{{item.phoneBound ? '手机号已验证' : '手机号未验证'}}</text>
+          </view>
+          <view class="account-item-status">
+            <text wx:if="{{item.selected}}">当前</text>
+            <text wx:elif="{{accountSwitchingUid === item.organizationUserUid}}">切换中…</text>
+            <t-icon wx:else name="chevron-right" size="32rpx" color="#9ba29b" />
+          </view>
+        </view>
+        <view wx:if="{{organizationAccounts.length === 0}}" class="account-sheet-state">暂无可用机构账号</view>
+      </scroll-view>
+    </view>
+  </view>
 
   <view
     wx:if="{{showPhoneGrant}}"

@@ -24,10 +24,10 @@ const TABS = [
   mp.on('console', (m) => { if (m.type === 'error') { const a = (m.args||[]).map(x=>x&&x.value!==undefined?x.value:'').join(' '); errors.push('[err] '+a) } })
   mp.on('exception', (e) => { errors.push('[exc] '+((e&&(e.value||e.message))||'')) })
   try {
-    await mp.reLaunch('/pages/login/login')
+    await mp.reLaunch('/pages/home/home')
     await sleep(5000)
-    const role = await mp.evaluate(() => { const a = getApp(); return a && a.globalData ? a.globalData.role : null })
-    console.log('ROLE:', role)
+    const audience = await mp.evaluate(() => { const a = getApp(); return a && a.globalData && a.globalData.session ? a.globalData.session.audience : null })
+    console.log('AUDIENCE:', audience)
     for (const p of TABS) {
       const name = 'p-' + p.split('/').pop()
       try {

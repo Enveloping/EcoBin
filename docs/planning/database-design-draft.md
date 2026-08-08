@@ -1,12 +1,15 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-08-08 已确认 D-048 / V39：以 `iam_miniapp_channel`、机构渠道绑定、`iam_wechat_subject` 和独立机构账号替换机构 AppID/OpenID 模型；设备二维码任务状态退出。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
+
+> [!IMPORTANT]
 > 2026-08-07 已确认 D-047 / V36 破坏式前向迁移：永久 `tenant_id`、`organization_id` 和 `device_public_code` 直接属于设备资产，设备相关事实改为资产级；分配、部署、部署验收、回收、维护清场及常规密钥轮换模型退出。冲突内容以 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 为准。
 
 > [!IMPORTANT]
 > 2026-08-02：容量数据模型已由 V25 增量更新为设备上报当前袋 `FULL/NOT_FULL`，旧主动检测表仅保留历史兼容。现行模型见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md) 和 V25 迁移。
 
-> 状态：**数据库设计基线已确认，D-001～D-046 均已确认**
+> 状态：**数据库设计基线已确认，D-001～D-048 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
 > 当前目标结构：独立目标迁移已推进到 V35，共 99 张领域表；V35 只以向前兼容方式增加免确认收款授权模型和新旧提现收款模式快照，运行时代码尚未切换到授权后转账

@@ -3,6 +3,7 @@ import type {
   LoginResponse,
   MiniappAudience,
   MiniappSessionView,
+  OrganizationAccountList,
 } from '../types/api'
 
 export interface RegistrationSource {
@@ -77,5 +78,33 @@ export function bindCurrentPhone(
       retryAfterLogin: true,
       toast: false,
     },
+  )
+}
+
+export function listOrganizationAccounts(
+  audience: MiniappAudience = 'miniapp',
+) {
+  const prefix = audience === 'miniapp-staff'
+    ? '/api/v1/miniapp-staff'
+    : '/api/v1/miniapp'
+  return http.get<OrganizationAccountList>(
+    `${prefix}/me/organization-accounts`,
+    undefined,
+    { noStore: true },
+  )
+}
+
+export function selectOrganizationAccount(
+  organizationUserUid: string,
+  idempotencyKey: string,
+  audience: MiniappAudience = 'miniapp',
+) {
+  const prefix = audience === 'miniapp-staff'
+    ? '/api/v1/miniapp-staff'
+    : '/api/v1/miniapp'
+  return http.post<LoginResponse>(
+    `${prefix}/auth/organization-account-selections`,
+    { organizationUserUid },
+    { idempotencyKey, toast: false },
   )
 }

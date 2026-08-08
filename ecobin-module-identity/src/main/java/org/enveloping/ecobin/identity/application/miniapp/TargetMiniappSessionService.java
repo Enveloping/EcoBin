@@ -84,7 +84,8 @@ public class TargetMiniappSessionService {
                 new OrganizationSummary(
                         actor.organizationCode(),
                         actor.organizationName()),
-                actor.principalUid(),
+                actor.wechatSubjectUid(),
+                actor.organizationUserUid(),
                 actor.displayName(),
                 actor.capabilities(),
                 actor.phoneBound());
@@ -96,6 +97,9 @@ public class TargetMiniappSessionService {
                         SELECT s.session_uid, s.issued_at, s.expires_at,
                                s.revoked_at, s.auth_version_snapshot,
                                u.id AS user_id, u.organization_user_uid,
+                               ws.id AS wechat_subject_id,
+                               ws.wechat_subject_uid,
+                               ws.status AS subject_status,
                                u.phone_e164, u.phone_bound_at, u.nickname,
                                u.status AS user_status,
                                u.auth_version AS user_auth_version,
@@ -105,19 +109,26 @@ public class TargetMiniappSessionService {
                                o.organization_code,
                                o.organization_name,
                                o.status AS organization_status,
-                               m.id AS miniapp_id, m.appid,
+                               m.id AS miniapp_channel_id, m.appid,
                                m.login_enabled, m.activated_at
                         FROM iam_organization_user_session s
                         JOIN iam_organization_user u
                           ON u.tenant_id = s.tenant_id
                          AND u.organization_id = s.organization_id
-                         AND u.organization_miniapp_id =
-                             s.organization_miniapp_id
+                         AND u.miniapp_channel_id =
+                             s.miniapp_channel_id
+                         AND u.wechat_subject_id = s.wechat_subject_id
                          AND u.id = s.organization_user_id
-                        JOIN iam_organization_miniapp m
-                          ON m.tenant_id = s.tenant_id
-                         AND m.organization_id = s.organization_id
-                         AND m.id = s.organization_miniapp_id
+                        JOIN iam_wechat_subject ws
+                          ON ws.miniapp_channel_id = s.miniapp_channel_id
+                         AND ws.id = s.wechat_subject_id
+                        JOIN iam_organization_miniapp_binding ob
+                          ON ob.tenant_id = s.tenant_id
+                         AND ob.organization_id = s.organization_id
+                         AND ob.miniapp_channel_id = s.miniapp_channel_id
+                         AND ob.status = 'ACTIVE'
+                        JOIN iam_miniapp_channel m
+                          ON m.id = s.miniapp_channel_id
                         JOIN iam_tenant t ON t.id = s.tenant_id
                         JOIN iam_organization o
                           ON o.tenant_id = s.tenant_id
@@ -142,6 +153,7 @@ public class TargetMiniappSessionService {
                 row.loginEnabled(),
                 row.activatedAt());
         require("ACTIVE".equals(row.userStatus()));
+        require("ACTIVE".equals(row.subjectStatus()));
         boolean cleaner = hasCleanerCapability(
                 row.tenantId(), row.organizationId(), row.userId());
         return new TargetMiniappActor(
@@ -154,9 +166,12 @@ public class TargetMiniappSessionService {
                 row.organizationId(),
                 row.organizationCode(),
                 row.organizationName(),
-                row.miniappId(),
+                row.miniappChannelId(),
                 row.appId(),
+                row.wechatSubjectId(),
+                row.wechatSubjectUid(),
                 row.userId(),
+                row.userUid(),
                 null,
                 row.sessionUid(),
                 row.userAuthVersion(),
@@ -181,7 +196,11 @@ public class TargetMiniappSessionService {
                                staff.enabled AS staff_enabled,
                                staff.auth_version AS staff_auth_version,
                                b.id AS binding_id, b.status AS binding_status,
-                               u.id AS user_id, u.phone_e164,
+                               u.id AS user_id, u.organization_user_uid,
+                               ws.id AS wechat_subject_id,
+                               ws.wechat_subject_uid,
+                               ws.status AS subject_status,
+                               u.phone_e164,
                                u.phone_bound_at,
                                t.id AS tenant_id, t.tenant_code,
                                t.status AS tenant_status,
@@ -189,7 +208,7 @@ public class TargetMiniappSessionService {
                                o.organization_code,
                                o.organization_name,
                                o.status AS organization_status,
-                               m.id AS miniapp_id, m.appid,
+                               m.id AS miniapp_channel_id, m.appid,
                                m.login_enabled, m.activated_at
                         FROM iam_staff_login_session s
                         JOIN iam_staff_account staff
@@ -199,20 +218,26 @@ public class TargetMiniappSessionService {
                           ON b.tenant_id = s.tenant_id
                          AND b.organization_id =
                              s.active_organization_id
-                         AND b.organization_miniapp_id =
-                             s.organization_miniapp_id
+                         AND b.miniapp_channel_id =
+                             s.miniapp_channel_id
                          AND b.staff_account_id = s.staff_account_id
                          AND b.id = s.staff_miniapp_binding_id
                         JOIN iam_organization_user u
                           ON u.tenant_id = b.tenant_id
                          AND u.organization_id = b.organization_id
-                         AND u.organization_miniapp_id =
-                             b.organization_miniapp_id
+                         AND u.miniapp_channel_id =
+                             b.miniapp_channel_id
                          AND u.id = b.organization_user_id
-                        JOIN iam_organization_miniapp m
-                          ON m.tenant_id = b.tenant_id
-                         AND m.organization_id = b.organization_id
-                         AND m.id = b.organization_miniapp_id
+                        JOIN iam_wechat_subject ws
+                          ON ws.miniapp_channel_id = u.miniapp_channel_id
+                         AND ws.id = u.wechat_subject_id
+                        JOIN iam_organization_miniapp_binding ob
+                          ON ob.tenant_id = b.tenant_id
+                         AND ob.organization_id = b.organization_id
+                         AND ob.miniapp_channel_id = b.miniapp_channel_id
+                         AND ob.status = 'ACTIVE'
+                        JOIN iam_miniapp_channel m
+                          ON m.id = b.miniapp_channel_id
                         JOIN iam_tenant t ON t.id = b.tenant_id
                         JOIN iam_organization o
                           ON o.tenant_id = b.tenant_id
@@ -239,6 +264,7 @@ public class TargetMiniappSessionService {
         require("MINIAPP_MANAGEMENT".equals(row.clientKind()));
         require(row.staffEnabled());
         require("ACTIVE".equals(row.bindingStatus()));
+        require("ACTIVE".equals(row.subjectStatus()));
         require(row.phoneE164() != null && row.phoneBoundAt() != null);
 
         boolean principal =
@@ -264,9 +290,12 @@ public class TargetMiniappSessionService {
                 row.organizationId(),
                 row.organizationCode(),
                 row.organizationName(),
-                row.miniappId(),
+                row.miniappChannelId(),
                 row.appId(),
+                row.wechatSubjectId(),
+                row.wechatSubjectUid(),
                 row.userId(),
+                row.organizationUserUid(),
                 row.bindingId(),
                 row.sessionUid(),
                 row.staffAuthVersion(),
@@ -375,6 +404,9 @@ public class TargetMiniappSessionService {
                 rs.getLong("auth_version_snapshot"),
                 rs.getLong("user_id"),
                 UUID.fromString(rs.getString("organization_user_uid")),
+                rs.getLong("wechat_subject_id"),
+                UUID.fromString(rs.getString("wechat_subject_uid")),
+                rs.getString("subject_status"),
                 rs.getString("phone_e164"),
                 nullableInstant(rs, "phone_bound_at"),
                 rs.getString("nickname"),
@@ -387,7 +419,7 @@ public class TargetMiniappSessionService {
                 rs.getString("organization_code"),
                 rs.getString("organization_name"),
                 rs.getString("organization_status"),
-                rs.getLong("miniapp_id"),
+                rs.getLong("miniapp_channel_id"),
                 rs.getString("appid"),
                 rs.getBoolean("login_enabled"),
                 nullableInstant(rs, "activated_at"));
@@ -411,6 +443,10 @@ public class TargetMiniappSessionService {
                 rs.getLong("binding_id"),
                 rs.getString("binding_status"),
                 rs.getLong("user_id"),
+                UUID.fromString(rs.getString("organization_user_uid")),
+                rs.getLong("wechat_subject_id"),
+                UUID.fromString(rs.getString("wechat_subject_uid")),
+                rs.getString("subject_status"),
                 rs.getString("phone_e164"),
                 nullableInstant(rs, "phone_bound_at"),
                 rs.getLong("tenant_id"),
@@ -420,7 +456,7 @@ public class TargetMiniappSessionService {
                 rs.getString("organization_code"),
                 rs.getString("organization_name"),
                 rs.getString("organization_status"),
-                rs.getLong("miniapp_id"),
+                rs.getLong("miniapp_channel_id"),
                 rs.getString("appid"),
                 rs.getBoolean("login_enabled"),
                 nullableInstant(rs, "activated_at"));
@@ -471,6 +507,9 @@ public class TargetMiniappSessionService {
             long authVersionSnapshot,
             long userId,
             UUID userUid,
+            long wechatSubjectId,
+            UUID wechatSubjectUid,
+            String subjectStatus,
             String phoneE164,
             Instant phoneBoundAt,
             String nickname,
@@ -483,7 +522,7 @@ public class TargetMiniappSessionService {
             String organizationCode,
             String organizationName,
             String organizationStatus,
-            long miniappId,
+            long miniappChannelId,
             String appId,
             boolean loginEnabled,
             Instant activatedAt) {
@@ -505,6 +544,10 @@ public class TargetMiniappSessionService {
             long bindingId,
             String bindingStatus,
             long userId,
+            UUID organizationUserUid,
+            long wechatSubjectId,
+            UUID wechatSubjectUid,
+            String subjectStatus,
             String phoneE164,
             Instant phoneBoundAt,
             long tenantId,
@@ -514,7 +557,7 @@ public class TargetMiniappSessionService {
             String organizationCode,
             String organizationName,
             String organizationStatus,
-            long miniappId,
+            long miniappChannelId,
             String appId,
             boolean loginEnabled,
             Instant activatedAt) {

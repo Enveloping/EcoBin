@@ -17,22 +17,26 @@ public interface OrganizationUserRegistrationAttributionPort {
 
     record RegistrationAttributionQuery(
             String deviceCode,
-            String tenantCode,
-            String organizationCode) {
+            String channelAppId) {
 
         public RegistrationAttributionQuery {
             requireText(deviceCode, "deviceCode");
-            requireText(tenantCode, "tenantCode");
-            requireText(organizationCode, "organizationCode");
+            requireText(channelAppId, "channelAppId");
         }
     }
 
     record ResolvedRegistrationAttribution(
             String deviceCode,
+            String tenantCode,
+            String organizationCode,
+            String organizationName,
             OrganizationUserRegistrationAttributionRef persistenceRef) {
 
         public ResolvedRegistrationAttribution {
             requireText(deviceCode, "deviceCode");
+            requireText(tenantCode, "tenantCode");
+            requireText(organizationCode, "organizationCode");
+            requireText(organizationName, "organizationName");
             Objects.requireNonNull(persistenceRef, "persistenceRef");
         }
     }

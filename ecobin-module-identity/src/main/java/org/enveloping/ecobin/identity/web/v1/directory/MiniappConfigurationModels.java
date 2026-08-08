@@ -19,6 +19,9 @@ public final class MiniappConfigurationModels {
             String appId,
             @NotBlank @Size(max = 100) String displayName,
             @Size(min = 1, max = 256) String appSecret,
+            @Size(max = 512)
+            @Pattern(regexp = "^https://[^#]+$")
+            String entryBaseUrl,
             @PositiveOrZero Long expectedVersion) {
     }
 
@@ -28,6 +31,7 @@ public final class MiniappConfigurationModels {
             String appSecret,
             boolean appSecretConfigured,
             String maskedAppSecret,
+            String entryBaseUrl,
             boolean activated,
             boolean loginEnabled,
             long version,
@@ -41,6 +45,7 @@ public final class MiniappConfigurationModels {
             String displayName,
             boolean appSecretConfigured,
             String maskedAppSecret,
+            String entryBaseUrl,
             boolean activated,
             boolean loginEnabled,
             long version,

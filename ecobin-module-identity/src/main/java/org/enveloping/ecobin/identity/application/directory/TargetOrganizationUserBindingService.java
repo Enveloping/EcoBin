@@ -149,7 +149,7 @@ public class TargetOrganizationUserBindingService {
                 FROM iam_organization_user u
                 WHERE u.tenant_id = ?
                   AND u.organization_id = ?
-                  AND u.organization_miniapp_id = ?
+                  AND u.miniapp_channel_id = ?
                 """);
         List<Object> parameters = new ArrayList<>();
         parameters.add(scope.tenantId());
@@ -455,7 +455,7 @@ public class TargetOrganizationUserBindingService {
                                         INSERT INTO iam_staff_miniapp_binding (
                                             binding_uid, tenant_id,
                                             organization_id,
-                                            organization_miniapp_id,
+                                            miniapp_channel_id,
                                             organization_user_id,
                                             staff_account_id, status,
                                             bound_at, revoked_at,
@@ -938,9 +938,12 @@ public class TargetOrganizationUserBindingService {
                         FROM iam_tenant t
                         JOIN iam_organization o
                           ON o.tenant_id = t.id
-                        JOIN iam_organization_miniapp m
-                          ON m.tenant_id = t.id
-                         AND m.organization_id = o.id
+                        JOIN iam_organization_miniapp_binding ob
+                          ON ob.tenant_id = t.id
+                         AND ob.organization_id = o.id
+                         AND ob.status = 'ACTIVE'
+                        JOIN iam_miniapp_channel m
+                          ON m.id = ob.miniapp_channel_id
                         WHERE t.tenant_code = ?
                           AND o.organization_code = ?
                         %s
@@ -1079,7 +1082,7 @@ public class TargetOrganizationUserBindingService {
                         FROM iam_organization_user
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND organization_miniapp_id = ?
+                          AND miniapp_channel_id = ?
                           AND organization_user_uid = ?
                         %s
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
@@ -1103,7 +1106,7 @@ public class TargetOrganizationUserBindingService {
                         FROM iam_organization_user
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND organization_miniapp_id = ?
+                          AND miniapp_channel_id = ?
                           AND id = ?
                         %s
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
@@ -1142,7 +1145,7 @@ public class TargetOrganizationUserBindingService {
                         FROM iam_organization_user u
                         WHERE u.tenant_id = ?
                           AND u.organization_id = ?
-                          AND u.organization_miniapp_id = ?
+                          AND u.miniapp_channel_id = ?
                           AND u.organization_user_uid = ?
                         %s
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
@@ -1183,7 +1186,7 @@ public class TargetOrganizationUserBindingService {
             boolean forUpdate) {
         return jdbc.query("""
                         SELECT id, binding_uid, tenant_id, organization_id,
-                               organization_miniapp_id,
+                               miniapp_channel_id,
                                organization_user_id, staff_account_id,
                                status, bound_at, revoked_at, lock_version,
                                (SELECT organization_user_uid
@@ -1197,7 +1200,7 @@ public class TargetOrganizationUserBindingService {
                                       iam_staff_miniapp_binding.tenant_id)
                                    AS staff_account_uid
                         FROM iam_staff_miniapp_binding
-                        WHERE organization_miniapp_id = ?
+                        WHERE miniapp_channel_id = ?
                           AND staff_account_id = ?
                           AND status = 'ACTIVE'
                         %s
@@ -1212,7 +1215,7 @@ public class TargetOrganizationUserBindingService {
             boolean forUpdate) {
         return jdbc.query("""
                         SELECT id, binding_uid, tenant_id, organization_id,
-                               organization_miniapp_id,
+                               miniapp_channel_id,
                                organization_user_id, staff_account_id,
                                status, bound_at, revoked_at, lock_version,
                                (SELECT organization_user_uid
@@ -1244,7 +1247,7 @@ public class TargetOrganizationUserBindingService {
                         WHERE status = 'ACTIVE'
                           AND (
                               (
-                                  organization_miniapp_id = ?
+                                  miniapp_channel_id = ?
                                   AND staff_account_id = ?
                               )
                               OR organization_user_id = ?
@@ -1276,7 +1279,7 @@ public class TargetOrganizationUserBindingService {
     private BindingRow bindingById(long bindingId, boolean forUpdate) {
         return jdbc.query("""
                         SELECT id, binding_uid, tenant_id, organization_id,
-                               organization_miniapp_id,
+                               miniapp_channel_id,
                                organization_user_id, staff_account_id,
                                status, bound_at, revoked_at, lock_version,
                                (SELECT organization_user_uid
@@ -1305,7 +1308,7 @@ public class TargetOrganizationUserBindingService {
             boolean forUpdate) {
         return jdbc.query("""
                         SELECT id, binding_uid, tenant_id, organization_id,
-                               organization_miniapp_id,
+                               miniapp_channel_id,
                                organization_user_id, staff_account_id,
                                status, bound_at, revoked_at, lock_version,
                                (SELECT organization_user_uid
@@ -1321,7 +1324,7 @@ public class TargetOrganizationUserBindingService {
                         FROM iam_staff_miniapp_binding
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND organization_miniapp_id = ?
+                          AND miniapp_channel_id = ?
                           AND binding_uid = ?
                         %s
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
@@ -1481,7 +1484,7 @@ public class TargetOrganizationUserBindingService {
                 UUID.fromString(rs.getString("binding_uid")),
                 rs.getLong("tenant_id"),
                 rs.getLong("organization_id"),
-                rs.getLong("organization_miniapp_id"),
+                rs.getLong("miniapp_channel_id"),
                 rs.getLong("organization_user_id"),
                 rs.getLong("staff_account_id"),
                 UUID.fromString(

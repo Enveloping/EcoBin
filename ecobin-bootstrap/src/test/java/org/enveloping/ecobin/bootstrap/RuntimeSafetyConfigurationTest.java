@@ -57,7 +57,8 @@ class RuntimeSafetyConfigurationTest {
             "V35__merchant_transfer_authorization.sql",
             "V36__permanent_device_ownership.sql",
             "V37__platform_acceptance_confirmations.sql",
-            "V38__simulator_neutral_device_acceptance.sql"
+            "V38__simulator_neutral_device_acceptance.sql",
+            "V39__shared_miniapp_multi_organization_identity.sql"
     };
 
     @Test

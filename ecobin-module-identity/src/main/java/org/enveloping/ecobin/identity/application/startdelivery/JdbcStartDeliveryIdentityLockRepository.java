@@ -30,16 +30,21 @@ class JdbcStartDeliveryIdentityLockRepository
             """;
 
     static final String LOCK_MINIAPP_SQL = """
-            SELECT id, tenant_id, organization_id, appid,
-                   login_enabled, activated_at
-            FROM iam_organization_miniapp
-            WHERE id = ?
+            SELECT c.id, b.tenant_id, b.organization_id, c.appid,
+                   c.login_enabled, c.activated_at
+            FROM iam_organization_miniapp_binding b
+            JOIN iam_miniapp_channel c
+              ON c.id = b.miniapp_channel_id
+            WHERE b.tenant_id = ?
+              AND b.organization_id = ?
+              AND b.miniapp_channel_id = ?
+              AND b.status = 'ACTIVE'
             FOR UPDATE
             """;
 
     static final String LOCK_ORGANIZATION_USER_SQL = """
             SELECT id, organization_user_uid, tenant_id,
-                   organization_id, organization_miniapp_id,
+                   organization_id, miniapp_channel_id,
                    phone_e164, phone_bound_at, status, auth_version
             FROM iam_organization_user
             WHERE id = ?
@@ -48,7 +53,7 @@ class JdbcStartDeliveryIdentityLockRepository
 
     static final String LOCK_ORGANIZATION_USER_SESSION_SQL = """
             SELECT session_uid, tenant_id, organization_id,
-                   organization_miniapp_id, organization_user_id,
+                   miniapp_channel_id, organization_user_id,
                    issued_at, expires_at, revoked_at,
                    auth_version_snapshot
             FROM iam_organization_user_session
@@ -91,7 +96,10 @@ class JdbcStartDeliveryIdentityLockRepository
     }
 
     @Override
-    public Optional<MiniappRow> lockMiniapp(long miniappId) {
+    public Optional<MiniappRow> lockMiniapp(
+            long tenantId,
+            long organizationId,
+            long miniappId) {
         return jdbc.query(
                         LOCK_MINIAPP_SQL,
                         (rs, ignored) -> new MiniappRow(
@@ -101,6 +109,8 @@ class JdbcStartDeliveryIdentityLockRepository
                                 rs.getString("appid"),
                                 rs.getBoolean("login_enabled"),
                                 nullableInstant(rs, "activated_at")),
+                        tenantId,
+                        organizationId,
                         miniappId)
                 .stream()
                 .findFirst();
@@ -117,7 +127,7 @@ class JdbcStartDeliveryIdentityLockRepository
                                         "organization_user_uid")),
                                 rs.getLong("tenant_id"),
                                 rs.getLong("organization_id"),
-                                rs.getLong("organization_miniapp_id"),
+                                rs.getLong("miniapp_channel_id"),
                                 rs.getString("phone_e164"),
                                 nullableInstant(rs, "phone_bound_at"),
                                 rs.getString("status"),
@@ -139,7 +149,7 @@ class JdbcStartDeliveryIdentityLockRepository
                                         rs.getLong("tenant_id"),
                                         rs.getLong("organization_id"),
                                         rs.getLong(
-                                                "organization_miniapp_id"),
+                                                "miniapp_channel_id"),
                                         rs.getLong(
                                                 "organization_user_id"),
                                         instant(rs, "issued_at"),

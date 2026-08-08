@@ -48,6 +48,7 @@ export interface MiniappSessionView {
   expiresAt: string
   organization: OrganizationSummary
   subjectUid: string
+  organizationUserUid: string
   displayName: string
   capabilities: string[]
   phoneBound: boolean
@@ -58,6 +59,18 @@ export interface LoginResponse extends MiniappSessionView {
   accessToken: string
   tokenType: 'Bearer'
   isNewRegistration: boolean
+}
+
+export interface OrganizationAccountSummary {
+  organizationUserUid: string
+  organization: OrganizationSummary
+  registeredAt: string
+  selected: boolean
+  phoneBound: boolean
+}
+
+export interface OrganizationAccountList {
+  accounts: OrganizationAccountSummary[]
 }
 
 export type DeliveryOptionBlocker =

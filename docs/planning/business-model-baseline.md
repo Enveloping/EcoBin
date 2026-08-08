@@ -1,6 +1,9 @@
 # EcoBin P0 业务模型基线
 
 > [!IMPORTANT]
+> 2026-08-08 已按 D-048 重新冻结普通用户模型：渠道级微信身份不是跨租户业务用户；每个租户/机构仍拥有独立机构账号和钱包，一次会话只选择一个机构账号。冲突内容以 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md) 为准。
+
+> [!IMPORTANT]
 > 2026-08-07 已按 D-047 重新冻结设备业务模型：设备资产是唯一归属根，租户和机构各只允许永久写入一次；部署实例、回收、调拨、重新部署、现场人工验收和人工经营开关不再是业务概念。冲突内容以 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 为准。
 
 > 状态：**业务模型已冻结，作为数据库、接口、详细设计和正式任务的上游输入**

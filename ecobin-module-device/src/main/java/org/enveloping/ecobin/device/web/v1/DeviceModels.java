@@ -72,7 +72,7 @@ public final class DeviceModels {
             String tenantCode,
             String organizationCode,
             String acceptanceStatus,
-            String miniappQrStatus,
+            String deviceEntryUrl,
             String lifecycleStatus,
             long version,
             Instant tenantAssignedAt,

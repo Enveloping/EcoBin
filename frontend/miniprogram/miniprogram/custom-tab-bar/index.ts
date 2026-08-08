@@ -96,7 +96,8 @@ Component<TabBarData, {}, TabBarMethods>({
         }
         if (displayedMode === 'CLEANING') {
           startCleaningEntry()
-        } else if (displayedMode === 'USER') {
+        } else if (displayedMode === 'USER' || !displayedMode) {
+          // 游客也必须能扫描设备公开码，这是首次创建机构账号的唯一入口。
           startDoorEntry()
         }
         return

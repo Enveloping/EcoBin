@@ -1,8 +1,7 @@
 {
   "pages": [
-    "pages/login/login",
-    "pages/delivery-entry/delivery-entry",
     "pages/home/home",
+    "pages/delivery-entry/delivery-entry",
     "pages/clean/clean",
     "pages/clean-profile/clean-profile",
     "pages/clean-operation/clean-operation",
@@ -13,6 +12,7 @@
     "pages/bag-trace-detail/bag-trace-detail",
     "pages/management/management",
     "pages/profile/profile",
+    "pages/account-switcher/account-switcher",
     "pages/wallet/wallet",
     "pages/withdrawals/withdrawals",
     "pages/nearby/nearby",

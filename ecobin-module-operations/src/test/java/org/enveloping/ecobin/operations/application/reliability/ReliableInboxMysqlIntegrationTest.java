@@ -677,29 +677,50 @@ class ReliableInboxMysqlIntegrationTest {
                 WHERE tenant_id = ? AND organization_code = ?
                 """, Long.class, tenantId, organizationCode);
         jdbc.update("""
-                INSERT INTO iam_organization_miniapp (
-                    tenant_id, organization_id, appid, display_name,
-                    login_enabled, app_secret, activated_at, lock_version,
+                INSERT INTO iam_miniapp_channel (
+                    channel_uid, appid, display_name,
+                    login_enabled, app_secret, entry_base_url,
+                    activated_at, lock_version,
                     configured_at, created_at, updated_at
-                ) VALUES (?, ?, ?, 'F08 audit miniapp',
-                    0, NULL, NULL, 0,
+                ) VALUES (?, ?, 'F08 audit miniapp',
+                    0, NULL, NULL, NULL, 0,
                     UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
-                """, tenantId, organizationId, "wx" + suffix);
+                """, UUID.randomUUID().toString(), "wx" + suffix);
         long miniappId = jdbc.queryForObject("""
-                SELECT id FROM iam_organization_miniapp
-                WHERE tenant_id = ? AND organization_id = ?
-                """, Long.class, tenantId, organizationId);
+                SELECT id FROM iam_miniapp_channel WHERE appid = ?
+                """, Long.class, "wx" + suffix);
+        jdbc.update("""
+                INSERT INTO iam_organization_miniapp_binding (
+                    binding_uid, tenant_id, organization_id,
+                    miniapp_channel_id, status, bound_at, lock_version,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'ACTIVE', UTC_TIMESTAMP(3), 0,
+                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, UUID.randomUUID().toString(), tenantId,
+                organizationId, miniappId);
+        String openid = "openid-" + suffix;
+        jdbc.update("""
+                INSERT INTO iam_wechat_subject (
+                    wechat_subject_uid, miniapp_channel_id, openid, status,
+                    auth_version, lock_version, created_at, updated_at
+                ) VALUES (?, ?, ?, 'ACTIVE', 0, 0,
+                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                """, UUID.randomUUID().toString(), miniappId, openid);
+        long subjectId = jdbc.queryForObject("""
+                SELECT id FROM iam_wechat_subject
+                WHERE miniapp_channel_id = ? AND openid = ?
+                """, Long.class, miniappId, openid);
         UUID organizationUserUid = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO iam_organization_user (
                     organization_user_uid, tenant_id, organization_id,
-                    organization_miniapp_id, openid, status,
+                    miniapp_channel_id, wechat_subject_id, status,
                     auth_version, lock_version, registered_at,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0, 0,
                     UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
                 """, organizationUserUid.toString(), tenantId,
-                organizationId, miniappId, "openid-" + suffix);
+                organizationId, miniappId, subjectId);
         long organizationUserId = jdbc.queryForObject("""
                 SELECT id FROM iam_organization_user
                 WHERE organization_user_uid = ?

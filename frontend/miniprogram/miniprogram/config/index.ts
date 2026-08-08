@@ -28,7 +28,7 @@ export const TIMEOUT = 15000
 /** 本地存储 key */
 export const STORAGE_KEYS = {
   session: 'ecobin_miniapp_session',
-  phoneAutoPrompted: 'ecobin_phone_auto_prompted',
+  silentLoginSuppressed: 'ecobin_silent_login_suppressed',
   pendingDeviceEntry: 'ecobin_pending_device_entry',
   lastHandledDeviceEntry: 'ecobin_last_handled_device_entry',
   pendingOperationPrefix: 'ecobin_pending_operation_',

@@ -104,8 +104,13 @@ public class MerchantTransferAuthorizationApplicationService {
     @Transactional(readOnly = true)
     public MerchantTransferAuthorizationView current() {
         MiniappScope scope = access.miniappScope(false);
-        UserRow user = requiredUser(scope, false);
-        AuthorizationRow row = findLatestForUser(scope, user.openid(), false);
+        requiredUser(scope, false);
+        AuthorizationBindingRow binding = findBinding(scope, false);
+        AuthorizationRow row = binding == null
+                ? null
+                : findLatestScope(
+                        binding.merchantId(), scope.miniappChannelId(),
+                        scope.wechatSubjectId(), binding.sceneId(), false);
         return view(row);
     }
 
@@ -121,7 +126,7 @@ public class MerchantTransferAuthorizationApplicationService {
         UserRow observedUser = requiredUser(scope, false);
         if (!access.lockWithdrawalTransferIdentity(
                 scope.tenantId(), scope.organizationId(),
-                scope.organizationMiniappId(), scope.appid(),
+                scope.miniappChannelId(), scope.appid(),
                 scope.organizationUserId(), observedUser.openid())) {
             throw unavailable("当前机构用户或小程序状态不允许开通自动收款");
         }
@@ -134,7 +139,8 @@ public class MerchantTransferAuthorizationApplicationService {
         replay = replay(operationUid, scope, CREATE_ACTION);
         if (replay != null) return accepted(replay);
         AuthorizationRow current = findCurrentScope(
-                binding.merchantId(), binding.appid(), user.openid(),
+                binding.merchantId(), scope.miniappChannelId(),
+                scope.wechatSubjectId(),
                 binding.sceneId(), true);
         if (current != null) {
             appendMiniappAudit(
@@ -161,8 +167,9 @@ public class MerchantTransferAuthorizationApplicationService {
         jdbc.update("""
                 INSERT INTO fund_wechat_transfer_authorization (
                     authorization_uid, tenant_id, organization_id,
-                    organization_user_id, merchant_profile_id,
-                    miniapp_merchant_binding_id, organization_miniapp_id,
+                    organization_user_id, wechat_subject_id,
+                    merchant_profile_id,
+                    miniapp_merchant_binding_id, miniapp_channel_id,
                     out_authorization_no, authorization_id,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
                     scene_id_snapshot, user_display_name_snapshot,
@@ -174,11 +181,12 @@ public class MerchantTransferAuthorizationApplicationService {
                     submitted_at, channel_created_at,
                     confirmation_deadline_at, authorized_at, closed_at,
                     channel_updated_at, lock_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL,
                           ?, ?, ?, 'CREATED', NULL, NULL, NULL, NULL, 0,
                           NULL, NULL, NULL, NULL, NULL, NULL, 0, ?, ?)
                 """, operationUid.toString(), scope.tenantId(),
                 scope.organizationId(), scope.organizationUserId(),
+                scope.wechatSubjectId(),
                 binding.merchantId(), binding.bindingId(),
                 binding.miniappId(), outAuthorizationNo, binding.mchid(),
                 binding.appid(), user.openid(), binding.sceneId(),
@@ -203,9 +211,11 @@ public class MerchantTransferAuthorizationApplicationService {
         AuthorizationRow replay = replay(
                 operationUid, scope, QUERY_ACTION);
         if (replay != null) return accepted(replay);
-        UserRow user = requiredUser(scope, false);
-        AuthorizationRow found = findLatestForUser(
-                scope, user.openid(), false);
+        requiredUser(scope, false);
+        AuthorizationBindingRow binding = requiredBinding(scope, false);
+        AuthorizationRow found = findLatestScope(
+                binding.merchantId(), scope.miniappChannelId(),
+                scope.wechatSubjectId(), binding.sceneId(), false);
         if (found == null) throw notFound();
         AuthorizationRow row = requiredById(found.id(), true);
         replay = replay(operationUid, scope, QUERY_ACTION);
@@ -615,7 +625,7 @@ public class MerchantTransferAuthorizationApplicationService {
                     now, now, row.id());
         }
         AuthorizationRow queryTarget = findCurrentScope(
-                row.merchantId(), row.appid(), row.openid(),
+                row.merchantId(), row.miniappId(), row.subjectId(),
                 row.sceneId(), false);
         if (queryTarget == null) queryTarget = row;
         AuthorizationQueryTaskWakeResult wake = operationalControl
@@ -656,6 +666,7 @@ public class MerchantTransferAuthorizationApplicationService {
             long tenantId,
             long organizationId,
             long organizationUserId,
+            long wechatSubjectId,
             long merchantProfileId,
             long bindingId,
             long miniappId,
@@ -664,7 +675,8 @@ public class MerchantTransferAuthorizationApplicationService {
             String openid,
             String sceneId) {
         AuthorizationRow row = findCurrentScope(
-                merchantProfileId, appid, openid, sceneId, true);
+                merchantProfileId, miniappId, wechatSubjectId,
+                sceneId, true);
         if (row == null) {
             throw authorizationRequired();
         }
@@ -672,13 +684,12 @@ public class MerchantTransferAuthorizationApplicationService {
             throw authorizationUnresolved();
         }
         if (!"ACTIVE".equals(row.localState())
-                || row.organizationId() != organizationId
-                || row.tenantId() != tenantId
-                || row.userId() != organizationUserId
-                || row.bindingId() != bindingId
                 || row.miniappId() != miniappId
+                || row.subjectId() != wechatSubjectId
                 || row.merchantId() != merchantProfileId
                 || !row.mchid().equals(mchid)
+                || !row.appid().equals(appid)
+                || !row.openid().equals(openid)
                 || row.authorizationId() == null) {
             throw authorizationRequired();
         }
@@ -701,11 +712,7 @@ public class MerchantTransferAuthorizationApplicationService {
             String authorizationId) {
         AuthorizationRow row = requiredById(authorizationRowId, true);
         return "ACTIVE".equals(row.localState())
-                && row.tenantId() == tenantId
-                && row.organizationId() == organizationId
-                && row.userId() == organizationUserId
                 && row.merchantId() == merchantProfileId
-                && row.bindingId() == bindingId
                 && row.miniappId() == miniappId
                 && row.mchid().equals(mchid)
                 && row.appid().equals(appid)
@@ -1036,7 +1043,9 @@ public class MerchantTransferAuthorizationApplicationService {
         if (!same) throw idempotencyConflict();
         AuthorizationRow row = findByOutNo(
                 successful.targetStableKey(), false);
-        if (row == null || row.userId() != scope.organizationUserId()) {
+        if (row == null
+                || row.miniappId() != scope.miniappChannelId()
+                || row.subjectId() != scope.wechatSubjectId()) {
             throw idempotencyConflict();
         }
         return row;
@@ -1111,81 +1120,92 @@ public class MerchantTransferAuthorizationApplicationService {
     private AuthorizationBindingRow requiredBinding(
             MiniappScope scope,
             boolean lock) {
+        AuthorizationBindingRow binding = findBinding(scope, lock);
+        if (binding == null) {
+            throw unavailable("机构小程序尚未完成系统商户绑定核验");
+        }
+        return binding;
+    }
+
+    private AuthorizationBindingRow findBinding(
+            MiniappScope scope,
+            boolean lock) {
         List<AuthorizationBindingRow> rows = jdbc.query("""
-                SELECT b.id AS binding_id, b.organization_miniapp_id,
+                SELECT b.id AS binding_id, b.miniapp_channel_id,
                        b.merchant_profile_id, b.appid, m.mchid, m.scene_id
                 FROM fund_miniapp_merchant_binding b
                 JOIN fund_wechat_merchant_profile m
                   ON m.id = b.merchant_profile_id
-                JOIN iam_organization_miniapp app
-                  ON app.id = b.organization_miniapp_id
-                 AND app.tenant_id = b.tenant_id
-                 AND app.organization_id = b.organization_id
+                JOIN iam_miniapp_channel app
+                  ON app.id = b.miniapp_channel_id
                  AND app.appid = b.appid
                 WHERE b.tenant_id = ? AND b.organization_id = ?
-                  AND b.organization_miniapp_id = ? AND b.appid = ?
+                  AND b.miniapp_channel_id = ? AND b.appid = ?
                   AND b.status = 'VERIFIED' AND m.status = 'ENABLED'
                   AND app.login_enabled = 1
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new AuthorizationBindingRow(
                         rs.getLong("binding_id"),
-                        rs.getLong("organization_miniapp_id"),
+                        rs.getLong("miniapp_channel_id"),
                         rs.getLong("merchant_profile_id"),
                         rs.getString("appid"), rs.getString("mchid"),
                         rs.getString("scene_id")),
                 scope.tenantId(), scope.organizationId(),
-                scope.organizationMiniappId(), scope.appid());
-        if (rows.size() != 1) {
+                scope.miniappChannelId(), scope.appid());
+        if (rows.size() > 1) {
             throw unavailable("机构小程序尚未完成系统商户绑定核验");
         }
-        return rows.getFirst();
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     private UserRow requiredUser(MiniappScope scope, boolean lock) {
         return jdbc.queryForObject("""
-                SELECT id, openid, phone_e164, status
-                FROM iam_organization_user
-                WHERE tenant_id = ? AND organization_id = ? AND id = ?
-                  AND organization_miniapp_id = ?
+                SELECT u.id, s.openid, u.phone_e164, u.status
+                FROM iam_organization_user u
+                JOIN iam_wechat_subject s
+                  ON s.miniapp_channel_id = u.miniapp_channel_id
+                 AND s.id = u.wechat_subject_id
+                WHERE u.tenant_id = ? AND u.organization_id = ?
+                  AND u.id = ? AND u.miniapp_channel_id = ?
+                  AND u.wechat_subject_id = ?
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new UserRow(
                         rs.getLong("id"), rs.getString("openid"),
                         rs.getString("phone_e164"), rs.getString("status")),
                 scope.tenantId(), scope.organizationId(),
-                scope.organizationUserId(), scope.organizationMiniappId());
+                scope.organizationUserId(), scope.miniappChannelId(),
+                scope.wechatSubjectId());
     }
 
-    private AuthorizationRow findLatestForUser(
-            MiniappScope scope,
-            String openid,
+    private AuthorizationRow findLatestScope(
+            long merchantId,
+            long miniappChannelId,
+            long wechatSubjectId,
+            String sceneId,
             boolean lock) {
         List<AuthorizationRow> rows = jdbc.query(authorizationSql("""
-                a.tenant_id = ? AND a.organization_id = ?
-                AND a.organization_user_id = ?
-                AND a.organization_miniapp_id = ?
-                AND a.appid_snapshot = ? AND a.openid_snapshot = ?
+                a.merchant_profile_id = ? AND a.miniapp_channel_id = ?
+                AND a.wechat_subject_id = ? AND a.scene_id_snapshot = ?
                 ORDER BY (a.current_authorization_slot IS NOT NULL) DESC,
                          a.created_at DESC, a.id DESC
                 LIMIT 1
                 """, lock), this::mapAuthorization,
-                scope.tenantId(), scope.organizationId(),
-                scope.organizationUserId(), scope.organizationMiniappId(),
-                scope.appid(), openid);
+                merchantId, miniappChannelId, wechatSubjectId, sceneId);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
     private AuthorizationRow findCurrentScope(
             long merchantId,
-            String appid,
-            String openid,
+            long miniappChannelId,
+            long wechatSubjectId,
             String sceneId,
             boolean lock) {
         List<AuthorizationRow> rows = jdbc.query(authorizationSql("""
-                a.merchant_profile_id = ? AND a.appid_snapshot = ?
-                AND a.openid_snapshot = ? AND a.scene_id_snapshot = ?
+                a.merchant_profile_id = ? AND a.miniapp_channel_id = ?
+                AND a.wechat_subject_id = ? AND a.scene_id_snapshot = ?
                 AND a.current_authorization_slot = 1
                 """, lock), this::mapAuthorization,
-                merchantId, appid, openid, sceneId);
+                merchantId, miniappChannelId, wechatSubjectId, sceneId);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
@@ -1193,11 +1213,11 @@ public class MerchantTransferAuthorizationApplicationService {
             AuthorizationRow row,
             boolean lock) {
         List<AuthorizationRow> rows = jdbc.query(authorizationSql("""
-                a.merchant_profile_id = ? AND a.appid_snapshot = ?
-                AND a.openid_snapshot = ? AND a.scene_id_snapshot = ?
+                a.merchant_profile_id = ? AND a.miniapp_channel_id = ?
+                AND a.wechat_subject_id = ? AND a.scene_id_snapshot = ?
                 AND a.current_authorization_slot = 1 AND a.id <> ?
                 """, lock), this::mapAuthorization,
-                row.merchantId(), row.appid(), row.openid(),
+                row.merchantId(), row.miniappId(), row.subjectId(),
                 row.sceneId(), row.id());
         return rows.isEmpty() ? null : rows.getFirst();
     }
@@ -1244,9 +1264,10 @@ public class MerchantTransferAuthorizationApplicationService {
                 UUID.fromString(rs.getString("authorization_uid")),
                 rs.getLong("tenant_id"), rs.getLong("organization_id"),
                 rs.getLong("organization_user_id"),
+                rs.getLong("wechat_subject_id"),
                 rs.getLong("merchant_profile_id"),
                 rs.getLong("miniapp_merchant_binding_id"),
-                rs.getLong("organization_miniapp_id"),
+                rs.getLong("miniapp_channel_id"),
                 rs.getString("out_authorization_no"),
                 rs.getString("authorization_id"),
                 rs.getString("mchid_snapshot"),
@@ -1522,6 +1543,7 @@ public class MerchantTransferAuthorizationApplicationService {
             long tenantId,
             long organizationId,
             long userId,
+            long subjectId,
             long merchantId,
             long bindingId,
             long miniappId,

@@ -1,5 +1,5 @@
 /* eslint-disable */
-// 用 miniprogram-automator 驱动开发者工具：登录 -> 截首页 -> 读 tabBar
+// 用 miniprogram-automator 驱动开发者工具：游客首页 -> 截图 -> 读 tabBar
 const path = require('path')
 const fs = require('fs')
 const automator = require('miniprogram-automator')
@@ -45,20 +45,12 @@ async function readTabBar(mp) {
   console.log('connected.')
 
   try {
-    // 1) 进登录页触发静默登录
-    await mp.reLaunch('/pages/login/login')
+    // 1) 进入游客首页；App.onShow 会按冻结规则尝试静默选择已有账号
+    await mp.reLaunch('/pages/home/home')
     await sleep(6000)
 
     let page = await mp.currentPage()
-    console.log('route after login wait:', page.path)
-
-    // 登录失败仍停留在 login -> 截图看错误
-    if (page.path.includes('login')) {
-      await mp.screenshot({ path: path.join(SHOT_DIR, 'login-state.png') })
-      const errEl = await page.$('.hint')
-      if (errEl) console.log('login hint:', (await errEl.text()).trim())
-      console.log('仍在登录页，已截图 login-state.png')
-    }
+    console.log('route after identity bootstrap:', page.path)
 
     // 2) 确保在首页
     await mp.switchTab('/pages/home/home').catch(() => {})
@@ -74,12 +66,14 @@ async function readTabBar(mp) {
     const tabs = await readTabBar(mp)
     console.log('TABBAR:', JSON.stringify(tabs))
 
-    // 5) 读 globalData.role
-    const role = await mp.evaluate(() => {
+    // 5) 读当前单机构会话；游客时为空
+    const audience = await mp.evaluate(() => {
       const app = getApp()
-      return app && app.globalData ? app.globalData.role : null
+      return app && app.globalData && app.globalData.session
+        ? app.globalData.session.audience
+        : null
     })
-    console.log('ROLE:', role)
+    console.log('AUDIENCE:', audience)
   } catch (e) {
     console.error('ERR:', e && e.stack ? e.stack : e)
   } finally {

@@ -13,6 +13,13 @@
       <view class="capability empty" wx:if="{{!capabilities.length}}">当前无展示型能力</view>
     </view>
   </view>
+  <view class="account-switch" bindtap="onSwitchOrganization">
+    <view>
+      <view class="account-switch-title">切换机构账号</view>
+      <view class="account-switch-copy">可以进入同一微信已注册的其他机构账号</view>
+    </view>
+    <t-icon name="chevron-right" size="34rpx" color="#9ac4a5" />
+  </view>
   <view wx:if="{{entryPreviewEnabled}}" class="preview-switch">
     <view class="preview-copy">
       <view class="preview-title">测试界面预览</view>

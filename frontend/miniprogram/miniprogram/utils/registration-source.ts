@@ -1,5 +1,5 @@
 import { parseOrdinaryDeviceLink } from './ordinary-device-link'
-import { normalizeDeviceCode } from './login-registration-source'
+import { normalizeDeviceCode } from './device-code'
 
 function decodeOption(value: string): string | undefined {
   try {
@@ -10,7 +10,7 @@ function decodeOption(value: string): string | undefined {
 }
 
 /**
- * 登录页只把契约规定的设备公开码送往后端。
+ * 小程序入口只把契约规定的设备公开码送往后端。
  *
  * 支持直接页面参数、微信普通链接二维码的 q、纯设备公开码 scene，以及
  * query/URL 形式的 scene。普通链接的域名、路径和 AppID 前缀由微信后台

@@ -104,7 +104,7 @@ public class MerchantBindingApplicationService {
             jdbc.update("""
                     INSERT INTO fund_miniapp_merchant_binding (
                         binding_uid, tenant_id, organization_id,
-                        organization_miniapp_id, appid,
+                        miniapp_channel_id, appid,
                         miniapp_lock_version_snapshot, merchant_profile_id,
                         status, verified_by_platform_admin_id, verified_at,
                         disabled_at, lock_version, created_at, updated_at
@@ -186,9 +186,12 @@ public class MerchantBindingApplicationService {
 
     private Miniapp requiredMiniapp(WebScope scope, boolean lock) {
         List<Miniapp> rows = jdbc.query("""
-                SELECT id, appid, login_enabled, lock_version
-                FROM iam_organization_miniapp
-                WHERE tenant_id = ? AND organization_id = ?
+                SELECT c.id, c.appid, c.login_enabled, c.lock_version
+                FROM iam_organization_miniapp_binding b
+                JOIN iam_miniapp_channel c
+                  ON c.id = b.miniapp_channel_id
+                WHERE b.tenant_id = ? AND b.organization_id = ?
+                  AND b.status = 'ACTIVE'
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new Miniapp(
                         rs.getLong("id"), rs.getString("appid"),
@@ -201,7 +204,7 @@ public class MerchantBindingApplicationService {
 
     private Binding binding(WebScope scope, boolean lock) {
         List<Binding> rows = jdbc.query("""
-                SELECT b.id, b.organization_miniapp_id,
+                SELECT b.id, b.miniapp_channel_id,
                        b.merchant_profile_id, b.status, b.appid,
                        b.miniapp_lock_version_snapshot, b.lock_version,
                        b.verified_at, b.disabled_at, m.mchid
@@ -212,7 +215,7 @@ public class MerchantBindingApplicationService {
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new Binding(
                         rs.getLong("id"),
-                        rs.getLong("organization_miniapp_id"),
+                        rs.getLong("miniapp_channel_id"),
                         rs.getLong("merchant_profile_id"),
                         rs.getString("status"),
                         rs.getString("appid"),
@@ -386,7 +389,7 @@ public class MerchantBindingApplicationService {
             Binding current,
             Miniapp miniapp,
             Merchant merchant) {
-        if (current.organizationMiniappId() != miniapp.id()
+        if (current.miniappChannelId() != miniapp.id()
                 || current.merchantProfileId() != merchant.id()
                 || !Objects.equals(current.appid(), miniapp.appid())) {
             throw new TargetApiException(
@@ -460,7 +463,7 @@ public class MerchantBindingApplicationService {
 
     private record Binding(
             long id,
-            long organizationMiniappId,
+            long miniappChannelId,
             long merchantProfileId,
             String status,
             String appid,

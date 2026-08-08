@@ -10,6 +10,7 @@ public record MiniappConfigurationMetadata(
         String displayName,
         boolean loginEnabled,
         String appSecret,
+        String entryBaseUrl,
         Instant activatedAt,
         long version,
         Instant configuredAt,

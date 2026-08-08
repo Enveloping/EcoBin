@@ -28,6 +28,7 @@ import {
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { formatShanghaiTime } from '@/utils/decimal';
+import { isDeviceEntryBaseUrl } from '@/utils/deviceEntryBaseUrl';
 
 interface OrganizationMiniappConfigurationProps {
   active: boolean;
@@ -39,12 +40,14 @@ interface MiniappDraft {
   appId: string;
   displayName: string;
   appSecret: string;
+  entryBaseUrl: string;
 }
 
 const EMPTY_DRAFT: MiniappDraft = {
   appId: '',
   displayName: '',
   appSecret: '',
+  entryBaseUrl: '',
 };
 
 export default function OrganizationMiniappConfiguration({
@@ -61,6 +64,7 @@ export default function OrganizationMiniappConfiguration({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const platformManaged = context.domain === 'platform';
 
   const loadConfiguration = useCallback(async () => {
     const sequence = ++requestSequence.current;
@@ -77,6 +81,7 @@ export default function OrganizationMiniappConfiguration({
         appId: loaded.appId,
         displayName: loaded.displayName,
         appSecret: '',
+        entryBaseUrl: loaded.entryBaseUrl ?? '',
       });
     } catch (error) {
       if (requestSequence.current !== sequence) return;
@@ -114,8 +119,10 @@ export default function OrganizationMiniappConfiguration({
   };
 
   const saveConfiguration = async () => {
+    if (!platformManaged) return;
     const appId = draft.appId.trim();
     const displayName = draft.displayName.trim();
+    const entryBaseUrl = draft.entryBaseUrl.trim();
     if (!/^wx[0-9A-Za-z]{16}$/.test(appId)) {
       message.warning('AppID 应为 wx 开头的 18 位标识');
       return;
@@ -124,18 +131,19 @@ export default function OrganizationMiniappConfiguration({
       message.warning('请填写小程序展示名称');
       return;
     }
-    if (!configuration?.appSecretConfigured && !draft.appSecret.trim()) {
-      message.warning('当前没有有效 AppSecret，必须填写后才能保存');
-      return;
-    }
     if (draft.appSecret.length > 256) {
       message.warning('AppSecret 不能超过 256 个字符');
+      return;
+    }
+    if (!isDeviceEntryBaseUrl(entryBaseUrl)) {
+      message.warning('设备二维码入口必须是完整 HTTPS 地址，且不能包含账号信息、# 片段或 deviceCode 参数');
       return;
     }
 
     const payload: PutMiniappConfigurationRequest = {
       appId,
       displayName,
+      entryBaseUrl,
       expectedVersion: configuration?.version ?? null,
       ...(draft.appSecret ? { appSecret: draft.appSecret } : {}),
     };
@@ -161,19 +169,19 @@ export default function OrganizationMiniappConfiguration({
   };
 
   const activateConfiguration = () => {
-    if (!configuration || configuration.activated) return;
+    if (!platformManaged || !configuration || configuration.activated) return;
     modal.confirm({
       title: '激活这个 AppID？',
       content: (
         <Space direction="vertical" size={8}>
           <Typography.Text>
-            激活后，机构将永久固定使用 AppID：
+            激活后，该共享小程序渠道将固定使用 AppID：
           </Typography.Text>
           <Typography.Text code copyable>
             {configuration.appId}
           </Typography.Text>
           <Typography.Text type="danger">
-            激活后 AppID 不可修改，但仍可更新展示名称和轮换 AppSecret。
+            同一渠道可以绑定多个机构；激活后 AppID 不可修改，但仍可更新展示名称、入口地址和轮换 AppSecret。
           </Typography.Text>
         </Space>
       ),
@@ -214,13 +222,13 @@ export default function OrganizationMiniappConfiguration({
   };
 
   const toggleLogin = () => {
-    if (!configuration) return;
+    if (!platformManaged || !configuration) return;
     const enabled = !configuration.loginEnabled;
     modal.confirm({
       title: enabled ? '启用小程序身份登录？' : '停用小程序身份登录？',
       content: enabled
-        ? '启用后，该机构的用户可以通过当前 AppID 建立小程序登录身份。'
-        : '停用会立即撤销该机构当前有效的小程序会话，已登录用户需要重新登录。',
+        ? '启用后，所有绑定该共享渠道的机构都可以通过设备公开码建立小程序账号。'
+        : '停用的是整个共享渠道，会立即撤销其所有机构的有效小程序会话。',
       okText: enabled ? '确认启用' : '确认停用',
       okButtonProps: { danger: !enabled },
       cancelText: '取消',
@@ -290,16 +298,24 @@ export default function OrganizationMiniappConfiguration({
         message={
           configuration
             ? configuration.appSecretConfigured
-              ? 'AppSecret 仅在当前编辑窗口内存中短暂显示'
+              ? platformManaged
+                ? '共享小程序渠道由平台统一维护'
+                : '当前机构已绑定共享小程序渠道（只读）'
               : '当前 AppSecret 已失效，需要重新配置'
-            : '尚未配置小程序身份登录'
+            : platformManaged
+              ? '尚未绑定小程序渠道'
+              : '当前机构尚未绑定小程序渠道'
         }
         description={
           configuration
             ? configuration.appSecretConfigured
-              ? '更新配置时 AppSecret 留空即保持不变；不要将完整密钥复制到网址、日志或浏览器存储。'
+              ? platformManaged
+                ? '同一个 AppID 可供多个机构使用；设备公开码决定用户进入哪个机构。AppSecret 仅由平台维护。'
+                : '租户和机构只能查看渠道摘要，不能读取或修改 AppSecret、AppID、入口地址及登录开关。'
               : '旧测试密钥已被清除；请填写新的 AppSecret 后保存，登录才能继续使用。'
-            : '首次保存需要填写 AppID、展示名称和 AppSecret；保存后还需要激活 AppID 并单独启用登录。'
+            : platformManaged
+              ? '平台填写渠道资料后绑定当前机构；相同 AppID 可继续绑定其他机构。'
+              : '请联系平台管理员为当前机构绑定共享小程序渠道。'
         }
       />
 
@@ -332,7 +348,7 @@ export default function OrganizationMiniappConfiguration({
       <Form.Item label="AppID" required>
         <Input
           value={draft.appId}
-          disabled={configuration?.activated || busy}
+          disabled={!platformManaged || configuration?.activated || busy}
           placeholder="wx1234567890abcdef"
           maxLength={18}
           onChange={(event) =>
@@ -346,8 +362,8 @@ export default function OrganizationMiniappConfiguration({
       <Form.Item label="小程序展示名称" required>
         <Input
           value={draft.displayName}
-          disabled={busy}
-          placeholder="用于识别该机构对应的小程序"
+          disabled={!platformManaged || busy}
+          placeholder="用于识别共享小程序渠道"
           maxLength={100}
           onChange={(event) =>
             setDraft((current) => ({
@@ -357,7 +373,25 @@ export default function OrganizationMiniappConfiguration({
           }
         />
       </Form.Item>
-      {configuration?.appSecretConfigured && (
+      <Form.Item
+        label="设备二维码入口"
+        required={platformManaged}
+        extra="后台只会在该 HTTPS 地址后附加 deviceCode；二维码不包含租户、机构或任何密钥。"
+      >
+        <Input
+          value={draft.entryBaseUrl}
+          disabled={!platformManaged || busy}
+          placeholder="https://example.com/device-entry"
+          maxLength={512}
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              entryBaseUrl: event.target.value,
+            }))
+          }
+        />
+      </Form.Item>
+      {platformManaged && configuration?.appSecretConfigured && (
         <Form.Item
           label="当前 AppSecret"
           extra={`服务端脱敏值：${configuration.maskedAppSecret ?? '已配置'}`}
@@ -370,13 +404,15 @@ export default function OrganizationMiniappConfiguration({
           />
         </Form.Item>
       )}
-      <Form.Item
+      {platformManaged && <Form.Item
         label={configuration?.appSecretConfigured ? '轮换 AppSecret' : 'AppSecret'}
-        required={!configuration?.appSecretConfigured}
+        required={Boolean(configuration && !configuration.appSecretConfigured)}
         extra={
           configuration?.appSecretConfigured
             ? '留空表示保持当前密钥不变；输入新值会立即轮换。'
-            : '完整密钥将写入后端秘密设施，不写入业务数据库。'
+            : configuration
+              ? '当前渠道密钥无效，必须重新填写。'
+              : '绑定已有 AppID 时可留空；只有创建全新渠道时才必须填写。'
         }
       >
         <Input.Password
@@ -387,7 +423,7 @@ export default function OrganizationMiniappConfiguration({
           placeholder={
             configuration?.appSecretConfigured
               ? '如需轮换，请输入新的 AppSecret'
-              : '请输入 AppSecret'
+              : '已有渠道可留空，新渠道请输入 AppSecret'
           }
           onChange={(event) =>
             setDraft((current) => ({
@@ -396,9 +432,9 @@ export default function OrganizationMiniappConfiguration({
             }))
           }
         />
-      </Form.Item>
+      </Form.Item>}
 
-      <Space wrap>
+      {platformManaged && <Space wrap>
         <Button
           type="primary"
           htmlType="button"
@@ -427,7 +463,7 @@ export default function OrganizationMiniappConfiguration({
             {configuration.loginEnabled ? '停用身份登录' : '启用身份登录'}
           </Button>
         )}
-      </Space>
+      </Space>}
       {configuration && !configuration.activated && (
         <Typography.Text type="secondary">
           激活仅锁定本地 AppID 配置，不代表微信平台已经完成校验。

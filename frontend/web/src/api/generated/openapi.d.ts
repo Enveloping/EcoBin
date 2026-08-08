@@ -395,13 +395,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the current organization AppID and AppSecret configuration
-         * @description Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.
+         * Read the shared miniapp channel bound to an organization
+         * @description Platform-only privileged read. The same AppID channel may be bound to multiple organizations; only this endpoint may return the full AppSecret.
          */
         get: operations["getPlatformOrganizationMiniappConfiguration"];
         /**
-         * Create or update the organization mini-program configuration
-         * @description The AppID, AppSecret and configuration version are committed in one IAM database transaction. The mutation response only returns a masked secret.
+         * Create, update or bind a shared miniapp channel
+         * @description The AppID identifies a platform channel rather than an organization. Reusing an existing AppID binds that channel to this organization; the mutation response only returns a masked secret.
          */
         put: operations["putPlatformOrganizationMiniappConfiguration"];
         post?: never;
@@ -427,7 +427,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Irreversibly activate the current organization AppID
+         * Irreversibly activate the bound shared-channel AppID
          * @description Activation validates local completeness only. It does not claim that WeChat accepted the credentials.
          */
         post: operations["activatePlatformOrganizationMiniappConfiguration"];
@@ -452,7 +452,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Enable wx.login for an activated organization AppID */
+        /** Enable wx.login for an activated shared miniapp channel */
         post: operations["enablePlatformOrganizationMiniappLogin"];
         delete?: never;
         options?: never;
@@ -475,7 +475,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Disable wx.login and revoke this AppID's live mini-program sessions */
+        /** Disable a shared channel and revoke all of its live mini-program sessions */
         post: operations["disablePlatformOrganizationMiniappLogin"];
         delete?: never;
         options?: never;
@@ -596,79 +596,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the current visible organization's AppID and AppSecret configuration
-         * @description Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.
+         * Read the current visible organization's shared miniapp-channel summary
+         * @description Tenant and organization staff receive a read-only summary. The full AppSecret is always null and mutations are platform-only.
          */
         get: operations["getCurrentTenantOrganizationMiniappConfiguration"];
-        /** Create or update a visible organization's mini-program configuration */
-        put: operations["putCurrentTenantOrganizationMiniappConfiguration"];
+        put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration/activations": {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Irreversibly activate the current visible organization AppID */
-        post: operations["activateCurrentTenantOrganizationMiniappConfiguration"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/web/organizations/{organizationCode}/miniapp-login/enablements": {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Enable wx.login for an activated visible organization AppID */
-        post: operations["enableCurrentTenantOrganizationMiniappLogin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/web/organizations/{organizationCode}/miniapp-login/disablements": {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Disable wx.login and revoke this visible AppID's live mini-program sessions */
-        post: operations["disableCurrentTenantOrganizationMiniappLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1713,6 +1646,80 @@ export interface paths {
         post?: never;
         /** Revoke the current ordinary or cleaning miniapp session */
         delete: operations["deleteCurrentMiniappSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/me/organization-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List safe organization-account summaries for the current WeChat subject
+         * @description This identity-only directory may cross tenant boundaries, but never returns wallet, order or other tenant business data.
+         */
+        get: operations["listCurrentMiniappOrganizationAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp/auth/organization-account-selections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Select one organization account and issue a new single-organization session */
+        post: operations["selectCurrentMiniappOrganizationAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/me/organization-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List safe organization-account summaries while using a management session
+         * @description The management session contributes only its verified WeChat subject identity. The response contains identity summaries and never tenant business data.
+         */
+        get: operations["listCurrentMiniappStaffOrganizationAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-staff/auth/organization-account-selections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Leave a management session and issue a single-organization user session */
+        post: operations["selectCurrentMiniappStaffOrganizationAccount"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4985,6 +4992,11 @@ export interface components {
             displayName: string;
             /** @description Required for initial configuration and optional for later secret rotation. Blank values are invalid. */
             appSecret?: string;
+            /**
+             * Format: uri
+             * @description HTTPS base URL used to derive an ordinary device entry URL. It must have a host and must not contain user info, a fragment, or an existing deviceCode query parameter.
+             */
+            entryBaseUrl?: string;
             /** @description Omit or send null only when the organization has no mini-program configuration yet. */
             expectedVersion?: components["schemas"]["ExpectedVersion"] | null;
         };
@@ -4995,6 +5007,7 @@ export interface components {
             readonly appSecret: string | null;
             appSecretConfigured: boolean;
             maskedAppSecret: string | null;
+            entryBaseUrl: string | null;
             activated: boolean;
             loginEnabled: boolean;
             version: components["schemas"]["ExpectedVersion"];
@@ -5007,6 +5020,7 @@ export interface components {
             displayName: string;
             appSecretConfigured: boolean;
             maskedAppSecret: string | null;
+            entryBaseUrl: string | null;
             activated: boolean;
             loginEnabled: boolean;
             version: components["schemas"]["ExpectedVersion"];
@@ -5222,7 +5236,7 @@ export interface components {
             data: components["schemas"]["WebSession"];
             requestId: string;
         };
-        /** @description Optional immutable first-registration attribution extracted from the deviceCode carried by the device QR link. The mini-program sends its own runtime AppID and only the public deviceCode; the server derives the permanent tenant and organization from the asset and verifies that the AppID belongs to that organization. */
+        /** @description Optional device selection extracted from the public device QR link. The runtime AppID identifies only the shared miniapp channel; deviceCode selects the permanently assigned organization and may create or select that organization's account. */
         RegistrationSource: {
             deviceCode: components["schemas"]["DeviceCode"];
         };
@@ -5255,6 +5269,7 @@ export interface components {
             expiresAt: components["schemas"]["UtcTimestamp"];
             organization: components["schemas"]["OrganizationSummary"];
             subjectUid: components["schemas"]["PublicUid"];
+            organizationUserUid: components["schemas"]["PublicUid"];
             displayName: string;
             capabilities: string[];
             phoneBound: boolean;
@@ -5268,9 +5283,29 @@ export interface components {
             expiresAt: components["schemas"]["UtcTimestamp"];
             organization: components["schemas"]["OrganizationSummary"];
             subjectUid: components["schemas"]["PublicUid"];
+            organizationUserUid: components["schemas"]["PublicUid"];
             displayName: string;
             capabilities: string[];
             phoneBound: boolean;
+        };
+        OrganizationAccountSummary: {
+            organizationUserUid: components["schemas"]["PublicUid"];
+            organization: components["schemas"]["OrganizationSummary"];
+            registeredAt: components["schemas"]["UtcTimestamp"];
+            selected: boolean;
+            phoneBound: boolean;
+        };
+        OrganizationAccountList: {
+            accounts: components["schemas"]["OrganizationAccountSummary"][];
+        };
+        OrganizationAccountSelectionRequest: {
+            organizationUserUid: components["schemas"]["PublicUid"];
+        };
+        OrganizationAccountListEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["OrganizationAccountList"];
+            requestId: string;
         };
         MiniappSessionCreatedEnvelope: {
             /** @constant */
@@ -6986,8 +7021,6 @@ export interface components {
         DeviceAssetLifecycleStatus: "NORMAL" | "DISABLED" | "RETIRED";
         /** @enum {string} */
         DeviceAcceptanceStatus: "PENDING" | "FAILED" | "PASSED";
-        /** @enum {string} */
-        DeviceMiniappQrStatus: "NOT_ASSIGNED" | "PENDING" | "READY" | "FAILED";
         FactoryInstalledBagInput: {
             portNo: number;
             bagCode: string;
@@ -7015,7 +7048,11 @@ export interface components {
             tenantCode: string | null;
             organizationCode: string | null;
             acceptanceStatus: components["schemas"]["DeviceAcceptanceStatus"];
-            miniappQrStatus: components["schemas"]["DeviceMiniappQrStatus"];
+            /**
+             * Format: uri
+             * @description Derived ordinary HTTPS miniapp entry containing only the full public deviceCode as its business query parameter.
+             */
+            deviceEntryUrl: string | null;
             lifecycleStatus: components["schemas"]["DeviceAssetLifecycleStatus"];
             version: components["schemas"]["ExpectedVersion"];
             /** Format: date-time */
@@ -7142,7 +7179,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description Current organization mini-program configuration including the authorized full AppSecret */
+        /** @description Shared miniapp-channel configuration; the full AppSecret is populated only for a platform-authorized read */
         MiniappConfigurationOk: {
             headers: {
                 "Cache-Control": components["headers"]["NoStore"];
@@ -7229,6 +7266,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["MiniappSessionViewEnvelope"];
+            };
+        };
+        /** @description Safe organization-account summaries owned by the current WeChat subject */
+        MiniappOrganizationAccountList: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["OrganizationAccountListEnvelope"];
             };
         };
         /** @description The current organization user phone-binding safety projection */
@@ -8604,113 +8652,6 @@ export interface operations {
             503: components["responses"]["DependencyUnavailable"];
         };
     };
-    putCurrentTenantOrganizationMiniappConfiguration: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PutMiniappConfigurationRequest"];
-            };
-        };
-        responses: {
-            200: components["responses"]["MiniappConfigurationMutationOk"];
-            400: components["responses"]["InvalidRequest"];
-            401: components["responses"]["UnauthorizedProblem"];
-            403: components["responses"]["ForbiddenProblem"];
-            404: components["responses"]["NotFoundProblem"];
-            409: components["responses"]["ConflictProblem"];
-            422: components["responses"]["BusinessRuleProblem"];
-            503: components["responses"]["DependencyUnavailable"];
-        };
-    };
-    activateCurrentTenantOrganizationMiniappConfiguration: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VersionCommand"];
-            };
-        };
-        responses: {
-            200: components["responses"]["MiniappConfigurationMutationOk"];
-            401: components["responses"]["UnauthorizedProblem"];
-            403: components["responses"]["ForbiddenProblem"];
-            404: components["responses"]["NotFoundProblem"];
-            409: components["responses"]["ConflictProblem"];
-            503: components["responses"]["DependencyUnavailable"];
-        };
-    };
-    enableCurrentTenantOrganizationMiniappLogin: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VersionCommand"];
-            };
-        };
-        responses: {
-            200: components["responses"]["MiniappConfigurationMutationOk"];
-            401: components["responses"]["UnauthorizedProblem"];
-            403: components["responses"]["ForbiddenProblem"];
-            404: components["responses"]["NotFoundProblem"];
-            409: components["responses"]["ConflictProblem"];
-            422: components["responses"]["BusinessRuleProblem"];
-            503: components["responses"]["DependencyUnavailable"];
-        };
-    };
-    disableCurrentTenantOrganizationMiniappLogin: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                organizationCode: components["parameters"]["OrganizationCode"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VersionCommand"];
-            };
-        };
-        responses: {
-            200: components["responses"]["MiniappConfigurationMutationOk"];
-            401: components["responses"]["UnauthorizedProblem"];
-            403: components["responses"]["ForbiddenProblem"];
-            404: components["responses"]["NotFoundProblem"];
-            409: components["responses"]["ConflictProblem"];
-            503: components["responses"]["DependencyUnavailable"];
-        };
-    };
     listPlatformStaffAccounts: {
         parameters: {
             query?: {
@@ -10082,6 +10023,82 @@ export interface operations {
         responses: {
             204: components["responses"]["NoContent"];
             401: components["responses"]["UnauthorizedProblem"];
+        };
+    };
+    listCurrentMiniappOrganizationAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappOrganizationAccountList"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    selectCurrentMiniappOrganizationAccount: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationAccountSelectionRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappSessionCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listCurrentMiniappStaffOrganizationAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["MiniappOrganizationAccountList"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    selectCurrentMiniappStaffOrganizationAccount: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationAccountSelectionRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["MiniappSessionCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     bindCurrentMiniappUserPhone: {

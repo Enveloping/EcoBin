@@ -21,10 +21,13 @@ import {
 } from 'antd';
 import {
   CloudSyncOutlined,
+  DownloadOutlined,
   EditOutlined,
+  QrcodeOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
+import QRCode from 'qrcode';
 import {
   getDeviceConfigurationVersion,
   listDeviceAcceptanceEvidence,
@@ -205,6 +208,8 @@ export default function DeviceAssetDrawer({
   const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reevaluating, setReevaluating] = useState(false);
+  const [entryQrDataUrl, setEntryQrDataUrl] = useState<string>();
+  const [entryQrError, setEntryQrError] = useState(false);
 
   const canConfigure = mode === 'organization'
     && Boolean(asset && organizationCode);
@@ -257,6 +262,37 @@ export default function DeviceAssetDrawer({
     // The stable identities below intentionally define a new drawer target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, asset?.hardwareSn, asset?.deviceCode, organizationCode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEntryQrDataUrl(undefined);
+    setEntryQrError(false);
+    if (!open || !asset?.deviceEntryUrl) return () => undefined;
+    void QRCode.toDataURL(asset.deviceEntryUrl, {
+      width: 360,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#142318', light: '#ffffff' },
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setEntryQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setEntryQrError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, asset?.deviceEntryUrl]);
+
+  const downloadEntryQr = () => {
+    if (!asset || !entryQrDataUrl) return;
+    const safeName = asset.hardwareSn.replace(/[^0-9A-Za-z_-]/g, '_');
+    const link = document.createElement('a');
+    link.href = entryQrDataUrl;
+    link.download = `ecobin-device-${safeName}.png`;
+    link.click();
+  };
 
   const actionButtons = useMemo(() => {
     if (!asset) return null;
@@ -405,8 +441,46 @@ export default function DeviceAssetDrawer({
                 <Descriptions.Item label="投口数量">
                   {asset.expectedPortCount}
                 </Descriptions.Item>
-                <Descriptions.Item label="二维码">
-                  {asset.miniappQrStatus}
+                <Descriptions.Item label="小程序入口" span={2}>
+                  {asset.deviceEntryUrl ? (
+                    <Space direction="vertical" size={12}>
+                      <Typography.Text copyable={{ text: asset.deviceEntryUrl }}>
+                        {asset.deviceEntryUrl}
+                      </Typography.Text>
+                      {entryQrError ? (
+                        <Typography.Text type="danger">
+                          二维码生成失败，请刷新页面重试
+                        </Typography.Text>
+                      ) : entryQrDataUrl ? (
+                        <Space align="end" size={16}>
+                          <img
+                            src={entryQrDataUrl}
+                            width={160}
+                            height={160}
+                            alt={`${asset.hardwareSn} 设备入口二维码`}
+                            style={{ border: '1px solid #edf0ed', borderRadius: 8 }}
+                          />
+                          <Button
+                            icon={<DownloadOutlined />}
+                            onClick={downloadEntryQr}
+                          >
+                            下载二维码
+                          </Button>
+                        </Space>
+                      ) : (
+                        <Space>
+                          <QrcodeOutlined />
+                          <Typography.Text type="secondary">
+                            正在本地生成二维码…
+                          </Typography.Text>
+                        </Space>
+                      )}
+                    </Space>
+                  ) : (
+                    <Typography.Text type="secondary">
+                      机构尚未绑定可用小程序渠道，暂不能生成入口二维码
+                    </Typography.Text>
+                  )}
                 </Descriptions.Item>
                 <Descriptions.Item label="OneNet 设备名" span={2}>
                   {asset.oneNetMapping.deviceName}

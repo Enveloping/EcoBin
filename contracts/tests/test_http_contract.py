@@ -559,25 +559,39 @@ class HttpContractTests(unittest.TestCase):
             "/miniapp-login/enablements": {"post"},
             "/miniapp-login/disablements": {"post"},
         }
-        prefixes = (
-            (
-                "/api/v1/web/platform/tenants/{tenantCode}"
-                "/organizations/{organizationCode}"
-            ),
-            "/api/v1/web/organizations/{organizationCode}",
+        platform_prefix = (
+            "/api/v1/web/platform/tenants/{tenantCode}"
+            "/organizations/{organizationCode}"
         )
-        for prefix in prefixes:
-            for suffix, methods in suffixes.items():
-                path = prefix + suffix
-                self.assertIn(path, paths)
-                self.assertEqual(
-                    methods,
-                    {
-                        method
-                        for method in paths[path]
-                        if method in {"get", "put", "post", "delete", "patch"}
-                    },
-                )
+        for suffix, methods in suffixes.items():
+            path = platform_prefix + suffix
+            self.assertIn(path, paths)
+            self.assertEqual(
+                methods,
+                {
+                    method
+                    for method in paths[path]
+                    if method in {"get", "put", "post", "delete", "patch"}
+                },
+            )
+
+        tenant_prefix = "/api/v1/web/organizations/{organizationCode}"
+        tenant_read_path = tenant_prefix + "/miniapp-configuration"
+        self.assertIn(tenant_read_path, paths)
+        self.assertEqual(
+            {"get"},
+            {
+                method
+                for method in paths[tenant_read_path]
+                if method in {"get", "put", "post", "delete", "patch"}
+            },
+        )
+        for suffix in (
+            "/miniapp-configuration/activations",
+            "/miniapp-login/enablements",
+            "/miniapp-login/disablements",
+        ):
+            self.assertNotIn(tenant_prefix + suffix, paths)
 
         schemas = document["components"]["schemas"]
         request_secret = schemas["PutMiniappConfigurationRequest"][

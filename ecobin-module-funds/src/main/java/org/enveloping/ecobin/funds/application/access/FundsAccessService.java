@@ -67,7 +67,8 @@ public class FundsAccessService {
         return new MiniappScope(
                 actor.tenantId(), actor.tenantCode(),
                 actor.organizationId(), actor.organizationCode(),
-                actor.organizationMiniappId(), actor.appid(),
+                actor.miniappChannelId(), actor.appid(),
+                actor.wechatSubjectId(),
                 actor.organizationUserId(), actor.organizationUserUid(),
                 actor.sessionUid(), actor.displayName());
     }
@@ -82,14 +83,14 @@ public class FundsAccessService {
     public boolean lockWithdrawalTransferIdentity(
             long tenantId,
             long organizationId,
-            long organizationMiniappId,
+            long miniappChannelId,
             String appid,
             long organizationUserId,
             String openid) {
         return identity.lockWithdrawalTransferIdentity(
                 new WithdrawalTransferIdentity(
                         tenantId, organizationId,
-                        organizationMiniappId, appid,
+                        miniappChannelId, appid,
                         organizationUserId, openid));
     }
 
@@ -121,8 +122,9 @@ public class FundsAccessService {
             String tenantCode,
             long organizationId,
             String organizationCode,
-            long organizationMiniappId,
+            long miniappChannelId,
             String appid,
+            long wechatSubjectId,
             long organizationUserId,
             UUID organizationUserUid,
             UUID sessionUid,

@@ -615,8 +615,8 @@
       "get": {
         "operationId": "getPlatformOrganizationMiniappConfiguration",
         "tags": ["Identity directory"],
-        "summary": "Read the current organization AppID and AppSecret configuration",
-        "description": "Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.",
+        "summary": "Read the shared miniapp channel bound to an organization",
+        "description": "Platform-only privileged read. The same AppID channel may be bound to multiple organizations; only this endpoint may return the full AppSecret.",
         "security": [{"webSessionCookie": []}],
         "responses": {
           "200": {"$ref": "#/components/responses/MiniappConfigurationOk"},
@@ -629,8 +629,8 @@
       "put": {
         "operationId": "putPlatformOrganizationMiniappConfiguration",
         "tags": ["Identity directory"],
-        "summary": "Create or update the organization mini-program configuration",
-        "description": "The AppID, AppSecret and configuration version are committed in one IAM database transaction. The mutation response only returns a masked secret.",
+        "summary": "Create, update or bind a shared miniapp channel",
+        "description": "The AppID identifies a platform channel rather than an organization. Reusing an existing AppID binds that channel to this organization; the mutation response only returns a masked secret.",
         "security": [{"webSessionCookie": [], "webCsrfToken": []}],
         "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {
@@ -658,7 +658,7 @@
       "post": {
         "operationId": "activatePlatformOrganizationMiniappConfiguration",
         "tags": ["Identity directory"],
-        "summary": "Irreversibly activate the current organization AppID",
+        "summary": "Irreversibly activate the bound shared-channel AppID",
         "description": "Activation validates local completeness only. It does not claim that WeChat accepted the credentials.",
         "security": [{"webSessionCookie": [], "webCsrfToken": []}],
         "requestBody": {
@@ -684,7 +684,7 @@
       "post": {
         "operationId": "enablePlatformOrganizationMiniappLogin",
         "tags": ["Identity directory"],
-        "summary": "Enable wx.login for an activated organization AppID",
+        "summary": "Enable wx.login for an activated shared miniapp channel",
         "security": [{"webSessionCookie": [], "webCsrfToken": []}],
         "requestBody": {
           "required": true,
@@ -710,7 +710,7 @@
       "post": {
         "operationId": "disablePlatformOrganizationMiniappLogin",
         "tags": ["Identity directory"],
-        "summary": "Disable wx.login and revoke this AppID's live mini-program sessions",
+        "summary": "Disable a shared channel and revoke all of its live mini-program sessions",
         "security": [{"webSessionCookie": [], "webCsrfToken": []}],
         "requestBody": {
           "required": true,
@@ -851,108 +851,14 @@
       "get": {
         "operationId": "getCurrentTenantOrganizationMiniappConfiguration",
         "tags": ["Identity directory"],
-        "summary": "Read the current visible organization's AppID and AppSecret configuration",
-        "description": "Requires miniapp.manage. The full AppSecret is returned only by this no-store privileged read.",
+        "summary": "Read the current visible organization's shared miniapp-channel summary",
+        "description": "Tenant and organization staff receive a read-only summary. The full AppSecret is always null and mutations are platform-only.",
         "security": [{"webSessionCookie": []}],
         "responses": {
           "200": {"$ref": "#/components/responses/MiniappConfigurationOk"},
           "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
           "403": {"$ref": "#/components/responses/ForbiddenProblem"},
           "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
-        }
-      },
-      "put": {
-        "operationId": "putCurrentTenantOrganizationMiniappConfiguration",
-        "tags": ["Identity directory"],
-        "summary": "Create or update a visible organization's mini-program configuration",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PutMiniappConfigurationRequest"}}}
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
-          "400": {"$ref": "#/components/responses/InvalidRequest"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
-          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
-        }
-      }
-    },
-    "/api/v1/web/organizations/{organizationCode}/miniapp-configuration/activations": {
-      "parameters": [
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/IdempotencyKey"}
-      ],
-      "post": {
-        "operationId": "activateCurrentTenantOrganizationMiniappConfiguration",
-        "tags": ["Identity directory"],
-        "summary": "Irreversibly activate the current visible organization AppID",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
-        }
-      }
-    },
-    "/api/v1/web/organizations/{organizationCode}/miniapp-login/enablements": {
-      "parameters": [
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/IdempotencyKey"}
-      ],
-      "post": {
-        "operationId": "enableCurrentTenantOrganizationMiniappLogin",
-        "tags": ["Identity directory"],
-        "summary": "Enable wx.login for an activated visible organization AppID",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
-          "422": {"$ref": "#/components/responses/BusinessRuleProblem"},
-          "503": {"$ref": "#/components/responses/DependencyUnavailable"}
-        }
-      }
-    },
-    "/api/v1/web/organizations/{organizationCode}/miniapp-login/disablements": {
-      "parameters": [
-        {"$ref": "#/components/parameters/OrganizationCode"},
-        {"$ref": "#/components/parameters/IdempotencyKey"}
-      ],
-      "post": {
-        "operationId": "disableCurrentTenantOrganizationMiniappLogin",
-        "tags": ["Identity directory"],
-        "summary": "Disable wx.login and revoke this visible AppID's live mini-program sessions",
-        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VersionCommand"}}}
-        },
-        "responses": {
-          "200": {"$ref": "#/components/responses/MiniappConfigurationMutationOk"},
-          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
-          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
-          "404": {"$ref": "#/components/responses/NotFoundProblem"},
-          "409": {"$ref": "#/components/responses/ConflictProblem"},
           "503": {"$ref": "#/components/responses/DependencyUnavailable"}
         }
       }
@@ -2339,6 +2245,84 @@
           "401": {
             "$ref": "#/components/responses/UnauthorizedProblem"
           }
+        }
+      }
+    },
+    "/api/v1/miniapp/me/organization-accounts": {
+      "get": {
+        "operationId": "listCurrentMiniappOrganizationAccounts",
+        "tags": ["Miniapp authentication"],
+        "summary": "List safe organization-account summaries for the current WeChat subject",
+        "description": "This identity-only directory may cross tenant boundaries, but never returns wallet, order or other tenant business data.",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappOrganizationAccountList"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp/auth/organization-account-selections": {
+      "post": {
+        "operationId": "selectCurrentMiniappOrganizationAccount",
+        "tags": ["Miniapp authentication"],
+        "summary": "Select one organization account and issue a new single-organization session",
+        "security": [{"miniappBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/OrganizationAccountSelectionRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappSessionCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp-staff/me/organization-accounts": {
+      "get": {
+        "operationId": "listCurrentMiniappStaffOrganizationAccounts",
+        "tags": ["Miniapp authentication"],
+        "summary": "List safe organization-account summaries while using a management session",
+        "description": "The management session contributes only its verified WeChat subject identity. The response contains identity summaries and never tenant business data.",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappOrganizationAccountList"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
+    "/api/v1/miniapp-staff/auth/organization-account-selections": {
+      "post": {
+        "operationId": "selectCurrentMiniappStaffOrganizationAccount",
+        "tags": ["Miniapp authentication"],
+        "summary": "Leave a management session and issue a single-organization user session",
+        "security": [{"miniappBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/OrganizationAccountSelectionRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/MiniappSessionCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
         }
       }
     },
@@ -5342,7 +5326,7 @@
     },
     "responses": {
       "MiniappConfigurationOk": {
-        "description": "Current organization mini-program configuration including the authorized full AppSecret",
+        "description": "Shared miniapp-channel configuration; the full AppSecret is populated only for a platform-authorized read",
         "headers": {
           "Cache-Control": {"$ref": "#/components/headers/NoStore"},
           "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
@@ -5473,6 +5457,18 @@
             "schema": {
               "$ref": "#/components/schemas/MiniappSessionViewEnvelope"
             }
+          }
+        }
+      },
+      "MiniappOrganizationAccountList": {
+        "description": "Safe organization-account summaries owned by the current WeChat subject",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/OrganizationAccountListEnvelope"}
           }
         }
       },
@@ -7886,6 +7882,13 @@
             "writeOnly": true,
             "description": "Required for initial configuration and optional for later secret rotation. Blank values are invalid."
           },
+          "entryBaseUrl": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://[^#]+$",
+            "maxLength": 512,
+            "description": "HTTPS base URL used to derive an ordinary device entry URL. It must have a host and must not contain user info, a fragment, or an existing deviceCode query parameter."
+          },
           "expectedVersion": {
             "oneOf": [
               {"$ref": "#/components/schemas/ExpectedVersion"},
@@ -7904,6 +7907,7 @@
           "appSecret",
           "appSecretConfigured",
           "maskedAppSecret",
+          "entryBaseUrl",
           "activated",
           "loginEnabled",
           "version",
@@ -7946,6 +7950,12 @@
               {"type": "null"}
             ]
           },
+          "entryBaseUrl": {
+            "oneOf": [
+              {"type": "string", "format": "uri", "maxLength": 512},
+              {"type": "null"}
+            ]
+          },
           "activated": {"type": "boolean"},
           "loginEnabled": {"type": "boolean"},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
@@ -7967,6 +7977,7 @@
           "displayName",
           "appSecretConfigured",
           "maskedAppSecret",
+          "entryBaseUrl",
           "activated",
           "loginEnabled",
           "version",
@@ -7994,6 +8005,12 @@
                 "minLength": 1,
                 "maxLength": 24
               },
+              {"type": "null"}
+            ]
+          },
+          "entryBaseUrl": {
+            "oneOf": [
+              {"type": "string", "format": "uri", "maxLength": 512},
               {"type": "null"}
             ]
           },
@@ -8683,7 +8700,7 @@
       },
       "RegistrationSource": {
         "type": "object",
-        "description": "Optional immutable first-registration attribution extracted from the deviceCode carried by the device QR link. The mini-program sends its own runtime AppID and only the public deviceCode; the server derives the permanent tenant and organization from the asset and verifies that the AppID belongs to that organization.",
+        "description": "Optional device selection extracted from the public device QR link. The runtime AppID identifies only the shared miniapp channel; deviceCode selects the permanently assigned organization and may create or select that organization's account.",
         "additionalProperties": false,
         "required": [
           "deviceCode"
@@ -8769,6 +8786,7 @@
           "expiresAt",
           "organization",
           "subjectUid",
+          "organizationUserUid",
           "displayName",
           "capabilities",
           "phoneBound",
@@ -8809,6 +8827,9 @@
           "subjectUid": {
             "$ref": "#/components/schemas/PublicUid"
           },
+          "organizationUserUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
           "displayName": {
             "type": "string",
             "minLength": 1,
@@ -8839,6 +8860,7 @@
           "expiresAt",
           "organization",
           "subjectUid",
+          "organizationUserUid",
           "displayName",
           "capabilities",
           "phoneBound"
@@ -8868,6 +8890,9 @@
           "subjectUid": {
             "$ref": "#/components/schemas/PublicUid"
           },
+          "organizationUserUid": {
+            "$ref": "#/components/schemas/PublicUid"
+          },
           "displayName": {
             "type": "string",
             "minLength": 1,
@@ -8884,6 +8909,53 @@
           "phoneBound": {
             "type": "boolean"
           }
+        }
+      },
+      "OrganizationAccountSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "organizationUserUid",
+          "organization",
+          "registeredAt",
+          "selected",
+          "phoneBound"
+        ],
+        "properties": {
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "organization": {"$ref": "#/components/schemas/OrganizationSummary"},
+          "registeredAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "selected": {"type": "boolean"},
+          "phoneBound": {"type": "boolean"}
+        }
+      },
+      "OrganizationAccountList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["accounts"],
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/OrganizationAccountSummary"}
+          }
+        }
+      },
+      "OrganizationAccountSelectionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["organizationUserUid"],
+        "properties": {
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"}
+        }
+      },
+      "OrganizationAccountListEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/OrganizationAccountList"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },
       "MiniappSessionCreatedEnvelope": {
@@ -11512,16 +11584,6 @@
         ]
       }
 ,
-      "DeviceMiniappQrStatus": {
-        "type": "string",
-        "enum": [
-          "NOT_ASSIGNED",
-          "PENDING",
-          "READY",
-          "FAILED"
-        ]
-      }
-,
       "FactoryInstalledBagInput": {
         "type": "object",
         "additionalProperties": false,
@@ -11622,7 +11684,7 @@
           "tenantCode",
           "organizationCode",
           "acceptanceStatus",
-          "miniappQrStatus",
+          "deviceEntryUrl",
           "lifecycleStatus",
           "version",
           "tenantAssignedAt",
@@ -11674,8 +11736,10 @@
           "acceptanceStatus": {
             "$ref": "#/components/schemas/DeviceAcceptanceStatus"
           },
-          "miniappQrStatus": {
-            "$ref": "#/components/schemas/DeviceMiniappQrStatus"
+          "deviceEntryUrl": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "description": "Derived ordinary HTTPS miniapp entry containing only the full public deviceCode as its business query parameter."
           },
           "lifecycleStatus": {
             "$ref": "#/components/schemas/DeviceAssetLifecycleStatus"

@@ -2,17 +2,17 @@ package org.enveloping.ecobin.identity.application.miniapp;
 
 import org.enveloping.ecobin.framework.context.TrustedAudience;
 import org.enveloping.ecobin.framework.security.JwtTokenProvider;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.command.OrganizationUserRegistrationCommand;
 import org.enveloping.ecobin.identity.api.id.OrganizationUid;
 import org.enveloping.ecobin.identity.api.id.OrganizationUserUid;
 import org.enveloping.ecobin.identity.api.id.TenantUid;
-import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationParticipant;
+import org.enveloping.ecobin.identity.api.persistence.OrganizationUserRegistrationAttributionRef;
 import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationAttributionPort;
 import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationAttributionPort.RegistrationAttributionQuery;
-import org.enveloping.ecobin.identity.api.persistence.OrganizationUserRegistrationAttributionRef;
+import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationParticipant;
 import org.enveloping.ecobin.identity.application.miniapp.TargetMiniappLoginService.MiniappConfiguration;
 import org.enveloping.ecobin.identity.application.persistence.OrganizationUserWalletOwnerRefFactory;
-import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.MiniappSessionCreated;
 import org.enveloping.ecobin.identity.web.v1.miniapp.MiniappModels.OrganizationSummary;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,14 +29,17 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * 共享小程序渠道的登录事务。
+ *
+ * <p>AppID 只定位微信渠道；只有设备公开码可以为新微信主体选择机构并创建账号。
+ * 未携带设备码时，本事务只允许选择已有账号，不会隐式创建主体、账号或钱包。</p>
+ */
 @Service
 public class TargetMiniappLoginTransactionService {
 
@@ -68,9 +71,9 @@ public class TargetMiniappLoginTransactionService {
 
     @Transactional(readOnly = true)
     public MiniappConfiguration readEnabledConfiguration(String appId) {
-        MiniappRow row = configurationByAppId(appId, false);
-        requireEnabled(row);
-        return new MiniappConfiguration(row.appId(), row.appSecret());
+        MiniappChannelRow channel = channelByAppId(appId, false);
+        requireEnabled(channel);
+        return new MiniappConfiguration(channel.appId(), channel.appSecret());
     }
 
     @Transactional(
@@ -80,51 +83,73 @@ public class TargetMiniappLoginTransactionService {
             String appId,
             String openid,
             String deviceCode) {
-        MiniappRow candidate = configurationByAppId(appId, false);
-        lockTenant(candidate.tenantId());
-        lockOrganization(candidate.tenantId(), candidate.organizationId());
-        MiniappRow configuration = configurationByAppId(appId, true);
-        requireEnabled(configuration);
+        MiniappChannelRow channel = channelByAppId(appId, true);
+        requireEnabled(channel);
 
-        OrganizationUserRegistrationAttributionRef assetRef = null;
+        LoginSelection selection;
+        boolean newRegistration = false;
         if (deviceCode != null && !deviceCode.isBlank()) {
-            assetRef = assetLookup.resolve(
-                            new RegistrationAttributionQuery(
-                                    deviceCode.trim(),
-                                    configuration.tenantCode(),
-                                    configuration.organizationCode()))
-                    .map(OrganizationUserRegistrationAttributionPort
-                            .ResolvedRegistrationAttribution::persistenceRef)
-                    .orElseThrow(() -> new TargetApiException(
-                            422,
-                            "IDENTITY.REGISTRATION_SOURCE_INVALID",
-                            "注册来源设备无效或不属于当前机构"));
+            ResolvedAsset resolved = resolveAsset(
+                    deviceCode.trim(), channel.appId());
+            lockTenant(resolved.tenantId());
+            lockOrganization(resolved.tenantId(), resolved.organizationId());
+            OrganizationScope scope = organizationScope(
+                    resolved.tenantId(),
+                    resolved.organizationId(),
+                    channel.id(),
+                    true);
+            requireAvailable(scope);
+
+            WechatSubjectRow subject = findOrCreateSubject(
+                    channel.id(), openid);
+            requireSubjectActive(subject);
+            OrganizationUserRow user = organizationUser(
+                    subject.id(), scope.tenantId(), scope.organizationId(), true);
+            if (user == null) {
+                user = createOrganizationUser(
+                        channel, subject, scope, resolved);
+                initializeWallet(scope, user);
+                newRegistration = true;
+            }
+            selection = new LoginSelection(subject, scope, user);
+        } else {
+            WechatSubjectRow subject = wechatSubject(
+                    channel.id(), openid, true);
+            if (subject == null) {
+                throw new TargetApiException(
+                        422,
+                        "IDENTITY.DEVICE_REGISTRATION_REQUIRED",
+                        "首次使用必须扫描设备二维码");
+            }
+            requireSubjectActive(subject);
+            selection = newestAvailableAccount(channel.id(), subject);
+            if (selection == null) {
+                throw new TargetApiException(
+                        403,
+                        "IDENTITY.ORGANIZATION_ACCOUNT_UNAVAILABLE",
+                        "当前微信身份没有可用的机构账号");
+            }
         }
 
-        OrganizationUserRow user = organizationUser(
-                configuration.miniappId(), openid, true);
-        boolean newRegistration = user == null;
-        if (newRegistration) {
-            user = createOrganizationUser(
-                    configuration, openid, assetRef);
-            registrationParticipant.initializeWallet(
-                    new OrganizationUserRegistrationCommand(
-                            new TenantUid(stableUid(
-                                    "tenant", configuration.tenantCode())),
-                            new OrganizationUid(stableUid(
-                                    "organization",
-                                    configuration.tenantCode()
-                                            + ":" + configuration.organizationCode())),
-                            new OrganizationUserUid(user.uid()),
-                            user.registeredAt(),
-                            walletOwnerRefFactory.issue(
-                                    configuration.tenantId(),
-                                    configuration.organizationId(),
-                                    user.id())));
+        if (!"ACTIVE".equals(selection.user().status())) {
+            throw new TargetApiException(
+                    403,
+                    "IDENTITY.ORGANIZATION_USER_FROZEN",
+                    "机构用户当前已冻结");
         }
+        return issueSession(channel, selection, newRegistration, null);
+    }
 
-        ManagementBinding management = managementBinding(
-                configuration, user);
+    MiniappSessionCreated issueSession(
+            MiniappChannelRow channel,
+            LoginSelection selection,
+            boolean newRegistration,
+            UUID selectionOperationUid) {
+        OrganizationScope scope = selection.scope();
+        OrganizationUserRow user = selection.user();
+        ManagementBinding management = selectionOperationUid == null
+                ? managementBinding(channel.id(), scope, user)
+                : null;
         Instant issuedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         Instant expiresAt = issuedAt.plus(sessionDuration);
         UUID sessionUid = UUID.randomUUID();
@@ -134,7 +159,7 @@ public class TargetMiniappLoginTransactionService {
                             INSERT INTO iam_staff_login_session (
                                 session_uid, tenant_id, staff_account_id,
                                 client_kind, staff_miniapp_binding_id,
-                                organization_miniapp_id,
+                                miniapp_channel_id,
                                 active_organization_id,
                                 issued_at, expires_at, revoked_at,
                                 revocation_reason, login_ip,
@@ -146,11 +171,11 @@ public class TargetMiniappLoginTransactionService {
                             )
                             """,
                     sessionUid.toString(),
-                    configuration.tenantId(),
+                    scope.tenantId(),
                     management.staffId(),
                     management.bindingId(),
-                    configuration.miniappId(),
-                    configuration.organizationId(),
+                    channel.id(),
+                    scope.organizationId(),
                     timestamp(issuedAt),
                     timestamp(expiresAt),
                     management.staffAuthVersion(),
@@ -166,24 +191,17 @@ public class TargetMiniappLoginTransactionService {
                     "miniapp-staff",
                     "MANAGEMENT",
                     expiresAt,
-                    configuration,
-                    management.staffUid(),
+                    scope,
+                    selection.subject().uid(),
+                    user.uid(),
                     management.displayName(),
                     management.capabilities(),
                     true,
                     newRegistration);
         }
 
-        if (!"ACTIVE".equals(user.status())) {
-            throw new TargetApiException(
-                    403,
-                    "IDENTITY.ORGANIZATION_USER_FROZEN",
-                    "机构用户当前已冻结");
-        }
         boolean cleaner = hasCleanerCapability(
-                configuration.tenantId(),
-                configuration.organizationId(),
-                user.id());
+                scope.tenantId(), scope.organizationId(), user.id());
         String entryMode = cleaner ? "CLEANING" : "USER";
         List<String> capabilities = cleaner
                 ? List.of("clean.operation")
@@ -191,21 +209,25 @@ public class TargetMiniappLoginTransactionService {
         jdbc.update("""
                         INSERT INTO iam_organization_user_session (
                             session_uid, tenant_id, organization_id,
-                            organization_miniapp_id, organization_user_id,
+                            miniapp_channel_id, wechat_subject_id,
+                            organization_user_id, selection_operation_uid,
                             issued_at, expires_at, revoked_at,
                             revocation_reason, login_ip,
                             user_agent_sha256, auth_version_snapshot,
                             created_at
                         ) VALUES (
-                            ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, NULL, NULL, NULL, NULL, ?, ?
                         )
                         """,
                 sessionUid.toString(),
-                configuration.tenantId(),
-                configuration.organizationId(),
-                configuration.miniappId(),
+                scope.tenantId(),
+                scope.organizationId(),
+                channel.id(),
+                selection.subject().id(),
                 user.id(),
+                selectionOperationUid == null
+                        ? null : selectionOperationUid.toString(),
                 timestamp(issuedAt),
                 timestamp(expiresAt),
                 user.authVersion(),
@@ -221,7 +243,8 @@ public class TargetMiniappLoginTransactionService {
                 "miniapp",
                 entryMode,
                 expiresAt,
-                configuration,
+                scope,
+                selection.subject().uid(),
                 user.uid(),
                 displayName(user.nickname()),
                 capabilities,
@@ -229,24 +252,203 @@ public class TargetMiniappLoginTransactionService {
                 newRegistration);
     }
 
-    private OrganizationUserRow createOrganizationUser(
-            MiniappRow configuration,
+    LoginSelection accountSelection(
+            long channelId,
+            long subjectId,
+            UUID organizationUserUid) {
+        return jdbc.query("""
+                        SELECT u.id, u.organization_user_uid,
+                               u.tenant_id, u.organization_id,
+                               u.miniapp_channel_id, u.wechat_subject_id,
+                               u.phone_e164, u.phone_bound_at,
+                               u.nickname, u.status, u.auth_version,
+                               u.registered_at, u.registered_via_asset_id,
+                               s.wechat_subject_uid, s.status AS subject_status,
+                               s.auth_version AS subject_auth_version,
+                               t.tenant_code, t.status AS tenant_status,
+                               o.organization_code, o.organization_name,
+                               o.status AS organization_status,
+                               b.status AS binding_status
+                        FROM iam_organization_user u
+                        JOIN iam_wechat_subject s
+                          ON s.miniapp_channel_id = u.miniapp_channel_id
+                         AND s.id = u.wechat_subject_id
+                        JOIN iam_tenant t ON t.id = u.tenant_id
+                        JOIN iam_organization o
+                          ON o.tenant_id = u.tenant_id
+                         AND o.id = u.organization_id
+                        JOIN iam_organization_miniapp_binding b
+                          ON b.tenant_id = u.tenant_id
+                         AND b.organization_id = u.organization_id
+                         AND b.miniapp_channel_id = u.miniapp_channel_id
+                        WHERE u.organization_user_uid = ?
+                          AND u.miniapp_channel_id = ?
+                          AND u.wechat_subject_id = ?
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> loginSelectionRow(rs),
+                organizationUserUid.toString(),
+                channelId,
+                subjectId).stream().findFirst().orElse(null);
+    }
+
+    MiniappChannelRow channelById(long channelId, boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT id AS miniapp_channel_id, appid, app_secret,
+                               login_enabled, activated_at
+                        FROM iam_miniapp_channel
+                        WHERE id = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> miniappChannelRow(rs),
+                channelId).stream().findFirst().orElseThrow(() ->
+                new TargetApiException(
+                        403,
+                        "IDENTITY.MINIAPP_LOGIN_DISABLED",
+                        "当前小程序登录入口不可用"));
+    }
+
+    private ResolvedAsset resolveAsset(String deviceCode, String appId) {
+        var resolved = assetLookup.resolve(
+                        new RegistrationAttributionQuery(deviceCode, appId))
+                .orElseThrow(() -> new TargetApiException(
+                        422,
+                        "IDENTITY.DEVICE_ENTRY_INVALID",
+                        "设备入口无效或当前不可用于注册"));
+        long[] keys = new long[3];
+        OrganizationUserRegistrationAttributionRef ref =
+                resolved.persistenceRef();
+        ref.writeForeignKeyTo((tenant, organization, asset) -> {
+            keys[0] = tenant;
+            keys[1] = organization;
+            keys[2] = asset;
+        });
+        return new ResolvedAsset(
+                keys[0],
+                resolved.tenantCode(),
+                keys[1],
+                resolved.organizationCode(),
+                resolved.organizationName(),
+                keys[2]);
+    }
+
+    private WechatSubjectRow findOrCreateSubject(
+            long channelId,
+            String openid) {
+        jdbc.update("""
+                        INSERT INTO iam_wechat_subject (
+                            wechat_subject_uid, miniapp_channel_id,
+                            openid, status, auth_version, lock_version,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, 'ACTIVE', 0, 0, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            lock_version = lock_version
+                        """,
+                UUID.randomUUID().toString(),
+                channelId,
+                openid,
+                timestamp(Instant.now().truncatedTo(ChronoUnit.MILLIS)),
+                timestamp(Instant.now().truncatedTo(ChronoUnit.MILLIS)));
+        return wechatSubject(channelId, openid, true);
+    }
+
+    private WechatSubjectRow wechatSubject(
+            long channelId,
             String openid,
-            OrganizationUserRegistrationAttributionRef assetRef) {
-        long assetId = 0;
-        if (assetRef != null) {
-            long[] keys = new long[3];
-            assetRef.writeForeignKeyTo((tenant, organization, asset) -> {
-                keys[0] = tenant;
-                keys[1] = organization;
-                keys[2] = asset;
-            });
-            if (keys[0] != configuration.tenantId()
-                    || keys[1] != configuration.organizationId()) {
-                throw new IllegalStateException(
-                        "registration asset scope mismatch");
-            }
-            assetId = keys[2];
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT id, wechat_subject_uid, status, auth_version
+                        FROM iam_wechat_subject
+                        WHERE miniapp_channel_id = ?
+                          AND openid = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> new WechatSubjectRow(
+                        rs.getLong("id"),
+                        UUID.fromString(rs.getString("wechat_subject_uid")),
+                        rs.getString("status"),
+                        rs.getLong("auth_version")),
+                channelId,
+                openid).stream().findFirst().orElse(null);
+    }
+
+    private LoginSelection newestAvailableAccount(
+            long channelId,
+            WechatSubjectRow subject) {
+        return jdbc.query("""
+                        SELECT u.id, u.organization_user_uid,
+                               u.tenant_id, u.organization_id,
+                               u.miniapp_channel_id, u.wechat_subject_id,
+                               u.phone_e164, u.phone_bound_at,
+                               u.nickname, u.status, u.auth_version,
+                               u.registered_at, u.registered_via_asset_id,
+                               ? AS wechat_subject_uid,
+                               ? AS subject_status,
+                               ? AS subject_auth_version,
+                               t.tenant_code, t.status AS tenant_status,
+                               o.organization_code, o.organization_name,
+                               o.status AS organization_status,
+                               b.status AS binding_status
+                        FROM iam_organization_user u
+                        JOIN iam_tenant t ON t.id = u.tenant_id
+                        JOIN iam_organization o
+                          ON o.tenant_id = u.tenant_id
+                         AND o.id = u.organization_id
+                        JOIN iam_organization_miniapp_binding b
+                          ON b.tenant_id = u.tenant_id
+                         AND b.organization_id = u.organization_id
+                         AND b.miniapp_channel_id = u.miniapp_channel_id
+                        WHERE u.miniapp_channel_id = ?
+                          AND u.wechat_subject_id = ?
+                          AND u.status = 'ACTIVE'
+                          AND t.status = 'ENABLED'
+                          AND o.status = 'ENABLED'
+                          AND b.status = 'ACTIVE'
+                        ORDER BY u.registered_at DESC, u.id DESC
+                        LIMIT 1
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> loginSelectionRow(rs),
+                subject.uid().toString(),
+                subject.status(),
+                subject.authVersion(),
+                channelId,
+                subject.id()).stream().findFirst().orElse(null);
+    }
+
+    private OrganizationUserRow organizationUser(
+            long subjectId,
+            long tenantId,
+            long organizationId,
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT id, organization_user_uid,
+                               tenant_id, organization_id,
+                               miniapp_channel_id, wechat_subject_id,
+                               phone_e164, phone_bound_at,
+                               nickname, status, auth_version,
+                               registered_at, registered_via_asset_id
+                        FROM iam_organization_user
+                        WHERE wechat_subject_id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> organizationUserRow(rs),
+                subjectId,
+                tenantId,
+                organizationId).stream().findFirst().orElse(null);
+    }
+
+    private OrganizationUserRow createOrganizationUser(
+            MiniappChannelRow channel,
+            WechatSubjectRow subject,
+            OrganizationScope scope,
+            ResolvedAsset asset) {
+        if (asset.tenantId() != scope.tenantId()
+                || asset.organizationId() != scope.organizationId()) {
+            throw new IllegalStateException(
+                    "registration asset scope mismatch");
         }
         UUID uid = UUID.randomUUID();
         Instant registeredAt =
@@ -255,12 +457,11 @@ public class TargetMiniappLoginTransactionService {
                         INSERT INTO iam_organization_user (
                             organization_user_uid,
                             tenant_id, organization_id,
-                            organization_miniapp_id, openid,
+                            miniapp_channel_id, wechat_subject_id,
                             phone_e164, phone_bound_at,
                             nickname, avatar_url, status,
                             auth_version, lock_version,
-                            registered_at,
-                            registered_via_asset_id,
+                            registered_at, registered_via_asset_id,
                             frozen_at, created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, ?, ?,
@@ -269,26 +470,97 @@ public class TargetMiniappLoginTransactionService {
                         )
                         """,
                 uid.toString(),
-                configuration.tenantId(),
-                configuration.organizationId(),
-                configuration.miniappId(),
-                openid,
+                scope.tenantId(),
+                scope.organizationId(),
+                channel.id(),
+                subject.id(),
                 timestamp(registeredAt),
-                assetId == 0 ? null : assetId,
+                asset.assetId(),
                 timestamp(registeredAt),
                 timestamp(registeredAt));
         return organizationUserByUid(uid, true);
     }
 
+    private void initializeWallet(
+            OrganizationScope scope,
+            OrganizationUserRow user) {
+        registrationParticipant.initializeWallet(
+                new OrganizationUserRegistrationCommand(
+                        new TenantUid(stableUid(
+                                "tenant", scope.tenantCode())),
+                        new OrganizationUid(stableUid(
+                                "organization",
+                                scope.tenantCode() + ":"
+                                        + scope.organizationCode())),
+                        new OrganizationUserUid(user.uid()),
+                        user.registeredAt(),
+                        walletOwnerRefFactory.issue(
+                                scope.tenantId(),
+                                scope.organizationId(),
+                                user.id())));
+    }
+
+    private OrganizationUserRow organizationUserByUid(
+            UUID uid,
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT id, organization_user_uid,
+                               tenant_id, organization_id,
+                               miniapp_channel_id, wechat_subject_id,
+                               phone_e164, phone_bound_at,
+                               nickname, status, auth_version,
+                               registered_at, registered_via_asset_id
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> organizationUserRow(rs),
+                uid.toString()).stream().findFirst().orElseThrow();
+    }
+
+    private OrganizationScope organizationScope(
+            long tenantId,
+            long organizationId,
+            long channelId,
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT t.id AS tenant_id, t.tenant_code,
+                               t.status AS tenant_status,
+                               o.id AS organization_id,
+                               o.organization_code, o.organization_name,
+                               o.status AS organization_status,
+                               b.status AS binding_status
+                        FROM iam_tenant t
+                        JOIN iam_organization o
+                          ON o.tenant_id = t.id
+                         AND o.id = ?
+                        JOIN iam_organization_miniapp_binding b
+                          ON b.tenant_id = t.id
+                         AND b.organization_id = o.id
+                         AND b.miniapp_channel_id = ?
+                        WHERE t.id = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> organizationScopeRow(rs),
+                organizationId,
+                channelId,
+                tenantId).stream().findFirst().orElseThrow(() ->
+                new TargetApiException(
+                        422,
+                        "IDENTITY.DEVICE_ENTRY_INVALID",
+                        "设备入口无效或当前不可用于注册"));
+    }
+
     private ManagementBinding managementBinding(
-            MiniappRow configuration,
+            long channelId,
+            OrganizationScope scope,
             OrganizationUserRow user) {
         BindingRow binding = jdbc.query("""
                         SELECT id, staff_account_id
                         FROM iam_staff_miniapp_binding
                         WHERE tenant_id = ?
                           AND organization_id = ?
-                          AND organization_miniapp_id = ?
+                          AND miniapp_channel_id = ?
                           AND organization_user_id = ?
                           AND status = 'ACTIVE'
                         FOR UPDATE
@@ -296,44 +568,32 @@ public class TargetMiniappLoginTransactionService {
                 (rs, ignored) -> new BindingRow(
                         rs.getLong("id"),
                         rs.getLong("staff_account_id")),
-                configuration.tenantId(),
-                configuration.organizationId(),
-                configuration.miniappId(),
+                scope.tenantId(),
+                scope.organizationId(),
+                channelId,
                 user.id()).stream().findFirst().orElse(null);
         if (binding == null) {
             return null;
         }
-        StaffRow staff = staff(
-                configuration.tenantId(),
-                binding.staffId(),
-                true);
+        StaffRow staff = staff(scope.tenantId(), binding.staffId(), true);
         if (staff == null || !staff.enabled()) {
             return null;
         }
         boolean tenantPrincipal =
                 "TENANT_PRINCIPAL".equals(staff.accountKind());
         boolean manager = enabledManagerMembership(
-                configuration.tenantId(),
-                configuration.organizationId(),
-                staff.id());
+                scope.tenantId(), scope.organizationId(), staff.id());
         Set<String> grants = effectiveManagementGrants(
-                configuration.tenantId(),
-                configuration.organizationId(),
-                staff.id());
+                scope.tenantId(), scope.organizationId(), staff.id());
         if (!tenantPrincipal && !manager && grants.isEmpty()) {
             return null;
         }
-        List<String> capabilities;
-        if (tenantPrincipal || manager) {
-            capabilities = MINIAPP_STAFF_CAPABILITY_ALLOWLIST.stream()
-                    .sorted()
-                    .toList();
-        } else {
-            capabilities = grants.stream()
+        List<String> capabilities = tenantPrincipal || manager
+                ? MINIAPP_STAFF_CAPABILITY_ALLOWLIST.stream().sorted().toList()
+                : grants.stream()
                     .filter(MINIAPP_STAFF_CAPABILITY_ALLOWLIST::contains)
                     .sorted()
                     .toList();
-        }
         return new ManagementBinding(
                 binding.id(),
                 staff.id(),
@@ -405,28 +665,18 @@ public class TargetMiniappLoginTransactionService {
                 .stream().findFirst().orElse(false));
     }
 
-    private MiniappRow configurationByAppId(
+    private MiniappChannelRow channelByAppId(
             String appId,
             boolean forUpdate) {
         String normalized = appId == null ? "" : appId.trim();
         return jdbc.query("""
-                        SELECT m.id AS miniapp_id, m.appid, m.app_secret,
-                               m.login_enabled, m.activated_at,
-                               t.id AS tenant_id, t.tenant_code,
-                               t.status AS tenant_status,
-                               o.id AS organization_id,
-                               o.organization_code,
-                               o.organization_name,
-                               o.status AS organization_status
-                        FROM iam_organization_miniapp m
-                        JOIN iam_tenant t ON t.id = m.tenant_id
-                        JOIN iam_organization o
-                          ON o.tenant_id = m.tenant_id
-                         AND o.id = m.organization_id
-                        WHERE m.appid = ?
+                        SELECT id AS miniapp_channel_id, appid, app_secret,
+                               login_enabled, activated_at
+                        FROM iam_miniapp_channel
+                        WHERE appid = ?
                         %s
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
-                (rs, ignored) -> miniappRow(rs),
+                (rs, ignored) -> miniappChannelRow(rs),
                 normalized).stream().findFirst().orElseThrow(() ->
                 new TargetApiException(
                         403,
@@ -455,61 +705,6 @@ public class TargetMiniappLoginTransactionService {
                 Long.class, tenantId, organizationId);
     }
 
-    private static void requireEnabled(MiniappRow row) {
-        if (!"ENABLED".equals(row.tenantStatus())
-                || !"ENABLED".equals(row.organizationStatus())
-                || row.appSecret() == null
-                || row.appSecret().isBlank()
-                || !row.loginEnabled()
-                || row.activatedAt() == null) {
-            throw new TargetApiException(
-                    403,
-                    "IDENTITY.MINIAPP_LOGIN_DISABLED",
-                    "当前小程序登录入口不可用");
-        }
-    }
-
-    private OrganizationUserRow organizationUser(
-            long miniappId,
-            String openid,
-            boolean forUpdate) {
-        return jdbc.query("""
-                        SELECT id, organization_user_uid,
-                               tenant_id, organization_id,
-                               organization_miniapp_id,
-                               phone_e164, phone_bound_at,
-                               nickname, status, auth_version,
-                               registered_at,
-                               registered_via_asset_id
-                        FROM iam_organization_user
-                        WHERE organization_miniapp_id = ?
-                          AND openid = ?
-                        %s
-                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
-                (rs, ignored) -> organizationUserRow(rs),
-                miniappId,
-                openid).stream().findFirst().orElse(null);
-    }
-
-    private OrganizationUserRow organizationUserByUid(
-            UUID uid,
-            boolean forUpdate) {
-        return jdbc.query("""
-                        SELECT id, organization_user_uid,
-                               tenant_id, organization_id,
-                               organization_miniapp_id,
-                               phone_e164, phone_bound_at,
-                               nickname, status, auth_version,
-                               registered_at,
-                               registered_via_asset_id
-                        FROM iam_organization_user
-                        WHERE organization_user_uid = ?
-                        %s
-                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
-                (rs, ignored) -> organizationUserRow(rs),
-                uid.toString()).stream().findFirst().orElseThrow();
-    }
-
     private StaffRow staff(
             long tenantId,
             long staffId,
@@ -524,8 +719,7 @@ public class TargetMiniappLoginTransactionService {
                         """.formatted(forUpdate ? "FOR UPDATE" : ""),
                 (rs, ignored) -> new StaffRow(
                         rs.getLong("id"),
-                        UUID.fromString(
-                                rs.getString("staff_account_uid")),
+                        UUID.fromString(rs.getString("staff_account_uid")),
                         rs.getString("account_kind"),
                         rs.getString("display_name"),
                         rs.getBoolean("enabled"),
@@ -533,13 +727,46 @@ public class TargetMiniappLoginTransactionService {
                 tenantId, staffId).stream().findFirst().orElse(null);
     }
 
+    private static void requireEnabled(MiniappChannelRow row) {
+        if (row.appSecret() == null
+                || row.appSecret().isBlank()
+                || !row.loginEnabled()
+                || row.activatedAt() == null) {
+            throw new TargetApiException(
+                    403,
+                    "IDENTITY.MINIAPP_LOGIN_DISABLED",
+                    "当前小程序登录入口不可用");
+        }
+    }
+
+    private static void requireSubjectActive(WechatSubjectRow subject) {
+        if (!"ACTIVE".equals(subject.status())) {
+            throw new TargetApiException(
+                    403,
+                    "IDENTITY.WECHAT_SUBJECT_FROZEN",
+                    "当前微信身份已冻结");
+        }
+    }
+
+    private static void requireAvailable(OrganizationScope scope) {
+        if (!"ENABLED".equals(scope.tenantStatus())
+                || !"ENABLED".equals(scope.organizationStatus())
+                || !"ACTIVE".equals(scope.bindingStatus())) {
+            throw new TargetApiException(
+                    422,
+                    "IDENTITY.DEVICE_ENTRY_INVALID",
+                    "设备入口无效或当前不可用于注册");
+        }
+    }
+
     private static MiniappSessionCreated created(
             String token,
             String audience,
             String entryMode,
             Instant expiresAt,
-            MiniappRow configuration,
+            OrganizationScope scope,
             UUID subjectUid,
+            UUID organizationUserUid,
             String displayName,
             List<String> capabilities,
             boolean phoneBound,
@@ -551,13 +778,69 @@ public class TargetMiniappLoginTransactionService {
                 entryMode,
                 expiresAt,
                 new OrganizationSummary(
-                        configuration.organizationCode(),
-                        configuration.organizationName()),
+                        scope.organizationCode(),
+                        scope.organizationName()),
                 subjectUid,
+                organizationUserUid,
                 displayName,
                 capabilities,
                 phoneBound,
                 newRegistration);
+    }
+
+    private static LoginSelection loginSelectionRow(ResultSet rs)
+            throws SQLException {
+        return new LoginSelection(
+                new WechatSubjectRow(
+                        rs.getLong("wechat_subject_id"),
+                        UUID.fromString(rs.getString("wechat_subject_uid")),
+                        rs.getString("subject_status"),
+                        rs.getLong("subject_auth_version")),
+                organizationScopeRow(rs),
+                organizationUserRow(rs));
+    }
+
+    private static OrganizationScope organizationScopeRow(ResultSet rs)
+            throws SQLException {
+        return new OrganizationScope(
+                rs.getLong("tenant_id"),
+                rs.getString("tenant_code"),
+                rs.getString("tenant_status"),
+                rs.getLong("organization_id"),
+                rs.getString("organization_code"),
+                rs.getString("organization_name"),
+                rs.getString("organization_status"),
+                rs.getString("binding_status"));
+    }
+
+    private static MiniappChannelRow miniappChannelRow(ResultSet rs)
+            throws SQLException {
+        return new MiniappChannelRow(
+                rs.getLong("miniapp_channel_id"),
+                rs.getString("appid"),
+                rs.getString("app_secret"),
+                rs.getBoolean("login_enabled"),
+                nullableInstant(rs, "activated_at"));
+    }
+
+    private static OrganizationUserRow organizationUserRow(ResultSet rs)
+            throws SQLException {
+        long assetId = rs.getLong("registered_via_asset_id");
+        boolean assetIdWasNull = rs.wasNull();
+        return new OrganizationUserRow(
+                rs.getLong("id"),
+                UUID.fromString(rs.getString("organization_user_uid")),
+                rs.getLong("tenant_id"),
+                rs.getLong("organization_id"),
+                rs.getLong("miniapp_channel_id"),
+                rs.getLong("wechat_subject_id"),
+                rs.getString("phone_e164"),
+                nullableInstant(rs, "phone_bound_at"),
+                rs.getString("nickname"),
+                rs.getString("status"),
+                rs.getLong("auth_version"),
+                instant(rs, "registered_at"),
+                assetIdWasNull ? null : assetId);
     }
 
     private static String displayName(String nickname) {
@@ -588,63 +871,39 @@ public class TargetMiniappLoginTransactionService {
         return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
 
-    private static MiniappRow miniappRow(ResultSet rs)
-            throws SQLException {
-        return new MiniappRow(
-                rs.getLong("miniapp_id"),
-                rs.getString("appid"),
-                rs.getString("app_secret"),
-                rs.getBoolean("login_enabled"),
-                nullableInstant(rs, "activated_at"),
-                rs.getLong("tenant_id"),
-                rs.getString("tenant_code"),
-                rs.getString("tenant_status"),
-                rs.getLong("organization_id"),
-                rs.getString("organization_code"),
-                rs.getString("organization_name"),
-                rs.getString("organization_status"));
-    }
-
-    private static OrganizationUserRow organizationUserRow(ResultSet rs)
-            throws SQLException {
-        long assetId = rs.getLong("registered_via_asset_id");
-        boolean assetIdWasNull = rs.wasNull();
-        return new OrganizationUserRow(
-                rs.getLong("id"),
-                UUID.fromString(rs.getString("organization_user_uid")),
-                rs.getLong("tenant_id"),
-                rs.getLong("organization_id"),
-                rs.getLong("organization_miniapp_id"),
-                rs.getString("phone_e164"),
-                nullableInstant(rs, "phone_bound_at"),
-                rs.getString("nickname"),
-                rs.getString("status"),
-                rs.getLong("auth_version"),
-                instant(rs, "registered_at"),
-                assetIdWasNull ? null : assetId);
-    }
-
-    private record MiniappRow(
-            long miniappId,
+    record MiniappChannelRow(
+            long id,
             String appId,
             String appSecret,
             boolean loginEnabled,
-            Instant activatedAt,
+            Instant activatedAt) {
+    }
+
+    record WechatSubjectRow(
+            long id,
+            UUID uid,
+            String status,
+            long authVersion) {
+    }
+
+    record OrganizationScope(
             long tenantId,
             String tenantCode,
             String tenantStatus,
             long organizationId,
             String organizationCode,
             String organizationName,
-            String organizationStatus) {
+            String organizationStatus,
+            String bindingStatus) {
     }
 
-    private record OrganizationUserRow(
+    record OrganizationUserRow(
             long id,
             UUID uid,
             long tenantId,
             long organizationId,
-            long miniappId,
+            long channelId,
+            long subjectId,
             String phoneE164,
             Instant phoneBoundAt,
             String nickname,
@@ -652,6 +911,21 @@ public class TargetMiniappLoginTransactionService {
             long authVersion,
             Instant registeredAt,
             Long registeredViaAssetId) {
+    }
+
+    record LoginSelection(
+            WechatSubjectRow subject,
+            OrganizationScope scope,
+            OrganizationUserRow user) {
+    }
+
+    private record ResolvedAsset(
+            long tenantId,
+            String tenantCode,
+            long organizationId,
+            String organizationCode,
+            String organizationName,
+            long assetId) {
     }
 
     private record BindingRow(long id, long staffId) {

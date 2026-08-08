@@ -144,7 +144,7 @@ public class RechargeApplicationService {
                 INSERT INTO fund_wechat_payment (
                     payment_uid, tenant_id, organization_id,
                     recharge_order_id, merchant_profile_id,
-                    miniapp_merchant_binding_id, organization_miniapp_id,
+                    miniapp_merchant_binding_id, miniapp_channel_id,
                     mchid_snapshot, appid_snapshot, out_trade_no,
                     request_amount_cent, currency, description, time_expire,
                     notify_url_snapshot, notify_url_sha256, request_sha256,
@@ -1039,16 +1039,14 @@ public class RechargeApplicationService {
             long tenantId, long organizationId, boolean lock) {
         List<BindingRow> rows = jdbc.query("""
                 SELECT b.id binding_id, b.merchant_profile_id,
-                       b.organization_miniapp_id, b.appid,
+                       b.miniapp_channel_id, b.appid,
                        m.mchid, m.scene_id, m.report_type,
                        m.report_content, m.transfer_page_style
                 FROM fund_miniapp_merchant_binding b
                 JOIN fund_wechat_merchant_profile m
                   ON m.id = b.merchant_profile_id
-                JOIN iam_organization_miniapp app
-                  ON app.id = b.organization_miniapp_id
-                 AND app.tenant_id = b.tenant_id
-                 AND app.organization_id = b.organization_id
+                JOIN iam_miniapp_channel app
+                  ON app.id = b.miniapp_channel_id
                  AND app.appid = b.appid
                 WHERE b.tenant_id = ? AND b.organization_id = ?
                   AND b.status = 'VERIFIED'
@@ -1058,7 +1056,7 @@ public class RechargeApplicationService {
                 (rs, ignored) -> new BindingRow(
                         rs.getLong("binding_id"),
                         rs.getLong("merchant_profile_id"),
-                        rs.getLong("organization_miniapp_id"),
+                        rs.getLong("miniapp_channel_id"),
                         rs.getString("appid"), rs.getString("mchid"),
                         rs.getString("scene_id"), rs.getString("report_type"),
                         rs.getString("report_content"),

@@ -289,7 +289,7 @@ public class WithdrawalApplicationService {
         UserRow observedUser = requiredUser(scope, false);
         if (!access.lockWithdrawalTransferIdentity(
                 scope.tenantId(), scope.organizationId(),
-                scope.organizationMiniappId(), scope.appid(),
+                scope.miniappChannelId(), scope.appid(),
                 scope.organizationUserId(), observedUser.openid())) {
             throw new TargetApiException(
                     422, "WITHDRAWAL.USER_UNAVAILABLE",
@@ -324,7 +324,8 @@ public class WithdrawalApplicationService {
         ActiveAuthorizationSnapshot activeAuthorization =
                 authorization.lockCurrentActive(
                         scope.tenantId(), scope.organizationId(),
-                        scope.organizationUserId(), binding.merchantId(),
+                        scope.organizationUserId(),
+                        scope.wechatSubjectId(), binding.merchantId(),
                         binding.bindingId(), binding.miniappId(),
                         binding.mchid(), binding.appid(), user.openid(),
                         binding.sceneId());
@@ -362,7 +363,7 @@ public class WithdrawalApplicationService {
                     manual_max_cent_snapshot,
                     manual_review_free_threshold_cent_snapshot,
                     amount_cent, miniapp_merchant_binding_id,
-                    organization_miniapp_id, merchant_profile_id,
+                    miniapp_channel_id, merchant_profile_id,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
                     collection_mode_snapshot, transfer_authorization_id,
                     out_authorization_no_snapshot,
@@ -613,7 +614,7 @@ public class WithdrawalApplicationService {
         FundsOperationalControlPort.WithdrawalSubmitTaskWakeResult scheduled =
                 operationalControl.scheduleWithdrawalChannelQuery(
                         row.tenantId(), row.organizationId(),
-                        withdrawalNo, now);
+                        withdrawalNo, databaseNow());
         if (scheduled == FundsOperationalControlPort
                 .WithdrawalSubmitTaskWakeResult.NOT_WAKEABLE) {
             throw stateConflict("人工查单任务当前无法安全派发");
@@ -1010,7 +1011,7 @@ public class WithdrawalApplicationService {
                 INSERT INTO fund_wechat_transfer (
                     transfer_uid, tenant_id, organization_id,
                     withdrawal_order_id, merchant_profile_id,
-                    miniapp_merchant_binding_id, organization_miniapp_id,
+                    miniapp_merchant_binding_id, miniapp_channel_id,
                     out_bill_no, transfer_bill_no, amount_cent,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
                     collection_mode_snapshot, transfer_authorization_id,
@@ -1974,7 +1975,7 @@ public class WithdrawalApplicationService {
                 rs.getLong("amount_cent"), rs.getLong("withdraw_config_id"),
                 rs.getLong("withdraw_config_version_no"),
                 rs.getLong("miniapp_merchant_binding_id"),
-                rs.getLong("organization_miniapp_id"),
+                rs.getLong("miniapp_channel_id"),
                 rs.getLong("merchant_profile_id"),
                 rs.getString("mchid_snapshot"), rs.getString("appid_snapshot"),
                 rs.getString("openid_snapshot"),
@@ -2029,28 +2030,33 @@ public class WithdrawalApplicationService {
 
     private UserRow requiredUser(MiniappScope scope, boolean lock) {
         return jdbc.queryForObject("""
-                SELECT id, openid, phone_e164, status
-                FROM iam_organization_user
-                WHERE tenant_id = ? AND organization_id = ? AND id = ?
-                  AND organization_miniapp_id = ?
+                SELECT u.id, s.openid, u.phone_e164, u.status
+                FROM iam_organization_user u
+                JOIN iam_wechat_subject s
+                  ON s.miniapp_channel_id = u.miniapp_channel_id
+                 AND s.id = u.wechat_subject_id
+                WHERE u.tenant_id = ? AND u.organization_id = ?
+                  AND u.id = ? AND u.miniapp_channel_id = ?
+                  AND u.wechat_subject_id = ?
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new UserRow(
                         rs.getLong("id"), rs.getString("openid"),
                         rs.getString("phone_e164"), rs.getString("status")),
                 scope.tenantId(), scope.organizationId(),
-                scope.organizationUserId(), scope.organizationMiniappId());
+                scope.organizationUserId(), scope.miniappChannelId(),
+                scope.wechatSubjectId());
     }
 
     private BindingRow requiredBinding(
             long tenantId, long organizationId, boolean lock) {
         List<BindingRow> rows = jdbc.query("""
-                SELECT b.id binding_id, b.organization_miniapp_id,
+                SELECT b.id binding_id, b.miniapp_channel_id,
                        b.merchant_profile_id, b.appid, m.mchid, m.scene_id
                 FROM fund_miniapp_merchant_binding b
                 JOIN fund_wechat_merchant_profile m
                   ON m.id = b.merchant_profile_id
-                JOIN iam_organization_miniapp app
-                  ON app.id = b.organization_miniapp_id
+                JOIN iam_miniapp_channel app
+                  ON app.id = b.miniapp_channel_id
                  AND app.appid = b.appid
                 WHERE b.tenant_id = ? AND b.organization_id = ?
                   AND b.status = 'VERIFIED' AND m.status = 'ENABLED'
@@ -2058,7 +2064,7 @@ public class WithdrawalApplicationService {
                 """ + (lock ? " FOR UPDATE" : ""),
                 (rs, ignored) -> new BindingRow(
                         rs.getLong("binding_id"),
-                        rs.getLong("organization_miniapp_id"),
+                        rs.getLong("miniapp_channel_id"),
                         rs.getLong("merchant_profile_id"),
                         rs.getString("appid"), rs.getString("mchid"),
                         rs.getString("scene_id")),
@@ -2077,14 +2083,12 @@ public class WithdrawalApplicationService {
                 FROM fund_miniapp_merchant_binding b
                 JOIN fund_wechat_merchant_profile m
                   ON m.id = b.merchant_profile_id
-                JOIN iam_organization_miniapp app
-                  ON app.id = b.organization_miniapp_id
-                 AND app.tenant_id = b.tenant_id
-                 AND app.organization_id = b.organization_id
+                JOIN iam_miniapp_channel app
+                  ON app.id = b.miniapp_channel_id
                  AND app.appid = b.appid
                 WHERE b.id = ? AND b.tenant_id = ?
                   AND b.organization_id = ?
-                  AND b.organization_miniapp_id = ?
+                  AND b.miniapp_channel_id = ?
                   AND b.merchant_profile_id = ?
                   AND b.appid = ? AND m.mchid = ?
                   AND b.status = 'VERIFIED'
@@ -2334,7 +2338,7 @@ public class WithdrawalApplicationService {
                             rs.getLong("withdraw_config_id"),
                             rs.getLong("withdraw_config_version_no"),
                             rs.getLong("miniapp_merchant_binding_id"),
-                            rs.getLong("organization_miniapp_id"),
+                            rs.getLong("miniapp_channel_id"),
                             rs.getLong("merchant_profile_id"),
                             rs.getString("mchid_snapshot"),
                             rs.getString("appid_snapshot"),

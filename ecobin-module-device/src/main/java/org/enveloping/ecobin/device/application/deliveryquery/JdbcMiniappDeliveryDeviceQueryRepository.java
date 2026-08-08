@@ -104,7 +104,6 @@ class JdbcMiniappDeliveryDeviceQueryRepository
               AND asset.device_public_code = ?
               AND asset.lifecycle_status = 'NORMAL'
               AND asset.acceptance_status = 'PASSED'
-              AND asset.miniapp_qr_status = 'READY'
               AND tenant.status = 'ENABLED'
               AND organization.status = 'ENABLED'
             """;

@@ -38,7 +38,6 @@ final class StartDeliveryDevicePolicy {
                         deviceCode)
                 && "NORMAL".equals(asset.lifecycleStatus())
                 && "PASSED".equals(asset.acceptanceStatus())
-                && "READY".equals(asset.miniappQrStatus())
                 && portNo > 0
                 && portNo <= asset.expectedPortCount();
         if (!valid) {

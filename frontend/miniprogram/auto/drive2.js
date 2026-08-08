@@ -1,5 +1,5 @@
 /* eslint-disable */
-// 清登录态 -> 重新登录(应拿到 role=2) -> 截首页验证「清运」tab
+// 清会话 -> 从游客首页重新执行身份引导 -> 截首页
 const path = require('path')
 const fs = require('fs')
 const automator = require('miniprogram-automator')
@@ -20,19 +20,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   try {
     // 1) 清登录态（storage + globalData）
     await mp.evaluate(() => {
-      wx.removeStorageSync('ecobin_token')
-      wx.removeStorageSync('ecobin_role')
-      wx.removeStorageSync('ecobin_user_info')
+      wx.removeStorageSync('ecobin_miniapp_session')
+      wx.removeStorageSync('ecobin_silent_login_suppressed')
       const app = getApp()
-      if (app && app.globalData) { app.globalData.token = undefined; app.globalData.role = undefined; app.globalData.userInfo = undefined }
+      if (app && app.globalData) { app.globalData.session = undefined; app.globalData.testViewMode = undefined }
     })
     console.log('cleared login state.')
 
-    // 2) 重新走登录页
-    await mp.reLaunch('/pages/login/login')
+    // 2) 从游客首页重新走身份引导
+    await mp.reLaunch('/pages/home/home')
     await sleep(6000)
     let page = await mp.currentPage()
-    console.log('route after re-login:', page.path)
+    console.log('route after identity bootstrap:', page.path)
 
     // 3) 回首页
     await mp.switchTab('/pages/home/home').catch(() => {})
@@ -44,9 +43,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
     await mp.screenshot({ path: path.join(SHOT_DIR, 'home-role2.png') })
     console.log('home-role2.png saved')
 
-    // 5) 读 role
-    const role = await mp.evaluate(() => { const a = getApp(); return a && a.globalData ? a.globalData.role : null })
-    console.log('ROLE:', role)
+    // 5) 读当前 audience；游客时为空
+    const audience = await mp.evaluate(() => { const a = getApp(); return a && a.globalData && a.globalData.session ? a.globalData.session.audience : null })
+    console.log('AUDIENCE:', audience)
   } catch (e) {
     console.error('ERR:', e && e.stack ? e.stack : e)
   } finally {
