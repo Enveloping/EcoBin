@@ -16,7 +16,8 @@
 
 .identity-card,
 .account-switch,
-.preview-card {
+.preview-card,
+.menu-card {
   margin-top: 30rpx;
   background: #fff;
   border: 1rpx solid #e5ebe5;
@@ -130,6 +131,29 @@
 }
 
 .preview-button::after { border: 0; }
+
+.menu-card {
+  display: flex;
+  padding: 28rpx;
+  align-items: center;
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.menu-card--pressed { opacity: .76; transform: scale(.99); }
+.menu-icon {
+  display: flex;
+  width: 76rpx;
+  height: 76rpx;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: #edf8ef;
+  border-radius: 24rpx;
+}
+
+.menu-copy { min-width: 0; flex: 1; margin-left: 20rpx; }
+.menu-title { color: #273129; font-size: 27rpx; font-weight: 680; }
+.menu-description { margin-top: 6rpx; color: #89918a; font-size: 21rpx; }
 
 .logout {
   margin-top: 38rpx;

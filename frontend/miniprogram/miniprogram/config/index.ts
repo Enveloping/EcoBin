@@ -15,7 +15,7 @@ export const FEATURES: Readonly<{
   targetDeliveryOrderApi: true,
   targetWalletApi: true,
   targetWithdrawalApi: true,
-  targetCleaningDataApi: false,
+  targetCleaningDataApi: true,
   entryPreview: true,
 }
 

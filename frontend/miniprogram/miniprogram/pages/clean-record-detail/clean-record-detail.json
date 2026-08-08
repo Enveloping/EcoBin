@@ -1,8 +1,7 @@
 {
-  "navigationBarTitleText": "清运记录",
+  "navigationBarTitleText": "清运记录详情",
   "navigationBarBackgroundColor": "#ffffff",
   "navigationBarTextStyle": "black",
   "enablePullDownRefresh": true,
-  "onReachBottomDistance": 120,
   "usingComponents": {}
 }

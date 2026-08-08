@@ -802,6 +802,95 @@ class HttpContractTests(unittest.TestCase):
         self.assertNotIn("revisions", detail_properties)
         self.assertNotIn("diagnosticDetails", anomaly_properties)
 
+    def test_miniapp_cleaning_normal_path_contract_is_complete(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        expected = {
+            "/api/v1/miniapp/devices/{deviceCode}/clean-options",
+            (
+                "/api/v1/miniapp/devices/{deviceCode}"
+                "/ports/{portNo}/clean-operations"
+            ),
+            "/api/v1/miniapp/clean-operations/{operationUid}",
+            "/api/v1/miniapp/me/clean-records",
+            "/api/v1/miniapp/me/clean-records/{cleanRecordNo}",
+        }
+        self.assertEqual(set(), expected - set(paths))
+
+        for path in expected:
+            method = "post" if path.endswith("/clean-operations") else "get"
+            self.assertEqual(
+                paths[path][method]["security"],
+                [{"miniappBearer": []}],
+            )
+
+        start_path = (
+            "/api/v1/miniapp/devices/{deviceCode}"
+            "/ports/{portNo}/clean-operations"
+        )
+        start = paths[start_path]["post"]
+        parameter_refs = {
+            item["$ref"] for item in start["parameters"]
+        }
+        self.assertIn(
+            "#/components/parameters/IdempotencyKey",
+            parameter_refs,
+        )
+        self.assertEqual(
+            start["responses"]["202"]["$ref"],
+            "#/components/responses/CleanOperationAcceptedResponse",
+        )
+        accepted = document["components"]["responses"][
+            "CleanOperationAcceptedResponse"
+        ]
+        self.assertEqual(
+            accepted["headers"]["Location"]["$ref"],
+            "#/components/headers/Location",
+        )
+
+        list_operation = paths[
+            "/api/v1/miniapp/me/clean-records"
+        ]["get"]
+        self.assertIn(
+            {"$ref": "#/components/parameters/Cursor"},
+            list_operation["parameters"],
+        )
+        limit = next(
+            item
+            for item in list_operation["parameters"]
+            if item.get("name") == "limit"
+        )
+        self.assertEqual(limit["schema"]["minimum"], 1)
+        self.assertEqual(limit["schema"]["maximum"], 100)
+        schemas = document["components"]["schemas"]
+        for schema in (
+            "CleanOptions",
+            "CleanPortOption",
+            "CleanOperationAccepted",
+            "CleanOperation",
+            "CleanRecordCursorPage",
+            "CleanRecordItem",
+            "MiniappCleanRecordDetail",
+        ):
+            self.assertIn(schema, schemas)
+        for schema in (
+            "CleanOptions",
+            "CleanOperation",
+            "CleanRecordItem",
+            "CleanRecordSource",
+        ):
+            self.assertIn("deviceCode", schemas[schema]["required"])
+            self.assertIn("deviceCode", schemas[schema]["properties"])
+            self.assertNotIn(
+                "deploymentCode",
+                schemas[schema]["properties"],
+            )
+        installed_bag = schemas["StartCleanOperationRequest"][
+            "properties"
+        ]["installedBagQr"]
+        self.assertEqual(installed_bag["minLength"], 8)
+        self.assertEqual(installed_bag["maxLength"], 64)
+
     def test_legacy_bearer_cutover_requires_client_cleanup_and_server_revoke(
         self,
     ) -> None:

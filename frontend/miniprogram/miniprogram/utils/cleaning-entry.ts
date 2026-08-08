@@ -1,20 +1,5 @@
 import { getEntryMode } from './auth'
-
-function parseDeviceCode(raw: string): string {
-  const value = raw.trim()
-  if (!value) return ''
-
-  const queryMatch = value.match(/[?&]deviceCode=([^&#]+)/)
-  if (queryMatch) {
-    try {
-      return decodeURIComponent(queryMatch[1]).trim()
-    } catch {
-      return ''
-    }
-  }
-
-  return /^Dv_[A-Za-z0-9_-]{24,61}$/.test(value) ? value : ''
-}
+import { parseCleaningDeviceCode } from './clean-operation-intent'
 
 export function startCleaningEntry(): void {
   if (getEntryMode() !== 'CLEANING') {
@@ -28,7 +13,7 @@ export function startCleaningEntry(): void {
   wx.scanCode({
     scanType: ['qrCode'],
     success: ({ result }) => {
-      const deviceCode = parseDeviceCode(result)
+      const deviceCode = parseCleaningDeviceCode(result)
       if (!deviceCode) {
         wx.showToast({ title: '未识别到设备二维码', icon: 'none' })
         return

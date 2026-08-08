@@ -41,6 +41,10 @@ Page({
     wx.navigateTo({ url: '/pages/account-switcher/account-switcher' })
   },
 
+  onCleanRecords() {
+    wx.navigateTo({ url: '/pages/clean-records/clean-records' })
+  },
+
   onLogout() {
     wx.showModal({
       title: '提示',
