@@ -201,6 +201,17 @@ test('the WeChat ordinary-link validation file is published byte-for-byte', () =
   );
 });
 
+test('the device entry directory falls back to the SPA instead of 403', () => {
+  const nginx = readFileSync(
+    new URL('../web/nginx.conf', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    nginx,
+    /location = \/device-entry\/ \{\s*try_files \/index\.html =404;\s*\}/,
+  );
+});
+
 test('cleaning and management profiles share an organization account center', () => {
   const appJson = JSON.parse(readFileSync(
     new URL('../miniprogram/miniprogram/app.json', import.meta.url),
