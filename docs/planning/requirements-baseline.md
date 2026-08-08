@@ -1,13 +1,19 @@
 # EcoBin 产品需求基线
 
-> 状态：**需求及全部设计基线已重新冻结；2026-08-08 已确认 V42 设备入口 URL 下发与验收边界**
+> 状态：**需求及全部设计基线已重新冻结；2026-08-09 已确认 V43 平台防伪袋码边界**
 > 初次整理：2026-07-21
-> 最近同步：2026-08-08
+> 最近同步：2026-08-09
 > 确认人：项目负责人（单人确认）
 > 目标：保存本轮已经明确的产品需求，防止会话丢失后重新讨论或沿用旧实现假设。
 > 已冻结范围：[`p0-scope-baseline.md`](p0-scope-baseline.md)
 > 业务模型基线：[`business-model-baseline.md`](business-model-baseline.md)
 > 系统架构基线：[`system-architecture-draft.md`](system-architecture-draft.md)
+
+> [!IMPORTANT]
+> 2026-08-09 清运袋标签由 V43 补充冻结：平台管理员按批生成可验真的 EB1 二维码标签，
+> 但批次不是库存，不预先分配租户或机构。厂家登记与清运换袋时由后端验真；未知有效码
+> 首次用于当前机构时才建立袋身份。详见
+> [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
 
 > [!IMPORTANT]
 > 2026-08-08 设备二维码交付由 V42 补充冻结：平台验收命令携带完整 URL；香橙派可靠

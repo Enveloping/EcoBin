@@ -54,7 +54,7 @@ require_root_controlled_file "${compose_file}"
 require_root_controlled_file "${deployment_env}"
 require_root_controlled_file "${runtime_env}"
 
-if grep -Eq '^(dbPassword|jwtSecret|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
+if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
     fail "runtime.env contains a secret value; use /run/secrets instead"
 fi
 if grep -Eq '^(wechatAppid|miniappSecretStoreDirectory)=' "${runtime_env}"; then

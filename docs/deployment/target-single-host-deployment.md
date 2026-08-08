@@ -2,7 +2,7 @@
 
 > 适用主机：`115.159.67.35`（Ubuntu 22.04）
 > 当前公网入口：`https://www.jinshoubao.com`
-> 目标数据库纪元：V42
+> 目标数据库纪元：V43
 > 本文只描述目标栈。旧 `ecobin-web`、`ecobin-backend`、`ecobin-mysql`
 > 容器和旧数据卷必须继续保留，不能与目标栈交叉连接。
 
@@ -72,6 +72,7 @@ ecobin-target-mysql84:3306
 │   ├── db-app-password                     root:root 0600
 │   ├── db-backup-password                  root:root 0600
 │   ├── jwt-secret                          root:root 0600
+│   ├── bag-code-key-k1                     root:root 0600
 │   └── ...                                 Real 模式渠道秘密
 └── wechatpay/                              root:root 0755
     ├── apiclient_cert.pem                  root:root 0644
@@ -186,12 +187,13 @@ Fake 模式不能混入微信 AppID、OneNet 产品/订阅、COS 存储桶或微
 后端使用 `production` Spring Profile，所以即使数据库为空，也不会自动创建弱口令
 `admin/admin123` 账号。没有正式 seed 时页面无法登录是正确结果，不能手工绕过。
 
-Fake 模式后端只得到两项运行秘密：
+Fake 模式后端只得到三项运行秘密；袋码签发不属于外部渠道，因此 Fake/Real 都需要：
 
 | 持久源 | 容器内 Config Tree 名称 | 用途 |
 |---|---|---|
 | `/etc/ecobin/secrets/db-app-password` | `/run/secrets/dbPassword` | `ecobin_app` 数据库密码 |
 | `/etc/ecobin/secrets/jwt-secret` | `/run/secrets/jwtSecret` | 登录令牌签名 |
+| `/etc/ecobin/secrets/bag-code-key-k1` | `/run/secrets/bagCodeKeyK1` | EB1 实体袋码签发与验真；Base64 解码后至少 32 字节 |
 
 MySQL root 和备份密码虽然由启动脚本检查持久源存在，但绝不复制到后端目录。
 
@@ -319,7 +321,7 @@ sudo systemctl daemon-reload
 
 顺序如下：
 
-1. 确认目标 MySQL 已是完整 V42、96 张领域表、76 条权限定义；是否要求业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
+1. 确认目标 MySQL 已是完整 V43、98 张领域表、76 条权限定义；是否要求业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
 2. 上传、校验并安装同一干净 Git 提交生成的本地发布包；
 3. 确认安装脚本已写入本地标签和对应 image ID，再写入其余运行配置和秘密；
 4. 执行秘密暂存；
@@ -327,8 +329,8 @@ sudo systemctl daemon-reload
 6. 启动目标应用；
 7. 只从服务器回环地址验证，再决定是否切换宿主机 Nginx。
 
-V42 一旦迁移完成并产生新的 URL 下发进度或 v2 机器验收证据，就不得切回不认识
-V42 的旧应用继续写入。激活失败时应保留数据库和日志，关闭受影响入口并前向修复。
+V43 一旦迁移完成并产生袋码打印历史，就不得切回不认识 V43 的旧应用继续写入。
+激活失败时应保留数据库和日志，关闭受影响入口并前向修复。
 
 ```bash
 sudo systemctl restart ecobin-stage-runtime-secrets.service

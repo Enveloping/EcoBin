@@ -53,12 +53,22 @@ for secret_name in \
     mysql-root-password \
     db-app-password \
     db-backup-password \
-    jwt-secret
+    jwt-secret \
+    bag-code-key-k1
 do
     require_root_file \
         "${source_dir}/${secret_name}" 600 \
         "persistent secret ${secret_name}"
 done
+
+if ! bag_code_key_bytes="$(
+    base64 --decode < "${source_dir}/bag-code-key-k1" 2>/dev/null \
+        | wc -c
+)"; then
+    fail "bag-code-key-k1 must be valid Base64"
+fi
+[[ "${bag_code_key_bytes}" -ge 32 ]] \
+    || fail "bag-code-key-k1 must decode to at least 32 bytes"
 
 if [[ "${external_mode}" = real ]]; then
     for secret_name in \
@@ -161,6 +171,8 @@ install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/db-app-password" "${backend_dir}/dbPassword"
 install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/jwt-secret" "${backend_dir}/jwtSecret"
+install -o root -g "${backend_gid}" -m 0440 \
+    "${source_dir}/bag-code-key-k1" "${backend_dir}/bagCodeKeyK1"
 
 real_runtime_files=(
     iotAccessId
@@ -213,7 +225,7 @@ rm -f -- \
     "${backend_dir}/db-backup-password" \
     "${backend_dir}/schema-owner-password"
 
-expected_runtime_files=(dbPassword jwtSecret)
+expected_runtime_files=(dbPassword jwtSecret bagCodeKeyK1)
 if [[ "${external_mode}" = real ]]; then
     expected_runtime_files+=("${real_runtime_files[@]}")
 fi

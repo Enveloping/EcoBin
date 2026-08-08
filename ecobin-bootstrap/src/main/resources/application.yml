@@ -91,6 +91,12 @@ ecobin:
       fullness-weight-kg: "50.000"
 
   recycling:
+    # EB1 实体袋码的签发与验真密钥。生产由 /run/secrets/bagCodeKeyK1 注入，
+    # 不提供默认值，避免误用公开或临时密钥签发可流通标签。
+    bag-code:
+      active-key-id: K1
+      keys:
+        K1: ${bagCodeKeyK1}
     # 新机构自动发布第一版投递规则：全部投递进入人工审核。
     default-delivery-rule:
       open-balance-floor-cent: -1000

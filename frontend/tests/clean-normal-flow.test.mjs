@@ -33,6 +33,9 @@ function port(portNo, cleaningAllowed, blockers = []) {
   };
 }
 
+const AUTHENTICATED_BAG =
+  'EB1_K1_000G40R40M30E209185GR38E1W_GRQ320Z8YDWC8V49M7W0';
+
 test('cleaning device and raw bag QR parsing keep their distinct boundaries', () => {
   const firstDevice = 'Dv_1234567890abcdefghijklmn';
   const secondDevice = 'Dv_abcdefghijklmnopqrstuvwx';
@@ -46,11 +49,19 @@ test('cleaning device and raw bag QR parsing keep their distinct boundaries', ()
   assert.equal(parseCleaningDeviceCode('deviceCode=bad'), '');
   assert.equal(parseCleaningDeviceCode('Dp_obsolete_device_code'), '');
 
-  assert.equal(parseRawBagQr(' BAG_new_001 '), 'BAG_new_001');
+  assert.equal(parseRawBagQr(` ${AUTHENTICATED_BAG} `), AUTHENTICATED_BAG);
   assert.equal(parseRawBagQr('short'), '');
   assert.equal(
-    parseRawBagQr('https://example.test/bag?bagQr=BAG_new_001'),
+    parseRawBagQr(`https://example.test/bag?bagQr=${AUTHENTICATED_BAG}`),
     '',
+  );
+  assert.equal(parseRawBagQr('BAG_new_001'), '');
+  assert.equal(
+    parseRawBagQr(
+      'EB1_K1_000G40R40M30E209185GR38E1W_GRQ320Z8YDWC8V49M7W1',
+    ),
+    // 小程序只做严格外形过滤；真正的 HMAC 防伪校验由后端完成。
+    'EB1_K1_000G40R40M30E209185GR38E1W_GRQ320Z8YDWC8V49M7W1',
   );
   assert.equal(parseRawBagQr('BAG code 001'), '');
 });
@@ -102,7 +113,7 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
     const intent = newPendingCleanOperationIntent(
       'Dv_1234567890abcdefghijklmn',
       2,
-      'BAG_new_001',
+      AUTHENTICATED_BAG,
       key,
     );
     rememberCleanOperationIntent(intent);
@@ -114,7 +125,7 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
       status: 'PREPARED',
       version: 0,
       portNo: 2,
-      installedBagQr: 'BAG_new_001',
+      installedBagQr: AUTHENTICATED_BAG,
       startAuthorizationExpiresAt: '2026-08-01T00:01:00.000Z',
       statusUrl: `/api/v1/miniapp/clean-operations/${operationUid}`,
       recommendedPollAfterMs: 1000,
@@ -128,7 +139,7 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
       deviceCode: 'Dv_1234567890abcdefghijklmn',
       portNo: 2,
       removedBagQr: 'BAG_old_001',
-      installedBagQr: 'BAG_new_001',
+      installedBagQr: AUTHENTICATED_BAG,
       firstUnlockMayHaveExecuted: true,
       cleanLockDeenergizedConfirmed: false,
       cleanerPhysicalCloseConfirmed: false,

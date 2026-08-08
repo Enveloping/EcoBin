@@ -1,6 +1,12 @@
 # EcoBin P0 目标接口设计基线
 
 > [!IMPORTANT]
+> 2026-08-09 已冻结并实现 V43 平台袋码接口：平台管理员分页查看、幂等批量签发、读取
+> 明细和删除补打历史；小程序只扫描原始 EB1 文本，后端负责防伪验真。接口不扩展到
+> 租户、机构、香橙派、MCU 或 OneNet。详见
+> [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
+
+> [!IMPORTANT]
 > 2026-08-08 已新增并冻结 I-058：游客页面、设备扫码注册、最近机构账号登录、账号列表/切换、平台共享渠道和即时设备二维码 URL 取代旧接口语义。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
 
 > [!IMPORTANT]

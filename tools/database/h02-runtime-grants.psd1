@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 17
+    CatalogVersion = 18
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -10,6 +10,7 @@
         "rec_bag_current_occupancy"
         "rec_port_clean_restart_interlock"
         "fund_active_withdrawal"
+        "rec_bag_label_batch"
     )
 
     # Exact P/O column grants from the reviewed F-04, F-05 and F-06 matrices.

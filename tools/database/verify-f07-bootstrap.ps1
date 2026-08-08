@@ -286,6 +286,7 @@ function Start-TestApplication {
         "--dbUrl=$jdbcUrl",
         "--dbUsername=ecobin_app",
         "--dbPassword=$appPassword",
+        "--bagCodeKeyK1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "--externalMode=fake",
         "--ecobin.development.default-platform-admin.enabled=false",
         "--ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
@@ -377,7 +378,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V42 application exited before readiness`n$diagnostic"
+            throw "correct V43 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -415,7 +416,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V42 application did not become ready; " +
+    throw "correct V43 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -726,8 +727,8 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 97) {
-        throw "correct target must contain 96 domain tables plus Flyway history"
+    if ($tableCount -ne 99) {
+        throw "correct target must contain 98 domain tables plus Flyway history"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -913,8 +914,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 42
-        domainTables = 96
+        targetVersion = 43
+        domainTables = 98
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -922,7 +923,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV42Ready = $true
+        correctV43Ready = $true
         fakeIngressBlocked = $true
         fakeIngressContextPathBlocked = $true
         fakeCredentialMixRejected = $true

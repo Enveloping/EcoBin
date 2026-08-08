@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.application.target;
 
+import org.enveloping.ecobin.device.api.port.BagCodeAdmissionPort;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
@@ -99,6 +100,7 @@ public class TargetDeviceApplication {
     private final String oneNetProductId;
     private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final AutomaticDeviceActivationService activationService;
+    private final BagCodeAdmissionPort bagCodeAdmission;
 
     public TargetDeviceApplication(
             JdbcTemplate jdbc,
@@ -112,7 +114,8 @@ public class TargetDeviceApplication {
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
             @Value("${onenet.product-id:}") String oneNetProductId,
-            DeviceEntryUrlFactory deviceEntryUrlFactory) {
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
+            BagCodeAdmissionPort bagCodeAdmission) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
@@ -125,6 +128,7 @@ public class TargetDeviceApplication {
         this.taskRefFactory = taskRefFactory;
         this.oneNetProductId = blankToNull(oneNetProductId);
         this.deviceEntryUrlFactory = deviceEntryUrlFactory;
+        this.bagCodeAdmission = bagCodeAdmission;
     }
 
     @Transactional(readOnly = true)
@@ -2173,10 +2177,12 @@ public class TargetDeviceApplication {
                     || bag.portNo() < 1 || bag.portNo() > portCount) {
                 throw invalid("厂家初始袋投口编号无效");
             }
-            String code = required(bag.bagCode(), 64, "bagCode");
-            if (!code.matches("[A-Za-z0-9_-]{8,64}")
-                    || !ports.add(bag.portNo()) || !codes.add(code)) {
-                throw invalid("厂家初始袋编号重复或格式无效");
+            String code = bagCodeAdmission.authenticate(bag.bagCode())
+                    .orElseThrow(() -> invalid(
+                            "厂家初始袋码未通过 EB1 防伪校验"))
+                    .value();
+            if (!ports.add(bag.portNo()) || !codes.add(code)) {
+                throw invalid("厂家初始袋投口或袋码重复");
             }
             bags.add(new FactoryBag(bag.portNo(), code));
         }

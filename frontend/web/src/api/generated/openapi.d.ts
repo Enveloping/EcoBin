@@ -4177,6 +4177,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/bag-label-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List disposable platform bag-label printing history */
+        get: operations["listPlatformBagLabelBatches"];
+        put?: never;
+        /** Issue one authenticated EB1 label batch without registering bag inventory */
+        post: operations["createPlatformBagLabelBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/bag-label-batches/{batchUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read all raw label payloads in one printing batch */
+        get: operations["getPlatformBagLabelBatch"];
+        put?: never;
+        post?: never;
+        /** Delete only reprint history; already printed authenticated codes remain valid */
+        delete: operations["deletePlatformBagLabelBatch"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets": {
         parameters: {
             query?: never;
@@ -5817,7 +5855,7 @@ export interface components {
             [key: string]: unknown;
         };
         StartCleanOperationRequest: {
-            installedBagQr: string;
+            installedBagQr: components["schemas"]["AuthenticatedBagCode"];
         };
         CleanOperationAccepted: {
             operationId: components["schemas"]["UuidV4"];
@@ -7016,7 +7054,7 @@ export interface components {
         DeviceAcceptanceStatus: "PENDING" | "FAILED" | "PASSED";
         FactoryInstalledBagInput: {
             portNo: number;
-            bagCode: string;
+            bagCode: components["schemas"]["AuthenticatedBagCode"];
         };
         CreateDeviceAssetRequest: {
             hardwareSn: components["schemas"]["HardwareSn"];
@@ -7024,6 +7062,56 @@ export interface components {
             productionBatch?: string | null;
             expectedPortCount: number;
             factoryBags: components["schemas"]["FactoryInstalledBagInput"][];
+        };
+        /** @description Raw QR payload. Authentication is performed server-side with the key identified inside the code. */
+        AuthenticatedBagCode: string;
+        CreateBagLabelBatchRequest: {
+            quantity: number;
+        };
+        BagLabelPlatformAdmin: {
+            platformAdminUid: components["schemas"]["UuidV4"];
+            displayName: string;
+        };
+        BagLabelBatchSummary: {
+            batchUid: components["schemas"]["UuidV4"];
+            keyId: string;
+            quantity: number;
+            createdBy: components["schemas"]["BagLabelPlatformAdmin"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        BagLabelItem: {
+            sequenceNo: number;
+            bagCode: components["schemas"]["AuthenticatedBagCode"];
+            qrPayload: components["schemas"]["AuthenticatedBagCode"];
+        };
+        BagLabelBatch: {
+            batchUid: components["schemas"]["UuidV4"];
+            keyId: string;
+            quantity: number;
+            createdBy: components["schemas"]["BagLabelPlatformAdmin"];
+            /** Format: date-time */
+            createdAt: string;
+            labels: components["schemas"]["BagLabelItem"][];
+        };
+        BagLabelBatchPage: {
+            items: components["schemas"]["BagLabelBatchSummary"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        BagLabelBatchEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BagLabelBatch"];
+            requestId: string;
+        };
+        BagLabelBatchPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BagLabelBatchPage"];
+            requestId: string;
         };
         ComputedOneNetMapping: {
             productId: string | null;
@@ -7097,6 +7185,10 @@ export interface components {
             sensorsHealthy: boolean;
             camerasCaptureHealthy: boolean;
             cameraUploadHealthy: boolean;
+            /** @description V42 及以后证据中，香橙派是否已可靠保存完整设备入口 URL；历史证据为空。 */
+            deviceEntryUrlStored?: boolean | null;
+            /** @description 香橙派重新读取本地 URL 后计算的摘要；不代表 MCU 或屏幕状态。 */
+            deviceEntryUrlSha256?: components["schemas"]["Sha256Hex"] | null;
             mcuSimulated: boolean;
             camerasSimulated: boolean;
             evaluationStatus: components["schemas"]["DeviceAcceptanceStatus"];
@@ -13396,6 +13488,110 @@ export interface operations {
                     "application/json": components["schemas"]["OperationalOverviewEnvelope"];
                 };
             };
+        };
+    };
+    listPlatformBagLabelBatches: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bag-label batch page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagLabelBatchPageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createPlatformBagLabelBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBagLabelBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Authenticated label batch created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagLabelBatchEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformBagLabelBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated label batch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BagLabelBatchEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    deletePlatformBagLabelBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Printing history deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
         };
     };
     listPlatformDeviceAssets: {

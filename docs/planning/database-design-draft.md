@@ -1,6 +1,12 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-08-09 已确认 V43：新增 `rec_bag_label_batch` 与 `rec_bag_label_item`，只保存平台
+> 签发和补打历史；两表不带租户/机构或库存状态，真实 `rec_bag` 仍在首次业务使用时创建。
+> 目标为 V43、98 张领域表、76 条有效权限定义。详见
+> [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
+
+> [!IMPORTANT]
 > 2026-08-08 已确认 D-048 / V39：以 `iam_miniapp_channel`、机构渠道绑定、`iam_wechat_subject` 和独立机构账号替换机构 AppID/OpenID 模型；设备二维码任务状态退出。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
 
 > [!IMPORTANT]

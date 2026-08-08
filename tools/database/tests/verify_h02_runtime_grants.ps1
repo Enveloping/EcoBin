@@ -9,15 +9,15 @@ $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 96' -or
-        $provisionSource -notmatch 'Expected 96 domain tables') {
-    throw "H-02 provisioning must enforce the V42 96-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 98' -or
+        $provisionSource -notmatch 'Expected 98 domain tables') {
+    throw "H-02 provisioning must enforce the V43 98-table shape"
 }
 if ($provisionSource -match 'Expected 99 domain tables') {
     throw "H-02 provisioning still enforces the removed V35 table count"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 42') {
-    throw "H-02 provisioning must migrate through V42"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 43') {
+    throw "H-02 provisioning must migrate through V43"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -48,6 +48,16 @@ $removedDeviceTables = @(
     "dev_asset_active_tenant_allocation"
     "dev_deployment_runtime_state"
 )
+$requiredDeleteTables = @(
+    "dev_device_occupancy"
+    "rec_bag_current_occupancy"
+    "rec_port_clean_restart_interlock"
+    "fund_active_withdrawal"
+    "rec_bag_label_batch"
+)
+if (@(Compare-Object $requiredDeleteTables @($catalog.SlotTables)).Count -ne 0) {
+    throw "V43 runtime DELETE grants do not match the reviewed catalog"
+}
 $catalogTables = @(
     $catalog.ReadOnlyTables
     $catalog.SlotTables

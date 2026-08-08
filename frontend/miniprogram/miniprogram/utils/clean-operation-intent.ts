@@ -5,7 +5,8 @@ import type {
 } from '../types/api'
 
 const DEVICE_CODE = /^Dv_[A-Za-z0-9_-]{24,61}$/
-const RAW_BAG_QR = /^[A-Za-z0-9_-]{8,64}$/
+const RAW_BAG_QR = /^EB1_K[0-9A-Z]{1,6}_[0-9A-HJKMNP-TV-Z]{26}_[0-9A-HJKMNP-TV-Z]{20}$/
+const CLEAN_RECORD_NO = /^CR-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const STATUS_URL = /^\/api\/v1\/miniapp\/clean-operations\/([0-9a-f-]{36})$/i
 const PENDING_CLEAN_OPERATION_KEY = 'ecobin_pending_clean_operation'
@@ -102,7 +103,7 @@ function isPendingCleanOperationIntent(
     intent.cleanRecordNo === null
     || (
       intent.cleanRecordNo !== undefined
-      && RAW_BAG_QR.test(intent.cleanRecordNo)
+      && CLEAN_RECORD_NO.test(intent.cleanRecordNo)
     )
   )
 }

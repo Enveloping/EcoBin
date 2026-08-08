@@ -61,7 +61,8 @@ class RuntimeSafetyConfigurationTest {
             "V39__shared_miniapp_multi_organization_identity.sql",
             "V40__permanent_asset_edge_event_targets.sql",
             "V41__global_miniapp_device_entry_url.sql",
-            "V42__device_entry_url_edge_delivery.sql"
+            "V42__device_entry_url_edge_delivery.sql",
+            "V43__authenticated_bag_label_batches.sql"
     };
 
     @Test
@@ -86,6 +87,9 @@ class RuntimeSafetyConfigurationTest {
         assertEquals(
                 "${jwtSecret}",
                 property(sources, "jwt.secret"));
+        assertEquals(
+                "${bagCodeKeyK1}",
+                property(sources, "ecobin.recycling.bag-code.keys.K1"));
         assertEquals(
                 false,
                 property(

@@ -29,6 +29,9 @@ ecobin:
 jwt:
   secret: test_jwt_secret_at_least_32_bytes_long
 
+# 固定测试密钥：只用于可复现的 EB1 测试向量，不得用于任何实际环境。
+bagCodeKeyK1: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+
 # OneNet 北向消费者测试环境强制关闭（绝不连真实 MQ）
 onenet:
   subscription:

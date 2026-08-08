@@ -3969,6 +3969,83 @@
     "/api/v1/web/platform/tenants/{tenantCode}/statistics/operational-overview": {"parameters": [{"$ref": "#/components/parameters/TenantCode"}], "get": {"operationId": "getPlatformOperationalOverview", "tags": ["Operations"], "security": [{"webSessionCookie": []}], "parameters": [{"name": "businessDateFrom", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "businessDateToExclusive", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "organizationCode", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "Operational overview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationalOverviewEnvelope"}}}}}}},
     "/api/v1/miniapp-staff/statistics/operational-overview": {"get": {"operationId": "getMiniappStaffOperationalOverview", "tags": ["Operations"], "security": [{"miniappBearer": []}], "parameters": [{"name": "businessDateFrom", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "businessDateToExclusive", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}], "responses": {"200": {"description": "Current organization overview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationalOverviewEnvelope"}}}}}}}
   ,
+    "/api/v1/web/platform/bag-label-batches": {
+      "get": {
+        "operationId": "listPlatformBagLabelBatches",
+        "tags": ["Cleaning"],
+        "summary": "List disposable platform bag-label printing history",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Bag-label batch page",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BagLabelBatchPageEnvelope"}}}
+          },
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformBagLabelBatch",
+        "tags": ["Cleaning"],
+        "summary": "Issue one authenticated EB1 label batch without registering bag inventory",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBagLabelBatchRequest"}}}
+        },
+        "responses": {
+          "201": {
+            "description": "Authenticated label batch created",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BagLabelBatchEnvelope"}}}
+          },
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/bag-label-batches/{batchUid}": {
+      "parameters": [{
+        "name": "batchUid",
+        "in": "path",
+        "required": true,
+        "schema": {"$ref": "#/components/schemas/UuidV4"}
+      }],
+      "get": {
+        "operationId": "getPlatformBagLabelBatch",
+        "tags": ["Cleaning"],
+        "summary": "Read all raw label payloads in one printing batch",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {
+            "description": "Authenticated label batch",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BagLabelBatchEnvelope"}}}
+          },
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "delete": {
+        "operationId": "deletePlatformBagLabelBatch",
+        "tags": ["Cleaning"],
+        "summary": "Delete only reprint history; already printed authenticated codes remain valid",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "responses": {
+          "204": {"description": "Printing history deleted"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+,
     "/api/v1/web/platform/device-assets": {
       "get": {
         "operationId": "listPlatformDeviceAssets",
@@ -10828,7 +10905,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["installedBagQr"],
-        "properties": {"installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64}}
+        "properties": {"installedBagQr": {"$ref": "#/components/schemas/AuthenticatedBagCode"}}
       },
       "CleanOperationAccepted": {
         "type": "object",
@@ -11577,10 +11654,7 @@
             "maximum": 6
           },
           "bagCode": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{8,64}$",
-            "minLength": 8,
-            "maxLength": 64
+            "$ref": "#/components/schemas/AuthenticatedBagCode"
           }
         }
       }
@@ -11623,6 +11697,110 @@
               "$ref": "#/components/schemas/FactoryInstalledBagInput"
             }
           }
+        }
+      }
+,
+      "AuthenticatedBagCode": {
+        "type": "string",
+        "minLength": 54,
+        "maxLength": 59,
+        "pattern": "^EB1_K[0-9A-Z]{1,6}_[0-9A-HJKMNP-TV-Z]{26}_[0-9A-HJKMNP-TV-Z]{20}$",
+        "description": "Raw QR payload. Authentication is performed server-side with the key identified inside the code."
+      }
+,
+      "CreateBagLabelBatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["quantity"],
+        "properties": {
+          "quantity": {"type": "integer", "minimum": 1, "maximum": 100}
+        }
+      }
+,
+      "BagLabelPlatformAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["platformAdminUid", "displayName"],
+        "properties": {
+          "platformAdminUid": {"$ref": "#/components/schemas/UuidV4"},
+          "displayName": {"type": "string"}
+        }
+      }
+,
+      "BagLabelBatchSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["batchUid", "keyId", "quantity", "createdBy", "createdAt"],
+        "properties": {
+          "batchUid": {"$ref": "#/components/schemas/UuidV4"},
+          "keyId": {"type": "string", "pattern": "^K[0-9A-Z]{1,6}$"},
+          "quantity": {"type": "integer", "minimum": 1, "maximum": 100},
+          "createdBy": {"$ref": "#/components/schemas/BagLabelPlatformAdmin"},
+          "createdAt": {"type": "string", "format": "date-time"}
+        }
+      }
+,
+      "BagLabelItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequenceNo", "bagCode", "qrPayload"],
+        "properties": {
+          "sequenceNo": {"type": "integer", "minimum": 1, "maximum": 100},
+          "bagCode": {"$ref": "#/components/schemas/AuthenticatedBagCode"},
+          "qrPayload": {"$ref": "#/components/schemas/AuthenticatedBagCode"}
+        }
+      }
+,
+      "BagLabelBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["batchUid", "keyId", "quantity", "createdBy", "createdAt", "labels"],
+        "properties": {
+          "batchUid": {"$ref": "#/components/schemas/UuidV4"},
+          "keyId": {"type": "string", "pattern": "^K[0-9A-Z]{1,6}$"},
+          "quantity": {"type": "integer", "minimum": 1, "maximum": 100},
+          "createdBy": {"$ref": "#/components/schemas/BagLabelPlatformAdmin"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "labels": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {"$ref": "#/components/schemas/BagLabelItem"}
+          }
+        }
+      }
+,
+      "BagLabelBatchPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "page", "pageSize", "total"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/BagLabelBatchSummary"}},
+          "page": {"type": "integer", "minimum": 1},
+          "pageSize": {"type": "integer", "minimum": 1, "maximum": 100},
+          "total": {"type": "integer", "format": "int64", "minimum": 0}
+        }
+      }
+,
+      "BagLabelBatchEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/BagLabelBatch"},
+          "requestId": {"type": "string"}
+        }
+      }
+,
+      "BagLabelBatchPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/BagLabelBatchPage"},
+          "requestId": {"type": "string"}
         }
       }
 ,

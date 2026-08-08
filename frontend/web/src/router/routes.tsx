@@ -5,6 +5,7 @@ import {
   CloudServerOutlined,
   DollarOutlined,
   IdcardOutlined,
+  QrcodeOutlined,
   ShoppingCartOutlined,
   SettingOutlined,
   SlidersOutlined,
@@ -27,6 +28,7 @@ const AccountSettingsPage = lazy(() => import('@/pages/account'));
 const DeviceManagementPage = lazy(
   () => import('@/pages/device-management'),
 );
+const BagLabelsPage = lazy(() => import('@/pages/bag-labels'));
 const DeliveryOrdersPage = lazy(
   () => import('@/pages/delivery-orders'),
 );
@@ -132,6 +134,14 @@ export const appRoutes: AppRoute[] = [
     icon: <CloudServerOutlined />,
     element: <DeviceManagementPage />,
     allOf: ['device.read'],
+  },
+  {
+    path: '/bag-labels',
+    name: '袋码管理',
+    icon: <QrcodeOutlined />,
+    element: <BagLabelsPage />,
+    allOf: ['platform-admin.manage'],
+    accountTypes: PLATFORM,
   },
   {
     path: '/deliveries',
@@ -281,7 +291,7 @@ export function menuRoutesFor(
   const walletEntries = visibleRoute(session, '/wallet-entries');
   if (walletEntries) menu.push(leaf(walletEntries));
 
-  for (const path of ['/staff', '/devices'] as const) {
+  for (const path of ['/staff', '/devices', '/bag-labels'] as const) {
     const route = visibleRoute(session, path);
     if (route) menu.push(leaf(route));
   }

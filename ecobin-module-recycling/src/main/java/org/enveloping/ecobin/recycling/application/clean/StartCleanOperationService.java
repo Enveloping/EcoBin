@@ -13,6 +13,7 @@ import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.StartCleanIdentityParticipationPort;
 import org.enveloping.ecobin.identity.api.result.LockedCleanOrganizationUser;
 import org.enveloping.ecobin.identity.api.result.LockedMiniappCleanScope;
+import org.enveloping.ecobin.recycling.application.bag.Eb1BagCodeService;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOperationAccepted;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -146,6 +147,7 @@ public class StartCleanOperationService {
     private final DeviceCommandCanonicalizationPort canonicalizer;
     private final AuditPort audit;
     private final ObjectMapper objectMapper;
+    private final Eb1BagCodeService bagCodes;
 
     public StartCleanOperationService(
             JdbcTemplate jdbc,
@@ -154,7 +156,8 @@ public class StartCleanOperationService {
             DeviceCommandTaskRefFactory taskRefFactory,
             DeviceCommandCanonicalizationPort canonicalizer,
             AuditPort audit,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            Eb1BagCodeService bagCodes) {
         this.jdbc = jdbc;
         this.identity = identity;
         this.taskRegistration = taskRegistration;
@@ -162,6 +165,7 @@ public class StartCleanOperationService {
         this.canonicalizer = canonicalizer;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.bagCodes = bagCodes;
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -173,7 +177,9 @@ public class StartCleanOperationService {
         requireUuidV4(idempotencyKey);
         String normalizedDeviceCode = deviceCode(deviceCode);
         int normalizedPort = portNo(portNo);
-        String normalizedBag = bagCode(installedBagQr);
+        String normalizedBag = bagCodes.authenticate(installedBagQr)
+                .orElseThrow(StartCleanOperationService::invalidBagCode)
+                .value();
 
         LockedMiniappCleanScope scope =
                 identity.lockCurrentMiniappScope();
@@ -1233,21 +1239,11 @@ public class StartCleanOperationService {
         return normalized;
     }
 
-    private static String bagCode(String value) {
-        if (value == null) {
-            throw new TargetApiException(
-                    400,
-                    "CLEAN.BAG_CODE_INVALID",
-                    "换入袋码不能为空");
-        }
-        String normalized = value.trim();
-        if (!normalized.matches("[A-Za-z0-9_-]{8,64}")) {
-            throw new TargetApiException(
-                    400,
-                    "CLEAN.BAG_CODE_INVALID",
-                    "换入袋码格式无效");
-        }
-        return normalized;
+    private static TargetApiException invalidBagCode() {
+        return new TargetApiException(
+                400,
+                "CLEAN.BAG_CODE_INVALID",
+                "换入袋码未通过平台防伪校验");
     }
 
     private static int portNo(int value) {

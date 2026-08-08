@@ -1,7 +1,7 @@
 # EcoBin 生产部署配置、密钥与证书清单
 
 > 适用目标：`ubuntu@115.159.67.35`、Ubuntu 22.04、
-> `https://www.jinshoubao.com`、目标数据库 V42。
+> `https://www.jinshoubao.com`、目标数据库 V43。
 >
 > 本文只记录配置项名称、用途和存放位置，不记录任何真实值。完整的安装、启动、
 > Nginx 切换和回退步骤见
@@ -39,6 +39,7 @@
 │   ├── db-app-password                     root:root 0600
 │   ├── db-backup-password                  root:root 0600
 │   ├── jwt-secret                          root:root 0600
+│   ├── bag-code-key-k1                     root:root 0600
 │   └── ...                                 Real 模式渠道秘密
 ├── wechatpay/                              root:root 0755
 │   ├── apiclient_cert.pem                  root:root 0644
@@ -183,7 +184,7 @@ H02_VOLUME_NAME=ecobin-target-mysql84-data
 H02_NETWORK_NAME=ecobin-target-db
 ```
 
-当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V42。V42 是数据库纪元门禁，
+当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V43。V43 是数据库纪元门禁，
 不是可以通过修改 `runtime.env` 绕过的配置项。
 
 ### 3.5 从仓库安装到服务器的固定文件
@@ -214,6 +215,7 @@ YAML 或整个仓库根目录挂进容器。
 | `db-app-password` | MySQL 的 `ecobin_app` 与后端 | 是，暂存为 `/run/secrets/dbPassword` | 两边必须是同一个值 |
 | `db-backup-password` | `ecobin_backup` 备份流程 | 否 | 后端不应得到该值 |
 | `jwt-secret` | 后端签发和校验登录令牌 | 是，暂存为 `/run/secrets/jwtSecret` | 至少 32 个 UTF-8 字节，使用独立随机值 |
+| `bag-code-key-k1` | 后端签发和验证 EB1 实体袋码 | 是，暂存为 `/run/secrets/bagCodeKeyK1` | 至少 32 个随机字节的 Base64；不得与 JWT 或渠道密钥复用 |
 
 已有目标数据库部署应用时，前三个数据库密码应复用已供应的生产值，而不是随应用重新
 生成。只有执行受控数据库密码轮换时，才同时修改数据库账号和对应文件。
@@ -373,13 +375,14 @@ curl --fail --silent http://127.0.0.1:18080/ >/dev/null
 
 Real 模式切换前还应人工确认：
 
-- [ ] 目标数据库已经是 V42，且共有 96 张领域表；
+- [ ] 目标数据库已经是 V43，且共有 98 张领域表；
 - [ ] 发布包来自干净 Git 提交，归档和包内逐文件 SHA-256 校验均通过；
 - [ ] 两个本地镜像的标签、image ID、发布记录和镜像标签一致；
 - [ ] `deployment.env` 与 `runtime.env` 均为 `root:root 0600` 且使用 LF；
 - [ ] `/var/log/ecobin/backend` 为真实目录、不是符号链接，权限精确为
   `10001:10001 0750`；
-- [ ] `/etc/ecobin/secrets` 的基础四项和 Real 七项全部存在；
+- [ ] `/etc/ecobin/secrets` 的基础五项和 Real 七项全部存在；
+- [ ] `bag-code-key-k1` 是有效 Base64，解码后至少 32 字节；
 - [ ] APIv3 密钥正好 32 字节且没有换行；
 - [ ] 商户私钥、商户 API 证书和证书序列号互相匹配；
 - [ ] `pub_key.pem` 与 `PUB_KEY_ID_...` 配对；
@@ -396,6 +399,7 @@ Real 模式切换前还应人工确认：
 |---|---|
 | `db-app-password` | 修改 MySQL `ecobin_app` 密码和服务器文件，再重新暂存并重启后端 |
 | JWT 密钥 | 更新 `jwt-secret` 并重启后端；已有登录令牌会失效，应安排重新登录窗口 |
+| EB1 袋码密钥 | 增加新 key ID 并把它设为活动签发密钥；仍在流通的旧标签退场前保留旧 key 只用于验真 |
 | 商户 API 证书 | 新商户私钥、`apiclient_cert.pem` 和 `wechatPayMerchantSerialNumber` 一起发布 |
 | 微信支付公钥 | 新 `pub_key.pem` 与对应 `wechatPayPublicKeyId` 一起发布 |
 | APIv3 密钥 | 微信商户平台与服务器 `wechatpay-api-v3-key` 同步变更，避免新旧回调无法解密 |

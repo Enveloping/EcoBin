@@ -81,6 +81,9 @@ interface ControlState {
   asset: DeviceAsset;
 }
 
+const AUTHENTICATED_BAG_CODE =
+  /^EB1_K[0-9A-Z]{1,6}_[0-9A-HJKMNP-TV-Z]{26}_[0-9A-HJKMNP-TV-Z]{20}$/;
+
 function errorMessage(error: unknown): string {
   if (error instanceof ApiProblem) {
     return error.requestId
@@ -511,7 +514,14 @@ export default function DeviceManagementPage() {
           type="warning"
           showIcon
           message="硬件 SN 和厂家初始袋创建后不能替换"
-          description="OneNet 设备名固定等于硬件 SN；每个投口必须登记一个真实、唯一的空袋码。"
+          description={(
+            <span>
+              OneNet 设备名固定等于硬件 SN；每个投口必须登记一个真实、唯一、
+              由平台签发的 EB1 空袋码。可先到{' '}
+              <Typography.Link href="/bag-labels">袋码管理</Typography.Link>
+              {' '}生成并打印标签。
+            </span>
+          )}
           style={{ marginBottom: 20 }}
         />
         <Form form={assetForm} layout="vertical">
@@ -562,8 +572,8 @@ export default function DeviceManagementPage() {
               rules={[
                 { required: true },
                 {
-                  pattern: /^[A-Za-z0-9_-]{8,64}$/,
-                  message: '请输入 8～64 位袋码',
+                  pattern: AUTHENTICATED_BAG_CODE,
+                  message: '请扫描或粘贴平台签发的完整 EB1 袋码',
                 },
               ]}
             >
