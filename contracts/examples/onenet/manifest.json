@@ -65,6 +65,10 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "sync-device-entry-url.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "device-command-observed.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },

@@ -31,6 +31,8 @@ public class ReliableDeviceCommandCompletionService {
     private static final Set<String> SAFE_CONTROL_COMMANDS = Set.of(
             "CONFIRM_EDGE_EVENT",
             "PROVIDE_PHOTO_UPLOAD_GRANT");
+    private static final Set<String> TRANSPORT_COMPLETES_COMMANDS = Set.of(
+            "SYNC_DEVICE_ENTRY_URL");
     private static final Duration CONFIGURATION_EVIDENCE_WINDOW =
             Duration.ofMinutes(2);
     private static final Duration PHYSICAL_EVIDENCE_GRACE =
@@ -126,6 +128,17 @@ public class ReliableDeviceCommandCompletionService {
                     "PERMANENT_TECHNICAL_FAILURE",
                     "frozen device command was permanently rejected by transport",
                     now);
+            return;
+        }
+        if (result.outcome()
+                == DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED
+                && TRANSPORT_COMPLETES_COMMANDS.contains(
+                claim.commandType())) {
+            // This command changes no platform business state and starts no
+            // physical work. OneNet acceptance completes the cloud delivery
+            // intent; the edge inbox remains the durable local hand-off.
+            repository.markTaskDone(
+                    execution.taskId(), execution.wakeVersion(), now);
             return;
         }
         if (result.outcome()

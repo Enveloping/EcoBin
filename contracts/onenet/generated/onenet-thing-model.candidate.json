@@ -6464,7 +6464,7 @@
     {
      "dataType": {
       "specs": {
-       "1": "1"
+       "1": "2"
       },
       "type": "enum"
      },
@@ -6597,6 +6597,27 @@
      },
      "identifier": "cameraUploadHealthy",
      "name": "cameraUploadHealthy"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "false",
+       "true": "true"
+      },
+      "type": "bool"
+     },
+     "identifier": "deviceEntryUrlStored",
+     "name": "deviceEntryUrlStored"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "deviceEntryUrlSha256",
+     "name": "deviceEntryUrlSha256"
     },
     {
      "dataType": {
@@ -10220,6 +10241,264 @@
    "input": [
     {
      "dataType": {
+      "specs": [
+       {
+        "dataType": {
+         "specs": {
+          "1": "2"
+         },
+         "type": "enum"
+        },
+        "identifier": "schemaVersion",
+        "name": "schemaVersion"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 36
+         },
+         "type": "string"
+        },
+        "identifier": "commandUid",
+        "name": "commandUid"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "1": "REQUEST_DEV_ACCEPT"
+         },
+         "type": "enum"
+        },
+        "identifier": "commandType",
+        "name": "commandType"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 64
+         },
+         "type": "string"
+        },
+        "identifier": "targetDeviceName",
+        "name": "targetDeviceName"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 30
+         },
+         "type": "string"
+        },
+        "identifier": "issuedAt",
+        "name": "issuedAt"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 30
+         },
+         "type": "string"
+        },
+        "identifier": "expiresAt",
+        "name": "expiresAt"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "1": "2"
+         },
+         "type": "enum"
+        },
+        "identifier": "payloadSchemaVersion",
+        "name": "payloadSchemaVersion"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 64
+         },
+         "type": "string"
+        },
+        "identifier": "payloadSha256",
+        "name": "payloadSha256"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 36
+         },
+         "type": "string"
+        },
+        "identifier": "challengeUid",
+        "name": "challengeUid"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "max": "6",
+          "min": "1",
+          "step": "1",
+          "unit": ""
+         },
+         "type": "int32"
+        },
+        "identifier": "expectedPortCount",
+        "name": "expectedPortCount"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 192
+         },
+         "type": "string"
+        },
+        "identifier": "deviceEntryUrl",
+        "name": "deviceEntryUrl"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 64
+         },
+         "type": "string"
+        },
+        "identifier": "deviceEntryUrlSha256",
+        "name": "deviceEntryUrlSha256"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 36
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantGrantUid",
+        "name": "cosGrantGrantUid"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 128
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantTmpSecretId",
+        "name": "cosGrantTmpSecretId"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 128
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantTmpSecretKey",
+        "name": "cosGrantTmpSecretKey"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 128
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantBucket",
+        "name": "cosGrantBucket"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 32
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantRegion",
+        "name": "cosGrantRegion"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 256
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantBaseUrl",
+        "name": "cosGrantBaseUrl"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 256
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantKeyPrefix",
+        "name": "cosGrantKeyPrefix"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 30
+         },
+         "type": "string"
+        },
+        "identifier": "cosGrantExpiresAt",
+        "name": "cosGrantExpiresAt"
+       }
+      ],
+      "type": "struct"
+     },
+     "identifier": "scalarFields",
+     "name": "scalarFields"
+    },
+    {
+     "dataType": {
+      "specs": [
+       {
+        "dataType": {
+         "specs": {
+          "1": "DEVICE_ASSET"
+         },
+         "type": "enum"
+        },
+        "identifier": "type",
+        "name": "type"
+       },
+       {
+        "dataType": {
+         "specs": {
+          "length": 64
+         },
+         "type": "string"
+        },
+        "identifier": "uid",
+        "name": "uid"
+       }
+      ],
+      "type": "struct"
+     },
+     "identifier": "target",
+     "name": "target"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 8,
+       "specs": {
+        "length": 512
+       },
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "identifier": "cosGrantSessionTokenParts",
+     "name": "cosGrantSessionTokenParts"
+    }
+   ],
+   "name": "requestDeviceAcceptance",
+   "output": [
+    {
+     "dataType": {
       "specs": {
        "1": "2"
       },
@@ -10241,7 +10520,81 @@
     {
      "dataType": {
       "specs": {
-       "1": "REQUEST_DEV_ACCEPT"
+       "1": "ACCEPTED",
+       "2": "DUPLICATE_ACCEPTED",
+       "3": "REJECTED"
+      },
+      "type": "enum"
+     },
+     "identifier": "receiptState",
+     "name": "receiptState"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "false": "null",
+       "true": "present"
+      },
+      "type": "bool"
+     },
+     "identifier": "errorCodePresent",
+     "name": "errorCodePresent"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 64
+      },
+      "type": "string"
+     },
+     "identifier": "errorCode",
+     "name": "errorCode"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "max": "9007199254740991",
+       "min": "1",
+       "step": "1",
+       "unit": ""
+      },
+      "type": "int64"
+     },
+     "identifier": "edgeBootId",
+     "name": "edgeBootId"
+    }
+   ]
+  },
+  {
+   "callType": "sync",
+   "desc": "同步回复仅证明香橙派已可靠受理；物理与业务结果走可靠事件",
+   "functionType": "u",
+   "identifier": "syncDeviceEntryUrl",
+   "input": [
+    {
+     "dataType": {
+      "specs": {
+       "1": "2"
+      },
+      "type": "enum"
+     },
+     "identifier": "schemaVersion",
+     "name": "schemaVersion"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "length": 36
+      },
+      "type": "string"
+     },
+     "identifier": "commandUid",
+     "name": "commandUid"
+    },
+    {
+     "dataType": {
+      "specs": {
+       "1": "SYNC_DEVICE_URL"
       },
       "type": "enum"
      },
@@ -10330,122 +10683,36 @@
     {
      "dataType": {
       "specs": {
-       "length": 36
+       "length": 192
       },
       "type": "string"
      },
-     "identifier": "challengeUid",
-     "name": "challengeUid"
+     "identifier": "deviceEntryUrl",
+     "name": "deviceEntryUrl"
     },
     {
      "dataType": {
       "specs": {
-       "max": "6",
-       "min": "1",
-       "step": "1",
-       "unit": ""
-      },
-      "type": "int32"
-     },
-     "identifier": "expectedPortCount",
-     "name": "expectedPortCount"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 36
+       "length": 64
       },
       "type": "string"
      },
-     "identifier": "cosGrantGrantUid",
-     "name": "cosGrantGrantUid"
+     "identifier": "deviceEntryUrlSha256",
+     "name": "deviceEntryUrlSha256"
     },
     {
      "dataType": {
       "specs": {
-       "length": 128
+       "false": "null",
+       "true": "present"
       },
-      "type": "string"
+      "type": "bool"
      },
-     "identifier": "cosGrantTmpSecretId",
-     "name": "cosGrantTmpSecretId"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 128
-      },
-      "type": "string"
-     },
-     "identifier": "cosGrantTmpSecretKey",
-     "name": "cosGrantTmpSecretKey"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 8,
-       "specs": {
-        "length": 512
-       },
-       "type": "string"
-      },
-      "type": "array"
-     },
-     "identifier": "cosGrantSessionTokenParts",
-     "name": "cosGrantSessionTokenParts"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 128
-      },
-      "type": "string"
-     },
-     "identifier": "cosGrantBucket",
-     "name": "cosGrantBucket"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 32
-      },
-      "type": "string"
-     },
-     "identifier": "cosGrantRegion",
-     "name": "cosGrantRegion"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 256
-      },
-      "type": "string"
-     },
-     "identifier": "cosGrantBaseUrl",
-     "name": "cosGrantBaseUrl"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 256
-      },
-      "type": "string"
-     },
-     "identifier": "cosGrantKeyPrefix",
-     "name": "cosGrantKeyPrefix"
-    },
-    {
-     "dataType": {
-      "specs": {
-       "length": 30
-      },
-      "type": "string"
-     },
-     "identifier": "cosGrantExpiresAt",
-     "name": "cosGrantExpiresAt"
+     "identifier": "cosGrantPresent",
+     "name": "cosGrantPresent"
     }
    ],
-   "name": "requestDeviceAcceptance",
+   "name": "syncDeviceEntryUrl",
    "output": [
     {
      "dataType": {

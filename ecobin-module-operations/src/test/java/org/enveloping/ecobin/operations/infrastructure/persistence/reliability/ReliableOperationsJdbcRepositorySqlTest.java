@@ -74,6 +74,7 @@ class ReliableOperationsJdbcRepositorySqlTest {
                 + "AND " + alias + ".organization_id IS NULL "
                 + "AND " + alias + ".task_type IN ( "
                 + "'REQUEST_DEVICE_ACCEPTANCE', "
+                + "'SYNC_DEVICE_ENTRY_URL', "
                 + "'CONFIRM_EDGE_EVENT' )";
     }
 

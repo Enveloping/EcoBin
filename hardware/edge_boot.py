@@ -268,6 +268,7 @@ def _boot_fixed_frame_compatibility(
             "rawFrameHex": None,
         }
         store.save_fixed_frame_self_test(self_test)
+    _resend_device_entry_url_to_fixed_frame_mcu(store, uart_link)
     communication_healthy = bool(
         self_test.get("communicationHealthy") is True
     )
@@ -336,6 +337,27 @@ def _boot_fixed_frame_compatibility(
         "mcu_info": mcu_info,
         "snapshot_count": 1 if communication_healthy else 0,
     }
+
+
+def _resend_device_entry_url_to_fixed_frame_mcu(store, uart_link) -> bool:
+    """Best-effort replay after edge restart; it never changes boot health."""
+    try:
+        record = store.get_device_entry_url()
+        if record is None:
+            logger.info("BOOT: no stored device entry URL to resend")
+            return False
+        uart_link.send_device_entry_url(record["deviceEntryUrl"])
+        logger.info(
+            "BOOT: stored device entry URL resent to MCU: sha256=%s",
+            record["deviceEntryUrlSha256"],
+        )
+        return True
+    except Exception as error:
+        logger.warning(
+            "BOOT: stored device entry URL could not be resent: %s",
+            error,
+        )
+        return False
 
 def recover_after_online_mcu_hello(store, uart_link, hello_frame):
     """Re-negotiate an MCU restart without replaying physical work."""

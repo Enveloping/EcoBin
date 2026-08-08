@@ -862,6 +862,13 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
                 raise ContractError(
                     f"DEVICE_ACCEPTANCE_EVIDENCE {field} is empty"
                 )
+        if (
+            payload["deviceEntryUrlStored"]
+            and payload["deviceEntryUrlSha256"] == "0" * 64
+        ):
+            raise ContractError(
+                "stored device entry URL requires a non-zero digest"
+            )
 
 
 def _validate_command_semantics(
@@ -894,15 +901,38 @@ def _validate_command_semantics(
         "CONFIRM_EDGE_EVENT": "originalEventUid",
         "PROVIDE_PHOTO_UPLOAD_GRANT": "grantRequestEventUid",
     }.get(command_type)
-    if command_type == "REQUEST_DEVICE_ACCEPTANCE":
+    if command_type in {
+        "REQUEST_DEVICE_ACCEPTANCE",
+        "SYNC_DEVICE_ENTRY_URL",
+    }:
         if instance["target"]["uid"] != instance["targetDeviceName"]:
             raise ContractError(
-                "REQUEST_DEVICE_ACCEPTANCE target differs from device name"
+                f"{command_type} target differs from device name"
             )
     elif instance["target"]["uid"] != instance["payload"][uid_field]:
         raise ContractError(f"{command_type}: target UID differs from payload")
 
     payload = instance["payload"]
+    if command_type in {
+        "REQUEST_DEVICE_ACCEPTANCE",
+        "SYNC_DEVICE_ENTRY_URL",
+    }:
+        url = payload["deviceEntryUrl"]
+        try:
+            encoded_url = url.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ContractError(
+                f"{command_type}: deviceEntryUrl must be ASCII"
+            ) from error
+        if len(encoded_url) > 192 or not url.startswith("https://"):
+            raise ContractError(
+                f"{command_type}: deviceEntryUrl is outside the fixed-frame contract"
+            )
+        expected_url_sha256 = hashlib.sha256(encoded_url).hexdigest()
+        if payload["deviceEntryUrlSha256"] != expected_url_sha256:
+            raise ContractError(
+                f"{command_type}: deviceEntryUrlSha256 mismatch"
+            )
     if command_type == "APPLY_CONFIGURATION":
         ports = payload["ports"]
         port_numbers = [port["portNo"] for port in ports]

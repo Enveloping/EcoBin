@@ -1,0 +1,41 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "syncDeviceEntryUrl",
+    "params": {
+      "commandType": 1,
+      "commandUid": "8a000000-0000-4000-8000-000000000005",
+      "cosGrantPresent": false,
+      "deviceEntryUrl": "https://www.jinshoubao.com/device-entry/?deviceCode=Dv_contract000000000000000000000000",
+      "deviceEntryUrlSha256": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
+      "expiresAt": "2026-07-24T01:01:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "b3464713e9ea67c8134a455bfd7e8c2da2e0e835113eb6d14398ef5566ae3244",
+      "schemaVersion": 1,
+      "target": {
+        "type": 1,
+        "uid": "SN-CONTRACT-0001"
+      },
+      "targetDeviceName": "SN-CONTRACT-0001"
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "8a000000-0000-4000-8000-000000000005",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/syncDeviceEntryUrl/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/syncDeviceEntryUrl/invoke_reply",
+  "identifier": "syncDeviceEntryUrl",
+  "kind": "SYNC_SERVICE"
+}

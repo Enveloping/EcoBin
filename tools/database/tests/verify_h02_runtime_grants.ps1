@@ -9,15 +9,15 @@ $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 95' -or
-        $provisionSource -notmatch 'Expected 95 domain tables') {
-    throw "H-02 provisioning must enforce the V41 95-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 96' -or
+        $provisionSource -notmatch 'Expected 96 domain tables') {
+    throw "H-02 provisioning must enforce the V42 96-table shape"
 }
 if ($provisionSource -match 'Expected 99 domain tables') {
     throw "H-02 provisioning still enforces the removed V35 table count"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 41') {
-    throw "H-02 provisioning must migrate through V41"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 42') {
+    throw "H-02 provisioning must migrate through V42"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -99,6 +99,21 @@ $assetRequiredColumns = @(
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
     throw "dev_device_asset runtime UPDATE grants do not match V41"
+}
+$rolloutRequiredColumns = @(
+    "rollout_uid"
+    "base_url_sha256"
+    "rollout_status"
+    "next_asset_id"
+    "started_at"
+    "completed_at"
+    "updated_at"
+)
+$rolloutColumns = @(
+    $catalog.UpdateColumns.dev_device_entry_url_rollout
+)
+if (@(Compare-Object $rolloutRequiredColumns $rolloutColumns).Count -ne 0) {
+    throw "dev_device_entry_url_rollout grants do not match V42"
 }
 $removedQrColumns = @(
     "miniapp_qr_status"

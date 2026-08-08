@@ -27,6 +27,7 @@ COMMAND_IDENTIFIERS = {
     "confirmEdgeEvent": "CONFIRM_EDGE_EVENT",
     "providePhotoUploadGrant": "PROVIDE_PHOTO_UPLOAD_GRANT",
     "requestDeviceAcceptance": "REQUEST_DEVICE_ACCEPTANCE",
+    "syncDeviceEntryUrl": "SYNC_DEVICE_ENTRY_URL",
 }
 
 COMMAND_TYPE_BY_CODE = {
@@ -217,6 +218,8 @@ def validate_command_envelope(
             command,
             trusted_environment=trusted_environment,
         )
+    elif command_type == "SYNC_DEVICE_ENTRY_URL":
+        _validate_device_entry_url_payload(command["payload"])
     elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
         validate_cos_grant(
             command["cosGrant"],
@@ -279,15 +282,18 @@ def _validate_command_target(command: dict[str, Any]) -> None:
             "grantRequestEventUid",
         ),
     }
-    if command_type == "REQUEST_DEVICE_ACCEPTANCE":
-        challenge_uid = payload.get("challengeUid")
-        _require_uuid4(challenge_uid, "challengeUid")
+    if command_type in {
+        "REQUEST_DEVICE_ACCEPTANCE",
+        "SYNC_DEVICE_ENTRY_URL",
+    }:
+        if command_type == "REQUEST_DEVICE_ACCEPTANCE":
+            _require_uuid4(payload.get("challengeUid"), "challengeUid")
         if command["target"] != {
             "type": "DEVICE_ASSET",
             "uid": command["targetDeviceName"],
         }:
             raise ValueError(
-                "acceptance target differs from targetDeviceName"
+                "device-asset target differs from targetDeviceName"
             )
         return
     target_type, payload_uid_field = target_fields[command_type]
@@ -512,7 +518,12 @@ def _validate_device_acceptance_command(
     trusted_environment: dict[str, str] | None = None,
 ) -> None:
     payload = command["payload"]
-    if set(payload) != {"challengeUid", "expectedPortCount"}:
+    if set(payload) != {
+        "challengeUid",
+        "expectedPortCount",
+        "deviceEntryUrl",
+        "deviceEntryUrlSha256",
+    }:
         raise ValueError("acceptance challenge payload fields are invalid")
     challenge_uid = _require_uuid4(
         payload["challengeUid"], "challengeUid"
@@ -524,6 +535,12 @@ def _validate_device_acceptance_command(
         or not 1 <= expected_port_count <= 6
     ):
         raise ValueError("expectedPortCount is outside 1..6")
+    _validate_device_entry_url_payload(
+        {
+            "deviceEntryUrl": payload["deviceEntryUrl"],
+            "deviceEntryUrlSha256": payload["deviceEntryUrlSha256"],
+        }
+    )
     validate_cos_grant(
         command.get("cosGrant"),
         device_name=command["targetDeviceName"],
@@ -531,6 +548,27 @@ def _validate_device_acceptance_command(
         work_uid=challenge_uid,
         trusted_environment=trusted_environment,
     )
+
+
+def _validate_device_entry_url_payload(payload: dict[str, Any]) -> None:
+    if set(payload) != {"deviceEntryUrl", "deviceEntryUrlSha256"}:
+        raise ValueError("device entry URL payload fields are invalid")
+    url = payload.get("deviceEntryUrl")
+    digest = payload.get("deviceEntryUrlSha256")
+    if (
+        not isinstance(url, str)
+        or not 1 <= len(url) <= 192
+        or any(
+            ord(character) < 0x21 or ord(character) > 0x7E
+            for character in url
+        )
+        or not url.startswith("https://")
+    ):
+        raise ValueError("deviceEntryUrl must be printable ASCII HTTPS within 192 bytes")
+    if not _is_sha256(digest):
+        raise ValueError("deviceEntryUrlSha256 is invalid")
+    if hashlib.sha256(url.encode("ascii")).hexdigest() != digest:
+        raise ValueError("deviceEntryUrlSha256 mismatch")
 
 
 def encode_command_receipt(command_uid: str, receipt_state: str, edge_boot_id: int,
@@ -976,6 +1014,13 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
         return {
             "challengeUid": scalars.get("challengeUid"),
             "expectedPortCount": scalars.get("expectedPortCount"),
+            "deviceEntryUrl": scalars.get("deviceEntryUrl"),
+            "deviceEntryUrlSha256": scalars.get("deviceEntryUrlSha256"),
+        }
+    if identifier == "syncDeviceEntryUrl":
+        return {
+            "deviceEntryUrl": scalars.get("deviceEntryUrl"),
+            "deviceEntryUrlSha256": scalars.get("deviceEntryUrlSha256"),
         }
     payload = dict(params)
     payload.pop("target", None)
@@ -1054,6 +1099,7 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "CONFIRM_EDGE_EVENT": "EDGE_EVENT",
         "PROVIDE_PHOTO_UPLOAD_GRANT": "PHOTO_GRANT_REQUEST",
         "REQUEST_DEVICE_ACCEPTANCE": "DEVICE_ASSET",
+        "SYNC_DEVICE_ENTRY_URL": "DEVICE_ASSET",
     }
     return mapping.get(command_type, str(wire_value))
 

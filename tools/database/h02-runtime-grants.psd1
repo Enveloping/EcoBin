@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 16
+    CatalogVersion = 17
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -134,6 +134,15 @@
             "retired_at"
             "retirement_reason"
             "control_version"
+            "updated_at"
+        )
+        dev_device_entry_url_rollout = @(
+            "rollout_uid"
+            "base_url_sha256"
+            "rollout_status"
+            "next_asset_id"
+            "started_at"
+            "completed_at"
             "updated_at"
         )
         dev_config_application = @(

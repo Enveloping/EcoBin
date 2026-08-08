@@ -3,6 +3,7 @@
 测试 SQLite schema 创建、五个原子事务、工单槽操作、事件/照片发件箱、故障和完整性校验。
 """
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -142,6 +143,34 @@ class TestEdgeStoreInit:
         assert store.get_edge_boot_id() == ""
         assert store.get_edge_event_sequence() == 0
         assert store.get_mcu_receive_generation() == 0
+        store.close()
+
+    def test_device_entry_url_is_atomic_and_older_commands_cannot_roll_it_back(
+        self,
+    ):
+        store = make_store()
+        old_url = "https://www.jinshoubao.com/device-entry/old"
+        new_url = "https://www.jinshoubao.com/device-entry/new"
+        old_hash = hashlib.sha256(old_url.encode("ascii")).hexdigest()
+        new_hash = hashlib.sha256(new_url.encode("ascii")).hexdigest()
+
+        assert store.save_device_entry_url(
+            new_url,
+            new_hash,
+            "2026-08-08T02:00:00.000Z",
+        )["disposition"] == "SAVED"
+        stale = store.save_device_entry_url(
+            old_url,
+            old_hash,
+            "2026-08-08T01:00:00.000Z",
+        )
+
+        assert stale["disposition"] == "STALE_IGNORED"
+        assert store.get_device_entry_url() == {
+            "deviceEntryUrl": new_url,
+            "deviceEntryUrlSha256": new_hash,
+            "issuedAt": "2026-08-08T02:00:00.000Z",
+        }
         store.close()
 
     def test_v9_rejects_a_v2_database_instead_of_migrating_it(self):

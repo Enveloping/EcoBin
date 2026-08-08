@@ -14,6 +14,7 @@ import threading
 import time
 import uuid as _uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from onenet_wire import (
@@ -42,6 +43,38 @@ PHOTO_UPLOADED = "UPLOADED"
 PHOTO_DEAD = "DEAD"
 FAULT_OBSERVED = "OBSERVED"
 FAULT_RECOVERED = "RECOVERED"
+
+
+def _parse_utc_instant(value: str, field: str) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be an RFC3339 instant")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{field} must be an RFC3339 instant") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field} must include a UTC offset")
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_device_entry_url(url: str, sha256: str) -> None:
+    if (
+        not isinstance(url, str)
+        or not 1 <= len(url) <= 192
+        or not url.startswith("https://")
+        or any(ord(character) < 0x20 or ord(character) > 0x7E for character in url)
+    ):
+        raise ValueError(
+            "device entry URL must be printable ASCII HTTPS within 192 bytes"
+        )
+    if (
+        not isinstance(sha256, str)
+        or len(sha256) != 64
+        or any(character not in "0123456789abcdef" for character in sha256)
+    ):
+        raise ValueError("device entry URL SHA-256 is invalid")
+    if hashlib.sha256(url.encode("ascii")).hexdigest() != sha256:
+        raise ValueError("device entry URL SHA-256 mismatch")
 
 
 class EdgeStore:
@@ -1806,6 +1839,79 @@ class EdgeStore:
                    ON CONFLICT(state_key) DO UPDATE SET state_value=?, updated_at=?""",
                 (key, value, self._now(), value, self._now()),
             )
+
+    def save_device_entry_url(
+        self,
+        url: str,
+        sha256: str,
+        issued_at: str,
+    ) -> dict:
+        """Atomically retain the newest platform-issued device entry URL."""
+        _validate_device_entry_url(url, sha256)
+        incoming_time = _parse_utc_instant(issued_at, "issued_at")
+        incoming = {
+            "deviceEntryUrl": url,
+            "deviceEntryUrlSha256": sha256,
+            "issuedAt": issued_at,
+        }
+        with self.transaction():
+            row = self._conn.execute(
+                """SELECT state_value FROM device_state
+                   WHERE state_key='device_entry_url'"""
+            ).fetchone()
+            if row:
+                try:
+                    current = _json.loads(row["state_value"])
+                    _validate_device_entry_url(
+                        current["deviceEntryUrl"],
+                        current["deviceEntryUrlSha256"],
+                    )
+                    current_time = _parse_utc_instant(
+                        current["issuedAt"],
+                        "stored issuedAt",
+                    )
+                except (KeyError, TypeError, ValueError, _json.JSONDecodeError) as error:
+                    raise RuntimeError(
+                        "stored device entry URL is corrupt"
+                    ) from error
+                if incoming_time < current_time:
+                    return {**current, "disposition": "STALE_IGNORED"}
+                if incoming_time == current_time:
+                    if current["deviceEntryUrlSha256"] != sha256:
+                        raise ValueError(
+                            "device entry URL conflicts at the same issuedAt"
+                        )
+                    return {**current, "disposition": "UNCHANGED"}
+
+            serialized = _json.dumps(
+                incoming,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            self._upsert_state(
+                self._conn,
+                "device_entry_url",
+                serialized,
+                self._now(),
+            )
+            return {**incoming, "disposition": "SAVED"}
+
+    def get_device_entry_url(self) -> Optional[dict]:
+        """Return the locally proven entry URL, or fail on corrupt state."""
+        raw = self.get_state("device_entry_url")
+        if not raw:
+            return None
+        try:
+            record = _json.loads(raw)
+            _validate_device_entry_url(
+                record["deviceEntryUrl"],
+                record["deviceEntryUrlSha256"],
+            )
+            _parse_utc_instant(record["issuedAt"], "stored issuedAt")
+        except (KeyError, TypeError, ValueError, _json.JSONDecodeError) as error:
+            raise RuntimeError("stored device entry URL is corrupt") from error
+        return record
 
     def save_fixed_frame_self_test(self, result: dict) -> None:
         """Atomically retain one F0/F1 result and its current safety projection."""

@@ -13,6 +13,11 @@ import static org.mockito.Mockito.mock;
 
 class TrustedDeviceAcceptanceEvidenceServiceTest {
 
+    private static final String DEVICE_PUBLIC_CODE = "Dv_test-public-code";
+    private static final DeviceEntryUrlFactory DEVICE_ENTRY_URL_FACTORY =
+            new DeviceEntryUrlFactory(
+                    "https://www.jinshoubao.com/device-entry/");
+
     @Test
     void simulationProvenanceDoesNotFailFunctionalAcceptance() {
         TrustedDeviceAcceptanceEvidenceService service = service();
@@ -21,7 +26,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
 
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                        1L, 1, "PENDING", true),
+                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true),
                 healthyEvidence(true, true),
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -48,6 +53,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 false,
                 evidence.camerasCaptureHealthy(),
                 evidence.cameraUploadHealthy(),
+                evidence.deviceEntryUrlStored(),
+                evidence.deviceEntryUrlSha256(),
                 evidence.mcuSimulated(),
                 evidence.camerasSimulated(),
                 evidence.verifiedPortCount(),
@@ -58,7 +65,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
 
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                        1L, 1, "PENDING", true),
+                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true),
                 evidence,
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -68,10 +75,35 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 .doesNotContain("MCU_SIMULATED", "CAMERAS_SIMULATED");
     }
 
+    @Test
+    void missingOrDifferentStoredUrlBlocksAcceptance() {
+        TrustedDeviceAcceptanceEvidenceService service = service();
+        LocalDateTime observedAt = LocalDateTime.of(
+                2026, 8, 7, 12, 0);
+        var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
+                1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true);
+
+        assertThat(service.failures(
+                asset,
+                entryEvidence(false, "0".repeat(64)),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .containsExactly(
+                        "DEVICE_ENTRY_URL_NOT_STORED",
+                        "DEVICE_ENTRY_URL_SHA256_MISMATCH");
+        assertThat(service.failures(
+                asset,
+                entryEvidence(true, "4".repeat(64)),
+                observedAt,
+                observedAt.plusSeconds(1)))
+                .containsExactly("DEVICE_ENTRY_URL_SHA256_MISMATCH");
+    }
+
     private static TrustedDeviceAcceptanceEvidenceService service() {
         return new TrustedDeviceAcceptanceEvidenceService(
                 mock(JdbcTemplate.class),
                 JsonMapper.builder().build(),
+                DEVICE_ENTRY_URL_FACTORY,
                 mock(TrustedDeviceAcceptanceChallengePort.class),
                 mock(ReliablePlatformEdgeConfirmationService.class),
                 "0.1.0",
@@ -95,6 +127,9 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 true,
                 true,
                 true,
+                true,
+                DEVICE_ENTRY_URL_FACTORY.create(
+                        DEVICE_PUBLIC_CODE).sha256Hex(),
                 mcuSimulated,
                 camerasSimulated,
                 1,
@@ -102,5 +137,32 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 "1".repeat(64),
                 "2".repeat(64),
                 "3".repeat(64));
+    }
+
+    private static TrustedDeviceAcceptanceEvidenceService.Evidence
+            entryEvidence(boolean stored, String sha256) {
+        var evidence = healthyEvidence(false, false);
+        return new TrustedDeviceAcceptanceEvidenceService.Evidence(
+                evidence.challengeUid(),
+                evidence.edgeSoftwareVersion(),
+                evidence.edgeProtocolVersion(),
+                evidence.edgeStoreInstanceUid(),
+                evidence.mcuFirmwareVersion(),
+                evidence.persistentStoreHealthy(),
+                evidence.trustedTimeHealthy(),
+                evidence.configurationPersistenceHealthy(),
+                evidence.mcuCommunicationHealthy(),
+                evidence.sensorsHealthy(),
+                evidence.camerasCaptureHealthy(),
+                evidence.cameraUploadHealthy(),
+                stored,
+                sha256,
+                evidence.mcuSimulated(),
+                evidence.camerasSimulated(),
+                evidence.verifiedPortCount(),
+                evidence.verifiedCameraCount(),
+                evidence.sensorSampleSha256(),
+                evidence.cameraCaptureSha256(),
+                evidence.cameraUploadSha256());
     }
 }

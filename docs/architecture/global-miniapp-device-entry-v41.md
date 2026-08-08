@@ -6,6 +6,10 @@
 >
 > 数据库版本：V41
 
+> 设备侧保存、OneNet 下发和 MCU 显示边界由后续
+> [`device-entry-url-edge-delivery-v42.md`](device-entry-url-edge-delivery-v42.md) 补充；
+> V41 的全局单一基础地址和机构/渠道不保存入口字段的决定保持不变。
+
 ## 1. 最终决定
 
 整个平台只保留一个普通设备二维码入口地址。它是应用级非秘密配置，不属于租户、机构

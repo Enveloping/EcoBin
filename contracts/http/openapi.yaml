@@ -11928,6 +11928,17 @@
           "cameraUploadHealthy": {
             "type": "boolean"
           },
+          "deviceEntryUrlStored": {
+            "type": ["boolean", "null"],
+            "description": "V42 及以后证据中，香橙派是否已可靠保存完整设备入口 URL；历史证据为空。"
+          },
+          "deviceEntryUrlSha256": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/Sha256Hex" },
+              { "type": "null" }
+            ],
+            "description": "香橙派重新读取本地 URL 后计算的摘要；不代表 MCU 或屏幕状态。"
+          },
           "mcuSimulated": {
             "type": "boolean"
           },

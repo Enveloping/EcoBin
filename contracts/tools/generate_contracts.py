@@ -3250,6 +3250,13 @@ def build_onenet_examples() -> dict[str, Any]:
     acceptance_command_uid = (
         "8a000000-0000-4000-8000-000000000004"
     )
+    device_entry_url = (
+        "https://www.jinshoubao.com/device-entry/"
+        "?deviceCode=Dv_contract000000000000000000000000"
+    )
+    device_entry_url_sha256 = hashlib.sha256(
+        device_entry_url.encode("ascii")
+    ).hexdigest()
     request_acceptance_command = _command(
         acceptance_command_uid,
         "REQUEST_DEVICE_ACCEPTANCE",
@@ -3258,6 +3265,8 @@ def build_onenet_examples() -> dict[str, Any]:
         {
             "challengeUid": acceptance_challenge_uid,
             "expectedPortCount": 2,
+            "deviceEntryUrl": device_entry_url,
+            "deviceEntryUrlSha256": device_entry_url_sha256,
         },
         cos_grant=_fake_cos_grant(
             tag="6",
@@ -3273,7 +3282,7 @@ def build_onenet_examples() -> dict[str, Any]:
         "DEVICE_ASSET",
         "SN-CONTRACT-0001",
         {
-            "evidenceSchemaVersion": 1,
+            "evidenceSchemaVersion": 2,
             "challengeUid": acceptance_challenge_uid,
             "edgeSoftwareVersion": "0.1.0",
             "edgeProtocolVersion": "2",
@@ -3288,6 +3297,8 @@ def build_onenet_examples() -> dict[str, Any]:
             "sensorsHealthy": True,
             "camerasCaptureHealthy": True,
             "cameraUploadHealthy": True,
+            "deviceEntryUrlStored": True,
+            "deviceEntryUrlSha256": device_entry_url_sha256,
             "mcuSimulated": False,
             "camerasSimulated": False,
             "verifiedPortCount": 2,
@@ -3297,6 +3308,16 @@ def build_onenet_examples() -> dict[str, Any]:
             "cameraUploadSha256": "f" * 64,
         },
         command_uid=acceptance_command_uid,
+    )
+    sync_device_entry_url_command = _command(
+        "8a000000-0000-4000-8000-000000000005",
+        "SYNC_DEVICE_ENTRY_URL",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "deviceEntryUrl": device_entry_url,
+            "deviceEntryUrlSha256": device_entry_url_sha256,
+        },
     )
 
     return {
@@ -3362,6 +3383,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "request-device-acceptance.command.json": (
             request_acceptance_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
+        "sync-device-entry-url.command.json": (
+            sync_device_entry_url_command,
             "../../onenet/commands/commands.schema.json",
         ),
         "device-command-observed.event.json": (

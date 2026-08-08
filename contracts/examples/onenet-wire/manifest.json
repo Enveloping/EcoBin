@@ -24,7 +24,8 @@
     "safety-sensor-state-changed.event-wire.json",
     "sample-fullness.service-wire.json",
     "start-clean-operation.service-wire.json",
-    "start-delivery-session.service-wire.json"
+    "start-delivery-session.service-wire.json",
+    "sync-device-entry-url.service-wire.json"
   ],
   "generated": true,
   "thingModel": "../../onenet/generated/onenet-thing-model.candidate.json"

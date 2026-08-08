@@ -34,6 +34,7 @@ public class AutomaticDeviceAcceptanceChallengeService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final PlatformDeviceAssetTaskRefFactory taskRefFactory;
     private final ReliablePlatformDeviceControlTaskRegistrationPort
             taskRegistration;
@@ -45,6 +46,7 @@ public class AutomaticDeviceAcceptanceChallengeService
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             DeviceConfigurationCanonicalizer canonicalizer,
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
             PlatformDeviceAssetTaskRefFactory taskRefFactory,
             ReliablePlatformDeviceControlTaskRegistrationPort
                     taskRegistration,
@@ -56,6 +58,7 @@ public class AutomaticDeviceAcceptanceChallengeService
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.canonicalizer = canonicalizer;
+        this.deviceEntryUrlFactory = deviceEntryUrlFactory;
         this.taskRefFactory = taskRefFactory;
         this.taskRegistration = taskRegistration;
         this.realExternalMode = "real".equalsIgnoreCase(externalMode);
@@ -78,6 +81,7 @@ public class AutomaticDeviceAcceptanceChallengeService
         }
         List<AssetCandidate> assets = jdbc.query("""
                         SELECT asset.id, asset.hardware_sn,
+                               asset.device_public_code,
                                asset.expected_port_count,
                                asset.acceptance_status,
                                asset.lifecycle_status,
@@ -91,6 +95,7 @@ public class AutomaticDeviceAcceptanceChallengeService
                 (rs, ignored) -> new AssetCandidate(
                         rs.getLong("id"),
                         rs.getString("hardware_sn"),
+                        rs.getString("device_public_code"),
                         rs.getInt("expected_port_count"),
                         rs.getString("acceptance_status"),
                         rs.getString("lifecycle_status"),
@@ -138,9 +143,15 @@ public class AutomaticDeviceAcceptanceChallengeService
 
         UUID challengeUid = UUID.randomUUID();
         UUID commandUid = UUID.randomUUID();
+        DeviceEntryUrlFactory.Entry deviceEntry =
+                deviceEntryUrlFactory.create(asset.devicePublicCode());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("challengeUid", challengeUid.toString());
         payload.put("expectedPortCount", asset.expectedPortCount());
+        payload.put("deviceEntryUrl", deviceEntry.url());
+        payload.put(
+                "deviceEntryUrlSha256",
+                deviceEntry.sha256Hex());
 
         Map<String, Object> target = new LinkedHashMap<>();
         target.put("type", TARGET_TYPE);
@@ -197,6 +208,7 @@ public class AutomaticDeviceAcceptanceChallengeService
     private record AssetCandidate(
             long id,
             String hardwareSn,
+            String devicePublicCode,
             int expectedPortCount,
             String acceptanceStatus,
             String lifecycleStatus,

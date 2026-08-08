@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -224,6 +225,7 @@ class FixedFrameBootUart:
     def __init__(self):
         self.opened = False
         self.self_test_queries = 0
+        self.device_entry_urls = []
 
     def open(self):
         self.opened = True
@@ -273,6 +275,9 @@ class FixedFrameBootUart:
         if on_result is not None:
             on_result(result)
         return result
+
+    def send_device_entry_url(self, url):
+        self.device_entry_urls.append(url)
 
 
 class FixedFrameTimeoutBootUart(FixedFrameBootUart):
@@ -495,6 +500,14 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
         "latest_runtime_ports_json",
         '[{"portNo":1,"fullnessSensorKind":"ULTRASONIC"}]',
     )
+    device_entry_url = (
+        "https://www.jinshoubao.com/device-entry/restart-proof"
+    )
+    store.save_device_entry_url(
+        device_entry_url,
+        hashlib.sha256(device_entry_url.encode("ascii")).hexdigest(),
+        "2026-08-08T00:00:00.000Z",
+    )
     monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
 
     result = boot_sequence(store, uart, mqtt, None, None)
@@ -502,6 +515,7 @@ def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     assert result["status"] == "READY"
     assert result["snapshot_count"] == 1
     assert uart.self_test_queries == 1
+    assert uart.device_entry_urls == [device_entry_url]
     assert store.get_work_slot() is None
     inbox = store.get_command(command_uid)
     assert inbox["state"] == "FAILED"

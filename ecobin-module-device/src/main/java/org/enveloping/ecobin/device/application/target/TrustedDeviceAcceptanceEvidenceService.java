@@ -43,6 +43,7 @@ public class TrustedDeviceAcceptanceEvidenceService
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final TrustedDeviceAcceptanceChallengePort challengePort;
     private final ReliablePlatformEdgeConfirmationService confirmationService;
     private final Set<String> supportedSoftwareVersions;
@@ -51,6 +52,7 @@ public class TrustedDeviceAcceptanceEvidenceService
     public TrustedDeviceAcceptanceEvidenceService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
+            DeviceEntryUrlFactory deviceEntryUrlFactory,
             TrustedDeviceAcceptanceChallengePort challengePort,
             ReliablePlatformEdgeConfirmationService confirmationService,
             @Value("${ecobin.device.acceptance.supported-edge-software-versions:0.1.0}")
@@ -59,6 +61,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             Duration maximumEvidenceAge) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.deviceEntryUrlFactory = deviceEntryUrlFactory;
         this.challengePort = challengePort;
         this.confirmationService = confirmationService;
         this.supportedSoftwareVersions = parseVersions(
@@ -88,7 +91,7 @@ public class TrustedDeviceAcceptanceEvidenceService
             requireIntegerEquals(event, "schemaVersion", 2);
             requireTextEquals(target, "type", "DEVICE_ASSET");
             requireTextEquals(target, "uid", hardwareSn);
-            requireIntegerEquals(payload, "evidenceSchemaVersion", 1);
+            requireIntegerEquals(payload, "evidenceSchemaVersion", 2);
             UUID commandUid = UUID.fromString(
                     requiredPattern(event, "commandUid", UUID_V4));
             UUID challengeUid = UUID.fromString(
@@ -151,13 +154,15 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 sensors_healthy,
                                 cameras_capture_healthy,
                                 camera_upload_healthy,
+                                device_entry_url_stored,
+                                device_entry_url_sha256,
                                 mcu_simulated, cameras_simulated,
                                 evaluation_status,
                                 failure_reasons_json, evidence_json,
                                 evidence_sha256,
                                 observed_at, received_at, created_at
                             ) VALUES (
-                                ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?, 2, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                 ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
                             )
                             """,
@@ -177,6 +182,9 @@ public class TrustedDeviceAcceptanceEvidenceService
                     facts.sensorsHealthy(),
                     facts.camerasCaptureHealthy(),
                     facts.cameraUploadHealthy(),
+                    facts.deviceEntryUrlStored(),
+                    HexFormat.of().parseHex(
+                            facts.deviceEntryUrlSha256()),
                     facts.mcuSimulated(),
                     facts.camerasSimulated(),
                     evaluationStatus,
@@ -250,7 +258,8 @@ public class TrustedDeviceAcceptanceEvidenceService
 
     private AssetState lockAsset(String hardwareSn) {
         List<AssetState> rows = jdbc.query("""
-                        SELECT asset.id, asset.expected_port_count,
+                        SELECT asset.id, asset.device_public_code,
+                               asset.expected_port_count,
                                asset.acceptance_status,
                                transport.onenet_connection_status
                         FROM dev_device_asset asset
@@ -261,6 +270,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                         """,
                 (rs, ignored) -> new AssetState(
                         rs.getLong("id"),
+                        rs.getString("device_public_code"),
                         rs.getInt("expected_port_count"),
                         rs.getString("acceptance_status"),
                         "ONLINE".equals(rs.getString(
@@ -305,6 +315,8 @@ public class TrustedDeviceAcceptanceEvidenceService
                 requiredBoolean(payload, "sensorsHealthy"),
                 requiredBoolean(payload, "camerasCaptureHealthy"),
                 requiredBoolean(payload, "cameraUploadHealthy"),
+                requiredBoolean(payload, "deviceEntryUrlStored"),
+                requiredPattern(payload, "deviceEntryUrlSha256", SHA256),
                 requiredBoolean(payload, "mcuSimulated"),
                 requiredBoolean(payload, "camerasSimulated"),
                 requiredInteger(payload, "verifiedPortCount", 1, 6),
@@ -348,6 +360,14 @@ public class TrustedDeviceAcceptanceEvidenceService
                 "CAMERA_CAPTURE_FAILED");
         addUnless(result, evidence.cameraUploadHealthy(),
                 "CAMERA_UPLOAD_READBACK_FAILED");
+        DeviceEntryUrlFactory.Entry expectedEntryUrl =
+                deviceEntryUrlFactory.create(asset.devicePublicCode());
+        addUnless(result, evidence.deviceEntryUrlStored(),
+                "DEVICE_ENTRY_URL_NOT_STORED");
+        addUnless(result,
+                expectedEntryUrl.sha256Hex().equals(
+                        evidence.deviceEntryUrlSha256()),
+                "DEVICE_ENTRY_URL_SHA256_MISMATCH");
         addUnless(result,
                 evidence.verifiedPortCount() == asset.expectedPortCount(),
                 "PORT_COUNT_MISMATCH");
@@ -478,6 +498,7 @@ public class TrustedDeviceAcceptanceEvidenceService
 
     record AssetState(
             long id,
+            String devicePublicCode,
             int expectedPortCount,
             String acceptanceStatus,
             boolean oneNetOnline) {
@@ -499,6 +520,8 @@ public class TrustedDeviceAcceptanceEvidenceService
             boolean sensorsHealthy,
             boolean camerasCaptureHealthy,
             boolean cameraUploadHealthy,
+            boolean deviceEntryUrlStored,
+            String deviceEntryUrlSha256,
             boolean mcuSimulated,
             boolean camerasSimulated,
             int verifiedPortCount,

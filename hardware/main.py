@@ -84,6 +84,7 @@ class EcoBinEdge:
             UART_PORT_COUNT,
             UART_HIL_REQUIRED_CAPABILITIES,
             MCU_SIMULATED,
+            self.store.get_device_entry_url,
         )
 
         # -- MQTT Client --
@@ -472,6 +473,7 @@ def _make_uart_link(
     port_count,
     hil_required_capabilities,
     mcu_simulated=False,
+    device_entry_url_provider=None,
 ):
     """Create the explicitly configured MCU link."""
     if MCU_PROTOCOL_MODE == "fixed-frame":
@@ -488,6 +490,7 @@ def _make_uart_link(
             port_count=1,
             baudrate=baudrate,
             is_simulated=mcu_simulated,
+            device_entry_url_provider=device_entry_url_provider,
         )
     from uart_link import UartLink
     kwargs = {

@@ -2125,8 +2125,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put(
                 "evidenceSchemaVersion",
-                requiredIntegerInRange(
-                        wire, "evidenceSchemaVersion", 1, 1));
+                exactEnum(
+                        wire, "evidenceSchemaVersion", 1, 2L));
         payload.put(
                 "challengeUid",
                 pattern(wire, "challengeUid", UUID_V4));
@@ -2166,6 +2166,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put(
                 "cameraUploadHealthy",
                 bool(wire, "cameraUploadHealthy"));
+        payload.put(
+                "deviceEntryUrlStored",
+                bool(wire, "deviceEntryUrlStored"));
+        payload.put(
+                "deviceEntryUrlSha256",
+                pattern(wire, "deviceEntryUrlSha256", SHA256));
         payload.put("mcuSimulated", bool(wire, "mcuSimulated"));
         payload.put(
                 "camerasSimulated",

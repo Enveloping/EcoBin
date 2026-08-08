@@ -904,6 +904,8 @@
         "sensorsHealthy",
         "camerasCaptureHealthy",
         "cameraUploadHealthy",
+        "deviceEntryUrlStored",
+        "deviceEntryUrlSha256",
         "mcuSimulated",
         "camerasSimulated",
         "verifiedPortCount",
@@ -914,7 +916,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "evidenceSchemaVersion": { "const": 1 },
+        "evidenceSchemaVersion": { "const": 2 },
         "challengeUid": {
           "$ref": "../common.schema.json#/$defs/uuid"
         },
@@ -939,6 +941,10 @@
         "sensorsHealthy": { "type": "boolean" },
         "camerasCaptureHealthy": { "type": "boolean" },
         "cameraUploadHealthy": { "type": "boolean" },
+        "deviceEntryUrlStored": { "type": "boolean" },
+        "deviceEntryUrlSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        },
         "mcuSimulated": { "type": "boolean" },
         "camerasSimulated": { "type": "boolean" },
         "verifiedPortCount": {

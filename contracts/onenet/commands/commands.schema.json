@@ -12,7 +12,8 @@
     { "$ref": "#/$defs/measureEmptyBagBaselineCommand" },
     { "$ref": "#/$defs/confirmEdgeEventCommand" },
     { "$ref": "#/$defs/providePhotoUploadGrantCommand" },
-    { "$ref": "#/$defs/requestDeviceAcceptanceCommand" }
+    { "$ref": "#/$defs/requestDeviceAcceptanceCommand" },
+    { "$ref": "#/$defs/syncDeviceEntryUrlCommand" }
   ],
   "$defs": {
     "configIdentity": {
@@ -629,7 +630,9 @@
       "type": "object",
       "required": [
         "challengeUid",
-        "expectedPortCount"
+        "expectedPortCount",
+        "deviceEntryUrl",
+        "deviceEntryUrlSha256"
       ],
       "additionalProperties": false,
       "properties": {
@@ -640,6 +643,34 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 6
+        },
+        "deviceEntryUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192,
+          "pattern": "^https://[\\x21-\\x7e]+$"
+        },
+        "deviceEntryUrlSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "syncDeviceEntryUrlPayload": {
+      "type": "object",
+      "required": [
+        "deviceEntryUrl",
+        "deviceEntryUrlSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deviceEntryUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192,
+          "pattern": "^https://[\\x21-\\x7e]+$"
+        },
+        "deviceEntryUrlSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
         }
       }
     },
@@ -880,6 +911,30 @@
             "cosGrant": {
               "$ref": "../common.schema.json#/$defs/cosGrant"
             }
+          }
+        }
+      ]
+    },
+    "syncDeviceEntryUrlCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "SYNC_DEVICE_ENTRY_URL" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/syncDeviceEntryUrlPayload"
+            },
+            "cosGrant": { "type": "null" }
           }
         }
       ]

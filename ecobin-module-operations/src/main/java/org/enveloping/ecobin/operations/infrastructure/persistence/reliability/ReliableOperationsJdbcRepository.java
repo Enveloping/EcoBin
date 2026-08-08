@@ -907,6 +907,7 @@ public class ReliableOperationsJdbcRepository {
                                     AND candidate.organization_id IS NULL
                                     AND candidate.task_type IN (
                                         'REQUEST_DEVICE_ACCEPTANCE',
+                                        'SYNC_DEVICE_ENTRY_URL',
                                         'CONFIRM_EDGE_EVENT'
                                     )
                                 )
@@ -929,7 +930,8 @@ public class ReliableOperationsJdbcRepository {
                                     candidate.task_type IN (
                                         'CONFIRM_EDGE_EVENT',
                                         'PROVIDE_PHOTO_UPLOAD_GRANT',
-                                        'REQUEST_DEVICE_ACCEPTANCE'
+                                        'REQUEST_DEVICE_ACCEPTANCE',
+                                        'SYNC_DEVICE_ENTRY_URL'
                                     )
                                     AND eligible_command.id IS NULL
                                 )
@@ -946,7 +948,8 @@ public class ReliableOperationsJdbcRepository {
                                     candidate.task_type IN (
                                         'CONFIRM_EDGE_EVENT',
                                         'PROVIDE_PHOTO_UPLOAD_GRANT',
-                                        'REQUEST_DEVICE_ACCEPTANCE'
+                                        'REQUEST_DEVICE_ACCEPTANCE',
+                                        'SYNC_DEVICE_ENTRY_URL'
                                     )
                                     AND transport.onenet_connection_status =
                                         'ONLINE'
@@ -993,6 +996,7 @@ public class ReliableOperationsJdbcRepository {
                         AND t.organization_id IS NULL
                         AND t.task_type IN (
                             'REQUEST_DEVICE_ACCEPTANCE',
+                            'SYNC_DEVICE_ENTRY_URL',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )
@@ -1179,7 +1183,8 @@ public class ReliableOperationsJdbcRepository {
                           t.task_type IN (
                               'CONFIRM_EDGE_EVENT',
                               'PROVIDE_PHOTO_UPLOAD_GRANT',
-                              'REQUEST_DEVICE_ACCEPTANCE'
+                              'REQUEST_DEVICE_ACCEPTANCE',
+                              'SYNC_DEVICE_ENTRY_URL'
                           )
                           AND c.id IS NULL
                       )
@@ -1675,6 +1680,7 @@ public class ReliableOperationsJdbcRepository {
                         AND task.organization_id IS NULL
                         AND task.task_type IN (
                             'REQUEST_DEVICE_ACCEPTANCE',
+                            'SYNC_DEVICE_ENTRY_URL',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )

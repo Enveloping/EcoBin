@@ -113,6 +113,8 @@ public final class DeviceModels {
             boolean sensorsHealthy,
             boolean camerasCaptureHealthy,
             boolean cameraUploadHealthy,
+            Boolean deviceEntryUrlStored,
+            String deviceEntryUrlSha256,
             boolean mcuSimulated,
             boolean camerasSimulated,
             String evaluationStatus,

@@ -66,6 +66,7 @@
 | `confirmEdgeEvent` | `CONFIRM_EDGE_EVENT` | `EDGE_EVENT` | `CONTROL_COMMAND` |
 | `providePhotoUploadGrant` | `PROVIDE_PHOTO_UPLOAD_GRANT` | `PHOTO_GRANT_REQUEST` | `CONTROL_COMMAND` |
 | `requestDeviceAcceptance` | `REQUEST_DEVICE_ACCEPTANCE` | `DEVICE_ASSET` | `CONTROL_COMMAND` |
+| `syncDeviceEntryUrl` | `SYNC_DEVICE_ENTRY_URL` | `DEVICE_ASSET` | `CONTROL_COMMAND` |
 
 ## OneNet 上行
 

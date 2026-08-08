@@ -3,32 +3,36 @@
     "device_name": "<HARDWARE_SN>",
     "identifier": "requestDeviceAcceptance",
     "params": {
-      "challengeUid": "8a000000-0000-4000-8000-000000000003",
-      "commandType": 1,
-      "commandUid": "8a000000-0000-4000-8000-000000000004",
-      "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
-      "cosGrantBucket": "ecobin-contract-1250000000",
-      "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
-      "cosGrantGrantUid": "71000000-0000-4000-8000-000000000006",
-      "cosGrantKeyPrefix": "ecobin/device-acceptance/8a000000-0000-4000-8000-000000000003/",
-      "cosGrantRegion": "ap-guangzhou",
       "cosGrantSessionTokenParts": [
         "TOKEN_6_PART_1",
         "TOKEN_6_PART_2"
       ],
-      "cosGrantTmpSecretId": "TMP_SECRET_ID_6",
-      "cosGrantTmpSecretKey": "TMP_SECRET_KEY_6",
-      "expectedPortCount": 2,
-      "expiresAt": "2026-07-24T01:01:00.000Z",
-      "issuedAt": "2026-07-24T01:00:00.000Z",
-      "payloadSchemaVersion": 1,
-      "payloadSha256": "43f36b2e34a79bf0b8053f62072504d5b8651a384331c943b0656d7ab0c47842",
-      "schemaVersion": 1,
+      "scalarFields": {
+        "challengeUid": "8a000000-0000-4000-8000-000000000003",
+        "commandType": 1,
+        "commandUid": "8a000000-0000-4000-8000-000000000004",
+        "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
+        "cosGrantBucket": "ecobin-contract-1250000000",
+        "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
+        "cosGrantGrantUid": "71000000-0000-4000-8000-000000000006",
+        "cosGrantKeyPrefix": "ecobin/device-acceptance/8a000000-0000-4000-8000-000000000003/",
+        "cosGrantRegion": "ap-guangzhou",
+        "cosGrantTmpSecretId": "TMP_SECRET_ID_6",
+        "cosGrantTmpSecretKey": "TMP_SECRET_KEY_6",
+        "deviceEntryUrl": "https://www.jinshoubao.com/device-entry/?deviceCode=Dv_contract000000000000000000000000",
+        "deviceEntryUrlSha256": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
+        "expectedPortCount": 2,
+        "expiresAt": "2026-07-24T01:01:00.000Z",
+        "issuedAt": "2026-07-24T01:00:00.000Z",
+        "payloadSchemaVersion": 1,
+        "payloadSha256": "89d9c1c3ae20adf68d9fb903709b249e5e03fdd77aa9e3bdf270e5574d6cf711",
+        "schemaVersion": 1,
+        "targetDeviceName": "SN-CONTRACT-0001"
+      },
       "target": {
         "type": 1,
         "uid": "SN-CONTRACT-0001"
-      },
-      "targetDeviceName": "SN-CONTRACT-0001"
+      }
     },
     "product_id": "<PRODUCT_ID>"
   },

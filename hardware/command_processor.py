@@ -179,6 +179,8 @@ class CommandProcessor:
                 == "REQUEST_DEVICE_ACCEPTANCE"
             ):
                 self._request_device_acceptance(command)
+            elif command["commandType"] == "SYNC_DEVICE_ENTRY_URL":
+                self._sync_device_entry_url(command)
             else:
                 self._store.fail_command(command_uid, "COMMAND_NOT_IMPLEMENTED")
                 logger.warning(
@@ -216,7 +218,48 @@ class CommandProcessor:
     def _request_device_acceptance(self, command: dict) -> None:
         if self._acceptance is None:
             raise RuntimeError("device acceptance runner is required")
+        self._persist_and_dispatch_device_entry_url(command)
         self._acceptance.run(command)
+
+    def _sync_device_entry_url(self, command: dict) -> None:
+        record = self._persist_and_dispatch_device_entry_url(command)
+        self._store.complete_command(
+            command["commandUid"],
+            {
+                "deviceEntryUrlSha256": record[
+                    "deviceEntryUrlSha256"
+                ],
+                "disposition": record["disposition"],
+            },
+        )
+
+    def _persist_and_dispatch_device_entry_url(
+        self,
+        command: dict,
+    ) -> dict:
+        payload = command["payload"]
+        record = self._store.save_device_entry_url(
+            payload["deviceEntryUrl"],
+            payload["deviceEntryUrlSha256"],
+            command["issuedAt"],
+        )
+        active = self._store.get_device_entry_url()
+        if active is None:
+            raise RuntimeError("device entry URL was not persisted")
+        sender = getattr(self._uart, "send_device_entry_url", None)
+        if callable(sender):
+            try:
+                sender(active["deviceEntryUrl"])
+            except Exception as error:
+                logger.warning(
+                    "device entry URL saved but MCU dispatch failed: %s",
+                    error,
+                )
+        else:
+            logger.warning(
+                "device entry URL saved; current UART adapter cannot dispatch it"
+            )
+        return {**active, "disposition": record["disposition"]}
 
     def _start_delivery_session(self, command: dict) -> None:
         if self._work is None:

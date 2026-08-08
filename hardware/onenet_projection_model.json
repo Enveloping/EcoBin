@@ -38,6 +38,7 @@
     "START_AUTHORIZATION_EXPIRED": "START_AUTH_EXPIRED",
     "START_CLEAN_OPERATION": "START_CLEAN_OPT",
     "START_DELIVERY_SESSION": "START_DELIV_SESSION",
+    "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
     "TERMINAL_WEIGHT_FAILURE": "TERM_WEIGHT_FAIL"
   },
   "events": {
@@ -3447,7 +3448,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "1"
+              "1": "2"
             },
             "type": "enum"
           },
@@ -3580,6 +3581,27 @@
           },
           "identifier": "cameraUploadHealthy",
           "name": "cameraUploadHealthy"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "false": "false",
+              "true": "true"
+            },
+            "type": "bool"
+          },
+          "identifier": "deviceEntryUrlStored",
+          "name": "deviceEntryUrlStored"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "deviceEntryUrlSha256",
+          "name": "deviceEntryUrlSha256"
         },
         {
           "dataType": {
@@ -3798,6 +3820,18 @@
           "jsonPath": "$.payload.cameraUploadHealthy",
           "nullable": false,
           "wireIdentifier": "cameraUploadHealthy"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlStored",
+          "nullable": false,
+          "wireIdentifier": "deviceEntryUrlStored"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.deviceEntryUrlSha256",
+          "nullable": false,
+          "wireIdentifier": "deviceEntryUrlSha256"
         },
         {
           "encoding": "FLAT_TYPED",

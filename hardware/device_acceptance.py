@@ -97,8 +97,15 @@ class DeviceAcceptanceRunner:
             challenge_uid,
             grant,
         )
+        device_entry_url = self._store.get_device_entry_url()
+        device_entry_url_stored = device_entry_url is not None
+        device_entry_url_sha256 = (
+            device_entry_url["deviceEntryUrlSha256"]
+            if device_entry_url is not None
+            else "0" * 64
+        )
         evidence = {
-            "evidenceSchemaVersion": 1,
+            "evidenceSchemaVersion": 2,
             "challengeUid": challenge_uid,
             "edgeSoftwareVersion": self._edge_software_version,
             "edgeProtocolVersion": "2",
@@ -126,6 +133,8 @@ class DeviceAcceptanceRunner:
             "sensorSampleSha256": sensor_result["sha256"],
             "cameraCaptureSha256": camera_result["captureSha256"],
             "cameraUploadSha256": camera_result["uploadSha256"],
+            "deviceEntryUrlStored": device_entry_url_stored,
+            "deviceEntryUrlSha256": device_entry_url_sha256,
         }
         event = self._store.complete_device_acceptance(
             command,
@@ -143,6 +152,7 @@ class DeviceAcceptanceRunner:
                 sensor_result["healthy"],
                 camera_result["captureHealthy"],
                 camera_result["uploadHealthy"],
+                device_entry_url_stored,
             )),
         )
         return {

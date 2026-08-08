@@ -1,8 +1,8 @@
-# OneNet 10 服务 / 15 事件处理决策记录
+# OneNet 11 服务 / 15 事件处理决策记录
 
 > 状态：持续更新
 > 建立日期：2026-07-29
-> 适用范围：当前 OneNet v2 的 10 服务 / 15 事件物模型、香橙派 `fixed-frame`
+> 适用范围：当前 OneNet v2 的 11 服务 / 15 事件物模型、香橙派 `fixed-frame`
 > 现行设备资产链路及其后端闭环
 > 决策方式：项目负责人逐项确认；未标记“已确认”的条目不得从讨论稿推导实现要求
 
@@ -15,7 +15,8 @@
 > - 设备事件序号按已认证 OneNet 设备持久递增，不按部署递增；
 > - 设备资产类事件的目标身份使用已认证设备名，作业类事件仍使用对应作业 UID；
 > - COS 对象路径为 `ecobin/{workType}/{workUid}/...`，不得包含设备公开号或旧部署码；
-> - 公开号 `Dv_...` 只用于二维码和小程序入口，不进入 OneNet、COS 或边缘数据库；
+> - 公开号 `Dv_...` 本身不单独进入 OneNet、COS 或边缘数据库；V42 只允许包含该
+>   公开号的完整公开入口 URL 进入验收/同步命令和香橙派 SQLite；
 > - 平台创建设备资产后即可自动下发 `requestDeviceAcceptance`，真实设备以
 >   `deviceAcceptanceEvidence` 回传验收证据，验收不依赖租户或机构分配。
 >
@@ -23,6 +24,13 @@
 > [`../../../docs/architecture/permanent-device-ownership-v36.md`](../../../docs/architecture/permanent-device-ownership-v36.md)，
 > 机器契约以 [`../../../contracts/onenet/thing-model.mapping.yaml`](../../../contracts/onenet/thing-model.mapping.yaml)
 > 及其生成物为准。
+
+> [!IMPORTANT]
+> 2026-08-08 V42 增加设备入口 URL 下发：`requestDeviceAcceptance` 在验收时携带
+> 完整 URL 和摘要，`syncDeviceEntryUrl` 只在全局基础地址改变时向未报废设备可靠
+> 下发。香橙派先保存再通过 `A0 LEN URL_DATA[192] A0` 无应答固定帧交给 MCU，并在
+> 自身重启或串口重开后重发；机器验收不读取 MCU 或屏幕状态。权威裁决见
+> [`../../../docs/architecture/device-entry-url-edge-delivery-v42.md`](../../../docs/architecture/device-entry-url-edge-delivery-v42.md)。
 
 > [!IMPORTANT]
 > 2026-08-08 项目负责人重新冻结 fixed-frame 传感器边界：增加 `F0/F1` 自检快照和
@@ -35,7 +43,7 @@
 
 ## 1. 已确认的共同前提
 
-1. 当前机器契约是 OneNet v2 的 10 服务 / 15 事件模型；旧模型和旧部署身份不提供
+1. 当前机器契约是 OneNet v2 的 11 服务 / 15 事件模型；旧模型和旧部署身份不提供
    兼容入口。
 2. 当前 MCU 已冻结，无法增加协议能力，也无法取得协议没有提供的其他物理状态。
 3. 当前首要目标是先让现有硬件和三端业务跑起来。为适配冻结 MCU，香橙派可以在
@@ -62,6 +70,7 @@
 | 8 | `confirmEdgeEvent` | 已确认 |
 | 9 | `providePhotoUploadGrant` | 已确认 |
 | 10 | `requestDeviceAcceptance` | 已确认并于 V36 实现 |
+| 11 | `syncDeviceEntryUrl` | 已确认，V42 新增 |
 
 ### 2.2 事件
 
@@ -94,6 +103,8 @@
 3. 摄像头完成拍摄，并用本次挑战限定的临时 COS 授权上传成功；
    `camerasSimulated` 只记录来源，不影响结果；
 4. 验收挑战身份、有效期、COS 前缀和证据摘要都匹配，且证据先可靠落入本地发件箱。
+5. 香橙派已可靠保存后端给出的完整设备入口 URL，保存摘要与后端当前期望值一致；
+   MCU 接收、二维码生成和屏幕显示不属于平台验收事实。
 
 后端按设备资产和挑战身份幂等保存证据。任一功能检查失败都保存失败原因并保持设备未验收，
 不会伪造通过，也不会因为尚未分配租户或机构而阻止再次自动验收。验收通过只改变机器

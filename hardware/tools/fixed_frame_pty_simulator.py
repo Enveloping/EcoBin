@@ -5,6 +5,7 @@ The simulator exposes a stable symbolic link to a Linux pseudo-terminal.
 Run the real ``hardware/main.py`` with ``ECOBIN_SERIAL_PORT`` set to that
 link.  Valid delivery and clean start commands are answered with configurable
 DD/EF result frames, an F1 sensor snapshot, and an optional CC smoke change.
+The fire-and-forget A0 device-entry URL frame is retained without a response.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 COMMAND_FRAME_LENGTH = 3
+DEVICE_ENTRY_URL_FIELD_LENGTH = 192
+DEVICE_ENTRY_URL_FRAME_LENGTH = 195
 MAXIMUM_WEIGHT_GRAMS = 350_000
 MAXIMUM_RECEIVE_BUFFER = 4096
 
@@ -33,12 +36,14 @@ CLEAN_RESULT_HEADER = 0xEF
 SELF_TEST_QUERY_HEADER = 0xF0
 SELF_TEST_RESPONSE_HEADER = 0xF1
 SMOKE_HEADER = 0xCC
+DEVICE_ENTRY_URL_HEADER = 0xA0
 
 DOWNSTREAM_HEADERS = (
     DELIVERY_START_HEADER,
     PRICE_HEADER,
     CLEAN_START_HEADER,
     SELF_TEST_QUERY_HEADER,
+    DEVICE_ENTRY_URL_HEADER,
 )
 
 
@@ -135,7 +140,7 @@ def encode_smoke_frame(smoke_code: int) -> bytes:
 
 
 class DownstreamFrameParser:
-    """Parse noisy, fragmented, or joined three-byte Edge-to-MCU frames."""
+    """Parse noisy, fragmented, or joined Edge-to-MCU frames."""
 
     def __init__(self, maximum_buffer: int = MAXIMUM_RECEIVE_BUFFER):
         if maximum_buffer < COMMAND_FRAME_LENGTH:
@@ -163,16 +168,24 @@ class DownstreamFrameParser:
                 break
             if start:
                 del self._buffer[:start]
-            if len(self._buffer) < COMMAND_FRAME_LENGTH:
+            frame_length = self._candidate_frame_length()
+            if frame_length is None or len(self._buffer) < frame_length:
                 break
 
-            candidate = bytes(self._buffer[:COMMAND_FRAME_LENGTH])
+            candidate = bytes(self._buffer[:frame_length])
             if self._is_valid(candidate):
                 frames.append(candidate)
-                del self._buffer[:COMMAND_FRAME_LENGTH]
+                del self._buffer[:frame_length]
             else:
                 del self._buffer[0]
         return frames
+
+    def _candidate_frame_length(self) -> Optional[int]:
+        if not self._buffer:
+            return None
+        if self._buffer[0] == DEVICE_ENTRY_URL_HEADER:
+            return DEVICE_ENTRY_URL_FRAME_LENGTH
+        return COMMAND_FRAME_LENGTH
 
     def _next_header_index(self) -> Optional[int]:
         candidates = [
@@ -184,6 +197,21 @@ class DownstreamFrameParser:
 
     @staticmethod
     def _is_valid(frame: bytes) -> bool:
+        if frame and frame[0] == DEVICE_ENTRY_URL_HEADER:
+            if (
+                len(frame) != DEVICE_ENTRY_URL_FRAME_LENGTH
+                or frame[-1] != DEVICE_ENTRY_URL_HEADER
+                or not 1 <= frame[1] <= DEVICE_ENTRY_URL_FIELD_LENGTH
+            ):
+                return False
+            length = frame[1]
+            value = frame[2 : 2 + length]
+            padding = frame[2 + length : -1]
+            return (
+                all(0x20 <= byte <= 0x7E for byte in value)
+                and value.startswith(b"https://")
+                and not any(padding)
+            )
         if (
             len(frame) != COMMAND_FRAME_LENGTH
             or frame[0] not in DOWNSTREAM_HEADERS
@@ -272,6 +300,8 @@ class VirtualFixedFrameMcu:
         self.delivery_start_count = 0
         self.clean_start_count = 0
         self.self_test_query_count = 0
+        self.device_entry_url_count = 0
+        self.device_entry_url: Optional[str] = None
         self.smoke_state = config.smoke_state
 
     def handle_frame(self, frame: bytes) -> tuple[str, Optional[bytes]]:
@@ -281,6 +311,11 @@ class VirtualFixedFrameMcu:
         if frame[0] == PRICE_HEADER:
             self.last_price_digit = frame[1]
             return "PRICE", None
+        if frame[0] == DEVICE_ENTRY_URL_HEADER:
+            length = frame[1]
+            self.device_entry_url = frame[2 : 2 + length].decode("ascii")
+            self.device_entry_url_count += 1
+            return "DEVICE_ENTRY_URL", None
         if frame[0] == DELIVERY_START_HEADER:
             self.delivery_start_count += 1
             return (
@@ -504,6 +539,8 @@ class LinuxPtyFixedFrameSimulator:
                 f" digit={self.model.last_price_digit} "
                 f"displayYuanPerKg=0.{self.model.last_price_digit}"
             )
+        elif name == "DEVICE_ENTRY_URL":
+            details = f" url={self.model.device_entry_url}"
         self.log(f"RX {name} frame={_hex_bytes(frame)}{details}")
 
     def _write_response(self, name: str, response: bytes) -> None:

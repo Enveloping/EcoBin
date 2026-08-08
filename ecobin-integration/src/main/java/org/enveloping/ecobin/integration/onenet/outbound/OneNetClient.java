@@ -28,6 +28,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,10 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "requestDeviceAcceptance";
                 params = projectRequestDeviceAcceptance(envelope);
+            } else if ("SYNC_DEVICE_ENTRY_URL".equals(
+                    submission.commandType())) {
+                identifier = "syncDeviceEntryUrl";
+                params = projectSyncDeviceEntryUrl(envelope);
             } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
@@ -1626,6 +1631,7 @@ public class OneNetClient
         params.put(
                 "expectedPortCount",
                 requiredInteger(payload, "expectedPortCount", 1, 6));
+        putDeviceEntryUrl(payload, params);
 
         Map<String, Object> first = new LinkedHashMap<>();
         Map<String, Object> second = new LinkedHashMap<>();
@@ -1645,6 +1651,81 @@ public class OneNetClient
                 "cosGrantSessionTokenParts",
                 sessionTokenParts);
         return params;
+    }
+
+    private Map<String, Object> projectSyncDeviceEntryUrl(
+            JsonNode envelope) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deviceName = requiredBoundedText(
+                envelope, "targetDeviceName", 64);
+        if (!"DEVICE_ASSET".equals(requiredText(target, "type"))
+                || !deviceName.equals(requiredText(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "device entry URL target differs from targetDeviceName");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        if (!Instant.parse(expiresAtText).isAfter(
+                Instant.parse(issuedAtText))) {
+            throw new IllegalArgumentException(
+                    "device entry URL command expiry must follow issue time");
+        }
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put("targetDeviceName", deviceName);
+        params.put("target", Map.of("type", 1, "uid", deviceName));
+        params.put("issuedAt", issuedAtText);
+        params.put("expiresAt", expiresAtText);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put(
+                "payloadSha256",
+                requiredMatchingText(
+                        envelope,
+                        "payloadSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
+        putDeviceEntryUrl(payload, params);
+        params.put("cosGrantPresent", false);
+        return params;
+    }
+
+    private static void putDeviceEntryUrl(
+            JsonNode payload,
+            Map<String, Object> target) {
+        String url = requiredBoundedText(
+                payload, "deviceEntryUrl", 192);
+        if (!url.startsWith("https://")
+                || !StandardCharsets.US_ASCII.newEncoder()
+                .canEncode(url)) {
+            throw new IllegalArgumentException(
+                    "deviceEntryUrl must be an ASCII HTTPS URL");
+        }
+        for (byte current : url.getBytes(StandardCharsets.US_ASCII)) {
+            int unsigned = Byte.toUnsignedInt(current);
+            if (unsigned < 0x21 || unsigned > 0x7e) {
+                throw new IllegalArgumentException(
+                        "deviceEntryUrl must contain printable ASCII only");
+            }
+        }
+        String digest = requiredMatchingText(
+                payload,
+                "deviceEntryUrlSha256",
+                "^[0-9a-f]{64}$",
+                64);
+        if (!MessageDigest.isEqual(
+                sha256(url.getBytes(StandardCharsets.US_ASCII)),
+                HexFormat.of().parseHex(digest))) {
+            throw new IllegalArgumentException(
+                    "deviceEntryUrlSha256 does not match deviceEntryUrl");
+        }
+        target.put("deviceEntryUrl", url);
+        target.put("deviceEntryUrlSha256", digest);
     }
 
     private static void putNullableText(

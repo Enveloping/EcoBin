@@ -155,6 +155,13 @@
       "schemaRef": "commands/commands.schema.json#/$defs/requestDeviceAcceptanceCommand",
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": true
+    },
+    "syncDeviceEntryUrl": {
+      "commandType": "SYNC_DEVICE_ENTRY_URL",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "commands/commands.schema.json#/$defs/syncDeviceEntryUrlCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
     }
   },
   "events": {
@@ -299,6 +306,7 @@
     "MEASURE_EMPTY_BAG_BASELINE": "MEAS_BAG_BASELINE",
     "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
     "REQUEST_DEVICE_ACCEPTANCE": "REQUEST_DEV_ACCEPT",
+    "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
     "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",
     "BASELINE_MEASUREMENT": "BASELINE_MEAS",
     "BUSINESS_CONFIRMATION": "BIZ_CONFIRMATION",

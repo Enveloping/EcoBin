@@ -10,6 +10,13 @@ from onenet_wire import canonical_payload_sha256, encode_event_post
 
 
 DEVICE_NAME = "SN-ACCEPTANCE-0001"
+DEVICE_ENTRY_URL = (
+    "https://www.jinshoubao.com/device-entry/"
+    "public-code-acceptance-0001"
+)
+DEVICE_ENTRY_URL_SHA256 = hashlib.sha256(
+    DEVICE_ENTRY_URL.encode("ascii")
+).hexdigest()
 
 
 def _instant(delta=timedelta()):
@@ -28,6 +35,7 @@ class RealFixedFrameUart:
 
     def __init__(self, result=None):
         self.query_count = 0
+        self.sent_device_entry_urls = []
         self._result = result or {
             "queryStatus": "OK",
             "communicationHealthy": True,
@@ -52,6 +60,13 @@ class RealFixedFrameUart:
         if on_result is not None:
             on_result(result)
         return result
+
+    def send_device_entry_url(self, url):
+        self.sent_device_entry_urls.append(url)
+        return {
+            "disposition": "LOCALLY_DISPATCHED",
+            "responseExpected": False,
+        }
 
 
 class SimulatedFixedFrameUart(RealFixedFrameUart):
@@ -104,6 +119,8 @@ def _command(challenge_uid):
     payload = {
         "challengeUid": challenge_uid,
         "expectedPortCount": 1,
+        "deviceEntryUrl": DEVICE_ENTRY_URL,
+        "deviceEntryUrlSha256": DEVICE_ENTRY_URL_SHA256,
     }
     return {
         "schemaVersion": 2,
@@ -132,6 +149,26 @@ def _command(challenge_uid):
             ),
             "expiresAt": _instant(timedelta(minutes=10)),
         },
+    }
+
+
+def _sync_command():
+    payload = {
+        "deviceEntryUrl": DEVICE_ENTRY_URL,
+        "deviceEntryUrlSha256": DEVICE_ENTRY_URL_SHA256,
+    }
+    return {
+        "schemaVersion": 2,
+        "commandUid": str(uuid.uuid4()),
+        "commandType": "SYNC_DEVICE_ENTRY_URL",
+        "targetDeviceName": DEVICE_NAME,
+        "target": {"type": "DEVICE_ASSET", "uid": DEVICE_NAME},
+        "issuedAt": _instant(),
+        "expiresAt": _instant(timedelta(minutes=5)),
+        "payloadSchemaVersion": 2,
+        "payloadSha256": canonical_payload_sha256(payload),
+        "payload": payload,
+        "cosGrant": None,
     }
 
 
@@ -207,6 +244,13 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     assert event["payload"]["camerasSimulated"] is False
     assert event["payload"]["sensorsHealthy"] is True
     assert event["payload"]["cameraUploadHealthy"] is True
+    assert event["payload"]["evidenceSchemaVersion"] == 2
+    assert event["payload"]["deviceEntryUrlStored"] is True
+    assert (
+        event["payload"]["deviceEntryUrlSha256"]
+        == DEVICE_ENTRY_URL_SHA256
+    )
+    assert store.get_device_entry_url()["deviceEntryUrl"] == DEVICE_ENTRY_URL
     assert store.get_state("fixed_frame_latest_self_test_json")
     assert len(uploader.keys) == 2
     assert all(
@@ -321,4 +365,23 @@ def test_edge_store_instance_uid_is_stable_for_one_database(tmp_path):
 
     assert first == second
     assert uuid.UUID(first).version == 4
+    store.close()
+
+
+def test_global_url_sync_completes_after_local_save_without_mcu_ack(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    uart = RealFixedFrameUart()
+    command = _sync_command()
+    assert store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    ) == "ACCEPTED"
+
+    assert CommandProcessor(store, uart).process_next()
+
+    assert store.get_command(command["commandUid"])["state"] == "COMPLETED"
+    assert store.get_device_entry_url()["deviceEntryUrl"] == DEVICE_ENTRY_URL
+    assert uart.sent_device_entry_urls == [DEVICE_ENTRY_URL]
     store.close()

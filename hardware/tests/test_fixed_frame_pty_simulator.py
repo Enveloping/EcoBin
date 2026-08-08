@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 
 import pytest
 
@@ -9,6 +10,7 @@ from fixed_frame_mcu_adapter import FixedFrameMcuAdapter
 from tools.fixed_frame_pty_simulator import (
     CLEAN_RESULT_HEADER,
     DELIVERY_RESULT_HEADER,
+    DEVICE_ENTRY_URL_FIELD_LENGTH,
     SELF_TEST_RESPONSE_HEADER,
     DownstreamFrameParser,
     LinuxPtyFixedFrameSimulator,
@@ -19,6 +21,15 @@ from tools.fixed_frame_pty_simulator import (
     encode_smoke_frame,
     parse_args,
 )
+
+
+def _device_entry_url_frame(url: str) -> bytes:
+    encoded = url.encode("ascii")
+    return b"".join((
+        bytes((0xA0, len(encoded))),
+        encoded.ljust(DEVICE_ENTRY_URL_FIELD_LENGTH, b"\x00"),
+        b"\xA0",
+    ))
 
 
 def test_downstream_parser_handles_fragmented_joined_and_noisy_frames():
@@ -40,6 +51,20 @@ def test_downstream_parser_handles_fragmented_joined_and_noisy_frames():
         bytes.fromhex("EE 01 EE"),
         bytes.fromhex("F0 01 F0"),
     ]
+
+
+def test_virtual_mcu_retains_fragmented_device_entry_url_without_response():
+    parser = DownstreamFrameParser()
+    model = VirtualFixedFrameMcu(SimulatorConfig())
+    url = "https://www.jinshoubao.com/device-entry/public-code-1"
+    frame = _device_entry_url_frame(url)
+
+    assert parser.feed(frame[:50]) == []
+    parsed = parser.feed(frame[50:] + bytes.fromhex("F0 01 F0"))
+    assert parsed == [frame, bytes.fromhex("F0 01 F0")]
+    assert model.handle_frame(parsed[0]) == ("DEVICE_ENTRY_URL", None)
+    assert model.device_entry_url == url
+    assert model.device_entry_url_count == 1
 
 
 def test_virtual_mcu_remembers_price_and_builds_delivery_result():
@@ -193,6 +218,69 @@ def test_real_fixed_frame_adapter_round_trips_over_linux_pty(tmp_path):
         assert clean["message_name"] == "COMPAT_CLEAN_RESULT"
         assert clean["payload"]["preWeightGrams"] == 12_500
         assert clean["payload"]["postWeightGrams"] == 800
+    finally:
+        adapter.close()
+        simulator.stop()
+        thread.join(timeout=2)
+        simulator.close()
+
+    assert not link_path.exists()
+    assert not link_path.is_symlink()
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="Linux PTY integration requires Linux",
+)
+def test_real_device_entry_url_is_fire_and_forget_and_replayed_on_reopen(
+    tmp_path,
+):
+    link_path = tmp_path / "virtual-mcu-device-entry-url"
+    simulator = LinuxPtyFixedFrameSimulator(
+        SimulatorConfig(response_delay_ms=10),
+        link_path,
+        log=lambda message: None,
+    )
+    simulator.open()
+    thread = threading.Thread(target=simulator.run, daemon=True)
+    thread.start()
+    url = (
+        "https://www.jinshoubao.com/device-entry/"
+        "?deviceCode=Dv_0123456789abcdefghijklmn"
+    )
+    adapter = FixedFrameMcuAdapter(
+        str(link_path),
+        edge_boot_id=77,
+        timeout_s=0.1,
+        device_entry_url_provider=lambda: {"deviceEntryUrl": url},
+    )
+    try:
+        assert adapter.open()
+        result = adapter.send_device_entry_url(url)
+        deadline = time.monotonic() + 2
+        while (
+            simulator.model.device_entry_url_count < 1
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+        assert result["responseExpected"] is False
+        assert simulator.model.device_entry_url == url
+        assert simulator.model.device_entry_url_count == 1
+        assert adapter.read_mcu_event(timeout_ms=100) is None
+
+        adapter.close()
+        assert adapter.open()
+        deadline = time.monotonic() + 2
+        while (
+            simulator.model.device_entry_url_count < 2
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+        assert simulator.model.device_entry_url == url
+        assert simulator.model.device_entry_url_count == 2
+        assert adapter.read_mcu_event(timeout_ms=100) is None
     finally:
         adapter.close()
         simulator.stop()

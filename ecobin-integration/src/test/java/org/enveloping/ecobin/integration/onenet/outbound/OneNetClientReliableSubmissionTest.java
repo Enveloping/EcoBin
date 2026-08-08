@@ -661,6 +661,50 @@ class OneNetClientReliableSubmissionTest {
                         + "8a000000-0000-4000-8000-000000000003/");
     }
 
+    @Test
+    void projectsDeviceEntryUrlSyncWithoutCreatingCosCredentials()
+            throws Exception {
+        String envelope = Files.readString(contractPath(
+                "contracts/examples/onenet/"
+                        + "sync-device-entry-url.command.json"));
+        UUID commandUid = UUID.fromString(
+                "8a000000-0000-4000-8000-000000000005");
+        when(restTemplate.postForEntity(
+                anyString(),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"code\":0}"));
+
+        DeviceCommandSubmissionResult result = client.submit(
+                submission(
+                        envelope,
+                        commandUid,
+                        "SYNC_DEVICE_ENTRY_URL"));
+
+        assertEquals(
+                DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED,
+                result.outcome());
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<HttpEntity> request =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                anyString(), request.capture(), eq(String.class));
+        JsonNode actual = objectMapper.valueToTree(
+                request.getValue().getBody());
+        assertEquals(
+                "syncDeviceEntryUrl",
+                actual.path("identifier").asText());
+        assertEquals(
+                "https://www.jinshoubao.com/device-entry/"
+                        + "?deviceCode="
+                        + "Dv_contract000000000000000000000000",
+                actual.path("params").path("deviceEntryUrl").asText());
+        assertEquals(
+                false,
+                actual.path("params").path("cosGrantPresent")
+                        .asBoolean());
+    }
+
     private DeviceCommandSubmission submission(
             String envelope,
             UUID commandUid) throws Exception {

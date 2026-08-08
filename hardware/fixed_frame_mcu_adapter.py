@@ -2,7 +2,8 @@
 
 The deployed MCU uses a deliberately small fixed-frame protocol:
 
-    Edge -> MCU: AA 01 AA, BB PRICE BB, EE 01 EE, F0 01 F0
+    Edge -> MCU: AA 01 AA, BB PRICE BB, EE 01 EE, F0 01 F0,
+                 A0 LEN URL_DATA[192] A0
     MCU -> Edge: DD PRE:u24 POST:u24 FULL DD
                  EF PRE:u24 POST:u24 FULL EF
                  F1 VALID WEIGHT:u24 FULL SMOKE F1
@@ -34,12 +35,15 @@ CLEAN_HEADER = 0xEF
 SMOKE_HEADER = 0xCC
 SELF_TEST_QUERY_HEADER = 0xF0
 SELF_TEST_RESPONSE_HEADER = 0xF1
+DEVICE_ENTRY_URL_HEADER = 0xA0
 
 RESULT_FRAME_LENGTH = 9
 SMOKE_FRAME_LENGTH = 3
 SELF_TEST_FRAME_LENGTH = 8
 SELF_TEST_QUERY_FRAME = bytes((SELF_TEST_QUERY_HEADER, 0x01, SELF_TEST_QUERY_HEADER))
 SELF_TEST_TIMEOUT_MS = 3_000
+DEVICE_ENTRY_URL_FIELD_LENGTH = 192
+DEVICE_ENTRY_URL_FRAME_LENGTH = 195
 MAXIMUM_WEIGHT_GRAMS = 350_000
 MAXIMUM_RECEIVE_BUFFER = 4096
 
@@ -219,6 +223,9 @@ class FixedFrameMcuAdapter:
         timeout_s: float = 0.5,
         serial_factory: Optional[Callable[..., object]] = None,
         is_simulated: bool = False,
+        device_entry_url_provider: Optional[
+            Callable[[], Optional[dict]]
+        ] = None,
     ):
         if port_count != 1:
             raise ValueError("fixed-frame MCU protocol supports exactly one port")
@@ -228,6 +235,7 @@ class FixedFrameMcuAdapter:
         self.baudrate = baudrate
         self.timeout_s = timeout_s
         self._serial_factory = serial_factory
+        self._device_entry_url_provider = device_entry_url_provider
         self.is_simulated = bool(is_simulated)
         self._ser = None
         self._parser = FixedFrameParser()
@@ -237,6 +245,7 @@ class FixedFrameMcuAdapter:
         self._mcu_capability = 0
         self._mcu_firmware_version = "fixed-frame-compat"
         self._mcu_event_sequence = 0
+        self._has_opened_once = False
 
     @property
     def is_open(self) -> bool:
@@ -256,6 +265,7 @@ class FixedFrameMcuAdapter:
                 return False
             factory = serial.Serial
         try:
+            reopening = self._has_opened_once
             self._ser = factory(
                 port=self.port,
                 baudrate=self.baudrate,
@@ -269,11 +279,31 @@ class FixedFrameMcuAdapter:
                 self.port,
                 self.baudrate,
             )
+            self._has_opened_once = True
+            if reopening:
+                self._resend_device_entry_url_after_reopen()
             return True
         except Exception as error:
             self._ser = None
             logger.error("fixed-frame MCU UART open failed: %s", error)
             return False
+
+    def _resend_device_entry_url_after_reopen(self) -> None:
+        provider = self._device_entry_url_provider
+        if not callable(provider):
+            return
+        try:
+            record = provider()
+            if record is not None:
+                self.send_device_entry_url(record["deviceEntryUrl"])
+                logger.info(
+                    "stored device entry URL resent after UART reopen"
+                )
+        except Exception as error:
+            logger.warning(
+                "stored device entry URL resend after UART reopen failed: %s",
+                error,
+            )
 
     def close(self) -> None:
         with self._io_lock:
@@ -417,6 +447,40 @@ class FixedFrameMcuAdapter:
             "acked": False,
             "error": "MCU_FEATURE_NOT_SUPPORTED",
             "parts": [],
+        }
+
+    def send_device_entry_url(self, url: str) -> dict:
+        """Send one fire-and-forget URL frame; the MCU sends no response."""
+        if (
+            not isinstance(url, str)
+            or not 1 <= len(url) <= DEVICE_ENTRY_URL_FIELD_LENGTH
+            or not url.startswith("https://")
+            or any(
+                ord(character) < 0x21 or ord(character) > 0x7E
+                for character in url
+            )
+        ):
+            raise ValueError(
+                "device entry URL must be printable ASCII HTTPS within 192 bytes"
+            )
+        if not self.is_open:
+            raise RuntimeError("UART is closed")
+        encoded = url.encode("ascii")
+        wire = b"".join(
+            (
+                bytes((DEVICE_ENTRY_URL_HEADER, len(encoded))),
+                encoded.ljust(DEVICE_ENTRY_URL_FIELD_LENGTH, b"\x00"),
+                bytes((DEVICE_ENTRY_URL_HEADER,)),
+            )
+        )
+        if len(wire) != DEVICE_ENTRY_URL_FRAME_LENGTH:
+            raise AssertionError("device entry URL frame length is invalid")
+        with self._io_lock:
+            self._write_exact(wire)
+        return {
+            "disposition": "LOCALLY_DISPATCHED",
+            "frameLength": len(wire),
+            "responseExpected": False,
         }
 
     def send_command(

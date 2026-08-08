@@ -1,4 +1,7 @@
+import pytest
+
 from fixed_frame_mcu_adapter import (
+    DEVICE_ENTRY_URL_FRAME_LENGTH,
     FixedFrameMcuAdapter,
     FixedFrameParser,
     price_digit_from_ten_thousandths,
@@ -131,6 +134,71 @@ def test_delivery_start_writes_price_and_start_once_without_retry():
     assert fake.writes == [bytes.fromhex("BB 09 BB AA 01 AA")]
     assert fake.flush_count == 1
     assert fake.reset_count == 0
+
+
+def test_device_entry_url_writes_fixed_frame_without_waiting_for_response():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    url = "https://www.jinshoubao.com/device-entry/public-code-1"
+
+    result = adapter.send_device_entry_url(url)
+
+    assert result == {
+        "disposition": "LOCALLY_DISPATCHED",
+        "frameLength": DEVICE_ENTRY_URL_FRAME_LENGTH,
+        "responseExpected": False,
+    }
+    frame = fake.writes[0]
+    assert len(frame) == DEVICE_ENTRY_URL_FRAME_LENGTH
+    assert frame[0] == 0xA0
+    assert frame[1] == len(url)
+    assert frame[2 : 2 + len(url)] == url.encode("ascii")
+    assert frame[2 + len(url) : -1] == b"\x00" * (192 - len(url))
+    assert frame[-1] == 0xA0
+    assert fake.flush_count == 1
+
+
+def test_device_entry_url_rejects_space_before_writing_uart():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    with pytest.raises(ValueError, match="printable ASCII HTTPS"):
+        adapter.send_device_entry_url(
+            "https://www.jinshoubao.com/device entry/invalid"
+        )
+
+    assert fake.writes == []
+
+
+def test_uart_reopen_resends_the_locally_stored_device_entry_url_once():
+    first = FakeSerial()
+    second = FakeSerial()
+    serials = iter((first, second))
+    url = "https://www.jinshoubao.com/device-entry/?deviceCode=public-1"
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: next(serials),
+        device_entry_url_provider=lambda: {"deviceEntryUrl": url},
+    )
+
+    assert adapter.open()
+    assert first.writes == []
+    adapter.close()
+    assert adapter.open()
+
+    assert len(second.writes) == 1
+    assert second.writes[0][2 : 2 + len(url)] == url.encode("ascii")
 
 
 def test_parser_handles_self_test_and_smoke_frames_without_changing_lengths():

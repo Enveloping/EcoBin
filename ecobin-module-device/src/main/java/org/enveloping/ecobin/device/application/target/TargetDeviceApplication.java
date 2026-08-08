@@ -32,7 +32,6 @@ import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskStatusPort;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
 import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
-import org.enveloping.ecobin.identity.api.value.MiniappEntryBaseUrl;
 import org.enveloping.ecobin.framework.web.TargetWebAuditRequestContext;
 import org.enveloping.ecobin.identity.api.port.DeviceScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.DeviceScopeAuthorizationQuery;
@@ -98,7 +97,7 @@ public class TargetDeviceApplication {
     private final ReliableTaskWakePort taskWakePort;
     private final DeviceCommandTaskRefFactory taskRefFactory;
     private final String oneNetProductId;
-    private final String deviceEntryBaseUrl;
+    private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final AutomaticDeviceActivationService activationService;
 
     public TargetDeviceApplication(
@@ -113,8 +112,7 @@ public class TargetDeviceApplication {
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
             @Value("${onenet.product-id:}") String oneNetProductId,
-            @Value("${ecobin.miniapp.device-entry-base-url}")
-            String deviceEntryBaseUrl) {
+            DeviceEntryUrlFactory deviceEntryUrlFactory) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
@@ -126,11 +124,7 @@ public class TargetDeviceApplication {
         this.taskWakePort = taskWakePort;
         this.taskRefFactory = taskRefFactory;
         this.oneNetProductId = blankToNull(oneNetProductId);
-        if (!MiniappEntryBaseUrl.isValid(deviceEntryBaseUrl)) {
-            throw new IllegalArgumentException(
-                    "ecobin.miniapp.device-entry-base-url must be a valid HTTPS base URL without deviceCode");
-        }
-        this.deviceEntryBaseUrl = deviceEntryBaseUrl;
+        this.deviceEntryUrlFactory = deviceEntryUrlFactory;
     }
 
     @Transactional(readOnly = true)
@@ -350,7 +344,11 @@ public class TargetDeviceApplication {
                                configuration_persistence_healthy,
                                mcu_communication_healthy, sensors_healthy,
                                cameras_capture_healthy,
-                               camera_upload_healthy, mcu_simulated,
+                               camera_upload_healthy,
+                               device_entry_url_stored,
+                               LOWER(HEX(device_entry_url_sha256))
+                                   device_entry_url_sha256,
+                               mcu_simulated,
                                cameras_simulated, evaluation_status,
                                failure_reasons_json,
                                LOWER(HEX(evidence_sha256)) evidence_sha256,
@@ -2000,6 +1998,8 @@ public class TargetDeviceApplication {
                 rs.getBoolean("sensors_healthy"),
                 rs.getBoolean("cameras_capture_healthy"),
                 rs.getBoolean("camera_upload_healthy"),
+                rs.getObject("device_entry_url_stored", Boolean.class),
+                rs.getString("device_entry_url_sha256"),
                 rs.getBoolean("mcu_simulated"),
                 rs.getBoolean("cameras_simulated"),
                 rs.getString("evaluation_status"),
@@ -2277,8 +2277,7 @@ public class TargetDeviceApplication {
             return null;
         }
         try {
-            return MiniappEntryBaseUrl.appendDeviceCode(
-                    deviceEntryBaseUrl, deviceCode);
+            return deviceEntryUrlFactory.create(deviceCode).url();
         } catch (IllegalArgumentException invalidEntryUrl) {
             throw unprocessable(
                     "IDENTITY.MINIAPP_ENTRY_URL_INVALID",

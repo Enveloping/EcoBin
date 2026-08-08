@@ -1,6 +1,6 @@
 # EcoBin 产品需求基线
 
-> 状态：**需求及全部设计基线已重新冻结；2026-08-08 已确认 D-048 / I-058 共享小程序身份模型及 V41 全局设备二维码入口**
+> 状态：**需求及全部设计基线已重新冻结；2026-08-08 已确认 V42 设备入口 URL 下发与验收边界**
 > 初次整理：2026-07-21
 > 最近同步：2026-08-08
 > 确认人：项目负责人（单人确认）
@@ -8,6 +8,12 @@
 > 已冻结范围：[`p0-scope-baseline.md`](p0-scope-baseline.md)
 > 业务模型基线：[`business-model-baseline.md`](business-model-baseline.md)
 > 系统架构基线：[`system-architecture-draft.md`](system-architecture-draft.md)
+
+> [!IMPORTANT]
+> 2026-08-08 设备二维码交付由 V42 补充冻结：平台验收命令携带完整 URL；香橙派可靠
+> 保存后才可证明该验收项，并通过无应答固定帧交给 MCU。全局基础地址改变时自动向未
+> 报废设备可靠下发；租户/机构分配和安装不再产生操作。屏幕和二维码显示结果不进入
+> 平台验收。详见 [`../architecture/device-entry-url-edge-delivery-v42.md`](../architecture/device-entry-url-edge-delivery-v42.md)。
 
 > [!IMPORTANT]
 > 2026-08-02 满溢准入裁决已变更并实施：后端不主动查询或下发满溢采样，只有设备可靠上报当前袋 `FULL` 才阻止下一次投递；无上报、失败和旧袋结果不阻断，新袋默认 `NOT_FULL`。第 23 节及其他章节中关于“待检测/检测失败阻断、人工重检恢复、后端创建检测 gate”的旧要求不再适用，现行规则见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)。
