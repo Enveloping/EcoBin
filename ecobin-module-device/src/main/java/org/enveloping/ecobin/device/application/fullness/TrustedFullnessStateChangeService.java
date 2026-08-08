@@ -518,7 +518,7 @@ public class TrustedFullnessStateChangeService
         return rows.getFirst();
     }
 
-    private FullnessStateChangePhysicalFact parse(
+    FullnessStateChangePhysicalFact parse(
             String normalizedPayload) {
         JsonNode root = objectMapper.readTree(normalizedPayload);
         JsonNode source = requiredObject(root, "trustedSource");
@@ -543,7 +543,6 @@ public class TrustedFullnessStateChangeService
                 uuid(event, "eventUid"),
                 uuid(payload, "stateChangeUid"),
                 requiredText(source, "deviceName"),
-                requiredText(event, "deviceCode"),
                 positiveLong(event, "edgeEventSequence"),
                 Instant.parse(requiredText(event, "occurredAt")),
                 requiredText(event, "clockQuality"),

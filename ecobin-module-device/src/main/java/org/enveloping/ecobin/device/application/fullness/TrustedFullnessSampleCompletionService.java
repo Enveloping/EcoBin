@@ -360,8 +360,6 @@ public class TrustedFullnessSampleCompletionService
                 requiredText(envelope, "commandUid"))
                 || !"SAMPLE_FULLNESS".equals(
                 requiredText(envelope, "commandType"))
-                || !fact.deviceCode().equals(
-                requiredText(envelope, "deviceCode"))
                 || !"FULLNESS_DETECTION".equals(
                 requiredText(target, "type"))
                 || !fact.detectionUid().toString().equals(
@@ -668,7 +666,7 @@ public class TrustedFullnessSampleCompletionService
         return id;
     }
 
-    private FullnessSamplePhysicalFact parse(
+    FullnessSamplePhysicalFact parse(
             String normalizedPayload) {
         JsonNode root = objectMapper.readTree(normalizedPayload);
         JsonNode source = requiredObject(root, "trustedSource");
@@ -700,7 +698,6 @@ public class TrustedFullnessSampleCompletionService
                 uuid(event, "commandUid"),
                 detectionUid,
                 requiredText(source, "deviceName"),
-                requiredText(event, "deviceCode"),
                 positiveLong(event, "edgeEventSequence"),
                 Instant.parse(requiredText(
                         event,

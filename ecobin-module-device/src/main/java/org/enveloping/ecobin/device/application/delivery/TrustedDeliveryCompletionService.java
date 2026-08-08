@@ -879,7 +879,7 @@ public class TrustedDeliveryCompletionService
         return id;
     }
 
-    private DeliveryCompletePhysicalFact parse(String normalizedPayload) {
+    DeliveryCompletePhysicalFact parse(String normalizedPayload) {
         JsonNode root = objectMapper.readTree(normalizedPayload);
         JsonNode source = requiredObject(root, "trustedSource");
         JsonNode event = requiredObject(root, "event");
@@ -909,7 +909,6 @@ public class TrustedDeliveryCompletionService
                 uuid(event, "commandUid"),
                 sessionUid,
                 sourceHardwareSn,
-                requiredText(event, "deviceCode"),
                 positiveLong(event, "edgeEventSequence"),
                 nullableInstant(event, "occurredAt"),
                 requiredText(event, "clockQuality"),
