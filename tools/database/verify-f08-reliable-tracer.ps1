@@ -176,7 +176,8 @@ GRANT TRIGGER ON ecobin_f08.* TO 'ecobin_trigger_definer'@'%';
         testClass = "ReliableInboxMysqlIntegrationTest"
         scenarios = @(
             "atomic receipt and ACK-safe outer transaction isolation",
-            "duplicate delivery reuses and wakes the original task",
+            "duplicate delivery reuses the original task without erasing its failure budget",
+            "duplicate transport cannot bypass audited BLOCKED-task recovery",
             "same stable identity with different semantic digest quarantine",
             "exclusive lanes and concurrent SKIP LOCKED claims",
             "expired lease takeover and reclaimed attempt",

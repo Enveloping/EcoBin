@@ -1748,7 +1748,28 @@ public class ReliableOperationsJdbcRepository {
     }
 
     public long wakeTask(UUID taskUid, LocalDateTime now) {
-        WakeableTask task = jdbcTemplate.queryForObject("""
+        WakeableTask task = lockWakeableTask(taskUid);
+        return wakeTask(task, now, true);
+    }
+
+    /**
+     * Rechecks an identical transport delivery without treating the same
+     * bytes as evidence that an existing failure reason disappeared.
+     * BLOCKED tasks still require the audited governance resume use case.
+     */
+    public long wakeTaskFromDuplicateInboxDelivery(
+            UUID taskUid,
+            LocalDateTime now) {
+        WakeableTask task = lockWakeableTask(taskUid);
+        if ("BLOCKED".equals(task.state())
+                || "CANCELLED".equals(task.state())) {
+            return task.wakeVersion();
+        }
+        return wakeTask(task, now, false);
+    }
+
+    private WakeableTask lockWakeableTask(UUID taskUid) {
+        return jdbcTemplate.queryForObject("""
                 SELECT id, state, lease_token, lease_until, wake_version
                 FROM ops_reliable_task
                 WHERE task_uid = ?
@@ -1761,22 +1782,32 @@ public class ReliableOperationsJdbcRepository {
                         resultSet.getObject("lease_until", LocalDateTime.class),
                         resultSet.getLong("wake_version")),
                 taskUid.toString());
+    }
+
+    private long wakeTask(
+            WakeableTask task,
+            LocalDateTime now,
+            boolean resetConsecutiveFailures) {
         long newVersion = task.wakeVersion() + 1;
         boolean hasLease = task.leaseToken() != null;
         if (!hasLease) {
-            int updated = jdbcTemplate.update("""
+            String failureReset = resetConsecutiveFailures
+                    ? "consecutive_failure_count = 0,"
+                    : "";
+            int updated = jdbcTemplate.update(("""
                     UPDATE ops_reliable_task
                     SET state = 'PENDING',
                         next_run_at = ?,
                         wake_version = ?,
-                        consecutive_failure_count = 0,
+                        %s
                         completed_at = NULL,
                         blocked_reason_code = NULL,
                         blocked_diagnostic = NULL,
                         lock_version = lock_version + 1,
                         updated_at = ?
                     WHERE id = ?
-                    """, now, newVersion, now, task.id());
+                    """).formatted(failureReset),
+                    now, newVersion, now, task.id());
             requireSingleRow(updated, "wake static reliable task");
         } else {
             int updated = jdbcTemplate.update("""

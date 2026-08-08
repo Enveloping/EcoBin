@@ -80,7 +80,8 @@ acceptTrustedMessage(TrustedInboundEnvelope)
 锁定/插入唯一 inbox
   → 校验 stableExternalId + canonicalSha256
   → 首次消息创建 PROCESS_INBOX:<inboxUid> 任务
-  → 重复同摘要唤醒原任务
+  → 重复同摘要只唤醒仍可自动执行的原任务，且不清零连续失败次数
+  → BLOCKED/CANCELLED 不由相同传输重投自动恢复
   → 同 ID 异摘要写 quarantine/冲突
   → 提交
 ```

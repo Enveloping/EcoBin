@@ -19,7 +19,8 @@
 - 收件以独立 `READ COMMITTED` 短事务建立 inbox 和唯一
   `PROCESS_INBOX:<inboxUid>` 任务。方法只有在该短事务提交后才返回可 ACK receipt；
   调用方已有事务即使随后回滚，也不能撤销已经允许 ACK 的收件事实。
-- 同稳定外部 ID、同语义摘要复用并唤醒原任务；同 ID、异摘要只追加或聚合
+- 同稳定外部 ID、同语义摘要复用原任务；相同传输重投可唤醒仍可自动执行的原任务，
+  但不清零连续失败次数，也不能绕过受审计恢复自动重开 `BLOCKED/CANCELLED`；同 ID、异摘要只追加或聚合
   `IDENTITY_CONTENT_CONFLICT` 隔离事实，不覆盖原 inbox、任务或正文。
 - framework 新增 inbox 完成和可靠任务唤醒两个稳定技术端口。完成端口必须加入调用方
   已有业务事务，业务事实、attempt 成功、inbox `PROCESSED` 和 task `DONE` 共同提交。

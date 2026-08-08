@@ -181,6 +181,11 @@ class ReliableInboxMysqlIntegrationTest {
                 FROM ops_inbox_message
                 WHERE inbox_uid = ?
                 """, String.class, accepted.inboxUid().toString());
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET consecutive_failure_count = 4
+                WHERE task_uid = ?
+                """, accepted.taskUid().toString());
 
         TrustedInboxReceipt duplicate = inboxPort.receive(message(
                 "stable-event",
@@ -204,8 +209,9 @@ class ReliableInboxMysqlIntegrationTest {
                 FROM ops_inbox_message
                 WHERE inbox_uid = ?
                 """, String.class, accepted.inboxUid().toString()));
-        assertEquals("1|0", jdbc.queryForObject("""
-                SELECT CONCAT(wake_version, '|', handled_wake_version)
+        assertEquals("1|0|4", jdbc.queryForObject("""
+                SELECT CONCAT(wake_version, '|', handled_wake_version,
+                              '|', consecutive_failure_count)
                 FROM ops_reliable_task
                 WHERE task_uid = ?
                 """, String.class, accepted.taskUid().toString()));
@@ -228,6 +234,50 @@ class ReliableInboxMysqlIntegrationTest {
                 FROM ops_inbox_message
                 WHERE inbox_uid = ?
                 """, String.class, accepted.inboxUid().toString()));
+    }
+
+    @Test
+    void duplicateTransportCannotResumeBlockedTask() {
+        TrustedInboxMessage original = message(
+                "blocked-duplicate",
+                "{\"value\":1}",
+                "first transport body",
+                TrustedInboxExecutionLane.DEVICE);
+        TrustedInboxReceipt accepted = inboxPort.receive(original);
+        jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    consecutive_failure_count = max_auto_attempts,
+                    handled_wake_version = wake_version,
+                    completed_at = UTC_TIMESTAMP(3),
+                    blocked_reason_code = 'AUTO_RETRY_EXHAUSTED',
+                    blocked_diagnostic = 'fixture',
+                    lease_token = NULL, lease_worker = NULL,
+                    lease_until = NULL
+                WHERE task_uid = ?
+                """, accepted.taskUid().toString());
+
+        TrustedInboxReceipt duplicate = inboxPort.receive(message(
+                "blocked-duplicate",
+                " { \"value\" : 1 } ",
+                "duplicate transport body",
+                TrustedInboxExecutionLane.DEVICE));
+
+        assertEquals(
+                TrustedInboxReceiptState.DUPLICATE_ACCEPTED,
+                duplicate.state());
+        assertEquals("BLOCKED|0|0|10", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|', wake_version, '|',
+                              handled_wake_version, '|',
+                              consecutive_failure_count)
+                FROM ops_reliable_task
+                WHERE task_uid = ?
+                """, String.class, accepted.taskUid().toString()));
+        assertEquals(2L, jdbc.queryForObject("""
+                SELECT delivery_count
+                FROM ops_inbox_message
+                WHERE inbox_uid = ?
+                """, Long.class, accepted.inboxUid().toString()));
     }
 
     @Test

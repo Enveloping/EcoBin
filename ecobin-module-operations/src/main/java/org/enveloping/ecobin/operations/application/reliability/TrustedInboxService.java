@@ -247,7 +247,8 @@ public class TrustedInboxService implements TrustedInboxPort {
                 throw new ReliableTaskInvariantException(
                         "PROCESS_INBOX task payload no longer matches its inbox");
             }
-            repository.wakeTask(taskUid, now);
+            repository.wakeTaskFromDuplicateInboxDelivery(
+                    taskUid, now);
         }
         signal(message.executionLane());
         return accepted(
