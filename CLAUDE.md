@@ -128,12 +128,15 @@
 - OneNet 传输接受、香橙派可靠受理、物理动作发生和后端业务完成是四层结果，任何一层不能冒充下一层。
 - UART 1.0 使用 `0xEC42`、最大 256 字节、big-endian、CRC-16/CCITT-FALSE、HELLO、ACK/NACK、幂等命令和 MCU 启动代际事件，作为规范模型和可选 `uart-v1` 实现。当前现有 MCU 使用已确定的固定帧协议时，必须由香橙派显式 `fixed-frame` 适配且只运行一种解析器；旧 D1、自动探测、双解析和失败回退仍禁止。
 - 香橙派目标 Python 3.11；不要使用开发机 Python 3.14 专属语法。`uart-v1` 重启后先
-  `HELLO/QUERY_STATE` 并恢复真实状态；`fixed-frame` 没有协议级状态查询，重启后只能
-  把物理状态标为未知、令本地未决工作失败并释放槽位。当前固定帧模式不增加 MCU
-  作业对账或恢复锁，也绝不自动重放旧开门。
+  `HELLO/QUERY_STATE` 并恢复真实状态；`fixed-frame` 只有 `F0/F1` 传感器自检快照，没有
+  通用作业/门状态查询。它在启动时查询一次真实重量、红外和烟感，查询或任一传感器
+  失败时仍联网但阻止新作业；重启后本地未决工作失败并释放槽位。当前固定帧模式不增加
+  MCU 作业对账或恢复锁，也绝不自动重放旧开门。
 - 固定帧适配保留完整云端字段，但不等于 MCU 功能完整：配置仅保存到香橙派，缺失的
-  远程控制返回 `MCU_FEATURE_NOT_SUPPORTED`，状态返回 `UNKNOWN/NOT_SAMPLED`；
-  DD/EF 满溢位只作为红外观测，业务满溢仍按香橙派保存的判断标准形成。
+  远程控制返回 `MCU_FEATURE_NOT_SUPPORTED`，无法查询的作业/门状态返回
+  `UNKNOWN/NOT_SAMPLED`；`F1` 提供当前传感器快照，`CC` 只上报烟感状态变化，其中
+  `02` 表示 MCU 无法取得烟感数据。DD/EF 满溢位只作为红外观测，业务满溢仍按香橙派
+  保存的判断标准形成。
 
 ## 6. 详细设计与实施入口
 
@@ -158,14 +161,15 @@
   通过；香橙派 `/dev/ttyS5` 可打开，现有 MCU 使用双方确定的固定帧协议；
 - F-10 的软件生成物、候选 OneNet 物模型和通用 Java/Python 3.11/C11 黄金样本已完成，
   项目负责人确认无需再等待现有 MCU 工具链或原生 UART 1.0 HIL，任务已转为 `done`；
-- F-11 已完成 SQLite v4、OneNet 命令可靠受理、固定帧 `AA/BB/EE` 与 `DD/EF` 适配、
+- F-11 已完成 SQLite v4、OneNet 命令可靠受理、固定帧 `AA/BB/EE/F0` 与
+  `DD/EF/F1/CC` 适配、
   照片/COS 链路和强杀恢复测试；真实香橙派双摄、STS 上传和匿名 URL 下载已通过。
   MQTT 重连改为复用单一 Paho 网络循环。固定帧 MCU 可通过 Linux PTY 接入真实
   `main.py`，双摄可通过两个 `simulated://` 源生成占位 JPEG；运行入口已移除全局
   测试模式，只按显式串口和摄像头源组装。
   Python 3.11 硬件套件当前为
-  `203 passed, 1 skipped, 5 subtests passed`，契约套件为
-  `43 passed, 752 subtests passed`。
+  `236 passed, 2 skipped, 5 subtests passed`，契约套件为
+  `55 passed, 828 subtests passed`。
   香橙派当时的默认路由/DNS 波动按负责人决定暂不继续处理，不阻塞当前验收。F-11
   已按负责人接受的当前范围转为 `done`；后续验证发现范围内问题时重开，固定帧真机
   验收属于已就绪但尚未授权的 H-03；

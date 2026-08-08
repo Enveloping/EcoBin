@@ -57,7 +57,7 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
         simulator = LinuxPtyFixedFrameSimulator(
             SimulatorConfig(response_delay_ms=response_delay_ms),
             link_path,
-            exit_after_responses=2,
+            exit_after_responses=3,
             log=lambda message: None,
         )
         simulator.open()
@@ -85,6 +85,8 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
         try:
             if not adapter.open():
                 raise RuntimeError("fixed-frame adapter did not open PTY")
+            self_test = adapter.query_self_test(timeout_ms=2000)
+            safety = adapter.read_mcu_event(timeout_ms=2000)
             delivery_command = adapter.send_command(
                 "START_DELIVERY_SESSION",
                 {"unitPriceTenThousandths": 4500},
@@ -99,6 +101,8 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
                 raise RuntimeError("delivery PTY round trip failed")
             if not clean_command.get("acked") or clean is None:
                 raise RuntimeError("clean PTY round trip failed")
+            if self_test.get("queryStatus") != "OK" or safety is None:
+                raise RuntimeError("self-test PTY round trip failed")
 
             work_uid = str(uuid.uuid4())
             if not photos.capture_open_photos(work_uid):
@@ -116,6 +120,8 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
                 "ok": True,
                 "uart": {
                     "priceDigit": simulator.model.last_price_digit,
+                    "selfTest": self_test,
+                    "safety": safety["payload"],
                     "delivery": delivery["payload"],
                     "clean": clean["payload"],
                 },

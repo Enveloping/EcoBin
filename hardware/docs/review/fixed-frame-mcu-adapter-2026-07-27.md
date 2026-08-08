@@ -1,5 +1,9 @@
 # 固定帧 MCU 适配层实施记录（2026-07-27）
 
+> 2026-08-08 修订：在原固定帧上增加 `F0/F1` 传感器自检和 `CC` 烟感变化上报。
+> 本文中“没有状态查询”均收窄为“没有通用作业、门或执行器状态查询”，不再表示
+> 无法查询重量、红外和烟感。启动伪造 `NORMAL/OK` 的旧策略已经废止。
+
 ## 背景
 
 此前 F-11 方向试图修改 MCU 来实现 UART 1.0。由于当前无法在硬件旁持续联调，且
@@ -20,8 +24,11 @@ C:\D\004-Project\002-Java\database-refactor-f11-give-up-mcu-and-adapte-mcu
 | `DD PRE POST FULL DD` | 合成两条稳定重量事实，创建既有 `DELIVERY_COMPLETE` |
 | `EE 01 EE` | 一次串口写入，启动清运 |
 | `EF PRE POST FULL EF` | 合成两条稳定重量事实，创建既有 `CLEAN_COMPLETE` |
+| `F0 01 F0` | 香橙派主动请求一次新的传感器自检快照 |
+| `F1 VALID WEIGHT FULL SMOKE F1` | 保存真实重量、红外和烟感快照；无效字段按 `VALID` 判断 |
+| `CC SMOKE CC` | 烟感在正常、报警、无法读取之间变化时，形成既有安全状态事件 |
 | `FULL` | 缓存为原始 `DIGITAL_INFRARED` 观测 |
-| 无 MCU 状态查询 | 运行快照返回未知/未采样占位 |
+| 无通用 MCU 作业状态查询 | 门、执行器和重启作业状态返回未知/未采样占位 |
 | 无配置命令 | 配置只在 SQLite 保存并标记本地生效 |
 
 适配入口为 `fixed_frame_mcu_adapter.py`。`ECOBIN_MCU_PROTOCOL=fixed-frame`
@@ -39,7 +46,9 @@ C:\D\004-Project\002-Java\database-refactor-f11-give-up-mcu-and-adapte-mcu
 | 投递单价 | 下发值按协议截断/饱和；后端返现金额仍按原业务单价计算，允许两者不一致 |
 | 设备配置 | 完整保存到香橙派并报告本地生效；不发送到 MCU、不代表硬件参数已应用 |
 | 远程控制 | MCU 没有对应帧时直接失败并返回 `MCU_FEATURE_NOT_SUPPORTED`，不占工作槽 |
-| 运行状态 | 没有状态查询帧，只能返回 `UNKNOWN/NOT_SAMPLED` 等明确占位 |
+| 运行状态 | F0/F1 提供传感器快照；门、执行器和作业状态仍用 `UNKNOWN/NOT_SAMPLED` 等明确占位 |
+| 启动自检 | 启动查询一次；超时、非法帧、重量/红外无效或烟感非正常时仍联网，但设备降级并阻止新作业 |
+| 烟感变化 | `00=NORMAL`、`01=ALARM`、`02=无法读取`；相同状态不重复创建云事件 |
 | 满溢 | DD/EF 的 `FULL` 只记为红外原始观测；业务是否满溢仍按香橙派保存的判断标准计算 |
 | 异常标志 | 协议没有足够事实，`negativeWeightAnomaly` 暂为 `false`；净重仍保留真实差值 |
 | 可靠发送 | 没有 ACK、CRC、命令/作业编号；启动帧只发一次，不因未收到结果自动重发 |
@@ -58,16 +67,22 @@ C:\D\004-Project\002-Java\database-refactor-f11-give-up-mcu-and-adapte-mcu
   `UNKNOWN`。
 - 不增加发送重试、重启恢复锁或物理命令重放。重启后未决命令失败并释放工作槽。
 - 不能从 DD/EF 还原 UART 1.0 的中间事件，因此只创建最终业务事件。
+- F1 必须由本次 F0 查询取得；不以历史 F1、DD/EF 或旧的正常状态代替本次证据。
+- F0 查询期间到达的 DD、EF、CC 仍按到达顺序进入正常事件队列，不因自检丢失。
+- `SMOKE=02` 表示 MCU 通信正常但烟感无法读取；完全收不到合法 F1 才是查询超时或
+  协议错误。
 
 ## 测试覆盖
 
 - 半帧、粘包、噪声、载荷内出现帧标志和非法帧重同步；
+- F0/F1 新鲜查询、旧响应清理、超时、非法 F1 和查询期间业务/烟感帧交错；
+- CC 的正常、报警、无法读取映射，以及同状态去重、状态变化可靠上报；
 - 单价截断/饱和及投递命令字节顺序；
 - 配置仅本地生效；
 - DD 到投递完成、EF 到清运完成；
 - 原始红外观测到现有满溢事件；
 - 不支持命令不占工作槽；
-- 固定帧启动不发送状态查询，重启时释放旧工作；
+- 固定帧启动查询传感器但不恢复 MCU 作业；自检失败仍联网、进入降级并阻止新作业；
 - 生成事件可通过现有 OneNet 投影编码。
 - MQTT 掉线重连复用单一 Paho 网络循环，连接等待超时不会停止后台重连；
 - 真实子进程被强杀后，命令、工作槽、事件序号、事件、照片和业务确认仍可从 SQLite
@@ -77,6 +92,22 @@ C:\D\004-Project\002-Java\database-refactor-f11-give-up-mcu-and-adapte-mcu
 2026-07-28 的 Python 3.11 全量结果为 `166 passed, 5 subtests passed`；契约结果为
 `43 passed, 752 subtests passed`。开发环境还完成了真实 OneNet 连接和 STS/COS
 upload/head/delete smoke；这些网络证据不包含任何入库凭证。
+
+2026-08-08 增加 F0/F1/CC 后，Python 3.11 硬件全量结果为
+`236 passed, 2 skipped, 5 subtests passed`；契约结果为
+`55 passed, 828 subtests passed`。其中跳过项是 Windows 不提供 Linux PTY，线路编码、
+解析、启动降级、验收新鲜查询、作业阻断和状态去重均已在平台无关测试中通过。
+
+同日把新版本部署到 `172.20.10.12` 的 Orange Pi Zero 3 后，隔离目录硬件全量结果为
+`234 passed, 4 skipped, 5 subtests passed`，其中真实 Linux PTY 专项为 `11 passed`，
+覆盖 F0/F1 往返以及 `CC 02 CC` 映射为烟感无法读取。`hardware_free_smoke.py` 返回
+`ok=true`，确认自检、DD、EF 和四张模拟照片。正式 systemd 服务随后完成以下验证：
+
+- 模拟器收到 `F0 01 F0`，返回 `F1 03 00 27 10 00 00 F1`；
+- 网关启动结果为 `READY`，OneNet MQTT 连接和三个订阅均成功；
+- SQLite `integrity_check=ok`，最新自检为通信正常、重量 10000 克、红外正常、烟感正常；
+- `ecobin-hardware.service` 与 `ecobin-mcu-simulator.service` 均为运行状态、零次重启，
+  启动后没有 warning 及以上日志。
 
 同日真实双摄验收发现原 `1/3` 数字索引会让两个槽位都拍到 DECXIN。现已改为稳定
 `/dev/v4l/by-id/` 路径，明确 DECXIN 为外部、icspring 为内部，增加 5 帧预热和 COS
@@ -97,7 +128,8 @@ uv run --python 3.11 python tools/mqtt_reconnect_smoke.py --env-file .env
 
 实现直接以
 [`../单片机-香橙派适配通信协议详细内容.md`](../单片机-香橙派适配通信协议详细内容.md)
-为线路事实：DD/EF 固定为 9 字节；EE 流程由 MCU 在 3～5 秒后自动断开继电器；
+为线路事实：DD/EF 固定为 9 字节，F1 固定为 8 字节，CC 固定为 3 字节；EE 流程由
+MCU 在 3～5 秒后自动断开继电器；
 EF 表示协议规定的全部发送前置条件已经满足。这些不是香橙派侧待决项，也不阻塞
 适配层完成。真机 HIL 仅属于部署验收，用于发现固件实现或设备环境偏离文档，不用于
 重新决定协议。
@@ -112,7 +144,8 @@ EF 表示协议规定的全部发送前置条件已经满足。这些不是香�
 无需真实 MCU 时，可在 Linux 上运行
 [`../../tools/fixed_frame_pty_simulator.py`](../../tools/fixed_frame_pty_simulator.py)
 创建伪终端，让真实 `main.py` 和 `FixedFrameMcuAdapter` 继续走串口边界。模拟器接收
-`BB+AA` / `EE` 并自动返回可配置的 DD / EF，可用于验证
+`BB+AA` / `EE` / `F0` 并自动返回可配置的 DD / EF / F1，还可在烟感变化时发送 CC，
+可用于验证
 OneNet → 香橙派 → 虚拟 MCU → OneNet 事件上报链路。启动方法、环境配置、预期日志和
 自动化测试见
 [`../../tools/FIXED-FRAME-PTY-SIMULATOR.md`](../../tools/FIXED-FRAME-PTY-SIMULATOR.md)。

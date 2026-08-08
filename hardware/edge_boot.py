@@ -243,16 +243,61 @@ def _boot_fixed_frame_compatibility(
     mqtt_client,
     mcu_info,
 ):
-    """Boot without sending unsupported HELLO/QUERY_STATE/recovery frames."""
-    _recover_edge_fault(
-        store,
-        mqtt_client,
-        "UART",
-        "UART_PROTOCOL",
-        "BOOT_UART_READY",
+    """Boot with the small F0/F1 sensor query, but no MCU work recovery."""
+    try:
+        self_test = uart_link.query_self_test(
+            timeout_ms=3_000,
+            on_result=store.save_fixed_frame_self_test,
+        )
+    except Exception as error:
+        logger.error("BOOT: fixed-frame self-test failed: %s", error)
+        self_test = {
+            "queryStatus": "ADAPTER_ERROR",
+            "communicationHealthy": False,
+            "portNo": 1,
+            "validFlags": 0,
+            "weightValid": False,
+            "weightGrams": None,
+            "weightMeasurementUid": None,
+            "infraredValid": False,
+            "infraredBlocked": None,
+            "smokeCode": None,
+            "smokeState": "UNKNOWN",
+            "smokeSensorHealth": "PROTOCOL_ERROR",
+            "faultCode": "SMOKE_SENSOR",
+            "rawFrameHex": None,
+        }
+        store.save_fixed_frame_self_test(self_test)
+    communication_healthy = bool(
+        self_test.get("communicationHealthy") is True
     )
-    store.set_state("smoke_state", "NORMAL")
-    store.set_state("smoke_sensor_health", "OK")
+    sensors_healthy = bool(
+        communication_healthy
+        and self_test.get("queryStatus") == "OK"
+        and self_test.get("validFlags") == 3
+        and self_test.get("weightValid") is True
+        and self_test.get("infraredValid") is True
+        and self_test.get("smokeCode") == 0
+    )
+    if communication_healthy:
+        _recover_edge_fault(
+            store,
+            mqtt_client,
+            "UART",
+            "UART_PROTOCOL",
+            "FIXED_FRAME_SELF_TEST_SUCCEEDED",
+        )
+        mcu_info["uart_state"] = "READY"
+    else:
+        _observe_edge_fault(
+            store,
+            mqtt_client,
+            "UART",
+            "UART_PROTOCOL",
+            "BLOCK_DEVICE",
+            {"reasonCode": self_test.get("queryStatus", "SELF_TEST_FAILED")},
+        )
+        mcu_info["uart_state"] = "FAULT"
     if not mqtt_client.connect():
         logger.error("BOOT: MQTT connect failed")
         _observe_edge_fault(
@@ -277,11 +322,19 @@ def _boot_fixed_frame_compatibility(
     )
     time.sleep(0.5)
     _publish_runtime_snapshot(store, mqtt_client, mcu_info, [])
-    logger.info("BOOT: fixed-frame compatibility sequence complete, READY")
+    status = "READY" if sensors_healthy else "DEGRADED"
+    logger.info(
+        "BOOT: fixed-frame sensor query complete: status=%s query=%s",
+        status,
+        self_test.get("queryStatus"),
+    )
     return {
-        "status": "READY",
+        "status": status,
+        "reason": (
+            None if sensors_healthy else "fixed_frame_sensor_self_test_failed"
+        ),
         "mcu_info": mcu_info,
-        "snapshot_count": 0,
+        "snapshot_count": 1 if communication_healthy else 0,
     }
 
 def recover_after_online_mcu_hello(store, uart_link, hello_frame):
@@ -582,22 +635,37 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
 
 
 def _fixed_frame_runtime_ports(store, applied, faults):
+    del applied
     port_count = 1
-    if applied:
-        configured_ports = applied["payload"].get("ports")
-        if isinstance(configured_ports, list) and configured_ports:
-            port_count = len(configured_ports)
+    self_test_record = store.get_state_record(
+        "fixed_frame_latest_self_test_json"
+    )
+    business_record = store.get_state_record(
+        "fixed_frame_latest_observation_json"
+    )
+    try:
+        self_test = json.loads(
+            self_test_record["state_value"] if self_test_record else ""
+        )
+    except (TypeError, ValueError):
+        self_test = None
     try:
         observation = json.loads(
-            store.get_state(
-                "fixed_frame_latest_observation_json",
-                "",
-            )
+            business_record["state_value"] if business_record else ""
         )
     except (TypeError, ValueError):
         observation = None
+    if not isinstance(self_test, dict):
+        self_test = None
     if not isinstance(observation, dict):
         observation = None
+    self_test_is_latest = bool(
+        self_test_record
+        and (
+            not business_record
+            or self_test_record["updated_at"] >= business_record["updated_at"]
+        )
+    )
     ports = []
     for port_no in range(1, port_count + 1):
         port_observation = (
@@ -606,22 +674,58 @@ def _fixed_frame_runtime_ports(store, applied, faults):
             and observation.get("portNo") == port_no
             else None
         )
-        if port_observation:
+        if self_test_is_latest and self_test:
+            weight = self_test.get("weightGrams")
+            has_weight = bool(
+                self_test.get("weightValid") is True
+                and isinstance(weight, int)
+                and not isinstance(weight, bool)
+                and 0 <= weight <= 350_000
+            )
+            has_infrared = bool(
+                self_test.get("infraredValid") is True
+                and isinstance(self_test.get("infraredBlocked"), bool)
+            )
+            infrared_blocked = self_test.get("infraredBlocked") is True
+            measurement_uid = self_test.get("weightMeasurementUid")
+            query_status = self_test.get("queryStatus")
+            if has_weight:
+                weight_health = "OK"
+            elif query_status == "TIMEOUT":
+                weight_health = "TIMEOUT"
+            elif query_status == "OK":
+                weight_health = "SENSOR_FAULT"
+            else:
+                weight_health = "PROTOCOL_ERROR"
+        elif port_observation:
             weight = port_observation.get("postWeightGrams")
             has_weight = (
                 isinstance(weight, int)
                 and not isinstance(weight, bool)
                 and 0 <= weight <= 350_000
             )
+            has_infrared = isinstance(
+                port_observation.get("infraredBlocked"),
+                bool,
+            )
+            infrared_blocked = (
+                port_observation.get("infraredBlocked") is True
+            )
+            measurement_uid = port_observation.get("measurementUid")
+            weight_health = "OK" if has_weight else "SENSOR_FAULT"
         else:
-            weight = 0
+            weight = None
             has_weight = False
-        measurement_uid = (
-            port_observation.get("measurementUid")
-            if port_observation
-            else None
-        )
-        if not measurement_uid:
+            has_infrared = False
+            infrared_blocked = False
+            measurement_uid = None
+            query_status = self_test.get("queryStatus") if self_test else None
+            weight_health = (
+                "TIMEOUT"
+                if query_status == "TIMEOUT"
+                else "PROTOCOL_ERROR"
+            )
+        if has_weight and not measurement_uid:
             state_key = (
                 f"port_{port_no}_fixed_frame_zero_weight_uid"
             )
@@ -631,6 +735,8 @@ def _fixed_frame_runtime_ports(store, applied, faults):
             except (ValueError, AttributeError):
                 measurement_uid = str(_uuid.uuid4())
                 store.set_state(state_key, measurement_uid)
+        if not has_weight:
+            measurement_uid = None
         delivery_context = _state_json(
             store,
             f"port_{port_no}_delivery_runtime_context_json",
@@ -673,31 +779,42 @@ def _fixed_frame_runtime_ports(store, applied, faults):
             ),
             "cleanerPhysicalCloseConfirmed": cleaner_close_confirmed,
             "weightMeasurementUid": measurement_uid,
-            "weightMeasurementStatus": "STABLE",
-            "weightValueAvailable": True,
-            "reportedWeightGrams": weight if has_weight else 0,
-            "weightValueKind": "LAST_OBSERVED",
+            "weightMeasurementStatus": (
+                "STABLE" if has_weight else weight_health
+            ),
+            "weightValueAvailable": has_weight,
+            "reportedWeightGrams": weight if has_weight else None,
+            "weightValueKind": (
+                "LAST_OBSERVED" if has_weight else "NONE"
+            ),
             "measurementElapsedMs": 0,
             "weightSampleCount": 1 if has_weight else 0,
             "calibrationVersion": 0,
-            "weightSensorHealth": "OK",
-            "weightFaultCode": None,
+            "weightSensorHealth": weight_health,
+            "weightFaultCode": (
+                None if weight_health == "OK" else "WEIGHT_SENSOR"
+            ),
             "weightMcuBootId": None,
             "weightMcuEventSequence": None,
             "fullnessSensorKind": "DIGITAL_INFRARED",
             "fullnessSensorValue": (
                 "BLOCKED"
-                if port_observation
-                and port_observation.get("infraredBlocked") is True
+                if has_infrared and infrared_blocked
                 else "CLEAR"
             ),
             "fullnessSampleBasis": "NOT_SAMPLED",
             "representativeDistanceMm": None,
             "fullnessValidSampleCount": (
-                1 if has_weight else 0
+                1 if has_infrared else 0
             ),
-            "smokeState": "NORMAL",
-            "smokeSensorHealth": "OK",
+            "smokeState": store.get_state(
+                f"port_{port_no}_smoke_state",
+                store.get_state("smoke_state", "UNKNOWN"),
+            ),
+            "smokeSensorHealth": store.get_state(
+                f"port_{port_no}_smoke_sensor_health",
+                store.get_state("smoke_sensor_health", "UNKNOWN"),
+            ),
             "faultBitmap": _fault_bitmap(faults, port_no),
         })
     return ports

@@ -1807,6 +1807,48 @@ class EdgeStore:
                 (key, value, self._now(), value, self._now()),
             )
 
+    def save_fixed_frame_self_test(self, result: dict) -> None:
+        """Atomically retain one F0/F1 result and its current safety projection."""
+        if not isinstance(result, dict):
+            raise ValueError("fixed-frame self-test result must be an object")
+        smoke_state = result.get("smokeState")
+        smoke_health = result.get("smokeSensorHealth")
+        fault_code = result.get("faultCode")
+        legal = (
+            smoke_state in {"NORMAL", "ALARM"}
+            and smoke_health == "OK"
+            and fault_code is None
+        ) or (
+            smoke_state == "UNKNOWN"
+            and smoke_health in {
+                "TIMEOUT",
+                "SENSOR_FAULT",
+                "PROTOCOL_ERROR",
+            }
+            and fault_code == "SMOKE_SENSOR"
+        )
+        if not legal:
+            raise ValueError("invalid fixed-frame smoke projection")
+        serialized = _json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self.transaction():
+            now = self._now()
+            values = {
+                "fixed_frame_latest_self_test_json": serialized,
+                "smoke_state": smoke_state,
+                "smoke_sensor_health": smoke_health,
+                "smoke_fault_code": fault_code or "NONE",
+                "port_1_smoke_state": smoke_state,
+                "port_1_smoke_sensor_health": smoke_health,
+                "port_1_smoke_fault_code": fault_code or "NONE",
+            }
+            for key, value in values.items():
+                self._upsert_state(self._conn, key, value, now)
+
     def get_or_create_edge_store_instance_uid(self) -> str:
         """Return the permanent identity of this freshly-created edge DB."""
         with self.transaction():
@@ -1900,6 +1942,7 @@ class EdgeStore:
         port_no = payload.get("portNo")
         if not isinstance(port_no, int) or port_no <= 0:
             port_no = None
+        fixed_frame = payload.get("compatibilityMode") is True
         with self.transaction():
             existing = self._conn.execute(
                 """SELECT event_uid FROM mcu_derived_event
@@ -1932,6 +1975,48 @@ class EdgeStore:
             scope = (
                 f"port_{port_no}" if port_no is not None else "device"
             )
+            unchanged = False
+            if fixed_frame:
+                previous_row = self._conn.execute(
+                    """SELECT state_value FROM device_state
+                       WHERE state_key='fixed_frame_latest_smoke_json'"""
+                ).fetchone()
+                previous = None
+                if previous_row:
+                    try:
+                        candidate = _json.loads(previous_row["state_value"])
+                        previous = candidate if isinstance(candidate, dict) else None
+                    except (TypeError, ValueError):
+                        previous = None
+                unchanged = bool(
+                    previous
+                    and previous.get("smokeState") == smoke_state
+                    and previous.get("smokeSensorHealth") == smoke_health
+                    and previous.get("faultCode")
+                    == (None if fault_code in (None, "NONE") else fault_code)
+                )
+                self._upsert_state(
+                    self._conn,
+                    "fixed_frame_latest_smoke_json",
+                    _json.dumps(
+                        {
+                            "smokeState": smoke_state,
+                            "smokeSensorHealth": smoke_health,
+                            "faultCode": (
+                                None
+                                if fault_code in (None, "NONE")
+                                else fault_code
+                            ),
+                            "mcuBootId": mcu_boot_id,
+                            "mcuEventSequence": mcu_event_sequence,
+                            "rawFrameHex": payload.get("rawFrameHex"),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    now,
+                )
             self._upsert_state(
                 self._conn,
                 f"{scope}_smoke_state",
@@ -1956,6 +2041,34 @@ class EdgeStore:
                 smoke_health,
                 now,
             )
+            self._upsert_state(
+                self._conn,
+                f"{scope}_smoke_fault_code",
+                "NONE" if fault_code in (None, "NONE") else fault_code,
+                now,
+            )
+            self._upsert_state(
+                self._conn,
+                "smoke_fault_code",
+                "NONE" if fault_code in (None, "NONE") else fault_code,
+                now,
+            )
+            if unchanged:
+                self._conn.execute(
+                    """UPDATE mcu_event_inbox
+                       SET state='PROCESSED', processed_at=?,
+                           last_error=NULL
+                       WHERE mcu_receive_generation=?
+                         AND mcu_boot_id=?
+                         AND mcu_event_sequence=?""",
+                    (
+                        now,
+                        mcu_receive_generation,
+                        mcu_boot_id,
+                        mcu_event_sequence,
+                    ),
+                )
+                return "UNCHANGED"
             event_uid = self._new_uid()
             sequence = self._next_seq(self._conn)
             work_type = payload.get("workType", "NONE")

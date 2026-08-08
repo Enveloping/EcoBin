@@ -935,6 +935,60 @@ class TestFaultOperations:
         assert count == 1
         store.close()
 
+    def test_fixed_frame_safety_only_emits_when_state_changes(self):
+        store = make_store()
+        generation = store.begin_mcu_receive_generation(101)
+
+        def record(sequence, smoke_state):
+            frame = {
+                "message_name": "SAFETY_SENSOR_EVENT",
+                "message_type": 54,
+                "tx_sequence": sequence,
+                "payload": {
+                    "mcuBootId": 101,
+                    "mcuEventSequence": sequence,
+                    "portNo": 1,
+                    "smokeState": smoke_state,
+                    "smokeSensorHealth": "OK",
+                    "faultCode": "NONE",
+                    "workType": "NONE",
+                    "workUid": None,
+                    "compatibilityMode": True,
+                    "rawFrameHex": (
+                        "cc00cc" if smoke_state == "NORMAL" else "cc01cc"
+                    ),
+                },
+            }
+            assert store.receive_mcu_frame(frame) == "ACCEPTED"
+            return store.record_safety_state_and_event(
+                device_name="SN-DEMO-0001",
+                mcu_receive_generation=generation,
+                payload=frame["payload"],
+            )
+
+        assert record(1, "NORMAL") == "ACCEPTED"
+        assert record(2, "NORMAL") == "UNCHANGED"
+        assert record(3, "ALARM") == "ACCEPTED"
+
+        rows = store._conn.execute(
+            """SELECT payload_json FROM event_outbox
+               WHERE event_type='SAFETY_SENSOR_STATE_CHANGED'
+               ORDER BY edge_event_sequence"""
+        ).fetchall()
+        assert [
+            json.loads(row["payload_json"])["payload"]["smokeState"]
+            for row in rows
+        ] == ["NORMAL", "ALARM"]
+        inbox = store._conn.execute(
+            """SELECT state FROM mcu_event_inbox
+               WHERE mcu_receive_generation=?
+                 AND mcu_boot_id=101 AND mcu_event_sequence=2""",
+            (generation,),
+        ).fetchone()
+        assert inbox["state"] == "PROCESSED"
+        assert store.get_state("port_1_smoke_state") == "ALARM"
+        store.close()
+
 
 class TestIntegrity:
     """完整性校验与维护。"""

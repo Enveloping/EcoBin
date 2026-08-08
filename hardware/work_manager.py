@@ -236,6 +236,40 @@ class WorkManager:
         }
 
     def _safety_rejection(self, port_no: int) -> Optional[str]:
+        if getattr(self._uart, "compatibility_mode", False):
+            try:
+                fixed_self_test = json.loads(
+                    self._store.get_state(
+                        "fixed_frame_latest_self_test_json",
+                        "null",
+                    )
+                )
+            except (TypeError, ValueError):
+                fixed_self_test = None
+            weight = (
+                fixed_self_test.get("weightGrams")
+                if isinstance(fixed_self_test, dict)
+                else None
+            )
+            infrared = (
+                fixed_self_test.get("infraredBlocked")
+                if isinstance(fixed_self_test, dict)
+                else None
+            )
+            if not (
+                isinstance(fixed_self_test, dict)
+                and fixed_self_test.get("portNo") == 1
+                and fixed_self_test.get("queryStatus") == "OK"
+                and fixed_self_test.get("communicationHealthy") is True
+                and fixed_self_test.get("validFlags") == 3
+                and fixed_self_test.get("weightValid") is True
+                and isinstance(weight, int)
+                and not isinstance(weight, bool)
+                and 0 <= weight <= 350_000
+                and fixed_self_test.get("infraredValid") is True
+                and isinstance(infrared, bool)
+            ):
+                return "SAFETY_SENSOR_UNHEALTHY"
         smoke_state = self._store.get_state(
             f"port_{port_no}_smoke_state",
             self._store.get_state("smoke_state", ""),
@@ -1604,7 +1638,7 @@ class WorkManager:
             mcu_receive_generation=mcu_receive_generation,
             payload=payload,
         )
-        if result not in ("ACCEPTED", "DUPLICATE"):
+        if result not in ("ACCEPTED", "DUPLICATE", "UNCHANGED"):
             raise ValueError(
                 f"safety sensor event {result.lower()}"
             )

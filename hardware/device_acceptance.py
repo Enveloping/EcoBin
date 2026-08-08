@@ -81,13 +81,18 @@ class DeviceAcceptanceRunner:
             getattr(self._uart, "_mcu_firmware_version", "")
             or "UNKNOWN"
         )[:64]
-        mcu_communication_healthy = bool(
+        session_communication_healthy = bool(
             getattr(self._uart, "is_open", False)
             and getattr(self._uart, "mcu_session_ready", False)
             and mcu_firmware_version != "UNKNOWN"
         )
 
         sensor_result = self._sensor_evidence(expected_port_count)
+        mcu_communication_healthy = (
+            sensor_result["communicationHealthy"]
+            if getattr(self._uart, "compatibility_mode", False)
+            else session_communication_healthy
+        )
         camera_result = self._camera_evidence(
             challenge_uid,
             grant,
@@ -208,6 +213,10 @@ class DeviceAcceptanceRunner:
             facts = self._uart_v1_sensor_facts(expected_port_count)
         return {
             "healthy": facts["healthy"],
+            "communicationHealthy": facts.get(
+                "communicationHealthy",
+                True,
+            ),
             "verifiedPortCount": facts["verifiedPortCount"],
             "sha256": canonical_payload_sha256(facts),
         }
@@ -216,44 +225,118 @@ class DeviceAcceptanceRunner:
         self,
         expected_port_count: int,
     ) -> dict[str, Any]:
+        try:
+            observation = self._uart.query_self_test(
+                timeout_ms=3_000,
+                on_result=self._store.save_fixed_frame_self_test,
+            )
+        except Exception as error:
+            logger.warning(
+                "fixed-frame acceptance self-test failed: %s",
+                type(error).__name__,
+            )
+            observation = {
+                "queryStatus": "ADAPTER_ERROR",
+                "communicationHealthy": False,
+                "portNo": 1,
+                "validFlags": 0,
+                "weightValid": False,
+                "weightGrams": None,
+                "weightMeasurementUid": None,
+                "infraredValid": False,
+                "infraredBlocked": None,
+                "smokeCode": None,
+                "smokeState": "UNKNOWN",
+                "smokeSensorHealth": "PROTOCOL_ERROR",
+                "faultCode": "SMOKE_SENSOR",
+                "rawFrameHex": None,
+                "adapterError": self._bounded_error(error),
+            }
+            self._store.save_fixed_frame_self_test(observation)
+        if observation.get("communicationHealthy") is True:
+            active_uart_fault = self._store.get_active_edge_fault(
+                "UART",
+                "UART_PROTOCOL",
+            )
+            if active_uart_fault is not None:
+                self._store.recover_fault_and_create_event(
+                    device_name=self._device_name,
+                    fault_uid=active_uart_fault["fault_uid"],
+                    component="UART",
+                    fault_code="UART_PROTOCOL",
+                    port_no=active_uart_fault["port_no"],
+                    recovery_evidence="ACCEPTANCE_SELF_TEST_SUCCEEDED",
+                )
+        else:
+            self._store.observe_fault_and_create_event(
+                device_name=self._device_name,
+                component="UART",
+                fault_code="UART_PROTOCOL",
+                severity="BLOCK_DEVICE",
+                detail={
+                    "reasonCode": observation.get(
+                        "queryStatus",
+                        "SELF_TEST_FAILED",
+                    )
+                },
+            )
         record = self._store.get_state_record(
-            "fixed_frame_latest_observation_json"
+            "fixed_frame_latest_self_test_json"
         )
-        observation = None
+        stored_observation = None
         if record:
             try:
                 candidate = json.loads(record["state_value"])
-                observation = candidate if isinstance(candidate, dict) else None
+                stored_observation = (
+                    candidate if isinstance(candidate, dict) else None
+                )
             except (TypeError, ValueError):
-                observation = None
+                stored_observation = None
         fresh = bool(record and self._is_fresh(record["updated_at"]))
-        port_no = observation.get("portNo") if observation else None
-        post_weight = (
-            observation.get("postWeightGrams") if observation else None
+        port_no = (
+            stored_observation.get("portNo")
+            if stored_observation
+            else None
+        )
+        weight = (
+            stored_observation.get("weightGrams")
+            if stored_observation
+            else None
         )
         infrared = (
-            observation.get("infraredBlocked") if observation else None
+            stored_observation.get("infraredBlocked")
+            if stored_observation
+            else None
         )
-        sample_real = bool(
-            observation
+        sample_healthy = bool(
+            stored_observation
             and port_no == 1
-            and isinstance(post_weight, int)
-            and not isinstance(post_weight, bool)
-            and 0 <= post_weight <= MAXIMUM_WEIGHT_GRAMS
+            and stored_observation.get("queryStatus") == "OK"
+            and stored_observation.get("communicationHealthy") is True
+            and stored_observation.get("validFlags") == 3
+            and stored_observation.get("weightValid") is True
+            and isinstance(weight, int)
+            and not isinstance(weight, bool)
+            and 0 <= weight <= MAXIMUM_WEIGHT_GRAMS
+            and stored_observation.get("infraredValid") is True
             and isinstance(infrared, bool)
-            and isinstance(observation.get("mcuBootId"), int)
-            and observation.get("mcuBootId", 0) > 0
-            and isinstance(observation.get("mcuEventSequence"), int)
-            and observation.get("mcuEventSequence", 0) > 0
+            and stored_observation.get("smokeCode") == 0
+            and stored_observation.get("smokeState") == "NORMAL"
+            and stored_observation.get("smokeSensorHealth") == "OK"
+            and stored_observation.get("faultCode") is None
         )
         return {
             "mode": "FIXED_FRAME",
             "expectedPortCount": expected_port_count,
             "verifiedPortCount": 1,
             "fresh": fresh,
-            "observation": observation,
+            "communicationHealthy": bool(
+                stored_observation
+                and stored_observation.get("communicationHealthy") is True
+            ),
+            "observation": stored_observation,
             "healthy": bool(
-                expected_port_count == 1 and fresh and sample_real
+                expected_port_count == 1 and fresh and sample_healthy
             ),
         }
 
@@ -312,6 +395,7 @@ class DeviceAcceptanceRunner:
             "expectedPortCount": expected_port_count,
             "verifiedPortCount": configured_port_count,
             "fresh": fresh,
+            "communicationHealthy": True,
             "ports": ports,
             "healthy": bool(
                 fresh

@@ -23,6 +23,12 @@
 > [`../../../docs/architecture/permanent-device-ownership-v36.md`](../../../docs/architecture/permanent-device-ownership-v36.md)，
 > 机器契约以 [`../../../contracts/onenet/thing-model.mapping.yaml`](../../../contracts/onenet/thing-model.mapping.yaml)
 > 及其生成物为准。
+
+> [!IMPORTANT]
+> 2026-08-08 项目负责人重新冻结 fixed-frame 传感器边界：增加 `F0/F1` 自检快照和
+> `CC` 烟雾变化帧，废止 fixed-frame 启动时伪造 `NORMAL/OK` 的旧兼容策略。MCU 的
+> 烟雾线路值只有 `00=未触发`、`01=已触发`、`02=无法获取数据`；OneNet 所需健康
+> 状态、作用域和兼容事件身份仍由香橙派适配层生成。本裁决优先于本文后续保留的旧讨论。
 >
 > [!IMPORTANT]
 > 2026-08-02 新裁决：满溢改为香橙派在投递结束/清运完成后判断，并仅以 `FULLNESS_STATE_CHANGED` 被动上报状态变化。后端不再为正常业务创建检测或主动下发 `sampleFullness`，无上报/失败不阻止投递，只有当前袋明确 `FULL` 阻止下一次会话。本文下方关于 `SAMPLE_FULLNESS`、检测 gate、人工重检和失败阻断的逐项记录仅保留为历史设计，不再指导当前实现。权威说明见 [`../../../docs/architecture/fullness-reporting-v25.md`](../../../docs/architecture/fullness-reporting-v25.md)。
@@ -260,7 +266,8 @@ OneNet 同步回执只证明命令已经由香橙派可靠接收和保存，不�
 - 同一设备同时只能存在一个活动工作槽，避免无作业身份的 `DD` 错绑。
 - 已无活动投递时收到迟到或重复 `DD`，直接忽略，不新建投递事实。
 - 香橙派重启或等待 `DD` 超时后不重放物理启动命令；本地会话置失败并释放工作槽。
-- fixed-frame 没有 MCU 状态查询和作业恢复能力，不尝试猜测 MCU 是否仍在执行。
+- fixed-frame 没有 MCU 作业状态查询和作业恢复能力；F0/F1 只能读取传感器快照，
+  不尝试据此猜测 MCU 是否仍在执行。
 
 #### 3.2.5 固定帧兼容值
 
@@ -463,7 +470,8 @@ fixed-frame MCU 没有取消清运命令，也不能向香橙派证明首次解�
 `resumeCleanOperation` 用于超时或重启后由原清运员恢复同一个 `operationUid`，不等同于
 正常清运流程内由 MCU 屏幕控制的再次开门。
 
-fixed-frame MCU 没有作业身份、状态查询、恢复代际，也没有恢复命令帧。结合已经确认的
+fixed-frame MCU 没有作业身份、作业状态查询、恢复代际，也没有恢复命令帧。F0/F1
+传感器自检不提供作业恢复事实。结合已经确认的
 “超时或香橙派重启后，旧清运操作置失败并释放工作槽”规则，当前阶段不存在可以安全
 恢复的本地清运上下文。
 
@@ -2647,12 +2655,15 @@ MCU 身份规则：
 - `OK → SENSOR_FAULT/DISCONNECTED/...`；
 - 非正常健康状态重新恢复为 `OK`。
 
-正常启动时，如果真实 MCU 首次采样为 `NORMAL/OK`，该初始状态进入运行快照即可，不必
-产生“变化事件”。如果真实 MCU 启动时已经处于 `ALARM` 或传感器不健康，则必须立即
-产生事件，避免只能等待下一次状态变化才能发现异常。
+uart-v1 正常启动时，如果真实 MCU 首次采样为 `NORMAL/OK`，该初始状态进入运行快照
+即可；如果启动时已经处于 `ALARM` 或传感器不健康，则必须立即产生事件。
 
-本事件只适用于真实观测到的安全传感器状态。心跳、重启、没有收到新状态或 fixed-frame
-链路缺少烟感字段，都不是状态变化事件。
+fixed-frame 没有 MCU 自身事件身份，香橙派把第一次合法 F1/CC 观测视为从“尚无真实
+观测”建立当前状态，并产生一次事件。后续只有状态或健康状态实际变化时再产生事件；
+重复查询得到相同状态只刷新本地观测时间。
+
+本事件只适用于真实 F1/CC 观测或明确的查询失败。心跳、普通重启和没有进行新查询都
+不是状态变化事件。
 
 #### 4.9.2 有什么作用
 
@@ -2670,30 +2681,30 @@ MCU 身份规则：
 
 #### 4.9.3 fixed-frame 兼容策略
 
-冻结的 fixed-frame MCU 没有烟雾状态、烟感健康状态、MCU 启动身份或事件序号，香橙派
-无法观测烟雾状态变化。为满足当前“先跑起来”的首要目标，项目负责人确认：
+fixed-frame MCU 使用以下真实线路事实：
 
-```text
-smokeState        = NORMAL
-smokeSensorHealth = OK
-safetyStatus      = SAFE
-```
+| 线路值 | 香橙派安全投影 |
+| --- | --- |
+| `SMOKE=00` | `NORMAL / OK / faultCode=null` |
+| `SMOKE=01` | `ALARM / OK / faultCode=null` |
+| `SMOKE=02` | `UNKNOWN / SENSOR_FAULT / faultCode=SMOKE_SENSOR` |
+| F1 查询超时 | `UNKNOWN / TIMEOUT / faultCode=SMOKE_SENSOR` |
+| F1 非法 | `UNKNOWN / PROTOCOL_ERROR / faultCode=SMOKE_SENSOR` |
 
-以上值作为 fixed-frame 兼容运行投影，写入香橙派本地运行状态，并在后续
-`deviceRuntimeSnapshot` 中持续使用。不能因为一直收不到烟感状态而把它们改回
-`UNKNOWN`，否则后端会永久阻止设备进入业务运行状态。
+F1 是香橙派主动查询得到的重量、红外和烟感快照；CC 只在烟感的 00、01、02 状态之间
+变化时由 MCU 主动发送。香橙派不周期轮询、不把 DD/EF 的 FULL 推断成烟雾，也不把
+“未收到异步 CC”推断成故障。只有一次明确 F0 查询超时或收到非法 F1，才形成相应的
+TIMEOUT/PROTOCOL_ERROR 当前事实。
 
-同时必须保持以下边界：
+线路仍不携带 MCU 启动身份和事件序号。为满足现有 OneNet 事件契约，适配层使用当前
+香橙派启动兼容编号和进程内递增事件序号；这两个字段明确属于 fixed-frame 适配身份，
+不声称由 MCU 生成或持久化。固定 `portNo=1`、`workType=NONE`、`workUid=null`。
 
-- 不在 fixed-frame 启动时创建 `safetySensorStateChanged`；
-- 不周期性发送虚假的 `NORMAL` 变化事件；
-- 不伪造 `mcuBootId` 和 `mcuEventSequence` 冒充 MCU 烟感事件；
-- 不从 `DD/EF`、红外 `FULL` 位、命令超时或 MCU 状态缺失推断烟雾状态；
-- 当前 fixed-frame 模式下，本事件正常情况下永远不会产生。
+启动和每次机器验收都必须发送一次 F0 获取新快照。没有合法结果时不得继续使用旧
+F1、DD/EF 或历史 `NORMAL` 兜底；当前安全状态未知会阻止新的投递和清运，但香橙派仍
+连接 OneNet、上报运行快照和可靠故障事实。
 
-即：为了运行而把不可观测状态投影为正常，但不声称实际观测到了一次安全状态变化。
-
-#### 4.9.4 真实 UART 事件字段
+#### 4.9.4 UART 事件字段
 
 未来支持 `SAFETY_SENSOR_EVENT` 的真实 `uart-v1` MCU 使用以下合法组合：
 
@@ -2712,7 +2723,8 @@ safetyStatus      = SAFE
 - `workType/workUid` 是状态变化发生时的作业上下文；
 - 没有活动作业时必须为 `workType=NONE`、`workUid=null`；
 - 有活动作业时 `workUid` 使用真实 UUIDv4，但后端消费时不要求该作业仍处于活动状态；
-- `mcuBootId/mcuEventSequence` 必须使用真实 MCU 事件身份且都为正数；
+- uart-v1 的 `mcuBootId/mcuEventSequence` 必须使用真实 MCU 事件身份且都为正数；
+- fixed-frame 使用 4.9.3 明确的香橙派兼容身份，线路本身不增加这两个字段；
 - envelope `eventUid` 使用持久化 UUIDv4，同一 MCU 事件重放时保持不变；
 - 无法取得已认证 OneNet 设备名时不得发送可信事件，也不得构造占位值。
 
@@ -2770,43 +2782,23 @@ SQLite 事务中：
 - 后端在状态投影、阻断、告警、可信 inbox 和确认意图同事务提交后才能业务确认；
 - 香橙派收到匹配 `confirmEdgeEvent` 后才停止原事件重传。
 
-#### 4.9.8 当前实现判断与保留任务
+#### 4.9.8 当前实现结果
 
-当前实现尚不能完成本事件闭环：
+2026-08-08 已完成：
 
-1. fixed-frame MCU 没有烟雾帧，当前适配器不会产生本事件。
-2. fixed-frame 现有运行快照仍使用 `UNKNOWN` 占位，与本次已确认的
-   `NORMAL/OK/SAFE` 兼容投影冲突。
-3. 真实 UART `_on_safety_sensor_event` 会分多次写本地状态，再单独创建事件，不是一个
-   原子事务。
-4. 当前每次处理都会生成新的随机 `eventUid`，崩溃重放无法保持身份稳定。
-5. 当前处理接受默认 `UNKNOWN` 和默认字段，未在落库前完整强制三种合法状态组合。
-6. 当前测试明确验证 `ALARM` 后仍允许新投递，与本决策的真实报警阻断语义冲突。
-7. 当前只把烟雾状态保存为通用 `device_state`，没有完整的分作用域状态版本和乱序保护。
-8. OneNet Schema 要求真实、非空的 MCU 身份，因此 fixed-frame 不能合法伪造本事件；
-   这与本次“不发伪事件”的决策一致。
-9. UART 契约校验器已有健康状态与烟雾状态组合规则，但 OneNet 语义校验器尚无同等专项
-   校验。
-10. 后端 OneNet 分发仍只处理 `configurationProgress`，本事件会被警告后由 MQ ACK
-    丢弃，不会更新烟感、安全投影、告警或阻断。
-11. 后端现有资产级基础阻断可能把投口级安全事件扩大为整机阻断，需实现明确的作用域
-    归并。
-12. 后端尚未实现按 MCU 顺序拒绝迟到状态覆盖、可靠确认和确认回执。
+- fixed-frame 解析 F1 和 CC，并保持半帧、粘包、噪声重同步；
+- 自检等待期间收到的 DD/EF/CC 继续进入正常事件队列；
+- 正式验收每次主动查询，不再以历史 DD/EF 冒充传感器自检；
+- `SMOKE=02` 与“完全收不到 F1”分别形成 SENSOR_FAULT 和通信超时；
+- 首次真实状态、报警、读取失败及恢复使用既有可靠事件，重复同状态不重复上报；
+- 启动不再写入虚假的 NORMAL/OK，未知或故障状态阻止新业务；
+- 自检结果在串口查询锁释放前持久化；随后到达或已经排队的 CC 按 F1→CC 顺序处理，
+  避免旧 F1 覆盖更新的烟感状态；
+- OneNet 物模型、后端事件结构和确认链保持不变。
 
-后续实施必须覆盖：
-
-- fixed-frame 启动、重启和长期运行均投影为 `NORMAL/OK/SAFE`；
-- fixed-frame 不创建虚假安全变化事件；
-- 真实 `NORMAL`、`ALARM` 和传感器故障三类合法组合；
-- 启动时真实异常立即上报，正常启动只进入快照；
-- 本地状态、MCU inbox 和可靠事件原子提交及强杀恢复；
-- 投口级与设备级作用域；
-- 真实报警或传感器故障阻断新业务，恢复正常只清除对应阻断；
-- 事件关联作业但不伪造作业结果；
-- 迟到事件不覆盖新状态；
-- 后端事务、告警、阻断、可靠确认和重启重传。
-
-本轮只确认处理策略并记录决策，未修改运行代码。
+验证结果：Python 3.11 硬件套件
+`236 passed, 2 skipped, 5 subtests passed`；契约套件
+`55 passed, 828 subtests passed`。跳过项仅为 Windows 环境不支持 Linux PTY。
 
 ### 4.10 `photoStatusReported`
 
@@ -3561,14 +3553,9 @@ fullnessValidSampleCount = 有合法 DD/EF 时 1，否则 0
 从未收到合法 `DD/EF` 时使用 `CLEAR`。该字段只是最新红外观测，不替代重量公式产生的
 正式满溢检测结果。
 
-烟感字段持续使用 4.9 已确认的运行优先兼容投影：
-
-```text
-smokeState        = NORMAL
-smokeSensorHealth = OK
-```
-
-这不会产生虚假的 `safetySensorStateChanged`，也不表示 MCU 实际报告了一次正常采样。
+烟感字段使用 4.9.3 的最后一次真实 F1/CC 投影。尚未成功查询时使用
+`UNKNOWN/TIMEOUT` 或 `UNKNOWN/PROTOCOL_ERROR`；不得再固定构造 `NORMAL/OK`。
+相同状态的周期运行快照只表达当前投影，不重复创建 `safetySensorStateChanged`。
 
 `faultBitmap` 默认 0。香橙派已经直接观测并持久化的 UART、存储、摄像头、网络、时钟等
 活动故障必须进入相应范围的故障摘要；不得用默认 0 覆盖真实活动故障。无法观测的 MCU

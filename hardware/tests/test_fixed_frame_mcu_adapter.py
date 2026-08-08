@@ -49,6 +49,18 @@ class ShortWriteSerial(FakeSerial):
         return len(data) - 1
 
 
+class RespondingSerial(FakeSerial):
+    def __init__(self, response):
+        super().__init__()
+        self.response = bytes(response)
+
+    def write(self, data):
+        written = super().write(data)
+        if bytes(data) == bytes.fromhex("F0 01 F0"):
+            self.inject(self.response)
+        return written
+
+
 def test_parser_handles_partial_joined_and_payload_marker_bytes():
     parser = FixedFrameParser()
     delivery = bytes.fromhex("DD 00 DD 10 00 EF 20 01 DD")
@@ -59,14 +71,14 @@ def test_parser_handles_partial_joined_and_payload_marker_bytes():
 
     assert results == [
         {
-            "result_type": "DELIVERY",
+            "frame_type": "DELIVERY",
             "pre_weight_grams": 0x00DD10,
             "post_weight_grams": 0x00EF20,
             "infrared_blocked": True,
             "raw_frame_hex": delivery.hex(),
         },
         {
-            "result_type": "CLEAN",
+            "frame_type": "CLEAN",
             "pre_weight_grams": 100_000,
             "post_weight_grams": 50_000,
             "infrared_blocked": False,
@@ -83,7 +95,7 @@ def test_parser_rejects_invalid_tail_flag_and_weight_then_resynchronizes():
 
     assert parser.feed(overweight + bad_flag + valid) == [
         {
-            "result_type": "DELIVERY",
+            "frame_type": "DELIVERY",
             "pre_weight_grams": 12_000,
             "post_weight_grams": 12_284,
             "infrared_blocked": True,
@@ -118,7 +130,164 @@ def test_delivery_start_writes_price_and_start_once_without_retry():
     assert result["disposition"] == "LOCALLY_DISPATCHED"
     assert fake.writes == [bytes.fromhex("BB 09 BB AA 01 AA")]
     assert fake.flush_count == 1
-    assert fake.reset_count == 1
+    assert fake.reset_count == 0
+
+
+def test_parser_handles_self_test_and_smoke_frames_without_changing_lengths():
+    parser = FixedFrameParser()
+    self_test = bytes.fromhex("F1 03 00 2E E0 01 02 F1")
+    smoke = bytes.fromhex("CC 01 CC")
+
+    assert parser.feed(self_test[:5]) == []
+    assert parser.feed(self_test[5:] + smoke) == [
+        {
+            "frame_type": "SELF_TEST",
+            "valid_flags": 3,
+            "weight_valid": True,
+            "weight_grams": 12_000,
+            "infrared_valid": True,
+            "infrared_blocked": True,
+            "smoke_code": 2,
+            "raw_frame_hex": self_test.hex(),
+        },
+        {
+            "frame_type": "SMOKE",
+            "smoke_code": 1,
+            "raw_frame_hex": smoke.hex(),
+        },
+    ]
+
+
+def test_self_test_query_returns_fresh_snapshot_and_queues_safety_event():
+    fake = RespondingSerial(
+        bytes.fromhex("F1 03 00 2E E0 00 02 F1")
+    )
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_self_test(timeout_ms=20)
+    event = adapter.read_mcu_event(timeout_ms=20)
+
+    assert fake.writes == [bytes.fromhex("F0 01 F0")]
+    assert result["queryStatus"] == "OK"
+    assert result["communicationHealthy"] is True
+    assert result["weightGrams"] == 12_000
+    assert result["infraredBlocked"] is False
+    assert result["smokeCode"] == 2
+    assert result["smokeState"] == "UNKNOWN"
+    assert result["smokeSensorHealth"] == "SENSOR_FAULT"
+    assert event["message_name"] == "SAFETY_SENSOR_EVENT"
+    assert event["payload"]["smokeState"] == "UNKNOWN"
+    assert event["payload"]["smokeSensorHealth"] == "SENSOR_FAULT"
+    assert event["payload"]["compatibilityMode"] is True
+
+
+def test_self_test_discards_partial_response_that_started_before_query():
+    stale = bytes.fromhex("F1 03 00 00 64 00 00 F1")
+    fake = RespondingSerial(stale[4:])
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    fake.inject(stale[:4])
+    assert adapter.read_mcu_event(timeout_ms=5) is None
+
+    persisted = []
+    result = adapter.query_self_test(
+        timeout_ms=10,
+        on_result=persisted.append,
+    )
+
+    assert result["queryStatus"] == "TIMEOUT"
+    assert persisted == [result]
+
+
+def test_self_test_query_preserves_interleaved_business_and_smoke_events():
+    fake = RespondingSerial(
+        bytes.fromhex(
+            "DD 00 2E E0 00 2F FC 01 DD "
+            "F1 03 00 2F FC 01 00 F1 "
+            "CC 01 CC"
+        )
+    )
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_self_test(timeout_ms=20)
+    queued = [
+        adapter.read_mcu_event(timeout_ms=20),
+        adapter.read_mcu_event(timeout_ms=20),
+        adapter.read_mcu_event(timeout_ms=20),
+    ]
+
+    assert result["queryStatus"] == "OK"
+    assert [item["message_name"] for item in queued] == [
+        "COMPAT_DELIVERY_RESULT",
+        "SAFETY_SENSOR_EVENT",
+        "SAFETY_SENSOR_EVENT",
+    ]
+    assert queued[1]["payload"]["smokeState"] == "NORMAL"
+    assert queued[2]["payload"]["smokeState"] == "ALARM"
+
+
+def test_self_test_timeout_and_invalid_response_are_distinct():
+    timeout_serial = FakeSerial()
+    timeout_adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: timeout_serial,
+    )
+    assert timeout_adapter.open()
+    timeout = timeout_adapter.query_self_test(timeout_ms=10)
+
+    invalid_serial = RespondingSerial(
+        bytes.fromhex("F1 03 00 00 64 00 03 F1")
+    )
+    invalid_adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=78,
+        serial_factory=lambda **kwargs: invalid_serial,
+    )
+    assert invalid_adapter.open()
+    invalid = invalid_adapter.query_self_test(timeout_ms=10)
+
+    assert timeout["queryStatus"] == "TIMEOUT"
+    assert timeout["smokeSensorHealth"] == "TIMEOUT"
+    assert invalid["queryStatus"] == "PROTOCOL_ERROR"
+    assert invalid["smokeSensorHealth"] == "PROTOCOL_ERROR"
+
+
+def test_start_command_discards_stale_work_but_keeps_smoke_alarm():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    fake.inject(
+        bytes.fromhex(
+            "DD 00 00 01 00 00 02 00 DD CC 01 CC"
+        )
+    )
+
+    result = adapter.send_command("START_CLEAN_OPERATION", {})
+    event = adapter.read_mcu_event(timeout_ms=20)
+
+    assert result["acked"] is True
+    assert event["message_name"] == "SAFETY_SENSOR_EVENT"
+    assert event["payload"]["smokeState"] == "ALARM"
+    assert adapter.read_mcu_event(timeout_ms=10) is None
 
 
 def test_adapter_reads_aggregate_delivery_and_clean_events():

@@ -223,6 +223,7 @@ class FixedFrameBootUart:
 
     def __init__(self):
         self.opened = False
+        self.self_test_queries = 0
 
     def open(self):
         self.opened = True
@@ -246,7 +247,58 @@ class FixedFrameBootUart:
         }
 
     def query_state(self, on_segment=None):
-        raise AssertionError("fixed-frame boot must not query MCU state")
+        raise AssertionError("fixed-frame boot must not query general MCU state")
+
+    def query_self_test(self, timeout_ms=3000, on_result=None):
+        assert timeout_ms == 3000
+        self.self_test_queries += 1
+        result = {
+            "queryStatus": "OK",
+            "communicationHealthy": True,
+            "portNo": 1,
+            "validFlags": 3,
+            "weightValid": True,
+            "weightGrams": 1234,
+            "weightMeasurementUid": (
+                "64000000-0000-4000-8000-000000000001"
+            ),
+            "infraredValid": True,
+            "infraredBlocked": False,
+            "smokeCode": 0,
+            "smokeState": "NORMAL",
+            "smokeSensorHealth": "OK",
+            "faultCode": None,
+            "rawFrameHex": "f1030004d20000f1",
+        }
+        if on_result is not None:
+            on_result(result)
+        return result
+
+
+class FixedFrameTimeoutBootUart(FixedFrameBootUart):
+
+    def query_self_test(self, timeout_ms=3000, on_result=None):
+        assert timeout_ms == 3000
+        self.self_test_queries += 1
+        result = {
+            "queryStatus": "TIMEOUT",
+            "communicationHealthy": False,
+            "portNo": 1,
+            "validFlags": 0,
+            "weightValid": False,
+            "weightGrams": None,
+            "weightMeasurementUid": None,
+            "infraredValid": False,
+            "infraredBlocked": None,
+            "smokeCode": None,
+            "smokeState": "UNKNOWN",
+            "smokeSensorHealth": "TIMEOUT",
+            "faultCode": "SMOKE_SENSOR",
+            "rawFrameHex": None,
+        }
+        if on_result is not None:
+            on_result(result)
+        return result
 
 
 class FailedOpenUart:
@@ -405,7 +457,7 @@ def test_non_uart_fault_does_not_misreport_uart_link_as_faulted(tmp_path):
     store.close()
 
 
-def test_fixed_frame_boot_skips_query_and_releases_stale_local_work(
+def test_fixed_frame_boot_queries_sensors_and_releases_stale_local_work(
     tmp_path,
     monkeypatch,
 ):
@@ -448,7 +500,8 @@ def test_fixed_frame_boot_skips_query_and_releases_stale_local_work(
     result = boot_sequence(store, uart, mqtt, None, None)
 
     assert result["status"] == "READY"
-    assert result["snapshot_count"] == 0
+    assert result["snapshot_count"] == 1
+    assert uart.self_test_queries == 1
     assert store.get_work_slot() is None
     inbox = store.get_command(command_uid)
     assert inbox["state"] == "FAILED"
@@ -462,10 +515,38 @@ def test_fixed_frame_boot_skips_query_and_releases_stale_local_work(
     assert snapshot["ports"][0]["fullnessSensorKind"] == (
         "DIGITAL_INFRARED"
     )
+    assert snapshot["ports"][0]["reportedWeightGrams"] == 1234
+    assert snapshot["ports"][0]["smokeState"] == "NORMAL"
     encode_event_post(
         "DEVICE_RUNTIME_SNAPSHOT",
         mqtt.published[-1][1],
     )
+    store.close()
+
+
+def test_fixed_frame_self_test_timeout_still_connects_but_degrades(
+    tmp_path,
+    monkeypatch,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    uart = FixedFrameTimeoutBootUart()
+    mqtt = FakeMqttClient()
+    monkeypatch.setattr("edge_boot.time.sleep", lambda _: None)
+
+    result = boot_sequence(store, uart, mqtt, None, None)
+
+    assert result["status"] == "DEGRADED"
+    assert result["reason"] == "fixed_frame_sensor_self_test_failed"
+    assert uart.self_test_queries == 1
+    assert len(mqtt.published) == 1
+    snapshot = mqtt.published[0][1]["payload"]
+    assert snapshot["uartState"] == "FAULT"
+    assert snapshot["ports"][0]["weightValueAvailable"] is False
+    assert snapshot["ports"][0]["weightSensorHealth"] == "TIMEOUT"
+    assert snapshot["ports"][0]["smokeState"] == "UNKNOWN"
+    assert snapshot["ports"][0]["smokeSensorHealth"] == "TIMEOUT"
+    assert store.get_active_edge_fault("UART", "UART_PROTOCOL") is not None
     store.close()
 
 

@@ -4,7 +4,7 @@
 The simulator exposes a stable symbolic link to a Linux pseudo-terminal.
 Run the real ``hardware/main.py`` with ``ECOBIN_SERIAL_PORT`` set to that
 link.  Valid delivery and clean start commands are answered with configurable
-DD and EF result frames.
+DD/EF result frames, an F1 sensor snapshot, and an optional CC smoke change.
 """
 
 from __future__ import annotations
@@ -30,11 +30,15 @@ PRICE_HEADER = 0xBB
 CLEAN_START_HEADER = 0xEE
 DELIVERY_RESULT_HEADER = 0xDD
 CLEAN_RESULT_HEADER = 0xEF
+SELF_TEST_QUERY_HEADER = 0xF0
+SELF_TEST_RESPONSE_HEADER = 0xF1
+SMOKE_HEADER = 0xCC
 
 DOWNSTREAM_HEADERS = (
     DELIVERY_START_HEADER,
     PRICE_HEADER,
     CLEAN_START_HEADER,
+    SELF_TEST_QUERY_HEADER,
 )
 
 
@@ -58,6 +62,15 @@ def _validate_binary_flag(name: str, value: int) -> None:
         raise ValueError(f"{name} must be 0 or 1")
 
 
+def _validate_smoke_code(name: str, value: int) -> None:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value not in (0, 1, 2)
+    ):
+        raise ValueError(f"{name} must be 0, 1 or 2")
+
+
 def encode_result_frame(
     header: int,
     pre_weight_grams: int,
@@ -78,6 +91,47 @@ def encode_result_frame(
             bytes((infrared_blocked, header)),
         )
     )
+
+
+def encode_self_test_frame(
+    valid_flags: int,
+    weight_grams: int,
+    infrared_blocked: int,
+    smoke_code: int,
+) -> bytes:
+    """Encode one valid eight-byte F1 sensor self-test response."""
+    if (
+        not isinstance(valid_flags, int)
+        or isinstance(valid_flags, bool)
+        or valid_flags & 0xFC
+    ):
+        raise ValueError("valid_flags must use only bits 0 and 1")
+    _validate_weight("weight_grams", weight_grams)
+    _validate_binary_flag("infrared_blocked", infrared_blocked)
+    _validate_smoke_code("smoke_code", smoke_code)
+    if not (valid_flags & 0x01):
+        weight_grams = 0
+    if not (valid_flags & 0x02):
+        infrared_blocked = 0
+    return b"".join(
+        (
+            bytes((SELF_TEST_RESPONSE_HEADER, valid_flags)),
+            weight_grams.to_bytes(3, "big", signed=False),
+            bytes(
+                (
+                    infrared_blocked,
+                    smoke_code,
+                    SELF_TEST_RESPONSE_HEADER,
+                )
+            ),
+        )
+    )
+
+
+def encode_smoke_frame(smoke_code: int) -> bytes:
+    """Encode one three-byte CC smoke state report."""
+    _validate_smoke_code("smoke_code", smoke_code)
+    return bytes((SMOKE_HEADER, smoke_code, SMOKE_HEADER))
 
 
 class DownstreamFrameParser:
@@ -149,6 +203,12 @@ class SimulatorConfig:
     clean_pre_weight_grams: int = 12_500
     clean_post_weight_grams: int = 800
     clean_infrared_blocked: int = 0
+    self_test_weight_grams: int = 10_000
+    self_test_weight_valid: int = 1
+    self_test_infrared_blocked: int = 0
+    self_test_infrared_valid: int = 1
+    smoke_state: int = 0
+    smoke_change_to: Optional[int] = None
     response_delay_ms: int = 500
 
     def __post_init__(self) -> None:
@@ -176,6 +236,25 @@ class SimulatorConfig:
             "clean_infrared_blocked",
             self.clean_infrared_blocked,
         )
+        _validate_weight(
+            "self_test_weight_grams",
+            self.self_test_weight_grams,
+        )
+        _validate_binary_flag(
+            "self_test_weight_valid",
+            self.self_test_weight_valid,
+        )
+        _validate_binary_flag(
+            "self_test_infrared_blocked",
+            self.self_test_infrared_blocked,
+        )
+        _validate_binary_flag(
+            "self_test_infrared_valid",
+            self.self_test_infrared_valid,
+        )
+        _validate_smoke_code("smoke_state", self.smoke_state)
+        if self.smoke_change_to is not None:
+            _validate_smoke_code("smoke_change_to", self.smoke_change_to)
         if (
             not isinstance(self.response_delay_ms, int)
             or isinstance(self.response_delay_ms, bool)
@@ -192,6 +271,8 @@ class VirtualFixedFrameMcu:
         self.last_price_digit: Optional[int] = None
         self.delivery_start_count = 0
         self.clean_start_count = 0
+        self.self_test_query_count = 0
+        self.smoke_state = config.smoke_state
 
     def handle_frame(self, frame: bytes) -> tuple[str, Optional[bytes]]:
         if not DownstreamFrameParser._is_valid(frame):
@@ -212,6 +293,22 @@ class VirtualFixedFrameMcu:
                 ),
             )
 
+        if frame[0] == SELF_TEST_QUERY_HEADER:
+            self.self_test_query_count += 1
+            valid_flags = (
+                self.config.self_test_weight_valid
+                | (self.config.self_test_infrared_valid << 1)
+            )
+            return (
+                "SELF_TEST",
+                encode_self_test_frame(
+                    valid_flags,
+                    self.config.self_test_weight_grams,
+                    self.config.self_test_infrared_blocked,
+                    self.smoke_state,
+                ),
+            )
+
         self.clean_start_count += 1
         return (
             "CLEAN_START",
@@ -222,6 +319,14 @@ class VirtualFixedFrameMcu:
                 self.config.clean_infrared_blocked,
             ),
         )
+
+    def change_smoke_state(self, smoke_code: int) -> Optional[bytes]:
+        """Return a CC frame only when the configured smoke state changes."""
+        _validate_smoke_code("smoke_code", smoke_code)
+        if smoke_code == self.smoke_state:
+            return None
+        self.smoke_state = smoke_code
+        return encode_smoke_frame(smoke_code)
 
 
 def _hex_bytes(data: bytes) -> str:
@@ -256,6 +361,7 @@ class LinuxPtyFixedFrameSimulator:
         self._master_fd: Optional[int] = None
         self._slave_fd: Optional[int] = None
         self._slave_path: Optional[str] = None
+        self._smoke_change_scheduled = False
 
     @property
     def slave_path(self) -> Optional[str]:
@@ -368,6 +474,26 @@ class LinuxPtyFixedFrameSimulator:
                                 pending,
                                 (due, order, f"{name}_RESULT", response),
                             )
+                            if (
+                                name == "SELF_TEST"
+                                and not self._smoke_change_scheduled
+                                and self.config.smoke_change_to is not None
+                            ):
+                                self._smoke_change_scheduled = True
+                                smoke_response = self.model.change_smoke_state(
+                                    self.config.smoke_change_to
+                                )
+                                if smoke_response is not None:
+                                    order += 1
+                                    heapq.heappush(
+                                        pending,
+                                        (
+                                            due + 0.001,
+                                            order,
+                                            "SMOKE_CHANGED",
+                                            smoke_response,
+                                        ),
+                                    )
         finally:
             selector.close()
 
@@ -389,13 +515,22 @@ class LinuxPtyFixedFrameSimulator:
                 "short PTY write: "
                 f"expected={len(response)} actual={written}"
             )
-        pre_weight = int.from_bytes(response[1:4], "big", signed=False)
-        post_weight = int.from_bytes(response[4:7], "big", signed=False)
-        self.log(
-            f"TX {name} frame={_hex_bytes(response)} "
-            f"preGrams={pre_weight} postGrams={post_weight} "
-            f"infraredBlocked={response[7]}"
-        )
+        if response[0] in (DELIVERY_RESULT_HEADER, CLEAN_RESULT_HEADER):
+            pre_weight = int.from_bytes(response[1:4], "big", signed=False)
+            post_weight = int.from_bytes(response[4:7], "big", signed=False)
+            details = (
+                f" preGrams={pre_weight} postGrams={post_weight} "
+                f"infraredBlocked={response[7]}"
+            )
+        elif response[0] == SELF_TEST_RESPONSE_HEADER:
+            weight = int.from_bytes(response[2:5], "big", signed=False)
+            details = (
+                f" validFlags={response[1]} weightGrams={weight} "
+                f"infraredBlocked={response[5]} smoke={response[6]}"
+            )
+        else:
+            details = f" smoke={response[1]}"
+        self.log(f"TX {name} frame={_hex_bytes(response)}{details}")
 
     def close(self) -> None:
         self.stop()
@@ -495,15 +630,52 @@ def parse_args(
         help="EF raw infrared flag: 0=clear, 1=blocked",
     )
     parser.add_argument(
+        "--self-test-weight-grams",
+        type=_weight_argument,
+        default=10_000,
+    )
+    parser.add_argument(
+        "--self-test-weight-valid",
+        type=int,
+        choices=(0, 1),
+        default=1,
+    )
+    parser.add_argument(
+        "--self-test-full",
+        type=int,
+        choices=(0, 1),
+        default=0,
+        help="F1 raw infrared flag: 0=clear, 1=blocked",
+    )
+    parser.add_argument(
+        "--self-test-full-valid",
+        type=int,
+        choices=(0, 1),
+        default=1,
+    )
+    parser.add_argument(
+        "--smoke-state",
+        type=int,
+        choices=(0, 1, 2),
+        default=0,
+        help="F1 smoke state: 0=normal, 1=alarm, 2=unavailable",
+    )
+    parser.add_argument(
+        "--smoke-change-to",
+        type=int,
+        choices=(0, 1, 2),
+        help="send one CC change immediately after the first F1 response",
+    )
+    parser.add_argument(
         "--response-delay-ms",
         type=_non_negative_integer,
         default=500,
-        help="delay between a valid AA/EE start and its DD/EF result",
+        help="delay between a valid command and its response",
     )
     parser.add_argument(
         "--exit-after-responses",
         type=int,
-        help="exit after this many DD/EF responses; default keeps running",
+        help="exit after this many F1/DD/EF/CC responses; default keeps running",
     )
     parsed = parser.parse_args(arguments)
     if (
@@ -530,6 +702,12 @@ def main(arguments: Optional[Sequence[str]] = None) -> int:
         clean_pre_weight_grams=args.clean_pre_grams,
         clean_post_weight_grams=args.clean_post_grams,
         clean_infrared_blocked=args.clean_full,
+        self_test_weight_grams=args.self_test_weight_grams,
+        self_test_weight_valid=args.self_test_weight_valid,
+        self_test_infrared_blocked=args.self_test_full,
+        self_test_infrared_valid=args.self_test_full_valid,
+        smoke_state=args.smoke_state,
+        smoke_change_to=args.smoke_change_to,
         response_delay_ms=args.response_delay_ms,
     )
     simulator = LinuxPtyFixedFrameSimulator(

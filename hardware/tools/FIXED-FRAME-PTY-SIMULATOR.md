@@ -11,7 +11,7 @@ OneNet 服务调用
   -> FixedFrameMcuAdapter
   -> Linux PTY
   -> 虚拟 MCU
-  -> DD 或 EF
+  -> F1、CC、DD 或 EF
   -> main.py 生成并可靠上报事件
 ```
 
@@ -20,6 +20,8 @@ OneNet 服务调用
 - 接收 `BB PRICE BB`，保存并打印 MCU 屏显价格位；
 - 接收 `AA 01 AA`，延迟后返回配置的 `DD PRE POST FULL DD`；
 - 接收 `EE 01 EE`，延迟后返回配置的 `EF PRE POST FULL EF`；
+- 接收 `F0 01 F0`，延迟后返回配置的 `F1 VALID WEIGHT FULL SMOKE F1`；
+- 可在第一次 F1 完成后发送一次 `CC SMOKE CC`，模拟烟感状态变化；
 - 下行解析支持拆包、粘包、前导噪声和无效候选帧后的重新同步。
 
 它不会模拟屏幕、按钮、门、电磁阀、限位开关、称重稳定过程、电气特性或真实执行时
@@ -53,6 +55,11 @@ uv run --python 3.11 python tools/fixed_frame_pty_simulator.py \
   --clean-pre-grams 12500 \
   --clean-post-grams 800 \
   --clean-full 0 \
+  --self-test-weight-grams 10000 \
+  --self-test-weight-valid 1 \
+  --self-test-full 0 \
+  --self-test-full-valid 1 \
+  --smoke-state 0 \
   --response-delay-ms 500
 ```
 
@@ -82,12 +89,19 @@ uv run --python 3.11 python tools/fixed_frame_pty_simulator.py --help
 | `--clean-pre-grams` | EF 的清运前总重量 | `12500` |
 | `--clean-post-grams` | EF 的清运后新袋皮重 | `800` |
 | `--clean-full` | EF 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
-| `--response-delay-ms` | 收到 AA/EE 后发送 DD/EF 的延迟 | `500` |
-| `--exit-after-responses` | 发出指定数量的 DD/EF 后自动退出 | 不自动退出 |
+| `--self-test-weight-grams` | F1 的当前总重量 | `10000` |
+| `--self-test-weight-valid` | F1 重量有效标志，`0` 无效、`1` 有效 | `1` |
+| `--self-test-full` | F1 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
+| `--self-test-full-valid` | F1 红外有效标志，`0` 无效、`1` 有效 | `1` |
+| `--smoke-state` | F1 烟感值，`0` 正常、`1` 报警、`2` 无法读取 | `0` |
+| `--smoke-change-to` | 首次 F1 后发送一次 CC，值同 `--smoke-state`；不填写则不发送 | 不发送 |
+| `--response-delay-ms` | 收到 AA/EE/F0 后发送对应结果的延迟 | `500` |
+| `--exit-after-responses` | 发出指定数量的 F1/CC/DD/EF 后自动退出 | 不自动退出 |
 
 两个重量字段的合法范围都是 `0..350000` 克。投递业务净重按 `POST - PRE` 计算；清运
 移除净重仍由香橙派按已确认规则 `PRE - oldBaselineWeightGrams` 计算，不由模拟器
-计算。
+计算。F1 中重量或红外标为无效时，模拟器按协议把对应数据字节清零；这表示传感器
+自检失败，不表示 MCU 串口通信失败。
 
 ## 4. 让真实香橙派入口连接 PTY
 
@@ -114,6 +128,11 @@ ECOBIN_UART_PORT_COUNT=1
 uv run --python 3.11 python main.py
 ```
 
+仓库中的 `ecobin-mcu-simulator.service` 是对应的 systemd 运行单元，显式配置健康 F1：
+重量 10000 克、重量/红外有效位均为 1、红外未遮挡、烟感正常。该单元不配置
+`--smoke-change-to`，避免正式常驻模拟器启动后主动制造报警或传感器故障；CC 变化使用
+隔离 PTY 测试验证。
+
 本测试只替换 MCU。无真实摄像头时，可以把
 `ECOBIN_CAMERA_OUTSIDE`、`ECOBIN_CAMERA_INSIDE` 分别设为
 `simulated://outside`、`simulated://inside`；它们会生成可解码且哈希不同的占位
@@ -123,6 +142,20 @@ JPEG，不需要全局模式、OpenCV 或 V4L2。详细边界见
 空值，后续由 `photoStatusReported` 补报。
 
 ## 5. 跑完整 OneNet 链路
+
+### 5.0 启动自检
+
+`main.py` 打开串口后会先发送一次 F0。终端 A 应看到：
+
+```text
+RX SELF_TEST frame=F0 01 F0
+TX SELF_TEST_RESULT frame=F1 ... validFlags=03 weightGrams=10000 infraredBlocked=0 smoke=0
+```
+
+合法 F1 会成为启动运行快照的重量、红外和烟感事实。若 F1 超时、非法，或有效标志
+表明称重/红外不可用，香橙派仍连接 OneNet 并上报降级状态，但拒绝新的投递和清运。
+`--smoke-state 2` 模拟“MCU 在线但烟感无法读取”；它与完全没有 F1 的串口超时不同。
+正式机器验收每次也会发送新的 F0，不复用启动时或上一次验收的旧结果。
 
 ### 5.1 投递
 
@@ -176,9 +209,9 @@ uv run --python 3.11 --with pytest \
 测试包含：
 
 - 与操作系统无关的拆包、粘包、噪声重同步和精确帧编码；
-- 价格保存、DD/EF 自动响应和参数边界；
+- 价格保存、F1/DD/EF 自动响应、CC 状态变化和参数边界；
 - Linux 上使用真实 `pty.openpty()`、PySerial 和
-  `FixedFrameMcuAdapter` 的双向集成测试。
+  `FixedFrameMcuAdapter` 的 F0/F1、投递和清运双向集成测试。
 
 在 Windows 上，前两类测试正常执行，真实 PTY 集成用例会明确跳过。完整硬件侧回归：
 

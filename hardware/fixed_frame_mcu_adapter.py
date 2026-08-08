@@ -1,16 +1,16 @@
 """Adapter for the negotiated fixed-length MCU protocol.
 
-The deployed MCU does not implement EcoBin UART 1.0.  It accepts three
-fixed-length commands and returns one aggregate result for delivery or clean:
+The deployed MCU uses a deliberately small fixed-frame protocol:
 
-    Edge -> MCU: AA 01 AA, BB PRICE BB, EE 01 EE
+    Edge -> MCU: AA 01 AA, BB PRICE BB, EE 01 EE, F0 01 F0
     MCU -> Edge: DD PRE:u24 POST:u24 FULL DD
                  EF PRE:u24 POST:u24 FULL EF
+                 F1 VALID WEIGHT:u24 FULL SMOKE F1
+                 CC SMOKE CC
 
-This module deliberately contains no ACK wait, retry, protocol auto-detection,
-or MCU restart recovery.  It exposes the small subset of the ``UartLink``
-interface that the Edge runtime needs while keeping the wire compromise below
-the existing OneNet/SQLite boundary.
+The adapter keeps the wire simple: no CRC, generic ACK, retry, flow identity,
+protocol auto-detection, or MCU work recovery.  OneNet-only fields are added at
+this boundary and are never required from the MCU firmware.
 """
 
 from __future__ import annotations
@@ -31,12 +31,28 @@ logger = logging.getLogger("fixed-frame-mcu")
 
 DELIVERY_HEADER = 0xDD
 CLEAN_HEADER = 0xEF
+SMOKE_HEADER = 0xCC
+SELF_TEST_QUERY_HEADER = 0xF0
+SELF_TEST_RESPONSE_HEADER = 0xF1
+
 RESULT_FRAME_LENGTH = 9
+SMOKE_FRAME_LENGTH = 3
+SELF_TEST_FRAME_LENGTH = 8
+SELF_TEST_QUERY_FRAME = bytes((SELF_TEST_QUERY_HEADER, 0x01, SELF_TEST_QUERY_HEADER))
+SELF_TEST_TIMEOUT_MS = 3_000
 MAXIMUM_WEIGHT_GRAMS = 350_000
 MAXIMUM_RECEIVE_BUFFER = 4096
 
+FRAME_LENGTHS = {
+    DELIVERY_HEADER: RESULT_FRAME_LENGTH,
+    CLEAN_HEADER: RESULT_FRAME_LENGTH,
+    SMOKE_HEADER: SMOKE_FRAME_LENGTH,
+    SELF_TEST_RESPONSE_HEADER: SELF_TEST_FRAME_LENGTH,
+}
+
 COMPAT_DELIVERY_RESULT_TYPE = 240
 COMPAT_CLEAN_RESULT_TYPE = 241
+COMPAT_SAFETY_EVENT_TYPE = 54
 
 
 def price_digit_from_ten_thousandths(
@@ -56,17 +72,28 @@ class FixedFrameParser:
     """Bounded fixed-length parser tolerant of partial, joined and noisy reads."""
 
     def __init__(self, maximum_buffer: int = MAXIMUM_RECEIVE_BUFFER):
-        if maximum_buffer < RESULT_FRAME_LENGTH:
+        if maximum_buffer < max(FRAME_LENGTHS.values()):
             raise ValueError("maximum buffer is smaller than one result frame")
         self.maximum_buffer = maximum_buffer
         self._buffer = bytearray()
+        self._invalid_counts = {
+            header: 0 for header in FRAME_LENGTHS
+        }
 
     @property
     def buffered_length(self) -> int:
         return len(self._buffer)
 
+    def invalid_count(self, header: int) -> int:
+        return self._invalid_counts.get(header, 0)
+
     def clear(self) -> None:
         self._buffer.clear()
+
+    def discard_incomplete_except(self, headers: set[int]) -> None:
+        """Keep an incomplete safety frame while discarding stale work bytes."""
+        if self._buffer and self._buffer[0] not in headers:
+            self._buffer.clear()
 
     def feed(self, data: bytes) -> list[dict]:
         if not data:
@@ -88,57 +115,101 @@ class FixedFrameParser:
                 break
             if start:
                 del self._buffer[:start]
-            if len(self._buffer) < RESULT_FRAME_LENGTH:
+            header = self._buffer[0]
+            frame_length = FRAME_LENGTHS[header]
+            if len(self._buffer) < frame_length:
                 break
 
-            candidate = bytes(self._buffer[:RESULT_FRAME_LENGTH])
+            candidate = bytes(self._buffer[:frame_length])
             decoded = self._decode(candidate)
             if decoded is None:
+                self._invalid_counts[header] += 1
                 # The apparent header was noise or a payload byte from a
-                # damaged frame.  Advance one byte and search again.
+                # damaged frame. Advance one byte and search again.
                 del self._buffer[0]
                 continue
             results.append(decoded)
-            del self._buffer[:RESULT_FRAME_LENGTH]
+            del self._buffer[:frame_length]
         return results
 
     def _next_header_index(self) -> Optional[int]:
-        delivery = self._buffer.find(bytes((DELIVERY_HEADER,)))
-        clean = self._buffer.find(bytes((CLEAN_HEADER,)))
-        candidates = [index for index in (delivery, clean) if index >= 0]
+        candidates = [
+            self._buffer.find(bytes((header,)))
+            for header in FRAME_LENGTHS
+        ]
+        candidates = [index for index in candidates if index >= 0]
         return min(candidates) if candidates else None
 
     @staticmethod
     def _decode(frame: bytes) -> Optional[dict]:
         header = frame[0]
-        if (
-            header not in (DELIVERY_HEADER, CLEAN_HEADER)
-            or frame[-1] != header
-            or frame[7] not in (0, 1)
-        ):
+        if frame[-1] != header:
             return None
-        pre_weight = int.from_bytes(frame[1:4], "big", signed=False)
-        post_weight = int.from_bytes(frame[4:7], "big", signed=False)
-        if (
-            pre_weight > MAXIMUM_WEIGHT_GRAMS
-            or post_weight > MAXIMUM_WEIGHT_GRAMS
-        ):
-            return None
-        return {
-            "result_type": (
-                "DELIVERY" if header == DELIVERY_HEADER else "CLEAN"
-            ),
-            "pre_weight_grams": pre_weight,
-            "post_weight_grams": post_weight,
-            "infrared_blocked": frame[7] == 1,
-            "raw_frame_hex": frame.hex(),
-        }
+
+        if header in (DELIVERY_HEADER, CLEAN_HEADER):
+            if len(frame) != RESULT_FRAME_LENGTH or frame[7] not in (0, 1):
+                return None
+            pre_weight = int.from_bytes(frame[1:4], "big", signed=False)
+            post_weight = int.from_bytes(frame[4:7], "big", signed=False)
+            if (
+                pre_weight > MAXIMUM_WEIGHT_GRAMS
+                or post_weight > MAXIMUM_WEIGHT_GRAMS
+            ):
+                return None
+            return {
+                "frame_type": (
+                    "DELIVERY" if header == DELIVERY_HEADER else "CLEAN"
+                ),
+                "pre_weight_grams": pre_weight,
+                "post_weight_grams": post_weight,
+                "infrared_blocked": frame[7] == 1,
+                "raw_frame_hex": frame.hex(),
+            }
+
+        if header == SMOKE_HEADER:
+            if len(frame) != SMOKE_FRAME_LENGTH or frame[1] not in (0, 1, 2):
+                return None
+            return {
+                "frame_type": "SMOKE",
+                "smoke_code": frame[1],
+                "raw_frame_hex": frame.hex(),
+            }
+
+        if header == SELF_TEST_RESPONSE_HEADER:
+            if len(frame) != SELF_TEST_FRAME_LENGTH:
+                return None
+            valid_flags = frame[1]
+            weight = int.from_bytes(frame[2:5], "big", signed=False)
+            infrared = frame[5]
+            smoke = frame[6]
+            if (
+                valid_flags & 0xFC
+                or weight > MAXIMUM_WEIGHT_GRAMS
+                or infrared not in (0, 1)
+                or smoke not in (0, 1, 2)
+                or (not (valid_flags & 0x01) and weight != 0)
+                or (not (valid_flags & 0x02) and infrared != 0)
+            ):
+                return None
+            return {
+                "frame_type": "SELF_TEST",
+                "valid_flags": valid_flags,
+                "weight_valid": bool(valid_flags & 0x01),
+                "weight_grams": weight,
+                "infrared_valid": bool(valid_flags & 0x02),
+                "infrared_blocked": infrared == 1,
+                "smoke_code": smoke,
+                "raw_frame_hex": frame.hex(),
+            }
+
+        return None
 
 
 class FixedFrameMcuAdapter:
     """Serial adapter implementing the negotiated fixed-frame wire protocol."""
 
     compatibility_mode = True
+
     def __init__(
         self,
         port: str,
@@ -231,14 +302,117 @@ class FixedFrameMcuAdapter:
         }
 
     def query_state(self, on_segment=None) -> list[dict]:
-        """The fixed-frame MCU has no state query command."""
+        """The fixed-frame MCU still has no general work/state query."""
+        del on_segment
         return []
+
+    def query_self_test(
+        self,
+        timeout_ms: int = SELF_TEST_TIMEOUT_MS,
+        on_result: Optional[Callable[[dict], None]] = None,
+    ) -> dict:
+        """Request, optionally persist, then queue one fresh sensor snapshot.
+
+        ``on_result`` runs while the serial lock is still held. This keeps a
+        following CC frame from being persisted before an older F1 snapshot.
+        """
+        if (
+            not isinstance(timeout_ms, int)
+            or isinstance(timeout_ms, bool)
+            or timeout_ms <= 0
+        ):
+            raise ValueError("self-test timeout must be a positive integer")
+        if on_result is not None and not callable(on_result):
+            raise ValueError("self-test result callback must be callable")
+        with self._io_lock:
+            if not self.is_open:
+                return self._finish_self_test(
+                    self._failed_self_test("UART_CLOSED"),
+                    on_result,
+                )
+
+            self._drain_before_self_test()
+            invalid_before = self._parser.invalid_count(
+                SELF_TEST_RESPONSE_HEADER
+            )
+            try:
+                self._write_exact(SELF_TEST_QUERY_FRAME)
+            except Exception as error:
+                logger.error("fixed-frame self-test query write failed: %s", error)
+                result = self._failed_self_test("UART_WRITE_FAILED")
+                self._pending_events.append(
+                    self._to_safety_event(
+                        None,
+                        health="PROTOCOL_ERROR",
+                    )
+                )
+                return self._finish_self_test(result, on_result)
+
+            deadline = time.monotonic() + timeout_ms / 1000.0
+            response: Optional[dict] = None
+            while time.monotonic() < deadline:
+                chunk = self._read_chunk(deadline)
+                if not chunk:
+                    continue
+                invalid_smoke_before = self._parser.invalid_count(SMOKE_HEADER)
+                decoded = self._parser.feed(chunk)
+                for item in decoded:
+                    if item["frame_type"] == "SELF_TEST":
+                        if response is None:
+                            response = item
+                            self._pending_events.append(
+                                self._to_safety_event(
+                                    item["smoke_code"],
+                                    raw_frame_hex=item["raw_frame_hex"],
+                                )
+                            )
+                        else:
+                            logger.warning(
+                                "discarding duplicate fixed-frame self-test response"
+                            )
+                    else:
+                        self._pending_events.append(self._to_event(item))
+                self._queue_invalid_smoke_events(invalid_smoke_before)
+                if response is not None:
+                    return self._finish_self_test(
+                        self._successful_self_test(response),
+                        on_result,
+                    )
+
+            query_status = (
+                "PROTOCOL_ERROR"
+                if self._parser.invalid_count(SELF_TEST_RESPONSE_HEADER)
+                > invalid_before
+                else "TIMEOUT"
+            )
+            health = (
+                "PROTOCOL_ERROR"
+                if query_status == "PROTOCOL_ERROR"
+                else "TIMEOUT"
+            )
+            self._pending_events.append(
+                self._to_safety_event(None, health=health)
+            )
+            return self._finish_self_test(
+                self._failed_self_test(query_status),
+                on_result,
+            )
+
+    @staticmethod
+    def _finish_self_test(
+        result: dict,
+        on_result: Optional[Callable[[dict], None]],
+    ) -> dict:
+        if on_result is not None:
+            on_result(result)
+        return result
 
     def apply_configuration(
         self,
         command: dict,
         part_command_uids: list[str],
     ) -> dict:
+        del command, part_command_uids
         return {
             "acked": False,
             "error": "MCU_FEATURE_NOT_SUPPORTED",
@@ -309,21 +483,77 @@ class FixedFrameMcuAdapter:
 
     def _dispatch_start(self, wire: bytes) -> None:
         with self._io_lock:
-            self._discard_pending_input()
-            written = self._ser.write(wire)
-            if written != len(wire):
-                raise IOError(
-                    "short UART write: "
-                    f"expected={len(wire)} actual={written}"
-                )
-            self._ser.flush()
+            self._discard_stale_business_input()
+            self._write_exact(wire)
 
-    def _discard_pending_input(self) -> None:
-        self._parser.clear()
-        self._pending_events.clear()
-        reset = getattr(self._ser, "reset_input_buffer", None)
-        if callable(reset):
-            reset()
+    def _write_exact(self, wire: bytes) -> None:
+        written = self._ser.write(wire)
+        if written != len(wire):
+            raise IOError(
+                "short UART write: "
+                f"expected={len(wire)} actual={written}"
+            )
+        self._ser.flush()
+
+    def _read_chunk(self, deadline: float) -> bytes:
+        remaining = max(0.01, deadline - time.monotonic())
+        if hasattr(self._ser, "timeout"):
+            self._ser.timeout = remaining
+        waiting = int(getattr(self._ser, "in_waiting", 0) or 0)
+        return bytes(self._ser.read(min(256, waiting or 1)))
+
+    def _read_available_decoded(self) -> tuple[list[dict], int]:
+        decoded: list[dict] = []
+        invalid_smoke_before = self._parser.invalid_count(SMOKE_HEADER)
+        while self.is_open:
+            waiting = int(getattr(self._ser, "in_waiting", 0) or 0)
+            if waiting <= 0:
+                break
+            chunk = self._ser.read(min(256, waiting))
+            if not chunk:
+                break
+            decoded.extend(self._parser.feed(bytes(chunk)))
+        invalid_smoke = (
+            self._parser.invalid_count(SMOKE_HEADER) - invalid_smoke_before
+        )
+        return decoded, invalid_smoke
+
+    def _drain_before_self_test(self) -> None:
+        decoded, invalid_smoke = self._read_available_decoded()
+        for item in decoded:
+            if item["frame_type"] == "SELF_TEST":
+                logger.warning("discarding stale fixed-frame self-test response")
+                continue
+            self._pending_events.append(self._to_event(item))
+        for _ in range(invalid_smoke):
+            self._pending_events.append(
+                self._to_safety_event(None, health="PROTOCOL_ERROR")
+            )
+        # A response that began before this F0 challenge must not become its
+        # evidence merely because the remaining bytes arrive afterwards.
+        # Other partial frames may still complete while this query is waiting.
+        self._parser.discard_incomplete_except({
+            DELIVERY_HEADER,
+            CLEAN_HEADER,
+            SMOKE_HEADER,
+        })
+
+    def _discard_stale_business_input(self) -> None:
+        retained = deque(
+            event
+            for event in self._pending_events
+            if event.get("message_name") == "SAFETY_SENSOR_EVENT"
+        )
+        self._pending_events = retained
+        decoded, invalid_smoke = self._read_available_decoded()
+        for item in decoded:
+            if item["frame_type"] == "SMOKE":
+                self._pending_events.append(self._to_event(item))
+        for _ in range(invalid_smoke):
+            self._pending_events.append(
+                self._to_safety_event(None, health="PROTOCOL_ERROR")
+            )
+        self._parser.discard_incomplete_except({SMOKE_HEADER})
 
     @staticmethod
     def _command_result(
@@ -349,24 +579,40 @@ class FixedFrameMcuAdapter:
             if not self.is_open:
                 return None
             while time.monotonic() < deadline:
-                remaining = max(0.01, deadline - time.monotonic())
-                if hasattr(self._ser, "timeout"):
-                    self._ser.timeout = remaining
-                waiting = int(getattr(self._ser, "in_waiting", 0) or 0)
-                chunk = self._ser.read(min(256, waiting or 1))
+                chunk = self._read_chunk(deadline)
                 if not chunk:
                     continue
-                decoded = self._parser.feed(bytes(chunk))
-                if not decoded:
-                    continue
-                events = [self._to_event(item) for item in decoded]
-                self._pending_events.extend(events[1:])
-                return events[0]
+                invalid_smoke_before = self._parser.invalid_count(SMOKE_HEADER)
+                decoded = self._parser.feed(chunk)
+                events = [
+                    self._to_event(item)
+                    for item in decoded
+                    if item["frame_type"] != "SELF_TEST"
+                ]
+                self._pending_events.extend(events)
+                self._queue_invalid_smoke_events(invalid_smoke_before)
+                if self._pending_events:
+                    return self._pending_events.popleft()
         return None
 
+    def _queue_invalid_smoke_events(self, invalid_before: int) -> None:
+        invalid_after = self._parser.invalid_count(SMOKE_HEADER)
+        for _ in range(max(0, invalid_after - invalid_before)):
+            self._pending_events.append(
+                self._to_safety_event(None, health="PROTOCOL_ERROR")
+            )
+
     def _to_event(self, decoded: dict) -> dict:
+        frame_type = decoded["frame_type"]
+        if frame_type == "SMOKE":
+            return self._to_safety_event(
+                decoded["smoke_code"],
+                raw_frame_hex=decoded["raw_frame_hex"],
+            )
+        if frame_type not in {"DELIVERY", "CLEAN"}:
+            raise ValueError(f"unsupported decoded frame: {frame_type}")
         self._mcu_event_sequence += 1
-        delivery = decoded["result_type"] == "DELIVERY"
+        delivery = frame_type == "DELIVERY"
         return {
             "message_name": (
                 "COMPAT_DELIVERY_RESULT"
@@ -389,6 +635,110 @@ class FixedFrameMcuAdapter:
                 "infraredBlocked": decoded["infrared_blocked"],
                 "rawFrameHex": decoded["raw_frame_hex"],
             },
+        }
+
+    def _to_safety_event(
+        self,
+        smoke_code: Optional[int],
+        *,
+        health: Optional[str] = None,
+        raw_frame_hex: Optional[str] = None,
+    ) -> dict:
+        self._mcu_event_sequence += 1
+        if smoke_code == 0:
+            smoke_state = "NORMAL"
+            smoke_health = "OK"
+            fault_code = "NONE"
+        elif smoke_code == 1:
+            smoke_state = "ALARM"
+            smoke_health = "OK"
+            fault_code = "NONE"
+        else:
+            smoke_state = "UNKNOWN"
+            smoke_health = health or "SENSOR_FAULT"
+            fault_code = "SMOKE_SENSOR"
+        return {
+            "message_name": "SAFETY_SENSOR_EVENT",
+            "message_type": COMPAT_SAFETY_EVENT_TYPE,
+            "flags": 0,
+            "tx_sequence": self._mcu_event_sequence,
+            "payload": {
+                "mcuBootId": self._mcu_boot_id,
+                "mcuEventSequence": self._mcu_event_sequence,
+                "uptimeMs": int(time.monotonic() * 1000),
+                "portNo": 1,
+                "smokeState": smoke_state,
+                "smokeSensorHealth": smoke_health,
+                "faultCode": fault_code,
+                "workType": "NONE",
+                "workUid": None,
+                "compatibilityMode": True,
+                "rawFrameHex": raw_frame_hex,
+            },
+        }
+
+    @staticmethod
+    def _successful_self_test(decoded: dict) -> dict:
+        smoke_code = decoded["smoke_code"]
+        if smoke_code == 0:
+            smoke_state = "NORMAL"
+            smoke_health = "OK"
+            fault_code = None
+        elif smoke_code == 1:
+            smoke_state = "ALARM"
+            smoke_health = "OK"
+            fault_code = None
+        else:
+            smoke_state = "UNKNOWN"
+            smoke_health = "SENSOR_FAULT"
+            fault_code = "SMOKE_SENSOR"
+        weight_valid = decoded["weight_valid"]
+        infrared_valid = decoded["infrared_valid"]
+        return {
+            "queryStatus": "OK",
+            "communicationHealthy": True,
+            "portNo": 1,
+            "validFlags": decoded["valid_flags"],
+            "weightValid": weight_valid,
+            "weightGrams": (
+                decoded["weight_grams"] if weight_valid else None
+            ),
+            "weightMeasurementUid": (
+                str(uuid.uuid4()) if weight_valid else None
+            ),
+            "infraredValid": infrared_valid,
+            "infraredBlocked": (
+                decoded["infrared_blocked"]
+                if infrared_valid
+                else None
+            ),
+            "smokeCode": smoke_code,
+            "smokeState": smoke_state,
+            "smokeSensorHealth": smoke_health,
+            "faultCode": fault_code,
+            "rawFrameHex": decoded["raw_frame_hex"],
+        }
+
+    @staticmethod
+    def _failed_self_test(query_status: str) -> dict:
+        health = (
+            "TIMEOUT" if query_status == "TIMEOUT" else "PROTOCOL_ERROR"
+        )
+        return {
+            "queryStatus": query_status,
+            "communicationHealthy": False,
+            "portNo": 1,
+            "validFlags": 0,
+            "weightValid": False,
+            "weightGrams": None,
+            "weightMeasurementUid": None,
+            "infraredValid": False,
+            "infraredBlocked": None,
+            "smokeCode": None,
+            "smokeState": "UNKNOWN",
+            "smokeSensorHealth": health,
+            "faultCode": "SMOKE_SENSOR",
+            "rawFrameHex": None,
         }
 
     def send_ack(self, *args, **kwargs) -> None:

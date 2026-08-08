@@ -187,6 +187,24 @@ def mark_configuration_applied(store):
         "mcuPayloadSha256": command["payload"]["config"]["mcuPayloadSha256"],
         "faultCode": "NONE",
     }) == "ACCEPTED"
+    store.save_fixed_frame_self_test({
+        "queryStatus": "OK",
+        "communicationHealthy": True,
+        "portNo": 1,
+        "validFlags": 3,
+        "weightValid": True,
+        "weightGrams": 10_000,
+        "weightMeasurementUid": (
+            "6f000000-0000-4000-8000-000000000001"
+        ),
+        "infraredValid": True,
+        "infraredBlocked": False,
+        "smokeCode": 0,
+        "smokeState": "NORMAL",
+        "smokeSensorHealth": "OK",
+        "faultCode": None,
+        "rawFrameHex": "f1030027100000f1",
+    })
     return command
 
 
@@ -920,6 +938,77 @@ def test_real_smoke_alarm_is_recorded_and_blocks_new_delivery(tmp_path):
     assert store.get_command(command["commandUid"])["last_error"] == (
         "SAFETY_SMOKE_ALARM"
     )
+    assert uart.calls == []
+    store.close()
+
+
+def test_fixed_frame_failed_startup_self_test_blocks_new_delivery(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    store.save_fixed_frame_self_test({
+        "queryStatus": "OK",
+        "communicationHealthy": True,
+        "portNo": 1,
+        "validFlags": 2,
+        "weightValid": False,
+        "weightGrams": None,
+        "weightMeasurementUid": None,
+        "infraredValid": True,
+        "infraredBlocked": False,
+        "smokeCode": 0,
+        "smokeState": "NORMAL",
+        "smokeSensorHealth": "OK",
+        "faultCode": None,
+        "rawFrameHex": "f1020000000000f1",
+    })
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "SAFETY_SENSOR_UNHEALTHY"
+    assert store.get_work_slot() is None
+    assert uart.calls == []
+    store.close()
+
+
+def test_fixed_frame_missing_startup_self_test_blocks_new_delivery(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    with store.transaction():
+        store._conn.execute(
+            """DELETE FROM device_state
+               WHERE state_key='fixed_frame_latest_self_test_json'"""
+        )
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "SAFETY_SENSOR_UNHEALTHY"
+    assert store.get_work_slot() is None
     assert uart.calls == []
     store.close()
 

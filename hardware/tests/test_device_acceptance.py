@@ -26,6 +26,33 @@ class RealFixedFrameUart:
     port_count = 1
     _mcu_firmware_version = "fixed-frame-1.0.0"
 
+    def __init__(self, result=None):
+        self.query_count = 0
+        self._result = result or {
+            "queryStatus": "OK",
+            "communicationHealthy": True,
+            "portNo": 1,
+            "validFlags": 3,
+            "weightValid": True,
+            "weightGrams": 1234,
+            "weightMeasurementUid": str(uuid.uuid4()),
+            "infraredValid": True,
+            "infraredBlocked": False,
+            "smokeCode": 0,
+            "smokeState": "NORMAL",
+            "smokeSensorHealth": "OK",
+            "faultCode": None,
+            "rawFrameHex": "f1030004d20000f1",
+        }
+
+    def query_self_test(self, timeout_ms=3000, on_result=None):
+        assert timeout_ms == 3000
+        self.query_count += 1
+        result = dict(self._result)
+        if on_result is not None:
+            on_result(result)
+        return result
+
 
 class SimulatedFixedFrameUart(RealFixedFrameUart):
     is_simulated = True
@@ -108,7 +135,7 @@ def _command(challenge_uid):
     }
 
 
-def _store_with_real_sensor_sample(tmp_path):
+def _store_with_stale_business_sample(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()
     store.set_state(
@@ -129,7 +156,7 @@ def _store_with_real_sensor_sample(tmp_path):
 
 def _process(tmp_path, monkeypatch, uart, *, cameras_simulated=False):
     monkeypatch.setattr("device_acceptance._clock_state", lambda: "SYNCED")
-    store = _store_with_real_sensor_sample(tmp_path)
+    store = _store_with_stale_business_sample(tmp_path)
     uploader = ReadbackUploader()
     runner = DeviceAcceptanceRunner(
         store,
@@ -180,6 +207,7 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     assert event["payload"]["camerasSimulated"] is False
     assert event["payload"]["sensorsHealthy"] is True
     assert event["payload"]["cameraUploadHealthy"] is True
+    assert store.get_state("fixed_frame_latest_self_test_json")
     assert len(uploader.keys) == 2
     assert all(
         key.startswith(
@@ -191,6 +219,75 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     assert encode_event_post("DEVICE_ACCEPTANCE_EVIDENCE", event)
     database = (tmp_path / "edge.db").read_bytes()
     assert b"TEMPORARY_KEY_NOT_FOR_SQLITE" not in database
+    store.close()
+
+
+def test_smoke_unavailable_keeps_mcu_communication_but_fails_sensors(
+    tmp_path,
+    monkeypatch,
+):
+    result = {
+        "queryStatus": "OK",
+        "communicationHealthy": True,
+        "portNo": 1,
+        "validFlags": 3,
+        "weightValid": True,
+        "weightGrams": 1234,
+        "weightMeasurementUid": str(uuid.uuid4()),
+        "infraredValid": True,
+        "infraredBlocked": False,
+        "smokeCode": 2,
+        "smokeState": "UNKNOWN",
+        "smokeSensorHealth": "SENSOR_FAULT",
+        "faultCode": "SMOKE_SENSOR",
+        "rawFrameHex": "f1030004d20002f1",
+    }
+    store, _, _, event = _process(
+        tmp_path,
+        monkeypatch,
+        RealFixedFrameUart(result),
+    )
+
+    assert event["payload"]["mcuCommunicationHealthy"] is True
+    assert event["payload"]["sensorsHealthy"] is False
+    assert store.get_state("smoke_state") == "UNKNOWN"
+    assert store.get_state("smoke_sensor_health") == "SENSOR_FAULT"
+    store.close()
+
+
+def test_timeout_does_not_fall_back_to_stale_delivery_sample(
+    tmp_path,
+    monkeypatch,
+):
+    result = {
+        "queryStatus": "TIMEOUT",
+        "communicationHealthy": False,
+        "portNo": 1,
+        "validFlags": 0,
+        "weightValid": False,
+        "weightGrams": None,
+        "weightMeasurementUid": None,
+        "infraredValid": False,
+        "infraredBlocked": None,
+        "smokeCode": None,
+        "smokeState": "UNKNOWN",
+        "smokeSensorHealth": "TIMEOUT",
+        "faultCode": "SMOKE_SENSOR",
+        "rawFrameHex": None,
+    }
+    store, _, _, event = _process(
+        tmp_path,
+        monkeypatch,
+        RealFixedFrameUart(result),
+    )
+
+    assert event["payload"]["mcuCommunicationHealthy"] is False
+    assert event["payload"]["sensorsHealthy"] is False
+    stored = json.loads(
+        store.get_state("fixed_frame_latest_self_test_json")
+    )
+    assert stored["queryStatus"] == "TIMEOUT"
+    assert stored["weightGrams"] is None
     store.close()
 
 
