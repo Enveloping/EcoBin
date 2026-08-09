@@ -14,6 +14,40 @@ import {
   sessionEntryChanged,
   sessionInstanceChanged,
 } from '../miniprogram/miniprogram/utils/session-transition.ts';
+import { omitUndefinedRequestFields } from '../miniprogram/miniprogram/utils/request-data.ts';
+
+test('miniapp transport omits undefined request fields without changing valid values', () => {
+  const original = {
+    cursor: undefined,
+    limit: 20,
+    nullable: null,
+    enabled: false,
+    offset: 0,
+    text: '',
+  };
+
+  assert.deepEqual(omitUndefinedRequestFields(original), {
+    limit: 20,
+    nullable: null,
+    enabled: false,
+    offset: 0,
+    text: '',
+  });
+  assert.equal(Object.hasOwn(original, 'cursor'), true);
+  assert.equal(omitUndefinedRequestFields(undefined), undefined);
+
+  const requestSource = readFileSync(
+    new URL(
+      '../miniprogram/miniprogram/utils/request.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  assert.match(
+    requestSource,
+    /data:\s*omitUndefinedRequestFields\(options\.data\)/,
+  );
+});
 
 test('web startup migration removes the legacy persisted Bearer store', () => {
   const removed = [];

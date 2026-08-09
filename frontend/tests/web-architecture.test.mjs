@@ -220,6 +220,10 @@ test('cleaning Web slice separates operation facts from editable records', () =>
     new URL('src/pages/clean-records/index.tsx', webRoot),
     'utf8',
   );
+  const generatedApiTypes = readFileSync(
+    new URL('src/api/generated/openapi.d.ts', webRoot),
+    'utf8',
+  );
 
   assert.match(routeSource, /path: '\/clean-operations'[\s\S]*?clean\.read/);
   assert.match(routeSource, /path: '\/clean-records'[\s\S]*?clean\.read/);
@@ -236,6 +240,15 @@ test('cleaning Web slice separates operation facts from editable records', () =>
   assert.match(recordPage, /listCleanRecordChanges/);
   assert.match(recordPage, /清运记录修正失败/);
   assert.match(recordPage, /修正历史加载失败/);
+  assert.match(
+    generatedApiTypes,
+    /postCleanDetection: components\["schemas"\]\["CleanDetectionSummary"\] \| null;/,
+  );
+  assert.match(recordPage, /detail\.postCleanDetection\?\.status/);
+  assert.doesNotMatch(
+    recordPage,
+    /detail\.postCleanDetection\.(?:status|finalResult|failureCode|completedAt)/,
+  );
   assert.doesNotMatch(recordPage, /审核|拒绝/);
 });
 

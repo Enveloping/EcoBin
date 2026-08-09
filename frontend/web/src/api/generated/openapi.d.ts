@@ -6315,7 +6315,7 @@ export interface components {
             bags: components["schemas"]["CleanBagFacts"];
             weights: components["schemas"]["CleanWeightFacts"];
             newBaseline: components["schemas"]["CleanBaselineSummary"];
-            postCleanDetection: components["schemas"]["CleanDetectionSummary"];
+            postCleanDetection: components["schemas"]["CleanDetectionSummary"] | null;
             resultKind: string;
             photos: components["schemas"]["CleanPhoto"][];
             effective: components["schemas"]["CleanEffectiveValue"];
@@ -6327,7 +6327,7 @@ export interface components {
             bags: components["schemas"]["CleanBagFacts"];
             weights: components["schemas"]["CleanWeightFacts"];
             newBaseline: components["schemas"]["CleanBaselineSummary"];
-            postCleanDetection: components["schemas"]["CleanDetectionSummary"];
+            postCleanDetection: components["schemas"]["CleanDetectionSummary"] | null;
             resultKind: string;
             photos: components["schemas"]["CleanPhoto"][];
             effective: components["schemas"]["CleanEffectiveValue"];

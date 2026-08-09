@@ -181,10 +181,10 @@ function CleanRecordDrawer({
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="新基线建立">{detail.newBaseline.established ? '已建立' : '未建立'}</Descriptions.Item>
               <Descriptions.Item label="基线重量">{weight(detail.newBaseline.baselineWeightKg)}</Descriptions.Item>
-              <Descriptions.Item label="检测状态">{detail.postCleanDetection.status ?? '未产生'}</Descriptions.Item>
-              <Descriptions.Item label="检测结果">{detail.postCleanDetection.finalResult ?? '无'}</Descriptions.Item>
-              <Descriptions.Item label="检测失败码">{detail.postCleanDetection.failureCode ?? '无'}</Descriptions.Item>
-              <Descriptions.Item label="检测完成时间">{optionalTime(detail.postCleanDetection.completedAt)}</Descriptions.Item>
+              <Descriptions.Item label="检测状态">{detail.postCleanDetection?.status ?? '未产生'}</Descriptions.Item>
+              <Descriptions.Item label="检测结果">{detail.postCleanDetection?.finalResult ?? '无'}</Descriptions.Item>
+              <Descriptions.Item label="检测失败码">{detail.postCleanDetection?.failureCode ?? '无'}</Descriptions.Item>
+              <Descriptions.Item label="检测完成时间">{optionalTime(detail.postCleanDetection?.completedAt ?? null)}</Descriptions.Item>
             </Descriptions>
           </Card>
           <Card size="small" title={`异常（${detail.anomalies.length}）`}>

@@ -11716,7 +11716,12 @@
           "bags": {"$ref": "#/components/schemas/CleanBagFacts"},
           "weights": {"$ref": "#/components/schemas/CleanWeightFacts"},
           "newBaseline": {"$ref": "#/components/schemas/CleanBaselineSummary"},
-          "postCleanDetection": {"$ref": "#/components/schemas/CleanDetectionSummary"},
+          "postCleanDetection": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanDetectionSummary"},
+              {"type": "null"}
+            ]
+          },
           "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
           "photos": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPhoto"}},
           "effective": {"$ref": "#/components/schemas/CleanEffectiveValue"},
@@ -11745,7 +11750,12 @@
           "bags": {"$ref": "#/components/schemas/CleanBagFacts"},
           "weights": {"$ref": "#/components/schemas/CleanWeightFacts"},
           "newBaseline": {"$ref": "#/components/schemas/CleanBaselineSummary"},
-          "postCleanDetection": {"$ref": "#/components/schemas/CleanDetectionSummary"},
+          "postCleanDetection": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/CleanDetectionSummary"},
+              {"type": "null"}
+            ]
+          },
           "resultKind": {"type": "string", "minLength": 1, "maxLength": 32},
           "photos": {"type": "array", "items": {"$ref": "#/components/schemas/CleanPhoto"}},
           "effective": {"$ref": "#/components/schemas/CleanEffectiveValue"},

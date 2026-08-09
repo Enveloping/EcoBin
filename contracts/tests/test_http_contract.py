@@ -960,6 +960,41 @@ class HttpContractTests(unittest.TestCase):
         self.assertEqual(installed_bag["maxLength"], 59)
         self.assertTrue(installed_bag["pattern"].startswith("^EB1_"))
 
+    def test_clean_record_detail_allows_missing_post_clean_detection_fact(
+        self,
+    ) -> None:
+        document = load_openapi()
+        schemas = document["components"]["schemas"]
+
+        for schema_name in (
+            "MiniappCleanRecordDetail",
+            "WebCleanRecordDetail",
+        ):
+            detail_schema = schemas[schema_name]
+            self.assertIn(
+                "postCleanDetection",
+                detail_schema["required"],
+                f"{schema_name} must always expose the field",
+            )
+            self.assertEqual(
+                detail_schema["properties"]["postCleanDetection"],
+                {
+                    "oneOf": [
+                        {
+                            "$ref": (
+                                "#/components/schemas/"
+                                "CleanDetectionSummary"
+                            )
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                (
+                    f"{schema_name}.postCleanDetection must allow null "
+                    "when no detection fact was produced"
+                ),
+            )
+
     def test_web_clean_operation_contract_uses_canonical_states(self) -> None:
         document = load_openapi()
         paths = document["paths"]

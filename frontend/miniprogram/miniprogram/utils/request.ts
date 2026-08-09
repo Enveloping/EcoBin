@@ -17,6 +17,7 @@ import {
   sessionEntryChanged,
   sessionInstanceChanged,
 } from './session-transition'
+import { omitUndefinedRequestFields } from './request-data'
 import type { ProblemDetail, Result } from '../types/api'
 
 type Method = 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'DELETE'
@@ -109,7 +110,7 @@ function requestOnce<T>(
     wx.request({
       url: BASE_URL + options.url,
       method: options.method ?? 'GET',
-      data: options.data,
+      data: omitUndefinedRequestFields(options.data),
       header: headers,
       timeout: TIMEOUT,
       success: (response) => {
