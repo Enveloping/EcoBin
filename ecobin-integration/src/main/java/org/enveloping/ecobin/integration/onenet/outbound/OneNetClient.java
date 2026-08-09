@@ -1667,32 +1667,33 @@ public class OneNetClient
                     "acceptance command expiry must follow issue time");
         }
 
-        Map<String, Object> params = new LinkedHashMap<>();
+        Map<String, Object> scalarFields = new LinkedHashMap<>();
         // OneNet represents the domain constant "2" as local enum code 1.
         requiredInteger(envelope, "schemaVersion", 2, 2);
-        params.put("schemaVersion", 1);
-        params.put("commandUid", requiredUuid(envelope, "commandUid"));
-        params.put("commandType", 1);
-        params.put("targetDeviceName", deviceName);
-        params.put("target", Map.of("type", 1, "uid", deviceName));
-        params.put("issuedAt", issuedAtText);
-        params.put("expiresAt", expiresAtText);
+        scalarFields.put("schemaVersion", 1);
+        scalarFields.put(
+                "commandUid",
+                requiredUuid(envelope, "commandUid"));
+        scalarFields.put("commandType", 1);
+        scalarFields.put("targetDeviceName", deviceName);
+        scalarFields.put("issuedAt", issuedAtText);
+        scalarFields.put("expiresAt", expiresAtText);
         requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
-        params.put("payloadSchemaVersion", 1);
-        params.put(
+        scalarFields.put("payloadSchemaVersion", 1);
+        scalarFields.put(
                 "payloadSha256",
                 requiredMatchingText(
                         envelope,
                         "payloadSha256",
                         "^[0-9a-f]{64}$",
                         64));
-        params.put(
+        scalarFields.put(
                 "challengeUid",
                 requiredUuid(payload, "challengeUid"));
-        params.put(
+        scalarFields.put(
                 "expectedPortCount",
                 requiredInteger(payload, "expectedPortCount", 1, 6));
-        putDeviceEntryUrl(payload, params);
+        putDeviceEntryUrl(payload, scalarFields);
 
         Map<String, Object> first = new LinkedHashMap<>();
         Map<String, Object> second = new LinkedHashMap<>();
@@ -1706,8 +1707,12 @@ public class OneNetClient
             throw new IllegalArgumentException(
                     "acceptance command requires COS credentials");
         }
-        params.putAll(first);
-        params.putAll(second);
+        scalarFields.putAll(first);
+        scalarFields.putAll(second);
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("scalarFields", scalarFields);
+        params.put("target", Map.of("type", 1, "uid", deviceName));
         params.put(
                 "cosGrantSessionTokenParts",
                 sessionTokenParts);

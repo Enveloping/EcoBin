@@ -716,10 +716,26 @@ class OneNetClientReliableSubmissionTest {
         assertEquals(
                 "requestDeviceAcceptance",
                 actual.path("identifier").asText());
+        assertEquals(3, params.size());
+        assertEquals(
+                1,
+                params.path("scalarFields")
+                        .path("schemaVersion")
+                        .asInt());
+        assertEquals(
+                HARDWARE_SN,
+                params.path("scalarFields")
+                        .path("targetDeviceName")
+                        .asText());
         assertEquals(
                 "ecobin/device-acceptance/"
                         + "8a000000-0000-4000-8000-000000000003/",
-                params.path("cosGrantKeyPrefix").asText());
+                params.path("scalarFields")
+                        .path("cosGrantKeyPrefix")
+                        .asText());
+        assertEquals(
+                HARDWARE_SN,
+                params.path("target").path("uid").asText());
         assertEquals(1, params.path("cosGrantSessionTokenParts").size());
         verify(cosUploadCredentialPort).issue(
                 HARDWARE_SN,
