@@ -58,10 +58,39 @@ class FakeUart:
 class FakeCompatUart(FakeUart):
     compatibility_mode = True
 
+    def __init__(self, self_test_result=None, trace=None):
+        super().__init__(trace=trace)
+        self.self_test_calls = []
+        self.self_test_result = self_test_result or {
+            "queryStatus": "OK",
+            "communicationHealthy": True,
+            "portNo": 1,
+            "validFlags": 3,
+            "weightValid": True,
+            "weightGrams": 1_234,
+            "weightMeasurementUid": (
+                "6f000000-0000-4000-8000-000000000002"
+            ),
+            "infraredValid": True,
+            "infraredBlocked": False,
+            "smokeCode": 0,
+            "smokeState": "NORMAL",
+            "smokeSensorHealth": "OK",
+            "faultCode": None,
+            "rawFrameHex": "f1030004d20000f1",
+        }
+
     def apply_configuration(self, command, part_command_uids):
         raise AssertionError(
             "fixed-frame compatibility must not project config to MCU"
         )
+
+    def query_self_test(self, timeout_ms=3000, on_result=None):
+        self.self_test_calls.append(timeout_ms)
+        result = dict(self.self_test_result)
+        if on_result is not None:
+            on_result(result)
+        return result
 
 
 class FakePhotoManager:
@@ -1320,7 +1349,9 @@ def test_compat_fullness_uses_latest_dd_observation_without_uart(tmp_path):
     store.close()
 
 
-def test_compat_baseline_reports_unsupported_without_history(tmp_path):
+def test_compat_baseline_uses_fresh_f0_f1_weight_not_cached_history(
+    tmp_path,
+):
     store = make_store(tmp_path)
     mark_configuration_applied(store)
     uart = FakeCompatUart()
@@ -1340,12 +1371,73 @@ def test_compat_baseline_reports_unsupported_without_history(tmp_path):
     inbox = store.get_command(command["commandUid"])
     assert inbox["state"] == "COMPLETED"
     assert inbox["result"] == {
+        "measurementStatus": "STABLE",
+        "weightValuePresent": True,
+        "reportedWeightGrams": 1_234,
+        "compatibilitySource": "FRESH_F0_F1_SNAPSHOT",
+    }
+    events = [
+        json.loads(row["payload_json"])
+        for row in store.list_pending_events(limit=100)
+        if row["event_type"] == "BASELINE_MEASUREMENT_COMPLETE"
+    ]
+    assert len(events) == 1
+    encode_event_post("BASELINE_MEASUREMENT_COMPLETE", events[0])
+    measurement = events[0]["payload"]["totalWeightMeasurement"]
+    assert measurement["status"] == "STABLE"
+    assert measurement["weightValueAvailable"] is True
+    assert measurement["reportedWeightGrams"] == 1_234
+    assert measurement["weightValueKind"] == "STABLE_WINDOW_MEAN"
+    assert measurement["sensorHealth"] == "OK"
+    assert measurement["faultCode"] is None
+    baseline = store.get_bag_baseline(command["payload"]["bagUid"])
+    assert baseline["weight_grams"] == 1_234
+    assert baseline["source_kind"] == "FIXED_FRAME_F0_F1"
+    assert store.get_work_slot() is None
+    assert uart.calls == []
+    assert uart.self_test_calls == [3_000]
+    store.close()
+
+
+def test_compat_baseline_reports_fresh_f0_weight_failure(tmp_path):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart({
+        "queryStatus": "OK",
+        "communicationHealthy": True,
+        "portNo": 1,
+        "validFlags": 2,
+        "weightValid": False,
+        "weightGrams": None,
+        "weightMeasurementUid": None,
+        "infraredValid": True,
+        "infraredBlocked": False,
+        "smokeCode": 0,
+        "smokeState": "NORMAL",
+        "smokeSensorHealth": "OK",
+        "faultCode": None,
+        "rawFrameHex": "f1020000000000f1",
+    })
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "measure-empty-bag-baseline.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "COMPLETED"
+    assert inbox["result"] == {
         "measurementStatus": "SENSOR_FAULT",
         "weightValuePresent": False,
         "reportedWeightGrams": None,
-        "compatibilitySource": (
-            "STANDALONE_MEASUREMENT_UNSUPPORTED"
-        ),
+        "compatibilitySource": "FRESH_F0_F1_SNAPSHOT",
     }
     events = [
         json.loads(row["payload_json"])
@@ -1359,8 +1451,9 @@ def test_compat_baseline_reports_unsupported_without_history(tmp_path):
     assert measurement["weightValueAvailable"] is False
     assert measurement["reportedWeightGrams"] is None
     assert measurement["faultCode"] == "WEIGHT_SENSOR"
-    assert store.get_work_slot() is None
+    assert store.get_bag_baseline(command["payload"]["bagUid"]) is None
     assert uart.calls == []
+    assert uart.self_test_calls == [3_000]
     store.close()
 
 
@@ -1578,14 +1671,14 @@ def test_compat_baseline_never_reuses_old_flow_weight_after_restart(
     )
     processor.process_next()
     assert store.get_command(first["commandUid"])["result"] == {
-        "measurementStatus": "SENSOR_FAULT",
-        "weightValuePresent": False,
-        "reportedWeightGrams": None,
-        "compatibilitySource": (
-            "STANDALONE_MEASUREMENT_UNSUPPORTED"
-        ),
+        "measurementStatus": "STABLE",
+        "weightValuePresent": True,
+        "reportedWeightGrams": 1_234,
+        "compatibilitySource": "FRESH_F0_F1_SNAPSHOT",
     }
     bag_uid = first["payload"]["bagUid"]
+    assert store.get_bag_baseline(bag_uid)["weight_grams"] == 1_234
+    assert uart.self_test_calls == [3_000]
     store.close()
 
     store = EdgeStore(str(database_path))
@@ -1603,6 +1696,13 @@ def test_compat_baseline_never_reuses_old_flow_weight_after_restart(
         }),
     )
     uart = FakeCompatUart()
+    uart.self_test_result.update({
+        "weightGrams": 2_345,
+        "weightMeasurementUid": (
+            "6f000000-0000-4000-8000-000000000003"
+        ),
+        "rawFrameHex": "f1030009290000f1",
+    })
     processor = CommandProcessor(
         store,
         uart,
@@ -1626,10 +1726,9 @@ def test_compat_baseline_never_reuses_old_flow_weight_after_restart(
     processor.process_next()
 
     result = store.get_command(second["commandUid"])["result"]
-    assert result["reportedWeightGrams"] is None
-    assert result["compatibilitySource"] == (
-        "STANDALONE_MEASUREMENT_UNSUPPORTED"
-    )
-    assert store.get_bag_baseline(bag_uid) is None
+    assert result["reportedWeightGrams"] == 2_345
+    assert result["compatibilitySource"] == "FRESH_F0_F1_SNAPSHOT"
+    assert store.get_bag_baseline(bag_uid)["weight_grams"] == 2_345
     assert uart.calls == []
+    assert uart.self_test_calls == [3_000]
     store.close()

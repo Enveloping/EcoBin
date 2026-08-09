@@ -859,32 +859,74 @@ class WorkManager:
             )
         measurement_uid = payload["measurementUid"]
         bag_uid = payload["bagUid"]
-        # The negotiated DD/EF fixed-frame protocol has no standalone weight
-        # command. A previous delivery/clean observation (or literal zero) is
-        # not evidence that this currently installed bag is empty. Report an
-        # explicit failed measurement so the cloud keeps the port blocked and
-        # can retry after MCU firmware gains the required capability.
+        query_timeout_ms = min(
+            3_000,
+            payload["measurementTimeoutMs"],
+            _remaining_execution_ms(command),
+        )
+        snapshot = self._uart.query_self_test(
+            timeout_ms=query_timeout_ms,
+            on_result=self._store.save_fixed_frame_self_test,
+        )
+        weight_grams = snapshot.get("weightGrams")
+        stable = (
+            snapshot.get("queryStatus") == "OK"
+            and snapshot.get("communicationHealthy") is True
+            and snapshot.get("portNo") == payload["portNo"]
+            and snapshot.get("weightValid") is True
+            and isinstance(weight_grams, int)
+            and not isinstance(weight_grams, bool)
+            and 0 <= weight_grams <= 350_000
+        )
+        query_status = str(
+            snapshot.get("queryStatus") or "PROTOCOL_ERROR"
+        )
+        if stable:
+            measurement_status = "STABLE"
+            sensor_health = "OK"
+            fault_code = "NONE"
+        elif query_status == "TIMEOUT":
+            measurement_status = "TIMEOUT"
+            sensor_health = "TIMEOUT"
+            fault_code = "WEIGHT_TIMEOUT"
+        elif query_status == "UART_CLOSED":
+            measurement_status = "DISCONNECTED"
+            sensor_health = "DISCONNECTED"
+            fault_code = "WEIGHT_DISCONNECTED"
+        elif query_status == "OK":
+            measurement_status = "SENSOR_FAULT"
+            sensor_health = "UNKNOWN"
+            fault_code = "WEIGHT_SENSOR"
+        else:
+            measurement_status = "PROTOCOL_ERROR"
+            sensor_health = "PROTOCOL_ERROR"
+            fault_code = "WEIGHT_PROTOCOL"
+
+        mcu_boot_id = max(
+            1,
+            int(self._store.get_edge_boot_id() or 1),
+        )
+        mcu_event_sequence = (
+            self._store.reserve_compat_mcu_event_sequence()
+        )
         measurement = {
             "measurementUid": _compat_uid(
                 measurement_uid,
-                "baseline-unsupported",
+                "baseline-f0-f1",
             ),
-            "measurementStatus": "SENSOR_FAULT",
-            "weightValuePresent": False,
-            "reportedWeightGrams": None,
-            "weightValueKind": "NONE",
+            "measurementStatus": measurement_status,
+            "weightValuePresent": stable,
+            "reportedWeightGrams": weight_grams if stable else None,
+            "weightValueKind": (
+                "STABLE_WINDOW_MEAN" if stable else "NONE"
+            ),
             "measurementElapsedMs": 0,
-            "sampleCount": 0,
+            "sampleCount": 1 if stable else 0,
             "calibrationVersion": 0,
-            "weightSensorHealth": "UNKNOWN",
-            "faultCode": "WEIGHT_SENSOR",
-            "mcuBootId": max(
-                1,
-                int(self._store.get_edge_boot_id() or 1),
-            ),
-            "mcuEventSequence": (
-                self._store.reserve_compat_mcu_event_sequence()
-            ),
+            "weightSensorHealth": sensor_health,
+            "faultCode": fault_code,
+            "mcuBootId": mcu_boot_id,
+            "mcuEventSequence": mcu_event_sequence,
         }
         event_payload = {
             "measurementUid": measurement_uid,
@@ -895,13 +937,14 @@ class WorkManager:
             "frozenConfig": _frozen_config(payload["config"]),
         }
         result = {
-            "measurementStatus": "SENSOR_FAULT",
-            "weightValuePresent": False,
-            "reportedWeightGrams": None,
-            "compatibilitySource": (
-                "STANDALONE_MEASUREMENT_UNSUPPORTED"
-            ),
+            "measurementStatus": measurement_status,
+            "weightValuePresent": stable,
+            "reportedWeightGrams": weight_grams if stable else None,
+            "compatibilitySource": "FRESH_F0_F1_SNAPSHOT",
         }
+        now = datetime.now(timezone.utc).isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z")
         completed = self._store.complete_fixed_frame_local_result(
             result_type="BASELINE",
             result_key=measurement_uid,
@@ -912,6 +955,22 @@ class WorkManager:
             target_uid=measurement_uid,
             event_payload=event_payload,
             result=result,
+            bag_baseline=(
+                {
+                    "bag_uid": bag_uid,
+                    "weight_grams": weight_grams,
+                    "source_kind": "FIXED_FRAME_F0_F1",
+                    "source_work_type": WORK_TYPE_BASELINE,
+                    "source_work_uid": measurement_uid,
+                    "source_mcu_boot_id": mcu_boot_id,
+                    "source_mcu_event_sequence": mcu_event_sequence,
+                    "source_observed_at": now,
+                    "measurement_uid": measurement["measurementUid"],
+                    "updated_at": now,
+                }
+                if stable
+                else None
+            ),
         )
         if completed not in ("ACCEPTED", "DUPLICATE"):
             raise ValueError(
@@ -921,7 +980,11 @@ class WorkManager:
             "acked": True,
             "completed_locally": True,
             "mcu_command_uid": None,
-            "disposition": "STANDALONE_MEASUREMENT_UNSUPPORTED",
+            "disposition": (
+                "FRESH_F0_F1_STABLE"
+                if stable
+                else "FRESH_F0_F1_FAILED"
+            ),
         }
 
     def end_clean_before_unlock_command(

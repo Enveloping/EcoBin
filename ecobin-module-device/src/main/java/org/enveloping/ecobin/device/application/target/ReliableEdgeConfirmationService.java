@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,6 +33,8 @@ public class ReliableEdgeConfirmationService
     static final String TASK_TYPE = "CONFIRM_EDGE_EVENT";
     static final String TARGET_TYPE = "BUSINESS_CONFIRMATION";
     static final int MAX_AUTO_ATTEMPTS = 100;
+    private static final Set<String> APPLIED_EFFECT_KINDS = Set.of(
+            "CREATED", "UPDATED", "NO_ACTION_REQUIRED");
 
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbc;
@@ -84,6 +87,10 @@ public class ReliableEdgeConfirmationService
             String effectKind,
             List<DeliveryCompletionResultReference> resultReferences,
             LocalDateTime processedAt) {
+        if (!APPLIED_EFFECT_KINDS.contains(effectKind)) {
+            throw new IllegalArgumentException(
+                    "effectKind must match the confirmation contract");
+        }
         return register(
                 tenantId,
                 organizationId,

@@ -886,7 +886,9 @@ public class TrustedOrangePiRuntimeFactService
                 UUID.fromString(commandUid));
         touchLastDeviceEvent(
                 asset.assetId(), tenantId, organizationId, now);
-        return success ? "BASELINE_ESTABLISHED" : "BASELINE_RETRY_REQUIRED";
+        // The confirmation contract describes the generic database effect;
+        // the detailed success or retry state remains in the baseline rows.
+        return "UPDATED";
     }
 
     private void requireBaselineLock(String sql, Object... arguments) {

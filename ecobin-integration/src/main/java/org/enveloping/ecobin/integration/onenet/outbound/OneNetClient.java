@@ -1771,6 +1771,9 @@ public class OneNetClient
             case "CREATED" -> 1;
             case "UPDATED" -> 2;
             case "NO_ACTION_REQUIRED" -> 3;
+            // Recover immutable tasks frozen by the former baseline producer.
+            // New tasks are constrained to the three contract values above.
+            case "BASELINE_ESTABLISHED", "BASELINE_RETRY_REQUIRED" -> 2;
             default -> throw new IllegalArgumentException(
                     "unsupported confirmation effect");
         };

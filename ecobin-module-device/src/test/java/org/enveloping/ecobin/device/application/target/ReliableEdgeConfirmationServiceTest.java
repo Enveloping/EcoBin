@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -63,7 +64,7 @@ class ReliableEdgeConfirmationServiceTest {
                 13L,
                 EVENT_UID,
                 "11".repeat(32),
-                "DELIVERY_RECORDED",
+                "UPDATED",
                 LocalDateTime.of(2026, 8, 1, 12, 0));
 
         ArgumentCaptor<ReliableDeviceControlTaskRegistration> registration =
@@ -71,6 +72,28 @@ class ReliableEdgeConfirmationServiceTest {
                         ReliableDeviceControlTaskRegistration.class);
         verify(registrationPort).register(registration.capture());
         assertEquals(100, registration.getValue().maxAutoAttempts());
+    }
+
+    @Test
+    void rejectsEffectKindOutsideConfirmationContract() {
+        ReliableEdgeConfirmationService service =
+                new ReliableEdgeConfirmationService(
+                        new ObjectMapper(),
+                        mock(JdbcTemplate.class),
+                        new DeviceConfigurationCanonicalizer(),
+                        mock(DeviceAssetTaskRefFactory.class),
+                        mock(ReliableDeviceControlTaskRegistrationPort.class));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registerApplied(
+                        11L,
+                        12L,
+                        13L,
+                        EVENT_UID,
+                        "11".repeat(32),
+                        "BASELINE_ESTABLISHED",
+                        LocalDateTime.of(2026, 8, 1, 12, 0)));
     }
 
     @Test
