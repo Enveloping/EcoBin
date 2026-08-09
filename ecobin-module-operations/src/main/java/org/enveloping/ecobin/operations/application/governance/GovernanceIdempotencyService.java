@@ -13,6 +13,19 @@ import java.util.UUID;
 @Service
 public class GovernanceIdempotencyService {
 
+    static final String CLAIM_SQL = """
+            INSERT INTO ops_governance_idempotency (
+                operation_uid, actor_kind, actor_uid, scope_sha256,
+                action_code, target_type, target_stable_key,
+                request_sha256, status, result_resource_uid,
+                result_state, result_version, created_at,
+                completed_at, updated_at
+            ) VALUES (?, ?, ?, UNHEX(?), ?, ?, ?, UNHEX(?),
+                      'IN_PROGRESS', NULL, NULL, NULL, ?, NULL, ?)
+            ON DUPLICATE KEY UPDATE
+                updated_at = updated_at
+            """;
+
     private final JdbcTemplate jdbc;
 
     public GovernanceIdempotencyService(JdbcTemplate jdbc) {
@@ -23,18 +36,7 @@ public class GovernanceIdempotencyService {
     public Claim claim(Request request) {
         GovernanceIdempotency.requireVersionFour(request.operationUid());
         LocalDateTime now = databaseNow();
-        jdbc.update("""
-                INSERT INTO ops_governance_idempotency (
-                    operation_uid, actor_kind, actor_uid, scope_sha256,
-                    action_code, target_type, target_stable_key,
-                    request_sha256, status, result_resource_uid,
-                    result_state, result_version, created_at,
-                    completed_at, updated_at
-                ) VALUES (?, ?, ?, UNHEX(?), ?, ?, ?, UNHEX(?),
-                          'IN_PROGRESS', NULL, NULL, NULL, ?, NULL, ?)
-                ON DUPLICATE KEY UPDATE
-                    operation_uid = VALUES(operation_uid)
-                """,
+        jdbc.update(CLAIM_SQL,
                 request.operationUid().toString(), request.actorKind(),
                 request.actorUid().toString(), request.scopeDigest(),
                 request.actionCode(), request.targetType(),

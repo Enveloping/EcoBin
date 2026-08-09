@@ -168,6 +168,28 @@ if ($opsAlertColumns -notcontains "source_key") {
     throw "ops_alert.source_key is required by the reliable-task alert projection"
 }
 
+$governanceIdempotencyColumns = @(
+    $catalog.UpdateColumns.ops_governance_idempotency
+)
+$governanceIdempotencyRequiredColumns = @(
+    "status"
+    "result_resource_uid"
+    "result_state"
+    "result_version"
+    "completed_at"
+    "updated_at"
+)
+if (@(
+        Compare-Object `
+            $governanceIdempotencyRequiredColumns `
+            $governanceIdempotencyColumns
+    ).Count -ne 0) {
+    throw (
+        "Governance idempotency runtime UPDATE grants must keep request " +
+        "identity immutable and expose only completion projection columns"
+    )
+}
+
 if ($catalog.UpdateColumns.ContainsKey(
         "rec_organization_delivery_config")) {
     throw (
