@@ -89,13 +89,15 @@ test('clean operation state disposition separates polling and terminal safety pa
   }
   assert.equal(cleanOperationDisposition('COMPLETED'), 'COMPLETED');
   assert.equal(
-    cleanOperationDisposition('PRE_OPEN_ENDED'),
-    'PRE_OPEN_ENDED',
+    cleanOperationDisposition('PRE_UNLOCK_ENDED'),
+    'PRE_UNLOCK_ENDED',
   );
   assert.equal(
     cleanOperationDisposition('RECOVERY_REQUIRED'),
     'RECOVERY_REQUIRED',
   );
+  assert.equal(cleanOperationDisposition('ABORTED'), 'ABORTED');
+  assert.equal(cleanOperationDisposition('PRE_OPEN_ENDED'), 'UNKNOWN');
   assert.equal(cleanOperationDisposition('FUTURE_STATUS'), 'UNKNOWN');
 });
 

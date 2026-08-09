@@ -93,14 +93,14 @@
   </block>
 
   <view
-    wx:elif="{{stage === 'submitting' || stage === 'submit-uncertain' || stage === 'polling' || stage === 'poll-paused' || stage === 'recovery' || stage === 'completed' || stage === 'ended'}}"
+    wx:elif="{{stage === 'submitting' || stage === 'submit-uncertain' || stage === 'polling' || stage === 'poll-paused' || stage === 'recovery' || stage === 'completed' || stage === 'ended' || stage === 'aborted'}}"
     class="status-card"
   >
-    <view class="status-icon {{stage === 'completed' ? 'status-icon--success' : ''}} {{stage === 'recovery' || stage === 'poll-paused' || stage === 'submit-uncertain' ? 'status-icon--warning' : ''}}">
+    <view class="status-icon {{stage === 'completed' ? 'status-icon--success' : ''}} {{stage === 'recovery' || stage === 'aborted' || stage === 'poll-paused' || stage === 'submit-uncertain' ? 'status-icon--warning' : ''}}">
       <t-icon
-        name="{{stage === 'completed' ? 'check-circle' : (stage === 'recovery' || stage === 'poll-paused' || stage === 'submit-uncertain' ? 'info-circle' : 'time')}}"
+        name="{{stage === 'completed' ? 'check-circle' : (stage === 'recovery' || stage === 'aborted' || stage === 'poll-paused' || stage === 'submit-uncertain' ? 'info-circle' : 'time')}}"
         size="64rpx"
-        color="{{stage === 'completed' ? '#109d2b' : (stage === 'recovery' || stage === 'poll-paused' || stage === 'submit-uncertain' ? '#c27a1a' : '#159b32')}}"
+        color="{{stage === 'completed' ? '#109d2b' : (stage === 'recovery' || stage === 'aborted' || stage === 'poll-paused' || stage === 'submit-uncertain' ? '#c27a1a' : '#159b32')}}"
       />
     </view>
     <view class="status-title">{{statusTitle}}</view>
@@ -118,7 +118,7 @@
       class="primary-action"
       bindtap="onContinueOperation"
     >{{stage === 'submit-uncertain' ? '复用原请求继续' : '继续查询状态'}}</view>
-    <view wx:if="{{stage === 'completed' || stage === 'ended' || stage === 'recovery'}}" class="primary-action" bindtap="onBackHome">返回清运首页</view>
+    <view wx:if="{{stage === 'completed' || stage === 'ended' || stage === 'recovery' || stage === 'aborted'}}" class="primary-action" bindtap="onBackHome">返回清运首页</view>
   </view>
 
   <view

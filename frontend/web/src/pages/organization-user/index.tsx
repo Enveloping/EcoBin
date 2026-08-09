@@ -110,6 +110,8 @@ export default function OrganizationUserPage() {
     || state.hasCapability('review.execute'));
   const canReadWallet = useAuthStore((state) =>
     state.hasCapability('wallet.read'));
+  const canReadClean = useAuthStore((state) =>
+    state.hasCapability('clean.read'));
   const organizationCode = organizationScope.organizationCode;
   const [detail, setDetail] = useState<OrganizationUser | null>(null);
   const [walletUser, setWalletUser] = useState<OrganizationUser | null>(null);
@@ -526,6 +528,17 @@ export default function OrganizationUserPage() {
               提现
             </Link>
           )}
+          {canReadClean && (
+            <Link
+              to={directoryPath('/clean-records', {
+                tenant: scope.platform ? scope.tenantCode : undefined,
+                organization: organizationCode,
+                cleanerUserUid: user.organizationUserUid,
+              })}
+            >
+              清运
+            </Link>
+          )}
           {canReadWallet && (
             <Button
               type="link"
@@ -537,7 +550,8 @@ export default function OrganizationUserPage() {
               钱包
             </Button>
           )}
-          {!canReadDelivery && !canReadWithdrawal && !canReadWallet && (
+          {!canReadDelivery && !canReadWithdrawal && !canReadWallet
+            && !canReadClean && (
             <Typography.Text type="secondary">无读取权限</Typography.Text>
           )}
         </Space>

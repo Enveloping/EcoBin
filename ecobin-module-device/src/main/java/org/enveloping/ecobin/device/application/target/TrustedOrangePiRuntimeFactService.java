@@ -1,11 +1,13 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
+import org.enveloping.ecobin.device.api.port.TrustedCleanCommandObservationBusinessPort;
 import org.enveloping.ecobin.device.api.port.TrustedEdgeRestartedBusinessPort;
 import org.enveloping.ecobin.device.api.port.TrustedPlatformConfirmationReceiptPort;
 import org.enveloping.ecobin.device.api.result.PhotoStatusBusinessResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
+import org.enveloping.ecobin.device.api.result.TrustedCleanCommandObservation;
 import org.enveloping.ecobin.device.api.result.TrustedEdgeRestartedWork;
 import org.enveloping.ecobin.device.api.result.TrustedPhotoStatusFact;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformConfirmationReceiptEvent;
@@ -74,6 +76,8 @@ public class TrustedOrangePiRuntimeFactService
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness;
     private final ReliablePhotoUploadGrantService photoUploadGrants;
+    private final List<TrustedCleanCommandObservationBusinessPort>
+            cleanCommandObservationBusinessPorts;
     private final List<TrustedEdgeRestartedBusinessPort>
             edgeRestartedBusinessPorts;
 
@@ -86,6 +90,8 @@ public class TrustedOrangePiRuntimeFactService
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness,
             ReliablePhotoUploadGrantService photoUploadGrants,
+            List<TrustedCleanCommandObservationBusinessPort>
+                    cleanCommandObservationBusinessPorts,
             List<TrustedEdgeRestartedBusinessPort>
                     edgeRestartedBusinessPorts) {
         this.jdbc = jdbc;
@@ -96,6 +102,8 @@ public class TrustedOrangePiRuntimeFactService
         this.inboxRefFactory = inboxRefFactory;
         this.photoStatusBusiness = photoStatusBusiness;
         this.photoUploadGrants = photoUploadGrants;
+        this.cleanCommandObservationBusinessPorts = List.copyOf(
+                cleanCommandObservationBusinessPorts);
         this.edgeRestartedBusinessPorts = List.copyOf(
                 edgeRestartedBusinessPorts);
     }
@@ -1420,55 +1428,62 @@ public class TrustedOrangePiRuntimeFactService
         };
         boolean shouldAdvance = shouldAdvanceCommand(
                 command.physicalState(), desiredState);
-        if (!shouldAdvance) {
-            return new CommandObservationResult(
-                    "NO_ACTION_REQUIRED", false);
+        if (shouldAdvance) {
+            requireSingle(jdbc.update("""
+                            UPDATE dev_device_command
+                            SET physical_state = ?,
+                                edge_accepted_at =
+                                    COALESCE(edge_accepted_at, ?),
+                                physical_started_at =
+                                    CASE
+                                        WHEN ? IN (
+                                            'PHYSICAL_STARTED',
+                                            'PHYSICAL_FAILED'
+                                        )
+                                        THEN COALESCE(
+                                            physical_started_at, ?)
+                                        ELSE physical_started_at
+                                    END,
+                                physical_ended_at =
+                                    CASE
+                                        WHEN ? IN (
+                                            'PRE_START_FAILED',
+                                            'PHYSICAL_FAILED',
+                                            'EDGE_RESTARTED'
+                                        )
+                                        THEN COALESCE(
+                                            physical_ended_at, ?)
+                                        ELSE physical_ended_at
+                                    END,
+                                lock_version = lock_version + 1,
+                                updated_at = ?
+                            WHERE id = ?
+                              AND tenant_id = ?
+                              AND organization_id = ?
+                              AND asset_id = ?
+                            """,
+                    desiredState,
+                    now,
+                    desiredState,
+                    now,
+                    desiredState,
+                    now,
+                    now,
+                    command.id(),
+                    tenantId,
+                    organizationId,
+                    asset.assetId()),
+                    "advance observed device command");
         }
-        requireSingle(jdbc.update("""
-                        UPDATE dev_device_command
-                        SET physical_state = ?,
-                            edge_accepted_at =
-                                COALESCE(edge_accepted_at, ?),
-                            physical_started_at =
-                                CASE
-                                    WHEN ? IN (
-                                        'PHYSICAL_STARTED',
-                                        'PHYSICAL_FAILED'
-                                    )
-                                    THEN COALESCE(
-                                        physical_started_at, ?)
-                                    ELSE physical_started_at
-                                END,
-                            physical_ended_at =
-                                CASE
-                                    WHEN ? IN (
-                                        'PRE_START_FAILED',
-                                        'PHYSICAL_FAILED',
-                                        'EDGE_RESTARTED'
-                                    )
-                                    THEN COALESCE(
-                                        physical_ended_at, ?)
-                                    ELSE physical_ended_at
-                                END,
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE id = ?
-                          AND tenant_id = ?
-                          AND organization_id = ?
-                          AND asset_id = ?
-                        """,
-                desiredState,
+        projectCleanCommandObservation(
+                command,
+                stage,
+                errorCode,
+                event.occurredAt(),
                 now,
-                desiredState,
-                now,
-                desiredState,
-                now,
-                now,
-                command.id(),
                 tenantId,
                 organizationId,
-                asset.assetId()),
-                "advance observed device command");
+                asset.assetId());
         if ("FAILED".equals(stage)
                 && "EDGE_RESTARTED".equals(errorCode)) {
             abortRestartedWork(
@@ -1479,7 +1494,35 @@ public class TrustedOrangePiRuntimeFactService
                     now);
         }
         return new CommandObservationResult(
-                "UPDATED", false);
+                shouldAdvance ? "UPDATED" : "NO_ACTION_REQUIRED",
+                false);
+    }
+
+    private void projectCleanCommandObservation(
+            CommandRow command,
+            String stage,
+            String errorCode,
+            LocalDateTime occurredAt,
+            LocalDateTime receivedAt,
+            long tenantId,
+            long organizationId,
+            long assetId) {
+        if (command.cleanOperationId() == null) {
+            return;
+        }
+        TrustedCleanCommandObservation observation =
+                new TrustedCleanCommandObservation(
+                        tenantId,
+                        organizationId,
+                        assetId,
+                        command.cleanOperationId(),
+                        command.commandType(),
+                        stage,
+                        errorCode,
+                        occurredAt,
+                        receivedAt);
+        cleanCommandObservationBusinessPorts.forEach(
+                port -> port.applyCleanCommandObservation(observation));
     }
 
     private void abortRestartedWork(

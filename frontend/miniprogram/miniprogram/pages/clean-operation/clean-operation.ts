@@ -109,7 +109,7 @@ function statusCopy(status: CleanOperationStatus): {
         title: '需要现场恢复',
         description: '操作已停止自动推进，原操作信息仍被保留。请联系管理员处理。',
       }
-    case 'PRE_OPEN_ENDED':
+    case 'PRE_UNLOCK_ENDED':
       return {
         title: '本次清运未开始',
         description: '设备已确认首次解锁前结束，本次没有形成清运记录。',
@@ -118,6 +118,11 @@ function statusCopy(status: CleanOperationStatus): {
       return {
         title: '清运完成',
         description: '换袋结果已保存。清运记录可在“我的 → 清运记录”查看。',
+      }
+    case 'ABORTED':
+      return {
+        title: '本次清运已安全中止',
+        description: '设备在执行期间重启，系统已中止原操作并进入安全联锁。请联系管理员现场确认。',
       }
   }
 }
@@ -244,8 +249,12 @@ Page({
       this.applyStatus('COMPLETED')
       return
     }
-    if (intent.lastStatus === 'PRE_OPEN_ENDED') {
-      this.applyStatus('PRE_OPEN_ENDED')
+    if (intent.lastStatus === 'PRE_UNLOCK_ENDED') {
+      this.applyStatus('PRE_UNLOCK_ENDED')
+      return
+    }
+    if (intent.lastStatus === 'ABORTED') {
+      this.applyStatus('ABORTED')
       return
     }
     this.applyStatus(intent.lastStatus ?? 'PREPARED')
@@ -562,8 +571,10 @@ Page({
     const copy = statusCopy(status)
     const stage = status === 'COMPLETED'
       ? 'completed'
-      : status === 'PRE_OPEN_ENDED'
+      : status === 'PRE_UNLOCK_ENDED'
         ? 'ended'
+        : status === 'ABORTED'
+          ? 'aborted'
         : status === 'RECOVERY_REQUIRED'
           ? 'recovery'
           : 'polling'
@@ -572,7 +583,11 @@ Page({
       statusTitle: copy.title,
       statusDescription: copy.description,
     })
-    if (status === 'COMPLETED' || status === 'PRE_OPEN_ENDED') {
+    if (
+      status === 'COMPLETED'
+      || status === 'PRE_UNLOCK_ENDED'
+      || status === 'ABORTED'
+    ) {
       forgetCleanOperationIntent()
       this.intent = null
       this.clearPollTimer()

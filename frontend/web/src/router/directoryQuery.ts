@@ -2,6 +2,7 @@ export interface DirectoryLinkScope {
   tenant?: string | null;
   organization?: string | null;
   organizationUserUid?: string | null;
+  cleanerUserUid?: string | null;
   deliveryOrderNo?: string | null;
   view?: string | null;
 }
@@ -17,6 +18,9 @@ export function directoryPath(
   }
   if (scope.organizationUserUid) {
     query.set('organizationUserUid', scope.organizationUserUid);
+  }
+  if (scope.cleanerUserUid) {
+    query.set('cleanerUserUid', scope.cleanerUserUid);
   }
   if (scope.deliveryOrderNo) {
     query.set('deliveryOrderNo', scope.deliveryOrderNo);

@@ -15,8 +15,9 @@ const STATUSES = new Set<CleanOperationStatus>([
   'EDGE_SAVED',
   'IN_PROGRESS',
   'RECOVERY_REQUIRED',
-  'PRE_OPEN_ENDED',
+  'PRE_UNLOCK_ENDED',
   'COMPLETED',
+  'ABORTED',
 ])
 
 export interface PendingCleanOperationIntent {

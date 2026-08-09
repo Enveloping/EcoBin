@@ -199,6 +199,46 @@ test('delivery Web slice stays on generated contracts and additive commands', ()
   );
 });
 
+test('cleaning Web slice separates operation facts from editable records', () => {
+  const routeSource = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+  const operationApi = readFileSync(
+    new URL('src/api/cleanOperations.ts', webRoot),
+    'utf8',
+  );
+  const recordApi = readFileSync(
+    new URL('src/api/cleanRecords.ts', webRoot),
+    'utf8',
+  );
+  const operationPage = readFileSync(
+    new URL('src/pages/clean-operations/index.tsx', webRoot),
+    'utf8',
+  );
+  const recordPage = readFileSync(
+    new URL('src/pages/clean-records/index.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(routeSource, /path: '\/clean-operations'[\s\S]*?clean\.read/);
+  assert.match(routeSource, /path: '\/clean-records'[\s\S]*?clean\.read/);
+  assert.match(routeSource, /name: '清运管理'/);
+  assert.doesNotMatch(routeSource, /无效清运订单/);
+  assert.match(operationApi, /Schemas\['WebCleanOperationItem'\]/);
+  assert.match(operationApi, /listOrganizationCleanOperations/);
+  assert.match(recordApi, /Schemas\['WebCleanRecordDetail'\]/);
+  assert.match(recordApi, /intent\.execute/);
+  assert.match(operationPage, /RECOVERY_REQUIRED/);
+  assert.match(operationPage, /PRE_UNLOCK_ENDED/);
+  assert.match(operationPage, /ABORTED/);
+  assert.match(recordPage, /expectedVersion:\s*detail\.effective\.version/);
+  assert.match(recordPage, /listCleanRecordChanges/);
+  assert.match(recordPage, /清运记录修正失败/);
+  assert.match(recordPage, /修正历史加载失败/);
+  assert.doesNotMatch(recordPage, /审核|拒绝/);
+});
+
 test('organization delivery rules stay versioned and share one Web panel', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),

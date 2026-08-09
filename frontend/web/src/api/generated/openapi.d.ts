@@ -2574,6 +2574,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/organizations/{organizationCode}/clean-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Query cleaning operations with a filter-bound cursor */
+        get: operations["listOrganizationCleanOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/organizations/{organizationCode}/clean-operations/{operationUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                operationUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read one cleaning operation and its safety evidence */
+        get: operations["getOrganizationCleanOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        /** Query platform-scoped cleaning operations with a filter-bound cursor */
+        get: operations["listPlatformCleanOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-operations/{operationUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                operationUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read one platform-scoped cleaning operation and its safety evidence */
+        get: operations["getPlatformCleanOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/organizations/{organizationCode}/clean-records": {
         parameters: {
             query?: never;
@@ -5854,6 +5934,8 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @enum {string} */
+        CleanOperationStatus: "PREPARED" | "EDGE_SAVED" | "IN_PROGRESS" | "RECOVERY_REQUIRED" | "PRE_UNLOCK_ENDED" | "COMPLETED" | "ABORTED";
         StartCleanOperationRequest: {
             installedBagQr: components["schemas"]["AuthenticatedBagCode"];
         };
@@ -5861,7 +5943,8 @@ export interface components {
             operationId: components["schemas"]["UuidV4"];
             resourceId: components["schemas"]["UuidV4"];
             operationUid: components["schemas"]["UuidV4"];
-            status: string;
+            /** @enum {string} */
+            status: "PREPARED";
             version: components["schemas"]["ExpectedVersion"];
             portNo: number;
             installedBagQr: string;
@@ -5873,7 +5956,8 @@ export interface components {
         RecoverableCleanOperation: {
             operationUid: components["schemas"]["UuidV4"];
             portNo: number;
-            status: string;
+            /** @enum {string} */
+            status: "RECOVERY_REQUIRED";
             statusUrl: components["schemas"]["StatusUrl"];
         };
         CleanPortOption: {
@@ -5896,7 +5980,7 @@ export interface components {
         };
         CleanOperation: {
             operationUid: components["schemas"]["UuidV4"];
-            status: string;
+            status: components["schemas"]["CleanOperationStatus"];
             version: components["schemas"]["ExpectedVersion"];
             deviceCode: components["schemas"]["DeviceCode"];
             portNo: number;
@@ -5906,11 +5990,71 @@ export interface components {
             cleanLockDeenergizedConfirmed: boolean;
             cleanerPhysicalCloseConfirmed: boolean;
             startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
-            executionDeadlineAt: components["schemas"]["UtcTimestamp"];
+            executionDeadlineAt: components["schemas"]["UtcTimestamp"] | null;
             completedAt: components["schemas"]["UtcTimestamp"] | null;
             cleanRecordNo: string | null;
             recommendedPollAfterMs: number | null;
             nextActions: string[];
+        };
+        WebCleanOperationItem: {
+            operationUid: components["schemas"]["UuidV4"];
+            status: components["schemas"]["CleanOperationStatus"];
+            version: components["schemas"]["ExpectedVersion"];
+            cleanerUserUid: components["schemas"]["PublicUid"];
+            deviceCode: components["schemas"]["DeviceCode"];
+            portNo: number;
+            /** @enum {string} */
+            oldBagBindingState: "BOUND" | "MISSING";
+            removedBagQr: string | null;
+            installedBagQr: string;
+            edgeSavedConfirmed: boolean;
+            firstUnlockMayHaveExecuted: boolean;
+            cleanLockDeenergizedConfirmed: boolean;
+            cleanerPhysicalCloseConfirmed: boolean;
+            startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
+            executionDeadlineAt: components["schemas"]["UtcTimestamp"] | null;
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            endedAt: components["schemas"]["UtcTimestamp"] | null;
+            endReason: string | null;
+            cleanRecordNo: string | null;
+        };
+        CleanOperationCursorPage: {
+            items: components["schemas"]["WebCleanOperationItem"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            nextCursor: string | null;
+        };
+        WebCleanOperationDetail: {
+            operationUid: components["schemas"]["UuidV4"];
+            status: components["schemas"]["CleanOperationStatus"];
+            version: components["schemas"]["ExpectedVersion"];
+            cleanerUserUid: components["schemas"]["PublicUid"];
+            deviceCode: components["schemas"]["DeviceCode"];
+            portNo: number;
+            /** @enum {string} */
+            oldBagBindingState: "BOUND" | "MISSING";
+            removedBagQr: string | null;
+            installedBagQr: string;
+            preUnlockWeightStatus: string;
+            preUnlockWeightKg: string | null;
+            preUnlockWeightFaultCode: string | null;
+            edgeSavedConfirmed: boolean;
+            firstUnlockMayHaveExecuted: boolean;
+            cleanLockDeenergizedConfirmed: boolean;
+            cleanerPhysicalCloseConfirmed: boolean;
+            startAuthorizationExpiresAt: components["schemas"]["UtcTimestamp"];
+            edgeSavedAt: components["schemas"]["UtcTimestamp"] | null;
+            firstPossibleUnlockAt: components["schemas"]["UtcTimestamp"] | null;
+            solenoidPoweredOffAt: components["schemas"]["UtcTimestamp"] | null;
+            cleanerConfirmedClosedAt: components["schemas"]["UtcTimestamp"] | null;
+            executionDeadlineAt: components["schemas"]["UtcTimestamp"] | null;
+            reopenCount: number;
+            recoveryCount: number;
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            endedAt: components["schemas"]["UtcTimestamp"] | null;
+            endReason: string | null;
+            cleanRecordNo: string | null;
         };
         CleanRecordItem: {
             cleanRecordNo: string;
@@ -6093,6 +6237,18 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["CleanOperationAccepted"];
+            requestId: string;
+        };
+        CleanOperationPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["CleanOperationCursorPage"];
+            requestId: string;
+        };
+        WebCleanOperationDetailEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["WebCleanOperationDetail"];
             requestId: string;
         };
         CleanRecordPageEnvelope: {
@@ -7824,6 +7980,28 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["CleanOperationAcceptedEnvelope"];
+            };
+        };
+        /** @description Stable cursor page of cleaning operations */
+        CleanOperationPageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["CleanOperationPageEnvelope"];
+            };
+        };
+        /** @description Operational cleaning state and safety evidence */
+        WebCleanOperationDetailOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["WebCleanOperationDetailEnvelope"];
             };
         };
         /** @description Stable cursor page of cleaning records */
@@ -11199,6 +11377,98 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
             422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    listOrganizationCleanOperations: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+                status?: components["schemas"]["CleanOperationStatus"];
+                cleanerUserUid?: components["schemas"]["PublicUid"];
+                deviceCode?: components["schemas"]["DeviceCode"];
+                portNo?: number;
+                createdFrom?: components["schemas"]["UtcTimestamp"];
+                createdTo?: components["schemas"]["UtcTimestamp"];
+            };
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["CleanOperationPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getOrganizationCleanOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationCode: components["parameters"]["OrganizationCode"];
+                operationUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WebCleanOperationDetailOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    listPlatformCleanOperations: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+                status?: components["schemas"]["CleanOperationStatus"];
+                cleanerUserUid?: components["schemas"]["PublicUid"];
+                deviceCode?: components["schemas"]["DeviceCode"];
+                portNo?: number;
+                createdFrom?: components["schemas"]["UtcTimestamp"];
+                createdTo?: components["schemas"]["UtcTimestamp"];
+            };
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["CleanOperationPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformCleanOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantCode: components["parameters"]["TenantCode"];
+                organizationCode: components["parameters"]["OrganizationCode"];
+                operationUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["WebCleanOperationDetailOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
         };
     };
     listOrganizationCleanRecords: {

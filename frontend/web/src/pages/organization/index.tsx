@@ -223,13 +223,11 @@ export default function OrganizationPage() {
               },
               {
                 key: 'cleaning',
-                disabled: !(
-                  useAuthStore.getState().hasCapability('clean.read')
-                  || useAuthStore.getState().hasCapability('review.execute')
-                ),
+                disabled: !useAuthStore.getState()
+                  .hasCapability('clean.read'),
                 label: (
-                  <Link to={relatedPath('/clean-records', organization)}>
-                    清运订单
+                  <Link to={relatedPath('/clean-operations', organization)}>
+                    清运操作
                   </Link>
                 ),
               },

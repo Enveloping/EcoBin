@@ -17,8 +17,9 @@ const BLOCKER_TEXT: Record<CleanOptionBlocker, string> = {
 export type CleanOperationDisposition =
   | 'POLL'
   | 'COMPLETED'
-  | 'PRE_OPEN_ENDED'
+  | 'PRE_UNLOCK_ENDED'
   | 'RECOVERY_REQUIRED'
+  | 'ABORTED'
   | 'UNKNOWN'
 
 export function cleanBlockerText(blocker: CleanOptionBlocker): string {
@@ -42,10 +43,12 @@ export function cleanOperationDisposition(
       return 'POLL'
     case 'COMPLETED':
       return 'COMPLETED'
-    case 'PRE_OPEN_ENDED':
-      return 'PRE_OPEN_ENDED'
+    case 'PRE_UNLOCK_ENDED':
+      return 'PRE_UNLOCK_ENDED'
     case 'RECOVERY_REQUIRED':
       return 'RECOVERY_REQUIRED'
+    case 'ABORTED':
+      return 'ABORTED'
     default:
       return 'UNKNOWN'
   }

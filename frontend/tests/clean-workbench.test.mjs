@@ -87,6 +87,9 @@ test('clean workbench maps all six device filters and both destination pages', (
 });
 
 test('bag trace stays in cleaning mode and drills into cycles and orders', () => {
+  const apiSource = source(
+    '../miniprogram/miniprogram/api/bag-trace.ts',
+  );
   const traceSource = source(
     '../miniprogram/miniprogram/pages/bag-trace/bag-trace.ts',
   );
@@ -103,6 +106,9 @@ test('bag trace stays in cleaning mode and drills into cycles and orders', () =>
   assert.match(cycleSource, /\/pages\/bag-trace-detail\/bag-trace-detail/);
   assert.match(detailSource, /bagCycleOrderDetail/);
   assert.match(detailSource, /reason:\s*order\.reason/);
+  assert.match(apiSource, /requireRealCleaningSession/);
+  assert.match(apiSource, /session\?\.audience\s*!==\s*['"]miniapp['"]/);
+  assert.match(apiSource, /session\.entryMode\s*!==\s*['"]CLEANING['"]/);
 });
 
 test('custom tab bar projects user and cleaning roots and scan actions', () => {

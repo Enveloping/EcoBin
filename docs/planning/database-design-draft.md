@@ -1,9 +1,13 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-08-09 已推进 V44：只为 `rec_clean_operation` 增加 Web 机构时间列表及状态时间列表索引，
+> 不增加表、不改写现有记录或清运状态。当前目标为 V44、98 张领域表、76 条有效权限定义。
+
+> [!IMPORTANT]
 > 2026-08-09 已确认 V43：新增 `rec_bag_label_batch` 与 `rec_bag_label_item`，只保存平台
 > 签发和补打历史；两表不带租户/机构或库存状态，真实 `rec_bag` 仍在首次业务使用时创建。
-> 目标为 V43、98 张领域表、76 条有效权限定义。详见
+> 该 V43 业务裁决详见
 > [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
 
 > [!IMPORTANT]

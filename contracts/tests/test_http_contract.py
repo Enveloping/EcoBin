@@ -533,6 +533,10 @@ class HttpContractTests(unittest.TestCase):
                 "/organizations/{organizationCode}"
             ),
         ):
+            expected_methods[prefix + "/clean-operations"] = {"get"}
+            expected_methods[
+                prefix + "/clean-operations/{operationUid}"
+            ] = {"get"}
             expected_methods[prefix + "/clean-records"] = {"get"}
             expected_methods[
                 prefix + "/clean-records/{cleanRecordNo}"
@@ -888,8 +892,38 @@ class HttpContractTests(unittest.TestCase):
         installed_bag = schemas["StartCleanOperationRequest"][
             "properties"
         ]["installedBagQr"]
-        self.assertEqual(installed_bag["minLength"], 8)
-        self.assertEqual(installed_bag["maxLength"], 64)
+        if "$ref" in installed_bag:
+            installed_bag = schemas[
+                installed_bag["$ref"].rsplit("/", 1)[-1]
+            ]
+        self.assertEqual(installed_bag["minLength"], 54)
+        self.assertEqual(installed_bag["maxLength"], 59)
+        self.assertTrue(installed_bag["pattern"].startswith("^EB1_"))
+
+    def test_web_clean_operation_contract_uses_canonical_states(self) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        for path in (
+            "/api/v1/web/organizations/{organizationCode}/clean-operations",
+            "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-operations",
+        ):
+            self.assertIn("get", paths[path])
+        statuses = document["components"]["schemas"][
+            "CleanOperationStatus"
+        ]["enum"]
+        self.assertEqual(
+            statuses,
+            [
+                "PREPARED",
+                "EDGE_SAVED",
+                "IN_PROGRESS",
+                "RECOVERY_REQUIRED",
+                "PRE_UNLOCK_ENDED",
+                "COMPLETED",
+                "ABORTED",
+            ],
+        )
+        self.assertNotIn("PRE_OPEN_ENDED", statuses)
 
     def test_legacy_bearer_cutover_requires_client_cleanup_and_server_revoke(
         self,

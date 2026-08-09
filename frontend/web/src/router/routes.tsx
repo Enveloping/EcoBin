@@ -35,13 +35,16 @@ const DeliveryOrdersPage = lazy(
 const DeliveryConfigurationPage = lazy(
   () => import('@/pages/delivery-configuration'),
 );
+const CleanOperationsPage = lazy(
+  () => import('@/pages/clean-operations'),
+);
+const CleanRecordsPage = lazy(
+  () => import('@/pages/clean-records'),
+);
 const FundsPage = lazy(() => import('@/pages/funds'));
 const WithdrawalsPage = lazy(() => import('@/pages/withdrawals'));
 const WalletEntriesPage = lazy(
   () => import('@/pages/wallet-entries'),
-);
-const BusinessContractPendingPage = lazy(
-  () => import('@/pages/business/BusinessContractPending'),
 );
 
 export interface AppRoute {
@@ -165,10 +168,17 @@ export const appRoutes: AppRoute[] = [
     allOf: ['wallet.read'],
   },
   {
-    path: '/clean-records',
-    name: '清运订单',
+    path: '/clean-operations',
+    name: '清运操作',
     icon: <TruckOutlined />,
-    element: <BusinessContractPendingPage kind="cleaning" />,
+    element: <CleanOperationsPage />,
+    allOf: ['clean.read'],
+  },
+  {
+    path: '/clean-records',
+    name: '清运记录',
+    icon: <TruckOutlined />,
+    element: <CleanRecordsPage />,
     allOf: ['clean.read'],
   },
   {
@@ -338,21 +348,21 @@ export function menuRoutesFor(
     });
   }
 
-  const cleaning = visibleRoute(session, '/clean-records');
-  if (cleaning) {
+  const cleanOperations = visibleRoute(session, '/clean-operations');
+  const cleanRecords = visibleRoute(session, '/clean-records');
+  if (cleanOperations || cleanRecords) {
     menu.push({
-      path: '/menu/clean-records',
-      name: '清运订单',
-      icon: cleaning.icon,
-      routes: [
-        leaf(cleaning, cleaning.path, cleaning.name ?? '', false),
-        {
-          path: '/menu/clean-records/invalid',
-          name: '无效清运订单',
-          disabled: true,
-          tooltip: '目标契约尚未定义“无效清运订单”终态',
-        },
-      ],
+      path: '/menu/cleaning',
+      name: '清运管理',
+      icon: cleanOperations?.icon ?? cleanRecords?.icon,
+      routes: [cleanOperations, cleanRecords]
+        .filter((route): route is AppRoute => !!route)
+        .map((route) => leaf(
+          route,
+          route.path,
+          route.name ?? '',
+          false,
+        )),
     });
   }
 

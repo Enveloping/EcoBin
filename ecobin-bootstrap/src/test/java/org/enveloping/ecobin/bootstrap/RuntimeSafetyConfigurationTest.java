@@ -62,7 +62,8 @@ class RuntimeSafetyConfigurationTest {
             "V40__permanent_asset_edge_event_targets.sql",
             "V41__global_miniapp_device_entry_url.sql",
             "V42__device_entry_url_edge_delivery.sql",
-            "V43__authenticated_bag_label_batches.sql"
+            "V43__authenticated_bag_label_batches.sql",
+            "V44__clean_operation_web_queries.sql"
     };
 
     @Test

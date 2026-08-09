@@ -37,7 +37,8 @@ function activeMenuParent(pathname: string): string | undefined {
     '/tenant': '/menu/tenants',
     '/organization-users': '/menu/organization-users',
     '/deliveries': '/menu/deliveries',
-    '/clean-records': '/menu/clean-records',
+    '/clean-operations': '/menu/cleaning',
+    '/clean-records': '/menu/cleaning',
     '/funds': '/menu/funds',
     '/withdrawals': '/menu/funds',
   };

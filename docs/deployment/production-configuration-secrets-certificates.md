@@ -1,7 +1,7 @@
 # EcoBin 生产部署配置、密钥与证书清单
 
 > 适用目标：`ubuntu@115.159.67.35`、Ubuntu 22.04、
-> `https://www.jinshoubao.com`、目标数据库 V43。
+> `https://www.jinshoubao.com`、目标数据库 V44。
 >
 > 本文只记录配置项名称、用途和存放位置，不记录任何真实值。完整的安装、启动、
 > Nginx 切换和回退步骤见
@@ -184,7 +184,7 @@ H02_VOLUME_NAME=ecobin-target-mysql84-data
 H02_NETWORK_NAME=ecobin-target-db
 ```
 
-当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V43。V43 是数据库纪元门禁，
+当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V44。V44 是数据库纪元门禁，
 不是可以通过修改 `runtime.env` 绕过的配置项。
 
 ### 3.5 从仓库安装到服务器的固定文件
@@ -375,7 +375,7 @@ curl --fail --silent http://127.0.0.1:18080/ >/dev/null
 
 Real 模式切换前还应人工确认：
 
-- [ ] 目标数据库已经是 V43，且共有 98 张领域表；
+- [ ] 目标数据库已经是 V44，且共有 98 张领域表；
 - [ ] 发布包来自干净 Git 提交，归档和包内逐文件 SHA-256 校验均通过；
 - [ ] 两个本地镜像的标签、image ID、发布记录和镜像标签一致；
 - [ ] `deployment.env` 与 `runtime.env` 均为 `root:root 0600` 且使用 LF；

@@ -11,13 +11,13 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 98' -or
         $provisionSource -notmatch 'Expected 98 domain tables') {
-    throw "H-02 provisioning must enforce the V43 98-table shape"
+    throw "H-02 provisioning must enforce the V44 98-table shape"
 }
 if ($provisionSource -match 'Expected 99 domain tables') {
     throw "H-02 provisioning still enforces the removed V35 table count"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 43') {
-    throw "H-02 provisioning must migrate through V43"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 44') {
+    throw "H-02 provisioning must migrate through V44"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -56,7 +56,7 @@ $requiredDeleteTables = @(
     "rec_bag_label_batch"
 )
 if (@(Compare-Object $requiredDeleteTables @($catalog.SlotTables)).Count -ne 0) {
-    throw "V43 runtime DELETE grants do not match the reviewed catalog"
+    throw "V44 runtime DELETE grants do not match the reviewed catalog"
 }
 $catalogTables = @(
     $catalog.ReadOnlyTables

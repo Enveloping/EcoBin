@@ -1,6 +1,6 @@
 # Web 管理端能力地图
 
-> 状态日期：2026-08-07
+> 状态日期：2026-08-09
 > 适用目录：`frontend/web/`
 > 机器契约：`contracts/http/openapi.yaml`
 
@@ -31,6 +31,8 @@ Web 管理端只调用同源 `/api/v1/**`，使用 `Secure + HttpOnly` Cookie �
 | `/staff` | Web 账号 | `staff.read`、`permission.read`（授权页签） | `staff.manage`、`permission.manage` | 已接入；账号安全、租户权限和机构任职统一从“编辑”进入 |
 | `/user-bindings` | Web 账号 | `user.read` 且 `staff.bind` | `staff.bind` | 已接入；手机号只进入请求体 |
 | `/devices` | Web 账号 | `device.read` | `device.configuration.manage`、`device.assignment.manage`；平台固定用例另管理资产、租户永久分配、自动验收复核、禁用/恢复和报废 | 已接入；永久资产、一次性归属、运行事实、配置应用和自动机器验收证据 |
+| `/clean-operations` | Web 账号 | `clean.read` | - | 已接入；清运操作状态、边缘保存/可能解锁等安全事实、袋码和关联记录 |
+| `/clean-records` | Web 账号 | `clean.read` | `clean.edit` | 已接入；完成记录、设备原始/复算重量、照片、异常、当前有效值和只追加修正历史 |
 | `/account` | 租户主体、工作人员 | 当前会话 | 本人资料与密码命令 | 已接入 |
 
 旧 `/access` 只重定向到 `/staff`，不再保留独立“任职与授权”页面。租户、机构、机构用户
@@ -69,7 +71,7 @@ AppID、展示名称和 AppSecret，后续轮换密钥、激活 AppID，以及�
 | 身份与组织 | 租户、机构、工作人员、机构用户、任职授权、人工绑定、账号安全 | 可用 | 已有 OpenAPI paths/schema 与后端实现 |
 | 设备 | 平台资产登记、自动机器验收、租户/机构一次性永久归属、整机/投口运行事实、完整配置版本和应用跟踪 | 可用 | OneNet 设备预建、Device Key 写入香橙派以及真实 MCU/摄像头联网仍是受控厂家步骤；验收结果由机器证据自动形成 |
 | 投递 | 机构规则、订单列表/详情、初审与纠错 | 可用 | 已支持规则版本发布和钱包来源单号深链打开投递详情 |
-| 清运 | 清运操作、袋、满溢、基准和恢复 | 仅导航占位 | 可恢复操作、异常分支、设备结果 schema 和运行时 Web paths |
+| 清运 | 清运操作、完成记录、袋、满溢、基准和恢复 | 操作与记录查询可用；袋/满溢/基准/恢复管理页待接入 | 当前接口已覆盖七种正式操作状态和记录直接修正；再次解锁、原人恢复及设备筛选仍等待跨端闭环 |
 | 资金 | 用户钱包；机构充值、额度、提现审核与渠道状态 | 用户钱包只读可用；其余仅导航占位 | 机构资金与提现继续等待各自运行时 Web paths |
 | 运营 | 概览、告警、审计、对账与技术任务 | 等待契约 | 只读投影、游标分页、任务状态和审计契约 |
 
@@ -101,6 +103,13 @@ OneNet 传输连接，`edgeConnectionStatus` 表示 OneNet 已在线且可信运
 金额由后端按锁定单价计算。目标契约只有 `PENDING/APPROVED`，没有“已拒绝订单”；
 “已纠正”可在当前页按修订号识别，但仍没有独立服务端列表筛选。机构响应目前没有余额
 字段，前端不会用 `0` 或旧表字段伪造余额。
+
+清运管理分为两个入口：`/clean-operations` 展示尚未形成记录之前的设备执行过程，
+`/clean-records` 只展示设备完成后形成的业务记录。正式操作状态只有
+`PREPARED/EDGE_SAVED/IN_PROGRESS/RECOVERY_REQUIRED/PRE_UNLOCK_ENDED/COMPLETED/ABORTED`；
+前端不兼容旧 `PRE_OPEN_ENDED`。普通失败无法证明 MCU 是否已收到字节时展示“需要恢复”并
+保留占用；只有明确解锁前失败才展示“解锁前结束”。记录没有审核、通过或拒绝，
+`clean.edit` 只可设置/清空当前有效净重量或备注，每次保存追加操作者、原因和前后值。
 
 钱包页面独立要求 `wallet.read`，不会借用 `user.read` 或 `delivery.read`。机构用户页在
 同时拥有 `user.read + wallet.read` 时提供钱包摘要和个人流水抽屉；独立钱包页仍允许只

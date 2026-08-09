@@ -3404,6 +3404,95 @@
         }
       }
     },
+    "/api/v1/web/organizations/{organizationCode}/clean-operations": {
+      "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "listOrganizationCleanOperations",
+        "tags": ["Cleaning"],
+        "summary": "Query cleaning operations with a filter-bound cursor",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "status", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/CleanOperationStatus"}},
+          {"name": "cleanerUserUid", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/PublicUid"}},
+          {"name": "deviceCode", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/DeviceCode"}},
+          {"name": "portNo", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 6}},
+          {"name": "createdFrom", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/UtcTimestamp"}},
+          {"name": "createdTo", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/UtcTimestamp"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanOperationPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/organizations/{organizationCode}/clean-operations/{operationUid}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"name": "operationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}
+      ],
+      "get": {
+        "operationId": "getOrganizationCleanOperation",
+        "tags": ["Cleaning"],
+        "summary": "Read one cleaning operation and its safety evidence",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WebCleanOperationDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-operations": {
+      "parameters": [{"$ref": "#/components/parameters/TenantCode"}, {"$ref": "#/components/parameters/OrganizationCode"}],
+      "get": {
+        "operationId": "listPlatformCleanOperations",
+        "tags": ["Cleaning"],
+        "summary": "Query platform-scoped cleaning operations with a filter-bound cursor",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "status", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/CleanOperationStatus"}},
+          {"name": "cleanerUserUid", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/PublicUid"}},
+          {"name": "deviceCode", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/DeviceCode"}},
+          {"name": "portNo", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 6}},
+          {"name": "createdFrom", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/UtcTimestamp"}},
+          {"name": "createdTo", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/UtcTimestamp"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanOperationPageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/tenants/{tenantCode}/organizations/{organizationCode}/clean-operations/{operationUid}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/TenantCode"},
+        {"$ref": "#/components/parameters/OrganizationCode"},
+        {"name": "operationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}
+      ],
+      "get": {
+        "operationId": "getPlatformCleanOperation",
+        "tags": ["Cleaning"],
+        "summary": "Read one platform-scoped cleaning operation and its safety evidence",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/WebCleanOperationDetailOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
     "/api/v1/web/organizations/{organizationCode}/clean-records": {
       "parameters": [{"$ref": "#/components/parameters/OrganizationCode"}],
       "get": {
@@ -6132,6 +6221,22 @@
           "Location": {"$ref": "#/components/headers/Location"}
         },
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanOperationAcceptedEnvelope"}}}
+      },
+      "CleanOperationPageOk": {
+        "description": "Stable cursor page of cleaning operations",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanOperationPageEnvelope"}}}
+      },
+      "WebCleanOperationDetailOk": {
+        "description": "Operational cleaning state and safety evidence",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebCleanOperationDetailEnvelope"}}}
       },
       "CleanRecordPageOk": {
         "description": "Stable cursor page of cleaning records",
@@ -10901,6 +11006,18 @@
           }
         }
       },
+      "CleanOperationStatus": {
+        "type": "string",
+        "enum": [
+          "PREPARED",
+          "EDGE_SAVED",
+          "IN_PROGRESS",
+          "RECOVERY_REQUIRED",
+          "PRE_UNLOCK_ENDED",
+          "COMPLETED",
+          "ABORTED"
+        ]
+      },
       "StartCleanOperationRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -10927,7 +11044,7 @@
           "operationId": {"$ref": "#/components/schemas/UuidV4"},
           "resourceId": {"$ref": "#/components/schemas/UuidV4"},
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"type": "string", "enum": ["PREPARED"]},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
           "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
@@ -10944,7 +11061,7 @@
         "properties": {
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"type": "string", "enum": ["RECOVERY_REQUIRED"]},
           "statusUrl": {"$ref": "#/components/schemas/StatusUrl"}
         }
       },
@@ -10999,7 +11116,7 @@
         ],
         "properties": {
           "operationUid": {"$ref": "#/components/schemas/UuidV4"},
-          "status": {"type": "string", "minLength": 1, "maxLength": 32},
+          "status": {"$ref": "#/components/schemas/CleanOperationStatus"},
           "version": {"$ref": "#/components/schemas/ExpectedVersion"},
           "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
           "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
@@ -11009,11 +11126,104 @@
           "cleanLockDeenergizedConfirmed": {"type": "boolean"},
           "cleanerPhysicalCloseConfirmed": {"type": "boolean"},
           "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
-          "executionDeadlineAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "executionDeadlineAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
           "completedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
           "cleanRecordNo": {"type": ["string", "null"], "maxLength": 64},
           "recommendedPollAfterMs": {"type": ["integer", "null"], "minimum": 1},
           "nextActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+        }
+      },
+      "WebCleanOperationItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationUid", "status", "version", "cleanerUserUid",
+          "deviceCode", "portNo", "oldBagBindingState",
+          "removedBagQr", "installedBagQr", "edgeSavedConfirmed",
+          "firstUnlockMayHaveExecuted", "cleanLockDeenergizedConfirmed",
+          "cleanerPhysicalCloseConfirmed", "startAuthorizationExpiresAt",
+          "executionDeadlineAt", "createdAt", "updatedAt", "endedAt",
+          "endReason", "cleanRecordNo"
+        ],
+        "properties": {
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "status": {"$ref": "#/components/schemas/CleanOperationStatus"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "cleanerUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "oldBagBindingState": {"type": "string", "enum": ["BOUND", "MISSING"]},
+          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "edgeSavedConfirmed": {"type": "boolean"},
+          "firstUnlockMayHaveExecuted": {"type": "boolean"},
+          "cleanLockDeenergizedConfirmed": {"type": "boolean"},
+          "cleanerPhysicalCloseConfirmed": {"type": "boolean"},
+          "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "executionDeadlineAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "endedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "endReason": {"type": ["string", "null"], "maxLength": 64},
+          "cleanRecordNo": {"type": ["string", "null"], "maxLength": 64}
+        }
+      },
+      "CleanOperationCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/WebCleanOperationItem"}},
+          "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "nextCursor": {"type": ["string", "null"], "maxLength": 4096}
+        }
+      },
+      "WebCleanOperationDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationUid", "status", "version", "cleanerUserUid",
+          "deviceCode", "portNo", "oldBagBindingState",
+          "removedBagQr", "installedBagQr", "preUnlockWeightStatus",
+          "preUnlockWeightKg", "preUnlockWeightFaultCode",
+          "edgeSavedConfirmed", "firstUnlockMayHaveExecuted",
+          "cleanLockDeenergizedConfirmed", "cleanerPhysicalCloseConfirmed",
+          "startAuthorizationExpiresAt", "edgeSavedAt",
+          "firstPossibleUnlockAt", "solenoidPoweredOffAt",
+          "cleanerConfirmedClosedAt", "executionDeadlineAt",
+          "reopenCount", "recoveryCount", "createdAt", "updatedAt",
+          "endedAt", "endReason", "cleanRecordNo"
+        ],
+        "properties": {
+          "operationUid": {"$ref": "#/components/schemas/UuidV4"},
+          "status": {"$ref": "#/components/schemas/CleanOperationStatus"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "cleanerUserUid": {"$ref": "#/components/schemas/PublicUid"},
+          "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
+          "portNo": {"type": "integer", "minimum": 1, "maximum": 6},
+          "oldBagBindingState": {"type": "string", "enum": ["BOUND", "MISSING"]},
+          "removedBagQr": {"type": ["string", "null"], "maxLength": 64},
+          "installedBagQr": {"type": "string", "minLength": 8, "maxLength": 64},
+          "preUnlockWeightStatus": {"type": "string", "maxLength": 16},
+          "preUnlockWeightKg": {"type": ["string", "null"], "maxLength": 32},
+          "preUnlockWeightFaultCode": {"type": ["string", "null"], "maxLength": 100},
+          "edgeSavedConfirmed": {"type": "boolean"},
+          "firstUnlockMayHaveExecuted": {"type": "boolean"},
+          "cleanLockDeenergizedConfirmed": {"type": "boolean"},
+          "cleanerPhysicalCloseConfirmed": {"type": "boolean"},
+          "startAuthorizationExpiresAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "edgeSavedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "firstPossibleUnlockAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "solenoidPoweredOffAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "cleanerConfirmedClosedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "executionDeadlineAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "reopenCount": {"type": "integer", "minimum": 0},
+          "recoveryCount": {"type": "integer", "minimum": 0},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "endedAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "endReason": {"type": ["string", "null"], "maxLength": 64},
+          "cleanRecordNo": {"type": ["string", "null"], "maxLength": 64}
         }
       },
       "CleanRecordItem": {
@@ -11379,6 +11589,26 @@
         "properties": {
           "code": {"type": "string", "const": "OK"},
           "data": {"$ref": "#/components/schemas/CleanOperationAccepted"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "CleanOperationPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanOperationCursorPage"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "WebCleanOperationDetailEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/WebCleanOperationDetail"},
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },
