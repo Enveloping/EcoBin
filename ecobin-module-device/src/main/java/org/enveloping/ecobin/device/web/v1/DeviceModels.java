@@ -242,6 +242,17 @@ public final class DeviceModels {
             @NotBlank @Size(max = 500) String reason) {
     }
 
+    /**
+     * 平台恢复配置版本序列时，只确认当前最高版本并说明原因。
+     *
+     * <p>服务端复制当前完整快照并生成更高版本，避免平台管理员手工重填机构价格、
+     * 传感器阈值等机构配置。</p>
+     */
+    public record ConfigurationRollForwardRequest(
+            @NotNull @Min(1) Long expectedLatestVersion,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
     public record ConfigurationDeviceRequest(
             @NotBlank @Size(max = 100) String displayName,
             @Size(max = 500) String address,

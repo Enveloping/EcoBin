@@ -6,6 +6,13 @@ import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationResynchronizationRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationRollForwardRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSummary;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
@@ -94,6 +101,69 @@ public class PlatformDeviceAssetController {
                     @PathVariable String hardwareSn,
                     HttpServletRequest request) {
         return noStore(application.acceptanceEvidence(hardwareSn), request);
+    }
+
+    @GetMapping("/{hardwareSn}/configuration-versions")
+    public ResponseEntity<TargetApiEnvelope<
+            CursorPage<ConfigurationVersionSummary>>> configurationVersions(
+                    @PathVariable String hardwareSn,
+                    @RequestParam(required = false) Long beforeVersionNo,
+                    @RequestParam(defaultValue = "20") int limit,
+                    HttpServletRequest request) {
+        return noStore(application.platformConfigurationVersions(
+                hardwareSn, beforeVersionNo, limit), request);
+    }
+
+    @GetMapping("/{hardwareSn}/configuration-versions/{versionNo}")
+    public ResponseEntity<TargetApiEnvelope<ConfigurationVersionView>>
+            configurationVersion(
+                    @PathVariable String hardwareSn,
+                    @PathVariable long versionNo,
+                    HttpServletRequest request) {
+        return noStore(application.platformConfigurationVersion(
+                hardwareSn, versionNo), request);
+    }
+
+    @PostMapping("/{hardwareSn}/configuration-roll-forwards")
+    public ResponseEntity<TargetApiEnvelope<ConfigurationAcceptedView>>
+            rollForwardConfiguration(
+                    @RequestHeader("Idempotency-Key") UUID operationUid,
+                    @PathVariable String hardwareSn,
+                    @Valid @RequestBody ConfigurationRollForwardRequest body,
+                    HttpServletRequest request) {
+        return ResponseEntity.accepted()
+                .cacheControl(CacheControl.noStore())
+                .body(ok(application.rollForwardPlatformConfiguration(
+                        operationUid, hardwareSn, body), request));
+    }
+
+    @GetMapping("/{hardwareSn}/configuration-applications/{applicationUid}")
+    public ResponseEntity<TargetApiEnvelope<ConfigurationApplicationView>>
+            configurationApplication(
+                    @PathVariable String hardwareSn,
+                    @PathVariable UUID applicationUid,
+                    HttpServletRequest request) {
+        return noStore(application.platformConfigurationApplication(
+                hardwareSn, applicationUid), request);
+    }
+
+    @PostMapping("/{hardwareSn}/configuration-applications/"
+            + "{applicationUid}/resynchronizations")
+    public ResponseEntity<TargetApiEnvelope<ConfigurationAcceptedView>>
+            resynchronizeConfiguration(
+                    @RequestHeader("Idempotency-Key") UUID operationUid,
+                    @PathVariable String hardwareSn,
+                    @PathVariable UUID applicationUid,
+                    @Valid @RequestBody
+                    ConfigurationResynchronizationRequest body,
+                    HttpServletRequest request) {
+        return ResponseEntity.accepted()
+                .cacheControl(CacheControl.noStore())
+                .body(ok(application.resynchronizePlatformConfiguration(
+                        operationUid,
+                        hardwareSn,
+                        applicationUid,
+                        body), request));
     }
 
     @PostMapping("/{hardwareSn}/disablements")

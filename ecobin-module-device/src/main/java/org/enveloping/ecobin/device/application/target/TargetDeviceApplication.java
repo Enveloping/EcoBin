@@ -9,10 +9,13 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationDeviceRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationDeviceSnapshot;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationPortRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationPortSnapshot;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationResynchronizationRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationRollForwardRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSummary;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
@@ -366,18 +369,40 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(readOnly = true)
+    public CursorPage<ConfigurationVersionSummary>
+            platformConfigurationVersions(
+                    String hardwareSn,
+                    Long beforeVersionNo,
+                    int requestedLimit) {
+        Scope platform = authorize(true, null, null, "device.read");
+        Asset asset = asset(normalizeHardwareSn(hardwareSn), false);
+        Scope scope = assignedPlatformScope(platform, asset);
+        return configurationVersions(
+                scope, asset, beforeVersionNo, requestedLimit);
+    }
+
+    @Transactional(readOnly = true)
     public CursorPage<ConfigurationVersionSummary> configurationVersions(
             String organizationCode,
             String deviceCode,
             Long beforeVersionNo,
             int requestedLimit) {
-        if (beforeVersionNo != null && beforeVersionNo < 1) {
-            throw invalid("beforeVersionNo 必须大于零");
-        }
         Scope scope = authorize(
                 false, null, organizationCode, "device.read");
         Asset asset = organizationAsset(
                 scope, normalizeDeviceCode(deviceCode), false);
+        return configurationVersions(
+                scope, asset, beforeVersionNo, requestedLimit);
+    }
+
+    private CursorPage<ConfigurationVersionSummary> configurationVersions(
+            Scope scope,
+            Asset asset,
+            Long beforeVersionNo,
+            int requestedLimit) {
+        if (beforeVersionNo != null && beforeVersionNo < 1) {
+            throw invalid("beforeVersionNo 必须大于零");
+        }
         int limit = requestedLimit <= 0
                 ? DEFAULT_CURSOR_LIMIT
                 : Math.min(requestedLimit, MAX_CURSOR_LIMIT);
@@ -410,6 +435,19 @@ public class TargetDeviceApplication {
     }
 
     @Transactional(readOnly = true)
+    public ConfigurationVersionView platformConfigurationVersion(
+            String hardwareSn,
+            long versionNo) {
+        if (versionNo < 1) {
+            throw notFound();
+        }
+        Scope platform = authorize(true, null, null, "device.read");
+        Asset asset = asset(normalizeHardwareSn(hardwareSn), false);
+        Scope scope = assignedPlatformScope(platform, asset);
+        return configurationVersion(scope, asset, versionNo);
+    }
+
+    @Transactional(readOnly = true)
     public ConfigurationVersionView configurationVersion(
             String organizationCode,
             String deviceCode,
@@ -421,6 +459,13 @@ public class TargetDeviceApplication {
                 false, null, organizationCode, "device.read");
         Asset asset = organizationAsset(
                 scope, normalizeDeviceCode(deviceCode), false);
+        return configurationVersion(scope, asset, versionNo);
+    }
+
+    private ConfigurationVersionView configurationVersion(
+            Scope scope,
+            Asset asset,
+            long versionNo) {
         ConfigurationVersionRow configuration = findConfigurationVersion(
                 scope, asset.id(), versionNo)
                 .orElseThrow(TargetDeviceApplication::notFound);
@@ -428,6 +473,38 @@ public class TargetDeviceApplication {
                 asset.devicePublicCode(),
                 configuration,
                 configurationPorts(scope, asset.id(), configuration.id()));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ConfigurationAcceptedView rollForwardPlatformConfiguration(
+            UUID operationUid,
+            String hardwareSn,
+            ConfigurationRollForwardRequest request) {
+        Scope platform = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        Asset visible = asset(normalizedHardwareSn, false);
+        Scope scope = assignedPlatformScope(platform, visible);
+        requireEnabledScope(scope);
+        if (request == null || request.expectedLatestVersion() == null) {
+            throw invalid("配置修复发布请求不完整");
+        }
+        String statusBaseUrl = platformConfigurationApplicationCollectionUrl(
+                normalizedHardwareSn);
+        return command(
+                operationUid,
+                scope,
+                "device.configuration.roll-forward",
+                "DEVICE_CONFIGURATION",
+                normalizedHardwareSn,
+                request,
+                ConfigurationAcceptedView.class,
+                () -> rollForwardConfiguration(
+                        operationUid,
+                        scope,
+                        platformConfigurationAsset(
+                                scope, normalizedHardwareSn, true),
+                        statusBaseUrl,
+                        request));
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -456,7 +533,23 @@ public class TargetDeviceApplication {
                 request,
                 ConfigurationAcceptedView.class,
                 () -> releaseConfiguration(
-                        operationUid, scope, code, statusBaseUrl, request));
+                        operationUid,
+                        scope,
+                        organizationAsset(scope, code, true),
+                        statusBaseUrl,
+                        request,
+                        false,
+                        "STAFF"));
+    }
+
+    @Transactional(readOnly = true)
+    public ConfigurationApplicationView platformConfigurationApplication(
+            String hardwareSn,
+            UUID applicationUid) {
+        Scope platform = authorize(true, null, null, "device.read");
+        Asset asset = asset(normalizeHardwareSn(hardwareSn), false);
+        Scope scope = assignedPlatformScope(platform, asset);
+        return configurationApplication(scope, asset, applicationUid);
     }
 
     @Transactional(readOnly = true)
@@ -468,10 +561,51 @@ public class TargetDeviceApplication {
                 false, null, organizationCode, "device.read");
         Asset asset = organizationAsset(
                 scope, normalizeDeviceCode(deviceCode), false);
+        return configurationApplication(scope, asset, applicationUid);
+    }
+
+    private ConfigurationApplicationView configurationApplication(
+            Scope scope,
+            Asset asset,
+            UUID applicationUid) {
         ApplicationRow application = findApplication(
                 scope, asset.id(), applicationUid, false)
                 .orElseThrow(TargetDeviceApplication::applicationNotFound);
         return applicationView(application);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ConfigurationAcceptedView resynchronizePlatformConfiguration(
+            UUID operationUid,
+            String hardwareSn,
+            UUID applicationUid,
+            ConfigurationResynchronizationRequest request) {
+        Scope platform = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        Asset visible = asset(normalizedHardwareSn, false);
+        Scope scope = assignedPlatformScope(platform, visible);
+        requireEnabledScope(scope);
+        if (request == null || request.expectedVersion() == null) {
+            throw invalid("配置重同步请求不完整");
+        }
+        String statusUrl = platformConfigurationApplicationCollectionUrl(
+                normalizedHardwareSn) + "/" + applicationUid;
+        return command(
+                operationUid,
+                scope,
+                "device.configuration.resynchronize",
+                CONFIGURATION_TARGET_TYPE,
+                normalizedHardwareSn + "|application:" + applicationUid,
+                request,
+                ConfigurationAcceptedView.class,
+                () -> resynchronizeConfiguration(
+                        operationUid,
+                        scope,
+                        platformConfigurationAsset(
+                                scope, normalizedHardwareSn, true),
+                        applicationUid,
+                        statusUrl,
+                        request));
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
@@ -501,19 +635,63 @@ public class TargetDeviceApplication {
                 () -> resynchronizeConfiguration(
                         operationUid,
                         scope,
-                        code,
+                        organizationAsset(scope, code, true),
                         applicationUid,
                         statusUrl,
                         request));
     }
 
+    private CommandResult<ConfigurationAcceptedView> rollForwardConfiguration(
+            UUID operationUid,
+            Scope scope,
+            Asset asset,
+            String applicationBaseUrl,
+            ConfigurationRollForwardRequest request) {
+        Long current = jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(version_no), 0)
+                        FROM dev_config_version
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        """,
+                Long.class,
+                scope.tenantId(),
+                scope.organizationId(),
+                asset.id());
+        long latestVersion = current == null ? 0 : current;
+        if (latestVersion != request.expectedLatestVersion()) {
+            throw versionConflict(latestVersion);
+        }
+        if (latestVersion == 0) {
+            throw unprocessable(
+                    "DEVICE.CONFIGURATION_NOT_AVAILABLE",
+                    "设备尚未生成机构配置，不能发布修复版本");
+        }
+        ConfigurationVersionRow latest = findConfigurationVersion(
+                scope, asset.id(), latestVersion)
+                .orElseThrow(TargetDeviceApplication::invariant);
+        List<ConfigurationPortSnapshot> ports = configurationPorts(
+                scope, asset.id(), latest.id());
+        ConfigurationReleaseRequest cloned = cloneConfigurationRequest(
+                latestVersion, request.reason(), latest, ports);
+        return releaseConfiguration(
+                operationUid,
+                scope,
+                asset,
+                applicationBaseUrl,
+                cloned,
+                true,
+                "SYSTEM");
+    }
+
     private CommandResult<ConfigurationAcceptedView> releaseConfiguration(
             UUID operationUid,
             Scope scope,
-            String deviceCode,
+            Asset asset,
             String applicationBaseUrl,
-            ConfigurationReleaseRequest request) {
-        Asset asset = organizationAsset(scope, deviceCode, true);
+            ConfigurationReleaseRequest request,
+            boolean allowUnchanged,
+            String publicationSource) {
         Long current = jdbc.queryForObject("""
                         SELECT COALESCE(MAX(version_no), 0)
                         FROM dev_config_version
@@ -534,7 +712,8 @@ public class TargetDeviceApplication {
         Optional<ConfigurationVersionRow> previous = latestVersion == 0
                 ? Optional.empty()
                 : findConfigurationVersion(scope, asset.id(), latestVersion);
-        if (previous.isPresent()
+        if (!allowUnchanged
+                && previous.isPresent()
                 && previous.get().contentSha256()
                 .equals(normalized.contentSha256Hex())) {
             throw unprocessable(
@@ -577,7 +756,7 @@ public class TargetDeviceApplication {
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, 'STAFF', ?, ?, ?
+                    ?, ?, ?, ?, ?, ?
                 )
                 """,
                 scope.tenantId(),
@@ -603,7 +782,9 @@ public class TargetDeviceApplication {
                 normalized.device().smokeMonitoringEnabled(),
                 normalized.contentSha256(),
                 mcuPayloadSha256,
-                scope.staffAccountId(),
+                publicationSource,
+                "STAFF".equals(publicationSource)
+                        ? scope.staffAccountId() : null,
                 now,
                 now);
 
@@ -810,11 +991,10 @@ public class TargetDeviceApplication {
             resynchronizeConfiguration(
                     UUID operationUid,
                     Scope scope,
-                    String deviceCode,
+                    Asset asset,
                     UUID applicationUid,
                     String statusUrl,
                     ConfigurationResynchronizationRequest request) {
-        Asset asset = organizationAsset(scope, deviceCode, true);
         ApplicationRow application = findApplication(
                 scope, asset.id(), applicationUid, true)
                 .orElseThrow(TargetDeviceApplication::applicationNotFound);
@@ -1805,6 +1985,63 @@ public class TargetDeviceApplication {
                 row.smokeMonitoringEnabled());
     }
 
+    private static ConfigurationReleaseRequest cloneConfigurationRequest(
+            long expectedLatestVersion,
+            String reason,
+            ConfigurationVersionRow configuration,
+            List<ConfigurationPortSnapshot> ports) {
+        ConfigurationDeviceRequest device = new ConfigurationDeviceRequest(
+                configuration.deviceDisplayName(),
+                configuration.address(),
+                configuration.longitude(),
+                configuration.latitude(),
+                configuration.edgeHeartbeatIntervalMs(),
+                configuration.edgeHeartbeatMissThreshold(),
+                configuration.mcuHeartbeatIntervalMs(),
+                configuration.mcuHeartbeatMissThreshold(),
+                configuration.doorCloseRetryLimit(),
+                configuration.continueDeliveryWaitMs(),
+                configuration.negativeWeightThresholdGram(),
+                configuration.deliveryAutoCloseMs(),
+                configuration.weightMeasurementTimeoutMs(),
+                configuration.deliveryDoorTravelWaitMs(),
+                configuration.cleanSolenoidPulseMs(),
+                configuration.smokeMonitoringEnabled());
+        List<ConfigurationPortRequest> portRequests = ports.stream()
+                .map(port -> new ConfigurationPortRequest(
+                        port.portNo(),
+                        port.displayName(),
+                        port.enabled(),
+                        port.unitPriceYuanPerKg(),
+                        port.fullnessMode(),
+                        port.fullnessWeightKg(),
+                        port.deliverySettleDelayMs(),
+                        port.fullnessInitialDelayMs(),
+                        port.fullnessRecheckDelayMs(),
+                        port.doorAutoCloseTimeoutMs(),
+                        port.fullnessSensorKind(),
+                        port.fullnessDistanceThresholdMm(),
+                        port.fullnessSampleCount(),
+                        port.fullnessMinimumValidSampleCount(),
+                        port.fullnessEchoTimeoutUs(),
+                        port.weightStableWindowMs(),
+                        port.weightMaximumFluctuationGram(),
+                        port.weightRequiredSampleCount(),
+                        port.weightMeasurementTimeoutMs(),
+                        port.weightMinimumGram(),
+                        port.weightMaximumGram(),
+                        port.calibrationVersion(),
+                        port.infraredSampleTimeoutMs(),
+                        port.deliveryDoorOperationTimeoutMs()))
+                .toList();
+        return new ConfigurationReleaseRequest(
+                expectedLatestVersion,
+                reason,
+                true,
+                device,
+                portRequests);
+    }
+
     private static String publisherName(ConfigurationVersionRow row) {
         return row.publisherName() == null ? "SYSTEM" : row.publisherName();
     }
@@ -1955,6 +2192,59 @@ public class TargetDeviceApplication {
                         rs.getLong("control_version")),
                 hardwareSn).stream().findFirst()
                 .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private Scope assignedPlatformScope(Scope platform, Asset asset) {
+        if (!platform.platformActor()
+                || asset.tenantId() == null
+                || asset.organizationId() == null) {
+            throw unprocessable(
+                    "DEVICE.ORGANIZATION_ASSIGNMENT_REQUIRED",
+                    "设备永久分配给机构后才会生成和下发机构配置");
+        }
+        AssignedOrganizationScope assigned = jdbc.query("""
+                        SELECT tenant.status tenant_status,
+                               organization.status organization_status
+                        FROM iam_tenant tenant
+                        JOIN iam_organization organization
+                          ON organization.tenant_id = tenant.id
+                        WHERE tenant.id = ?
+                          AND organization.id = ?
+                        """,
+                (rs, ignored) -> new AssignedOrganizationScope(
+                        "ENABLED".equals(rs.getString("tenant_status")),
+                        "ENABLED".equals(rs.getString(
+                                "organization_status"))),
+                asset.tenantId(),
+                asset.organizationId()).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::invariant);
+        return new Scope(
+                true,
+                platform.principalUid(),
+                platform.sessionUid(),
+                platform.actorDisplayName(),
+                assigned.tenantEnabled(),
+                assigned.organizationEnabled(),
+                asset.tenantId(),
+                asset.organizationId(),
+                platform.platformAdminId(),
+                null);
+    }
+
+    private Asset platformConfigurationAsset(
+            Scope scope, String hardwareSn, boolean lock) {
+        Asset current = asset(hardwareSn, lock);
+        if (!Objects.equals(current.tenantId(), scope.tenantId())
+                || !Objects.equals(
+                        current.organizationId(), scope.organizationId())) {
+            throw invariant();
+        }
+        if (!"NORMAL".equals(current.lifecycleStatus())) {
+            throw unprocessable(
+                    "DEVICE.ASSET_UNAVAILABLE",
+                    "禁用或报废设备不能发布或重同步配置");
+        }
+        return current;
     }
 
     private List<FactoryBag> factoryBags(long assetId) {
@@ -2155,6 +2445,12 @@ public class TargetDeviceApplication {
             String organizationCode, String deviceCode) {
         return "/api/v1/web/organizations/" + organizationCode
                 + "/devices/" + deviceCode
+                + "/configuration-applications";
+    }
+
+    private static String platformConfigurationApplicationCollectionUrl(
+            String hardwareSn) {
+        return "/api/v1/web/platform/device-assets/" + hardwareSn
                 + "/configuration-applications";
     }
 
@@ -2486,6 +2782,11 @@ public class TargetDeviceApplication {
     }
 
     private record Organization(long id, String code, String status) {
+    }
+
+    private record AssignedOrganizationScope(
+            boolean tenantEnabled,
+            boolean organizationEnabled) {
     }
 
     private record FactoryBag(int portNo, String bagCode) {

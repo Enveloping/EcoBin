@@ -4349,6 +4349,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** List configuration versions for one assigned permanent asset */
+        get: operations["listPlatformDeviceConfigurationVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        /** Read one immutable configuration version for platform recovery */
+        get: operations["getPlatformDeviceConfigurationVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-roll-forwards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clone the latest complete configuration as the next version and dispatch it */
+        post: operations["rollForwardPlatformDeviceConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-applications/{applicationUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        /** Read reliable configuration application status for platform recovery */
+        get: operations["getPlatformDeviceConfigurationApplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-applications/{applicationUid}/resynchronizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wake a failed or blocked configuration application without changing its version */
+        post: operations["resynchronizePlatformDeviceConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets/{hardwareSn}/tenant-assignments": {
         parameters: {
             query?: never;
@@ -7401,6 +7499,11 @@ export interface components {
         };
         DeviceConfigurationResynchronizationRequest: {
             expectedVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
+        DeviceConfigurationRollForwardRequest: {
+            /** Format: int64 */
+            expectedLatestVersion: number;
             reason: string;
         };
         StaffDeviceSummary: {
@@ -14000,6 +14103,123 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformDeviceConfigurationVersions: {
+        parameters: {
+            query?: {
+                beforeVersionNo?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationVersionPageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeviceConfigurationVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                versionNo: components["parameters"]["ConfigurationVersionNo"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationVersionOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    rollForwardPlatformDeviceConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationRollForwardRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getPlatformDeviceConfigurationApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceConfigurationApplicationOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    resynchronizePlatformDeviceConfiguration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                applicationUid: components["parameters"]["ConfigurationApplicationUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceConfigurationResynchronizationRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     assignDeviceTenantPermanently: {

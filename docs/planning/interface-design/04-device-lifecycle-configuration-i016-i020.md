@@ -287,6 +287,19 @@ POST {deploymentBase}/{deploymentCode}/configuration-releases
 - 若旧任务可能已经外调，系统不能宣称旧版本从未到达设备。设备侧必须拒绝低于本地最高已接受版本的配置；可信旧版本迟到证明仍保存和归并，但旧版本即使真实应用过也不能重新成为当前期望版本，业务仍等待最高版本 `APPLIED`。
 - 回滚通过把旧内容重新作为更高版本发布完成，不原地修改、删除或把版本号倒退。
 
+平台设备管理提供受限的配置恢复入口：
+
+```http
+GET  /api/v1/web/platform/device-assets/{hardwareSn}/configuration-versions
+GET  /api/v1/web/platform/device-assets/{hardwareSn}/configuration-versions/{versionNo}
+POST /api/v1/web/platform/device-assets/{hardwareSn}/configuration-roll-forwards
+```
+
+- 只允许处理已经永久分配给启用租户和启用机构、且生命周期为 `NORMAL` 的资产；未分配资产没有机构价格和投口经营配置，不能下发机构配置。
+- 平台管理员不能在该入口手工重填价格、投口或传感器参数。`configuration-roll-forwards` 只接收当前最高版本和必填原因，由服务端完整复制当前最高版本，建立下一连续版本及新的可靠下发任务。
+- 这是“相同业务内容不允许空发布”的唯一恢复例外：新旧 `contentSha256` 保持相同，但版本身份递增，包含版本身份的 MCU 载荷摘要随之更新。它专门处理设备已经保存相同版本号、但摘要与中心不同的冲突；普通机构改价和配置修改仍走完整发布接口，并继续拒绝未变化内容。
+- 恢复版本记为系统复制来源，实际发起的平台管理员、原因和前后版本仍写入操作审计。它只建立新的 `PENDING` 应用事实，不能直接把设备标记为 `APPLIED`。
+
 主要错误包括 `DEVICE.CONFIGURATION_PORT_SET_INVALID`、`DEVICE.CONFIGURATION_VALUE_INVALID`、`DEVICE.CONFIGURATION_UNCHANGED`、`DEVICE.DEPLOYMENT_RELOCATION_NOT_SUPPORTED` 和 `COMMON.VERSION_CONFLICT`。
 
 ## I-020 配置应用与同版本重同步
@@ -365,13 +378,14 @@ FAILED ──精确且更新的可信证明──→ EDGE_SAVED / APPLIED
 ```json
 {
   "expectedVersion": 2,
-  "reason": null
+  "reason": "设备恢复联网后重新尝试下发"
 }
 ```
 
 - 只允许对当前最高期望版本执行，并且该应用必须处于可恢复 `FAILED`，或其唯一可靠任务已经 `BLOCKED`。已经 `APPLIED`、已被更高版本取代或仍在正常执行的应用不能重同步。
 - 受理事务复用原 `applicationUid`、配置版本、设备命令和 `ops_reliable_task`，递增任务 `wakeVersion` 并恢复为待执行；可恢复 `FAILED` 同时回到 `PENDING`。后续领取只新增 `ops_task_attempt`，不得创建第二个应用、命令或任务。
 - 可靠受理返回 `202`：`operationId` 等于本次重同步操作号，`resourceId` 等于原 `applicationUid`，`status` 返回受理后的应用状态，`dispatchState` 返回原任务恢复后的状态，并返回 `recommendedPollAfterMs` 和同一个 `statusUrl`；`Location` 仍指向原应用资源。同一 `Idempotency-Key` 重试返回首次结果；版本或恢复资格变化返回 `409`。
+- 平台设备管理可通过 `/api/v1/web/platform/device-assets/{hardwareSn}/configuration-applications/{applicationUid}` 查询同一应用，并通过其 `/resynchronizations` 子资源执行完全相同的受限重同步；平台入口不会绕过 `FAILED/BLOCKED`、最高版本和乐观版本检查。
 
 主要错误包括 `DEVICE.CONFIGURATION_APPLICATION_NOT_FOUND`、`DEVICE.CONFIGURATION_APPLICATION_SUPERSEDED`、`DEVICE.CONFIGURATION_ALREADY_APPLIED`、`DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED` 和 `COMMON.VERSION_CONFLICT`。
 

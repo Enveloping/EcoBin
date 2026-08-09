@@ -30,7 +30,7 @@ Web 管理端只调用同源 `/api/v1/**`，使用 `Secure + HttpOnly` Cookie �
 | `/wallet-entries` | Web 账号 | `wallet.read` | - | 已接入；机构真实钱包流水、稳定游标和来源单号跳转 |
 | `/staff` | Web 账号 | `staff.read`、`permission.read`（授权页签） | `staff.manage`、`permission.manage` | 已接入；账号安全、租户权限和机构任职统一从“编辑”进入 |
 | `/user-bindings` | Web 账号 | `user.read` 且 `staff.bind` | `staff.bind` | 已接入；手机号只进入请求体 |
-| `/devices` | Web 账号 | `device.read` | `device.configuration.manage`、`device.assignment.manage`；平台固定用例另管理资产、租户永久分配、自动验收复核、禁用/恢复和报废 | 已接入；永久资产、一次性归属、运行事实、配置应用和自动机器验收证据 |
+| `/devices` | Web 账号 | `device.read` | `device.configuration.manage`、`device.assignment.manage`；平台固定用例另管理资产、租户永久分配、自动验收复核、配置版本恢复、禁用/恢复和报废 | 已接入；永久资产、一次性归属、运行事实、配置应用、平台修复版本/重同步和自动机器验收证据 |
 | `/clean-operations` | Web 账号 | `clean.read` | - | 已接入；清运操作状态、边缘保存/可能解锁等安全事实、袋码和关联记录 |
 | `/clean-records` | Web 账号 | `clean.read` | `clean.edit` | 已接入；完成记录、设备原始/复算重量、照片、异常、当前有效值和只追加修正历史 |
 | `/account` | 租户主体、工作人员 | 当前会话 | 本人资料与密码命令 | 已接入 |
@@ -77,7 +77,8 @@ AppID、展示名称和 AppSecret，后续轮换密钥、激活 AppID，以及�
 
 等待项只显示明确的“后端接口尚未接入”，不建立模拟业务终态页面，也不复活旧接口。
 设备页面保留唯一 `/devices` 入口，但按账号显示不同范围。平台管理员登记真实资产、
-查看机器验收证据、永久分配一次租户，并可禁用、恢复或永久报废资产；平台登记本身
+查看机器验收证据、永久分配一次租户，并可对已经分配机构的设备发布配置修复版本、
+重同步失败版本、禁用、恢复或永久报废资产；平台登记本身
 不调用 OneNet，也不生成或显示 Device Key。租户主体及同时具有 `device.read` 和
 `device.assignment.manage` 的工作人员只看到本租户仍为 `NORMAL` 的资产，并只能把
 尚未归属机构的资产永久分配一次。普通机构工作人员只看到已授权机构仍为 `NORMAL`

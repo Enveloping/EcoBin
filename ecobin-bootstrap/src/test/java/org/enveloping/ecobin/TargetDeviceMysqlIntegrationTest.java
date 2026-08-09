@@ -327,6 +327,66 @@ class TargetDeviceMysqlIntegrationTest {
                           AND state = 'PENDING'
                         """, Integer.class, assetId));
 
+        JsonNode platformVersions = data(read(
+                platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-versions?limit=20",
+                200));
+        assertEquals(1, platformVersions.path("items").size());
+        assertEquals(1, platformVersions.path("items").get(0)
+                .path("versionNo").asLong());
+        String initialApplicationUid = platformVersions.path("items").get(0)
+                .path("application").path("applicationUid").asText();
+        JsonNode initialApplication = data(read(
+                platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid,
+                200));
+        assertEquals("PENDING", initialApplication.path("status").asText());
+
+        JsonNode rolledForward = data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-roll-forwards"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedLatestVersion", 1,
+                        "reason", "恢复设备端同版本摘要冲突"),
+                202));
+        assertEquals(2, rolledForward.path("versionNo").asLong());
+        assertEquals("PENDING", rolledForward.path("status").asText());
+        assertTrue(rolledForward.path("statusUrl").asText().startsWith(
+                "/api/v1/web/platform/device-assets/" + hardwareSn));
+        assertEquals(2, countByAsset("dev_config_version", assetId));
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(DISTINCT content_sha256)
+                        FROM dev_config_version
+                        WHERE asset_id = ?
+                        """, Integer.class, assetId));
+        assertEquals(2, jdbc.queryForObject("""
+                        SELECT COUNT(DISTINCT mcu_payload_sha256)
+                        FROM dev_config_version
+                        WHERE asset_id = ?
+                        """, Integer.class, assetId));
+        assertEquals("SYSTEM", jdbc.queryForObject("""
+                        SELECT publication_source
+                        FROM dev_config_version
+                        WHERE asset_id = ? AND version_no = 2
+                        """, String.class, assetId));
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM ops_reliable_task
+                        WHERE source_device_asset_id = ?
+                          AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                          AND state = 'PENDING'
+                        """, Integer.class, assetId));
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM ops_reliable_task
+                        WHERE source_device_asset_id = ?
+                          AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                          AND state = 'CANCELLED'
+                        """, Integer.class, assetId));
+
         JsonNode disabled = data(write(
                 platform,
                 post("/api/v1/web/platform/device-assets/" + hardwareSn

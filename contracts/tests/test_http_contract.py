@@ -459,6 +459,10 @@ class HttpContractTests(unittest.TestCase):
                 "expectedVersion",
                 "reason",
             },
+            "DeviceConfigurationRollForwardRequest": {
+                "expectedLatestVersion",
+                "reason",
+            },
         }
         for name, expected in required_fields.items():
             self.assertEqual(expected, set(schemas[name]["required"]), name)
@@ -489,6 +493,15 @@ class HttpContractTests(unittest.TestCase):
             (
                 "/api/v1/web/platform/device-assets/{hardwareSn}"
                 "/retirements"
+            ),
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/configuration-roll-forwards"
+            ),
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}"
+                "/configuration-applications/{applicationUid}"
+                "/resynchronizations"
             ),
             (
                 "/api/v1/web/organizations/{organizationCode}"

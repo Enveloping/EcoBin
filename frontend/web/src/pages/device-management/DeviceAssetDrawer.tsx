@@ -30,11 +30,17 @@ import {
 import QRCode from 'qrcode';
 import {
   getDeviceConfigurationVersion,
+  getPlatformDeviceConfigurationApplication,
+  getPlatformDeviceConfigurationVersion,
   listDeviceAcceptanceEvidence,
   listDeviceConfigurationVersions,
+  listPlatformDeviceConfigurationVersions,
   releaseDeviceConfiguration,
+  resynchronizePlatformDeviceConfiguration,
+  rollForwardPlatformDeviceConfiguration,
   type DeviceAcceptanceEvidence,
   type DeviceAsset,
+  type DeviceConfigurationApplication,
   type DeviceConfigurationReleaseRequest,
   type DeviceConfigurationVersion,
   type DeviceConfigurationVersionSummary,
@@ -81,6 +87,12 @@ interface DailyConfigurationEdits {
     fullnessWeightKg?: string;
   }>;
 }
+
+interface PlatformConfigurationRecovery {
+  reason: string;
+}
+
+type PlatformRecoveryKind = 'roll-forward' | 'resynchronize';
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiProblem) {
@@ -200,19 +212,26 @@ export default function DeviceAssetDrawer({
 }: DeviceAssetDrawerProps) {
   const executeCommand = useCommandExecutor();
   const [configForm] = Form.useForm<DailyConfigurationEdits>();
+  const [recoveryForm] = Form.useForm<PlatformConfigurationRecovery>();
   const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
   const [versions, setVersions] = useState<DeviceConfigurationVersionSummary[]>([]);
   const [latestVersion, setLatestVersion] = useState<DeviceConfigurationVersion>();
+  const [latestApplication, setLatestApplication] =
+    useState<DeviceConfigurationApplication>();
   const [loadingEvidence, setLoadingEvidence] = useState(false);
   const [loadingConfiguration, setLoadingConfiguration] = useState(false);
   const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
+  const [recoveryKind, setRecoveryKind] = useState<PlatformRecoveryKind>();
   const [submitting, setSubmitting] = useState(false);
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
   const [reevaluating, setReevaluating] = useState(false);
   const [entryQrDataUrl, setEntryQrDataUrl] = useState<string>();
   const [entryQrError, setEntryQrError] = useState(false);
 
-  const canConfigure = mode === 'organization'
-    && Boolean(asset && organizationCode);
+  const canConfigure = Boolean(asset) && (
+    (mode === 'organization' && Boolean(organizationCode))
+    || (mode === 'platform' && Boolean(asset?.organizationCode))
+  );
 
   const loadEvidence = async () => {
     if (!asset || mode !== 'platform') return;
@@ -227,23 +246,46 @@ export default function DeviceAssetDrawer({
   };
 
   const loadConfiguration = async () => {
-    if (!asset || !organizationCode || !canConfigure) return;
+    if (!asset || !canConfigure) return;
     setLoadingConfiguration(true);
     try {
-      const page = await listDeviceConfigurationVersions(
-        organizationCode,
-        asset.deviceCode,
-        { limit: 20 },
-      );
+      const page = mode === 'platform'
+        ? await listPlatformDeviceConfigurationVersions(
+          asset.hardwareSn,
+          { limit: 20 },
+        )
+        : await listDeviceConfigurationVersions(
+          organizationCode!,
+          asset.deviceCode,
+          { limit: 20 },
+        );
       setVersions(page.items);
       if (page.items.length) {
-        setLatestVersion(await getDeviceConfigurationVersion(
-          organizationCode,
-          asset.deviceCode,
-          page.items[0].versionNo,
-        ));
+        const latest = page.items[0];
+        const version = mode === 'platform'
+          ? await getPlatformDeviceConfigurationVersion(
+            asset.hardwareSn,
+            latest.versionNo,
+          )
+          : await getDeviceConfigurationVersion(
+            organizationCode!,
+            asset.deviceCode,
+            latest.versionNo,
+          );
+        setLatestVersion(version);
+        if (mode === 'platform') {
+          setLatestApplication(
+            await getPlatformDeviceConfigurationApplication(
+              asset.hardwareSn,
+              latest.application.applicationUid,
+            ),
+          );
+        } else {
+          setLatestApplication(undefined);
+        }
       } else {
         setLatestVersion(undefined);
+        setLatestApplication(undefined);
       }
     } catch (error) {
       message.error(errorMessage(error));
@@ -257,11 +299,19 @@ export default function DeviceAssetDrawer({
     setEvidence([]);
     setVersions([]);
     setLatestVersion(undefined);
+    setLatestApplication(undefined);
     void loadEvidence();
     void loadConfiguration();
     // The stable identities below intentionally define a new drawer target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, asset?.hardwareSn, asset?.deviceCode, organizationCode]);
+  }, [
+    open,
+    mode,
+    asset?.hardwareSn,
+    asset?.deviceCode,
+    asset?.organizationCode,
+    organizationCode,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -389,6 +439,72 @@ export default function DeviceAssetDrawer({
     }
   };
 
+  const openPlatformRecovery = (kind: PlatformRecoveryKind) => {
+    recoveryForm.setFieldsValue({ reason: '' });
+    setRecoveryKind(kind);
+  };
+
+  const submitPlatformRecovery = async () => {
+    if (
+      !asset
+      || mode !== 'platform'
+      || !latestVersion
+      || !recoveryKind
+    ) return;
+    const { reason } = await recoveryForm.validateFields();
+    setRecoverySubmitting(true);
+    try {
+      if (recoveryKind === 'roll-forward') {
+        const payload = {
+          expectedLatestVersion: latestVersion.versionNo,
+          reason,
+        };
+        await executeCommand(
+          commandKey(
+            'device.configuration.roll-forward',
+            asset.hardwareSn,
+            payload,
+          ),
+          (intent) => rollForwardPlatformDeviceConfiguration(
+            asset.hardwareSn,
+            payload,
+            intent,
+          ),
+        );
+        message.success(
+          `已生成 v${latestVersion.versionNo + 1} 并进入自动下发`,
+        );
+      } else {
+        if (!latestApplication) return;
+        const payload = {
+          expectedVersion: latestApplication.version,
+          reason,
+        };
+        await executeCommand(
+          commandKey(
+            'device.configuration.resynchronize',
+            `${asset.hardwareSn}:${latestApplication.applicationUid}`,
+            payload,
+          ),
+          (intent) => resynchronizePlatformDeviceConfiguration(
+            asset.hardwareSn,
+            latestApplication.applicationUid,
+            payload,
+            intent,
+          ),
+        );
+        message.success(`已重新提交 v${latestVersion.versionNo} 下发任务`);
+      }
+      setRecoveryKind(undefined);
+      await loadConfiguration();
+      onChanged();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  };
+
   return (
     <>
       <Drawer
@@ -502,6 +618,15 @@ export default function DeviceAssetDrawer({
               </section>
             )}
 
+            {mode === 'platform' && !asset.organizationCode && (
+              <Alert
+                type="info"
+                showIcon
+                message="永久分配机构后才会生成设备配置"
+                description="设备配置包含机构价格和投口经营参数；分配完成后系统自动创建初始版本，机构只需安装、通电和联网。"
+              />
+            )}
+
             {canConfigure && (
               <section>
                 <Space
@@ -511,27 +636,70 @@ export default function DeviceAssetDrawer({
                   <Space>
                     <CloudSyncOutlined />
                     <Typography.Title level={5} style={{ margin: 0 }}>
-                      日常价格与设备配置
+                      {mode === 'platform'
+                        ? '配置下发与恢复'
+                        : '日常价格与设备配置'}
                     </Typography.Title>
                   </Space>
-                  <Button
-                    icon={<EditOutlined />}
-                    disabled={!latestVersion}
-                    onClick={openConfigurationEditor}
-                  >
-                    基于最新版发布
-                  </Button>
+                  {mode === 'platform' ? (
+                    <Space wrap>
+                      <Button
+                        icon={<ReloadOutlined />}
+                        disabled={
+                          !latestApplication?.nextActions.includes(
+                            'RESYNCHRONIZE',
+                          )
+                        }
+                        onClick={() => openPlatformRecovery('resynchronize')}
+                      >
+                        重新下发当前版本
+                      </Button>
+                      <Button
+                        type="primary"
+                        icon={<CloudSyncOutlined />}
+                        disabled={
+                          !latestVersion
+                          || asset.lifecycleStatus !== 'NORMAL'
+                        }
+                        onClick={() => openPlatformRecovery('roll-forward')}
+                      >
+                        发布修复版本
+                      </Button>
+                    </Space>
+                  ) : (
+                    <Button
+                      icon={<EditOutlined />}
+                      disabled={!latestVersion}
+                      onClick={openConfigurationEditor}
+                    >
+                      基于最新版发布
+                    </Button>
+                  )}
                 </Space>
                 <Alert
                   style={{ margin: '12px 0' }}
-                  type="info"
+                  type={mode === 'platform' ? 'warning' : 'info'}
                   showIcon
-                  message="安装、通电和联网后无需机构确认"
-                  description="系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。"
+                  message={mode === 'platform'
+                    ? '两种恢复操作处理的问题不同'
+                    : '安装、通电和联网后无需机构确认'}
+                  description={mode === 'platform'
+                    ? '“重新下发”只重试同一个版本，适合设备离线或任务超时；“发布修复版本”会复制当前完整配置并生成更高版本，可解决设备已有同版本但摘要不同的冲突。'
+                    : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
                 />
+                {mode === 'platform' && latestApplication?.lastFailureCode && (
+                  <Alert
+                    style={{ marginBottom: 12 }}
+                    type="error"
+                    showIcon
+                    message={`最近失败：${latestApplication.lastFailureCode}`}
+                  />
+                )}
                 <Spin spinning={loadingConfiguration}>
                   {!versions.length ? (
-                    <Empty description="系统正在创建并下发初始配置" />
+                    <Empty description={mode === 'platform'
+                      ? '尚未找到配置版本'
+                      : '系统正在创建并下发初始配置'} />
                   ) : (
                     <List
                       dataSource={versions}
@@ -546,6 +714,7 @@ export default function DeviceAssetDrawer({
                                 <Tag color={configurationColors[version.application.status]}>
                                   {configurationLabels[version.application.status]}
                                 </Tag>
+                                <Tag>{version.application.dispatchState}</Tag>
                               </Space>
                             }
                             description={
@@ -657,6 +826,41 @@ export default function DeviceAssetDrawer({
               </Space>
             </Card>
           ))}
+        </Form>
+      </Modal>
+
+      <Modal
+        title={recoveryKind === 'roll-forward'
+          ? `发布 v${(latestVersion?.versionNo ?? 0) + 1} 修复版本`
+          : `重新下发 v${latestVersion?.versionNo ?? '-'}`}
+        open={Boolean(recoveryKind)}
+        confirmLoading={recoverySubmitting}
+        onOk={() => void submitPlatformRecovery()}
+        onCancel={() => setRecoveryKind(undefined)}
+        okText={recoveryKind === 'roll-forward'
+          ? '生成新版本并下发'
+          : '确认重新下发'}
+        destroyOnClose
+      >
+        <Alert
+          type={recoveryKind === 'roll-forward' ? 'warning' : 'info'}
+          showIcon
+          message={recoveryKind === 'roll-forward'
+            ? '完整复制当前配置，只递增版本身份'
+            : '不会产生新版本'}
+          description={recoveryKind === 'roll-forward'
+            ? '用于设备已经保存相同版本号、但配置摘要不同的情况。机构价格、投口和传感器参数不会被平台重新填写或修改。'
+            : '仅重新唤醒当前版本的可靠下发任务；如果设备拒绝“同版本不同摘要”，请取消并改用“发布修复版本”。'}
+          style={{ marginBottom: 20 }}
+        />
+        <Form form={recoveryForm} layout="vertical">
+          <Form.Item
+            name="reason"
+            label="操作原因"
+            rules={[{ required: true, message: '请说明本次配置恢复原因' }]}
+          >
+            <Input.TextArea maxLength={500} showCount rows={3} />
+          </Form.Item>
         </Form>
       </Modal>
     </>

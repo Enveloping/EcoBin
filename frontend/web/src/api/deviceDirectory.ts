@@ -25,6 +25,8 @@ export type DeviceConfigurationReleaseRequest =
   Schemas['DeviceConfigurationReleaseRequest'];
 export type DeviceConfigurationResynchronizationRequest =
   Schemas['DeviceConfigurationResynchronizationRequest'];
+export type DeviceConfigurationRollForwardRequest =
+  Schemas['DeviceConfigurationRollForwardRequest'];
 export type DeviceConfigurationVersion =
   Schemas['DeviceConfigurationVersion'];
 export type DeviceConfigurationVersionSummary =
@@ -146,6 +148,81 @@ export function retirePlatformDevice(
   intent: CommandIntent,
 ) {
   return controlPlatformDevice(hardwareSn, 'retirements', data, intent);
+}
+
+function platformDeviceAssetUrl(hardwareSn: string) {
+  return `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`;
+}
+
+export function listPlatformDeviceConfigurationVersions(
+  hardwareSn: string,
+  params: { beforeVersionNo?: number; limit?: number } = {},
+) {
+  return request<DeviceConfigurationVersionPage>({
+    url: `${platformDeviceAssetUrl(hardwareSn)}/configuration-versions`,
+    method: 'GET',
+    params,
+    noStore: true,
+  });
+}
+
+export function getPlatformDeviceConfigurationVersion(
+  hardwareSn: string,
+  versionNo: number,
+) {
+  return request<DeviceConfigurationVersion>({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/configuration-versions/`
+      + versionNo,
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function rollForwardPlatformDeviceConfiguration(
+  hardwareSn: string,
+  data: DeviceConfigurationRollForwardRequest,
+  intent: CommandIntent,
+) {
+  return intent.executeAccepted<
+    DeviceConfigurationAccepted,
+    DeviceConfigurationRollForwardRequest
+  >({
+    url: `${platformDeviceAssetUrl(hardwareSn)}/configuration-roll-forwards`,
+    method: 'POST',
+    data,
+  });
+}
+
+export function getPlatformDeviceConfigurationApplication(
+  hardwareSn: string,
+  applicationUid: string,
+) {
+  return request<DeviceConfigurationApplication>({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/configuration-applications/`
+      + encodeURIComponent(applicationUid),
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function resynchronizePlatformDeviceConfiguration(
+  hardwareSn: string,
+  applicationUid: string,
+  data: DeviceConfigurationResynchronizationRequest,
+  intent: CommandIntent,
+) {
+  return intent.executeAccepted<
+    DeviceConfigurationAccepted,
+    DeviceConfigurationResynchronizationRequest
+  >({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/configuration-applications/`
+      + `${encodeURIComponent(applicationUid)}/resynchronizations`,
+    method: 'POST',
+    data,
+  });
 }
 
 export function listTenantDeviceAssets(

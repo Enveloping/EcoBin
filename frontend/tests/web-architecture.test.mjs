@@ -311,6 +311,9 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(apiSource, /assignTenantDeviceOrganization/);
   assert.match(apiSource, /listDeviceAcceptanceEvidence/);
   assert.match(apiSource, /reevaluateDeviceAcceptance/);
+  assert.match(apiSource, /listPlatformDeviceConfigurationVersions/);
+  assert.match(apiSource, /rollForwardPlatformDeviceConfiguration/);
+  assert.match(apiSource, /resynchronizePlatformDeviceConfiguration/);
   assert.match(apiSource, /\/organizations\/\$\{encodeURIComponent[\s\S]*?\/devices/);
   assert.match(apiSource, /intent\.executeAccepted/);
   assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
@@ -326,6 +329,10 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.doesNotMatch(drawerSource, /模拟器（不能通过）/);
   assert.match(drawerSource, /expectedLatestVersion:\s*current\.versionNo/);
   assert.match(drawerSource, /系统会自动下发配置并测量厂家初始袋皮重/);
+  assert.match(drawerSource, /配置下发与恢复/);
+  assert.match(drawerSource, /重新下发当前版本/);
+  assert.match(drawerSource, /发布修复版本/);
+  assert.match(drawerSource, /同版本但摘要不同/);
   assert.doesNotMatch(apiSource, /device-deployments|deploymentCode|TenantPool/);
   assert.doesNotMatch(pageSource, /部署进度|租户设备池|经营开关状态/);
   assert.doesNotMatch(drawerSource, /人工验收|现场验收|手动开启/);
