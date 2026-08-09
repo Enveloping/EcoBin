@@ -247,10 +247,29 @@ class OneNetClientReliableSubmissionTest {
                         "contracts/examples/onenet/"
                                 + "confirm-edge-event.command.json")));
         ObjectNode payload = (ObjectNode) envelope.path("payload");
+        payload.put(
+                "confirmationUid",
+                "c885acf7-3b93-4f84-bd37-35e7c94778e2");
+        payload.put(
+                "originalEventUid",
+                "7762acb9-99ef-4f61-804a-698faa109a29");
+        payload.put(
+                "originalPayloadSha256",
+                "01c8a5a16cad2e4b1f4b075ee5a8782cae0e284149dcb67559aba27a89f844d4");
+        payload.put("outcome", "BUSINESS_APPLIED");
         payload.put("effectKind", "BASELINE_ESTABLISHED");
+        payload.put("processedAt", "2026-08-09T12:36:04.631Z");
         payload.putArray("resultReferences");
+        payload.putNull("errorCode");
+        payload.putNull("quarantineUid");
+        ((ObjectNode) envelope.path("target")).put(
+                "uid", "7762acb9-99ef-4f61-804a-698faa109a29");
+        envelope.put(
+                "payloadSha256",
+                "5dcf48d3ce2dcf7b2e14dd336e1103ed04896a9670387206e2b9dafc5956cd0b");
         UUID commandUid = UUID.fromString(
-                "60000000-0000-4000-8000-000000000002");
+                "eee42674-699a-4fc4-b857-f79fcec219f5");
+        envelope.put("commandUid", commandUid.toString());
         when(restTemplate.postForEntity(
                 anyString(),
                 any(HttpEntity.class),
@@ -279,6 +298,12 @@ class OneNetClientReliableSubmissionTest {
                         .path("scalarFields")
                         .path("effectKind")
                         .asInt());
+        assertEquals(
+                "2de52464d2ba2976ac075e16299c6c55ffe87a483c0771db137912bd746ca8cb",
+                actual.path("params")
+                        .path("scalarFields")
+                        .path("payloadSha256")
+                        .asText());
     }
 
     @Test

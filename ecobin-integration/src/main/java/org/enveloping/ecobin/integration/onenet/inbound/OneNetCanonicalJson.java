@@ -13,7 +13,7 @@ import java.util.Map;
  * Target OneNet contract canonicalizer. It deliberately supports only the
  * stable JSON subset frozen by the machine contract.
  */
-final class OneNetCanonicalJson {
+public final class OneNetCanonicalJson {
 
     private static final long SAFE_INTEGER_MAX =
             9_007_199_254_740_991L;
@@ -24,7 +24,7 @@ final class OneNetCanonicalJson {
     private OneNetCanonicalJson() {
     }
 
-    static String payloadSha256(Object payload) {
+    public static String payloadSha256(Object payload) {
         return sha256Hex(canonicalBytes(payload));
     }
 

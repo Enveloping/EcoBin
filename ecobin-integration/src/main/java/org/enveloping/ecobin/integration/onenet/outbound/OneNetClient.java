@@ -8,6 +8,7 @@ import org.enveloping.ecobin.device.api.result.CosUploadCredential;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
 import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
+import org.enveloping.ecobin.integration.onenet.inbound.OneNetCanonicalJson;
 import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
@@ -1411,7 +1412,7 @@ public class OneNetClient
         scalar.put("payloadSchemaVersion", 1);
         scalar.put(
                 "payloadSha256",
-                requiredText(envelope, "payloadSha256"));
+                confirmationTransportPayloadSha256(envelope, payload));
         scalar.put(
                 "confirmationUid",
                 requiredText(payload, "confirmationUid"));
@@ -1465,6 +1466,66 @@ public class OneNetClient
         params.put("target", projectedTarget);
         params.put("resultReferences", projectedReferences);
         return params;
+    }
+
+    private static String confirmationTransportPayloadSha256(
+            JsonNode envelope,
+            JsonNode payload) {
+        JsonNode effectKindNode = payload.get("effectKind");
+        if (effectKindNode == null
+                || !effectKindNode.isTextual()
+                || !("BASELINE_ESTABLISHED".equals(
+                        effectKindNode.asText())
+                || "BASELINE_RETRY_REQUIRED".equals(
+                        effectKindNode.asText()))) {
+            return requiredText(envelope, "payloadSha256");
+        }
+
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put(
+                "confirmationUid",
+                requiredText(payload, "confirmationUid"));
+        normalized.put(
+                "originalEventUid",
+                requiredText(payload, "originalEventUid"));
+        normalized.put(
+                "originalPayloadSha256",
+                requiredText(payload, "originalPayloadSha256"));
+        normalized.put("outcome", requiredText(payload, "outcome"));
+        normalized.put("effectKind", "UPDATED");
+        normalized.put(
+                "processedAt",
+                requiredText(payload, "processedAt"));
+
+        JsonNode references = payload.get("resultReferences");
+        if (references == null || !references.isArray()) {
+            throw new IllegalArgumentException(
+                    "resultReferences must be an array");
+        }
+        List<Map<String, Object>> normalizedReferences =
+                new ArrayList<>();
+        for (JsonNode reference : references) {
+            normalizedReferences.add(Map.of(
+                    "type", requiredText(reference, "type"),
+                    "key", requiredText(reference, "key")));
+        }
+        normalized.put("resultReferences", normalizedReferences);
+        normalized.put(
+                "errorCode",
+                nullableText(payload, "errorCode"));
+        normalized.put(
+                "quarantineUid",
+                nullableText(payload, "quarantineUid"));
+        return OneNetCanonicalJson.payloadSha256(normalized);
+    }
+
+    private static String nullableText(
+            JsonNode object,
+            String field) {
+        JsonNode value = object.get(field);
+        return value == null || value.isNull()
+                ? null
+                : requiredText(object, field);
     }
 
     private Map<String, Object> projectProvidePhotoUploadGrant(
