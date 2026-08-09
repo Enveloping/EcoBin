@@ -6,6 +6,9 @@ import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Service
@@ -105,6 +108,53 @@ public class TrustedDeviceSourceScopeService
     }
 
     @Override
+    public TrustedInboxScopeResolver resolverForPermanentAssetFact(
+            String hardwareSn,
+            Instant occurredAt) {
+        String trustedHardwareSn = requireHardwareSn(hardwareSn);
+        return writer -> {
+            List<PermanentAssetFactScope> rows = jdbc.query("""
+                            SELECT tenant_id, organization_id,
+                                   organization_assigned_at
+                            FROM dev_device_asset
+                            WHERE hardware_sn = ?
+                            """,
+                    (rs, ignored) -> new PermanentAssetFactScope(
+                            (Long) rs.getObject("tenant_id"),
+                            (Long) rs.getObject("organization_id"),
+                            rs.getObject(
+                                    "organization_assigned_at",
+                                    LocalDateTime.class)),
+                    trustedHardwareSn);
+            if (rows.size() != 1) {
+                throw new UntrustedInboxSourceException(
+                        "authenticated device asset is not registered");
+            }
+            PermanentAssetFactScope scope = rows.getFirst();
+            if (scope.organizationId() == null) {
+                if (scope.organizationAssignedAt() != null) {
+                    throw new UntrustedInboxSourceException(
+                            "device asset assignment facts are inconsistent");
+                }
+                writer.platform();
+                return;
+            }
+            if (scope.tenantId() == null
+                    || scope.organizationAssignedAt() == null) {
+                throw new UntrustedInboxSourceException(
+                        "device asset assignment facts are inconsistent");
+            }
+            Instant assignedAt = scope.organizationAssignedAt()
+                    .toInstant(ZoneOffset.UTC);
+            if (occurredAt == null || occurredAt.isBefore(assignedAt)) {
+                writer.platform();
+                return;
+            }
+            writer.organization(scope.tenantId(), scope.organizationId());
+        };
+    }
+
+    @Override
     public TrustedInboxScopeResolver resolverForOrganizationAsset(
             String hardwareSn) {
         String trustedHardwareSn = requireHardwareSn(hardwareSn);
@@ -155,6 +205,12 @@ public class TrustedDeviceSourceScopeService
     }
 
     private record AssetScope(Long tenantId, Long organizationId) {
+    }
+
+    private record PermanentAssetFactScope(
+            Long tenantId,
+            Long organizationId,
+            LocalDateTime organizationAssignedAt) {
     }
 
     private record ConfirmationScope(

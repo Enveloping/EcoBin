@@ -2,6 +2,8 @@ package org.enveloping.ecobin.device.api.port;
 
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 
+import java.time.Instant;
+
 /** 根据 OneNet 已认证设备名解析资产级或机构业务级可信范围。 */
 public interface TrustedDeviceSourceScopePort {
 
@@ -12,6 +14,13 @@ public interface TrustedDeviceSourceScopePort {
     TrustedInboxScopeResolver resolverForBusinessConfirmation(
             String hardwareSn,
             String confirmationUid);
+
+    /**
+     * 设备资产事实按其可信发生时间固定在分配前的平台范围或分配后的永久机构范围。
+     */
+    TrustedInboxScopeResolver resolverForPermanentAssetFact(
+            String hardwareSn,
+            Instant occurredAt);
 
     /** 只有已经永久分配到机构的设备才可提交日常业务事件。 */
     TrustedInboxScopeResolver resolverForOrganizationAsset(String hardwareSn);

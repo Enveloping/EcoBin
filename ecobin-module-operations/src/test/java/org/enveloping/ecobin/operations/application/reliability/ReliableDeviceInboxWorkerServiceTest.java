@@ -4,6 +4,7 @@ import org.enveloping.ecobin.device.api.port.DeviceAcceptanceChallengeCoordinato
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceEvidencePort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
+import org.enveloping.ecobin.device.api.port.TrustedPlatformDeviceAssetFactPort;
 import org.enveloping.ecobin.device.api.port.TrustedPlatformConfirmationReceiptPort;
 import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
 import org.enveloping.ecobin.device.api.result.DeviceTransportPresenceApplyResult;
@@ -89,6 +90,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                         platformFactory,
                         organizationFactory,
                         deviceEvents,
+                        mock(TrustedPlatformDeviceAssetFactPort.class),
                         acceptanceEvidence,
                         platformConfirmations,
                         transportPresence,
@@ -146,6 +148,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                         platformFactory,
                         organizationFactory,
                         deviceEvents,
+                        mock(TrustedPlatformDeviceAssetFactPort.class),
                         acceptanceEvidence,
                         platformConfirmations,
                         transportPresence,
@@ -203,6 +206,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                         platformFactory,
                         organizationFactory,
                         deviceEvents,
+                        mock(TrustedPlatformDeviceAssetFactPort.class),
                         acceptanceEvidence,
                         platformConfirmations,
                         transportPresence,
@@ -258,6 +262,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                         platformFactory,
                         organizationFactory,
                         deviceEvents,
+                        mock(TrustedPlatformDeviceAssetFactPort.class),
                         acceptanceEvidence,
                         platformConfirmations,
                         transportPresence,
@@ -273,6 +278,55 @@ class ReliableDeviceInboxWorkerServiceTest {
 
         verify(platformConfirmations).apply(any());
         verify(deviceEvents, never()).apply(any());
+    }
+
+    @Test
+    void platformSafetyFactCompletesWithoutOrganizationScope() {
+        ReliableInboxTaskRunner runner = mock(ReliableInboxTaskRunner.class);
+        TrustedPlatformInboxRefFactory platformFactory =
+                mock(TrustedPlatformInboxRefFactory.class);
+        TrustedOrganizationInboxRefFactory organizationFactory =
+                mock(TrustedOrganizationInboxRefFactory.class);
+        TrustedDeviceInboxEventPort deviceEvents =
+                mock(TrustedDeviceInboxEventPort.class);
+        TrustedPlatformDeviceAssetFactPort platformDeviceFacts =
+                mock(TrustedPlatformDeviceAssetFactPort.class);
+        when(platformDeviceFacts.apply(any()))
+                .thenReturn(TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED);
+        when(platformFactory.issue(41L))
+                .thenReturn(mock(TrustedPlatformInboxRef.class));
+        when(runner.runBatch(
+                eq(ReliableTaskChannel.IOT_DEVICE), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    InboxTaskHandler handler = invocation.getArgument(2);
+                    assertEquals(InboxTaskHandlerResult.NO_ACTION_REQUIRED,
+                            handler.handle(platformTask(
+                                    "SAFETY_SENSOR_STATE_CHANGED")));
+                    return new ReliableBatchResult(1, 1, 0);
+                });
+
+        ReliableDeviceInboxWorkerService service =
+                new ReliableDeviceInboxWorkerService(
+                        runner,
+                        platformFactory,
+                        organizationFactory,
+                        deviceEvents,
+                        platformDeviceFacts,
+                        mock(TrustedDeviceAcceptanceEvidencePort.class),
+                        mock(TrustedPlatformConfirmationReceiptPort.class),
+                        mock(TrustedDeviceTransportPresencePort.class),
+                        mock(DeviceAcceptanceChallengeCoordinatorPort.class),
+                        mock(ReliableDeviceTaskGateService.class),
+                        mock(CanonicalJson.class),
+                        mock(ApplyDeliveryCompleteUseCase.class),
+                        mock(ApplyCleanCompleteUseCase.class),
+                        mock(ApplyFullnessSampleCompleteUseCase.class),
+                        mock(ApplyFullnessStateChangedUseCase.class));
+
+        service.runBatch("worker-a");
+
+        verify(deviceEvents, never()).apply(any());
+        verify(platformDeviceFacts).apply(any());
     }
 
     private static ClaimedInboxTask organizationTask() {
@@ -312,7 +366,10 @@ class ReliableDeviceInboxWorkerServiceTest {
                 messageKind,
                 Set.of(
                         "DEVICE_ACCEPTANCE_EVIDENCE",
-                        "BUSINESS_CONFIRMATION_RECEIPT")
+                        "BUSINESS_CONFIRMATION_RECEIPT",
+                        "DEVICE_FAULT_OBSERVED",
+                        "DEVICE_FAULT_RECOVERED",
+                        "SAFETY_SENSOR_STATE_CHANGED")
                         .contains(messageKind) ? 2 : 1,
                 "{}",
                 now,

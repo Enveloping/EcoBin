@@ -224,6 +224,11 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "SMOKE_SENSOR",
             "MCU_STORAGE",
             "MCU_INTERNAL");
+    private static final Set<String> PERMANENT_ASSET_FACTS = Set.of(
+            "DEVICE_RUNTIME_SNAPSHOT",
+            "DEVICE_FAULT_OBSERVED",
+            "DEVICE_FAULT_RECOVERED",
+            "SAFETY_SENSOR_STATE_CHANGED");
 
     private final TrustedInboxPort trustedInboxPort;
     private final TrustedDeviceSourceScopePort sourceScopePort;
@@ -490,6 +495,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                             sourceScopeResolver(
                                     contract,
                                     hardwareSn,
+                                    event,
                                     payload)));
                 if (!receipt.transportAcknowledgementAllowed()) {
                     throw new IllegalStateException(
@@ -541,6 +547,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
     private TrustedInboxScopeResolver sourceScopeResolver(
             EventContract contract,
             String hardwareSn,
+            Map<String, Object> event,
             Map<String, Object> payload) {
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
                 contract.messageKind())) {
@@ -551,6 +558,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             return sourceScopePort.resolverForBusinessConfirmation(
                     hardwareSn,
                     (String) payload.get("confirmationUid"));
+        }
+        if (PERMANENT_ASSET_FACTS.contains(contract.messageKind())) {
+            String occurredAt = (String) event.get("occurredAt");
+            return sourceScopePort.resolverForPermanentAssetFact(
+                    hardwareSn,
+                    occurredAt == null ? null : Instant.parse(occurredAt));
         }
         return sourceScopePort.resolverForOrganizationAsset(hardwareSn);
     }

@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
@@ -72,6 +73,9 @@ class OneNetEventDispatcherTest {
                 eq(HARDWARE_SN), anyString())).thenReturn(resolver);
         when(sourceScopePort.resolverForPlatformAsset(HARDWARE_SN))
                 .thenReturn(TrustedInboxScopeResolver.platform());
+        when(sourceScopePort.resolverForPermanentAssetFact(
+                eq(HARDWARE_SN), any(Instant.class)))
+                .thenReturn(resolver);
         when(inboxPort.receive(any())).thenReturn(
                 new TrustedInboxReceipt(
                         TrustedInboxReceiptState.ACCEPTED,
@@ -205,6 +209,10 @@ class OneNetEventDispatcherTest {
                     .asText())
                     .matches("[0-9a-f]{64}");
         }
+        verify(sourceScopePort,
+                org.mockito.Mockito.times(4))
+                .resolverForPermanentAssetFact(
+                        eq(HARDWARE_SN), any(Instant.class));
     }
 
     @Test

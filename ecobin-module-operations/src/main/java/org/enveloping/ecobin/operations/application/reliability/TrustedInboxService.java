@@ -293,6 +293,15 @@ public class TrustedInboxService implements TrustedInboxPort {
     }
 
     private void applyRuntimeTelemetry(InboxAggregate inbox) {
+        if ("PLATFORM".equals(inbox.scopeKind())
+                && inbox.tenantId() == null
+                && inbox.organizationId() == null) {
+            // 分配机构前的运行快照是合法的平台资产证据，但没有机构运行投影可写。
+            // 收件落库并标记完成即可；后续分配和配置应用会触发一份新的机构快照。
+            LocalDateTime now = repository.databaseNow();
+            repository.markInboxProcessed(inbox.inboxId(), now);
+            return;
+        }
         if (!"ORGANIZATION".equals(inbox.scopeKind())
                 || inbox.tenantId() == null
                 || inbox.organizationId() == null) {

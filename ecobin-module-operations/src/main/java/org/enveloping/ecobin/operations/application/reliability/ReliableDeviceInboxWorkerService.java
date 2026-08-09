@@ -4,6 +4,7 @@ import org.enveloping.ecobin.device.api.port.TrustedDeviceInboxEventPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceEvidencePort;
 import org.enveloping.ecobin.device.api.port.DeviceAcceptanceChallengeCoordinatorPort;
 import org.enveloping.ecobin.device.api.port.TrustedDeviceTransportPresencePort;
+import org.enveloping.ecobin.device.api.port.TrustedPlatformDeviceAssetFactPort;
 import org.enveloping.ecobin.device.api.port.TrustedPlatformConfirmationReceiptPort;
 import org.enveloping.ecobin.device.api.result.DeviceTransportPresenceApplyResult;
 import org.enveloping.ecobin.device.api.result.DeviceAcceptanceEvidenceApplyResult;
@@ -12,6 +13,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceAcceptanceEvent;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceTransportEvent;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformConfirmationReceiptEvent;
+import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRefFactory;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
@@ -22,14 +24,22 @@ import org.enveloping.ecobin.recycling.api.port.ApplyFullnessSampleCompleteUseCa
 import org.enveloping.ecobin.recycling.api.port.ApplyFullnessStateChangedUseCase;
 import org.springframework.stereotype.Service;
 
+import java.util.Set;
+
 @Service
 public class ReliableDeviceInboxWorkerService
         implements ReliableDeviceInboxWorkerPort {
+
+    private static final Set<String> PLATFORM_DEVICE_ASSET_FACTS = Set.of(
+            "DEVICE_FAULT_OBSERVED",
+            "DEVICE_FAULT_RECOVERED",
+            "SAFETY_SENSOR_STATE_CHANGED");
 
     private final ReliableInboxTaskRunner runner;
     private final TrustedPlatformInboxRefFactory platformInboxRefFactory;
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final TrustedDeviceInboxEventPort deviceEventPort;
+    private final TrustedPlatformDeviceAssetFactPort platformDeviceFacts;
     private final TrustedDeviceAcceptanceEvidencePort acceptanceEvidencePort;
     private final TrustedPlatformConfirmationReceiptPort
             platformConfirmationReceiptPort;
@@ -48,6 +58,7 @@ public class ReliableDeviceInboxWorkerService
             TrustedPlatformInboxRefFactory platformInboxRefFactory,
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             TrustedDeviceInboxEventPort deviceEventPort,
+            TrustedPlatformDeviceAssetFactPort platformDeviceFacts,
             TrustedDeviceAcceptanceEvidencePort acceptanceEvidencePort,
             TrustedPlatformConfirmationReceiptPort
                     platformConfirmationReceiptPort,
@@ -64,6 +75,7 @@ public class ReliableDeviceInboxWorkerService
         this.platformInboxRefFactory = platformInboxRefFactory;
         this.inboxRefFactory = inboxRefFactory;
         this.deviceEventPort = deviceEventPort;
+        this.platformDeviceFacts = platformDeviceFacts;
         this.acceptanceEvidencePort = acceptanceEvidencePort;
         this.platformConfirmationReceiptPort =
                 platformConfirmationReceiptPort;
@@ -144,6 +156,28 @@ public class ReliableDeviceInboxWorkerService
                                         task.normalizedSchemaVersion(),
                                         task.normalizedPayload()));
                         return InboxTaskHandlerResult.APPLIED;
+                    }
+                    if (PLATFORM_DEVICE_ASSET_FACTS.contains(
+                            task.messageKind())
+                            && "PLATFORM".equals(task.scopeKind())) {
+                        if (task.tenantId() != null
+                                || task.organizationId() != null) {
+                            throw new ReliableTaskInvariantException(
+                                    "platform device asset fact carries "
+                                            + "organization keys");
+                        }
+                        TrustedDeviceEventApplyResult applied =
+                                platformDeviceFacts.apply(
+                                        new TrustedPlatformDeviceAssetFactEvent(
+                                                platformInboxRefFactory.issue(
+                                                        task.inboxId()),
+                                                task.messageKind(),
+                                                task.normalizedSchemaVersion(),
+                                                task.normalizedPayload()));
+                        return applied
+                                == TrustedDeviceEventApplyResult.APPLIED
+                                ? InboxTaskHandlerResult.APPLIED
+                                : InboxTaskHandlerResult.NO_ACTION_REQUIRED;
                     }
                     if (!"ORGANIZATION".equals(task.scopeKind())
                             || task.tenantId() == null

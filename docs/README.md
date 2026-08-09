@@ -5,7 +5,7 @@
 ## 快速开始
 
 1. [项目上下文](architecture/project-context.md)：当前阶段、跨会话决策、已知工程坑和续作入口。
-2. [V36 设备永久归属、自动验收与无部署码模型](architecture/permanent-device-ownership-v36.md)：2026-08-07 重新冻结的设备全链路目标，覆盖旧部署、调拨和人工激活模型。
+2. [V36 设备永久归属、自动验收与无部署码模型](architecture/permanent-device-ownership-v36.md)：设备全链路目标，覆盖旧部署、调拨和人工激活模型；2026-08-10 补充未分配设备运行、故障与安全事实的平台作用域。
 3. [V41 全局固定设备二维码入口](architecture/global-miniapp-device-entry-v41.md)：普通二维码统一使用全局地址，设备公开码区分设备和机构，渠道/机构不再保存入口地址。
 4. [V42 设备入口 URL 下发](architecture/device-entry-url-edge-delivery-v42.md)：验收时保存完整 URL，全局地址改变时自动下发，MCU 无应答且屏幕结果不进入平台验收。
 5. [V43 平台防伪袋码与标签打印](architecture/authenticated-bag-labels-v43.md)：平台按批签发 EB1 标签，不预建库存；厂家登记和清运换袋时由后端验真。
