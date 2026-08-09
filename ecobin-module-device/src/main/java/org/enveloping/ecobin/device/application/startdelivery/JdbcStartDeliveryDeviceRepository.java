@@ -70,6 +70,10 @@ class JdbcStartDeliveryDeviceRepository
             FOR UPDATE
             """;
 
+    // Configuration versions are append-only. LOCK_ASSET_SQL already
+    // serializes delivery admission with configuration publication, so this
+    // read must not request an update lock from the least-privilege runtime
+    // account.
     static final String LOCK_LATEST_CONFIGURATION_SQL = """
             SELECT config.id,
                    config.version_no,
@@ -108,7 +112,6 @@ class JdbcStartDeliveryDeviceRepository
               AND config.asset_id = ?
             ORDER BY config.version_no DESC
             LIMIT 1
-            FOR UPDATE
             """;
 
     static final String LOCK_PORT_SQL = """

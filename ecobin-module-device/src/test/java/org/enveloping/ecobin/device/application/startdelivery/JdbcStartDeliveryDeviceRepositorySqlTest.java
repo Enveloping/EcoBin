@@ -22,9 +22,7 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
                 JdbcStartDeliveryDeviceRepository
                         .LOCK_TRANSPORT_PRESENCE_SQL,
                 JdbcStartDeliveryDeviceRepository
-                        .LOCK_OCCUPANCY_SQL,
-                JdbcStartDeliveryDeviceRepository
-                        .LOCK_LATEST_CONFIGURATION_SQL);
+                        .LOCK_OCCUPANCY_SQL);
 
         assertThat(lockSql)
                 .allSatisfy(sql ->
@@ -35,6 +33,8 @@ class JdbcStartDeliveryDeviceRepositorySqlTest {
     @Test
     void immutableStartFactsUsePlainReadsBehindMutableRootLocks() {
         List<String> immutableSql = List.of(
+                JdbcStartDeliveryDeviceRepository
+                        .LOCK_LATEST_CONFIGURATION_SQL,
                 JdbcStartDeliveryDeviceRepository.LOCK_PORT_SQL,
                 JdbcStartDeliveryDeviceRepository
                         .LOCK_PORT_CONFIGURATION_SQL);
