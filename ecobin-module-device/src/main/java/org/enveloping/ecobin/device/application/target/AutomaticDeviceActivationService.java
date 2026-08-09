@@ -49,6 +49,79 @@ public class AutomaticDeviceActivationService {
     private static final long COMMAND_VALIDITY_SECONDS =
             10L * 365 * 24 * 60 * 60;
 
+    static final String LOCK_INITIAL_BASELINE_CAPACITY_SQL = """
+            SELECT port_id
+            FROM rec_port_capacity_state
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+            ORDER BY port_id
+            FOR UPDATE
+            """;
+
+    static final String LOAD_INITIAL_BASELINE_FACTS_SQL = """
+            SELECT port.id AS port_id, port.port_no,
+                   factory_bag.id AS factory_bag_id,
+                   factory_bag.tare_status,
+                   bag.id AS bag_id, bag.bag_uid,
+                   capacity.lock_version AS capacity_version,
+                   capacity.baseline_state,
+                   capacity.current_baseline_id,
+                   snapshot.id AS snapshot_id,
+                   snapshot.fullness_mode,
+                   snapshot.configured_full_weight_g,
+                   snapshot.fullness_settle_wait_ms,
+                   snapshot.fullness_confirmation_wait_ms,
+                   snapshot.weight_measurement_timeout_ms,
+                   EXISTS (
+                       SELECT 1
+                       FROM rec_port_baseline_measurement active
+                       WHERE active.port_id = port.id
+                         AND active.status = 'PENDING'
+                   ) AS active_measurement,
+                   (
+                       SELECT COUNT(*)
+                       FROM rec_port_baseline_measurement previous
+                       WHERE previous.port_id = port.id
+                         AND previous.status = 'FAILED'
+                   ) AS failed_measurements,
+                   (
+                       SELECT MAX(previous.completed_at)
+                       FROM rec_port_baseline_measurement previous
+                       WHERE previous.port_id = port.id
+                         AND previous.status = 'FAILED'
+                   ) AS last_failed_at
+            FROM dev_port port
+            JOIN dev_factory_installed_bag factory_bag
+              ON factory_bag.asset_id = port.asset_id
+             AND factory_bag.port_no = port.port_no
+            JOIN rec_bag bag
+              ON bag.tenant_id = port.tenant_id
+             AND bag.organization_id = port.organization_id
+             AND bag.bag_code = factory_bag.bag_code
+            JOIN rec_bag_current_occupancy occupancy
+              ON occupancy.tenant_id = port.tenant_id
+             AND occupancy.organization_id = port.organization_id
+             AND occupancy.port_id = port.id
+             AND occupancy.bag_id = bag.id
+             AND occupancy.occupancy_type = 'PORT_BOUND'
+            JOIN rec_port_capacity_state capacity
+              ON capacity.tenant_id = port.tenant_id
+             AND capacity.organization_id = port.organization_id
+             AND capacity.asset_id = port.asset_id
+             AND capacity.port_id = port.id
+            JOIN dev_port_config_snapshot snapshot
+              ON snapshot.tenant_id = port.tenant_id
+             AND snapshot.organization_id = port.organization_id
+             AND snapshot.asset_id = port.asset_id
+             AND snapshot.config_version_id = ?
+             AND snapshot.port_id = port.id
+            WHERE port.tenant_id = ?
+              AND port.organization_id = ?
+              AND port.asset_id = ?
+            ORDER BY port.port_no
+            """;
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
@@ -471,69 +544,19 @@ public class AutomaticDeviceActivationService {
             AssetFacts asset,
             ConfigurationFacts configuration,
             UUID correlationUid) {
-        List<PortBaselineFacts> ports = jdbc.query("""
-                        SELECT port.id AS port_id, port.port_no,
-                               factory_bag.id AS factory_bag_id,
-                               factory_bag.tare_status,
-                               bag.id AS bag_id, bag.bag_uid,
-                               capacity.lock_version AS capacity_version,
-                               capacity.baseline_state,
-                               capacity.current_baseline_id,
-                               snapshot.id AS snapshot_id,
-                               snapshot.fullness_mode,
-                               snapshot.configured_full_weight_g,
-                               snapshot.fullness_settle_wait_ms,
-                               snapshot.fullness_confirmation_wait_ms,
-                               snapshot.weight_measurement_timeout_ms,
-                               EXISTS (
-                                   SELECT 1
-                                   FROM rec_port_baseline_measurement active
-                                   WHERE active.port_id = port.id
-                                     AND active.status = 'PENDING'
-                               ) AS active_measurement,
-                               (
-                                   SELECT COUNT(*)
-                                   FROM rec_port_baseline_measurement previous
-                                   WHERE previous.port_id = port.id
-                                     AND previous.status = 'FAILED'
-                               ) AS failed_measurements,
-                               (
-                                   SELECT MAX(previous.completed_at)
-                                   FROM rec_port_baseline_measurement previous
-                                   WHERE previous.port_id = port.id
-                                     AND previous.status = 'FAILED'
-                               ) AS last_failed_at
-                        FROM dev_port port
-                        JOIN dev_factory_installed_bag factory_bag
-                          ON factory_bag.asset_id = port.asset_id
-                         AND factory_bag.port_no = port.port_no
-                        JOIN rec_bag bag
-                          ON bag.tenant_id = port.tenant_id
-                         AND bag.organization_id = port.organization_id
-                         AND bag.bag_code = factory_bag.bag_code
-                        JOIN rec_bag_current_occupancy occupancy
-                          ON occupancy.tenant_id = port.tenant_id
-                         AND occupancy.organization_id = port.organization_id
-                         AND occupancy.port_id = port.id
-                         AND occupancy.bag_id = bag.id
-                         AND occupancy.occupancy_type = 'PORT_BOUND'
-                        JOIN rec_port_capacity_state capacity
-                          ON capacity.tenant_id = port.tenant_id
-                         AND capacity.organization_id = port.organization_id
-                         AND capacity.asset_id = port.asset_id
-                         AND capacity.port_id = port.id
-                        JOIN dev_port_config_snapshot snapshot
-                          ON snapshot.tenant_id = port.tenant_id
-                         AND snapshot.organization_id = port.organization_id
-                         AND snapshot.asset_id = port.asset_id
-                         AND snapshot.config_version_id = ?
-                         AND snapshot.port_id = port.id
-                        WHERE port.tenant_id = ?
-                          AND port.organization_id = ?
-                          AND port.asset_id = ?
-                        ORDER BY port.port_no
-                        FOR UPDATE
-                        """,
+        List<Long> lockedCapacityPortIds = jdbc.query(
+                LOCK_INITIAL_BASELINE_CAPACITY_SQL,
+                (rs, ignored) -> rs.getLong("port_id"),
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id());
+        if (lockedCapacityPortIds.size() != asset.portCount()) {
+            throw new IllegalStateException(
+                    "automatic baseline capacity states are incomplete");
+        }
+
+        List<PortBaselineFacts> ports = jdbc.query(
+                LOAD_INITIAL_BASELINE_FACTS_SQL,
                 (rs, ignored) -> new PortBaselineFacts(
                         rs.getLong("port_id"),
                         rs.getInt("port_no"),

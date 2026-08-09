@@ -68,6 +68,133 @@ public class TrustedOrangePiRuntimeFactService
               AND event_row.observation_stage = ?
             """;
 
+    static final String LOAD_BASELINE_LOCK_COORDINATES_SQL = """
+            SELECT id AS measurement_id, port_id
+            FROM rec_port_baseline_measurement
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND measurement_uid = ?
+            """;
+
+    static final String LOCK_BASELINE_RUNTIME_SQL = """
+            SELECT asset_id
+            FROM dev_device_runtime_state
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOCK_BASELINE_CAPACITY_SQL = """
+            SELECT port_id
+            FROM rec_port_capacity_state
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND port_id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOCK_BASELINE_MEASUREMENT_SQL = """
+            SELECT id
+            FROM rec_port_baseline_measurement
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND port_id = ?
+              AND id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOCK_BASELINE_COMMAND_SQL = """
+            SELECT id
+            FROM dev_device_command
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND baseline_measurement_id = ?
+              AND command_type = 'MEASURE_EMPTY_BAG_BASELINE'
+              AND command_uid = ?
+            FOR UPDATE
+            """;
+
+    static final String LOAD_BASELINE_TARGET_SQL = """
+            SELECT measurement.id AS measurement_id,
+                   measurement.status AS measurement_status,
+                   measurement.capacity_lock_version_snapshot,
+                   measurement.fullness_rule_fingerprint,
+                   port.id AS port_id, port.port_no,
+                   bag.id AS bag_id, bag.bag_uid,
+                   version.id AS config_id,
+                   version.version_no,
+                   LOWER(HEX(version.content_sha256))
+                       AS content_sha256,
+                   LOWER(HEX(version.mcu_payload_sha256))
+                       AS mcu_payload_sha256,
+                   snapshot.id AS snapshot_id,
+                   snapshot.calibration_version,
+                   capacity.lock_version AS capacity_version,
+                   capacity.current_bag_id,
+                   capacity.current_detection_id,
+                   runtime.applied_config_version_no,
+                   LOWER(HEX(runtime.applied_config_content_sha256))
+                       AS applied_content_sha256,
+                   LOWER(HEX(runtime.applied_mcu_payload_sha256))
+                       AS applied_mcu_payload_sha256,
+                   command_row.id AS command_id,
+                   command_row.physical_state AS command_state,
+                   factory_bag.id AS factory_bag_id
+            FROM rec_port_baseline_measurement measurement
+            JOIN dev_port port
+              ON port.tenant_id = measurement.tenant_id
+             AND port.organization_id = measurement.organization_id
+             AND port.asset_id = measurement.asset_id
+             AND port.id = measurement.port_id
+            JOIN rec_bag bag
+              ON bag.tenant_id = measurement.tenant_id
+             AND bag.organization_id = measurement.organization_id
+             AND bag.id = measurement.bag_id
+            JOIN dev_config_version version
+              ON version.tenant_id = measurement.tenant_id
+             AND version.organization_id =
+                 measurement.organization_id
+             AND version.asset_id = measurement.asset_id
+             AND version.id = measurement.device_config_version_id
+            JOIN dev_port_config_snapshot snapshot
+              ON snapshot.tenant_id = measurement.tenant_id
+             AND snapshot.organization_id =
+                 measurement.organization_id
+             AND snapshot.asset_id = measurement.asset_id
+             AND snapshot.config_version_id = version.id
+             AND snapshot.port_id = port.id
+             AND snapshot.id = measurement.port_config_snapshot_id
+            JOIN rec_port_capacity_state capacity
+              ON capacity.tenant_id = measurement.tenant_id
+             AND capacity.organization_id = measurement.organization_id
+             AND capacity.asset_id = measurement.asset_id
+             AND capacity.port_id = port.id
+            JOIN dev_device_runtime_state runtime
+              ON runtime.tenant_id = measurement.tenant_id
+             AND runtime.organization_id = measurement.organization_id
+             AND runtime.asset_id = measurement.asset_id
+            JOIN dev_device_command command_row
+              ON command_row.tenant_id = measurement.tenant_id
+             AND command_row.organization_id = measurement.organization_id
+             AND command_row.asset_id = measurement.asset_id
+             AND command_row.baseline_measurement_id = measurement.id
+             AND command_row.command_type = 'MEASURE_EMPTY_BAG_BASELINE'
+            JOIN dev_factory_installed_bag factory_bag
+              ON factory_bag.asset_id = measurement.asset_id
+             AND factory_bag.port_no = port.port_no
+             AND factory_bag.bag_code = bag.bag_code
+            WHERE measurement.tenant_id = ?
+              AND measurement.organization_id = ?
+              AND measurement.asset_id = ?
+              AND measurement.measurement_uid = ?
+              AND command_row.command_uid = ?
+            """;
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final ReliableEdgeConfirmationService confirmationService;
@@ -592,89 +719,49 @@ public class TrustedOrangePiRuntimeFactService
             throw new UntrustedInboxSourceException(
                     "baseline result target is not authoritative");
         }
-        List<BaselineTarget> rows = jdbc.query("""
-                        SELECT measurement.id AS measurement_id,
-                               measurement.status AS measurement_status,
-                               measurement.capacity_lock_version_snapshot,
-                               measurement.fullness_rule_fingerprint,
-                               port.id AS port_id, port.port_no,
-                               bag.id AS bag_id, bag.bag_uid,
-                               version.id AS config_id,
-                               version.version_no,
-                               LOWER(HEX(version.content_sha256))
-                                   AS content_sha256,
-                               LOWER(HEX(version.mcu_payload_sha256))
-                                   AS mcu_payload_sha256,
-                               snapshot.id AS snapshot_id,
-                               snapshot.calibration_version,
-                               capacity.lock_version AS capacity_version,
-                               capacity.current_bag_id,
-                               capacity.current_detection_id,
-                               runtime.applied_config_version_no,
-                               LOWER(HEX(runtime.applied_config_content_sha256))
-                                   AS applied_content_sha256,
-                               LOWER(HEX(runtime.applied_mcu_payload_sha256))
-                                   AS applied_mcu_payload_sha256,
-                               command_row.id AS command_id,
-                               command_row.physical_state AS command_state,
-                               factory_bag.id AS factory_bag_id
-                        FROM rec_port_baseline_measurement measurement
-                        JOIN dev_port port
-                          ON port.tenant_id = measurement.tenant_id
-                         AND port.organization_id = measurement.organization_id
-                         AND port.asset_id = measurement.asset_id
-                         AND port.id = measurement.port_id
-                        JOIN rec_bag bag
-                          ON bag.tenant_id = measurement.tenant_id
-                         AND bag.organization_id = measurement.organization_id
-                         AND bag.id = measurement.bag_id
-                        JOIN dev_config_version version
-                          ON version.tenant_id = measurement.tenant_id
-                         AND version.organization_id =
-                             measurement.organization_id
-                         AND version.asset_id = measurement.asset_id
-                         AND version.id =
-                             measurement.device_config_version_id
-                        JOIN dev_port_config_snapshot snapshot
-                          ON snapshot.tenant_id = measurement.tenant_id
-                         AND snapshot.organization_id =
-                             measurement.organization_id
-                         AND snapshot.asset_id = measurement.asset_id
-                         AND snapshot.config_version_id = version.id
-                         AND snapshot.port_id = port.id
-                         AND snapshot.id =
-                             measurement.port_config_snapshot_id
-                        JOIN rec_port_capacity_state capacity
-                          ON capacity.tenant_id = measurement.tenant_id
-                         AND capacity.organization_id =
-                             measurement.organization_id
-                         AND capacity.asset_id = measurement.asset_id
-                         AND capacity.port_id = port.id
-                        JOIN dev_device_runtime_state runtime
-                          ON runtime.tenant_id = measurement.tenant_id
-                         AND runtime.organization_id =
-                             measurement.organization_id
-                         AND runtime.asset_id = measurement.asset_id
-                        JOIN dev_device_command command_row
-                          ON command_row.tenant_id = measurement.tenant_id
-                         AND command_row.organization_id =
-                             measurement.organization_id
-                         AND command_row.asset_id = measurement.asset_id
-                         AND command_row.baseline_measurement_id =
-                             measurement.id
-                         AND command_row.command_type =
-                             'MEASURE_EMPTY_BAG_BASELINE'
-                        JOIN dev_factory_installed_bag factory_bag
-                          ON factory_bag.asset_id = measurement.asset_id
-                         AND factory_bag.port_no = port.port_no
-                         AND factory_bag.bag_code = bag.bag_code
-                        WHERE measurement.tenant_id = ?
-                          AND measurement.organization_id = ?
-                          AND measurement.asset_id = ?
-                          AND measurement.measurement_uid = ?
-                          AND command_row.command_uid = ?
-                        FOR UPDATE
-                        """,
+        List<BaselineLockCoordinates> coordinateRows = jdbc.query(
+                LOAD_BASELINE_LOCK_COORDINATES_SQL,
+                (rs, ignored) -> new BaselineLockCoordinates(
+                        rs.getLong("measurement_id"),
+                        rs.getLong("port_id")),
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                measurementUid);
+        if (coordinateRows.size() != 1) {
+            throw new UntrustedInboxSourceException(
+                    "baseline result does not resolve its frozen intent");
+        }
+        BaselineLockCoordinates coordinates = coordinateRows.getFirst();
+
+        requireBaselineLock(
+                LOCK_BASELINE_RUNTIME_SQL,
+                tenantId,
+                organizationId,
+                asset.assetId());
+        requireBaselineLock(
+                LOCK_BASELINE_CAPACITY_SQL,
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                coordinates.portId());
+        requireBaselineLock(
+                LOCK_BASELINE_MEASUREMENT_SQL,
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                coordinates.portId(),
+                coordinates.measurementId());
+        requireBaselineLock(
+                LOCK_BASELINE_COMMAND_SQL,
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                coordinates.measurementId(),
+                commandUid);
+
+        List<BaselineTarget> rows = jdbc.query(
+                LOAD_BASELINE_TARGET_SQL,
                 (rs, ignored) -> new BaselineTarget(
                         rs.getLong("measurement_id"),
                         rs.getString("measurement_status"),
@@ -800,6 +887,17 @@ public class TrustedOrangePiRuntimeFactService
         touchLastDeviceEvent(
                 asset.assetId(), tenantId, organizationId, now);
         return success ? "BASELINE_ESTABLISHED" : "BASELINE_RETRY_REQUIRED";
+    }
+
+    private void requireBaselineLock(String sql, Object... arguments) {
+        List<Long> lockedRows = jdbc.query(
+                sql,
+                (rs, ignored) -> rs.getLong(1),
+                arguments);
+        if (lockedRows.size() != 1) {
+            throw new UntrustedInboxSourceException(
+                    "baseline result does not resolve its frozen intent");
+        }
     }
 
     private long insertBaselinePhysicalResult(
@@ -3140,6 +3238,11 @@ public class TrustedOrangePiRuntimeFactService
     private record CommandObservationResult(
             String effectKind,
             boolean conflict) {
+    }
+
+    private record BaselineLockCoordinates(
+            long measurementId,
+            long portId) {
     }
 
     private record BaselineTarget(

@@ -143,11 +143,17 @@ H-02 实施审查发现 F-04/F-05 原矩阵只有表和写类，没有把 identi
 - 98 张领域表显式 `SELECT`；
 - 除权限目录外显式 `INSERT`；
 - 四张当前槽位表和可删除的袋码批次表显式 `DELETE`；
-- 对 57 张 P/O 表只授予矩阵明确列出的列级 `UPDATE`。
+- 对 60 张 P/O 表只授予矩阵明确列出的列级 `UPDATE`。
 
 验收对每张 P/O 表执行一条获准列空集更新正测，并选择该表首个未授权列执行负测；
 五张可删除表逐表验证 `DELETE`，备份身份以 `single-transaction` 数据读取探针验证。
 任何 schema 级或整表 `UPDATE/DELETE` 仍视为失败。
+
+目录版本 19 补齐厂家初始袋自动皮重投影：运行账号只可更新
+`dev_factory_installed_bag.tare_status`、`last_failure_code` 和 `updated_at`。
+袋码、投口号、安装时间及其他厂家登记事实仍不可修改。`dev_port` 同样继续只允许
+`SELECT/INSERT`；需要并发串行化的初始皮重流程应锁定可变的
+`rec_port_capacity_state`，不能为了联合查询的 `FOR UPDATE` 给不可变拓扑表扩权。
 
 ## 6. 日常启停
 

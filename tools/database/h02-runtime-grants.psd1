@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 18
+    CatalogVersion = 19
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -135,6 +135,13 @@
             "retired_at"
             "retirement_reason"
             "control_version"
+            "updated_at"
+        )
+        # Factory bag identity and installation facts remain immutable. Only
+        # the automatic real-device tare measurement projection may advance.
+        dev_factory_installed_bag = @(
+            "tare_status"
+            "last_failure_code"
             "updated_at"
         )
         dev_device_entry_url_rollout = @(

@@ -88,6 +88,29 @@ if (@(Compare-Object @("lock_version") $subjectColumns).Count -ne 0) {
     throw "V39 WeChat subject locking grant is not minimal"
 }
 
+$factoryBagColumns = @(
+    $catalog.UpdateColumns.dev_factory_installed_bag
+)
+$factoryBagRequiredColumns = @(
+    "tare_status"
+    "last_failure_code"
+    "updated_at"
+)
+if (@(
+        Compare-Object $factoryBagRequiredColumns $factoryBagColumns
+    ).Count -ne 0) {
+    throw (
+        "Factory-installed bag runtime UPDATE grants must be limited to " +
+        "the automatic tare projection"
+    )
+}
+if ($catalog.UpdateColumns.ContainsKey("dev_port")) {
+    throw (
+        "dev_port topology is immutable; callers must lock a mutable " +
+        "device or capacity root instead of widening runtime UPDATE grants"
+    )
+}
+
 $assetRequiredColumns = @(
     "tenant_id"
     "tenant_assigned_at"
