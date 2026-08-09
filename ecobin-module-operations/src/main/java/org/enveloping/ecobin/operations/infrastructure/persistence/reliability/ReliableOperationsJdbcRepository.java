@@ -541,6 +541,36 @@ public class ReliableOperationsJdbcRepository {
             byte[] rawTransportSha256,
             byte[] normalizedContentSha256,
             LocalDateTime now) {
+        return upsertDomainQuarantine(
+                dedupeKey,
+                scopeKind,
+                tenantId,
+                organizationId,
+                sourceNamespace,
+                sourcePrincipalKey,
+                externalMessageId,
+                conflictingInboxId,
+                rawTransportSha256,
+                normalizedContentSha256,
+                "IDENTITY_CONTENT_CONFLICT",
+                "stable external identity carried different semantic content",
+                now);
+    }
+
+    public UUID upsertDomainQuarantine(
+            byte[] dedupeKey,
+            String scopeKind,
+            Long tenantId,
+            Long organizationId,
+            String sourceNamespace,
+            String sourcePrincipalKey,
+            String externalMessageId,
+            long conflictingInboxId,
+            byte[] rawTransportSha256,
+            byte[] normalizedContentSha256,
+            String reasonCode,
+            String redactedDiagnostic,
+            LocalDateTime now) {
         UUID proposedUid = UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO ops_message_quarantine (
@@ -554,9 +584,9 @@ public class ReliableOperationsJdbcRepository {
                     created_at, updated_at
                 ) VALUES (
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, 'IDENTITY_CONTENT_CONFLICT',
+                    ?, ?, ?, ?, ?, ?,
                     ?, ?,
-                    'stable external identity carried different semantic content',
+                    ?,
                     'OPEN', ?, ?, 1, NULL, NULL, 0, ?, ?
                 )
                 ON DUPLICATE KEY UPDATE
@@ -574,8 +604,10 @@ public class ReliableOperationsJdbcRepository {
                 sourcePrincipalKey,
                 externalMessageId,
                 conflictingInboxId,
+                reasonCode,
                 rawTransportSha256,
                 normalizedContentSha256,
+                redactedDiagnostic,
                 now,
                 now,
                 now,

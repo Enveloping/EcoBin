@@ -5,9 +5,11 @@ import jakarta.validation.Valid;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.enveloping.ecobin.recycling.application.clean.CleanQueryService;
+import org.enveloping.ecobin.recycling.application.clean.CleanDeviceQueryService;
 import org.enveloping.ecobin.recycling.application.clean.CleanRecordQueryService;
 import org.enveloping.ecobin.recycling.application.clean.StartCleanOperationService;
 import org.enveloping.ecobin.recycling.web.v1.CleanRecordModels.CleanRecordItem;
+import org.enveloping.ecobin.recycling.web.v1.CleanDeviceModels.CleanDeviceItem;
 import org.enveloping.ecobin.recycling.web.v1.CleanRecordModels.MiniappCleanRecordDetail;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOperationAccepted;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOperationView;
@@ -31,15 +33,29 @@ public class MiniappCleanController {
 
     private final StartCleanOperationService startService;
     private final CleanQueryService queryService;
+    private final CleanDeviceQueryService deviceQueryService;
     private final CleanRecordQueryService recordQueryService;
 
     public MiniappCleanController(
             StartCleanOperationService startService,
             CleanQueryService queryService,
+            CleanDeviceQueryService deviceQueryService,
             CleanRecordQueryService recordQueryService) {
         this.startService = startService;
         this.queryService = queryService;
+        this.deviceQueryService = deviceQueryService;
         this.recordQueryService = recordQueryService;
+    }
+
+    @GetMapping("/api/v1/miniapp/me/clean-devices")
+    public TargetApiEnvelope<CursorPage<CleanDeviceItem>> cleanDevices(
+            @RequestParam String filter,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit,
+            HttpServletRequest request) {
+        return TargetApiEnvelope.ok(
+                deviceQueryService.devices(filter, cursor, limit),
+                TargetRequestIds.resolve(request));
     }
 
     @GetMapping(

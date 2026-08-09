@@ -5,13 +5,13 @@ import type {
 } from '../types/api'
 
 const BLOCKER_TEXT: Record<CleanOptionBlocker, string> = {
+  CLEAN_CONFIGURATION_UNAVAILABLE: '机构尚未配置清运规则',
+  CONFIGURATION_NOT_APPLIED: '设备配置尚未完整应用',
+  EDGE_OFFLINE: '设备当前未确认联网',
   DEVICE_BUSY: '设备正在执行其他作业',
+  PORT_DISABLED: '当前投口未启用清运',
   CLEAN_OPERATION_ACTIVE: '该投口已有未结束清运',
-  CLEAN_LOCK_NOT_SAFE: '清运电磁锁状态不安全',
-  CLEAN_SOLENOID_UNAVAILABLE: '清运电磁阀不可用',
-  WEIGHT_UNAVAILABLE: '称重状态不可用',
-  SAFETY_UNAVAILABLE: '设备安全状态不可用',
-  DEVICE_FAULT_ACTIVE: '设备存在未恢复故障',
+  PORT_WORK_ACTIVE: '投口正在检测或测量空袋基准',
 }
 
 export type CleanOperationDisposition =
@@ -22,8 +22,9 @@ export type CleanOperationDisposition =
   | 'ABORTED'
   | 'UNKNOWN'
 
-export function cleanBlockerText(blocker: CleanOptionBlocker): string {
-  return BLOCKER_TEXT[blocker]
+export function cleanBlockerText(blocker: string): string {
+  return BLOCKER_TEXT[blocker as CleanOptionBlocker]
+    || `暂时无法清运（${blocker}）`
 }
 
 export function autoSelectedCleanPortNo(

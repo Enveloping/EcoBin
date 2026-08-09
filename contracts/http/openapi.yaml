@@ -3305,6 +3305,35 @@
         }
       }
     },
+    "/api/v1/miniapp/me/clean-devices": {
+      "get": {
+        "operationId": "listMyMiniappCleanDevices",
+        "tags": ["Cleaning"],
+        "summary": "List cleaning devices in the current cleaner organization",
+        "security": [{"miniappBearer": []}],
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "query",
+            "required": true,
+            "schema": {"$ref": "#/components/schemas/CleanDeviceFilter"}
+          },
+          {"$ref": "#/components/parameters/Cursor"},
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CleanDevicePageOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      }
+    },
     "/api/v1/miniapp/devices/{deviceCode}/clean-options": {
       "parameters": [{"$ref": "#/components/parameters/DeviceCode"}],
       "get": {
@@ -6204,6 +6233,14 @@
           "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
         },
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanOptionsEnvelope"}}}
+      },
+      "CleanDevicePageOk": {
+        "description": "Stable cursor page of cleaning devices in the current organization",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CleanDevicePageEnvelope"}}}
       },
       "CleanOperationOk": {
         "description": "Current cleaning operation state",
@@ -11065,6 +11102,65 @@
           "statusUrl": {"$ref": "#/components/schemas/StatusUrl"}
         }
       },
+      "CleanOptionBlocker": {
+        "type": "string",
+        "enum": [
+          "CLEAN_CONFIGURATION_UNAVAILABLE",
+          "CONFIGURATION_NOT_APPLIED",
+          "EDGE_OFFLINE",
+          "DEVICE_BUSY",
+          "PORT_DISABLED",
+          "CLEAN_OPERATION_ACTIVE",
+          "PORT_WORK_ACTIVE"
+        ]
+      },
+      "CleanDeviceFilter": {
+        "type": "string",
+        "enum": [
+          "ALL",
+          "ONLINE",
+          "NO_DELIVERY_24H",
+          "NO_CLEAN_24H",
+          "FULL",
+          "FULL_TIMEOUT_2H"
+        ]
+      },
+      "CleanDeviceItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deviceCode",
+          "displayName",
+          "address",
+          "connectionStatus",
+          "portCount",
+          "lastDeliveryAt",
+          "lastCleanAt",
+          "fullPortCount",
+          "oldestFullSince"
+        ],
+        "properties": {
+          "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
+          "displayName": {"type": ["string", "null"], "maxLength": 100},
+          "address": {"type": ["string", "null"], "maxLength": 500},
+          "connectionStatus": {"type": "string", "enum": ["ONLINE", "OFFLINE", "UNKNOWN"]},
+          "portCount": {"type": "integer", "minimum": 0, "maximum": 6},
+          "lastDeliveryAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "lastCleanAt": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]},
+          "fullPortCount": {"type": "integer", "minimum": 0, "maximum": 6},
+          "oldestFullSince": {"oneOf": [{"$ref": "#/components/schemas/UtcTimestamp"}, {"type": "null"}]}
+        }
+      },
+      "CleanDeviceCursorPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "asOf", "nextCursor"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/CleanDeviceItem"}},
+          "asOf": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "nextCursor": {"type": ["string", "null"], "maxLength": 4096}
+        }
+      },
       "CleanPortOption": {
         "type": "object",
         "additionalProperties": false,
@@ -11076,7 +11172,7 @@
           "fullnessStatus": {"type": "string", "minLength": 1, "maxLength": 32},
           "fullnessPercent": {"type": ["string", "null"], "maxLength": 16},
           "cleaningAllowed": {"type": "boolean"},
-          "blockers": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+          "blockers": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/CleanOptionBlocker"}}
         }
       },
       "CleanOptions": {
@@ -11569,6 +11665,16 @@
         "properties": {
           "code": {"type": "string", "const": "OK"},
           "data": {"$ref": "#/components/schemas/CleanOptions"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "CleanDevicePageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/CleanDeviceCursorPage"},
           "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       },

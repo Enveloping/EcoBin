@@ -1,10 +1,60 @@
-<view class="list-page">
-  <view class="empty-card">
-    <view class="empty-icon">
-      <t-icon name="root-list" size="56rpx" color="#159b32" />
+<view class="device-page">
+  <view wx:if="{{previewOnly || serviceUnavailable}}" class="state-card">
+    <view class="state-icon"><t-icon name="root-list" size="56rpx" color="#7e9a84" /></view>
+    <view class="state-title">暂无可展示的设备</view>
+    <view class="state-copy">{{previewOnly ? '当前仅预览清运端，登录账号权限未改变，因此不会请求设备数据。' : '清运设备服务暂未启用。'}}</view>
+  </view>
+
+  <block wx:elif="{{initialLoading}}">
+    <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+      <view class="skeleton-line skeleton-line--wide"></view>
+      <view class="skeleton-line"></view>
+      <view class="skeleton-line skeleton-line--short"></view>
     </view>
-    <view class="empty-title">{{title}}</view>
-    <view class="empty-description">{{description}}</view>
-    <view class="filter-code">筛选：{{filter}}</view>
+  </block>
+
+  <view wx:elif="{{errorMessage}}" class="state-card">
+    <view class="state-icon state-icon--warning"><t-icon name="info-circle" size="56rpx" color="#c27a1a" /></view>
+    <view class="state-title">{{errorMessage}}</view>
+    <view class="state-copy">请检查网络后重新加载</view>
+    <view class="state-action" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <view class="summary">{{title}} · 已加载 {{devices.length}} 台</view>
+    <view class="device-card" wx:for="{{devices}}" wx:key="deviceCode">
+      <view class="device-head">
+        <view class="device-heading">
+          <view class="device-name">{{item.nameText}}</view>
+          <view class="device-code">{{item.deviceCode}}</view>
+        </view>
+        <view class="connection connection--{{item.connectionClass}}">{{item.connectionText}}</view>
+      </view>
+      <view class="address"><t-icon name="location" size="25rpx" color="#8b958d" />{{item.addressText}}</view>
+      <view class="device-grid">
+        <view><text>投口数量</text><text>{{item.portCount}}</text></view>
+        <view><text>满溢投口</text><text class="{{item.fullPortCount > 0 ? 'value-warning' : ''}}">{{item.fullPortCount}}</text></view>
+        <view><text>最近投递</text><text>{{item.lastDeliveryText}}</text></view>
+        <view><text>最近清运</text><text>{{item.lastCleanText}}</text></view>
+      </view>
+      <view wx:if="{{item.fullPortCount > 0}}" class="fullness-note">最早满溢确认：{{item.oldestFullText}}</view>
+    </view>
+
+    <view wx:if="{{devices.length === 0}}" class="state-card">
+      <view class="state-icon"><t-icon name="root-list" size="56rpx" color="#7e9a84" /></view>
+      <view class="state-title">当前筛选下没有设备</view>
+      <view class="state-copy">下拉可以刷新最新设备状态</view>
+    </view>
+
+    <view wx:if="{{loading}}" class="list-foot">正在加载…</view>
+    <view wx:elif="{{!finished && devices.length > 0}}" class="list-foot list-foot--action" bindtap="onContinueLoading">继续加载更多设备</view>
+    <view wx:elif="{{finished && devices.length > 0}}" class="list-foot">没有更多了</view>
+  </block>
+
+  <view wx:if="{{!previewOnly && !serviceUnavailable}}" class="scan-bar">
+    <view class="scan-button" bindtap="onScanStart" hover-class="scan-button--pressed">
+      <t-icon name="scan" size="35rpx" color="#ffffff" />
+      <text>扫码开始清运</text>
+    </view>
   </view>
 </view>

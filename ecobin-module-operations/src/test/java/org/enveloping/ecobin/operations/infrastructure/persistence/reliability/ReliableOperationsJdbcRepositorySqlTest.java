@@ -9,8 +9,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -20,6 +23,48 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ReliableOperationsJdbcRepositorySqlTest {
+
+    @Test
+    void persistsTheRequestedTerminalDomainQuarantineReason() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        UUID quarantineUid = UUID.fromString(
+                "20000000-0000-4000-8000-000000000002");
+        when(jdbc.queryForObject(
+                anyString(),
+                eq(String.class),
+                any(byte[].class))).thenReturn(quarantineUid.toString());
+        ReliableOperationsJdbcRepository repository =
+                new ReliableOperationsJdbcRepository(jdbc);
+        byte[] dedupe = new byte[32];
+
+        UUID stored = repository.upsertDomainQuarantine(
+                dedupe,
+                "ORGANIZATION",
+                11L,
+                12L,
+                "ONENET",
+                "test-device-1",
+                "event-1",
+                13L,
+                new byte[32],
+                new byte[32],
+                "EVENT_TARGET_NOT_AUTHORITATIVE",
+                "configuration progress references an obsolete target",
+                LocalDateTime.of(2026, 8, 9, 12, 0));
+
+        var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        var argumentsCaptor = org.mockito.ArgumentCaptor
+                .forClass(Object[].class);
+        verify(jdbc).update(
+                sqlCaptor.capture(), argumentsCaptor.capture());
+        assertEquals(quarantineUid, stored);
+        assertTrue(normalize(sqlCaptor.getValue()).contains(
+                "reason_code, raw_transport_sha256"));
+        assertTrue(Arrays.asList(argumentsCaptor.getValue()).contains(
+                "EVENT_TARGET_NOT_AUTHORITATIVE"));
+        assertTrue(Arrays.asList(argumentsCaptor.getValue()).contains(
+                "configuration progress references an obsolete target"));
+    }
 
     @Test
     @SuppressWarnings("unchecked")

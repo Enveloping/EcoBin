@@ -101,6 +101,7 @@ public class ReliableEdgeConfirmationService
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
+    @Override
     public UUID registerQuarantined(
             long tenantId,
             long organizationId,

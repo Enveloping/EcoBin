@@ -519,6 +519,7 @@ class HttpContractTests(unittest.TestCase):
                 "/clean-options"
             ): {"get"},
             "/api/v1/miniapp/clean-operations/{operationUid}": {"get"},
+            "/api/v1/miniapp/me/clean-devices": {"get"},
             "/api/v1/miniapp/me/clean-records": {"get"},
             "/api/v1/miniapp/me/clean-records/{cleanRecordNo}": {"get"},
             (
@@ -816,6 +817,7 @@ class HttpContractTests(unittest.TestCase):
                 "/ports/{portNo}/clean-operations"
             ),
             "/api/v1/miniapp/clean-operations/{operationUid}",
+            "/api/v1/miniapp/me/clean-devices",
             "/api/v1/miniapp/me/clean-records",
             "/api/v1/miniapp/me/clean-records/{cleanRecordNo}",
         }
@@ -866,9 +868,30 @@ class HttpContractTests(unittest.TestCase):
         )
         self.assertEqual(limit["schema"]["minimum"], 1)
         self.assertEqual(limit["schema"]["maximum"], 100)
+        device_list = paths[
+            "/api/v1/miniapp/me/clean-devices"
+        ]["get"]
+        self.assertIn(
+            {"$ref": "#/components/parameters/Cursor"},
+            device_list["parameters"],
+        )
+        device_filter = next(
+            item
+            for item in device_list["parameters"]
+            if item.get("name") == "filter"
+        )
+        self.assertTrue(device_filter["required"])
+        self.assertEqual(
+            device_filter["schema"]["$ref"],
+            "#/components/schemas/CleanDeviceFilter",
+        )
         schemas = document["components"]["schemas"]
         for schema in (
+            "CleanDeviceFilter",
+            "CleanDeviceItem",
+            "CleanDeviceCursorPage",
             "CleanOptions",
+            "CleanOptionBlocker",
             "CleanPortOption",
             "CleanOperationAccepted",
             "CleanOperation",
@@ -878,6 +901,7 @@ class HttpContractTests(unittest.TestCase):
         ):
             self.assertIn(schema, schemas)
         for schema in (
+            "CleanDeviceItem",
             "CleanOptions",
             "CleanOperation",
             "CleanRecordItem",
@@ -889,6 +913,29 @@ class HttpContractTests(unittest.TestCase):
                 "deploymentCode",
                 schemas[schema]["properties"],
             )
+        self.assertEqual(
+            schemas["CleanDeviceFilter"]["enum"],
+            [
+                "ALL",
+                "ONLINE",
+                "NO_DELIVERY_24H",
+                "NO_CLEAN_24H",
+                "FULL",
+                "FULL_TIMEOUT_2H",
+            ],
+        )
+        self.assertEqual(
+            schemas["CleanOptionBlocker"]["enum"],
+            [
+                "CLEAN_CONFIGURATION_UNAVAILABLE",
+                "CONFIGURATION_NOT_APPLIED",
+                "EDGE_OFFLINE",
+                "DEVICE_BUSY",
+                "PORT_DISABLED",
+                "CLEAN_OPERATION_ACTIVE",
+                "PORT_WORK_ACTIVE",
+            ],
+        )
         installed_bag = schemas["StartCleanOperationRequest"][
             "properties"
         ]["installedBagQr"]

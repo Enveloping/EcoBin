@@ -2,5 +2,9 @@
   "navigationBarTitleText": "设备列表",
   "navigationBarBackgroundColor": "#ffffff",
   "navigationBarTextStyle": "black",
-  "usingComponents": {}
+  "enablePullDownRefresh": true,
+  "onReachBottomDistance": 120,
+  "usingComponents": {
+    "t-icon": "tdesign-miniprogram/icon/icon"
+  }
 }

@@ -78,8 +78,12 @@ test('only one available clean port is auto-selected and blockers stay explicit'
   assert.equal(autoSelectedCleanPortNo([port(1, false)]), null);
   assert.equal(cleanBlockerText('DEVICE_BUSY'), '设备正在执行其他作业');
   assert.equal(
-    cleanBlockerText('CLEAN_SOLENOID_UNAVAILABLE'),
-    '清运电磁阀不可用',
+    cleanBlockerText('CONFIGURATION_NOT_APPLIED'),
+    '设备配置尚未完整应用',
+  );
+  assert.equal(
+    cleanBlockerText('FUTURE_BLOCKER'),
+    '暂时无法清运（FUTURE_BLOCKER）',
   );
 });
 
@@ -165,6 +169,7 @@ test('miniapp clean API uses only target paths, no-store reads and 202 validatio
   for (const path of [
     '/api/v1/miniapp/devices/',
     '/api/v1/miniapp/clean-operations/',
+    '/api/v1/miniapp/me/clean-devices',
     '/api/v1/miniapp/me/clean-records',
   ]) {
     assert.match(api, new RegExp(path.replaceAll('/', '\\/')));
@@ -221,4 +226,31 @@ test('clean records use cursor recovery and expose a real detail page', () => {
   assert.ok(
     app.pages.includes('pages/clean-record-detail/clean-record-detail'),
   );
+});
+
+test('clean device lists cover six operational filters and keep scan as the start boundary', () => {
+  const list = source(
+    '../miniprogram/miniprogram/pages/clean-devices/clean-devices.ts',
+  );
+  const markup = source(
+    '../miniprogram/miniprogram/pages/clean-devices/clean-devices.wxml',
+  );
+  for (const filter of [
+    'ALL',
+    'ONLINE',
+    'NO_DELIVERY_24H',
+    'NO_CLEAN_24H',
+    'FULL',
+    'FULL_TIMEOUT_2H',
+  ]) {
+    assert.match(list, new RegExp(`'${filter}'`));
+  }
+  assert.match(list, /options\.filter \|\| 'ALL'/);
+  assert.match(list, /nextCursor/);
+  assert.match(list, /COMMON\.INVALID_CURSOR/);
+  assert.match(list, /onPullDownRefresh/);
+  assert.match(list, /onReachBottom/);
+  assert.match(list, /startCleaningEntry\(\)/);
+  assert.match(markup, /扫码开始清运/);
+  assert.doesNotMatch(markup, /bindtap="onStartDevice"/);
 });

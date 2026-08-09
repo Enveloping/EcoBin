@@ -378,7 +378,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V44 application exited before readiness`n$diagnostic"
+            throw "correct V45 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -416,7 +416,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V44 application did not become ready; " +
+    throw "correct V45 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -914,7 +914,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 44
+        targetVersion = 45
         domainTables = 98
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -923,7 +923,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV44Ready = $true
+        correctV45Ready = $true
         fakeIngressBlocked = $true
         fakeIngressContextPathBlocked = $true
         fakeCredentialMixRejected = $true

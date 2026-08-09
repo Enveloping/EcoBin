@@ -2480,6 +2480,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/me/clean-devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List cleaning devices in the current cleaner organization */
+        get: operations["listMyMiniappCleanDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp/devices/{deviceCode}/clean-options": {
         parameters: {
             query?: never;
@@ -5960,6 +5977,27 @@ export interface components {
             status: "RECOVERY_REQUIRED";
             statusUrl: components["schemas"]["StatusUrl"];
         };
+        /** @enum {string} */
+        CleanOptionBlocker: "CLEAN_CONFIGURATION_UNAVAILABLE" | "CONFIGURATION_NOT_APPLIED" | "EDGE_OFFLINE" | "DEVICE_BUSY" | "PORT_DISABLED" | "CLEAN_OPERATION_ACTIVE" | "PORT_WORK_ACTIVE";
+        /** @enum {string} */
+        CleanDeviceFilter: "ALL" | "ONLINE" | "NO_DELIVERY_24H" | "NO_CLEAN_24H" | "FULL" | "FULL_TIMEOUT_2H";
+        CleanDeviceItem: {
+            deviceCode: components["schemas"]["DeviceCode"];
+            displayName: string | null;
+            address: string | null;
+            /** @enum {string} */
+            connectionStatus: "ONLINE" | "OFFLINE" | "UNKNOWN";
+            portCount: number;
+            lastDeliveryAt: components["schemas"]["UtcTimestamp"] | null;
+            lastCleanAt: components["schemas"]["UtcTimestamp"] | null;
+            fullPortCount: number;
+            oldestFullSince: components["schemas"]["UtcTimestamp"] | null;
+        };
+        CleanDeviceCursorPage: {
+            items: components["schemas"]["CleanDeviceItem"][];
+            asOf: components["schemas"]["UtcTimestamp"];
+            nextCursor: string | null;
+        };
         CleanPortOption: {
             portNo: number;
             displayName: string;
@@ -5967,7 +6005,7 @@ export interface components {
             fullnessStatus: string;
             fullnessPercent: string | null;
             cleaningAllowed: boolean;
-            blockers: string[];
+            blockers: components["schemas"]["CleanOptionBlocker"][];
         };
         CleanOptions: {
             deviceCode: components["schemas"]["DeviceCode"];
@@ -6225,6 +6263,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["CleanOptions"];
+            requestId: string;
+        };
+        CleanDevicePageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["CleanDeviceCursorPage"];
             requestId: string;
         };
         CleanOperationEnvelope: {
@@ -7957,6 +8001,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["CleanOptionsEnvelope"];
+            };
+        };
+        /** @description Stable cursor page of cleaning devices in the current organization */
+        CleanDevicePageOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["CleanDevicePageEnvelope"];
             };
         };
         /** @description Current cleaning operation state */
@@ -11279,6 +11334,25 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listMyMiniappCleanDevices: {
+        parameters: {
+            query: {
+                filter: components["schemas"]["CleanDeviceFilter"];
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["CleanDevicePageOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
         };
     };
     getMiniappCleanOptions: {

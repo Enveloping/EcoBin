@@ -25,7 +25,7 @@ class TrustedDeliveryCompletionV2ParsingTest {
 
         TrustedDeliveryCompletionService service =
                 new TrustedDeliveryCompletionService(
-                        null, mapper, null, null, null);
+                        null, mapper, null, null, null, null, null);
         var fact = service.parse(normalizedPayload(mapper, event));
 
         assertThat(fact.hardwareSn()).isEqualTo(HARDWARE_SN);

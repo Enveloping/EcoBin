@@ -140,6 +140,37 @@ public class CleanQueryService {
                         """,
                 Boolean.class,
                 asset.id()));
+        boolean cleanConfigurationAvailable = Boolean.TRUE.equals(
+                jdbc.queryForObject("""
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM rec_organization_clean_config_head head
+                            JOIN rec_organization_clean_config config
+                              ON config.tenant_id = head.tenant_id
+                             AND config.organization_id =
+                                 head.organization_id
+                             AND config.id = head.current_config_id
+                             AND config.version_no =
+                                 head.current_version_no
+                            WHERE head.tenant_id = ?
+                              AND head.organization_id = ?
+                        )
+                        """,
+                        Boolean.class,
+                        tenantId,
+                        organizationId));
+        boolean configurationApplied = jdbc.query(
+                        StartCleanOperationService
+                                .LOAD_LATEST_CONFIGURATION_SQL,
+                        (rs, ignored) ->
+                                rs.getBoolean("application_applied")
+                                        && rs.getBoolean("runtime_applied"),
+                        tenantId,
+                        organizationId,
+                        asset.id())
+                .stream()
+                .findFirst()
+                .orElse(false);
         List<RecoverableCleanOperation> recoverable = jdbc.query("""
                         SELECT operation_uid, port.port_no, status
                         FROM rec_clean_operation operation
@@ -180,9 +211,23 @@ public class CleanQueryService {
                                          'PREPARED', 'EDGE_SAVED',
                                          'IN_PROGRESS', 'RECOVERY_REQUIRED'
                                      )
-                               ) AS operation_active
+                               ) AS operation_active,
+                               EXISTS (
+                                   SELECT 1
+                                   FROM rec_fullness_detection detection
+                                   WHERE detection.port_id = port.id
+                                     AND detection.status IN (
+                                         'PENDING_INITIAL_SAMPLE',
+                                         'WAITING_RECHECK'
+                                     )
+                               ) OR EXISTS (
+                                   SELECT 1
+                                   FROM rec_port_baseline_measurement baseline
+                                   WHERE baseline.port_id = port.id
+                                     AND baseline.status = 'PENDING'
+                               ) AS port_work_active
                         FROM dev_port port
-                        JOIN dev_config_version configuration
+                        LEFT JOIN dev_config_version configuration
                           ON configuration.id = (
                               SELECT latest.id
                               FROM dev_config_version latest
@@ -192,7 +237,7 @@ public class CleanQueryService {
                               ORDER BY latest.version_no DESC
                               LIMIT 1
                           )
-                        JOIN dev_port_config_snapshot snapshot
+                        LEFT JOIN dev_port_config_snapshot snapshot
                           ON snapshot.tenant_id = port.tenant_id
                          AND snapshot.organization_id = port.organization_id
                          AND snapshot.asset_id = port.asset_id
@@ -211,6 +256,8 @@ public class CleanQueryService {
                         """,
                 (rs, ignored) -> portOption(
                         rs,
+                        cleanConfigurationAvailable,
+                        configurationApplied,
                         deviceBusy,
                         asset.onenetConnectionStatus()),
                 tenantId,
@@ -269,26 +316,47 @@ public class CleanQueryService {
                 .orElseThrow(CleanQueryService::notFound);
     }
 
-    private static CleanPortOption portOption(
+    static CleanPortOption portOption(
             ResultSet rs,
+            boolean cleanConfigurationAvailable,
+            boolean configurationApplied,
             boolean deviceBusy,
             String onenetConnectionStatus) throws SQLException {
-        List<String> blockers = new ArrayList<>();
+        List<CleanReadinessBlocker> blockers = new ArrayList<>();
+        if (!cleanConfigurationAvailable) {
+            blockers.add(
+                    CleanReadinessBlocker
+                            .CLEAN_CONFIGURATION_UNAVAILABLE);
+        }
+        Boolean businessEnabled = rs.getObject(
+                "business_enabled", Boolean.class);
+        if (!configurationApplied || businessEnabled == null) {
+            blockers.add(
+                    CleanReadinessBlocker.CONFIGURATION_NOT_APPLIED);
+        }
         if (!"ONLINE".equals(onenetConnectionStatus)) {
-            blockers.add("EDGE_OFFLINE");
+            blockers.add(CleanReadinessBlocker.EDGE_OFFLINE);
         }
         if (deviceBusy) {
-            blockers.add("DEVICE_BUSY");
+            blockers.add(CleanReadinessBlocker.DEVICE_BUSY);
         }
         if (rs.getBoolean("operation_active")) {
-            blockers.add("CLEAN_OPERATION_ACTIVE");
+            blockers.add(CleanReadinessBlocker.CLEAN_OPERATION_ACTIVE);
         }
-        if (!rs.getBoolean("business_enabled")) {
-            blockers.add("PORT_DISABLED");
+        if (rs.getBoolean("port_work_active")) {
+            blockers.add(CleanReadinessBlocker.PORT_WORK_ACTIVE);
+        }
+        if (Boolean.FALSE.equals(businessEnabled)) {
+            blockers.add(CleanReadinessBlocker.PORT_DISABLED);
+        }
+        int portNo = rs.getInt("port_no");
+        String displayName = rs.getString("display_name");
+        if (displayName == null || displayName.isBlank()) {
+            displayName = portNo + "号投口";
         }
         return new CleanPortOption(
-                rs.getInt("port_no"),
-                rs.getString("display_name"),
+                portNo,
+                displayName,
                 rs.getString("bag_code"),
                 fullnessStatus(
                         rs.getString("detection_gate"),
@@ -299,7 +367,7 @@ public class CleanQueryService {
                                 "displayed_fullness_percent")
                         .toPlainString(),
                 blockers.isEmpty(),
-                List.copyOf(blockers));
+                CleanReadinessBlocker.codes(blockers));
     }
 
     private static CleanOperationView operationView(ResultSet rs)

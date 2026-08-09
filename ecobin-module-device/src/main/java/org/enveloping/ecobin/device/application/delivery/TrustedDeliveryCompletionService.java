@@ -12,6 +12,8 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.device.application.target.ReliableEdgeConfirmationService;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
+import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
+import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -115,18 +117,24 @@ public class TrustedDeliveryCompletionService
     private final DeliveryCompletionFactsRefFactory factsRefFactory;
     private final ReliableEdgeConfirmationService confirmationService;
     private final ReliableDeviceTaskProofPort taskProofPort;
+    private final TrustedInboxQuarantinePort quarantinePort;
+    private final TrustedOrganizationInboxRefFactory inboxRefFactory;
 
     public TrustedDeliveryCompletionService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             DeliveryCompletionFactsRefFactory factsRefFactory,
             ReliableEdgeConfirmationService confirmationService,
-            ReliableDeviceTaskProofPort taskProofPort) {
+            ReliableDeviceTaskProofPort taskProofPort,
+            TrustedInboxQuarantinePort quarantinePort,
+            TrustedOrganizationInboxRefFactory inboxRefFactory) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.factsRefFactory = factsRefFactory;
         this.confirmationService = confirmationService;
         this.taskProofPort = taskProofPort;
+        this.quarantinePort = quarantinePort;
+        this.inboxRefFactory = inboxRefFactory;
     }
 
     @Override
@@ -167,61 +175,74 @@ public class TrustedDeliveryCompletionService
             throw untrusted();
         }
         long assetId = asset.id();
-        lockRuntime(assetId, tenantId, organizationId);
-        SessionRow session = lockSession(
-                fact,
-                assetId,
-                tenantId,
-                organizationId);
-        if ("BUSINESS_CONFIRMED".equals(session.status())) {
-            return requirePreviouslyApplied(
+        SessionRow session;
+        CommandRow command;
+        PortConfiguration portConfiguration;
+        try {
+            lockRuntime(assetId, tenantId, organizationId);
+            session = lockSession(
+                    fact,
+                    assetId,
+                    tenantId,
+                    organizationId);
+            if ("BUSINESS_CONFIRMED".equals(session.status())) {
+                return requirePreviouslyApplied(
+                        fact,
+                        inboxId,
+                        tenantId,
+                        organizationId,
+                        assetId,
+                        session);
+            }
+            lockPortRuntimeAndRequirePort(
+                    session.portId(),
+                    assetId,
+                    tenantId,
+                    organizationId);
+            lockOccupancy(
+                    session.id(),
+                    assetId,
+                    tenantId,
+                    organizationId);
+            command = lockCommand(
+                    fact,
+                    session.id(),
+                    assetId,
+                    tenantId,
+                    organizationId);
+            portConfiguration = loadPortConfiguration(
+                    session,
+                    assetId,
+                    tenantId,
+                    organizationId);
+            // 重新核对袋、价格、配置、命令和目标；设备载荷不能改变开始时冻结的业务事实。
+            verifyFrozenFacts(fact, session, command, portConfiguration);
+
+            List<ExistingEdge> collisions = findEdgeCollisions(
+                    fact,
+                    assetId,
+                    inboxId);
+            if (!collisions.isEmpty()) {
+                return quarantine(
+                        fact,
+                        inboxId,
+                        tenantId,
+                        organizationId,
+                        assetId,
+                        "IDENTITY_CONTENT_CONFLICT",
+                        "EVENT_IDENTITY_CONFLICT",
+                        "delivery completion identity or sequence conflicts");
+            }
+        } catch (UntrustedInboxSourceException obsoleteTarget) {
+            return quarantine(
                     fact,
                     inboxId,
                     tenantId,
                     organizationId,
                     assetId,
-                    session);
-        }
-        lockPortRuntimeAndRequirePort(
-                session.portId(),
-                assetId,
-                tenantId,
-                organizationId);
-        lockOccupancy(
-                session.id(),
-                assetId,
-                tenantId,
-                organizationId);
-        CommandRow command = lockCommand(
-                fact,
-                session.id(),
-                assetId,
-                tenantId,
-                organizationId);
-        PortConfiguration portConfiguration =
-                loadPortConfiguration(
-                        session,
-                        assetId,
-                        tenantId,
-                        organizationId);
-        // 重新核对袋、价格、配置、命令和目标；设备载荷不能改变开始时冻结的业务事实。
-        verifyFrozenFacts(fact, session, command, portConfiguration);
-
-        List<ExistingEdge> collisions = findEdgeCollisions(
-                fact,
-                assetId,
-                inboxId);
-        if (!collisions.isEmpty()) {
-            if (collisions.size() == 1
-                    && collisions.getFirst().matches(
-                            fact,
-                            assetId,
-                            inboxId)
-                    && "BUSINESS_CONFIRMED".equals(session.status())) {
-                return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
-            }
-            throw new UntrustedInboxSourceException(
-                    "delivery completion identity or sequence conflicts");
+                    "EVENT_TARGET_NOT_AUTHORITATIVE",
+                    "EVENT_TARGET_NOT_AUTHORITATIVE",
+                    "delivery completion references an obsolete target");
         }
 
         LocalDateTime receivedAt = databaseNow();
@@ -357,6 +378,32 @@ public class TrustedDeliveryCompletionService
                 business.resultReferences(),
                 receivedAt);
         return TrustedDeviceEventApplyResult.APPLIED;
+    }
+
+    private TrustedDeviceEventApplyResult quarantine(
+            DeliveryCompletePhysicalFact fact,
+            long inboxId,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            String quarantineReasonCode,
+            String confirmationErrorCode,
+            String diagnostic) {
+        UUID quarantineUid = quarantinePort.quarantine(
+                inboxRefFactory.issue(
+                        inboxId, tenantId, organizationId),
+                quarantineReasonCode,
+                diagnostic);
+        confirmationService.registerQuarantined(
+                tenantId,
+                organizationId,
+                assetId,
+                fact.eventUid().toString(),
+                fact.payloadSha256(),
+                confirmationErrorCode,
+                quarantineUid,
+                databaseNow());
+        return TrustedDeviceEventApplyResult.QUARANTINED;
     }
 
     private TrustedDeviceEventApplyResult requirePreviouslyApplied(

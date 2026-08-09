@@ -1,14 +1,7 @@
 import { requireEntryMode } from '../../utils/guard'
+import type { CleanDeviceFilter } from '../../types/api'
 
-type DeviceFilter =
-  | 'ALL'
-  | 'ONLINE'
-  | 'NO_DELIVERY_24H'
-  | 'NO_CLEAN_24H'
-  | 'FULL'
-  | 'FULL_TIMEOUT_2H'
-
-const FILTER_TITLES: Record<DeviceFilter, string> = {
+const FILTER_TITLES: Record<CleanDeviceFilter, string> = {
   ALL: '全部设备',
   ONLINE: '在线设备',
   NO_DELIVERY_24H: '一天未投递设备',
@@ -17,7 +10,7 @@ const FILTER_TITLES: Record<DeviceFilter, string> = {
   FULL_TIMEOUT_2H: '满溢超时2h',
 }
 
-function isDeviceFilter(value: string): value is DeviceFilter {
+function isDeviceFilter(value: string): value is CleanDeviceFilter {
   return Object.prototype.hasOwnProperty.call(FILTER_TITLES, value)
 }
 

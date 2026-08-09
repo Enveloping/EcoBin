@@ -439,13 +439,33 @@ export type CleanFullnessStatus =
   | 'SOURCE_FAILED'
 
 export type CleanOptionBlocker =
+  | 'CLEAN_CONFIGURATION_UNAVAILABLE'
+  | 'CONFIGURATION_NOT_APPLIED'
+  | 'EDGE_OFFLINE'
   | 'DEVICE_BUSY'
+  | 'PORT_DISABLED'
   | 'CLEAN_OPERATION_ACTIVE'
-  | 'CLEAN_LOCK_NOT_SAFE'
-  | 'CLEAN_SOLENOID_UNAVAILABLE'
-  | 'WEIGHT_UNAVAILABLE'
-  | 'SAFETY_UNAVAILABLE'
-  | 'DEVICE_FAULT_ACTIVE'
+  | 'PORT_WORK_ACTIVE'
+
+export type CleanDeviceFilter =
+  | 'ALL'
+  | 'ONLINE'
+  | 'NO_DELIVERY_24H'
+  | 'NO_CLEAN_24H'
+  | 'FULL'
+  | 'FULL_TIMEOUT_2H'
+
+export interface CleanDeviceItem {
+  deviceCode: string
+  displayName: string | null
+  address: string | null
+  connectionStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'
+  portCount: number
+  lastDeliveryAt: string | null
+  lastCleanAt: string | null
+  fullPortCount: number
+  oldestFullSince: string | null
+}
 
 export interface RecoverableCleanOperation {
   operationUid: string

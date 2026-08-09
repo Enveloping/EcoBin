@@ -89,12 +89,23 @@ public class TrustedConfigurationProgressService
             long inboxKey,
             long tenantKey,
             long organizationKey) {
-        lockAsset(event.hardwareSn());
-        ConfigurationTarget target = loadTarget(
-                event,
-                tenantKey,
-                organizationKey);
-        verifyTarget(event, target);
+        long assetId = lockAsset(
+                event.hardwareSn(), tenantKey, organizationKey);
+        ConfigurationTarget target;
+        try {
+            target = loadTarget(
+                    event,
+                    tenantKey,
+                    organizationKey);
+            verifyTarget(event, target);
+        } catch (UntrustedInboxSourceException obsoleteTarget) {
+            return quarantineObsoleteTarget(
+                    event,
+                    inboxKey,
+                    tenantKey,
+                    organizationKey,
+                    assetId);
+        }
         List<ExistingEvent> collisions = jdbc.query("""
                         SELECT
                             event_uid,
@@ -182,19 +193,52 @@ public class TrustedConfigurationProgressService
         return TrustedDeviceEventApplyResult.APPLIED;
     }
 
-    private void lockAsset(String hardwareSn) {
+    private long lockAsset(
+            String hardwareSn,
+            long tenantKey,
+            long organizationKey) {
         List<Long> assetIds = jdbc.query("""
                         SELECT id
                         FROM dev_device_asset
                         WHERE hardware_sn = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> rs.getLong("id"),
-                hardwareSn);
+                hardwareSn,
+                tenantKey,
+                organizationKey);
         if (assetIds.size() != 1) {
             throw new UntrustedInboxSourceException(
                     "authenticated device asset no longer exists");
         }
+        return assetIds.getFirst();
+    }
+
+    private TrustedDeviceEventApplyResult quarantineObsoleteTarget(
+            ConfigurationProgress event,
+            long inboxKey,
+            long tenantKey,
+            long organizationKey,
+            long assetId) {
+        UUID quarantineUid = quarantinePort.quarantine(
+                inboxRefFactory.issue(
+                        inboxKey, tenantKey, organizationKey),
+                "EVENT_TARGET_NOT_AUTHORITATIVE",
+                "configuration progress references an obsolete target");
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        confirmationService.registerQuarantined(
+                tenantKey,
+                organizationKey,
+                assetId,
+                event.eventUid(),
+                event.payloadSha256(),
+                "EVENT_TARGET_NOT_AUTHORITATIVE",
+                quarantineUid,
+                now);
+        return TrustedDeviceEventApplyResult.QUARANTINED;
     }
 
     private ConfigurationTarget loadTarget(

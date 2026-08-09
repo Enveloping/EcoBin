@@ -368,10 +368,7 @@ public class StartCleanOperationService {
                         "onenet_connection_status"),
                 asset.id()).orElse("UNKNOWN");
         if (!"ONLINE".equals(onenetStatus)) {
-            throw new TargetApiException(
-                    422,
-                    "DEVICE.OFFLINE",
-                    "OneNet 当前未确认设备在线，不能创建清运任务");
+            throw CleanReadinessBlocker.EDGE_OFFLINE.problem();
         }
 
         if (!query("""
@@ -382,10 +379,7 @@ public class StartCleanOperationService {
                         """,
                 (rs, ignored) -> rs.getString("occupancy_kind"),
                 asset.id()).isEmpty()) {
-            throw new TargetApiException(
-                    409,
-                    "DEVICE.DEVICE_BUSY",
-                    "设备正在执行其他物理操作");
+            throw CleanReadinessBlocker.DEVICE_BUSY.problem();
         }
 
         Configuration configuration = one(
@@ -429,7 +423,7 @@ public class StartCleanOperationService {
                 port.id()).orElseThrow(
                 StartCleanOperationService::configurationUnavailable);
         if (!portConfiguration.businessEnabled()) {
-            throw cleaningUnavailable();
+            throw CleanReadinessBlocker.PORT_DISABLED.problem();
         }
         Long pendingDeliverySessionId = one("""
                         SELECT pending_delivery_result_session_id
@@ -641,10 +635,7 @@ public class StartCleanOperationService {
                 tenantId,
                 organizationId,
                 portId).isEmpty()) {
-            throw new TargetApiException(
-                    409,
-                    "CLEAN.PORT_OPERATION_ACTIVE",
-                    "当前投口已有未结束清运操作");
+            throw CleanReadinessBlocker.CLEAN_OPERATION_ACTIVE.problem();
         }
         boolean fullnessBusy = !query("""
                         SELECT id
@@ -676,10 +667,7 @@ public class StartCleanOperationService {
                 organizationId,
                 portId).isEmpty();
         if (fullnessBusy || baselineBusy) {
-            throw new TargetApiException(
-                    409,
-                    "DEVICE.PORT_WORK_ACTIVE",
-                    "当前投口正在执行检测或基准重测，请稍后重试");
+            throw CleanReadinessBlocker.PORT_WORK_ACTIVE.problem();
         }
     }
 
@@ -1318,17 +1306,12 @@ public class StartCleanOperationService {
     }
 
     private static TargetApiException configurationUnavailable() {
-        return new TargetApiException(
-                422,
-                "DEVICE.CONFIGURATION_NOT_APPLIED",
-                "设备当前配置尚未完整应用");
+        return CleanReadinessBlocker.CONFIGURATION_NOT_APPLIED.problem();
     }
 
     private static TargetApiException cleanConfigurationUnavailable() {
-        return new TargetApiException(
-                422,
-                "CLEAN.CONFIGURATION_UNAVAILABLE",
-                "机构还没有可用于清运的当前规则");
+        return CleanReadinessBlocker.CLEAN_CONFIGURATION_UNAVAILABLE
+                .problem();
     }
 
     private static TargetApiException bagUnavailable() {

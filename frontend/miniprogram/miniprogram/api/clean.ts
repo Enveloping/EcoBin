@@ -4,6 +4,8 @@ import type {
   CleanOperationAccepted,
   CleanOperationView,
   CleanOptionsView,
+  CleanDeviceFilter,
+  CleanDeviceItem,
   CleanRecordItem,
   CursorPage,
   MiniappCleanRecordDetail,
@@ -14,6 +16,22 @@ function requireRealCleaningSession(): void {
   if (session?.audience !== 'miniapp' || session.entryMode !== 'CLEANING') {
     throw new Error('当前登录会话不能请求清运数据')
   }
+}
+
+export function myCleanDevices(
+  options: {
+    filter: CleanDeviceFilter
+    cursor?: string
+    limit?: number
+  },
+  toast = true,
+) {
+  requireRealCleaningSession()
+  return http.get<CursorPage<CleanDeviceItem>>(
+    '/api/v1/miniapp/me/clean-devices',
+    options,
+    { toast, noStore: true },
+  )
 }
 
 export function cleanOptions(deviceCode: string, toast = true) {

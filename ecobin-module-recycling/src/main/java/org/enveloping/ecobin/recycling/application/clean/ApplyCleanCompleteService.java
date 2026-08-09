@@ -5,6 +5,8 @@ import org.enveloping.ecobin.device.api.result.DeliveryCompletionResultReference
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
+import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
+import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyCleanCompleteUseCase;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -93,16 +95,22 @@ public class ApplyCleanCompleteService
     private final ObjectMapper objectMapper;
     private final ReliableDeviceTaskProofPort taskProofPort;
     private final ReliableEdgeConfirmationPort confirmationPort;
+    private final TrustedInboxQuarantinePort quarantinePort;
+    private final TrustedOrganizationInboxRefFactory inboxRefFactory;
 
     public ApplyCleanCompleteService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             ReliableDeviceTaskProofPort taskProofPort,
-            ReliableEdgeConfirmationPort confirmationPort) {
+            ReliableEdgeConfirmationPort confirmationPort,
+            TrustedInboxQuarantinePort quarantinePort,
+            TrustedOrganizationInboxRefFactory inboxRefFactory) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.taskProofPort = taskProofPort;
         this.confirmationPort = confirmationPort;
+        this.quarantinePort = quarantinePort;
+        this.inboxRefFactory = inboxRefFactory;
     }
 
     @Override
@@ -135,38 +143,60 @@ public class ApplyCleanCompleteService
                 fact.hardwareSn(),
                 tenantId,
                 organizationId);
-        lockAssetRuntime(
-                asset.id(), tenantId, organizationId);
-        Operation operation = lockOperation(
-                fact,
-                asset,
-                tenantId,
-                organizationId);
+        Operation operation;
+        Command command;
+        try {
+            lockAssetRuntime(
+                    asset.id(), tenantId, organizationId);
+            operation = lockOperation(
+                    fact,
+                    asset,
+                    tenantId,
+                    organizationId);
 
-        if ("COMPLETED".equals(operation.status())) {
-            return requirePreviouslyApplied(
+            if ("COMPLETED".equals(operation.status())) {
+                return requirePreviouslyApplied(
+                        fact,
+                        inboxId,
+                        asset.id(),
+                        operation);
+            }
+            if (!Set.of(
+                    "PREPARED", "EDGE_SAVED", "IN_PROGRESS",
+                    "RECOVERY_REQUIRED").contains(operation.status())) {
+                throw untrusted(
+                        "clean operation is no longer completable");
+            }
+
+            lockPortRuntime(operation);
+            lockDeviceOccupancy(asset.id(), operation);
+            lockBagOccupancies(operation);
+            command = lockStartCommand(fact, operation);
+            verifyFrozenFacts(fact, operation, command);
+
+            List<ExistingEdge> collisions = findEdgeCollisions(
+                    fact, asset.id(), inboxId);
+            if (!collisions.isEmpty()) {
+                return quarantine(
+                        fact,
+                        inboxId,
+                        tenantId,
+                        organizationId,
+                        asset.id(),
+                        "IDENTITY_CONTENT_CONFLICT",
+                        "EVENT_IDENTITY_CONFLICT",
+                        "clean completion identity or sequence conflicts");
+            }
+        } catch (UntrustedInboxSourceException obsoleteTarget) {
+            return quarantine(
                     fact,
                     inboxId,
+                    tenantId,
+                    organizationId,
                     asset.id(),
-                    operation);
-        }
-        if (!Set.of(
-                "PREPARED", "EDGE_SAVED", "IN_PROGRESS",
-                "RECOVERY_REQUIRED").contains(operation.status())) {
-            throw untrusted("clean operation is no longer completable");
-        }
-
-        lockPortRuntime(operation);
-        lockDeviceOccupancy(asset.id(), operation);
-        lockBagOccupancies(operation);
-        Command command = lockStartCommand(fact, operation);
-        verifyFrozenFacts(fact, operation, command);
-
-        List<ExistingEdge> collisions = findEdgeCollisions(
-                fact, asset.id(), inboxId);
-        if (!collisions.isEmpty()) {
-            throw untrusted(
-                    "clean completion identity or sequence conflicts");
+                    "EVENT_TARGET_NOT_AUTHORITATIVE",
+                    "EVENT_TARGET_NOT_AUTHORITATIVE",
+                    "clean completion references an obsolete target");
         }
 
         LocalDateTime receivedAt = databaseNow();
@@ -248,6 +278,32 @@ public class ApplyCleanCompleteService
                 references,
                 receivedAt);
         return TrustedDeviceEventApplyResult.APPLIED;
+    }
+
+    private TrustedDeviceEventApplyResult quarantine(
+            CleanFact fact,
+            long inboxId,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            String quarantineReasonCode,
+            String confirmationErrorCode,
+            String diagnostic) {
+        UUID quarantineUid = quarantinePort.quarantine(
+                inboxRefFactory.issue(
+                        inboxId, tenantId, organizationId),
+                quarantineReasonCode,
+                diagnostic);
+        confirmationPort.registerQuarantined(
+                tenantId,
+                organizationId,
+                assetId,
+                fact.eventUid().toString(),
+                fact.payloadSha256(),
+                confirmationErrorCode,
+                quarantineUid,
+                databaseNow());
+        return TrustedDeviceEventApplyResult.QUARANTINED;
     }
 
     static List<DeliveryCompletionResultReference>

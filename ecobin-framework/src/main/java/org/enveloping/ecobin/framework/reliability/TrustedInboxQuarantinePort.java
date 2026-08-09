@@ -8,7 +8,17 @@ import java.util.UUID;
  */
 public interface TrustedInboxQuarantinePort {
 
-    UUID quarantineIdentityConflict(
+    UUID quarantine(
             TrustedOrganizationInboxRef sourceInbox,
+            String reasonCode,
             String redactedDiagnostic);
+
+    default UUID quarantineIdentityConflict(
+            TrustedOrganizationInboxRef sourceInbox,
+            String redactedDiagnostic) {
+        return quarantine(
+                sourceInbox,
+                "IDENTITY_CONTENT_CONFLICT",
+                redactedDiagnostic);
+    }
 }

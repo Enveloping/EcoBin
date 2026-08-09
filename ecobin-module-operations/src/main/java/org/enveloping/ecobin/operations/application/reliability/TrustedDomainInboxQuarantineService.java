@@ -31,9 +31,15 @@ public class TrustedDomainInboxQuarantineService
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public UUID quarantineIdentityConflict(
+    public UUID quarantine(
             TrustedOrganizationInboxRef sourceInbox,
+            String reasonCode,
             String redactedDiagnostic) {
+        if (reasonCode == null
+                || !reasonCode.matches("[A-Z][A-Z0-9_]{0,39}")) {
+            throw new IllegalArgumentException(
+                    "reasonCode must be a stable safe code");
+        }
         if (redactedDiagnostic == null
                 || redactedDiagnostic.isBlank()
                 || redactedDiagnostic.length() > 2000) {
@@ -81,9 +87,9 @@ public class TrustedDomainInboxQuarantineService
                             evidence.externalMessageId().getBytes(
                                     StandardCharsets.UTF_8),
                             evidence.normalizedSha256(),
-                            "DOMAIN_IDENTITY_CONTENT_CONFLICT".getBytes(
+                            reasonCode.getBytes(
                                     StandardCharsets.US_ASCII));
-                    return repository.upsertIdentityConflict(
+                    return repository.upsertDomainQuarantine(
                             dedupe,
                             "ORGANIZATION",
                             tenantId,
@@ -94,6 +100,8 @@ public class TrustedDomainInboxQuarantineService
                             inboxId,
                             evidence.rawSha256(),
                             evidence.normalizedSha256(),
+                            reasonCode,
+                            redactedDiagnostic,
                             repository.databaseNow());
                 });
     }

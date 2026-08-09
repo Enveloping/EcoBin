@@ -175,14 +175,26 @@ public class TrustedOrangePiRuntimeFactService
         String effectKind;
         switch (event.eventType()) {
             case "DEVICE_COMMAND_OBSERVED" -> {
-                CommandObservationResult result =
-                        applyCommandObservation(
-                                event,
-                                asset,
-                                edge.eventId(),
-                                tenantId,
-                                organizationId,
-                                edge.receivedAt());
+                CommandObservationResult result;
+                try {
+                    result = applyCommandObservation(
+                            event,
+                            asset,
+                            edge.eventId(),
+                            tenantId,
+                            organizationId,
+                            edge.receivedAt());
+                } catch (UntrustedInboxSourceException obsoleteTarget) {
+                    return quarantineObsoleteTarget(
+                            event,
+                            asset,
+                            inboxId,
+                            tenantId,
+                            organizationId,
+                            edge.receivedAt(),
+                            "device command observation references "
+                                    + "an obsolete target");
+                }
                 if (result.conflict()) {
                     UUID quarantineUid =
                             quarantinePort.quarantineIdentityConflict(
@@ -402,6 +414,31 @@ public class TrustedOrangePiRuntimeFactService
                 event.eventUid(),
                 event.payloadSha256(),
                 result.conflictCode(),
+                quarantineUid,
+                receivedAt);
+        return TrustedDeviceEventApplyResult.QUARANTINED;
+    }
+
+    private TrustedDeviceEventApplyResult quarantineObsoleteTarget(
+            ParsedEvent event,
+            AssetTarget asset,
+            long inboxId,
+            long tenantId,
+            long organizationId,
+            LocalDateTime receivedAt,
+            String diagnostic) {
+        UUID quarantineUid = quarantinePort.quarantine(
+                inboxRefFactory.issue(
+                        inboxId, tenantId, organizationId),
+                "EVENT_TARGET_NOT_AUTHORITATIVE",
+                diagnostic);
+        confirmationService.registerQuarantined(
+                tenantId,
+                organizationId,
+                asset.assetId(),
+                event.eventUid(),
+                event.payloadSha256(),
+                "EVENT_TARGET_NOT_AUTHORITATIVE",
                 quarantineUid,
                 receivedAt);
         return TrustedDeviceEventApplyResult.QUARANTINED;

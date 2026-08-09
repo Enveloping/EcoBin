@@ -20,4 +20,14 @@ public interface ReliableEdgeConfirmationPort {
             String effectKind,
             List<DeliveryCompletionResultReference> resultReferences,
             LocalDateTime processedAt);
+
+    UUID registerQuarantined(
+            long tenantId,
+            long organizationId,
+            long assetId,
+            String originalEventUid,
+            String originalPayloadSha256,
+            String errorCode,
+            UUID quarantineUid,
+            LocalDateTime processedAt);
 }
