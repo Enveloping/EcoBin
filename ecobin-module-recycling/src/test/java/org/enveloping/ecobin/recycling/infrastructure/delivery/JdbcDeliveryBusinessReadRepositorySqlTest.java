@@ -96,4 +96,37 @@ class JdbcDeliveryBusinessReadRepositorySqlTest {
                 .contains("then 'full'")
                 .contains("else 'not_full'");
     }
+
+    @Test
+    void validBaselineMustBelongToTheCurrentOccupiedBag() {
+        String sql = JdbcDeliveryBusinessReadRepository
+                .FIND_CAPACITY_STATES_SQL
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(sql)
+                .contains("left join rec_port_weight_baseline")
+                .contains("capacity.current_baseline_id = baseline.id")
+                .contains("capacity.current_bag_id = occupancy.bag_id")
+                .contains("baseline.bag_id = occupancy.bag_id")
+                .contains("baseline.baseline_weight_g = capacity.current_baseline_weight_g");
+    }
+
+    @Test
+    void displayedFullnessBelongsToCurrentBagWithoutRequiringWeightBaseline() {
+        String sql = JdbcDeliveryBusinessReadRepository
+                .FIND_CAPACITY_STATES_SQL
+                .toLowerCase(Locale.ROOT);
+        int projectionStart = sql.indexOf("end as baseline_state,");
+        int projectionEnd = sql.indexOf(
+                "end as displayed_fullness_percent");
+        String fullnessProjection = sql.substring(
+                projectionStart,
+                projectionEnd);
+
+        assertThat(fullnessProjection)
+                .contains("then capacity.displayed_fullness_percent")
+                .contains("else null")
+                .contains("capacity.current_bag_id = occupancy.bag_id")
+                .doesNotContain("baseline.");
+    }
 }

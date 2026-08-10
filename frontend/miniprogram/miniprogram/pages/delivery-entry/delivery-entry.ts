@@ -71,6 +71,8 @@ const BLOCKER_TEXT: Record<DeliveryOptionBlocker, string> = {
   DEVICE_BUSY: '设备正在执行其他作业',
   PORT_DISABLED: '投口已停用',
   CURRENT_BAG_MISSING: '投口尚未安装有效垃圾袋',
+  PORT_FULL: '投口已满，请选择其他投口',
+  WEIGHT_BASELINE_MISSING: '投口称重基准未就绪，请联系工作人员',
   BASELINE_REMEASUREMENT_ACTIVE: '投口正在重测重量基准',
   PORT_CLEAN_OPERATION_ACTIVE: '投口正在清运',
   CLEAN_RESTARTED_CLEAN_REQUIRED: '上次清运被设备重启中断，请先重新完成清运',

@@ -199,9 +199,24 @@ public class CleanQueryService {
                         SELECT port.port_no,
                                snapshot.display_name,
                                bag.bag_code,
-                               capacity.detection_gate,
-                               capacity.confirmed_fullness_state,
-                               capacity.displayed_fullness_percent,
+                               CASE
+                                   WHEN capacity.current_bag_id =
+                                        occupancy.bag_id
+                                   THEN capacity.detection_gate
+                                   ELSE 'UNKNOWN'
+                               END AS detection_gate,
+                               CASE
+                                   WHEN capacity.current_bag_id =
+                                        occupancy.bag_id
+                                   THEN capacity.confirmed_fullness_state
+                                   ELSE 'UNKNOWN'
+                               END AS confirmed_fullness_state,
+                               CASE
+                                   WHEN capacity.current_bag_id =
+                                        occupancy.bag_id
+                                   THEN capacity.displayed_fullness_percent
+                                   ELSE NULL
+                               END AS displayed_fullness_percent,
                                snapshot.business_enabled,
                                EXISTS (
                                    SELECT 1

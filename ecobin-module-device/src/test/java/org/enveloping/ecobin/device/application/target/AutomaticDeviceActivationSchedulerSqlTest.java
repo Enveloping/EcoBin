@@ -9,6 +9,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AutomaticDeviceActivationSchedulerSqlTest {
 
     @Test
+    void failedConfigurationIsNeverSelectedForAutomaticRetry() {
+        String sql = AutomaticDeviceActivationScheduler
+                .FIND_INCOMPLETE_ASSET_IDS_SQL
+                .toUpperCase(Locale.ROOT);
+
+        assertThat(sql)
+                .doesNotContain(
+                        "APPLICATION.STATUS = 'FAILED'",
+                        "AUTOMATIC_CONFIGURATION_RETRY",
+                        "APPLICATION.LAST_FAILURE_CODE NOT LIKE");
+    }
+
+    @Test
     void retriesFactoryBaselineOnlyWhileFactoryBagStillOccupiesPort() {
         String sql = AutomaticDeviceActivationScheduler
                 .FIND_INCOMPLETE_ASSET_IDS_SQL

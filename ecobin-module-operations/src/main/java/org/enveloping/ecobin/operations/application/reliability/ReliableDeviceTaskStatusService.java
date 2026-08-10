@@ -30,7 +30,8 @@ public class ReliableDeviceTaskStatusService
             boolean forUpdate) {
         String lock = forUpdate ? " FOR UPDATE" : "";
         List<ReliableDeviceTaskStatus> rows = jdbc.query("""
-                        SELECT task_uid, state, wake_version, lock_version
+                        SELECT task_uid, state, blocked_reason_code,
+                               wake_version, lock_version
                         FROM ops_reliable_task
                         WHERE task_type = ?
                           AND target_type = ?
@@ -39,6 +40,7 @@ public class ReliableDeviceTaskStatusService
                 (rs, ignored) -> new ReliableDeviceTaskStatus(
                         UUID.fromString(rs.getString("task_uid")),
                         rs.getString("state"),
+                        rs.getString("blocked_reason_code"),
                         rs.getLong("wake_version"),
                         rs.getLong("lock_version")),
                 taskType,

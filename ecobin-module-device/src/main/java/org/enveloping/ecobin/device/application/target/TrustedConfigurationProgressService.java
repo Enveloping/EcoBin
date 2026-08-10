@@ -6,10 +6,14 @@ import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxQuarantinePort;
 import org.enveloping.ecobin.framework.reliability.TrustedOrganizationInboxRefFactory;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -26,6 +30,9 @@ import java.util.UUID;
 @Service
 public class TrustedConfigurationProgressService
 {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(
+            TrustedConfigurationProgressService.class);
 
     private static final String MESSAGE_KIND = "CONFIGURATION_PROGRESS";
     private static final String TASK_TYPE =
@@ -170,11 +177,6 @@ public class TrustedConfigurationProgressService
         mergeApplication(event, target, now);
         mergeCommand(event, target, now);
         mergeRuntime(event, target, now);
-        if ("APPLIED".equals(event.stage())) {
-            activationService.reconcileInCurrentTransaction(
-                    target.assetId(),
-                    UUID.fromString(event.eventUid()));
-        }
         if ("APPLIED".equals(event.stage())
                 || "FAILED".equals(event.stage())) {
             taskProofPort.completeFromTrustedProof(
@@ -190,7 +192,33 @@ public class TrustedConfigurationProgressService
                 event.payloadSha256(),
                 "UPDATED",
                 now);
+        if ("APPLIED".equals(event.stage())) {
+            scheduleActivationAfterCommit(target.assetId());
+        }
         return TrustedDeviceEventApplyResult.APPLIED;
+    }
+
+    private void scheduleActivationAfterCommit(long assetId) {
+        if (!TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            throw new IllegalStateException(
+                    "configuration progress requires transaction synchronization");
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            activationService.reconcileAsset(assetId);
+                        } catch (RuntimeException exception) {
+                            LOGGER.warn(
+                                    "post-commit automatic device activation failed assetId={} type={} reason={}",
+                                    assetId,
+                                    exception.getClass().getSimpleName(),
+                                    exception.getMessage());
+                        }
+                    }
+                });
     }
 
     private long lockAsset(
@@ -437,7 +465,7 @@ public class TrustedConfigurationProgressService
             return;
         }
         if ("EDGE_SAVED".equals(event.stage())) {
-            if ("APPLIED".equals(target.applicationStatus())) {
+            if (!canMergeEdgeSavedInto(target.applicationStatus())) {
                 return;
             }
             updateApplication("""
@@ -486,6 +514,11 @@ public class TrustedConfigurationProgressService
                 HexFormat.of().parseHex(event.mcuPayloadSha256()),
                 now,
                 event.errorCode());
+    }
+
+    static boolean canMergeEdgeSavedInto(String applicationStatus) {
+        return !"APPLIED".equals(applicationStatus)
+                && !"FAILED".equals(applicationStatus);
     }
 
     private void updateApplication(

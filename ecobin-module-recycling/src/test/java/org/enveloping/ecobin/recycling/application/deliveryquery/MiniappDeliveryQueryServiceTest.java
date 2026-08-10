@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -174,7 +175,7 @@ class MiniappDeliveryQueryServiceTest {
     void missingFullnessObservationDoesNotBlockDelivery() {
         when(identity.current()).thenReturn(identity(true));
         when(device.deliveryOptions(any())).thenReturn(
-                healthyDeviceOptions());
+                deviceOptions("INFRARED_ONLY"));
         when(business.currentOptions(optionsBusinessRef)).thenReturn(
                 new DeliveryOptionsBusinessFacts(
                         OptionalLong.of(-500),
@@ -202,6 +203,81 @@ class MiniappDeliveryQueryServiceTest {
                     assertThat(port.fullnessPercent()).isNull();
                     assertThat(port.deliveryAllowed()).isTrue();
                     assertThat(port.blockers()).isEmpty();
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "WEIGHT_ONLY",
+            "INFRARED_OR_WEIGHT"
+    })
+    void weightBasedModeRequiresAValidCurrentBagBaseline(
+            String fullnessMode) {
+        when(identity.current()).thenReturn(identity(true));
+        when(device.deliveryOptions(any())).thenReturn(
+                deviceOptions(fullnessMode));
+        when(business.currentOptions(optionsBusinessRef)).thenReturn(
+                new DeliveryOptionsBusinessFacts(
+                        OptionalLong.of(-500),
+                        List.of(new DeliveryPortBusinessFacts(
+                                2,
+                                true,
+                                DeliveryPortBusinessFacts
+                                        .BaselineState.INVALID,
+                                null,
+                                DeliveryPortBusinessFacts
+                                        .DetectionGate.READY,
+                                DeliveryPortBusinessFacts
+                                        .ConfirmedFullnessState.NOT_FULL,
+                                false,
+                                false,
+                                false))));
+        when(wallet.current(any())).thenReturn(
+                eligibleWallet());
+
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
+
+        assertThat(result.ports()).singleElement()
+                .satisfies(port -> {
+                    assertThat(port.deliveryAllowed()).isFalse();
+                    assertThat(port.blockers()).containsExactly(
+                            "WEIGHT_BASELINE_MISSING");
+                });
+    }
+
+    @Test
+    void currentBagConfirmedFullBlocksDelivery() {
+        when(identity.current()).thenReturn(identity(true));
+        when(device.deliveryOptions(any())).thenReturn(
+                healthyDeviceOptions());
+        when(business.currentOptions(optionsBusinessRef)).thenReturn(
+                new DeliveryOptionsBusinessFacts(
+                        OptionalLong.of(-500),
+                        List.of(new DeliveryPortBusinessFacts(
+                                2,
+                                true,
+                                DeliveryPortBusinessFacts
+                                        .BaselineState.VALID,
+                                new BigDecimal("100.00"),
+                                DeliveryPortBusinessFacts
+                                        .DetectionGate.READY,
+                                DeliveryPortBusinessFacts
+                                        .ConfirmedFullnessState.FULL,
+                                false,
+                                false,
+                                false))));
+        when(wallet.current(any())).thenReturn(
+                eligibleWallet());
+
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
+
+        assertThat(result.ports()).singleElement()
+                .satisfies(port -> {
+                    assertThat(port.deliveryAllowed()).isFalse();
+                    assertThat(port.blockers()).containsExactly(
+                            "PORT_FULL");
                 });
     }
 
@@ -295,6 +371,11 @@ class MiniappDeliveryQueryServiceTest {
     }
 
     private DeliveryDeviceOptionsSnapshot healthyDeviceOptions() {
+        return deviceOptions("INFRARED_OR_WEIGHT");
+    }
+
+    private DeliveryDeviceOptionsSnapshot deviceOptions(
+            String fullnessMode) {
         return new DeliveryDeviceOptionsSnapshot(
                 "Dv_0123456789abcdefghijklmn",
                 "校园回收机",
@@ -305,7 +386,7 @@ class MiniappDeliveryQueryServiceTest {
                         2,
                         "塑料投口",
                         "0.4500",
-                        "INFRARED_OR_WEIGHT",
+                        fullnessMode,
                         List.of())),
                 optionsBusinessRef);
     }

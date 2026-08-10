@@ -14,7 +14,6 @@ final class ReliableTaskResumptionPolicy {
     private static final Set<String> DEVICE_TYPES = Set.of(
             "PROCESS_INBOX", "START_DELIVERY_SESSION",
             "START_CLEAN_OPERATION", "SAMPLE_FULLNESS",
-            "ENSURE_DEVICE_CONFIGURATION",
             "PROVIDE_PHOTO_UPLOAD_GRANT", "CONFIRM_EDGE_EVENT");
 
     private ReliableTaskResumptionPolicy() { }

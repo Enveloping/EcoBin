@@ -14,6 +14,7 @@ import org.enveloping.ecobin.identity.api.port.StartCleanIdentityParticipationPo
 import org.enveloping.ecobin.identity.api.result.LockedCleanOrganizationUser;
 import org.enveloping.ecobin.identity.api.result.LockedMiniappCleanScope;
 import org.enveloping.ecobin.recycling.application.bag.Eb1BagCodeService;
+import org.enveloping.ecobin.recycling.application.portgeneration.CurrentPortGenerationPolicy;
 import org.enveloping.ecobin.recycling.web.v1.CleanModels.CleanOperationAccepted;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -86,7 +87,6 @@ public class StartCleanOperationService {
                          AND runtime.applied_config_version_no = config.version_no
                          AND runtime.applied_config_content_sha256 = config.content_sha256
                          AND runtime.applied_mcu_payload_sha256 = config.mcu_payload_sha256
-                         AND runtime.safety_status = 'SAFE'
                    ) AS runtime_applied
             FROM dev_config_version config
             WHERE config.tenant_id = ?
@@ -137,6 +137,30 @@ public class StartCleanOperationService {
             FROM rec_bag
             WHERE tenant_id = ?
               AND organization_id = ?
+              AND id = ?
+            """;
+
+    static final String LOCK_CURRENT_CAPACITY_SQL = """
+            SELECT current_bag_id,
+                   baseline_state,
+                   current_baseline_id,
+                   current_baseline_weight_g
+            FROM rec_port_capacity_state
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND port_id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOAD_CURRENT_BASELINE_SQL = """
+            SELECT id,
+                   bag_id,
+                   baseline_weight_g
+            FROM rec_port_weight_baseline
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND port_id = ?
               AND id = ?
             """;
 
@@ -465,16 +489,10 @@ public class StartCleanOperationService {
                 organizationId,
                 oldBagId).orElseThrow(
                 StartCleanOperationService::cleaningUnavailable);
-        Capacity capacity = one("""
-                        SELECT baseline_state, current_baseline_id,
-                               current_baseline_weight_g
-                        FROM rec_port_capacity_state
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND port_id = ?
-                        FOR UPDATE
-                        """,
+        Capacity capacity = one(
+                LOCK_CURRENT_CAPACITY_SQL,
                 (rs, ignored) -> new Capacity(
+                        nullableLong(rs, "current_bag_id"),
                         rs.getString("baseline_state"),
                         nullableLong(rs, "current_baseline_id"),
                         nullableLong(
@@ -482,8 +500,24 @@ public class StartCleanOperationService {
                                 "current_baseline_weight_g")),
                 tenantId,
                 organizationId,
+                asset.id(),
                 port.id()).orElse(new Capacity(
-                "UNINITIALIZED", null, null));
+                null,
+                "UNINITIALIZED",
+                null,
+                null));
+        WeightBaseline weightBaseline = capacity.id() == null
+                ? null
+                : one(
+                        LOAD_CURRENT_BASELINE_SQL,
+                        (rs, ignored) -> new WeightBaseline(
+                                rs.getLong("id"),
+                                rs.getLong("bag_id"),
+                                rs.getLong("baseline_weight_g")),
+                        tenantId,
+                        organizationId,
+                        port.id(),
+                        capacity.id()).orElse(null);
 
         Bag newBag = lockOrRegisterBag(
                 tenantId,
@@ -502,7 +536,10 @@ public class StartCleanOperationService {
         UUID commandUid = UUID.randomUUID();
         LocalDateTime authorizationExpiresAt =
                 now.plus(START_WINDOW);
-        Baseline frozenBaseline = baseline(oldBag, capacity);
+        Baseline frozenBaseline = baseline(
+                oldBag,
+                capacity,
+                weightBaseline);
         long operationId = insertOperation(
                 operationUid,
                 tenantId,
@@ -1056,15 +1093,29 @@ public class StartCleanOperationService {
         return envelope;
     }
 
-    private static Baseline baseline(
+    static Baseline baseline(
             CurrentBag oldBag,
-            Capacity capacity) {
+            Capacity capacity,
+            WeightBaseline weightBaseline) {
         if (oldBag == null) {
             return new Baseline("MISSING", null, null);
         }
-        if ("VALID".equals(capacity.state())
-                && capacity.id() != null
-                && capacity.weightGrams() != null) {
+        if (CurrentPortGenerationPolicy
+                .hasValidCurrentWeightBaseline(
+                        oldBag.id(),
+                        capacity.currentBagId(),
+                        capacity.state(),
+                        capacity.id(),
+                        capacity.weightGrams(),
+                        weightBaseline == null
+                                ? null
+                                : weightBaseline.id(),
+                        weightBaseline == null
+                                ? null
+                                : weightBaseline.bagId(),
+                        weightBaseline == null
+                                ? null
+                                : weightBaseline.weightGrams())) {
             return new Baseline(
                     "TRUSTED",
                     capacity.id(),
@@ -1370,7 +1421,7 @@ public class StartCleanOperationService {
             long calibrationVersion) {
     }
 
-    private record CurrentBag(
+    record CurrentBag(
             long id,
             UUID bagUid,
             String bagCode) {
@@ -1384,13 +1435,20 @@ public class StartCleanOperationService {
             String bagCode) {
     }
 
-    private record Capacity(
+    record Capacity(
+            Long currentBagId,
             String state,
             Long id,
             Long weightGrams) {
     }
 
-    private record Baseline(
+    record WeightBaseline(
+            long id,
+            long bagId,
+            long weightGrams) {
+    }
+
+    record Baseline(
             String state,
             Long id,
             Long weightGrams) {

@@ -35,13 +35,35 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
                         SELECT
                             CASE WHEN b.port_id IS NULL THEN 0 ELSE 1 END
                                 AS current_bag_present,
-                            COALESCE(c.baseline_state, 'UNINITIALIZED')
-                                AS baseline_state,
-                            COALESCE(c.detection_gate, 'UNKNOWN')
-                                AS detection_gate,
-                            COALESCE(c.confirmed_fullness_state, 'UNKNOWN')
-                                AS fullness_state,
-                            c.displayed_fullness_percent,
+                            CASE
+                                WHEN c.baseline_state = 'VALID'
+                                 AND c.current_bag_id = b.bag_id
+                                 AND c.current_baseline_id = baseline.id
+                                 AND baseline.baseline_weight_g =
+                                     c.current_baseline_weight_g
+                                 AND baseline.bag_id = b.bag_id
+                                THEN 'VALID'
+                                WHEN c.baseline_state = 'VALID'
+                                THEN 'INVALID'
+                                ELSE COALESCE(
+                                    c.baseline_state, 'UNINITIALIZED')
+                            END AS baseline_state,
+                            CASE
+                                WHEN c.current_bag_id = b.bag_id
+                                THEN COALESCE(c.detection_gate, 'UNKNOWN')
+                                ELSE 'UNKNOWN'
+                            END AS detection_gate,
+                            CASE
+                                WHEN c.current_bag_id = b.bag_id
+                                THEN COALESCE(
+                                    c.confirmed_fullness_state, 'UNKNOWN')
+                                ELSE 'UNKNOWN'
+                            END AS fullness_state,
+                            CASE
+                                WHEN c.current_bag_id = b.bag_id
+                                THEN c.displayed_fullness_percent
+                                ELSE NULL
+                            END AS displayed_fullness_percent,
                             EXISTS (
                                 SELECT 1
                                 FROM rec_clean_operation clean
@@ -77,6 +99,11 @@ public class RecyclingDevicePortBusinessSnapshotAdapter
                          AND c.organization_id = p.organization_id
                          AND c.asset_id = p.asset_id
                          AND c.port_id = p.id
+                        LEFT JOIN rec_port_weight_baseline baseline
+                          ON baseline.tenant_id = c.tenant_id
+                         AND baseline.organization_id = c.organization_id
+                         AND baseline.port_id = c.port_id
+                         AND baseline.id = c.current_baseline_id
                         WHERE t.tenant_code = ?
                           AND o.organization_code = ?
                           AND a.device_public_code = ?

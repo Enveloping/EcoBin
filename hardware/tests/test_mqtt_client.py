@@ -342,3 +342,67 @@ def test_fixed_frame_unsupported_service_is_rejected_synchronously(
         for reply in replies
     )
     store.close()
+
+
+def test_duplicate_apply_configuration_is_acknowledged_without_redispatch(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._trusted_cos_environment = None
+    client._unsupported_command_types = frozenset()
+    dispatched = []
+    client.on_command_received = (
+        lambda *args: dispatched.append(args) or True
+    )
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "apply-configuration.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    now = datetime.now(timezone.utc)
+    params["issuedAt"] = now.isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    params["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    decoded = decode_service_command(body["identifier"], params)
+    params["payloadSha256"] = canonical_payload_sha256(
+        decoded["payload"]
+    )
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+    request = {"id": "request-configuration", "params": params}
+
+    client._handle_service_call(topic, request)
+    client._handle_service_call(topic, request)
+
+    assert len(dispatched) == 1
+    assert dispatched[0][0] == decoded["commandUid"]
+    assert dispatched[0][1] == "APPLY_CONFIGURATION"
+    replies = [
+        payload
+        for reply_topic, payload, _qos in paho.publishes
+        if reply_topic.endswith("/invoke_reply")
+    ]
+    assert [reply["data"]["receiptState"] for reply in replies] == [1, 2]
+    store.close()

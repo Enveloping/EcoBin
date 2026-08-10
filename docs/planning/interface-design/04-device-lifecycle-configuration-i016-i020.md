@@ -302,7 +302,7 @@ POST /api/v1/web/platform/device-assets/{hardwareSn}/configuration-roll-forwards
 
 主要错误包括 `DEVICE.CONFIGURATION_PORT_SET_INVALID`、`DEVICE.CONFIGURATION_VALUE_INVALID`、`DEVICE.CONFIGURATION_UNCHANGED`、`DEVICE.DEPLOYMENT_RELOCATION_NOT_SUPPORTED` 和 `COMMON.VERSION_CONFLICT`。
 
-## I-020 配置应用与同版本重同步
+## I-020 配置应用与受限任务恢复
 
 **已确认：配置应用状态只由可信设备证明和明确的本地取代决定推进；OneNet 传输受理、网络重试结果和 Web 人工操作都不能伪造边缘或 MCU 已完成。**
 
@@ -341,7 +341,7 @@ POST {deploymentBase}/{deploymentCode}/configuration-applications/{applicationUi
 
 `superseded` 是派生展示值，恒等于 `!latestDesired`，不单独落库，也不作为第五种应用状态。
 
-- `nextActions` 只返回稳定值：正常收敛中为 `WAIT`；当前最高版本允许人工唤醒时为 `RESYNCHRONIZE`；设备明确拒绝且只能修改内容时为 `PUBLISH_NEW_CONFIGURATION`；已被取代时为 `VIEW_LATEST_CONFIGURATION`；没有后续动作时为空数组。
+- `nextActions` 只返回稳定值：正常收敛中为 `WAIT`；当前最高版本的命令明确尚未送达设备且允许人工唤醒时为 `RESYNCHRONIZE`；应用已经 `FAILED` 或命令送达后证据超时时为 `PUBLISH_NEW_CONFIGURATION`；已被取代时为 `VIEW_LATEST_CONFIGURATION`；没有后续动作时为空数组。
 - `recommendedPollAfterMs` 只在仍建议轮询时返回，客户端不得用固定高频轮询覆盖服务端建议；`APPLIED`、不可恢复 `FAILED` 或已被取代时返回 `null`。
 - `status=FAILED` 时，`lastFailureCode/lastFailedAt` 是导致当前失败的最近可信证据；以后精确成功证明使状态前进时，这两个诊断字段仍保留，客户端必须以 `status` 判断当前结果，不能因历史失败字段非空继续显示为失败。
 
@@ -352,8 +352,8 @@ PENDING → EDGE_SAVED → APPLIED
    │          │
    └──────────┴────→ FAILED
 
-FAILED ──同版本重同步──→ PENDING
-FAILED ──精确且更新的可信证明──→ EDGE_SAVED / APPLIED
+FAILED ──精确且更新的可信 APPLIED 证明──→ APPLIED
+FAILED / 送达后 BLOCKED ──发布修复版本──→ 新应用 PENDING
 ```
 
 | 状态 | 唯一含义 |
@@ -366,26 +366,27 @@ FAILED ──精确且更新的可信证明──→ EDGE_SAVED / APPLIED
 - OneNet HTTP `code=0`、可靠任务一次发送成功、设备在线、旧 `thingServiceReply accepted=true` 或串口写成功都不能推进 `EDGE_SAVED/APPLIED`。
 - 可信应用事件必须携带稳定 `applicationUid`、配置版本、Schema、内容摘要、设备持久事件 ID/序号及明确阶段；来源 OneNet 产品/设备身份必须映射到原物理资产和部署。相同事件同摘要幂等命中，同 ID 不同摘要进入隔离。
 - 后端归并证明时按资产锁根重新检查部署、当前最高期望版本、占位、投递门真实关闭状态和清运电磁阀断电状态。`APPLIED` 只表示该版本确实应用过，不增加清运门物理关门证明；只有最高期望版本 `APPLIED` 才能解除新作业的配置阻断。
-- 精确可信且设备持久序号更新的迟到证明可以把 `PENDING/EDGE_SAVED/FAILED` 推进到真实的更高阶段；`APPLIED` 不回退。全部失败证据继续保存在只追加命令事件中，应用查询的 `lastFailureCode/lastFailedAt` 也不因后来成功而抹除。非当前版本的证明只更新其历史应用事实，绝不能降低设备当前期望版本、重启其已取消任务或开放业务。
+- 精确可信且设备持久序号更新的迟到证明可以把 `PENDING/EDGE_SAVED` 推进到真实的更高阶段；`FAILED` 之后只有同一应用、版本和摘要的可信 `APPLIED` 可以纠正为成功，迟到的 `EDGE_SAVED` 只保存审计事实、不能重新打开失败应用。`APPLIED` 不回退。全部失败证据继续保存在只追加命令事件中，应用查询的 `lastFailureCode/lastFailedAt` 也不因后来成功而抹除。非当前版本的证明只更新其历史应用事实，绝不能降低设备当前期望版本、重启其已取消任务或开放业务。
 - 可靠任务自动重试耗尽时只把 `dispatchState` 变为 `BLOCKED` 并产生聚合告警，配置应用保持原真实状态。技术失败不能顺带把应用、部署或经营开关伪造成失败/停用。
-- 当前最高期望应用处于 `PENDING/EDGE_SAVED` 时，其 `ENSURE_DEVICE_CONFIGURATION` 任务必须保持 `PENDING`，按策略复送或复检，不能因为 OneNet `code=0` 就进入 `DONE`。应用精确 `APPLIED` 后任务才可 `DONE`；设备明确失败时任务可在保存真实失败后 `DONE`，等待受审计重同步；版本被取代时旧任务进入 `CANCELLED`；自动尝试上限耗尽进入 `BLOCKED`。`应用=PENDING/EDGE_SAVED + dispatchState=DONE/CANCELLED` 对当前最高版本属于不变量错误，必须告警而不是永久返回 `WAIT`。
+- 当前最高期望应用处于 `PENDING/EDGE_SAVED` 时，其 `ENSURE_DEVICE_CONFIGURATION` 任务必须保持 `PENDING` 等待设备证明，不能因为 OneNet `code=0` 就进入 `DONE`，也不能在 OneNet 已受理后重复发送相同命令。应用精确 `APPLIED` 后任务才可 `DONE`；设备明确失败时任务在保存真实失败后结束，排除故障后必须发布更高版本；版本被取代时旧任务进入 `CANCELLED`；自动尝试上限耗尽进入 `BLOCKED`。`应用=PENDING/EDGE_SAVED + dispatchState=DONE/CANCELLED` 对当前最高版本属于不变量错误，必须告警而不是永久返回 `WAIT`。
 - Web 无权直接提交 `EDGE_SAVED`、`APPLIED`、`FAILED`、设备报告版本或摘要；这些字段只由可信 OneNet inbox 处理器写入。I-019 只改变“当前最高期望版本”和旧任务执行资格，不伪造应用状态。
 
-### 3. 同版本重同步
+### 3. 未送达命令的受限重同步
 
 重同步请求：
 
 ```json
 {
   "expectedVersion": 2,
-  "reason": "设备恢复联网后重新尝试下发"
+  "reason": "OneNet 设备身份已经修复"
 }
 ```
 
-- 只允许对当前最高期望版本执行，并且该应用必须处于可恢复 `FAILED`，或其唯一可靠任务已经 `BLOCKED`。已经 `APPLIED`、已被更高版本取代或仍在正常执行的应用不能重同步。
-- 受理事务复用原 `applicationUid`、配置版本、设备命令和 `ops_reliable_task`，递增任务 `wakeVersion` 并恢复为待执行；可恢复 `FAILED` 同时回到 `PENDING`。后续领取只新增 `ops_task_attempt`，不得创建第二个应用、命令或任务。
+- 只允许对当前最高期望版本执行，并且应用仍为 `PENDING`、尚无 `edgePersistedAt`、唯一可靠任务已经 `BLOCKED`，阻断原因只能是 `DEVICE_IDENTITY_UNRESOLVED`、`PERMANENT_TECHNICAL_FAILURE` 或 `AUTO_RETRY_EXHAUSTED`。未知原因默认视为不安全。
+- `FAILED`、`EDGE_SAVED`、`DEVICE_EVIDENCE_TIMEOUT`、`DEVICE_CONFIRMATION_TIMEOUT`、已经 `APPLIED`、已被更高版本取代或仍在正常执行的应用不能重同步；排除故障后由平台通过 `configuration-roll-forwards` 完整复制当前配置并发布更高版本。
+- 受理事务只复用原 `applicationUid`、配置版本、设备命令和 `ops_reliable_task`，递增任务 `wakeVersion` 并恢复为待执行；配置应用本身保持 `PENDING`，不修改其状态或版本。后续领取只新增 `ops_task_attempt`，不得创建第二个应用、命令或任务。
 - 可靠受理返回 `202`：`operationId` 等于本次重同步操作号，`resourceId` 等于原 `applicationUid`，`status` 返回受理后的应用状态，`dispatchState` 返回原任务恢复后的状态，并返回 `recommendedPollAfterMs` 和同一个 `statusUrl`；`Location` 仍指向原应用资源。同一 `Idempotency-Key` 重试返回首次结果；版本或恢复资格变化返回 `409`。
-- 平台设备管理可通过 `/api/v1/web/platform/device-assets/{hardwareSn}/configuration-applications/{applicationUid}` 查询同一应用，并通过其 `/resynchronizations` 子资源执行完全相同的受限重同步；平台入口不会绕过 `FAILED/BLOCKED`、最高版本和乐观版本检查。
+- 平台设备管理可通过 `/api/v1/web/platform/device-assets/{hardwareSn}/configuration-applications/{applicationUid}` 查询同一应用，并通过其 `/resynchronizations` 子资源执行完全相同的受限重同步；运营中心的通用可靠任务恢复入口不允许恢复 `ENSURE_DEVICE_CONFIGURATION`，避免绕过配置状态机。
 
 主要错误包括 `DEVICE.CONFIGURATION_APPLICATION_NOT_FOUND`、`DEVICE.CONFIGURATION_APPLICATION_SUPERSEDED`、`DEVICE.CONFIGURATION_ALREADY_APPLIED`、`DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED` 和 `COMMON.VERSION_CONFLICT`。
 

@@ -99,9 +99,10 @@ public class AutomaticDeviceActivationScheduler {
                 targetDeviceApplication.reconcileAutomaticActivation(assetId);
             } catch (RuntimeException exception) {
                 LOGGER.warn(
-                        "automatic device activation reconciliation failed assetId={} type={}",
+                        "automatic device activation reconciliation failed assetId={} type={} reason={}",
                         assetId,
-                        exception.getClass().getSimpleName());
+                        exception.getClass().getSimpleName(),
+                        exception.getMessage());
             }
         }
     }

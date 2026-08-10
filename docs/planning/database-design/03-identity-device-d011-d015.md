@@ -131,7 +131,7 @@
 - **接口设计落实补充（I-018）**：权限目录新增允许租户/机构双作用域的 `device.read`、`device.manage` 和 `device.configuration.manage`。部署激活与经营开关使用部署 `lock_version`；运行投影有独立版本并在事务内重新检查，`deliveryAllowed/cleaningAllowed` 仍不落库。
 - **接口设计权限补充（I-026～I-030）**：V10 为 `clean.read`、`device.detection.execute` 和 `device.recovery.execute` 分别建立 `TENANT/ORGANIZATION` 定义；V20 再以前向迁移新增 `clean.edit` 的两种作用域定义。清运记录直接修改而不审核，`review.execute` 仅用于投递和提现。工作人员小程序只将当前机构 `device.read` 的容量/满溢安全摘要加入渠道白名单，不放行清运记录修改或三项设备写命令。
 - **接口设计权限补充（I-036～I-040）**：V10 为 `audit.read`、`alert.read`、`alert.acknowledge`、`reconciliation.read`、`reconciliation.handle` 和 `statistics.read` 分别建立 `TENANT/ORGANIZATION` 定义。平台任务恢复、隔离确认和平台对账运行属于平台固定能力，不伪装成租户权限码；工作人员小程序渠道白名单只增加当前机构 `alert.read` 与 `statistics.read`，不放行确认告警、对账处置、审计或技术任务接口。
-- **接口设计落实补充（I-019/I-020/F-10）**：发布请求的设备级和投口级字段按上表完整版本化，负重量阈值位于设备级；正式配置进度以 `version + contentSha256 + mcuPayloadSha256` 三元组证明。配置发布以最高 `version_no` 承接 `expectedLatestVersion`；更高版本使旧应用派生为非当前期望，但不改写其真实应用状态。自动重试耗尽只使 `ops_reliable_task=BLOCKED`，不得伪造应用 `FAILED`。重同步复用原应用、设备命令和任务；可信迟到证明仍按真实版本归并并保留历史失败证据，但只有最高期望版本精确 `APPLIED` 才解除新作业阻断。
+- **接口设计落实补充（I-019/I-020/F-10）**：发布请求的设备级和投口级字段按上表完整版本化，负重量阈值位于设备级；正式配置进度以 `version + contentSha256 + mcuPayloadSha256` 三元组证明。配置发布以最高 `version_no` 承接 `expectedLatestVersion`；更高版本使旧应用派生为非当前期望，但不改写其真实应用状态。自动重试耗尽只使 `ops_reliable_task=BLOCKED`，不得伪造应用 `FAILED`。只有应用仍为 `PENDING`、尚无边缘落盘事实且原任务以明确下发前原因阻断时，同版本重同步才复用原应用、设备命令和任务；未知原因默认拒绝。应用一旦 `FAILED` 就永久保留该失败事实，排障后必须发布更高版本并创建新的应用、命令和任务。原版本、原摘要的迟到可信 `APPLIED` 可以纠正原失败事实，但迟到 `EDGE_SAVED` 不重新打开应用。只有最高期望版本精确 `APPLIED` 才解除新作业阻断。
 
 ### D-015 运行健康、占位、投递会话与设备证据字段
 

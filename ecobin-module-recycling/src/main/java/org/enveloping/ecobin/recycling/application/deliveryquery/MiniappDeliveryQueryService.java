@@ -11,6 +11,7 @@ import org.enveloping.ecobin.funds.api.port.DeliveryWalletQualificationQueryPort
 import org.enveloping.ecobin.funds.api.result.DeliveryWalletQualification;
 import org.enveloping.ecobin.identity.api.port.MiniappDeliveryIdentityQueryPort;
 import org.enveloping.ecobin.identity.api.result.CurrentMiniappDeliveryIdentity;
+import org.enveloping.ecobin.recycling.application.portgeneration.CurrentPortGenerationPolicy;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryModels.DeliveryOptionsView;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryModels.DeliveryPortOption;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryModels.DeliverySessionView;
@@ -41,6 +42,10 @@ public class MiniappDeliveryQueryService {
             "CONFIGURATION_NOT_APPLIED";
     static final String CURRENT_BAG_MISSING =
             "CURRENT_BAG_MISSING";
+    static final String PORT_FULL =
+            "PORT_FULL";
+    static final String WEIGHT_BASELINE_MISSING =
+            "WEIGHT_BASELINE_MISSING";
     static final String BASELINE_REMEASUREMENT_ACTIVE =
             "BASELINE_REMEASUREMENT_ACTIVE";
     static final String PORT_CLEAN_OPERATION_ACTIVE =
@@ -159,6 +164,7 @@ public class MiniappDeliveryQueryService {
                     facts.displayedFullnessPercent());
             addBusinessBlockers(
                     blockers,
+                    devicePort.fullnessMode(),
                     facts);
         }
         List<String> blockerList = List.copyOf(blockers);
@@ -173,9 +179,23 @@ public class MiniappDeliveryQueryService {
 
     private static void addBusinessBlockers(
             LinkedHashSet<String> blockers,
+            String fullnessMode,
             DeliveryPortBusinessFacts facts) {
         if (!facts.currentBagPresent()) {
             blockers.add(CURRENT_BAG_MISSING);
+        }
+        if (facts.currentBagPresent()
+                && facts.confirmedFullnessState()
+                == DeliveryPortBusinessFacts
+                .ConfirmedFullnessState.FULL) {
+            blockers.add(PORT_FULL);
+        }
+        if (facts.currentBagPresent()
+                && CurrentPortGenerationPolicy
+                .requiresWeightBaseline(fullnessMode)
+                && facts.baselineState()
+                != DeliveryPortBusinessFacts.BaselineState.VALID) {
+            blockers.add(WEIGHT_BASELINE_MISSING);
         }
         if (facts.baselineRemeasurementActive()) {
             blockers.add(BASELINE_REMEASUREMENT_ACTIVE);

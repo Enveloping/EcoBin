@@ -5,6 +5,7 @@ import org.enveloping.ecobin.device.api.query.StartDeliveryBusinessFactsQuery;
 import org.enveloping.ecobin.device.api.result.LockedStartDeliveryBusinessFacts;
 import org.enveloping.ecobin.device.api.value.DeliveryRuleSnapshot;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.recycling.application.portgeneration.CurrentPortGenerationPolicy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -35,6 +36,31 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
             FROM rec_bag
             WHERE tenant_id = ?
               AND organization_id = ?
+              AND id = ?
+            """;
+
+    static final String LOCK_CURRENT_CAPACITY_SQL = """
+            SELECT current_bag_id,
+                   baseline_state,
+                   current_baseline_id,
+                   current_baseline_weight_g,
+                   confirmed_fullness_state
+            FROM rec_port_capacity_state
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND port_id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOAD_CURRENT_BASELINE_SQL = """
+            SELECT id,
+                   bag_id,
+                   baseline_weight_g
+            FROM rec_port_weight_baseline
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND port_id = ?
               AND id = ?
             """;
 
@@ -129,6 +155,13 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                     "当前投口没有可用于投递的在位袋");
         }
         BagRow bag = bags.getFirst();
+        verifyCurrentPortGeneration(
+                query.fullnessMode(),
+                tenantId,
+                organizationId,
+                assetId,
+                portId,
+                bag.id());
 
         return new LockedStartDeliveryBusinessFacts(
                 bag.bagUid(),
@@ -138,6 +171,112 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
                         organizationId,
                         configuration.id(),
                         bag.id()));
+    }
+
+    private void verifyCurrentPortGeneration(
+            String fullnessMode,
+            long tenantId,
+            long organizationId,
+            long assetId,
+            long portId,
+            long occupiedBagId) {
+        List<CapacityAdmissionRow> rows = jdbc.query(
+                LOCK_CURRENT_CAPACITY_SQL,
+                (rs, ignored) -> new CapacityAdmissionRow(
+                        nullableLong(rs.getLong("current_bag_id"),
+                                rs.wasNull()),
+                        rs.getString("baseline_state"),
+                        nullableLong(
+                                rs.getLong("current_baseline_id"),
+                                rs.wasNull()),
+                        nullableLong(
+                                rs.getLong("current_baseline_weight_g"),
+                                rs.wasNull()),
+                        rs.getString("confirmed_fullness_state")),
+                tenantId,
+                organizationId,
+                assetId,
+                portId);
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "duplicate recycling capacity state");
+        }
+        CapacityAdmissionRow capacity = rows.isEmpty()
+                ? null
+                : rows.getFirst();
+        if (capacity != null
+                && isCurrentBagFull(occupiedBagId, capacity)) {
+            throw conflict(
+                    "DEVICE.PORT_FULL",
+                    "当前投口已满，请等待清运后再投递");
+        }
+        if (!CurrentPortGenerationPolicy
+                .requiresWeightBaseline(fullnessMode)) {
+            return;
+        }
+        BaselineRow baseline = loadCurrentBaseline(
+                tenantId,
+                organizationId,
+                portId,
+                capacity);
+        if (capacity == null
+                || !CurrentPortGenerationPolicy
+                .hasValidCurrentWeightBaseline(
+                        occupiedBagId,
+                        capacity.currentBagId(),
+                        capacity.baselineState(),
+                        capacity.currentBaselineId(),
+                        capacity.currentBaselineWeightGrams(),
+                        baseline == null ? null : baseline.id(),
+                        baseline == null ? null : baseline.bagId(),
+                        baseline == null
+                                ? null
+                                : baseline.weightGrams())) {
+            throw conflict(
+                    "DEVICE.WEIGHT_BASELINE_MISSING",
+                    "当前袋缺少有效重量基准，请先完成清运或空袋重测");
+        }
+    }
+
+    private BaselineRow loadCurrentBaseline(
+            long tenantId,
+            long organizationId,
+            long portId,
+            CapacityAdmissionRow capacity) {
+        if (capacity == null
+                || capacity.currentBaselineId() == null) {
+            return null;
+        }
+        List<BaselineRow> rows = jdbc.query(
+                LOAD_CURRENT_BASELINE_SQL,
+                (rs, ignored) -> new BaselineRow(
+                        rs.getLong("id"),
+                        rs.getLong("bag_id"),
+                        rs.getLong("baseline_weight_g")),
+                tenantId,
+                organizationId,
+                portId,
+                capacity.currentBaselineId());
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "duplicate recycling weight baseline");
+        }
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    static boolean isCurrentBagFull(
+            long occupiedBagId,
+            CapacityAdmissionRow capacity) {
+        return CurrentPortGenerationPolicy.isCurrentBagFull(
+                occupiedBagId,
+                capacity.currentBagId(),
+                capacity.confirmedFullnessState());
+    }
+
+    private static Long nullableLong(
+            long value,
+            boolean wasNull) {
+        return wasNull ? null : value;
     }
 
     private DeliveryConfiguration lockCurrentConfiguration(
@@ -281,6 +420,20 @@ public class RecyclingStartDeliveryBusinessFactsAdapter
             long id,
             UUID bagUid,
             String bagCode) {
+    }
+
+    record CapacityAdmissionRow(
+            Long currentBagId,
+            String baselineState,
+            Long currentBaselineId,
+            Long currentBaselineWeightGrams,
+            String confirmedFullnessState) {
+    }
+
+    private record BaselineRow(
+            long id,
+            long bagId,
+            long weightGrams) {
     }
 
 }

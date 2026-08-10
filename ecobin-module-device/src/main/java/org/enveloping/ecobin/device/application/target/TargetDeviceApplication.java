@@ -92,6 +92,11 @@ public class TargetDeviceApplication {
             "ENSURE_DEVICE_CONFIGURATION";
     private static final String CONFIGURATION_TARGET_TYPE =
             "CONFIGURATION_APPLICATION";
+    private static final Set<String> SAFE_CONFIGURATION_RESYNC_REASONS =
+            Set.of(
+                    "DEVICE_IDENTITY_UNRESOLVED",
+                    "PERMANENT_TECHNICAL_FAILURE",
+                    "AUTO_RETRY_EXHAUSTED");
     private static final SecureRandom PUBLIC_CODE_RANDOM = new SecureRandom();
 
     private final JdbcTemplate jdbc;
@@ -1066,26 +1071,11 @@ public class TargetDeviceApplication {
                         applicationUid.toString(),
                         true)
                 .orElseThrow(TargetDeviceApplication::invariant);
-        boolean recoverable = "FAILED".equals(application.status())
-                || "BLOCKED".equals(task.state());
-        if (!recoverable) {
+        if (!canResynchronizeConfiguration(application, task)) {
             throw conflict(
                     "DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED",
-                    "配置仍在自动重试，当前不需要人工重同步");
+                    "当前配置不能安全地重新下发；请排除故障后发布修复版本");
         }
-        LocalDateTime now = databaseNow();
-        requireSingle(jdbc.update("""
-                        UPDATE dev_config_application
-                        SET status = CASE
-                                WHEN status = 'FAILED' THEN 'PENDING'
-                                ELSE status
-                            END,
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE id = ?
-                        """,
-                now,
-                application.id()));
         taskWakePort.wake(new ReliableTaskWake(
                 task.taskUid(), "WEB_RESYNCHRONIZATION"));
         ApplicationRow after = findApplication(
@@ -2288,6 +2278,25 @@ public class TargetDeviceApplication {
             long assetId,
             UUID applicationUid,
             boolean lock) {
+        if (lock) {
+            List<Long> locked = jdbc.query("""
+                            SELECT id
+                            FROM dev_config_application
+                            WHERE tenant_id = ?
+                              AND organization_id = ?
+                              AND asset_id = ?
+                              AND application_uid = ?
+                            FOR UPDATE
+                            """,
+                    (rs, ignored) -> rs.getLong("id"),
+                    scope.tenantId(),
+                    scope.organizationId(),
+                    assetId,
+                    applicationUid.toString());
+            if (locked.isEmpty()) {
+                return Optional.empty();
+            }
+        }
         return jdbc.query("""
                         SELECT app.id, app.application_uid,
                                app.status, app.reported_version_no,
@@ -2320,7 +2329,7 @@ public class TargetDeviceApplication {
                           AND app.organization_id = ?
                           AND app.asset_id = ?
                           AND app.application_uid = ?
-                        """ + (lock ? " FOR UPDATE" : ""),
+                        """,
                 (rs, ignored) -> new ApplicationRow(
                         rs.getLong("id"),
                         UUID.fromString(rs.getString("application_uid")),
@@ -2412,15 +2421,13 @@ public class TargetDeviceApplication {
         } else if ("APPLIED".equals(application.status())) {
             nextActions = List.of();
             pollAfter = null;
-        } else if ("BLOCKED".equals(task.state())) {
-            nextActions = List.of("RESYNCHRONIZE");
-            pollAfter = null;
         } else if ("FAILED".equals(application.status())) {
-            nextActions = application.lastFailureCode() != null
-                    && application.lastFailureCode()
-                    .startsWith("CONFIGURATION_REJECTED")
-                    ? List.of("PUBLISH_NEW_CONFIGURATION")
-                    : List.of("RESYNCHRONIZE");
+            nextActions = List.of("PUBLISH_NEW_CONFIGURATION");
+            pollAfter = null;
+        } else if ("BLOCKED".equals(task.state())) {
+            nextActions = canResynchronizeConfiguration(application, task)
+                    ? List.of("RESYNCHRONIZE")
+                    : List.of("PUBLISH_NEW_CONFIGURATION");
             pollAfter = null;
         } else {
             nextActions = List.of("WAIT");
@@ -2446,6 +2453,29 @@ public class TargetDeviceApplication {
                 task.state(),
                 pollAfter,
                 nextActions);
+    }
+
+    private static boolean canResynchronizeConfiguration(
+            ApplicationRow application,
+            ReliableDeviceTaskStatus task) {
+        return canResynchronizeConfiguration(
+                application.status(),
+                application.edgePersistedAt(),
+                task.state(),
+                task.blockedReasonCode());
+    }
+
+    static boolean canResynchronizeConfiguration(
+            String applicationStatus,
+            Instant edgePersistedAt,
+            String taskState,
+            String blockedReasonCode) {
+        return "PENDING".equals(applicationStatus)
+                && edgePersistedAt == null
+                && "BLOCKED".equals(taskState)
+                && blockedReasonCode != null
+                && SAFE_CONFIGURATION_RESYNC_REASONS.contains(
+                        blockedReasonCode);
     }
 
     private static ConfigurationDeviceSnapshot configurationDevice(

@@ -22,4 +22,12 @@ class ReliableTaskResumptionPolicyTest {
         assertFalse(ReliableTaskResumptionPolicy.supported(
                 "UNKNOWN_LANE", "PROCESS_INBOX"));
     }
+
+    @Test
+    void deviceConfigurationUsesItsSpecializedRecoveryEndpoint() {
+        assertFalse(ReliableTaskResumptionPolicy.supported(
+                "DEVICE", "ENSURE_DEVICE_CONFIGURATION"));
+        assertTrue(ReliableTaskResumptionPolicy.supported(
+                "DEVICE", "START_DELIVERY_SESSION"));
+    }
 }

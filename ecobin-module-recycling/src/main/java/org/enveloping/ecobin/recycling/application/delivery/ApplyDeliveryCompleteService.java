@@ -12,6 +12,7 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.enveloping.ecobin.recycling.application.photo.RecyclingPhotoStatusService;
+import org.enveloping.ecobin.recycling.application.portgeneration.CurrentPortGenerationPolicy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -27,8 +28,10 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -71,6 +74,34 @@ public class ApplyDeliveryCompleteService
               AND bag_code = ?
             """;
 
+    static final String LOCK_CAPACITY_SQL = """
+            SELECT current_bag_id,
+                   baseline_state,
+                   current_baseline_id,
+                   current_baseline_weight_g,
+                   detection_gate,
+                   current_detection_id,
+                   current_rule_fingerprint,
+                   confirmed_fullness_state
+            FROM rec_port_capacity_state
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND asset_id = ?
+              AND port_id = ?
+            FOR UPDATE
+            """;
+
+    static final String LOAD_CAPACITY_BASELINE_SQL = """
+            SELECT id,
+                   bag_id,
+                   baseline_weight_g
+            FROM rec_port_weight_baseline
+            WHERE tenant_id = ?
+              AND organization_id = ?
+              AND port_id = ?
+              AND id = ?
+            """;
+
     private final CompleteDeliveryDeviceParticipationPort deviceCompletion;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -107,6 +138,10 @@ public class ApplyDeliveryCompleteService
                 requireFrozenDeliveryConfiguration(facts);
         requireCurrentBag(facts);
         CapacityState capacity = lockCapacity(facts);
+        String capacityProjectionBlockReason =
+                capacityProjectionBlockReason(
+                        facts.bagId(),
+                        capacity);
 
         long visibilitySequence = nextVisibilitySequence(facts);
         String orderNo = deliveryOrderNo(
@@ -122,11 +157,18 @@ public class ApplyDeliveryCompleteService
                 calculation);
 
         // 异常和照片都是订单证据：异常不会静默改重量，照片暂缺也不阻止建单。
-        insertAnomalies(facts, orderId, calculation);
+        insertAnomalies(
+                facts,
+                orderId,
+                calculation,
+                capacity,
+                capacityProjectionBlockReason);
         insertPhotos(facts, orderId);
         photoStatusService.mergeStagedDeliveryFacts(
                 facts, orderId);
-        projectCapacityObservation(facts, capacity);
+        if (capacityProjectionBlockReason == null) {
+            projectCapacityObservation(facts, capacity);
+        }
 
         return new DeliveryCompletionBusinessResult(
                 orderNo,
@@ -202,32 +244,53 @@ public class ApplyDeliveryCompleteService
 
     private CapacityState lockCapacity(
             DeliveryCompletionPersistenceFacts facts) {
-        List<CapacityState> rows = jdbc.query("""
-                        SELECT baseline_state,
-                               current_baseline_id,
-                               current_baseline_weight_g,
-                               detection_gate,
-                               current_detection_id,
-                               current_rule_fingerprint,
-                               confirmed_fullness_state
-                        FROM rec_port_capacity_state
-                        WHERE tenant_id = ?
-                          AND organization_id = ?
-                          AND asset_id = ?
-                          AND port_id = ?
-                        FOR UPDATE
-                        """,
+        List<CapacityState> rows = jdbc.query(
+                LOCK_CAPACITY_SQL,
                 (rs, ignored) -> capacity(rs),
                 facts.tenantId(),
                 facts.organizationId(),
                 facts.assetId(),
                 facts.portId());
-        if (rows.size() != 1) {
-            throw untrusted(
-                    "delivery capacity state is missing");
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "duplicate delivery capacity state");
+        }
+        if (rows.isEmpty()) {
+            return null;
         }
         CapacityState capacity = rows.getFirst();
-        return capacity;
+        if (capacity.baselineId() == null) {
+            return capacity;
+        }
+        List<BaselineIdentity> baselines = jdbc.query(
+                LOAD_CAPACITY_BASELINE_SQL,
+                (rs, ignored) -> new BaselineIdentity(
+                        rs.getLong("id"),
+                        rs.getLong("bag_id"),
+                        rs.getLong("baseline_weight_g")),
+                facts.tenantId(),
+                facts.organizationId(),
+                facts.portId(),
+                capacity.baselineId());
+        if (baselines.size() > 1) {
+            throw new IllegalStateException(
+                    "duplicate delivery capacity baseline");
+        }
+        BaselineIdentity baseline = baselines.isEmpty()
+                ? null
+                : baselines.getFirst();
+        return new CapacityState(
+                capacity.currentBagId(),
+                capacity.baselineState(),
+                capacity.baselineId(),
+                capacity.baselineWeightGrams(),
+                baseline == null ? null : baseline.id(),
+                baseline == null ? null : baseline.bagId(),
+                baseline == null ? null : baseline.weightGrams(),
+                capacity.detectionGate(),
+                capacity.currentDetectionId(),
+                capacity.ruleFingerprint(),
+                capacity.confirmedFullnessState());
     }
 
     private long nextVisibilitySequence(
@@ -398,7 +461,9 @@ public class ApplyDeliveryCompleteService
     private void insertAnomalies(
             DeliveryCompletionPersistenceFacts facts,
             long orderId,
-            OrderCalculation calculation) {
+            OrderCalculation calculation,
+            CapacityState capacity,
+            String capacityProjectionBlockReason) {
         DeliveryCompletePhysicalFact physical =
                 facts.physicalFact();
         if (!Long.valueOf(calculation.netWeightGrams()).equals(
@@ -433,6 +498,36 @@ public class ApplyDeliveryCompleteService
                     "USER",
                     "NEGATIVE_WEIGHT_ANOMALY",
                     null);
+        }
+        if (capacityProjectionBlockReason != null) {
+            Map<String, Object> diagnostic = new LinkedHashMap<>();
+            diagnostic.put(
+                    "reason",
+                    capacityProjectionBlockReason);
+            diagnostic.put(
+                    "expectedCurrentBagId",
+                    facts.bagId());
+            diagnostic.put(
+                    "capacityCurrentBagId",
+                    capacity == null
+                            ? null
+                            : capacity.currentBagId());
+            diagnostic.put(
+                    "capacityBaselineId",
+                    capacity == null
+                            ? null
+                            : capacity.baselineId());
+            diagnostic.put(
+                    "baselineBagId",
+                    capacity == null
+                            ? null
+                            : capacity.baselineBagId());
+            insertAnomaly(
+                    facts,
+                    orderId,
+                    "SYSTEM",
+                    "CAPACITY_PROJECTION_SKIPPED",
+                    diagnostic);
         }
     }
 
@@ -585,6 +680,33 @@ public class ApplyDeliveryCompleteService
                 displayed);
     }
 
+    static String capacityProjectionBlockReason(
+            long currentBagId,
+            CapacityState capacity) {
+        if (capacity == null) {
+            return "CAPACITY_STATE_MISSING";
+        }
+        if (!Objects.equals(
+                capacity.currentBagId(),
+                currentBagId)) {
+            return "CAPACITY_CURRENT_BAG_MISMATCH";
+        }
+        if ("VALID".equals(capacity.baselineState())
+                && !CurrentPortGenerationPolicy
+                .hasValidCurrentWeightBaseline(
+                        currentBagId,
+                        capacity.currentBagId(),
+                        capacity.baselineState(),
+                        capacity.baselineId(),
+                        capacity.baselineWeightGrams(),
+                        capacity.baselineRecordId(),
+                        capacity.baselineBagId(),
+                        capacity.baselineRecordWeightGrams())) {
+            return "WEIGHT_BASELINE_GENERATION_MISMATCH";
+        }
+        return null;
+    }
+
     private static OrderCalculation calculate(
             DeliveryCompletionPersistenceFacts facts) {
         long before = facts.physicalFact()
@@ -638,9 +760,13 @@ public class ApplyDeliveryCompleteService
                 rs,
                 "current_detection_id");
         return new CapacityState(
+                nullableLong(rs, "current_bag_id"),
                 rs.getString("baseline_state"),
                 baselineId,
                 baselineWeight,
+                null,
+                null,
+                null,
                 rs.getString("detection_gate"),
                 detectionId,
                 rs.getBytes("current_rule_fingerprint"),
@@ -701,14 +827,24 @@ public class ApplyDeliveryCompleteService
             long maxReviewAbsWeightGrams) {
     }
 
-    private record CapacityState(
+    record CapacityState(
+            Long currentBagId,
             String baselineState,
             Long baselineId,
             Long baselineWeightGrams,
+            Long baselineRecordId,
+            Long baselineBagId,
+            Long baselineRecordWeightGrams,
             String detectionGate,
             Long currentDetectionId,
             byte[] ruleFingerprint,
             String confirmedFullnessState) {
+    }
+
+    private record BaselineIdentity(
+            long id,
+            long bagId,
+            long weightGrams) {
     }
 
     private record OrderCalculation(

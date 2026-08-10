@@ -71,6 +71,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.development.default-platform-admin.enabled=false",
         "ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
         "onenet.subscription.enabled=false",
+        "bagCodeKeyK1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "jwt.secret=DEVICE_TEST_SECRET_MUST_BE_AT_LEAST_32_BYTES_LONG"
 })
 @AutoConfigureMockMvc
@@ -361,6 +362,91 @@ class TargetDeviceMysqlIntegrationTest {
                         + initialApplicationUid,
                 200));
         assertEquals("PENDING", initialApplication.path("status").asText());
+
+        blockConfigurationTask(
+                assetId,
+                "DEVICE_IDENTITY_UNRESOLVED",
+                "integration fixture: command was not delivered");
+        JsonNode preDeliveryBlocked = data(read(
+                platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid,
+                200));
+        assertEquals("RESYNCHRONIZE", preDeliveryBlocked
+                .path("nextActions").get(0).asText());
+        long applicationVersion = preDeliveryBlocked
+                .path("version").asLong();
+        JsonNode resynchronized = data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid
+                        + "/resynchronizations"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", applicationVersion,
+                        "reason", "修复 OneNet 设备身份后唤醒未送达命令"),
+                202));
+        assertEquals("PENDING", resynchronized.path("status").asText());
+        assertEquals("PENDING",
+                resynchronized.path("dispatchState").asText());
+        assertEquals("PENDING", jdbc.queryForObject("""
+                        SELECT state FROM ops_reliable_task
+                        WHERE source_device_asset_id = ?
+                          AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                        """, String.class, assetId));
+
+        blockConfigurationTask(
+                assetId,
+                "DEVICE_EVIDENCE_TIMEOUT",
+                "integration fixture: OneNet accepted without evidence");
+        JsonNode evidenceTimeout = data(read(
+                platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid,
+                200));
+        assertEquals("PUBLISH_NEW_CONFIGURATION", evidenceTimeout
+                .path("nextActions").get(0).asText());
+        JsonNode unsafeResynchronization = json(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid
+                        + "/resynchronizations"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", applicationVersion,
+                        "reason", "不应重复发送已被 OneNet 受理的命令"),
+                409));
+        assertEquals("DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED",
+                unsafeResynchronization.path("code").asText());
+
+        failConfigurationAfterEdgePersistence(assetId);
+        JsonNode failedApplication = data(read(
+                platform,
+                "/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid,
+                200));
+        assertEquals("FAILED", failedApplication.path("status").asText());
+        assertEquals("PUBLISH_NEW_CONFIGURATION", failedApplication
+                .path("nextActions").get(0).asText());
+        JsonNode failedResynchronization = json(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/configuration-applications/"
+                        + initialApplicationUid
+                        + "/resynchronizations"),
+                UUID.randomUUID(),
+                Map.of(
+                        "expectedVersion", failedApplication
+                                .path("version").asLong(),
+                        "reason", "失败应用必须发布新版本"),
+                409));
+        assertEquals("DEVICE.CONFIGURATION_RESYNC_NOT_ALLOWED",
+                failedResynchronization.path("code").asText());
 
         JsonNode rolledForward = data(write(
                 platform,
@@ -883,6 +969,62 @@ class TargetDeviceMysqlIntegrationTest {
                         rs.getString("content_sha256"),
                         rs.getString("mcu_payload_sha256")),
                 assetId);
+    }
+
+    private void blockConfigurationTask(
+            long assetId,
+            String reasonCode,
+            String diagnostic) {
+        assertEquals(1, jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET state = 'BLOCKED',
+                            next_run_at = NULL,
+                            lease_token = NULL,
+                            lease_worker = NULL,
+                            lease_until = NULL,
+                            dispatch_wait_reason = NULL,
+                            handled_wake_version = wake_version,
+                            completed_at = UTC_TIMESTAMP(3),
+                            blocked_reason_code = ?,
+                            blocked_diagnostic = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE source_device_asset_id = ?
+                          AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                          AND state = 'PENDING'
+                        """,
+                reasonCode,
+                diagnostic,
+                assetId));
+    }
+
+    private void failConfigurationAfterEdgePersistence(long assetId) {
+        assertEquals(1, jdbc.update("""
+                        UPDATE dev_config_application application
+                        JOIN dev_config_version version
+                          ON version.id = application.config_version_id
+                        SET application.status = 'FAILED',
+                            application.reported_version_no =
+                                version.version_no,
+                            application.reported_content_sha256 =
+                                version.content_sha256,
+                            application.reported_mcu_payload_sha256 =
+                                version.mcu_payload_sha256,
+                            application.edge_persisted_at =
+                                UTC_TIMESTAMP(3),
+                            application.mcu_synced_at = NULL,
+                            application.applied_at = NULL,
+                            application.last_failure_at =
+                                UTC_TIMESTAMP(3),
+                            application.last_failure_code =
+                                'MCU_APPLY_FAILED',
+                            application.lock_version =
+                                application.lock_version + 1,
+                            application.updated_at = UTC_TIMESTAMP(3)
+                        WHERE application.asset_id = ?
+                          AND application.status = 'PENDING'
+                        """,
+                assetId));
     }
 
     private String configurationProgressPayload(

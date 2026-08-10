@@ -343,8 +343,8 @@ runtimeEligibility   = 实时计算
 PENDING → EDGE_SAVED → APPLIED
    └──────────┴────→ FAILED
 
-FAILED ──同版本重同步──→ PENDING
-FAILED ──精确且更新的可信证明──→ EDGE_SAVED / APPLIED
+FAILED ──原版本、原摘要的迟到可信 APPLIED──→ APPLIED
+FAILED ──迟到 EDGE_SAVED──→ FAILED（保持关闭）
 ```
 
 只有可信事件能推进：
@@ -359,12 +359,22 @@ OneNet `code=0`、MQTT ACK、UART ACK、设备在线或旧单价帧均不能推�
 
 ### 11.3 重同步
 
-只允许当前最高版本且：
+同版本重同步只用于“命令尚未到达设备”的技术阻断，必须同时满足：
 
-- 应用处于可恢复 `FAILED`；或
-- 原可靠任务为 `BLOCKED`。
+- 它仍是当前最高版本；
+- 应用仍为 `PENDING`，且 `edge_persisted_at` 为空；
+- 原可靠任务为 `BLOCKED`；
+- 阻断原因明确属于下发前白名单：`DEVICE_IDENTITY_UNRESOLVED`、
+  `PERMANENT_TECHNICAL_FAILURE` 或 `AUTO_RETRY_EXHAUSTED`。
 
-重同步复用原 `applicationUid`、设备命令和 task key，只递增 `wakeVersion` 并新增 attempt；不能创建第二个应用身份。
+满足这些条件时，重同步只唤醒原 task，复用原 `applicationUid` 和设备命令；不改写应用
+状态，也不创建第二个应用身份。`DEVICE_EVIDENCE_TIMEOUT`、
+`DEVICE_CONFIRMATION_TIMEOUT`、未知原因以及任何 `FAILED` 应用都禁止同版本重同步。
+排除设备或 MCU 故障后，平台必须发布更高配置版本，由新版本创建新的应用、命令和任务。
+
+如果原命令其实已经执行，只是可信 `APPLIED` 证据迟到，后端仍可按原版本和两个摘要精确
+归并，把原 `FAILED` 纠正为 `APPLIED`；这属于接收事实，不是重新下发命令。迟到的
+`EDGE_SAVED` 不得把 `FAILED` 重新打开。
 
 ## 12. 审计与秘密
 

@@ -5,9 +5,6 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationReleaseRequ
 import org.enveloping.ecobin.framework.reliability.DeviceCommandTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskRegistrationPort;
-import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskStatusPort;
-import org.enveloping.ecobin.framework.reliability.ReliableTaskWake;
-import org.enveloping.ecobin.framework.reliability.ReliableTaskWakePort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -59,10 +56,34 @@ public class AutomaticDeviceActivationService {
             FOR UPDATE
             """;
 
+    static final String LOAD_LATEST_CONFIGURATION_SQL = """
+            SELECT version.id AS config_id,
+                   version.version_no,
+                   LOWER(HEX(version.content_sha256))
+                       AS content_sha256,
+                   LOWER(HEX(version.mcu_payload_sha256))
+                       AS mcu_payload_sha256,
+                   application.id AS application_id,
+                   application.application_uid,
+                   application.status AS application_status
+            FROM dev_config_version version
+            LEFT JOIN dev_config_application application
+              ON application.tenant_id = version.tenant_id
+             AND application.organization_id = version.organization_id
+             AND application.asset_id = version.asset_id
+             AND application.config_version_id = version.id
+            WHERE version.tenant_id = ?
+              AND version.organization_id = ?
+              AND version.asset_id = ?
+            ORDER BY version.version_no DESC
+            LIMIT 1
+            """;
+
     static final String LOAD_INITIAL_BASELINE_FACTS_SQL = """
             SELECT port.id AS port_id, port.port_no,
                    factory_installation.id AS factory_installation_id,
                    factory_bag.id AS factory_bag_id,
+                   occupancy.bag_id AS occupancy_bag_id,
                    current_bag.id AS current_bag_id,
                    current_bag.bag_uid AS current_bag_uid,
                    capacity.lock_version AS capacity_version,
@@ -95,23 +116,23 @@ public class AutomaticDeviceActivationService {
                          AND previous.status = 'FAILED'
                    ) AS last_failed_at
             FROM dev_port port
-            JOIN dev_factory_installed_bag factory_installation
+            LEFT JOIN dev_factory_installed_bag factory_installation
               ON factory_installation.asset_id = port.asset_id
              AND factory_installation.port_no = port.port_no
-            JOIN rec_bag factory_bag
+            LEFT JOIN rec_bag factory_bag
               ON factory_bag.tenant_id = port.tenant_id
              AND factory_bag.organization_id = port.organization_id
              AND factory_bag.bag_code = factory_installation.bag_code
-            JOIN rec_bag_current_occupancy occupancy
+            LEFT JOIN rec_bag_current_occupancy occupancy
               ON occupancy.tenant_id = port.tenant_id
              AND occupancy.organization_id = port.organization_id
              AND occupancy.port_id = port.id
              AND occupancy.occupancy_type = 'PORT_BOUND'
-            JOIN rec_bag current_bag
+            LEFT JOIN rec_bag current_bag
               ON current_bag.tenant_id = occupancy.tenant_id
              AND current_bag.organization_id = occupancy.organization_id
              AND current_bag.id = occupancy.bag_id
-            JOIN rec_port_capacity_state capacity
+            LEFT JOIN rec_port_capacity_state capacity
               ON capacity.tenant_id = port.tenant_id
              AND capacity.organization_id = port.organization_id
              AND capacity.asset_id = port.asset_id
@@ -121,7 +142,7 @@ public class AutomaticDeviceActivationService {
              AND current_baseline.organization_id = capacity.organization_id
              AND current_baseline.port_id = capacity.port_id
              AND current_baseline.id = capacity.current_baseline_id
-            JOIN dev_port_config_snapshot snapshot
+            LEFT JOIN dev_port_config_snapshot snapshot
               ON snapshot.tenant_id = port.tenant_id
              AND snapshot.organization_id = port.organization_id
              AND snapshot.asset_id = port.asset_id
@@ -140,8 +161,6 @@ public class AutomaticDeviceActivationService {
     private final InitialDeviceConfigurationFactory initialConfigurationFactory;
     private final ReliableDeviceTaskRegistrationPort taskRegistration;
     private final DeviceCommandTaskRefFactory taskRefFactory;
-    private final ReliableDeviceTaskStatusPort taskStatus;
-    private final ReliableTaskWakePort taskWake;
 
     public AutomaticDeviceActivationService(
             JdbcTemplate jdbc,
@@ -150,9 +169,7 @@ public class AutomaticDeviceActivationService {
             RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider,
             InitialDeviceConfigurationFactory initialConfigurationFactory,
             ReliableDeviceTaskRegistrationPort taskRegistration,
-            DeviceCommandTaskRefFactory taskRefFactory,
-            ReliableDeviceTaskStatusPort taskStatus,
-            ReliableTaskWakePort taskWake) {
+            DeviceCommandTaskRefFactory taskRefFactory) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.canonicalizer = canonicalizer;
@@ -160,8 +177,6 @@ public class AutomaticDeviceActivationService {
         this.initialConfigurationFactory = initialConfigurationFactory;
         this.taskRegistration = taskRegistration;
         this.taskRefFactory = taskRefFactory;
-        this.taskStatus = taskStatus;
-        this.taskWake = taskWake;
     }
 
     /** 在分配或可信设备事件所属的现有事务中收敛自动启用。 */
@@ -188,7 +203,6 @@ public class AutomaticDeviceActivationService {
             configuration = createInitialConfiguration(asset, correlationUid);
         }
         if ("FAILED".equals(configuration.applicationStatus())) {
-            retryFailedConfiguration(configuration);
             return;
         }
         if ("APPLIED".equals(configuration.applicationStatus())) {
@@ -233,41 +247,30 @@ public class AutomaticDeviceActivationService {
     }
 
     private ConfigurationFacts latestConfiguration(AssetFacts asset) {
-        List<ConfigurationFacts> rows = jdbc.query("""
-                        SELECT version.id AS config_id,
-                               version.version_no,
-                               LOWER(HEX(version.content_sha256))
-                                   AS content_sha256,
-                               LOWER(HEX(version.mcu_payload_sha256))
-                                   AS mcu_payload_sha256,
-                               application.id AS application_id,
-                               application.application_uid,
-                               application.status AS application_status,
-                               application.last_failure_code,
-                               application.last_failure_at
-                        FROM dev_config_version version
-                        JOIN dev_config_application application
-                          ON application.tenant_id = version.tenant_id
-                         AND application.organization_id =
-                             version.organization_id
-                         AND application.asset_id = version.asset_id
-                         AND application.config_version_id = version.id
-                        WHERE version.tenant_id = ?
-                          AND version.organization_id = ?
-                          AND version.asset_id = ?
-                        ORDER BY version.version_no DESC
-                        LIMIT 1
-                        """,
-                (rs, ignored) -> new ConfigurationFacts(
-                        rs.getLong("config_id"),
-                        rs.getLong("version_no"),
-                        rs.getString("content_sha256"),
-                        rs.getString("mcu_payload_sha256"),
-                        rs.getLong("application_id"),
-                        UUID.fromString(rs.getString("application_uid")),
-                        rs.getString("application_status"),
-                        rs.getString("last_failure_code"),
-                        nullableLocalDateTime(rs, "last_failure_at")),
+        List<ConfigurationFacts> rows = jdbc.query(
+                LOAD_LATEST_CONFIGURATION_SQL,
+                (rs, ignored) -> {
+                    Long applicationId = nullableLong(
+                            rs,
+                            "application_id");
+                    String applicationUid =
+                            rs.getString("application_uid");
+                    String applicationStatus =
+                            rs.getString("application_status");
+                    if (applicationId == null
+                            || applicationUid == null
+                            || applicationStatus == null) {
+                        throw new IllegalStateException(
+                                "latest device configuration application is missing");
+                    }
+                    return new ConfigurationFacts(
+                            rs.getLong("config_id"),
+                            rs.getLong("version_no"),
+                            rs.getString("content_sha256"),
+                            rs.getString("mcu_payload_sha256"),
+                            UUID.fromString(applicationUid),
+                            applicationStatus);
+                },
                 asset.tenantId(),
                 asset.organizationId(),
                 asset.id());
@@ -522,76 +525,37 @@ public class AutomaticDeviceActivationService {
                 versionNo,
                 normalized.contentSha256Hex(),
                 canonicalizer.hex(mcuPayloadSha256),
-                applicationId,
                 applicationUid,
-                "PENDING",
-                null,
-                null);
-    }
-
-    private void retryFailedConfiguration(
-            ConfigurationFacts configuration) {
-        if (configuration.lastFailureCode() != null
-                && configuration.lastFailureCode()
-                .startsWith("CONFIGURATION_REJECTED")) {
-            return;
-        }
-        LocalDateTime now = databaseNow();
-        if (configuration.lastFailureAt() != null
-                && now.isBefore(configuration.lastFailureAt()
-                .plusMinutes(1))) {
-            return;
-        }
-        var task = taskStatus.find(
-                        CONFIGURATION_TASK_TYPE,
-                        CONFIGURATION_TARGET_TYPE,
-                        configuration.applicationUid().toString(),
-                        true)
-                .orElseThrow(() -> new IllegalStateException(
-                        "automatic configuration task is missing"));
-        requireSingle(jdbc.update("""
-                        UPDATE dev_config_application
-                        SET status = 'PENDING',
-                            lock_version = lock_version + 1,
-                            updated_at = ?
-                        WHERE id = ? AND status = 'FAILED'
-                        """,
-                now,
-                configuration.applicationId()));
-        taskWake.wake(new ReliableTaskWake(
-                task.taskUid(), "AUTOMATIC_CONFIGURATION_RETRY"));
+                "PENDING");
     }
 
     private void ensureInitialBagBaselines(
             AssetFacts asset,
             ConfigurationFacts configuration,
             UUID correlationUid) {
-        List<Long> lockedCapacityPortIds = jdbc.query(
+        jdbc.query(
                 LOCK_INITIAL_BASELINE_CAPACITY_SQL,
                 (rs, ignored) -> rs.getLong("port_id"),
                 asset.tenantId(),
                 asset.organizationId(),
                 asset.id());
-        if (lockedCapacityPortIds.size() != asset.portCount()) {
-            throw new IllegalStateException(
-                    "automatic baseline capacity states are incomplete");
-        }
 
         List<PortBaselineFacts> ports = jdbc.query(
                 LOAD_INITIAL_BASELINE_FACTS_SQL,
                 (rs, ignored) -> new PortBaselineFacts(
                         rs.getLong("port_id"),
                         rs.getInt("port_no"),
-                        rs.getLong("factory_installation_id"),
-                        rs.getLong("factory_bag_id"),
-                        rs.getLong("current_bag_id"),
-                        UUID.fromString(rs.getString("current_bag_uid")),
-                        rs.getLong("capacity_version"),
+                        nullableLong(rs, "factory_installation_id"),
+                        nullableLong(rs, "factory_bag_id"),
+                        nullableLong(rs, "occupancy_bag_id"),
+                        nullableLong(rs, "current_bag_id"),
+                        nullableUuid(rs, "current_bag_uid"),
+                        nullableLong(rs, "capacity_version"),
                         nullableLong(rs, "capacity_current_bag_id"),
                         rs.getString("baseline_state"),
                         nullableLong(rs, "current_baseline_id"),
                         nullableLong(rs, "current_baseline_bag_id"),
-                        rs.getLong("snapshot_id"),
+                        nullableLong(rs, "snapshot_id"),
                         rs.getString("fullness_mode"),
                         rs.getLong("configured_full_weight_g"),
                         rs.getLong("fullness_settle_wait_ms"),
@@ -606,9 +570,12 @@ public class AutomaticDeviceActivationService {
                 asset.id());
         if (ports.size() != asset.portCount()) {
             throw new IllegalStateException(
-                    "automatic baseline port facts are incomplete");
+                    "automatic device port count differs expected="
+                            + asset.portCount()
+                            + " actual=" + ports.size());
         }
         for (PortBaselineFacts port : ports) {
+            requireCompleteAutomaticBaselineFacts(port);
             if (!requiresAutomaticInitialBaseline(
                     port.factoryBagId(),
                     port.currentBagId(),
@@ -900,6 +867,75 @@ public class AutomaticDeviceActivationService {
         return value == null ? null : value.toLocalDateTime();
     }
 
+    private static UUID nullableUuid(
+            java.sql.ResultSet resultSet,
+            String column) throws java.sql.SQLException {
+        String value = resultSet.getString(column);
+        return value == null ? null : UUID.fromString(value);
+    }
+
+    private static void requireCompleteAutomaticBaselineFacts(
+            PortBaselineFacts port) {
+        String missingFact = missingAutomaticBaselineFact(
+                port.factoryInstallationId(),
+                port.factoryBagId(),
+                port.occupancyBagId(),
+                port.currentBagId(),
+                port.currentBagUid(),
+                port.capacityVersion(),
+                port.snapshotId());
+        if (missingFact != null) {
+            throw new IllegalStateException(
+                    "automatic baseline fact is missing portNo="
+                            + port.portNo() + " fact=" + missingFact);
+        }
+        if (!port.currentBagId().equals(port.occupancyBagId())) {
+            throw new IllegalStateException(
+                    "automatic baseline fact is inconsistent portNo="
+                            + port.portNo()
+                            + " fact=CURRENT_BAG_OCCUPANCY expected="
+                            + port.occupancyBagId()
+                            + " actual=" + port.currentBagId());
+        }
+        if (!port.currentBagId().equals(port.capacityCurrentBagId())) {
+            throw new IllegalStateException(
+                    "automatic baseline fact is inconsistent portNo="
+                            + port.portNo()
+                            + " fact=CAPACITY_CURRENT_BAG expected="
+                            + port.currentBagId()
+                            + " actual=" + port.capacityCurrentBagId());
+        }
+    }
+
+    static String missingAutomaticBaselineFact(
+            Long factoryInstallationId,
+            Long factoryBagId,
+            Long occupancyBagId,
+            Long currentBagId,
+            UUID currentBagUid,
+            Long capacityVersion,
+            Long snapshotId) {
+        if (factoryInstallationId == null) {
+            return "FACTORY_INSTALLATION";
+        }
+        if (factoryBagId == null) {
+            return "FACTORY_BAG";
+        }
+        if (occupancyBagId == null) {
+            return "CURRENT_BAG_OCCUPANCY";
+        }
+        if (currentBagId == null || currentBagUid == null) {
+            return "CURRENT_BAG";
+        }
+        if (capacityVersion == null) {
+            return "CAPACITY_STATE";
+        }
+        if (snapshotId == null) {
+            return "PORT_CONFIGURATION_SNAPSHOT";
+        }
+        return null;
+    }
+
     private static boolean baselineRetryDue(
             PortBaselineFacts port,
             LocalDateTime now) {
@@ -956,26 +992,24 @@ public class AutomaticDeviceActivationService {
             long versionNo,
             String contentSha256,
             String mcuPayloadSha256,
-            long applicationId,
             UUID applicationUid,
-            String applicationStatus,
-            String lastFailureCode,
-            LocalDateTime lastFailureAt) {
+            String applicationStatus) {
     }
 
     private record PortBaselineFacts(
             long portId,
             int portNo,
-            long factoryInstallationId,
-            long factoryBagId,
-            long currentBagId,
+            Long factoryInstallationId,
+            Long factoryBagId,
+            Long occupancyBagId,
+            Long currentBagId,
             UUID currentBagUid,
-            long capacityVersion,
+            Long capacityVersion,
             Long capacityCurrentBagId,
             String baselineState,
             Long currentBaselineId,
             Long currentBaselineBagId,
-            long snapshotId,
+            Long snapshotId,
             String fullnessMode,
             long configuredFullWeightGrams,
             long fullnessSettleWaitMs,

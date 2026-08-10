@@ -660,6 +660,9 @@ export default function DeviceAssetDrawer({
                         disabled={
                           !latestVersion
                           || asset.lifecycleStatus !== 'NORMAL'
+                          || !latestApplication?.nextActions.includes(
+                            'PUBLISH_NEW_CONFIGURATION',
+                          )
                         }
                         onClick={() => openPlatformRecovery('roll-forward')}
                       >
@@ -684,7 +687,7 @@ export default function DeviceAssetDrawer({
                     ? '两种恢复操作处理的问题不同'
                     : '安装、通电和联网后无需机构确认'}
                   description={mode === 'platform'
-                    ? '“重新下发”只重试同一个版本，适合设备离线或任务超时；“发布修复版本”会复制当前完整配置并生成更高版本，可解决设备已有同版本但摘要不同的冲突。'
+                    ? '“重新下发”只适用于命令尚未到达设备的传输阻断；设备已接收或已经明确失败时，排除故障后必须发布更高的修复版本。'
                     : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
                 />
                 {mode === 'platform' && latestApplication?.lastFailureCode && (
@@ -849,8 +852,8 @@ export default function DeviceAssetDrawer({
             ? '完整复制当前配置，只递增版本身份'
             : '不会产生新版本'}
           description={recoveryKind === 'roll-forward'
-            ? '用于设备已经保存相同版本号、但配置摘要不同的情况。机构价格、投口和传感器参数不会被平台重新填写或修改。'
-            : '仅重新唤醒当前版本的可靠下发任务；如果设备拒绝“同版本不同摘要”，请取消并改用“发布修复版本”。'}
+            ? '用于当前应用已经失败，或命令送达后证据超时的情况。机构价格、投口和传感器参数不会被平台重新填写或修改。'
+            : '仅用于可靠任务明确证明命令尚未到达设备的情况；不会重新执行已经被设备接收的命令。'}
           style={{ marginBottom: 20 }}
         />
         <Form form={recoveryForm} layout="vertical">

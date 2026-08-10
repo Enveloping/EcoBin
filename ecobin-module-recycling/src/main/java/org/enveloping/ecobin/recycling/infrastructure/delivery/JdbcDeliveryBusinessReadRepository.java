@@ -41,8 +41,22 @@ JdbcDeliveryBusinessReadRepository
 
     static final String FIND_CAPACITY_STATES_SQL = """
             SELECT capacity.port_id,
-                   capacity.baseline_state,
-                   capacity.displayed_fullness_percent,
+                   CASE
+                       WHEN capacity.baseline_state = 'VALID'
+                        AND capacity.current_bag_id = occupancy.bag_id
+                        AND capacity.current_baseline_id = baseline.id
+                        AND baseline.baseline_weight_g = capacity.current_baseline_weight_g
+                        AND baseline.bag_id = occupancy.bag_id
+                       THEN 'VALID'
+                       WHEN capacity.baseline_state = 'VALID'
+                       THEN 'INVALID'
+                       ELSE capacity.baseline_state
+                   END AS baseline_state,
+                   CASE
+                       WHEN capacity.current_bag_id = occupancy.bag_id
+                       THEN capacity.displayed_fullness_percent
+                       ELSE NULL
+                   END AS displayed_fullness_percent,
                    capacity.detection_gate,
                    CASE
                        WHEN capacity.confirmed_fullness_state = 'FULL'
@@ -56,6 +70,11 @@ JdbcDeliveryBusinessReadRepository
              AND occupancy.organization_id = capacity.organization_id
              AND occupancy.port_id = capacity.port_id
              AND occupancy.occupancy_type = 'PORT_BOUND'
+            LEFT JOIN rec_port_weight_baseline baseline
+              ON baseline.tenant_id = capacity.tenant_id
+             AND baseline.organization_id = capacity.organization_id
+             AND baseline.port_id = capacity.port_id
+             AND capacity.current_baseline_id = baseline.id
             WHERE capacity.tenant_id = ?
               AND capacity.organization_id = ?
               AND capacity.asset_id = ?
