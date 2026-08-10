@@ -4,6 +4,14 @@ import jakarta.servlet.http.Cookie;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
+import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
+import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
+import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
+import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceipt;
+import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceiptState;
+import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
+import org.enveloping.ecobin.recycling.application.bag.Eb1BagCodeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -24,8 +32,11 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -82,6 +93,12 @@ class TargetDeviceMysqlIntegrationTest {
     private ObjectMapper objectMapper;
     @Autowired
     private AcceptedSubmissionProbe submissionProbe;
+    @Autowired
+    private TrustedInboxPort trustedInbox;
+    @Autowired
+    private ReliableDeviceInboxWorkerPort deviceInboxWorker;
+    @Autowired
+    private Eb1BagCodeService bagCodeService;
 
     private String run;
     private String platformLogin;
@@ -178,8 +195,8 @@ class TargetDeviceMysqlIntegrationTest {
                 principalLogin, PRINCIPAL_PASSWORD, 201);
 
         String hardwareSn = "HW-PERMANENT-" + run;
-        String firstBag = "BAG_A_" + run;
-        String secondBag = "BAG_B_" + run;
+        String firstBag = bagCodeService.issue().value();
+        String secondBag = bagCodeService.issue().value();
         JsonNode created = data(write(
                 platform,
                 post("/api/v1/web/platform/device-assets"),
@@ -442,8 +459,194 @@ class TargetDeviceMysqlIntegrationTest {
                         """, Integer.class));
     }
 
+    @Test
+    void appliedConfigurationAcceptsTheValidBaselineOfTheReplacementBag()
+            throws Exception {
+        BrowserClient platform = new BrowserClient();
+        login(platform, "/api/v1/web/platform/auth/sessions",
+                platformLogin, PLATFORM_PASSWORD, 201);
+
+        String tenantCode = code("replacement-tenant");
+        String organizationCode = code("replacement-org");
+        String principalLogin = "replacement-principal-" + run;
+        createAndEnableTenant(platform, tenantCode, principalLogin);
+        createAndEnableOrganization(
+                platform, tenantCode, organizationCode);
+
+        BrowserClient principal = new BrowserClient();
+        login(principal, "/api/v1/web/auth/sessions",
+                principalLogin, PRINCIPAL_PASSWORD, 201);
+
+        String hardwareSn = "HW-REPLACEMENT-" + run;
+        String factoryBagCode = bagCodeService.issue().value();
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets"),
+                UUID.randomUUID(),
+                Map.of(
+                        "hardwareSn", hardwareSn,
+                        "modelCode", "EC-M0",
+                        "productionBatch", "BATCH-" + run,
+                        "expectedPortCount", 1,
+                        "factoryBags", List.of(Map.of(
+                                "portNo", 1,
+                                "bagCode", factoryBagCode))),
+                201));
+        seedAcceptedEvidenceFixture(hardwareSn);
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/acceptance-evaluations"),
+                UUID.randomUUID(),
+                Map.of(),
+                200));
+        data(write(
+                platform,
+                post("/api/v1/web/platform/device-assets/" + hardwareSn
+                        + "/tenant-assignments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "tenantCode", tenantCode,
+                        "expectedVersion", 1),
+                200));
+        data(write(
+                principal,
+                post("/api/v1/web/device-assets/" + hardwareSn
+                        + "/organization-assignments"),
+                UUID.randomUUID(),
+                Map.of(
+                        "organizationCode", organizationCode,
+                        "expectedVersion", 2),
+                200));
+
+        long assetId = assetId(hardwareSn);
+        long tenantId = jdbc.queryForObject(
+                "SELECT tenant_id FROM dev_device_asset WHERE id = ?",
+                Long.class,
+                assetId);
+        long organizationId = jdbc.queryForObject(
+                "SELECT organization_id FROM dev_device_asset WHERE id = ?",
+                Long.class,
+                assetId);
+        ReplacementBagFacts replacement = seedReplacementBag(
+                assetId,
+                tenantId,
+                organizationId,
+                bagCodeService.issue().value());
+        ConfigurationEventFacts configuration = configurationEventFacts(
+                assetId);
+        int measurementsBefore = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_port_baseline_measurement
+                        WHERE asset_id = ?
+                        """,
+                Integer.class,
+                assetId);
+        long edgeEventSequence = jdbc.queryForObject("""
+                        SELECT COALESCE(MAX(edge_event_sequence), 0) + 1
+                        FROM dev_edge_event
+                        WHERE asset_id = ?
+                        """,
+                Long.class,
+                assetId);
+        UUID eventUid = UUID.randomUUID();
+        TrustedInboxScopeResolver scopeResolver =
+                writer -> writer.organization(tenantId, organizationId);
+        TrustedInboxReceipt receipt = trustedInbox.receive(
+                new TrustedInboxMessage(
+                        "onenet.device-event",
+                        "onenet-product:" + hardwareSn,
+                        eventUid.toString(),
+                        "CONFIGURATION_PROGRESS",
+                        2,
+                        "replacement-bag-configuration-progress"
+                                .getBytes(StandardCharsets.UTF_8),
+                        configurationProgressPayload(
+                                hardwareSn,
+                                eventUid,
+                                edgeEventSequence,
+                                configuration),
+                        "ONENET_MQ",
+                        "onenet:test-fixture",
+                        eventUid,
+                        configuration.applicationUid(),
+                        TrustedInboxExecutionLane.DEVICE,
+                        scopeResolver));
+        assertEquals(TrustedInboxReceiptState.ACCEPTED, receipt.state());
+
+        deviceInboxWorker.runBatch("replacement-bag-worker-" + run);
+
+        assertEquals("DONE", jdbc.queryForObject("""
+                        SELECT state
+                        FROM ops_reliable_task
+                        WHERE task_uid = ?
+                        """,
+                String.class,
+                receipt.taskUid().toString()));
+        assertEquals("PROCESSED", jdbc.queryForObject("""
+                        SELECT processing_state
+                        FROM ops_inbox_message
+                        WHERE inbox_uid = ?
+                        """,
+                String.class,
+                receipt.inboxUid().toString()));
+        assertEquals("APPLIED", jdbc.queryForObject("""
+                        SELECT status
+                        FROM dev_config_application
+                        WHERE application_uid = ?
+                        """,
+                String.class,
+                configuration.applicationUid().toString()));
+        assertEquals(configuration.versionNo(), jdbc.queryForObject("""
+                        SELECT applied_config_version_no
+                        FROM dev_device_runtime_state
+                        WHERE asset_id = ?
+                        """,
+                Long.class,
+                assetId));
+        assertEquals(replacement.bagId(), jdbc.queryForObject("""
+                        SELECT occupancy.bag_id
+                        FROM rec_bag_current_occupancy occupancy
+                        JOIN dev_port port ON port.id = occupancy.port_id
+                        WHERE port.asset_id = ?
+                          AND occupancy.occupancy_type = 'PORT_BOUND'
+                        """,
+                Long.class,
+                assetId));
+        assertEquals(replacement.baselineId(), jdbc.queryForObject("""
+                        SELECT current_baseline_id
+                        FROM rec_port_capacity_state
+                        WHERE asset_id = ?
+                        """,
+                Long.class,
+                assetId));
+        assertEquals(replacement.bagId(), jdbc.queryForObject("""
+                        SELECT baseline.bag_id
+                        FROM rec_port_capacity_state capacity
+                        JOIN rec_port_weight_baseline baseline
+                          ON baseline.id = capacity.current_baseline_id
+                        WHERE capacity.asset_id = ?
+                        """,
+                Long.class,
+                assetId));
+        assertEquals(measurementsBefore, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_port_baseline_measurement
+                        WHERE asset_id = ?
+                        """,
+                Integer.class,
+                assetId));
+    }
+
     private void seedAcceptedEvidenceFixture(String hardwareSn) {
         long assetId = assetId(hardwareSn);
+        int expectedPortCount = jdbc.queryForObject("""
+                        SELECT expected_port_count
+                        FROM dev_device_asset
+                        WHERE id = ?
+                        """,
+                Integer.class,
+                assetId);
         String evidenceUid = UUID.randomUUID().toString();
         String challengeUid = UUID.randomUUID().toString();
         String commandUid = UUID.randomUUID().toString();
@@ -467,15 +670,260 @@ class TargetDeviceMysqlIntegrationTest {
                             ?, ?, ?, ?, 1, ?, '0.1.0', '2', 'mcu-real',
                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                             'PASSED', JSON_ARRAY(), JSON_OBJECT(
-                                'verifiedPortCount', 2,
-                                'verifiedCameraCount', 2
+                                'verifiedPortCount', ?,
+                                'verifiedCameraCount', ?
                             ), UNHEX(SHA2(?, 256)),
                             UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
                             UTC_TIMESTAMP(3)
                         )
                         """,
                 evidenceUid, assetId, challengeUid, commandUid, storeUid,
-                digestSeed);
+                expectedPortCount, expectedPortCount, digestSeed);
+    }
+
+    private ReplacementBagFacts seedReplacementBag(
+            long assetId,
+            long tenantId,
+            long organizationId,
+            String replacementBagCode) {
+        // The clean workflow has its own integration coverage.  This fixture
+        // reproduces only its durable result: historical factory baseline,
+        // replacement occupancy, and a VALID baseline for that current bag.
+        long portId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM dev_port
+                        WHERE asset_id = ? AND port_no = 1
+                        """,
+                Long.class,
+                assetId);
+        long factoryBagId = jdbc.queryForObject("""
+                        SELECT occupancy.bag_id
+                        FROM rec_bag_current_occupancy occupancy
+                        WHERE occupancy.port_id = ?
+                          AND occupancy.occupancy_type = 'PORT_BOUND'
+                        """,
+                Long.class,
+                portId);
+        long factoryEventId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM rec_bag_occupancy_event
+                        WHERE bag_id = ?
+                          AND port_id = ?
+                          AND event_type = 'INITIAL_INSTALLED'
+                        """,
+                Long.class,
+                factoryBagId,
+                portId);
+        jdbc.update("""
+                        INSERT INTO rec_port_weight_baseline (
+                            tenant_id, organization_id, port_id, bag_id,
+                            version_no, source_type, source_bag_event_id,
+                            source_physical_result_id,
+                            source_clean_record_id, source_measurement_id,
+                            baseline_weight_g, established_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, 1, 'INITIAL_BINDING', ?,
+                            NULL, NULL, NULL, 700,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                tenantId,
+                organizationId,
+                portId,
+                factoryBagId,
+                factoryEventId);
+
+        UUID replacementBagUid = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO rec_bag (
+                            bag_uid, tenant_id, organization_id,
+                            bag_code, registered_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                replacementBagUid.toString(),
+                tenantId,
+                organizationId,
+                replacementBagCode);
+        long replacementBagId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM rec_bag
+                        WHERE bag_uid = ?
+                        """,
+                Long.class,
+                replacementBagUid.toString());
+        UUID replacementEventUid = UUID.randomUUID();
+        jdbc.update("""
+                        INSERT INTO rec_bag_occupancy_event (
+                            event_uid, tenant_id, organization_id,
+                            bag_id, port_id, clean_operation_id,
+                            event_type, occurred_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, NULL, 'INITIAL_INSTALLED',
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                replacementEventUid.toString(),
+                tenantId,
+                organizationId,
+                replacementBagId,
+                portId);
+        long replacementEventId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM rec_bag_occupancy_event
+                        WHERE event_uid = ?
+                        """,
+                Long.class,
+                replacementEventUid.toString());
+        jdbc.update("""
+                        INSERT INTO rec_port_weight_baseline (
+                            tenant_id, organization_id, port_id, bag_id,
+                            version_no, source_type, source_bag_event_id,
+                            source_physical_result_id,
+                            source_clean_record_id, source_measurement_id,
+                            baseline_weight_g, established_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, ?, 2, 'INITIAL_BINDING', ?,
+                            NULL, NULL, NULL, 800,
+                            UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)
+                        )
+                        """,
+                tenantId,
+                organizationId,
+                portId,
+                replacementBagId,
+                replacementEventId);
+        long replacementBaselineId = jdbc.queryForObject("""
+                        SELECT id
+                        FROM rec_port_weight_baseline
+                        WHERE source_bag_event_id = ?
+                        """,
+                Long.class,
+                replacementEventId);
+
+        jdbc.update("""
+                        DELETE FROM rec_bag_current_occupancy
+                        WHERE port_id = ?
+                          AND occupancy_type = 'PORT_BOUND'
+                        """,
+                portId);
+        jdbc.update("""
+                        INSERT INTO rec_bag_current_occupancy (
+                            bag_id, tenant_id, organization_id,
+                            occupancy_type, port_id,
+                            clean_operation_id, acquired_at
+                        ) VALUES (
+                            ?, ?, ?, 'PORT_BOUND', ?, NULL,
+                            UTC_TIMESTAMP(3)
+                        )
+                        """,
+                replacementBagId,
+                tenantId,
+                organizationId,
+                portId);
+        jdbc.update("""
+                        UPDATE rec_port_capacity_state
+                        SET baseline_state = 'VALID',
+                            current_baseline_id = ?,
+                            current_baseline_weight_g = 800,
+                            latest_stable_total_weight_g = 800,
+                            raw_net_weight_g = 0,
+                            displayed_fullness_percent = 0,
+                            detection_gate = 'READY',
+                            current_detection_id = NULL,
+                            current_rule_fingerprint =
+                                UNHEX(SHA2('replacement-fixture', 256)),
+                            confirmed_fullness_state = 'NOT_FULL',
+                            current_bag_id = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE asset_id = ? AND port_id = ?
+                        """,
+                replacementBaselineId,
+                replacementBagId,
+                assetId,
+                portId);
+        jdbc.update("""
+                        UPDATE dev_factory_installed_bag
+                        SET tare_status = 'READY',
+                            last_failure_code = NULL,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE asset_id = ? AND port_no = 1
+                        """,
+                assetId);
+        return new ReplacementBagFacts(
+                replacementBagId,
+                replacementBaselineId);
+    }
+
+    private ConfigurationEventFacts configurationEventFacts(long assetId) {
+        return jdbc.queryForObject("""
+                        SELECT application.application_uid,
+                               command_row.command_uid,
+                               version.version_no,
+                               LOWER(HEX(version.content_sha256))
+                                   AS content_sha256,
+                               LOWER(HEX(version.mcu_payload_sha256))
+                                   AS mcu_payload_sha256
+                        FROM dev_config_application application
+                        JOIN dev_config_version version
+                          ON version.id = application.config_version_id
+                        JOIN dev_device_command command_row
+                          ON command_row.config_application_id = application.id
+                         AND command_row.command_type = 'APPLY_CONFIGURATION'
+                        WHERE application.asset_id = ?
+                        ORDER BY version.version_no DESC
+                        LIMIT 1
+                        """,
+                (rs, ignored) -> new ConfigurationEventFacts(
+                        UUID.fromString(rs.getString("application_uid")),
+                        UUID.fromString(rs.getString("command_uid")),
+                        rs.getLong("version_no"),
+                        rs.getString("content_sha256"),
+                        rs.getString("mcu_payload_sha256")),
+                assetId);
+    }
+
+    private String configurationProgressPayload(
+            String hardwareSn,
+            UUID eventUid,
+            long edgeEventSequence,
+            ConfigurationEventFacts configuration) throws Exception {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "applicationUid",
+                configuration.applicationUid().toString());
+        payload.put("stage", "APPLIED");
+        payload.put("version", configuration.versionNo());
+        payload.put("contentSha256", configuration.contentSha256());
+        payload.put(
+                "mcuPayloadSha256",
+                configuration.mcuPayloadSha256());
+        payload.put("mcuCommandUid", UUID.randomUUID().toString());
+        payload.put("errorCode", null);
+
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("schemaVersion", 2);
+        event.put("eventUid", eventUid.toString());
+        event.put("edgeEventSequence", edgeEventSequence);
+        event.put("eventType", "CONFIGURATION_PROGRESS");
+        event.put("deliveryClass", "RELIABLE_FACT");
+        event.put("target", Map.of(
+                "type", "CONFIGURATION_APPLICATION",
+                "uid", configuration.applicationUid().toString()));
+        event.put("commandUid", configuration.commandUid().toString());
+        event.put("occurredAt", Instant.now().toString());
+        event.put("clockQuality", "SYNCED");
+        event.put("payloadSha256", "a".repeat(64));
+        event.put("payload", payload);
+
+        return objectMapper.writeValueAsString(Map.of(
+                "trustedSource", Map.of(
+                        "productId", "mysql-integration-product",
+                        "deviceName", hardwareSn),
+                "eventCanonicalSha256", "b".repeat(64),
+                "event", event));
     }
 
     private long assetId(String hardwareSn) {
@@ -641,6 +1089,19 @@ class TargetDeviceMysqlIntegrationTest {
 
     private String code(String prefix) {
         return prefix + "-" + run;
+    }
+
+    private record ReplacementBagFacts(
+            long bagId,
+            long baselineId) {
+    }
+
+    private record ConfigurationEventFacts(
+            UUID applicationUid,
+            UUID commandUid,
+            long versionNo,
+            String contentSha256,
+            String mcuPayloadSha256) {
     }
 
     @TestConfiguration(proxyBeanMethods = false)

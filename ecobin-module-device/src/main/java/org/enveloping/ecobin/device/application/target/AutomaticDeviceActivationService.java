@@ -61,12 +61,15 @@ public class AutomaticDeviceActivationService {
 
     static final String LOAD_INITIAL_BASELINE_FACTS_SQL = """
             SELECT port.id AS port_id, port.port_no,
+                   factory_installation.id AS factory_installation_id,
                    factory_bag.id AS factory_bag_id,
-                   factory_bag.tare_status,
-                   bag.id AS bag_id, bag.bag_uid,
+                   current_bag.id AS current_bag_id,
+                   current_bag.bag_uid AS current_bag_uid,
                    capacity.lock_version AS capacity_version,
+                   capacity.current_bag_id AS capacity_current_bag_id,
                    capacity.baseline_state,
                    capacity.current_baseline_id,
+                   current_baseline.bag_id AS current_baseline_bag_id,
                    snapshot.id AS snapshot_id,
                    snapshot.fullness_mode,
                    snapshot.configured_full_weight_g,
@@ -92,24 +95,32 @@ public class AutomaticDeviceActivationService {
                          AND previous.status = 'FAILED'
                    ) AS last_failed_at
             FROM dev_port port
-            JOIN dev_factory_installed_bag factory_bag
-              ON factory_bag.asset_id = port.asset_id
-             AND factory_bag.port_no = port.port_no
-            JOIN rec_bag bag
-              ON bag.tenant_id = port.tenant_id
-             AND bag.organization_id = port.organization_id
-             AND bag.bag_code = factory_bag.bag_code
+            JOIN dev_factory_installed_bag factory_installation
+              ON factory_installation.asset_id = port.asset_id
+             AND factory_installation.port_no = port.port_no
+            JOIN rec_bag factory_bag
+              ON factory_bag.tenant_id = port.tenant_id
+             AND factory_bag.organization_id = port.organization_id
+             AND factory_bag.bag_code = factory_installation.bag_code
             JOIN rec_bag_current_occupancy occupancy
               ON occupancy.tenant_id = port.tenant_id
              AND occupancy.organization_id = port.organization_id
              AND occupancy.port_id = port.id
-             AND occupancy.bag_id = bag.id
              AND occupancy.occupancy_type = 'PORT_BOUND'
+            JOIN rec_bag current_bag
+              ON current_bag.tenant_id = occupancy.tenant_id
+             AND current_bag.organization_id = occupancy.organization_id
+             AND current_bag.id = occupancy.bag_id
             JOIN rec_port_capacity_state capacity
               ON capacity.tenant_id = port.tenant_id
              AND capacity.organization_id = port.organization_id
              AND capacity.asset_id = port.asset_id
              AND capacity.port_id = port.id
+            LEFT JOIN rec_port_weight_baseline current_baseline
+              ON current_baseline.tenant_id = capacity.tenant_id
+             AND current_baseline.organization_id = capacity.organization_id
+             AND current_baseline.port_id = capacity.port_id
+             AND current_baseline.id = capacity.current_baseline_id
             JOIN dev_port_config_snapshot snapshot
               ON snapshot.tenant_id = port.tenant_id
              AND snapshot.organization_id = port.organization_id
@@ -571,13 +582,15 @@ public class AutomaticDeviceActivationService {
                 (rs, ignored) -> new PortBaselineFacts(
                         rs.getLong("port_id"),
                         rs.getInt("port_no"),
+                        rs.getLong("factory_installation_id"),
                         rs.getLong("factory_bag_id"),
-                        rs.getString("tare_status"),
-                        rs.getLong("bag_id"),
-                        UUID.fromString(rs.getString("bag_uid")),
+                        rs.getLong("current_bag_id"),
+                        UUID.fromString(rs.getString("current_bag_uid")),
                         rs.getLong("capacity_version"),
+                        nullableLong(rs, "capacity_current_bag_id"),
                         rs.getString("baseline_state"),
                         nullableLong(rs, "current_baseline_id"),
+                        nullableLong(rs, "current_baseline_bag_id"),
                         rs.getLong("snapshot_id"),
                         rs.getString("fullness_mode"),
                         rs.getLong("configured_full_weight_g"),
@@ -596,10 +609,16 @@ public class AutomaticDeviceActivationService {
                     "automatic baseline port facts are incomplete");
         }
         for (PortBaselineFacts port : ports) {
-            if (("READY".equals(port.tareStatus())
-                    && "VALID".equals(port.baselineState())
-                    && port.currentBaselineId() != null)
-                    || port.activeMeasurement()) {
+            if (!requiresAutomaticInitialBaseline(
+                    port.factoryBagId(),
+                    port.currentBagId(),
+                    port.capacityCurrentBagId(),
+                    port.baselineState(),
+                    port.currentBaselineId(),
+                    port.currentBaselineBagId())) {
+                continue;
+            }
+            if (port.activeMeasurement()) {
                 continue;
             }
             if (!baselineRetryDue(port, databaseNow())) {
@@ -645,7 +664,7 @@ public class AutomaticDeviceActivationService {
                 asset.organizationId(),
                 asset.id(),
                 port.portId(),
-                port.bagId(),
+                port.currentBagId(),
                 configuration.configurationId(),
                 port.snapshotId(),
                 port.capacityVersion(),
@@ -661,7 +680,7 @@ public class AutomaticDeviceActivationService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("measurementUid", measurementUid.toString());
         payload.put("portNo", port.portNo());
-        payload.put("bagUid", port.bagUid().toString());
+        payload.put("bagUid", port.currentBagUid().toString());
         payload.put("emptyBagConfirmed", true);
         payload.put("measurementTimeoutMs", port.measurementTimeoutMs());
         payload.put("config", config);
@@ -695,7 +714,7 @@ public class AutomaticDeviceActivationService {
                         WHERE id = ?
                         """,
                 now,
-                port.factoryBagId()));
+                port.factoryInstallationId()));
 
         Map<String, Object> taskSnapshot = taskSnapshot(
                 commandUid,
@@ -893,6 +912,27 @@ public class AutomaticDeviceActivationService {
         return !now.isBefore(port.lastFailedAt().plusSeconds(delaySeconds));
     }
 
+    static boolean requiresAutomaticInitialBaseline(
+            long factoryBagId,
+            long currentBagId,
+            Long capacityCurrentBagId,
+            String baselineState,
+            Long currentBaselineId,
+            Long currentBaselineBagId) {
+        if (!"VALID".equals(baselineState)) {
+            return currentBagId == factoryBagId;
+        }
+        if (currentBaselineId == null
+                || capacityCurrentBagId == null
+                || currentBaselineBagId == null
+                || capacityCurrentBagId != currentBagId
+                || currentBaselineBagId != currentBagId) {
+            throw new IllegalStateException(
+                    "automatic current baseline does not match current bag");
+        }
+        return false;
+    }
+
     private static void requireSingle(int affected) {
         if (affected != 1) {
             throw new IllegalStateException(
@@ -926,13 +966,15 @@ public class AutomaticDeviceActivationService {
     private record PortBaselineFacts(
             long portId,
             int portNo,
+            long factoryInstallationId,
             long factoryBagId,
-            String tareStatus,
-            long bagId,
-            UUID bagUid,
+            long currentBagId,
+            UUID currentBagUid,
             long capacityVersion,
+            Long capacityCurrentBagId,
             String baselineState,
             Long currentBaselineId,
+            Long currentBaselineBagId,
             long snapshotId,
             String fullnessMode,
             long configuredFullWeightGrams,

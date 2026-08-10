@@ -26,6 +26,57 @@ public class AutomaticDeviceActivationScheduler {
     private static final Logger LOGGER = LoggerFactory.getLogger(
             AutomaticDeviceActivationScheduler.class);
 
+    static final String FIND_INCOMPLETE_ASSET_IDS_SQL = """
+            SELECT asset.id
+            FROM dev_device_asset asset
+            WHERE asset.tenant_id IS NOT NULL
+              AND asset.organization_id IS NOT NULL
+              AND asset.lifecycle_status = 'NORMAL'
+              AND asset.acceptance_status = 'PASSED'
+              AND (
+                  NOT EXISTS (
+                      SELECT 1
+                      FROM dev_config_version version
+                      WHERE version.asset_id = asset.id
+                  )
+                  OR EXISTS (
+                      SELECT 1
+                      FROM dev_port port
+                      JOIN dev_factory_installed_bag factory_installation
+                        ON factory_installation.asset_id = port.asset_id
+                       AND factory_installation.port_no = port.port_no
+                      JOIN rec_bag factory_bag
+                        ON factory_bag.tenant_id = port.tenant_id
+                       AND factory_bag.organization_id = port.organization_id
+                       AND factory_bag.bag_code = factory_installation.bag_code
+                      JOIN rec_bag_current_occupancy current_occupancy
+                        ON current_occupancy.tenant_id = port.tenant_id
+                       AND current_occupancy.organization_id = port.organization_id
+                       AND current_occupancy.port_id = port.id
+                       AND current_occupancy.bag_id = factory_bag.id
+                       AND current_occupancy.occupancy_type = 'PORT_BOUND'
+                      WHERE port.asset_id = asset.id
+                        AND factory_installation.tare_status <> 'READY'
+                  )
+                  OR NOT EXISTS (
+                      SELECT 1
+                      FROM dev_config_version version
+                      JOIN dev_runtime_snapshot_policy policy
+                        ON policy.singleton_id = 1
+                       AND version.runtime_snapshot_policy_version_no
+                           = policy.policy_version
+                      WHERE version.asset_id = asset.id
+                        AND version.version_no = (
+                            SELECT MAX(latest.version_no)
+                            FROM dev_config_version latest
+                            WHERE latest.asset_id = asset.id
+                        )
+                  )
+              )
+            ORDER BY asset.id
+            LIMIT 200
+            """;
+
     private final JdbcTemplate jdbc;
     private final TargetDeviceApplication targetDeviceApplication;
 
@@ -40,43 +91,8 @@ public class AutomaticDeviceActivationScheduler {
             fixedDelayString =
                     "${ecobin.device.activation-reconcile-ms:30000}")
     public void reconcileIncompleteAssets() {
-        List<Long> assetIds = jdbc.query("""
-                        SELECT asset.id
-                        FROM dev_device_asset asset
-                        WHERE asset.tenant_id IS NOT NULL
-                          AND asset.organization_id IS NOT NULL
-                          AND asset.lifecycle_status = 'NORMAL'
-                          AND asset.acceptance_status = 'PASSED'
-                          AND (
-                              NOT EXISTS (
-                                  SELECT 1
-                                  FROM dev_config_version version
-                                  WHERE version.asset_id = asset.id
-                              )
-                              OR EXISTS (
-                                  SELECT 1
-                                  FROM dev_factory_installed_bag bag
-                                  WHERE bag.asset_id = asset.id
-                                    AND bag.tare_status <> 'READY'
-                              )
-                              OR NOT EXISTS (
-                                  SELECT 1
-                                  FROM dev_config_version version
-                                  JOIN dev_runtime_snapshot_policy policy
-                                    ON policy.singleton_id = 1
-                                   AND version.runtime_snapshot_policy_version_no
-                                       = policy.policy_version
-                                  WHERE version.asset_id = asset.id
-                                    AND version.version_no = (
-                                        SELECT MAX(latest.version_no)
-                                        FROM dev_config_version latest
-                                        WHERE latest.asset_id = asset.id
-                                    )
-                              )
-                          )
-                        ORDER BY asset.id
-                        LIMIT 200
-                        """,
+        List<Long> assetIds = jdbc.query(
+                FIND_INCOMPLETE_ASSET_IDS_SQL,
                 (rs, ignored) -> rs.getLong("id"));
         for (Long assetId : assetIds) {
             try {
