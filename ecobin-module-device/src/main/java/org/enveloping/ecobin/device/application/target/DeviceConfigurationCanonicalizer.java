@@ -45,14 +45,19 @@ public class DeviceConfigurationCanonicalizer
 
     public NormalizedConfiguration normalize(
             ConfigurationReleaseRequest request,
-            int expectedPortCount) {
+            int expectedPortCount,
+            long edgeHeartbeatIntervalMs,
+            long edgeHeartbeatMissThreshold) {
         if (request == null
                 || request.device() == null
                 || request.ports() == null) {
             throw valueInvalid("完整配置不能为空");
         }
         ConfigurationDeviceSnapshot device =
-                normalizeDevice(request.device());
+                normalizeDevice(
+                        request.device(),
+                        edgeHeartbeatIntervalMs,
+                        edgeHeartbeatMissThreshold);
         List<NormalizedPort> ports = request.ports().stream()
                 .map(this::normalizePort)
                 .sorted(Comparator.comparingInt(port -> port.view().portNo()))
@@ -178,17 +183,21 @@ public class DeviceConfigurationCanonicalizer
     }
 
     private ConfigurationDeviceSnapshot normalizeDevice(
-            ConfigurationDeviceRequest request) {
+            ConfigurationDeviceRequest request,
+            long edgeHeartbeatIntervalMs,
+            long edgeHeartbeatMissThreshold) {
         String displayName = requiredTrimmed(
                 request.displayName(), 100, "设备显示名");
         String address = optionalTrimmed(request.address(), 500, "地址");
         Coordinates coordinates = coordinates(
                 request.longitude(), request.latitude());
         long edgeHeartbeat = range(
-                request.edgeHeartbeatIntervalMs(),
-                1, UINT32_MAX, "香橙派心跳周期");
+                edgeHeartbeatIntervalMs,
+                RuntimeSnapshotPolicyProvider.MINIMUM_FALLBACK_INTERVAL_MS,
+                UINT32_MAX,
+                "运行快照兜底周期");
         long edgeMiss = range(
-                request.edgeHeartbeatMissThreshold(),
+                edgeHeartbeatMissThreshold,
                 1, Integer.MAX_VALUE, "香橙派心跳丢失阈值");
         long mcuHeartbeat = range(
                 request.mcuHeartbeatIntervalMs(),

@@ -27,13 +27,13 @@ public class AutomaticDeviceActivationScheduler {
             AutomaticDeviceActivationScheduler.class);
 
     private final JdbcTemplate jdbc;
-    private final AutomaticDeviceActivationService activationService;
+    private final TargetDeviceApplication targetDeviceApplication;
 
     public AutomaticDeviceActivationScheduler(
             JdbcTemplate jdbc,
-            AutomaticDeviceActivationService activationService) {
+            TargetDeviceApplication targetDeviceApplication) {
         this.jdbc = jdbc;
-        this.activationService = activationService;
+        this.targetDeviceApplication = targetDeviceApplication;
     }
 
     @Scheduled(
@@ -59,6 +59,20 @@ public class AutomaticDeviceActivationScheduler {
                                   WHERE bag.asset_id = asset.id
                                     AND bag.tare_status <> 'READY'
                               )
+                              OR NOT EXISTS (
+                                  SELECT 1
+                                  FROM dev_config_version version
+                                  JOIN dev_runtime_snapshot_policy policy
+                                    ON policy.singleton_id = 1
+                                   AND version.runtime_snapshot_policy_version_no
+                                       = policy.policy_version
+                                  WHERE version.asset_id = asset.id
+                                    AND version.version_no = (
+                                        SELECT MAX(latest.version_no)
+                                        FROM dev_config_version latest
+                                        WHERE latest.asset_id = asset.id
+                                    )
+                              )
                           )
                         ORDER BY asset.id
                         LIMIT 200
@@ -66,7 +80,7 @@ public class AutomaticDeviceActivationScheduler {
                 (rs, ignored) -> rs.getLong("id"));
         for (Long assetId : assetIds) {
             try {
-                activationService.reconcileAsset(assetId);
+                targetDeviceApplication.reconcileAutomaticActivation(assetId);
             } catch (RuntimeException exception) {
                 LOGGER.warn(
                         "automatic device activation reconciliation failed assetId={} type={}",

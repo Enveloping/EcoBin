@@ -551,7 +551,7 @@ def _persist_and_ack_mcu_frame(store, uart_link, frame):
     raise ValueError(f"MCU event persistence rejected: {result}")
 
 
-def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
+def _build_runtime_snapshot_payload(store, mcu_info, snapshots):
     faults = store.list_active_faults()
     compatibility_mode = bool(mcu_info.get("compatibility_mode"))
     applied = store.get_latest_applied_configuration()
@@ -633,10 +633,37 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
         "capabilityBitmapHex": f"{int(mcu_info.get('mcu_capability', 0)):016x}",
         "ports": ports,
     }
+    return payload
+
+
+def _publish_runtime_snapshot(
+    store,
+    mqtt_client,
+    mcu_info,
+    snapshots,
+    *,
+    force=True,
+    previous_payload_sha256=None,
+):
+    payload = _build_runtime_snapshot_payload(
+        store,
+        mcu_info,
+        snapshots,
+    )
+    payload_sha256 = canonical_payload_sha256(payload)
+    if not force and payload_sha256 == previous_payload_sha256:
+        logger.debug(
+            "runtime snapshot skipped because semantic state is unchanged"
+        )
+        return {
+            "published": False,
+            "skipped_unchanged": True,
+            "payload_sha256": payload_sha256,
+        }
     device_name = (
         getattr(mqtt_client, "device_name", "") or "UNKNOWN_DEVICE"
     )
-    payload = {
+    envelope = {
         "schemaVersion": 2,
         "eventUid": str(_uuid.uuid4()),
         "edgeEventSequence": store.reserve_edge_event_sequence(),
@@ -649,11 +676,26 @@ def _publish_runtime_snapshot(store, mqtt_client, mcu_info, snapshots):
         "commandUid": None,
         "occurredAt": utc_now_rfc3339(),
         "clockQuality": "SYNCED",
-        "payloadSha256": canonical_payload_sha256(payload),
+        "payloadSha256": payload_sha256,
         "payload": payload,
     }
-    mqtt_client.publish_event("DEVICE_RUNTIME_SNAPSHOT", payload)
-    logger.info("BOOT: published DEVICE_RUNTIME_SNAPSHOT (%d faults)", len(faults))
+    publish_mid = mqtt_client.publish_event(
+        "DEVICE_RUNTIME_SNAPSHOT",
+        envelope,
+    )
+    if publish_mid is None:
+        logger.warning("DEVICE_RUNTIME_SNAPSHOT could not be queued")
+        return {
+            "published": False,
+            "skipped_unchanged": False,
+            "payload_sha256": payload_sha256,
+        }
+    logger.info("published DEVICE_RUNTIME_SNAPSHOT")
+    return {
+        "published": True,
+        "skipped_unchanged": False,
+        "payload_sha256": payload_sha256,
+    }
 
 
 def _fixed_frame_runtime_ports(store, applied, faults):

@@ -23,6 +23,8 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryInstalledBagRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyReleaseRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyView;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
@@ -45,6 +47,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -96,6 +99,7 @@ public class TargetDeviceApplication {
     private final AuditPort auditPort;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider;
     private final ReliableDeviceTaskRegistrationPort taskRegistrationPort;
     private final ReliableDeviceTaskStatusPort taskStatusPort;
     private final ReliableTaskWakePort taskWakePort;
@@ -112,6 +116,7 @@ public class TargetDeviceApplication {
             ObjectMapper objectMapper,
             AutomaticDeviceActivationService activationService,
             DeviceConfigurationCanonicalizer canonicalizer,
+            RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider,
             ReliableDeviceTaskRegistrationPort taskRegistrationPort,
             ReliableDeviceTaskStatusPort taskStatusPort,
             ReliableTaskWakePort taskWakePort,
@@ -125,6 +130,7 @@ public class TargetDeviceApplication {
         this.objectMapper = objectMapper;
         this.activationService = activationService;
         this.canonicalizer = canonicalizer;
+        this.runtimeSnapshotPolicyProvider = runtimeSnapshotPolicyProvider;
         this.taskRegistrationPort = taskRegistrationPort;
         this.taskStatusPort = taskStatusPort;
         this.taskWakePort = taskWakePort;
@@ -151,6 +157,42 @@ public class TargetDeviceApplication {
                 hardwareSn,
                 lifecycleStatus,
                 acceptanceStatus);
+    }
+
+    @Transactional(readOnly = true)
+    public RuntimeSnapshotPolicyView runtimeSnapshotPolicy() {
+        authorize(true, null, null, "device.manage");
+        return runtimeSnapshotPolicyView(loadRuntimeSnapshotPolicy(false));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RuntimeSnapshotPolicyView releaseRuntimeSnapshotPolicy(
+            UUID operationUid,
+            RuntimeSnapshotPolicyReleaseRequest request) {
+        Scope scope = authorize(true, null, null, "device.manage");
+        if (request == null
+                || request.expectedVersion() == null
+                || request.fallbackIntervalMinutes() == null) {
+            throw invalid("运行快照策略请求不完整");
+        }
+        int minutes = request.fallbackIntervalMinutes();
+        if (minutes < 10 || minutes > 71_582) {
+            throw invalid("运行快照兜底周期必须为 10～71582 分钟");
+        }
+        String reason = required(request.reason(), 500, "reason");
+        RuntimeSnapshotPolicyReleaseRequest normalized =
+                new RuntimeSnapshotPolicyReleaseRequest(
+                        request.expectedVersion(), minutes, reason);
+        return command(
+                operationUid,
+                scope,
+                "device.runtime-snapshot-policy.release",
+                "DEVICE_RUNTIME_SNAPSHOT_POLICY",
+                "GLOBAL",
+                normalized,
+                RuntimeSnapshotPolicyView.class,
+                () -> releaseRuntimeSnapshotPolicy(
+                        scope, normalized, reason));
     }
 
     @Transactional(readOnly = true)
@@ -707,8 +749,13 @@ public class TargetDeviceApplication {
         if (latestVersion != request.expectedLatestVersion()) {
             throw versionConflict(latestVersion);
         }
+        RuntimeSnapshotPolicyProvider.Policy runtimePolicy =
+                runtimeSnapshotPolicyProvider.current();
         var normalized = canonicalizer.normalize(
-                request, asset.expectedPortCount());
+                request,
+                asset.expectedPortCount(),
+                runtimePolicy.fallbackIntervalMs(),
+                RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD);
         Optional<ConfigurationVersionRow> previous = latestVersion == 0
                 ? Optional.empty()
                 : findConfigurationVersion(scope, asset.id(), latestVersion);
@@ -739,6 +786,7 @@ public class TargetDeviceApplication {
                     location_address, latitude, longitude,
                     edge_heartbeat_interval_ms,
                     edge_heartbeat_miss_threshold,
+                    runtime_snapshot_policy_version_no,
                     mcu_heartbeat_interval_ms,
                     mcu_heartbeat_miss_threshold,
                     door_close_retry_limit,
@@ -755,7 +803,7 @@ public class TargetDeviceApplication {
                     published_at, created_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?
                 )
                 """,
@@ -770,6 +818,7 @@ public class TargetDeviceApplication {
                 nullableDecimal(normalized.device().longitude()),
                 normalized.device().edgeHeartbeatIntervalMs(),
                 normalized.device().edgeHeartbeatMissThreshold(),
+                runtimePolicy.version(),
                 normalized.device().mcuHeartbeatIntervalMs(),
                 normalized.device().mcuHeartbeatMissThreshold(),
                 normalized.device().doorCloseRetryLimit(),
@@ -1070,6 +1119,419 @@ public class TargetDeviceApplication {
                         "status", after.status(),
                         "dispatchState", afterTask.state()),
                 request.reason());
+    }
+
+    private CommandResult<RuntimeSnapshotPolicyView>
+            releaseRuntimeSnapshotPolicy(
+                    Scope scope,
+                    RuntimeSnapshotPolicyReleaseRequest request,
+                    String reason) {
+        RuntimeSnapshotPolicyRow before = loadRuntimeSnapshotPolicy(true);
+        if (before.version() != request.expectedVersion()) {
+            throw new TargetApiException(
+                    409,
+                    "COMMON.VERSION_CONFLICT",
+                    "全局运行快照策略已变化，请刷新后重试",
+                    true,
+                    Map.of("currentVersion", before.version()));
+        }
+        long intervalMs = Math.multiplyExact(
+                request.fallbackIntervalMinutes().longValue(), 60_000L);
+        if (intervalMs == before.fallbackIntervalMs()) {
+            throw unprocessable(
+                    "DEVICE.RUNTIME_SNAPSHOT_POLICY_UNCHANGED",
+                    "运行快照兜底周期没有变化");
+        }
+        Long targetCount = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_asset asset
+                        WHERE asset.tenant_id IS NOT NULL
+                          AND asset.organization_id IS NOT NULL
+                          AND asset.lifecycle_status = 'NORMAL'
+                          AND asset.acceptance_status = 'PASSED'
+                        """,
+                Long.class);
+        LocalDateTime now = databaseNow();
+        UUID rolloutUid = UUID.randomUUID();
+        requireSingle(jdbc.update("""
+                        UPDATE dev_runtime_snapshot_policy
+                        SET policy_version = policy_version + 1,
+                            fallback_interval_ms = ?,
+                            rollout_uid = ?,
+                            rollout_status = 'PENDING',
+                            next_asset_id = 0,
+                            target_asset_count = ?,
+                            processed_asset_count = 0,
+                            published_asset_count = 0,
+                            publication_source = 'PLATFORM_ADMIN',
+                            updated_by_platform_admin_id = ?,
+                            change_reason = ?,
+                            started_at = ?,
+                            completed_at = NULL,
+                            updated_at = ?,
+                            lock_version = lock_version + 1
+                        WHERE singleton_id = 1
+                          AND policy_version = ?
+                        """,
+                intervalMs,
+                rolloutUid.toString(),
+                targetCount == null ? 0L : targetCount,
+                scope.platformAdminId(),
+                reason,
+                now,
+                now,
+                before.version()));
+        RuntimeSnapshotPolicyView response = runtimeSnapshotPolicyView(
+                loadRuntimeSnapshotPolicy(false));
+        return new CommandResult<>(
+                response,
+                Map.of(
+                        "version", before.version(),
+                        "fallbackIntervalMinutes",
+                        before.fallbackIntervalMs() / 60_000L),
+                Map.of(
+                        "version", response.version(),
+                        "fallbackIntervalMinutes",
+                        response.fallbackIntervalMinutes(),
+                        "rolloutUid", response.rolloutUid().toString()),
+                reason);
+    }
+
+    private RuntimeSnapshotPolicyRow loadRuntimeSnapshotPolicy(
+            boolean lock) {
+        return jdbc.query("""
+                        SELECT policy.policy_version,
+                               policy.fallback_interval_ms,
+                               policy.rollout_uid,
+                               policy.rollout_status,
+                               policy.next_asset_id,
+                               policy.target_asset_count,
+                               policy.processed_asset_count,
+                               policy.published_asset_count,
+                               policy.publication_source,
+                               policy.change_reason,
+                               policy.started_at,
+                               policy.completed_at,
+                               policy.updated_at,
+                               policy.lock_version,
+                               admin.display_name updated_by
+                        FROM dev_runtime_snapshot_policy policy
+                        LEFT JOIN iam_platform_admin admin
+                          ON admin.id =
+                             policy.updated_by_platform_admin_id
+                        WHERE policy.singleton_id = 1
+                        """ + (lock ? " FOR UPDATE" : ""),
+                (rs, ignored) -> new RuntimeSnapshotPolicyRow(
+                        rs.getLong("policy_version"),
+                        rs.getLong("fallback_interval_ms"),
+                        UUID.fromString(rs.getString("rollout_uid")),
+                        rs.getString("rollout_status"),
+                        rs.getLong("next_asset_id"),
+                        rs.getLong("target_asset_count"),
+                        rs.getLong("processed_asset_count"),
+                        rs.getLong("published_asset_count"),
+                        rs.getString("publication_source"),
+                        rs.getString("updated_by"),
+                        rs.getString("change_reason"),
+                        instant(rs, "started_at"),
+                        instant(rs, "completed_at"),
+                        instant(rs, "updated_at"),
+                        rs.getLong("lock_version")))
+                .stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::invariant);
+    }
+
+    private RuntimeSnapshotPolicyView runtimeSnapshotPolicyView(
+            RuntimeSnapshotPolicyRow policy) {
+        RuntimeSnapshotApplicationCounts counts = jdbc.queryForObject("""
+                        SELECT
+                            COALESCE(SUM(CASE
+                                WHEN config.runtime_snapshot_policy_version_no
+                                         IS NULL
+                                     OR config.runtime_snapshot_policy_version_no
+                                         <> ?
+                                    THEN 1
+                                WHEN task.state = 'BLOCKED' THEN 0
+                                WHEN application.status IN (
+                                    'EDGE_SAVED', 'APPLIED', 'FAILED'
+                                ) THEN 0
+                                ELSE 1 END), 0) pending_count,
+                            COALESCE(SUM(CASE
+                                WHEN COALESCE(task.state, 'MISSING')
+                                         <> 'BLOCKED'
+                                     AND config.runtime_snapshot_policy_version_no
+                                         = ?
+                                     AND application.status = 'EDGE_SAVED'
+                                    THEN 1 ELSE 0 END), 0) edge_saved_count,
+                            COALESCE(SUM(CASE
+                                WHEN COALESCE(task.state, 'MISSING')
+                                         <> 'BLOCKED'
+                                     AND config.runtime_snapshot_policy_version_no
+                                         = ?
+                                     AND application.status = 'APPLIED'
+                                    THEN 1 ELSE 0 END), 0) applied_count,
+                            COALESCE(SUM(CASE
+                                WHEN COALESCE(task.state, 'MISSING')
+                                         <> 'BLOCKED'
+                                     AND config.runtime_snapshot_policy_version_no
+                                         = ?
+                                     AND application.status = 'FAILED'
+                                    THEN 1 ELSE 0 END), 0) failed_count,
+                            COALESCE(SUM(CASE
+                                WHEN config.runtime_snapshot_policy_version_no
+                                         = ?
+                                     AND task.state = 'BLOCKED'
+                                    THEN 1 ELSE 0 END), 0) blocked_count
+                        FROM dev_device_asset asset
+                        LEFT JOIN dev_config_version config
+                          ON config.id = (
+                              SELECT candidate.id
+                              FROM dev_config_version candidate
+                              WHERE candidate.tenant_id = asset.tenant_id
+                                AND candidate.organization_id =
+                                    asset.organization_id
+                                AND candidate.asset_id = asset.id
+                              ORDER BY candidate.version_no DESC
+                              LIMIT 1
+                          )
+                        LEFT JOIN dev_config_application application
+                          ON application.config_version_id = config.id
+                         AND application.asset_id = asset.id
+                        LEFT JOIN ops_reliable_task task
+                          ON task.task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                         AND task.target_type = 'CONFIGURATION_APPLICATION'
+                         AND task.target_stable_key =
+                             application.application_uid
+                        WHERE asset.tenant_id IS NOT NULL
+                          AND asset.organization_id IS NOT NULL
+                          AND asset.lifecycle_status = 'NORMAL'
+                          AND asset.acceptance_status = 'PASSED'
+                        """,
+                (rs, ignored) -> new RuntimeSnapshotApplicationCounts(
+                        rs.getLong("pending_count"),
+                        rs.getLong("edge_saved_count"),
+                        rs.getLong("applied_count"),
+                        rs.getLong("failed_count"),
+                        rs.getLong("blocked_count")),
+                policy.version(),
+                policy.version(),
+                policy.version(),
+                policy.version(),
+                policy.version());
+        if (counts == null) {
+            counts = new RuntimeSnapshotApplicationCounts(0, 0, 0, 0, 0);
+        }
+        return new RuntimeSnapshotPolicyView(
+                policy.version(),
+                Math.toIntExact(policy.fallbackIntervalMs() / 60_000L),
+                10,
+                71_582,
+                policy.publicationSource(),
+                policy.updatedBy() == null ? "系统" : policy.updatedBy(),
+                policy.changeReason(),
+                policy.updatedAt(),
+                policy.rolloutUid(),
+                policy.rolloutStatus(),
+                policy.targetAssetCount(),
+                policy.processedAssetCount(),
+                policy.publishedAssetCount(),
+                counts.pending(),
+                counts.edgeSaved(),
+                counts.applied(),
+                counts.failed(),
+                counts.blocked());
+    }
+
+    /** Advances one resumable batch of the current platform policy rollout. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public boolean reconcileRuntimeSnapshotPolicyNextBatch() {
+        RuntimeSnapshotPolicyRow policy = loadRuntimeSnapshotPolicy(true);
+        if ("DONE".equals(policy.rolloutStatus())) {
+            return false;
+        }
+        LocalDateTime now = databaseNow();
+        if ("PENDING".equals(policy.rolloutStatus())) {
+            Long targetCount = jdbc.queryForObject("""
+                            SELECT COUNT(*)
+                            FROM dev_device_asset asset
+                            WHERE asset.tenant_id IS NOT NULL
+                              AND asset.organization_id IS NOT NULL
+                              AND asset.lifecycle_status = 'NORMAL'
+                              AND asset.acceptance_status = 'PASSED'
+                            """,
+                    Long.class);
+            requireSingle(jdbc.update("""
+                            UPDATE dev_runtime_snapshot_policy
+                            SET rollout_status = 'RUNNING',
+                                target_asset_count = ?,
+                                updated_at = ?
+                            WHERE singleton_id = 1
+                              AND rollout_uid = ?
+                              AND rollout_status = 'PENDING'
+                            """,
+                    targetCount == null ? 0L : targetCount,
+                    now,
+                    policy.rolloutUid().toString()));
+        }
+        List<Asset> assets = jdbc.query("""
+                        SELECT id, hardware_sn, device_public_code,
+                               model_name, expected_port_count,
+                               tenant_id, organization_id,
+                               acceptance_status, lifecycle_status,
+                               control_version
+                        FROM dev_device_asset
+                        WHERE id > ?
+                          AND tenant_id IS NOT NULL
+                          AND organization_id IS NOT NULL
+                          AND lifecycle_status = 'NORMAL'
+                          AND acceptance_status = 'PASSED'
+                        ORDER BY id
+                        LIMIT 100
+                        """,
+                (rs, ignored) -> assetRow(rs),
+                policy.nextAssetId());
+        if (assets.isEmpty()) {
+            requireSingle(jdbc.update("""
+                            UPDATE dev_runtime_snapshot_policy
+                            SET rollout_status = 'DONE',
+                                completed_at = ?,
+                                updated_at = ?
+                            WHERE singleton_id = 1
+                              AND rollout_uid = ?
+                            """,
+                    now,
+                    now,
+                    policy.rolloutUid().toString()));
+            return false;
+        }
+        long published = 0;
+        for (Asset candidate : assets) {
+            Asset current = asset(candidate.hardwareSn(), true);
+            if (!"NORMAL".equals(current.lifecycleStatus())
+                    || !"PASSED".equals(current.acceptanceStatus())
+                    || current.tenantId() == null
+                    || current.organizationId() == null) {
+                continue;
+            }
+            Scope scope = systemAssignedScope(current);
+            if (ensureCurrentRuntimeSnapshotPolicy(
+                    current,
+                    scope,
+                    policy,
+                    UUID.randomUUID())) {
+                published++;
+            }
+        }
+        long nextAssetId = assets.getLast().id();
+        boolean completed = assets.size() < 100;
+        requireSingle(jdbc.update("""
+                        UPDATE dev_runtime_snapshot_policy
+                        SET next_asset_id = ?,
+                            processed_asset_count =
+                                processed_asset_count + ?,
+                            published_asset_count =
+                                published_asset_count + ?,
+                            target_asset_count = GREATEST(
+                                target_asset_count,
+                                ?),
+                            rollout_status = ?,
+                            completed_at = ?,
+                            updated_at = ?
+                        WHERE singleton_id = 1
+                          AND rollout_uid = ?
+                        """,
+                nextAssetId,
+                assets.size(),
+                published,
+                policy.processedAssetCount() + assets.size(),
+                completed ? "DONE" : "RUNNING",
+                completed ? now : null,
+                now,
+                policy.rolloutUid().toString()));
+        return !completed;
+    }
+
+    /** Reconciles initial activation and a missed policy update in one tx. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void reconcileAutomaticActivation(long assetId) {
+        RuntimeSnapshotPolicyRow policy = loadRuntimeSnapshotPolicy(true);
+        Asset asset = asset(assetId, true);
+        if (!"NORMAL".equals(asset.lifecycleStatus())
+                || !"PASSED".equals(asset.acceptanceStatus())
+                || asset.tenantId() == null
+                || asset.organizationId() == null) {
+            return;
+        }
+        activationService.reconcileInCurrentTransaction(
+                asset.id(), UUID.randomUUID());
+        ensureCurrentRuntimeSnapshotPolicy(
+                asset,
+                systemAssignedScope(asset),
+                policy,
+                UUID.randomUUID());
+    }
+
+    private boolean ensureCurrentRuntimeSnapshotPolicy(
+            Asset asset,
+            Scope scope,
+            RuntimeSnapshotPolicyRow policy,
+            UUID correlationUid) {
+        ConfigurationVersionRow latest = latestConfigurationVersion(
+                scope, asset.id());
+        if (latest == null) {
+            activationService.reconcileInCurrentTransaction(
+                    asset.id(), correlationUid);
+            latest = latestConfigurationVersion(scope, asset.id());
+            if (latest == null) {
+                return false;
+            }
+            if (Objects.equals(
+                    latest.runtimeSnapshotPolicyVersion(),
+                    policy.version())) {
+                return true;
+            }
+        }
+        if (Objects.equals(
+                latest.runtimeSnapshotPolicyVersion(), policy.version())) {
+            return false;
+        }
+        List<ConfigurationPortSnapshot> ports = configurationPorts(
+                scope, asset.id(), latest.id());
+        ConfigurationReleaseRequest cloned = cloneConfigurationRequest(
+                latest.versionNo(),
+                "自动同步全局运行快照策略 V" + policy.version(),
+                latest,
+                ports);
+        releaseConfiguration(
+                correlationUid,
+                scope,
+                asset,
+                platformConfigurationApplicationCollectionUrl(
+                        asset.hardwareSn()),
+                cloned,
+                true,
+                "SYSTEM");
+        return true;
+    }
+
+    private ConfigurationVersionRow latestConfigurationVersion(
+            Scope scope, long assetId) {
+        Long latest = jdbc.queryForObject("""
+                        SELECT MAX(version_no)
+                        FROM dev_config_version
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        """,
+                Long.class,
+                scope.tenantId(),
+                scope.organizationId(),
+                assetId);
+        if (latest == null) {
+            return null;
+        }
+        return findConfigurationVersion(scope, assetId, latest)
+                .orElseThrow(TargetDeviceApplication::invariant);
     }
 
     private PageData<DeviceAssetView> listAssets(
@@ -1464,6 +1926,7 @@ public class TargetDeviceApplication {
                 normalized,
                 DeviceAssetView.class,
                 () -> control(
+                        operationUid,
                         normalizedHardwareSn,
                         request.expectedVersion(),
                         reason,
@@ -1471,6 +1934,7 @@ public class TargetDeviceApplication {
     }
 
     private CommandResult<DeviceAssetView> control(
+            UUID operationUid,
             String hardwareSn,
             long expectedVersion,
             String reason,
@@ -1531,6 +1995,22 @@ public class TargetDeviceApplication {
             throw new IllegalArgumentException("unknown device target status");
         }
         requireSingle(updated);
+        if ("NORMAL".equals(targetStatus)) {
+            Asset restored = asset(before.id(), true);
+            if (restored.tenantId() != null
+                    && restored.organizationId() != null
+                    && "PASSED".equals(restored.acceptanceStatus())) {
+                RuntimeSnapshotPolicyRow policy =
+                        loadRuntimeSnapshotPolicy(false);
+                activationService.reconcileInCurrentTransaction(
+                        restored.id(), operationUid);
+                ensureCurrentRuntimeSnapshotPolicy(
+                        restored,
+                        systemAssignedScope(restored),
+                        policy,
+                        operationUid);
+            }
+        }
         DeviceAssetView response = platformView(hardwareSn);
         return changed(before, response, reason);
     }
@@ -1652,6 +2132,7 @@ public class TargetDeviceApplication {
                        config.latitude, config.longitude,
                        config.edge_heartbeat_interval_ms,
                        config.edge_heartbeat_miss_threshold,
+                       config.runtime_snapshot_policy_version_no,
                        config.mcu_heartbeat_interval_ms,
                        config.mcu_heartbeat_miss_threshold,
                        config.door_close_retry_limit,
@@ -1710,6 +2191,7 @@ public class TargetDeviceApplication {
                 decimalString(rs.getBigDecimal("latitude"), 7),
                 rs.getLong("edge_heartbeat_interval_ms"),
                 rs.getLong("edge_heartbeat_miss_threshold"),
+                nullableLong(rs, "runtime_snapshot_policy_version_no"),
                 rs.getLong("mcu_heartbeat_interval_ms"),
                 rs.getLong("mcu_heartbeat_miss_threshold"),
                 rs.getLong("door_close_retry_limit"),
@@ -1866,6 +2348,7 @@ public class TargetDeviceApplication {
             ConfigurationVersionRow row) {
         return new ConfigurationVersionSummary(
                 row.versionNo(),
+                row.runtimeSnapshotPolicyVersion(),
                 row.contentSha256(),
                 row.mcuPayloadSha256(),
                 row.deviceDisplayName(),
@@ -1883,6 +2366,7 @@ public class TargetDeviceApplication {
                 deviceCode,
                 row.versionNo(),
                 row.schemaVersion(),
+                row.runtimeSnapshotPolicyVersion(),
                 row.contentSha256(),
                 row.mcuPayloadSha256(),
                 configurationDevice(row),
@@ -1995,8 +2479,6 @@ public class TargetDeviceApplication {
                 configuration.address(),
                 configuration.longitude(),
                 configuration.latitude(),
-                configuration.edgeHeartbeatIntervalMs(),
-                configuration.edgeHeartbeatMissThreshold(),
                 configuration.mcuHeartbeatIntervalMs(),
                 configuration.mcuHeartbeatMissThreshold(),
                 configuration.doorCloseRetryLimit(),
@@ -2179,19 +2661,38 @@ public class TargetDeviceApplication {
                         FROM dev_device_asset
                         WHERE hardware_sn = ?
                         """ + (lock ? " FOR UPDATE" : ""),
-                (rs, ignored) -> new Asset(
-                        rs.getLong("id"),
-                        rs.getString("hardware_sn"),
-                        rs.getString("device_public_code"),
-                        rs.getString("model_name"),
-                        rs.getInt("expected_port_count"),
-                        nullableLong(rs, "tenant_id"),
-                        nullableLong(rs, "organization_id"),
-                        rs.getString("acceptance_status"),
-                        rs.getString("lifecycle_status"),
-                        rs.getLong("control_version")),
+                (rs, ignored) -> assetRow(rs),
                 hardwareSn).stream().findFirst()
                 .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private Asset asset(long assetId, boolean lock) {
+        return jdbc.query("""
+                        SELECT id, hardware_sn, device_public_code,
+                               model_name, expected_port_count,
+                               tenant_id, organization_id,
+                               acceptance_status, lifecycle_status,
+                               control_version
+                        FROM dev_device_asset
+                        WHERE id = ?
+                        """ + (lock ? " FOR UPDATE" : ""),
+                (rs, ignored) -> assetRow(rs),
+                assetId).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    private static Asset assetRow(ResultSet rs) throws SQLException {
+        return new Asset(
+                rs.getLong("id"),
+                rs.getString("hardware_sn"),
+                rs.getString("device_public_code"),
+                rs.getString("model_name"),
+                rs.getInt("expected_port_count"),
+                nullableLong(rs, "tenant_id"),
+                nullableLong(rs, "organization_id"),
+                rs.getString("acceptance_status"),
+                rs.getString("lifecycle_status"),
+                rs.getLong("control_version"));
     }
 
     private Scope assignedPlatformScope(Scope platform, Asset asset) {
@@ -2228,6 +2729,39 @@ public class TargetDeviceApplication {
                 asset.tenantId(),
                 asset.organizationId(),
                 platform.platformAdminId(),
+                null);
+    }
+
+    private Scope systemAssignedScope(Asset asset) {
+        if (asset.tenantId() == null || asset.organizationId() == null) {
+            throw invariant();
+        }
+        AssignedOrganizationScope assigned = jdbc.query("""
+                        SELECT tenant.status tenant_status,
+                               organization.status organization_status
+                        FROM iam_tenant tenant
+                        JOIN iam_organization organization
+                          ON organization.tenant_id = tenant.id
+                        WHERE tenant.id = ?
+                          AND organization.id = ?
+                        """,
+                (rs, ignored) -> new AssignedOrganizationScope(
+                        "ENABLED".equals(rs.getString("tenant_status")),
+                        "ENABLED".equals(rs.getString(
+                                "organization_status"))),
+                asset.tenantId(),
+                asset.organizationId()).stream().findFirst()
+                .orElseThrow(TargetDeviceApplication::invariant);
+        return new Scope(
+                true,
+                null,
+                null,
+                "系统",
+                assigned.tenantEnabled(),
+                assigned.organizationEnabled(),
+                asset.tenantId(),
+                asset.organizationId(),
+                null,
                 null);
     }
 
@@ -2807,6 +3341,32 @@ public class TargetDeviceApplication {
             LocalDateTime receivedAt) {
     }
 
+    private record RuntimeSnapshotPolicyRow(
+            long version,
+            long fallbackIntervalMs,
+            UUID rolloutUid,
+            String rolloutStatus,
+            long nextAssetId,
+            long targetAssetCount,
+            long processedAssetCount,
+            long publishedAssetCount,
+            String publicationSource,
+            String updatedBy,
+            String changeReason,
+            Instant startedAt,
+            Instant completedAt,
+            Instant updatedAt,
+            long lockVersion) {
+    }
+
+    private record RuntimeSnapshotApplicationCounts(
+            long pending,
+            long edgeSaved,
+            long applied,
+            long failed,
+            long blocked) {
+    }
+
     private record ConfigurationVersionRow(
             long id,
             long versionNo,
@@ -2817,6 +3377,7 @@ public class TargetDeviceApplication {
             String latitude,
             long edgeHeartbeatIntervalMs,
             long edgeHeartbeatMissThreshold,
+            Long runtimeSnapshotPolicyVersion,
             long mcuHeartbeatIntervalMs,
             long mcuHeartbeatMissThreshold,
             long doorCloseRetryLimit,

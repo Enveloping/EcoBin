@@ -23,8 +23,6 @@ class DeviceConfigurationCanonicalizerTest {
                         null,
                         null,
                         null,
-                        30_000L,
-                        3L,
                         5_000L,
                         3L,
                         3L,
@@ -42,8 +40,14 @@ class DeviceConfigurationCanonicalizerTest {
                         false,
                         device,
                         List.of(port(1, "0.4501"), port(2, "0.4502")));
-        var normalized = canonicalizer.normalize(request, 2);
+        var normalized = canonicalizer.normalize(
+                request, 2, 3_600_000L, 3L);
         byte[] frozenContentSha = HexFormat.of().parseHex("a1".repeat(32));
+
+        assertThat(normalized.device().edgeHeartbeatIntervalMs())
+                .isEqualTo(3_600_000L);
+        assertThat(normalized.device().edgeHeartbeatMissThreshold())
+                .isEqualTo(3L);
 
         byte[] actual = canonicalizer.mcuPayloadSha256(
                 8,

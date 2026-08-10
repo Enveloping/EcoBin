@@ -46,7 +46,26 @@ function initialValues(
     return {
       reason: null,
       locationCorrectionConfirmed: false,
-      device: { ...latest.device },
+      device: {
+        displayName: latest.device.displayName,
+        address: latest.device.address,
+        longitude: latest.device.longitude,
+        latitude: latest.device.latitude,
+        mcuHeartbeatIntervalMs: latest.device.mcuHeartbeatIntervalMs,
+        mcuHeartbeatMissThreshold:
+          latest.device.mcuHeartbeatMissThreshold,
+        doorCloseRetryLimit: latest.device.doorCloseRetryLimit,
+        continueDeliveryWaitMs: latest.device.continueDeliveryWaitMs,
+        negativeWeightThresholdGram:
+          latest.device.negativeWeightThresholdGram,
+        deliveryAutoCloseMs: latest.device.deliveryAutoCloseMs,
+        weightMeasurementTimeoutMs:
+          latest.device.weightMeasurementTimeoutMs,
+        deliveryDoorTravelWaitMs:
+          latest.device.deliveryDoorTravelWaitMs,
+        cleanSolenoidPulseMs: latest.device.cleanSolenoidPulseMs,
+        smokeMonitoringEnabled: latest.device.smokeMonitoringEnabled,
+      },
       ports: latest.ports.map((port) => ({ ...port })),
     };
   }
@@ -58,8 +77,6 @@ function initialValues(
       address: null,
       longitude: null,
       latitude: null,
-      edgeHeartbeatIntervalMs: 30000,
-      edgeHeartbeatMissThreshold: 3,
       mcuHeartbeatIntervalMs: 5000,
       mcuHeartbeatMissThreshold: 3,
       doorCloseRetryLimit: 3,
@@ -116,7 +133,6 @@ export default function DeviceConfigurationModal({
       reason: optionalText(values.reason),
       locationCorrectionConfirmed: values.locationCorrectionConfirmed,
       device: {
-        ...latest?.device,
         ...values.device,
         address: optionalText(values.device.address),
         longitude: optionalText(values.device.longitude),
@@ -194,24 +210,6 @@ export default function DeviceConfigurationModal({
               label="位置修正确认"
             >
               <Checkbox>确认本次只是文字或小范围坐标修正</Checkbox>
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              name={['device', 'edgeHeartbeatIntervalMs']}
-              label="边缘心跳间隔（ms）"
-              rules={[{ required: true }, positiveIntegerRule]}
-            >
-              <InputNumber style={{ width: '100%' }} precision={0} />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              name={['device', 'edgeHeartbeatMissThreshold']}
-              label="边缘心跳丢失阈值"
-              rules={[{ required: true }, positiveIntegerRule]}
-            >
-              <InputNumber style={{ width: '100%' }} precision={0} />
             </Form.Item>
           </Col>
           <Col span={8}>

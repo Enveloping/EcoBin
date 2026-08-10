@@ -253,7 +253,8 @@ WHERE table_schema = '$Database'
   AND table_type = 'BASE TABLE'
   AND table_name NOT IN (
       'flyway_schema_history',
-      'iam_permission_definition'
+      'iam_permission_definition',
+      'dev_runtime_snapshot_policy'
   );
 PREPARE row_count_statement FROM @row_count_sql;
 EXECUTE row_count_statement;
@@ -378,7 +379,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V45 application exited before readiness`n$diagnostic"
+            throw "correct V46 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -416,7 +417,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V45 application did not become ready; " +
+    throw "correct V46 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -727,8 +728,8 @@ SELECT COUNT(*) FROM information_schema.tables
 WHERE table_schema = '$($databaseNames.Correct)'
   AND table_type = 'BASE TABLE';
 "@)
-    if ($tableCount -ne 99) {
-        throw "correct target must contain 98 domain tables plus Flyway history"
+    if ($tableCount -ne 100) {
+        throw "correct target must contain 99 domain tables plus Flyway history"
     }
     $permissionCount = [int](Invoke-MySql `
         -Database $databaseNames.Correct `
@@ -914,8 +915,8 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 45
-        domainTables = 98
+        targetVersion = 46
+        domainTables = 99
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
         runtimePrincipal = $runtimePrincipal
@@ -923,7 +924,7 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV45Ready = $true
+        correctV46Ready = $true
         fakeIngressBlocked = $true
         fakeIngressContextPathBlocked = $true
         fakeCredentialMixRejected = $true

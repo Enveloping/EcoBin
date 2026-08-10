@@ -33,6 +33,9 @@ export type DeviceConfigurationVersionSummary =
   Schemas['DeviceConfigurationVersionSummary'];
 export type DeviceConfigurationVersionPage =
   Schemas['DeviceConfigurationVersionPage'];
+export type RuntimeSnapshotPolicy = Schemas['RuntimeSnapshotPolicy'];
+export type RuntimeSnapshotPolicyReleaseRequest =
+  Schemas['RuntimeSnapshotPolicyReleaseRequest'];
 
 export type PlatformDeviceAssetListParams = NonNullable<
   operations['listPlatformDeviceAssets']['parameters']['query']
@@ -52,6 +55,28 @@ export function listPlatformDeviceAssets(
     method: 'GET',
     params,
     noStore: true,
+  });
+}
+
+export function getPlatformRuntimeSnapshotPolicy() {
+  return request<RuntimeSnapshotPolicy>({
+    url: '/api/v1/web/platform/device-runtime-snapshot-policy',
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function releasePlatformRuntimeSnapshotPolicy(
+  data: RuntimeSnapshotPolicyReleaseRequest,
+  intent: CommandIntent,
+) {
+  return intent.execute<
+    RuntimeSnapshotPolicy,
+    RuntimeSnapshotPolicyReleaseRequest
+  >({
+    url: '/api/v1/web/platform/device-runtime-snapshot-policy/releases',
+    method: 'POST',
+    data,
   });
 }
 

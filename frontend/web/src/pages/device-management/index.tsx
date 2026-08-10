@@ -21,6 +21,7 @@ import {
 import {
   AppstoreAddOutlined,
   ArrowRightOutlined,
+  DashboardOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import {
@@ -48,6 +49,7 @@ import DeviceAssetDrawer, {
   type DeviceControlKind,
   type DeviceManagementMode,
 } from './DeviceAssetDrawer';
+import RuntimeSnapshotPolicyModal from './RuntimeSnapshotPolicyModal';
 import {
   acceptanceColors,
   acceptanceLabels,
@@ -126,6 +128,7 @@ export default function DeviceManagementPage() {
   const [controlForm] = Form.useForm<ControlFormValues>();
   const [selected, setSelected] = useState<DeviceAsset>();
   const [assetModalOpen, setAssetModalOpen] = useState(false);
+  const [runtimePolicyOpen, setRuntimePolicyOpen] = useState(false);
   const [assignment, setAssignment] = useState<AssignmentState>();
   const [control, setControl] = useState<ControlState>();
   const [submitting, setSubmitting] = useState(false);
@@ -375,6 +378,13 @@ export default function DeviceManagementPage() {
       header={pageHeader(pageCopy.title, pageCopy.description)}
       extra={canCreate ? [
         <Button
+          key="runtime-policy"
+          icon={<DashboardOutlined />}
+          onClick={() => setRuntimePolicyOpen(true)}
+        >
+          运行快照策略
+        </Button>,
+        <Button
           key="create"
           type="primary"
           icon={<AppstoreAddOutlined />}
@@ -500,6 +510,11 @@ export default function DeviceManagementPage() {
           }
         }}
         onChanged={reload}
+      />
+
+      <RuntimeSnapshotPolicyModal
+        open={runtimePolicyOpen}
+        onClose={() => setRuntimePolicyOpen(false)}
       />
 
       <Modal

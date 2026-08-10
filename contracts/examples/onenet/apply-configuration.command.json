@@ -16,7 +16,7 @@
       "continueDeliveryWaitMs": 30000,
       "deliveryAutoCloseMs": 120000,
       "deliveryDoorTravelWaitMs": 30000,
-      "edgeHeartbeatIntervalMs": 300000,
+      "edgeHeartbeatIntervalMs": 3600000,
       "edgeHeartbeatMissThreshold": 3,
       "negativeWeightThresholdGrams": 500,
       "smokeMonitoringEnabled": true,
@@ -68,7 +68,7 @@
     ]
   },
   "payloadSchemaVersion": 2,
-  "payloadSha256": "281de5721b8bdabd0c903f290c841b90c2c4cd90433c4d5fe7256651c3b04f11",
+  "payloadSha256": "dd3f8c52cb3b1188b56991123288ceb54c87ba4fa2e977e454fb7cc13f7321d1",
   "schemaVersion": 2,
   "target": {
     "type": "CONFIGURATION_APPLICATION",

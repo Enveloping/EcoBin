@@ -1,8 +1,13 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-08-10 已推进 V46：新增单例 `dev_runtime_snapshot_policy`，保存平台全局运行快照
+> 兜底周期和可续跑下发游标；`dev_config_version` 只增加策略版本来源标记，不改写旧配置。
+> 当前目标为 V46、99 张领域表、76 条有效权限定义，不包含历史数据清理或归档。
+
+> [!IMPORTANT]
 > 2026-08-09 已推进 V44：只为 `rec_clean_operation` 增加 Web 机构时间列表及状态时间列表索引，
-> 不增加表、不改写现有记录或清运状态。当前目标为 V44、98 张领域表、76 条有效权限定义。
+> 不增加表、不改写现有记录或清运状态。
 
 > [!IMPORTANT]
 > 2026-08-09 已确认 V43：新增 `rec_bag_label_batch` 与 `rec_bag_label_item`，只保存平台

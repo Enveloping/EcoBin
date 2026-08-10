@@ -9,15 +9,12 @@ $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 98' -or
-        $provisionSource -notmatch 'Expected 98 domain tables') {
-    throw "H-02 provisioning must enforce the V45 98-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 99' -or
+        $provisionSource -notmatch 'Expected 99 domain tables') {
+    throw "H-02 provisioning must enforce the V46 99-table shape"
 }
-if ($provisionSource -match 'Expected 99 domain tables') {
-    throw "H-02 provisioning still enforces the removed V35 table count"
-}
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 45') {
-    throw "H-02 provisioning must migrate through V45"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 46') {
+    throw "H-02 provisioning must migrate through V46"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -29,6 +26,10 @@ if ($provisionSource -notmatch
 if ($provisionSource -notmatch
         '\$businessRowCount -ne 0 -and\s+-not \$AllowExistingBusinessRows') {
     throw "H-02 must retain the default empty-target business-row guard"
+}
+if ($provisionSource -notmatch
+        '"dev_runtime_snapshot_policy"') {
+    throw "H-02 must exclude the seeded V46 policy from business-row checks"
 }
 
 foreach ($entry in $catalog.UpdateColumns.GetEnumerator()) {
@@ -56,7 +57,7 @@ $requiredDeleteTables = @(
     "rec_bag_label_batch"
 )
 if (@(Compare-Object $requiredDeleteTables @($catalog.SlotTables)).Count -ne 0) {
-    throw "V45 runtime DELETE grants do not match the reviewed catalog"
+    throw "V46 runtime DELETE grants do not match the reviewed catalog"
 }
 $catalogTables = @(
     $catalog.ReadOnlyTables
@@ -161,6 +162,34 @@ foreach ($removedQrColumn in $removedQrColumns) {
 
 if (-not $catalog.UpdateColumns.ContainsKey("dev_device_runtime_state")) {
     throw "V36 dev_device_runtime_state runtime UPDATE grants are missing"
+}
+
+$runtimePolicyRequiredColumns = @(
+    "policy_version"
+    "fallback_interval_ms"
+    "rollout_uid"
+    "rollout_status"
+    "next_asset_id"
+    "target_asset_count"
+    "processed_asset_count"
+    "published_asset_count"
+    "publication_source"
+    "updated_by_platform_admin_id"
+    "change_reason"
+    "started_at"
+    "completed_at"
+    "lock_version"
+    "updated_at"
+)
+$runtimePolicyColumns = @(
+    $catalog.UpdateColumns.dev_runtime_snapshot_policy
+)
+if (@(
+        Compare-Object `
+            $runtimePolicyRequiredColumns `
+            $runtimePolicyColumns
+    ).Count -ne 0) {
+    throw "V46 runtime snapshot policy UPDATE grants are not minimal"
 }
 
 $opsAlertColumns = @($catalog.UpdateColumns.ops_alert)

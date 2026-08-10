@@ -100,6 +100,34 @@ public final class DeviceModels {
             @NotBlank @Size(max = 500) String reason) {
     }
 
+    public record RuntimeSnapshotPolicyReleaseRequest(
+            @NotNull @Min(1) Long expectedVersion,
+            @NotNull @Min(10) @Max(71582)
+            Integer fallbackIntervalMinutes,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
+    public record RuntimeSnapshotPolicyView(
+            long version,
+            int fallbackIntervalMinutes,
+            int minimumIntervalMinutes,
+            int maximumIntervalMinutes,
+            String publicationSource,
+            String updatedBy,
+            String changeReason,
+            Instant updatedAt,
+            UUID rolloutUid,
+            String rolloutStatus,
+            long targetDeviceCount,
+            long processedDeviceCount,
+            long publishedDeviceCount,
+            long pendingDeviceCount,
+            long edgeSavedDeviceCount,
+            long appliedDeviceCount,
+            long failedDeviceCount,
+            long blockedDeviceCount) {
+    }
+
     public record AcceptanceEvidenceView(
             UUID evidenceUid,
             int schemaVersion,
@@ -258,8 +286,6 @@ public final class DeviceModels {
             @Size(max = 500) String address,
             String longitude,
             String latitude,
-            @NotNull @Min(1) Long edgeHeartbeatIntervalMs,
-            @NotNull @Min(1) Long edgeHeartbeatMissThreshold,
             @NotNull @Min(1) Long mcuHeartbeatIntervalMs,
             @NotNull @Min(1) Long mcuHeartbeatMissThreshold,
             @NotNull @Min(0) Long doorCloseRetryLimit,
@@ -354,6 +380,7 @@ public final class DeviceModels {
 
     public record ConfigurationVersionSummary(
             long versionNo,
+            Long runtimeSnapshotPolicyVersion,
             String contentSha256,
             String mcuPayloadSha256,
             String deviceDisplayName,
@@ -367,6 +394,7 @@ public final class DeviceModels {
             String deviceCode,
             long versionNo,
             int schemaVersion,
+            Long runtimeSnapshotPolicyVersion,
             String contentSha256,
             String mcuPayloadSha256,
             ConfigurationDeviceSnapshot device,

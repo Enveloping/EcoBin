@@ -125,6 +125,7 @@ public class AutomaticDeviceActivationService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final DeviceConfigurationCanonicalizer canonicalizer;
+    private final RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider;
     private final InitialDeviceConfigurationFactory initialConfigurationFactory;
     private final ReliableDeviceTaskRegistrationPort taskRegistration;
     private final DeviceCommandTaskRefFactory taskRefFactory;
@@ -135,6 +136,7 @@ public class AutomaticDeviceActivationService {
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             DeviceConfigurationCanonicalizer canonicalizer,
+            RuntimeSnapshotPolicyProvider runtimeSnapshotPolicyProvider,
             InitialDeviceConfigurationFactory initialConfigurationFactory,
             ReliableDeviceTaskRegistrationPort taskRegistration,
             DeviceCommandTaskRefFactory taskRefFactory,
@@ -143,6 +145,7 @@ public class AutomaticDeviceActivationService {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.canonicalizer = canonicalizer;
+        this.runtimeSnapshotPolicyProvider = runtimeSnapshotPolicyProvider;
         this.initialConfigurationFactory = initialConfigurationFactory;
         this.taskRegistration = taskRegistration;
         this.taskRefFactory = taskRefFactory;
@@ -268,8 +271,14 @@ public class AutomaticDeviceActivationService {
                         asset.hardwareSn(),
                         asset.modelCode(),
                         asset.portCount());
+        RuntimeSnapshotPolicyProvider.Policy runtimePolicy =
+                runtimeSnapshotPolicyProvider.current();
         DeviceConfigurationCanonicalizer.NormalizedConfiguration normalized =
-                canonicalizer.normalize(request, asset.portCount());
+                canonicalizer.normalize(
+                        request,
+                        asset.portCount(),
+                        runtimePolicy.fallbackIntervalMs(),
+                        RuntimeSnapshotPolicyProvider.FIXED_MISS_THRESHOLD);
         long versionNo = 1;
         byte[] mcuPayloadSha256 = canonicalizer.mcuPayloadSha256(
                 versionNo, normalized);
@@ -281,6 +290,7 @@ public class AutomaticDeviceActivationService {
                     location_address, latitude, longitude,
                     edge_heartbeat_interval_ms,
                     edge_heartbeat_miss_threshold,
+                    runtime_snapshot_policy_version_no,
                     mcu_heartbeat_interval_ms,
                     mcu_heartbeat_miss_threshold,
                     door_close_retry_limit,
@@ -297,7 +307,7 @@ public class AutomaticDeviceActivationService {
                     published_at, created_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, 'SYSTEM', NULL, ?, ?
                 )
                 """,
@@ -312,6 +322,7 @@ public class AutomaticDeviceActivationService {
                 nullableDecimal(normalized.device().longitude()),
                 normalized.device().edgeHeartbeatIntervalMs(),
                 normalized.device().edgeHeartbeatMissThreshold(),
+                runtimePolicy.version(),
                 normalized.device().mcuHeartbeatIntervalMs(),
                 normalized.device().mcuHeartbeatMissThreshold(),
                 normalized.device().doorCloseRetryLimit(),

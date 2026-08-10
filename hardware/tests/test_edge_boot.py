@@ -421,6 +421,81 @@ def test_publish_runtime_snapshot_uses_valid_edge_boot_id_and_event_uid(tmp_path
     assert "lastDeliveryDoorActualOutputMs" not in payload["payload"]["ports"][0]
 
 
+def test_runtime_snapshot_semantic_dedupe_and_forced_fallback(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    mqtt = FakeMqttClient()
+    mcu_info = {
+        "mcu_boot_id": 456,
+        "mcu_firmware_version": "test-fw",
+        "mcu_capability": 1,
+    }
+
+    first = _publish_runtime_snapshot(
+        store,
+        mqtt,
+        mcu_info,
+        [],
+        force=True,
+    )
+    unchanged = _publish_runtime_snapshot(
+        store,
+        mqtt,
+        mcu_info,
+        [],
+        force=False,
+        previous_payload_sha256=first["payload_sha256"],
+    )
+    fallback = _publish_runtime_snapshot(
+        store,
+        mqtt,
+        mcu_info,
+        [],
+        force=True,
+        previous_payload_sha256=first["payload_sha256"],
+    )
+
+    assert first["published"] is True
+    assert unchanged == {
+        "published": False,
+        "skipped_unchanged": True,
+        "payload_sha256": first["payload_sha256"],
+    }
+    assert fallback["published"] is True
+    assert len(mqtt.published) == 2
+    assert mqtt.published[0][1]["eventUid"] != mqtt.published[1][1]["eventUid"]
+    store.close()
+
+
+def test_runtime_snapshot_state_change_bypasses_semantic_dedupe(tmp_path):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    store.set_edge_boot_id("123")
+    mqtt = FakeMqttClient()
+    mcu_info = {
+        "mcu_boot_id": 456,
+        "mcu_firmware_version": "test-fw",
+        "mcu_capability": 1,
+    }
+    first = _publish_runtime_snapshot(store, mqtt, mcu_info, [])
+
+    changed_mcu_info = dict(mcu_info, uart_state="FAULT")
+    changed = _publish_runtime_snapshot(
+        store,
+        mqtt,
+        changed_mcu_info,
+        [],
+        force=False,
+        previous_payload_sha256=first["payload_sha256"],
+    )
+
+    assert changed["published"] is True
+    assert changed["payload_sha256"] != first["payload_sha256"]
+    assert len(mqtt.published) == 2
+    store.close()
+
+
 def test_fixed_frame_runtime_marks_cleaner_confirmation_basis(tmp_path):
     store = EdgeStore(str(tmp_path / "edge.db"))
     store.initialize()

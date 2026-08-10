@@ -124,8 +124,10 @@
 
 香橙派通过已发布的 `applyConfiguration.deviceConfig` 接收
 `edgeHeartbeatIntervalMs` 和 `edgeHeartbeatMissThreshold`。其中前者当前解释为诊断快照兜底
-周期，默认和最小值都是 5 分钟；后者仅为旧配置兼容字段，后端不再用它乘以时间差判断
-在线。香橙派断电没有机会主动报告离线时，由 OneNet 的 `deviceOffline` 通知提供权威事实。
+周期，由平台全局配置，默认 60 分钟、最小 10 分钟；后者固定为 `3`，仅为机器配置兼容
+字段，后端不再用它乘以时间差判断在线。状态实际变化时最多每 5 秒合并上报一次，启动、
+MQTT 重连和周期兜底则强制上报。香橙派断电没有机会主动报告离线时，由 OneNet 的
+`deviceOffline` 通知提供权威事实。
 
 下发规则如下：
 

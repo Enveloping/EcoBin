@@ -180,10 +180,9 @@ EDGE_BOOT_ID_PATH = os.getenv(
 )
 EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
-EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = float(os.getenv(
-    "ECOBIN_RUNTIME_SNAPSHOT_INTERVAL_S",
-    "300",
-))
+# 尚无已应用平台配置时只采用固定的一小时默认值；正式周期来自平台
+# applyConfiguration，避免环境变量形成未受平台审计的单设备覆盖。
+EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = 3600.0
 EDGE_SOFTWARE_VERSION = os.getenv(
     "ECOBIN_EDGE_VERSION",
     "0.1.0",

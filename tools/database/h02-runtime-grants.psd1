@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 19
+    CatalogVersion = 20
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -151,6 +151,23 @@
             "next_asset_id"
             "started_at"
             "completed_at"
+            "updated_at"
+        )
+        dev_runtime_snapshot_policy = @(
+            "policy_version"
+            "fallback_interval_ms"
+            "rollout_uid"
+            "rollout_status"
+            "next_asset_id"
+            "target_asset_count"
+            "processed_asset_count"
+            "published_asset_count"
+            "publication_source"
+            "updated_by_platform_admin_id"
+            "change_reason"
+            "started_at"
+            "completed_at"
+            "lock_version"
             "updated_at"
         )
         dev_config_application = @(

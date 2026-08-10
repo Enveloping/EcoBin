@@ -60,7 +60,10 @@ class EcoBinEdge:
         self._uart_recovering = threading.Event()
         self._runtime_snapshot_requested = threading.Event()
         self._runtime_snapshot_lock = threading.Lock()
+        self._runtime_snapshot_schedule_lock = threading.Lock()
         self._last_runtime_snapshot_monotonic = 0.0
+        self._last_runtime_snapshot_fingerprint = None
+        self._next_runtime_snapshot_monotonic = 0.0
 
         config_validate()
         # -- EdgeStore (SQLite) --
@@ -200,7 +203,9 @@ class EcoBinEdge:
             self._shutdown()
             return
         logger.info("Boot result: %s", result["status"])
-        self.mqtt.on_connected = self._publish_runtime_snapshot_now
+        self.mqtt.on_connected = lambda: (
+            self._publish_runtime_snapshot_now(force=True)
+        )
 
         recovered = self.store.recover_interrupted_commands()
         if any(recovered.values()):
@@ -343,19 +348,21 @@ class EcoBinEdge:
 
     def _runtime_snapshot_loop(self):
         """Publish state-change snapshots plus a low-frequency fallback."""
-        next_periodic = (
-            time.monotonic()
-            + self._runtime_snapshot_interval_seconds()
-        )
+        self._reset_runtime_snapshot_fallback()
         while not self._exit_flag.is_set():
             now = time.monotonic()
+            next_periodic = self._next_runtime_snapshot_deadline()
             requested = self._runtime_snapshot_requested.wait(
                 max(0.0, next_periodic - now)
             )
             if self._exit_flag.is_set():
                 break
             try:
-                if requested:
+                periodic_due = (
+                    time.monotonic()
+                    >= self._next_runtime_snapshot_deadline()
+                )
+                while requested and not periodic_due:
                     remaining = max(
                         0.0,
                         5.0 - (
@@ -363,18 +370,38 @@ class EcoBinEdge:
                             - self._last_runtime_snapshot_monotonic
                         ),
                     )
-                    if remaining and self._exit_flag.wait(remaining):
+                    if remaining <= 0:
                         break
+                    if self._exit_flag.wait(remaining):
+                        break
+                    periodic_due = (
+                        time.monotonic()
+                        >= self._next_runtime_snapshot_deadline()
+                    )
+                if self._exit_flag.is_set():
+                    break
+                if requested:
                     self._runtime_snapshot_requested.clear()
-                if self.mqtt.connected:
-                    self._publish_runtime_snapshot_now()
-                next_periodic = (
-                    time.monotonic()
-                    + self._runtime_snapshot_interval_seconds()
+                if not requested and not periodic_due:
+                    # A reconnect snapshot may have moved the shared fallback
+                    # deadline while this thread was waiting on the old one.
+                    continue
+                if not self.mqtt.connected:
+                    if periodic_due:
+                        self._retry_runtime_snapshot_after(30.0)
+                    continue
+                outcome = self._publish_runtime_snapshot_now(
+                    force=periodic_due,
                 )
+                if (
+                    not outcome["published"]
+                    and not outcome["skipped_unchanged"]
+                    and not outcome.get("deferred", False)
+                ):
+                    self._retry_runtime_snapshot_after(30.0)
             except Exception as e:
                 logger.error("runtime snapshot error: %s", e)
-                next_periodic = time.monotonic() + 30.0
+                self._retry_runtime_snapshot_after(30.0)
 
     def _runtime_snapshot_interval_seconds(self):
         applied = self.store.get_latest_applied_configuration()
@@ -385,29 +412,60 @@ class EcoBinEdge:
             )
             interval_ms = device_config.get(
                 "edgeHeartbeatIntervalMs",
-                300_000,
+                3_600_000,
             )
             if (
                 isinstance(interval_ms, int)
                 and not isinstance(interval_ms, bool)
                 and 1 <= interval_ms <= 4_294_967_295
             ):
-                return max(300.0, interval_ms / 1000.0)
-        return max(300.0, float(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S))
+                return max(600.0, interval_ms / 1000.0)
+        return max(600.0, float(EDGE_RUNTIME_SNAPSHOT_INTERVAL_S))
+
+    def _next_runtime_snapshot_deadline(self):
+        with self._runtime_snapshot_schedule_lock:
+            return self._next_runtime_snapshot_monotonic
+
+    def _reset_runtime_snapshot_fallback(self, now=None):
+        if now is None:
+            now = time.monotonic()
+        with self._runtime_snapshot_schedule_lock:
+            self._next_runtime_snapshot_monotonic = (
+                now + self._runtime_snapshot_interval_seconds()
+            )
+
+    def _retry_runtime_snapshot_after(self, delay_seconds):
+        retry_at = time.monotonic() + delay_seconds
+        with self._runtime_snapshot_schedule_lock:
+            current = self._next_runtime_snapshot_monotonic
+            if current <= 0 or retry_at < current:
+                self._next_runtime_snapshot_monotonic = retry_at
 
     def _request_runtime_snapshot(self):
         """Coalesce repeated state changes into at most one snapshot per 5s."""
         self._runtime_snapshot_requested.set()
 
-    def _publish_runtime_snapshot_now(self):
+    def _publish_runtime_snapshot_now(self, force=False):
         from edge_boot import _publish_runtime_snapshot
         with self._runtime_snapshot_lock:
+            if (
+                not force
+                and self._last_runtime_snapshot_monotonic > 0
+                and time.monotonic()
+                    - self._last_runtime_snapshot_monotonic < 5.0
+            ):
+                self._runtime_snapshot_requested.set()
+                return {
+                    "published": False,
+                    "skipped_unchanged": False,
+                    "deferred": True,
+                }
             compatibility_mode = getattr(
                 self.uart,
                 "compatibility_mode",
                 False,
             )
-            _publish_runtime_snapshot(
+            result = _publish_runtime_snapshot(
                 self.store,
                 self.mqtt,
                 {
@@ -441,8 +499,20 @@ class EcoBinEdge:
                 "compatibility_mode": compatibility_mode,
                 },
                 [],
+                force=force,
+                previous_payload_sha256=(
+                    self._last_runtime_snapshot_fingerprint
+                ),
             )
-            self._last_runtime_snapshot_monotonic = time.monotonic()
+            if not result["published"]:
+                return result
+            now = time.monotonic()
+            self._last_runtime_snapshot_fingerprint = result[
+                "payload_sha256"
+            ]
+            self._last_runtime_snapshot_monotonic = now
+            self._reset_runtime_snapshot_fallback(now)
+            return result
 
     def _shutdown(self):
         logger.info("shutting down...")

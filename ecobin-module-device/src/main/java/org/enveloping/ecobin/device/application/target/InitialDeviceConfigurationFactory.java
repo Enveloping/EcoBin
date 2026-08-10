@@ -46,8 +46,6 @@ final class InitialDeviceConfigurationFactory {
                         null,
                         null,
                         null,
-                        300_000L,
-                        3L,
                         5_000L,
                         3L,
                         3L,

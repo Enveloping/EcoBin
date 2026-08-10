@@ -313,6 +313,20 @@ test('device Web slice keeps one permanent asset and automatic activation model'
     ),
     'utf8',
   );
+  const configurationModalSource = readFileSync(
+    new URL(
+      'src/pages/device-management/DeviceConfigurationModal.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
+  const runtimePolicySource = readFileSync(
+    new URL(
+      'src/pages/device-management/RuntimeSnapshotPolicyModal.tsx',
+      webRoot,
+    ),
+    'utf8',
+  );
   const commandIntentSource = readFileSync(
     new URL('src/api/commandIntent.ts', webRoot),
     'utf8',
@@ -327,6 +341,8 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(apiSource, /listPlatformDeviceConfigurationVersions/);
   assert.match(apiSource, /rollForwardPlatformDeviceConfiguration/);
   assert.match(apiSource, /resynchronizePlatformDeviceConfiguration/);
+  assert.match(apiSource, /getPlatformRuntimeSnapshotPolicy/);
+  assert.match(apiSource, /releasePlatformRuntimeSnapshotPolicy/);
   assert.match(apiSource, /\/organizations\/\$\{encodeURIComponent[\s\S]*?\/devices/);
   assert.match(apiSource, /intent\.executeAccepted/);
   assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
@@ -335,6 +351,13 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(pageSource, /永久分配机构/);
   assert.match(pageSource, /factoryBags/);
   assert.match(pageSource, /联网即可使用/);
+  assert.match(pageSource, /运行快照策略/);
+  assert.match(runtimePolicySource, /不是设备在线心跳/);
+  assert.match(runtimePolicySource, /fallbackIntervalMinutes/);
+  assert.doesNotMatch(
+    configurationModalSource,
+    /name=\{\['device', 'edgeHeartbeat(?:IntervalMs|MissThreshold)'\]\}/,
+  );
   assert.match(drawerSource, /mcuSimulated/);
   assert.match(drawerSource, /camerasSimulated/);
   assert.match(drawerSource, /设备联网后会自动提交功能验收证据/);

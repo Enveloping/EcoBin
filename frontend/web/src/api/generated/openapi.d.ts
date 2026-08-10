@@ -4312,6 +4312,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-runtime-snapshot-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the global diagnostic runtime-snapshot fallback policy and rollout progress */
+        get: operations["getPlatformDeviceRuntimeSnapshotPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-runtime-snapshot-policy/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a new global fallback interval and start automatic per-device convergence */
+        post: operations["releasePlatformDeviceRuntimeSnapshotPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets": {
         parameters: {
             query?: never;
@@ -4782,8 +4816,6 @@ export interface components {
             address?: string | null;
             longitude?: string | null;
             latitude?: string | null;
-            edgeHeartbeatIntervalMs: number;
-            edgeHeartbeatMissThreshold: number;
             mcuHeartbeatIntervalMs: number;
             mcuHeartbeatMissThreshold: number;
             doorCloseRetryLimit: number;
@@ -4902,6 +4934,7 @@ export interface components {
         };
         DeviceConfigurationVersionSummary: {
             versionNo: number;
+            runtimeSnapshotPolicyVersion: number | null;
             contentSha256: components["schemas"]["Sha256Hex"];
             mcuPayloadSha256: components["schemas"]["Sha256Hex"];
             deviceDisplayName: string;
@@ -4914,12 +4947,31 @@ export interface components {
             items: components["schemas"]["DeviceConfigurationVersionSummary"][];
             nextBeforeVersionNo: number | null;
         };
-        DeviceConfigurationDeviceSnapshot: components["schemas"]["DeviceConfigurationDeviceInput"];
+        DeviceConfigurationDeviceSnapshot: {
+            displayName: string;
+            address: string | null;
+            longitude: string | null;
+            latitude: string | null;
+            edgeHeartbeatIntervalMs: number;
+            /** @constant */
+            edgeHeartbeatMissThreshold: 3;
+            mcuHeartbeatIntervalMs: number;
+            mcuHeartbeatMissThreshold: number;
+            doorCloseRetryLimit: number;
+            continueDeliveryWaitMs: number;
+            negativeWeightThresholdGram: number;
+            deliveryAutoCloseMs: number;
+            weightMeasurementTimeoutMs: number;
+            deliveryDoorTravelWaitMs: number;
+            cleanSolenoidPulseMs: number;
+            smokeMonitoringEnabled: boolean;
+        };
         DeviceConfigurationPortSnapshot: components["schemas"]["DeviceConfigurationPortInput"];
         DeviceConfigurationVersion: {
             deviceCode: components["schemas"]["DeviceCode"];
             versionNo: number;
             schemaVersion: number;
+            runtimeSnapshotPolicyVersion: number | null;
             contentSha256: components["schemas"]["Sha256Hex"];
             mcuPayloadSha256: components["schemas"]["Sha256Hex"];
             device: components["schemas"]["DeviceConfigurationDeviceSnapshot"];
@@ -7469,6 +7521,45 @@ export interface components {
             expectedVersion: components["schemas"]["ExpectedVersion"];
             reason: string;
         };
+        RuntimeSnapshotPolicyReleaseRequest: {
+            /** Format: int64 */
+            expectedVersion: number;
+            fallbackIntervalMinutes: number;
+            reason: string;
+        };
+        RuntimeSnapshotPolicy: {
+            /** Format: int64 */
+            version: number;
+            fallbackIntervalMinutes: number;
+            /** @constant */
+            minimumIntervalMinutes: 10;
+            /** @constant */
+            maximumIntervalMinutes: 71582;
+            /** @enum {string} */
+            publicationSource: "SYSTEM" | "PLATFORM_ADMIN";
+            updatedBy: string;
+            changeReason: string;
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            rolloutUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            rolloutStatus: "PENDING" | "RUNNING" | "DONE";
+            /** Format: int64 */
+            targetDeviceCount: number;
+            /** Format: int64 */
+            processedDeviceCount: number;
+            /** Format: int64 */
+            publishedDeviceCount: number;
+            /** Format: int64 */
+            pendingDeviceCount: number;
+            /** Format: int64 */
+            edgeSavedDeviceCount: number;
+            /** Format: int64 */
+            appliedDeviceCount: number;
+            /** Format: int64 */
+            failedDeviceCount: number;
+            /** Format: int64 */
+            blockedDeviceCount: number;
+        };
         DeviceAcceptanceEvidence: {
             /** Format: uuid */
             evidenceUid: string;
@@ -7539,6 +7630,12 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DeviceAsset"];
+            requestId: string;
+        };
+        RuntimeSnapshotPolicyEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["RuntimeSnapshotPolicy"];
             requestId: string;
         };
         DeviceAssetPageEnvelope: {
@@ -7965,6 +8062,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceConfigurationApplicationEnvelope"];
+            };
+        };
+        /** @description The global runtime-snapshot policy and its automatic rollout projection */
+        RuntimeSnapshotPolicyOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["RuntimeSnapshotPolicyEnvelope"];
             };
         };
         /** @description One immutable organization delivery and review rule */
@@ -14039,6 +14147,44 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getPlatformDeviceRuntimeSnapshotPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["RuntimeSnapshotPolicyOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    releasePlatformDeviceRuntimeSnapshotPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeSnapshotPolicyReleaseRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["RuntimeSnapshotPolicyOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     listPlatformDeviceAssets: {

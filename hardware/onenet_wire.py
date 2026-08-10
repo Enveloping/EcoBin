@@ -1118,7 +1118,7 @@ def _validate_apply_configuration(command: dict[str, Any]) -> None:
         raise ValueError("configuration blocks are required")
     heartbeat_interval = device_config.get(
         "edgeHeartbeatIntervalMs",
-        300_000,
+        3_600_000,
     )
     heartbeat_misses = device_config.get(
         "edgeHeartbeatMissThreshold",
