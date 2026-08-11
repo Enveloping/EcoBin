@@ -406,3 +406,87 @@ def test_duplicate_apply_configuration_is_acknowledged_without_redispatch(
     ]
     assert [reply["data"]["receiptState"] for reply in replies] == [1, 2]
     store.close()
+
+
+def test_accepted_business_confirmation_notifies_reliable_count_change_once(
+    tmp_path,
+):
+    store = EdgeStore(str(tmp_path / "edge.db"))
+    store.initialize()
+    paho = LifecyclePahoClient()
+    client = MqttClient.__new__(MqttClient)
+    client._store = store
+    client.client = paho
+    client.product_id = "product"
+    client.device_name = "SN-CONTRACT-0001"
+    client.edge_boot_id = 9001
+    client._trusted_cos_environment = None
+    client._unsupported_command_types = frozenset()
+    client.on_command_received = None
+    reliable_count_changes = []
+    client.on_reliable_event_count_changed = (
+        lambda: reliable_count_changes.append("changed")
+    )
+    client._relay_pending_events = lambda: None
+
+    example_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "contracts",
+        "examples",
+        "onenet-wire",
+        "confirm-edge-event.service-wire.json",
+    )
+    with open(example_path, encoding="utf-8") as source:
+        wire = json.load(source)
+    body = wire["callServiceApiBodyTemplate"]
+    params = dict(body["params"])
+    params["scalarFields"] = dict(params["scalarFields"])
+    now = datetime.now(timezone.utc)
+    params["scalarFields"]["issuedAt"] = now.isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    params["scalarFields"]["expiresAt"] = (
+        now + timedelta(minutes=5)
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    original_event_uid = params["scalarFields"]["originalEventUid"]
+    store.create_edge_event(
+        original_event_uid,
+        "DELIVERY_COMPLETE",
+        {"workUid": "delivery-work-1"},
+        work_uid="delivery-work-1",
+        device_name="SN-CONTRACT-0001",
+        target_type="DELIVERY_SESSION",
+        target_uid="delivery-work-1",
+    )
+    stored_event = json.loads(
+        store.get_event(original_event_uid)["payload_json"]
+    )
+    params["scalarFields"]["originalPayloadSha256"] = (
+        stored_event["payloadSha256"]
+    )
+    decoded = decode_service_command(body["identifier"], params)
+    params["scalarFields"]["payloadSha256"] = (
+        canonical_payload_sha256(decoded["payload"])
+    )
+    decoded = decode_service_command(body["identifier"], params)
+    assert store.count_pending_reliable_events() == 1
+
+    topic = (
+        "$sys/product/device/thing/service/"
+        f"{body['identifier']}/invoke"
+    )
+    request = {"id": "request-confirmation", "params": params}
+    client._handle_service_call(topic, request)
+    client._handle_service_call(topic, request)
+
+    assert store.count_pending_reliable_events() == 0
+    assert reliable_count_changes == ["changed"]
+    replies = [
+        payload
+        for reply_topic, payload, _qos in paho.publishes
+        if reply_topic.endswith("/invoke_reply")
+    ]
+    assert [reply["data"]["receiptState"] for reply in replies] == [1, 2]
+    store.close()

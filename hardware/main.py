@@ -153,6 +153,9 @@ class EcoBinEdge:
         # -- Wire callbacks --
         self.mqtt.on_command_received = self._on_command
         self.mqtt.on_confirmation_received = self._on_confirmation
+        self.mqtt.on_reliable_event_count_changed = (
+            self._request_runtime_snapshot
+        )
 
         # -- Signal handlers --
         signal.signal(signal.SIGINT, self._on_signal)

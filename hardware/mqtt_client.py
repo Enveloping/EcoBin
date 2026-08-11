@@ -108,6 +108,7 @@ class MqttClient:
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.on_command_received: Optional[Callable] = None
         self.on_confirmation_received: Optional[Callable] = None
+        self.on_reliable_event_count_changed: Optional[Callable] = None
         self.on_connected: Optional[Callable] = None
         self._relay_thread: Optional[threading.Thread] = None
         self._exit_flag = threading.Event()
@@ -489,6 +490,8 @@ class MqttClient:
                 result in ("ACCEPTED", "DUPLICATE")
                 and command["commandType"] == "CONFIRM_EDGE_EVENT"
             ):
+                if result == "ACCEPTED":
+                    self._notify_reliable_event_count_changed()
                 self._relay_pending_events()
         except Exception as e:
             logger.error("服务调用拒绝: %s", e)
@@ -497,6 +500,18 @@ class MqttClient:
                 msg_id,
                 svc_id,
                 encode_command_receipt(fallback_uid, "REJECTED", self.edge_boot_id, "BAD_COMMAND"),
+            )
+
+    def _notify_reliable_event_count_changed(self) -> None:
+        """Notify diagnostics without changing an accepted confirmation result."""
+        callback = self.on_reliable_event_count_changed
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception:
+            logger.exception(
+                "可靠事件待确认数量变化通知失败"
             )
 
     def _handle_confirmation(self, topic: str, payload: dict) -> None:
