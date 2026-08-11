@@ -56,6 +56,64 @@ class TrustedOrangePiRuntimeFactServiceSqlTest {
                 .doesNotContain("FOR UPDATE");
     }
 
+    @Test
+    void preStartFailureCannotRegressACommandThatPhysicallyStarted() {
+        assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
+                "EDGE_ACCEPTED", "PRE_START_FAILED")).isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
+                "PHYSICAL_STARTED", "PRE_START_FAILED")).isFalse();
+        assertThat(TrustedOrangePiRuntimeFactService.shouldAdvanceCommand(
+                "PHYSICAL_STARTED", "PHYSICAL_FAILED")).isTrue();
+    }
+
+    @Test
+    void baselineCommandFailureEndsTheGenerationWithoutStealingRestartLogic() {
+        assertThat(TrustedOrangePiRuntimeFactService
+                .shouldTechnicallyAbortBaselineCommand(
+                        true, true,
+                        "PRE_START_FAILED", "UART_CLOSED"))
+                .isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .shouldTechnicallyAbortBaselineCommand(
+                        true, true,
+                        "FAILED", "UART_TIMEOUT"))
+                .isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .shouldTechnicallyAbortBaselineCommand(
+                        true, true,
+                        "FAILED", "EDGE_RESTARTED"))
+                .isFalse();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .shouldTechnicallyAbortBaselineCommand(
+                        false, true,
+                        "FAILED", "UART_TIMEOUT"))
+                .isFalse();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .shouldTechnicallyAbortBaselineCommand(
+                        true, false,
+                        "PRE_START_FAILED", "LATE_PRE_START_FAILURE"))
+                .as("a stale pre-start failure cannot abort a measurement that already started")
+                .isFalse();
+    }
+
+    @Test
+    void technicallyAbortedGenerationStillAcceptsItsLatePhysicalEvidence() {
+        assertThat(TrustedOrangePiRuntimeFactService
+                .canApplyBaselineResult("PENDING", "EDGE_ACCEPTED"))
+                .isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .canApplyBaselineResult("PENDING", "PHYSICAL_FAILED"))
+                .isFalse();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .canApplyBaselineResult(
+                        "TECHNICAL_ABORTED", "PHYSICAL_FAILED"))
+                .isTrue();
+        assertThat(TrustedOrangePiRuntimeFactService
+                .canApplyBaselineResult(
+                        "STALE_IGNORED", "PHYSICAL_FAILED"))
+                .isFalse();
+    }
+
     private static void assertSingleTableLock(
             String source,
             String expectedTable) {

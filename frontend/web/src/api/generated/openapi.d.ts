@@ -4383,6 +4383,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/technical-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** List current technical issues and safe recovery actions for one device */
+        get: operations["listPlatformDeviceTechnicalIssues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start one operator-confirmed empty-bag baseline measurement generation */
+        post: operations["startPlatformBaselineMeasurementAttempt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-versions": {
         parameters: {
             query?: never;
@@ -7521,6 +7560,52 @@ export interface components {
             expectedVersion: components["schemas"]["ExpectedVersion"];
             reason: string;
         };
+        BaselineMeasurementAttemptRequest: {
+            expectedLatestMeasurementUid: components["schemas"]["UuidV4"];
+            /**
+             * @description The operator has checked and removed the cause of the previous failure.
+             * @constant
+             */
+            causeFixedConfirmed: true;
+            /**
+             * @description The operator has confirmed that the factory-installed bag is still empty.
+             * @constant
+             */
+            emptyBagConfirmed: true;
+            reason: string;
+        };
+        BaselineMeasurementAccepted: {
+            measurementUid: components["schemas"]["UuidV4"];
+            taskUid: components["schemas"]["UuidV4"];
+            /** @constant */
+            state: "PENDING";
+            /** @description Reliable-task status resource for this taskUid; the HTTP Location header carries the same value. */
+            statusUrl: components["schemas"]["StatusUrl"];
+            recommendedPollAfterMs: number;
+        };
+        DeviceTechnicalIssue: {
+            issueUid: string;
+            /** @enum {string} */
+            category: "ACCEPTANCE" | "CONFIGURATION" | "DELIVERY" | "CLEANING" | "BASELINE";
+            /** @enum {string} */
+            state: "AUTO_RETRYING" | "ACTION_REQUIRED" | "RECOVERY_REQUIRED";
+            /** @enum {string} */
+            severity: "INFO" | "WARNING" | "CRITICAL";
+            code: string;
+            title: string;
+            description: string;
+            portNo: number | null;
+            taskUid: components["schemas"]["UuidV4"] | null;
+            latestMeasurementUid: components["schemas"]["UuidV4"] | null;
+            blockedReasonCode: string | null;
+            httpStatus: number | null;
+            externalErrorCode: string | null;
+            diagnostic: string | null;
+            automaticAttemptNo: number | null;
+            automaticAttemptLimit: number | null;
+            occurredAt: components["schemas"]["UtcTimestamp"] | null;
+            nextActions: ("WAIT" | "REEVALUATE_ACCEPTANCE" | "RESYNCHRONIZE_CONFIGURATION" | "PUBLISH_NEW_CONFIGURATION" | "START_MANUAL_BASELINE_MEASUREMENT" | "USER_RESTART_REQUIRED" | "CLEANER_RESTART_REQUIRED" | "CONTACT_SUPPORT")[];
+        };
         RuntimeSnapshotPolicyReleaseRequest: {
             /** Format: int64 */
             expectedVersion: number;
@@ -7630,6 +7715,18 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["DeviceAsset"];
+            requestId: string;
+        };
+        DeviceTechnicalIssueListEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceTechnicalIssue"][];
+            requestId: string;
+        };
+        BaselineMeasurementAcceptedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["BaselineMeasurementAccepted"];
             requestId: string;
         };
         RuntimeSnapshotPolicyEnvelope: {
@@ -8039,6 +8136,29 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceConfigurationVersionEnvelope"];
+            };
+        };
+        /** @description Current technical issues and safe recovery actions */
+        DeviceTechnicalIssueListOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceTechnicalIssueListEnvelope"];
+            };
+        };
+        /** @description A new baseline measurement generation is durable; no physical measurement result is implied */
+        BaselineMeasurementAccepted: {
+            headers: {
+                Location: components["headers"]["Location"];
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["BaselineMeasurementAcceptedEnvelope"];
             };
         };
         /** @description The configuration convergence intent is durable; no device application fact is implied */
@@ -14249,6 +14369,52 @@ export interface operations {
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listPlatformDeviceTechnicalIssues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceTechnicalIssueListOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    startPlatformBaselineMeasurementAttempt: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                hardwareSn: components["parameters"]["HardwareSn"];
+                portNo: components["parameters"]["PortNo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaselineMeasurementAttemptRequest"];
+            };
+        };
+        responses: {
+            202: components["responses"]["BaselineMeasurementAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
         };
     };
     listPlatformDeviceConfigurationVersions: {

@@ -30,6 +30,7 @@ final class CleanCommandObservationDecision {
                             ? Action.NONE
                             : Action.END_BEFORE_UNLOCK;
             case "FAILED" -> "EDGE_RESTARTED".equals(errorCode)
+                    || "RECOVERY_REQUIRED".equals(operationStatus)
                     ? Action.NONE
                     : Action.REQUIRE_RECOVERY;
             default -> throw new IllegalArgumentException(

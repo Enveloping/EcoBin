@@ -4,6 +4,8 @@ import org.enveloping.ecobin.device.api.port.BagCodeAdmissionPort;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.BaselineMeasurementAcceptedView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.BaselineMeasurementAttemptRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ComputedOneNetMapping;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
@@ -21,6 +23,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryInstalledBagRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyReleaseRequest;
@@ -241,6 +244,90 @@ public class TargetDeviceApplication {
         authorize(true, null, null, "device.read");
         return findAssetView(normalizeHardwareSn(hardwareSn), null, null, false)
                 .orElseThrow(TargetDeviceApplication::notFound);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DeviceTechnicalIssueView> platformTechnicalIssues(
+            String hardwareSn) {
+        authorize(true, null, null, "device.read");
+        Asset asset = asset(normalizeHardwareSn(hardwareSn), false);
+        List<DeviceTechnicalIssueView> issues = new ArrayList<>();
+        Map<String, TechnicalTaskRow> latestByType = new LinkedHashMap<>();
+        for (TechnicalTaskRow row : jdbc.query("""
+                        SELECT task.id AS task_id,
+                               task.task_uid,
+                               task.task_type,
+                               task.state,
+                               task.blocked_reason_code,
+                               task.blocked_diagnostic,
+                               task.updated_at,
+                               delivery.status AS delivery_status,
+                               clean_row.status AS clean_status,
+                               application.status AS application_status,
+                               application.edge_persisted_at,
+                               attempt.http_status,
+                               attempt.external_api_error_code,
+                               attempt.redacted_diagnostic
+                        FROM ops_reliable_task task
+                        LEFT JOIN dev_device_command command_row
+                          ON command_row.id = task.source_device_command_id
+                        LEFT JOIN dev_delivery_session delivery
+                          ON delivery.id = command_row.delivery_session_id
+                        LEFT JOIN rec_clean_operation clean_row
+                          ON clean_row.id = command_row.clean_operation_id
+                        LEFT JOIN dev_config_application application
+                          ON application.id =
+                              command_row.config_application_id
+                        LEFT JOIN ops_task_attempt attempt
+                          ON attempt.id = (
+                              SELECT MAX(latest_attempt.id)
+                              FROM ops_task_attempt latest_attempt
+                              WHERE latest_attempt.task_id = task.id
+                          )
+                        WHERE task.source_device_asset_id = ?
+                          AND task.task_type IN (
+                              'REQUEST_DEVICE_ACCEPTANCE',
+                              'ENSURE_DEVICE_CONFIGURATION',
+                              'START_DELIVERY_SESSION',
+                              'START_CLEAN_OPERATION'
+                          )
+                        ORDER BY task.id DESC
+                        """,
+                (rs, ignored) -> new TechnicalTaskRow(
+                        rs.getLong("task_id"),
+                        UUID.fromString(rs.getString("task_uid")),
+                        rs.getString("task_type"),
+                        rs.getString("state"),
+                        rs.getString("blocked_reason_code"),
+                        rs.getString("blocked_diagnostic"),
+                        rs.getObject("updated_at", LocalDateTime.class),
+                        rs.getString("delivery_status"),
+                        rs.getString("clean_status"),
+                        rs.getString("application_status"),
+                        rs.getObject(
+                                "edge_persisted_at", LocalDateTime.class),
+                        (Integer) rs.getObject("http_status"),
+                        rs.getString("external_api_error_code"),
+                        rs.getString("redacted_diagnostic")),
+                asset.id())) {
+            latestByType.putIfAbsent(row.taskType(), row);
+        }
+        for (TechnicalTaskRow task : latestByType.values()) {
+            if (!"BLOCKED".equals(task.state())) {
+                continue;
+            }
+            if ("REQUEST_DEVICE_ACCEPTANCE".equals(task.taskType())
+                    && "PASSED".equals(asset.acceptanceStatus())) {
+                continue;
+            }
+            issues.add(taskIssue(task));
+        }
+        issues.addAll(baselineIssues(asset.id()));
+        issues.sort(java.util.Comparator.comparing(
+                DeviceTechnicalIssueView::occurredAt,
+                java.util.Comparator.nullsLast(
+                        java.util.Comparator.reverseOrder())));
+        return List.copyOf(issues);
     }
 
     @Transactional(readOnly = true)
@@ -609,6 +696,61 @@ public class TargetDeviceApplication {
         Asset asset = organizationAsset(
                 scope, normalizeDeviceCode(deviceCode), false);
         return configurationApplication(scope, asset, applicationUid);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BaselineMeasurementAcceptedView startPlatformBaselineAttempt(
+            UUID operationUid,
+            String hardwareSn,
+            int portNo,
+            BaselineMeasurementAttemptRequest request) {
+        Scope platform = authorize(true, null, null, "device.manage");
+        String normalizedHardwareSn = normalizeHardwareSn(hardwareSn);
+        if (request == null
+                || request.expectedLatestMeasurementUid() == null
+                || !Boolean.TRUE.equals(request.causeFixedConfirmed())
+                || !Boolean.TRUE.equals(request.emptyBagConfirmed())) {
+            throw invalid("人工皮重测量必须确认故障已排除且当前袋为空");
+        }
+        return command(
+                operationUid,
+                platform,
+                "device.baseline-measurement.start",
+                "BASELINE_MEASUREMENT",
+                normalizedHardwareSn + "|port:" + portNo,
+                request,
+                BaselineMeasurementAcceptedView.class,
+                () -> {
+                    var attempt = activationService
+                            .createManualInitialBaseline(
+                                    normalizedHardwareSn,
+                                    portNo,
+                                    request.expectedLatestMeasurementUid(),
+                                    Objects.requireNonNull(
+                                            platform.platformAdminId()),
+                                    operationUid);
+                    var response = new BaselineMeasurementAcceptedView(
+                            attempt.measurementUid(),
+                            attempt.taskUid(),
+                            "PENDING",
+                            baselineTaskStatusUrl(attempt.taskUid()),
+                            RECOMMENDED_POLL_AFTER_MS);
+                    return new CommandResult<>(
+                            response,
+                            Map.of(
+                                    "measurementUid",
+                                    request.expectedLatestMeasurementUid()),
+                            Map.of(
+                                    "measurementUid",
+                                    attempt.measurementUid(),
+                                    "state", "PENDING"),
+                            request.reason());
+                });
+    }
+
+    static String baselineTaskStatusUrl(UUID taskUid) {
+        return "/api/v1/web/platform/operations/reliable-tasks/"
+                + Objects.requireNonNull(taskUid, "taskUid");
     }
 
     private ConfigurationApplicationView configurationApplication(
@@ -2867,6 +3009,317 @@ public class TargetDeviceApplication {
                 instant(rs, "received_at"));
     }
 
+    private DeviceTechnicalIssueView taskIssue(TechnicalTaskRow task) {
+        String reason = task.blockedReasonCode() == null
+                ? "UNKNOWN" : task.blockedReasonCode();
+        String category;
+        String state;
+        String severity;
+        String title;
+        String description;
+        List<String> actions;
+        switch (task.taskType()) {
+            case "REQUEST_DEVICE_ACCEPTANCE" -> {
+                category = "ACCEPTANCE";
+                state = "ACTION_REQUIRED";
+                severity = "WARNING";
+                title = "机器验收命令未能完成";
+                description = reasonDescription(reason)
+                        + "。排除问题后重新读取验收证据。";
+                actions = List.of("REEVALUATE_ACCEPTANCE");
+            }
+            case "ENSURE_DEVICE_CONFIGURATION" -> {
+                category = "CONFIGURATION";
+                state = "ACTION_REQUIRED";
+                severity = "WARNING";
+                title = "设备配置未能完成应用";
+                boolean safeResynchronization =
+                        "PENDING".equals(task.applicationStatus())
+                        && task.edgePersistedAt() == null
+                        && SAFE_CONFIGURATION_RESYNC_REASONS
+                        .contains(reason);
+                description = reasonDescription(reason)
+                        + (safeResynchronization
+                        ? "。该配置尚未到达设备，可以重新下发当前版本。"
+                        : "。不能重放原配置命令，请发布更高的修复版本。");
+                actions = List.of(safeResynchronization
+                        ? "RESYNCHRONIZE_CONFIGURATION"
+                        : "PUBLISH_NEW_CONFIGURATION");
+            }
+            case "START_DELIVERY_SESSION" -> {
+                category = "DELIVERY";
+                boolean uncertain = "RESULT_PENDING_RECOVERY".equals(
+                        task.deliveryStatus());
+                state = uncertain
+                        ? "RECOVERY_REQUIRED" : "ACTION_REQUIRED";
+                severity = uncertain ? "CRITICAL" : "WARNING";
+                title = uncertain
+                        ? "投递物理结果无法确认"
+                        : "投递启动命令未送达设备";
+                description = uncertain
+                        ? "OneNet 可能已经接收命令，但没有收到可信设备证据；系统保留设备占用，禁止平台重发开门命令。"
+                        : reasonDescription(reason)
+                        + "。原投递已安全结束，故障排除后由用户重新发起。";
+                actions = List.of(uncertain
+                        ? "CONTACT_SUPPORT" : "USER_RESTART_REQUIRED");
+            }
+            case "START_CLEAN_OPERATION" -> {
+                category = "CLEANING";
+                boolean uncertain = "RECOVERY_REQUIRED".equals(
+                        task.cleanStatus());
+                state = uncertain
+                        ? "RECOVERY_REQUIRED" : "ACTION_REQUIRED";
+                severity = uncertain ? "CRITICAL" : "WARNING";
+                title = uncertain
+                        ? "清运解锁结果无法确认"
+                        : "清运启动命令未送达设备";
+                description = uncertain
+                        ? "命令是否触发现场解锁无法确认；系统保留设备占用和新袋预留，禁止平台重发解锁命令。"
+                        : reasonDescription(reason)
+                        + "。原清运已安全结束，故障排除后由清运员重新发起。";
+                actions = List.of(uncertain
+                        ? "CONTACT_SUPPORT" : "CLEANER_RESTART_REQUIRED");
+            }
+            default -> throw invariant();
+        }
+        return new DeviceTechnicalIssueView(
+                task.taskUid().toString(),
+                category,
+                state,
+                severity,
+                "DEVICE.RELIABLE_TASK_BLOCKED." + reason,
+                title,
+                description,
+                null,
+                task.taskUid(),
+                null,
+                reason,
+                task.httpStatus(),
+                task.externalErrorCode(),
+                firstNonBlank(
+                        task.attemptDiagnostic(),
+                        task.blockedDiagnostic()),
+                null,
+                null,
+                task.updatedAt() == null
+                        ? null : task.updatedAt().toInstant(ZoneOffset.UTC),
+                actions);
+    }
+
+    private List<DeviceTechnicalIssueView> baselineIssues(long assetId) {
+        return jdbc.query("""
+                        SELECT port.port_no,
+                               measurement.measurement_uid,
+                               measurement.status AS measurement_status,
+                               measurement.fault_code,
+                               measurement.started_at,
+                               measurement.completed_at,
+                               task.task_uid,
+                               task.state AS task_state,
+                               task.blocked_reason_code,
+                               task.blocked_diagnostic,
+                               attempt.http_status,
+                               attempt.external_api_error_code,
+                               attempt.redacted_diagnostic,
+                               (
+                                   SELECT COUNT(*)
+                                   FROM rec_port_baseline_measurement counted
+                                   WHERE counted.port_id = port.id
+                                     AND counted.bag_id = current_bag.id
+                                     AND counted.device_config_version_id =
+                                         version.id
+                                     AND counted.initiator_kind = 'SYSTEM'
+                               ) AS system_attempts,
+                               (
+                                   SELECT terminal.fault_code
+                                   FROM rec_port_baseline_measurement terminal
+                                   WHERE terminal.port_id = port.id
+                                     AND terminal.bag_id = current_bag.id
+                                     AND terminal.device_config_version_id =
+                                         version.id
+                                     AND terminal.initiator_kind = 'SYSTEM'
+                                     AND terminal.status IN (
+                                         'FAILED',
+                                         'STALE_IGNORED',
+                                         'TECHNICAL_ABORTED'
+                                     )
+                                   ORDER BY terminal.completed_at DESC,
+                                            terminal.id DESC
+                                   LIMIT 1
+                               ) AS latest_system_fault_code
+                        FROM dev_port port
+                        JOIN rec_bag_current_occupancy occupancy
+                          ON occupancy.tenant_id = port.tenant_id
+                         AND occupancy.organization_id = port.organization_id
+                         AND occupancy.port_id = port.id
+                         AND occupancy.occupancy_type = 'PORT_BOUND'
+                        JOIN rec_bag current_bag
+                          ON current_bag.id = occupancy.bag_id
+                         AND current_bag.tenant_id = occupancy.tenant_id
+                         AND current_bag.organization_id =
+                             occupancy.organization_id
+                        JOIN dev_factory_installed_bag factory_bag
+                          ON factory_bag.asset_id = port.asset_id
+                         AND factory_bag.port_no = port.port_no
+                         AND factory_bag.bag_code = current_bag.bag_code
+                        JOIN rec_port_capacity_state capacity
+                          ON capacity.tenant_id = port.tenant_id
+                         AND capacity.organization_id = port.organization_id
+                         AND capacity.asset_id = port.asset_id
+                         AND capacity.port_id = port.id
+                        LEFT JOIN rec_port_weight_baseline current_baseline
+                          ON current_baseline.id = capacity.current_baseline_id
+                         AND current_baseline.tenant_id = capacity.tenant_id
+                         AND current_baseline.organization_id =
+                             capacity.organization_id
+                        JOIN dev_config_version version
+                          ON version.id = (
+                              SELECT latest_version.id
+                              FROM dev_config_version latest_version
+                              WHERE latest_version.asset_id = port.asset_id
+                                AND latest_version.tenant_id = port.tenant_id
+                                AND latest_version.organization_id =
+                                    port.organization_id
+                              ORDER BY latest_version.version_no DESC
+                              LIMIT 1
+                          )
+                        JOIN dev_config_application application
+                          ON application.config_version_id = version.id
+                         AND application.asset_id = port.asset_id
+                         AND application.tenant_id = port.tenant_id
+                         AND application.organization_id = port.organization_id
+                         AND application.status = 'APPLIED'
+                        LEFT JOIN rec_port_baseline_measurement measurement
+                          ON measurement.id = (
+                              SELECT latest_measurement.id
+                              FROM rec_port_baseline_measurement
+                                  latest_measurement
+                              WHERE latest_measurement.port_id = port.id
+                                AND latest_measurement.bag_id = current_bag.id
+                                AND latest_measurement
+                                    .device_config_version_id = version.id
+                              ORDER BY latest_measurement.started_at DESC,
+                                       latest_measurement.id DESC
+                              LIMIT 1
+                          )
+                        LEFT JOIN ops_reliable_task task
+                          ON task.target_type = 'BASELINE_MEASUREMENT'
+                         AND task.target_stable_key =
+                             measurement.measurement_uid
+                         AND task.source_device_asset_id = port.asset_id
+                        LEFT JOIN ops_task_attempt attempt
+                          ON attempt.id = (
+                              SELECT MAX(latest_attempt.id)
+                              FROM ops_task_attempt latest_attempt
+                              WHERE latest_attempt.task_id = task.id
+                          )
+                        WHERE port.asset_id = ?
+                          AND (
+                              capacity.baseline_state <> 'VALID'
+                              OR current_baseline.bag_id IS NULL
+                              OR current_baseline.bag_id <> current_bag.id
+                          )
+                        ORDER BY port.port_no
+                        """,
+                (rs, ignored) -> baselineIssue(new BaselineIssueRow(
+                        rs.getInt("port_no"),
+                        nullableUuid(rs, "measurement_uid"),
+                        rs.getString("measurement_status"),
+                        rs.getString("fault_code"),
+                        rs.getObject("started_at", LocalDateTime.class),
+                        rs.getObject("completed_at", LocalDateTime.class),
+                        nullableUuid(rs, "task_uid"),
+                        rs.getString("task_state"),
+                        rs.getString("blocked_reason_code"),
+                        rs.getString("blocked_diagnostic"),
+                        (Integer) rs.getObject("http_status"),
+                        rs.getString("external_api_error_code"),
+                        rs.getString("redacted_diagnostic"),
+                        rs.getInt("system_attempts"),
+                        rs.getString("latest_system_fault_code"))),
+                assetId);
+    }
+
+    private DeviceTechnicalIssueView baselineIssue(BaselineIssueRow row) {
+        String reason = firstNonBlank(
+                row.blockedReasonCode(), row.faultCode());
+        boolean permanent = AutomaticDeviceActivationService
+                .isPermanentBaselineDispatchFailure(
+                        row.latestSystemFaultCode());
+        boolean active = "PENDING".equals(row.measurementStatus());
+        boolean automaticWillRetry = !active
+                && automaticBaselineRetryAvailable(
+                        row.systemAttempts(), permanent);
+        boolean actionRequired = !active && !automaticWillRetry;
+        List<String> actions = actionRequired
+                && row.measurementUid() != null
+                ? List.of("START_MANUAL_BASELINE_MEASUREMENT")
+                : List.of("WAIT");
+        String description = active
+                ? "当前已有一次空袋皮重测量正在执行，请等待设备回传结果。"
+                : actionRequired
+                        ? "厂家空袋皮重仍无有效结果。现场检查称重传感器并确认袋子为空后，可由平台发起一次人工测量。"
+                        : "系统正在等待或准备下一次自动皮重测量；系统测量最多执行 4 个代际。";
+        LocalDateTime occurredAt = row.completedAt() == null
+                ? row.startedAt() : row.completedAt();
+        return new DeviceTechnicalIssueView(
+                row.measurementUid() == null
+                        ? "baseline-port-" + row.portNo()
+                        : row.measurementUid().toString(),
+                "BASELINE",
+                actionRequired ? "ACTION_REQUIRED" : "AUTO_RETRYING",
+                actionRequired ? "WARNING" : "INFO",
+                "DEVICE.BASELINE_NOT_READY",
+                "投口 " + row.portNo() + " 的空袋皮重尚未就绪",
+                description,
+                row.portNo(),
+                row.taskUid(),
+                row.measurementUid(),
+                reason,
+                row.httpStatus(),
+                row.externalErrorCode(),
+                firstNonBlank(
+                        row.attemptDiagnostic(),
+                        row.blockedDiagnostic()),
+                row.systemAttempts(),
+                4,
+                occurredAt == null
+                        ? null : occurredAt.toInstant(ZoneOffset.UTC),
+                actions);
+    }
+
+    static boolean automaticBaselineRetryAvailable(
+            int systemAttempts,
+            boolean latestSystemFailurePermanent) {
+        return systemAttempts < 4 && !latestSystemFailurePermanent;
+    }
+
+    private static String reasonDescription(String reason) {
+        return switch (reason) {
+            case "DEVICE_IDENTITY_UNRESOLVED" ->
+                    "OneNet 在当前产品下找不到该设备身份";
+            case "PERMANENT_TECHNICAL_FAILURE" ->
+                    "OneNet 永久拒绝了冻结的命令参数或权限";
+            case "AUTO_RETRY_EXHAUSTED" ->
+                    "网络或平台临时错误已经用完自动提交次数";
+            case "DEVICE_EVIDENCE_TIMEOUT",
+                 "DEVICE_CONFIRMATION_TIMEOUT" ->
+                    "OneNet 已受理命令，但在期限内没有收到可信设备证据";
+            default -> "设备可靠任务因技术问题停止";
+        };
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank()
+                ? first : second != null && !second.isBlank() ? second : null;
+    }
+
+    private static UUID nullableUuid(ResultSet rs, String column)
+            throws SQLException {
+        String value = rs.getString(column);
+        return value == null ? null : UUID.fromString(value);
+    }
+
     private Scope authorize(
             boolean platformPath,
             String tenantCode,
@@ -3354,6 +3807,41 @@ public class TargetDeviceApplication {
     }
 
     private record FactoryBag(int portNo, String bagCode) {
+    }
+
+    private record TechnicalTaskRow(
+            long taskId,
+            UUID taskUid,
+            String taskType,
+            String state,
+            String blockedReasonCode,
+            String blockedDiagnostic,
+            LocalDateTime updatedAt,
+            String deliveryStatus,
+            String cleanStatus,
+            String applicationStatus,
+            LocalDateTime edgePersistedAt,
+            Integer httpStatus,
+            String externalErrorCode,
+            String attemptDiagnostic) {
+    }
+
+    private record BaselineIssueRow(
+            int portNo,
+            UUID measurementUid,
+            String measurementStatus,
+            String faultCode,
+            LocalDateTime startedAt,
+            LocalDateTime completedAt,
+            UUID taskUid,
+            String taskState,
+            String blockedReasonCode,
+            String blockedDiagnostic,
+            Integer httpStatus,
+            String externalErrorCode,
+            String attemptDiagnostic,
+            int systemAttempts,
+            String latestSystemFaultCode) {
     }
 
     private record NormalizedAssetCreate(

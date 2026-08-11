@@ -172,6 +172,42 @@ class MiniappDeliveryQueryServiceTest {
     }
 
     @Test
+    void unappliedDeviceConfigurationDoesNotInspectMissingFullnessMode() {
+        when(identity.current()).thenReturn(identity(true));
+        when(device.deliveryOptions(any())).thenReturn(
+                new DeliveryDeviceOptionsSnapshot(
+                        "Dv_0123456789abcdefghijklmn",
+                        "校园回收机",
+                        "教学楼一层",
+                        false,
+                        AS_OF,
+                        List.of(
+                                new DeliveryDevicePortOptionSnapshot(
+                                        2,
+                                        null,
+                                        null,
+                                        null,
+                                        List.of(
+                                                "CONFIGURATION_NOT_APPLIED"))),
+                        optionsBusinessRef));
+        when(business.currentOptions(optionsBusinessRef)).thenReturn(
+                new DeliveryOptionsBusinessFacts(
+                        OptionalLong.of(-500),
+                        List.of(healthyBusinessPort())));
+        when(wallet.current(any())).thenReturn(eligibleWallet());
+
+        var result = service.deliveryOptions(
+                "Dv_0123456789abcdefghijklmn");
+
+        assertThat(result.ports()).singleElement()
+                .satisfies(port -> {
+                    assertThat(port.deliveryAllowed()).isFalse();
+                    assertThat(port.blockers()).containsExactly(
+                            "CONFIGURATION_NOT_APPLIED");
+                });
+    }
+
+    @Test
     void missingFullnessObservationDoesNotBlockDelivery() {
         when(identity.current()).thenReturn(identity(true));
         when(device.deliveryOptions(any())).thenReturn(

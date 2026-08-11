@@ -33,6 +33,11 @@ export type DeviceConfigurationVersionSummary =
   Schemas['DeviceConfigurationVersionSummary'];
 export type DeviceConfigurationVersionPage =
   Schemas['DeviceConfigurationVersionPage'];
+export type DeviceTechnicalIssue = Schemas['DeviceTechnicalIssue'];
+export type BaselineMeasurementAttemptRequest =
+  Schemas['BaselineMeasurementAttemptRequest'];
+export type BaselineMeasurementAccepted =
+  Schemas['BaselineMeasurementAccepted'];
 export type RuntimeSnapshotPolicy = Schemas['RuntimeSnapshotPolicy'];
 export type RuntimeSnapshotPolicyReleaseRequest =
   Schemas['RuntimeSnapshotPolicyReleaseRequest'];
@@ -177,6 +182,32 @@ export function retirePlatformDevice(
 
 function platformDeviceAssetUrl(hardwareSn: string) {
   return `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}`;
+}
+
+export function listPlatformDeviceTechnicalIssues(hardwareSn: string) {
+  return request<DeviceTechnicalIssue[]>({
+    url: `${platformDeviceAssetUrl(hardwareSn)}/technical-issues`,
+    method: 'GET',
+    noStore: true,
+  });
+}
+
+export function startPlatformBaselineMeasurementAttempt(
+  hardwareSn: string,
+  portNo: number,
+  data: BaselineMeasurementAttemptRequest,
+  intent: CommandIntent,
+) {
+  return intent.executeAccepted<
+    BaselineMeasurementAccepted,
+    BaselineMeasurementAttemptRequest
+  >({
+    url:
+      `${platformDeviceAssetUrl(hardwareSn)}/ports/${portNo}`
+      + '/baseline-measurement-attempts',
+    method: 'POST',
+    data,
+  });
 }
 
 export function listPlatformDeviceConfigurationVersions(

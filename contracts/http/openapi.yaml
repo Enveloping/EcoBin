@@ -4351,6 +4351,58 @@
       }
     }
 ,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/technical-issues": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"}
+      ],
+      "get": {
+        "operationId": "listPlatformDeviceTechnicalIssues",
+        "tags": ["Device management"],
+        "summary": "List current technical issues and safe recovery actions for one device",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceTechnicalIssueListOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    }
+,
+    "/api/v1/web/platform/device-assets/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts": {
+      "parameters": [
+        {"$ref": "#/components/parameters/HardwareSn"},
+        {"$ref": "#/components/parameters/PortNo"}
+      ],
+      "post": {
+        "operationId": "startPlatformBaselineMeasurementAttempt",
+        "tags": ["Device management"],
+        "summary": "Start one operator-confirmed empty-bag baseline measurement generation",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/BaselineMeasurementAttemptRequest"}
+            }
+          }
+        },
+        "responses": {
+          "202": {"$ref": "#/components/responses/BaselineMeasurementAccepted"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"},
+          "422": {"$ref": "#/components/responses/BusinessRuleProblem"}
+        }
+      }
+    }
+,
     "/api/v1/web/platform/device-assets/{hardwareSn}/configuration-versions": {
       "parameters": [
         {"$ref": "#/components/parameters/HardwareSn"}
@@ -6240,6 +6292,31 @@
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/DeviceConfigurationVersionEnvelope"}
+          }
+        }
+      },
+      "DeviceTechnicalIssueListOk": {
+        "description": "Current technical issues and safe recovery actions",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/DeviceTechnicalIssueListEnvelope"}
+          }
+        }
+      },
+      "BaselineMeasurementAccepted": {
+        "description": "A new baseline measurement generation is durable; no physical measurement result is implied",
+        "headers": {
+          "Location": {"$ref": "#/components/headers/Location"},
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/BaselineMeasurementAcceptedEnvelope"}
           }
         }
       },
@@ -12622,6 +12699,143 @@
         }
       }
 ,
+      "BaselineMeasurementAttemptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedLatestMeasurementUid",
+          "causeFixedConfirmed",
+          "emptyBagConfirmed",
+          "reason"
+        ],
+        "properties": {
+          "expectedLatestMeasurementUid": {"$ref": "#/components/schemas/UuidV4"},
+          "causeFixedConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The operator has checked and removed the cause of the previous failure."
+          },
+          "emptyBagConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "The operator has confirmed that the factory-installed bag is still empty."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "BaselineMeasurementAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "measurementUid",
+          "taskUid",
+          "state",
+          "statusUrl",
+          "recommendedPollAfterMs"
+        ],
+        "properties": {
+          "measurementUid": {"$ref": "#/components/schemas/UuidV4"},
+          "taskUid": {"$ref": "#/components/schemas/UuidV4"},
+          "state": {"type": "string", "const": "PENDING"},
+          "statusUrl": {
+            "allOf": [{"$ref": "#/components/schemas/StatusUrl"}],
+            "description": "Reliable-task status resource for this taskUid; the HTTP Location header carries the same value."
+          },
+          "recommendedPollAfterMs": {
+            "type": "integer",
+            "minimum": 250,
+            "maximum": 60000
+          }
+        }
+      },
+      "DeviceTechnicalIssue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issueUid",
+          "category",
+          "state",
+          "severity",
+          "code",
+          "title",
+          "description",
+          "portNo",
+          "taskUid",
+          "latestMeasurementUid",
+          "blockedReasonCode",
+          "httpStatus",
+          "externalErrorCode",
+          "diagnostic",
+          "automaticAttemptNo",
+          "automaticAttemptLimit",
+          "occurredAt",
+          "nextActions"
+        ],
+        "properties": {
+          "issueUid": {"type": "string", "minLength": 1, "maxLength": 100},
+          "category": {
+            "type": "string",
+            "enum": ["ACCEPTANCE", "CONFIGURATION", "DELIVERY", "CLEANING", "BASELINE"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["AUTO_RETRYING", "ACTION_REQUIRED", "RECOVERY_REQUIRED"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["INFO", "WARNING", "CRITICAL"]
+          },
+          "code": {"type": "string", "minLength": 1, "maxLength": 160},
+          "title": {"type": "string", "minLength": 1, "maxLength": 200},
+          "description": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "portNo": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
+          "taskUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          },
+          "latestMeasurementUid": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UuidV4"},
+              {"type": "null"}
+            ]
+          },
+          "blockedReasonCode": {"type": ["string", "null"], "maxLength": 100},
+          "httpStatus": {"type": ["integer", "null"], "minimum": 100, "maximum": 599},
+          "externalErrorCode": {"type": ["string", "null"], "maxLength": 100},
+          "diagnostic": {"type": ["string", "null"], "maxLength": 1000},
+          "automaticAttemptNo": {"type": ["integer", "null"], "minimum": 0},
+          "automaticAttemptLimit": {"type": ["integer", "null"], "minimum": 1},
+          "occurredAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          },
+          "nextActions": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "WAIT",
+                "REEVALUATE_ACCEPTANCE",
+                "RESYNCHRONIZE_CONFIGURATION",
+                "PUBLISH_NEW_CONFIGURATION",
+                "START_MANUAL_BASELINE_MEASUREMENT",
+                "USER_RESTART_REQUIRED",
+                "CLEANER_RESTART_REQUIRED",
+                "CONTACT_SUPPORT"
+              ]
+            }
+          }
+        }
+      },
       "RuntimeSnapshotPolicyReleaseRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -12982,6 +13196,29 @@
         }
       }
 ,
+      "DeviceTechnicalIssueListEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/DeviceTechnicalIssue"}
+          },
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "BaselineMeasurementAcceptedEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/BaselineMeasurementAccepted"},
+          "requestId": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
       "RuntimeSnapshotPolicyEnvelope": {
         "type": "object",
         "additionalProperties": false,

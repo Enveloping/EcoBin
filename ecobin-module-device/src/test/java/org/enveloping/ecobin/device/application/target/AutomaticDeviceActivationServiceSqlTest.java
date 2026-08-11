@@ -62,6 +62,30 @@ class AutomaticDeviceActivationServiceSqlTest {
     }
 
     @Test
+    void automaticRetryBudgetIsScopedToCurrentBagAndConfiguration() {
+        assertThat(upper(
+                AutomaticDeviceActivationService
+                        .LOAD_INITIAL_BASELINE_FACTS_SQL))
+                .contains(
+                        "PREVIOUS.BAG_ID = CURRENT_BAG.ID",
+                        "PREVIOUS.DEVICE_CONFIG_VERSION_ID =",
+                        "SNAPSHOT.CONFIG_VERSION_ID",
+                        "PREVIOUS.INITIATOR_KIND = 'SYSTEM'",
+                        "'TECHNICAL_ABORTED'");
+        assertThat(AutomaticDeviceActivationService
+                .isPermanentBaselineDispatchFailure(
+                        "DEVICE_IDENTITY_UNRESOLVED")).isTrue();
+        assertThat(AutomaticDeviceActivationService
+                .isPermanentBaselineDispatchFailure(
+                        "PERMANENT_TECHNICAL_FAILURE")).isTrue();
+        assertThat(AutomaticDeviceActivationService
+                .isPermanentBaselineDispatchFailure(
+                        "DEVICE_EVIDENCE_TIMEOUT")).isFalse();
+        assertThat(AutomaticDeviceActivationService
+                .isPermanentBaselineDispatchFailure(null)).isFalse();
+    }
+
+    @Test
     void namesTheFirstMissingPortFactInsteadOfHidingThePort() {
         UUID bagUid = UUID.fromString(
                 "00000000-0000-0000-0000-000000000001");

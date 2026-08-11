@@ -5,6 +5,8 @@ import jakarta.validation.Valid;
 import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.BaselineMeasurementAcceptedView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.BaselineMeasurementAttemptRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CreateDeviceAssetRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationAcceptedView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationApplicationView;
@@ -15,6 +17,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
@@ -76,6 +79,15 @@ public class PlatformDeviceAssetController {
         return noStore(application.platformAsset(hardwareSn), request);
     }
 
+    @GetMapping("/{hardwareSn}/technical-issues")
+    public ResponseEntity<TargetApiEnvelope<List<DeviceTechnicalIssueView>>>
+            technicalIssues(
+                    @PathVariable String hardwareSn,
+                    HttpServletRequest request) {
+        return noStore(application.platformTechnicalIssues(
+                hardwareSn), request);
+    }
+
     @PostMapping("/{hardwareSn}/tenant-assignments")
     public TargetApiEnvelope<DeviceAssetView> assignTenant(
             @RequestHeader("Idempotency-Key") UUID operationUid,
@@ -135,6 +147,26 @@ public class PlatformDeviceAssetController {
                 .cacheControl(CacheControl.noStore())
                 .body(ok(application.rollForwardPlatformConfiguration(
                         operationUid, hardwareSn, body), request));
+    }
+
+    @PostMapping("/{hardwareSn}/ports/{portNo}/baseline-measurement-attempts")
+    public ResponseEntity<TargetApiEnvelope<BaselineMeasurementAcceptedView>>
+            startBaselineMeasurement(
+                    @RequestHeader("Idempotency-Key") UUID operationUid,
+                    @PathVariable String hardwareSn,
+                    @PathVariable int portNo,
+                    @Valid @RequestBody BaselineMeasurementAttemptRequest body,
+                    HttpServletRequest request) {
+        BaselineMeasurementAcceptedView accepted =
+                application.startPlatformBaselineAttempt(
+                        operationUid,
+                        hardwareSn,
+                        portNo,
+                        body);
+        return ResponseEntity.accepted()
+                .location(URI.create(accepted.statusUrl()))
+                .cacheControl(CacheControl.noStore())
+                .body(ok(accepted, request));
     }
 
     @GetMapping("/{hardwareSn}/configuration-applications/{applicationUid}")

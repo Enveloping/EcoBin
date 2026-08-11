@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,6 +24,28 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ReliableOperationsJdbcRepositorySqlTest {
+
+    @Test
+    void bindsExpiredEvidenceBlockUpdateInSqlPlaceholderOrder() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+        ReliableOperationsJdbcRepository repository =
+                new ReliableOperationsJdbcRepository(jdbc);
+        LocalDateTime now = LocalDateTime.of(2026, 8, 11, 12, 0);
+
+        repository.blockExpiredDeviceEvidenceWait(7L, 3L, now);
+
+        var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        var argumentsCaptor = org.mockito.ArgumentCaptor
+                .forClass(Object[].class);
+        verify(jdbc).update(
+                sqlCaptor.capture(), argumentsCaptor.capture());
+        assertTrue(normalize(sqlCaptor.getValue()).contains(
+                "completed_at = ?"));
+        assertArrayEquals(
+                new Object[]{now, now, 7L, 3L},
+                argumentsCaptor.getValue());
+    }
 
     @Test
     void persistsTheRequestedTerminalDomainQuarantineReason() {

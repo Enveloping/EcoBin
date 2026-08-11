@@ -66,7 +66,7 @@ public class ApplyCleanCommandObservationService
                 observation.stage(),
                 observation.errorCode());
         LocalDateTime occurredAt = trustedOperationTime(
-                observation.occurredAt(), operation.createdAt());
+                observation.occurredAt(), operation.createdAt(), observation.receivedAt());
         switch (action) {
             case MARK_EDGE_SAVED -> markEdgeSaved(
                     observation, operation, occurredAt);
@@ -291,12 +291,15 @@ public class ApplyCleanCommandObservationService
                 operation.id());
     }
 
-    private static LocalDateTime trustedOperationTime(
+    static LocalDateTime trustedOperationTime(
             LocalDateTime occurredAt,
-            LocalDateTime createdAt) {
-        return occurredAt != null && !occurredAt.isBefore(createdAt)
+            LocalDateTime createdAt,
+            LocalDateTime receivedAt) {
+        return occurredAt != null
+                && !occurredAt.isBefore(createdAt)
+                && !occurredAt.isAfter(receivedAt)
                 ? occurredAt
-                : null;
+                : receivedAt;
     }
 
     private static void requireSingle(int updated, String action) {

@@ -24,10 +24,14 @@ class ReliableTaskResumptionPolicyTest {
     }
 
     @Test
-    void deviceConfigurationUsesItsSpecializedRecoveryEndpoint() {
+    void physicalStartsAndConfigurationUseSpecializedRecovery() {
         assertFalse(ReliableTaskResumptionPolicy.supported(
                 "DEVICE", "ENSURE_DEVICE_CONFIGURATION"));
-        assertTrue(ReliableTaskResumptionPolicy.supported(
+        assertFalse(ReliableTaskResumptionPolicy.supported(
                 "DEVICE", "START_DELIVERY_SESSION"));
+        assertFalse(ReliableTaskResumptionPolicy.supported(
+                "DEVICE", "START_CLEAN_OPERATION"));
+        assertTrue(ReliableTaskResumptionPolicy.supported(
+                "DEVICE", "SAMPLE_FULLNESS"));
     }
 }

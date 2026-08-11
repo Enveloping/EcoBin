@@ -12,8 +12,7 @@ final class ReliableTaskResumptionPolicy {
             "QUERY_MERCHANT_TRANSFER_AUTHORIZATION",
             "CANCEL_MERCHANT_TRANSFER", "PROCESS_INBOX");
     private static final Set<String> DEVICE_TYPES = Set.of(
-            "PROCESS_INBOX", "START_DELIVERY_SESSION",
-            "START_CLEAN_OPERATION", "SAMPLE_FULLNESS",
+            "PROCESS_INBOX", "SAMPLE_FULLNESS",
             "PROVIDE_PHOTO_UPLOAD_GRANT", "CONFIRM_EDGE_EVENT");
 
     private ReliableTaskResumptionPolicy() { }

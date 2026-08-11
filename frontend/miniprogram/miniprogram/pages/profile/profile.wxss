@@ -332,16 +332,31 @@
   inset: 0;
   display: flex;
   align-items: flex-end;
+  padding-bottom: calc(124rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
   background: rgba(11, 30, 18, .42);
 }
 
 .account-sheet {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-height: 76vh;
-  padding: 18rpx 30rpx calc(28rpx + env(safe-area-inset-bottom));
+  padding: 18rpx 30rpx 54rpx;
   box-sizing: border-box;
   background: #fff;
   border-radius: 32rpx 32rpx 0 0;
+}
+
+.account-sheet::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: calc(124rpx + env(safe-area-inset-bottom));
+  pointer-events: none;
+  background: #fff;
 }
 
 .account-sheet-head {

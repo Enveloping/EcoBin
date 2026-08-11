@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.AssertTrue;
 
 import java.time.Instant;
 import java.util.List;
@@ -98,6 +99,46 @@ public final class DeviceModels {
     public record DeviceControlRequest(
             @NotNull @Min(0) Long expectedVersion,
             @NotBlank @Size(max = 500) String reason) {
+    }
+
+    public record BaselineMeasurementAttemptRequest(
+            @NotNull UUID expectedLatestMeasurementUid,
+            @NotNull @AssertTrue Boolean causeFixedConfirmed,
+            @NotNull @AssertTrue Boolean emptyBagConfirmed,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
+    public record BaselineMeasurementAcceptedView(
+            UUID measurementUid,
+            UUID taskUid,
+            String state,
+            String statusUrl,
+            long recommendedPollAfterMs) {
+    }
+
+    public record DeviceTechnicalIssueView(
+            String issueUid,
+            String category,
+            String state,
+            String severity,
+            String code,
+            String title,
+            String description,
+            Integer portNo,
+            UUID taskUid,
+            UUID latestMeasurementUid,
+            String blockedReasonCode,
+            Integer httpStatus,
+            String externalErrorCode,
+            String diagnostic,
+            Integer automaticAttemptNo,
+            Integer automaticAttemptLimit,
+            Instant occurredAt,
+            List<String> nextActions) {
+
+        public DeviceTechnicalIssueView {
+            nextActions = List.copyOf(nextActions);
+        }
     }
 
     public record RuntimeSnapshotPolicyReleaseRequest(

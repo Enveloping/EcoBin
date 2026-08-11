@@ -1342,8 +1342,119 @@ public class ReliableOperationsJdbcRepository {
         requireSingleRow(updated, "schedule device evidence recheck");
     }
 
-    public int blockExpiredDeviceEvidenceWaits(LocalDateTime now) {
-        return jdbcTemplate.update("""
+    public List<BlockedDeviceCommandRow> lockExpiredDeviceEvidenceWaits(
+            LocalDateTime now) {
+        return jdbcTemplate.query("""
+                SELECT task.id AS task_id,
+                       task.task_type,
+                       task.wake_version,
+                       COALESCE(
+                           (
+                               SELECT command_row.command_uid
+                               FROM dev_device_command command_row
+                               WHERE command_row.id =
+                                   task.source_device_command_id
+                           ),
+                           CONVERT(JSON_UNQUOTE(JSON_EXTRACT(
+                               task.redacted_execution_snapshot,
+                               '$.commandUid')) USING ascii)
+                       ) AS command_uid
+                FROM ops_reliable_task task
+                WHERE task.state = 'PENDING'
+                  AND task.execution_lane = 'DEVICE'
+                  AND task.dispatch_wait_reason =
+                      'AWAITING_DEVICE_EVIDENCE'
+                  AND task.next_run_at <= ?
+                  AND task.lease_token IS NULL
+                ORDER BY task.id
+                LIMIT 100
+                FOR UPDATE
+                """,
+                (rs, ignored) -> new BlockedDeviceCommandRow(
+                        rs.getLong("task_id"),
+                        UUID.fromString(rs.getString("command_uid")),
+                        rs.getString("task_type"),
+                        rs.getLong("wake_version"),
+                        "DEVICE_EVIDENCE_TIMEOUT",
+                        now),
+                now);
+    }
+
+    public List<LegacyBaselineEvidenceWait>
+            lockLegacyBaselineEvidenceWaits(LocalDateTime now) {
+        return jdbcTemplate.query("""
+                SELECT task.id AS task_id,
+                       command_row.command_uid,
+                       task.task_type,
+                       task.wake_version,
+                       CAST(command_row.semantic_payload AS CHAR)
+                           AS semantic_envelope,
+                       COALESCE(
+                           (
+                               SELECT MAX(attempt.result_recorded_at)
+                               FROM ops_task_attempt attempt
+                               WHERE attempt.task_id = task.id
+                                 AND attempt.technical_result =
+                                     'TECHNICAL_SUCCESS'
+                           ),
+                           task.updated_at
+                       ) AS accepted_at
+                FROM ops_reliable_task task
+                JOIN dev_device_command command_row
+                  ON command_row.id = task.source_device_command_id
+                WHERE task.state = 'PENDING'
+                  AND task.execution_lane = 'DEVICE'
+                  AND task.task_type = 'MEASURE_EMPTY_BAG_BASELINE'
+                  AND task.dispatch_wait_reason =
+                      'AWAITING_DEVICE_EVIDENCE'
+                  AND task.lease_token IS NULL
+                  AND task.next_run_at > TIMESTAMPADD(MINUTE, 5, ?)
+                ORDER BY task.id
+                LIMIT 100
+                FOR UPDATE
+                """,
+                (rs, ignored) -> new LegacyBaselineEvidenceWait(
+                        rs.getLong("task_id"),
+                        UUID.fromString(rs.getString("command_uid")),
+                        rs.getString("task_type"),
+                        rs.getLong("wake_version"),
+                        rs.getString("semantic_envelope"),
+                        rs.getObject("accepted_at", LocalDateTime.class)),
+                now);
+    }
+
+    public void rescheduleLegacyBaselineEvidenceWait(
+            long taskId,
+            long wakeVersion,
+            LocalDateTime deadline,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
+                UPDATE ops_reliable_task
+                SET next_run_at = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                  AND state = 'PENDING'
+                  AND execution_lane = 'DEVICE'
+                  AND task_type = 'MEASURE_EMPTY_BAG_BASELINE'
+                  AND wake_version = ?
+                  AND dispatch_wait_reason =
+                      'AWAITING_DEVICE_EVIDENCE'
+                  AND lease_token IS NULL
+                """,
+                deadline,
+                now,
+                taskId,
+                wakeVersion);
+        requireSingleRow(
+                updated, "repair legacy baseline evidence deadline");
+    }
+
+    public void blockExpiredDeviceEvidenceWait(
+            long taskId,
+            long handledWakeVersion,
+            LocalDateTime now) {
+        int updated = jdbcTemplate.update("""
                 UPDATE ops_reliable_task
                 SET state = 'BLOCKED',
                     next_run_at = NULL,
@@ -1358,13 +1469,98 @@ public class ReliableOperationsJdbcRepository {
                         'OneNet accepted the command but no trusted device evidence arrived before the evidence deadline',
                     lock_version = lock_version + 1,
                     updated_at = ?
-                WHERE state = 'PENDING'
+                WHERE id = ?
+                  AND state = 'PENDING'
                   AND execution_lane = 'DEVICE'
+                  AND wake_version = ?
                   AND dispatch_wait_reason =
                       'AWAITING_DEVICE_EVIDENCE'
-                  AND next_run_at <= ?
                   AND lease_token IS NULL
-                """, now, now, now);
+                """,
+                now,
+                now,
+                taskId,
+                handledWakeVersion);
+        requireSingleRow(updated, "block expired device evidence wait");
+    }
+
+    public List<BlockedDeviceCommandRow>
+            lockUnalignedBlockedPhysicalCommands() {
+        return jdbcTemplate.query("""
+                SELECT task.id AS task_id,
+                       (
+                           SELECT command_row.command_uid
+                           FROM dev_device_command command_row
+                           WHERE command_row.id =
+                               task.source_device_command_id
+                       ) AS command_uid,
+                       task.task_type,
+                       task.wake_version,
+                       task.blocked_reason_code,
+                       task.completed_at
+                FROM ops_reliable_task task
+                WHERE task.state = 'BLOCKED'
+                  AND task.execution_lane = 'DEVICE'
+                  AND task.blocked_reason_code IS NOT NULL
+                  AND (
+                      (
+                          task.task_type = 'START_DELIVERY_SESSION'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM dev_device_command command_row
+                              JOIN dev_delivery_session delivery
+                                ON delivery.id =
+                                    command_row.delivery_session_id
+                              WHERE command_row.id =
+                                  task.source_device_command_id
+                                AND delivery.status IN (
+                                    'AUTHORIZATION_QUEUED',
+                                    'IN_PROGRESS'
+                                )
+                          )
+                      )
+                      OR (
+                          task.task_type = 'START_CLEAN_OPERATION'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM dev_device_command command_row
+                              JOIN rec_clean_operation clean_row
+                                ON clean_row.id =
+                                    command_row.clean_operation_id
+                              WHERE command_row.id =
+                                  task.source_device_command_id
+                                AND clean_row.status IN (
+                                    'PREPARED',
+                                    'EDGE_SAVED',
+                                    'IN_PROGRESS'
+                                )
+                          )
+                      )
+                      OR (
+                          task.task_type = 'MEASURE_EMPTY_BAG_BASELINE'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM dev_device_command command_row
+                              JOIN rec_port_baseline_measurement measurement
+                                ON measurement.id =
+                                    command_row.baseline_measurement_id
+                              WHERE command_row.id =
+                                  task.source_device_command_id
+                                AND measurement.status = 'PENDING'
+                          )
+                      )
+                  )
+                ORDER BY task.id
+                LIMIT 100
+                FOR UPDATE
+                """,
+                (rs, ignored) -> new BlockedDeviceCommandRow(
+                        rs.getLong("task_id"),
+                        UUID.fromString(rs.getString("command_uid")),
+                        rs.getString("task_type"),
+                        rs.getLong("wake_version"),
+                        rs.getString("blocked_reason_code"),
+                        rs.getObject("completed_at", LocalDateTime.class)));
     }
 
     public void cancelExpiredUnstartedDeviceTask(
@@ -2070,6 +2266,24 @@ public class ReliableOperationsJdbcRepository {
             UUID attemptLeaseToken,
             long claimedWakeVersion,
             String technicalResult) {
+    }
+
+    public record BlockedDeviceCommandRow(
+            long taskId,
+            UUID commandUid,
+            String commandType,
+            long wakeVersion,
+            String reasonCode,
+            LocalDateTime blockedAt) {
+    }
+
+    public record LegacyBaselineEvidenceWait(
+            long taskId,
+            UUID commandUid,
+            String commandType,
+            long wakeVersion,
+            String semanticEnvelopeJson,
+            LocalDateTime acceptedAt) {
     }
 
     private record WakeableTask(

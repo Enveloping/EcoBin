@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
@@ -23,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -107,14 +109,40 @@ public class AutomaticDeviceActivationService {
                        SELECT COUNT(*)
                        FROM rec_port_baseline_measurement previous
                        WHERE previous.port_id = port.id
-                         AND previous.status = 'FAILED'
-                   ) AS failed_measurements,
+                         AND previous.bag_id = current_bag.id
+                         AND previous.device_config_version_id =
+                             snapshot.config_version_id
+                         AND previous.initiator_kind = 'SYSTEM'
+                   ) AS system_attempts,
                    (
                        SELECT MAX(previous.completed_at)
                        FROM rec_port_baseline_measurement previous
                        WHERE previous.port_id = port.id
-                         AND previous.status = 'FAILED'
-                   ) AS last_failed_at
+                         AND previous.bag_id = current_bag.id
+                         AND previous.device_config_version_id =
+                             snapshot.config_version_id
+                         AND previous.initiator_kind = 'SYSTEM'
+                         AND previous.status IN (
+                             'FAILED', 'STALE_IGNORED',
+                             'TECHNICAL_ABORTED'
+                         )
+                   ) AS last_system_terminal_at,
+                   (
+                       SELECT previous.fault_code
+                       FROM rec_port_baseline_measurement previous
+                       WHERE previous.port_id = port.id
+                         AND previous.bag_id = current_bag.id
+                         AND previous.device_config_version_id =
+                             snapshot.config_version_id
+                         AND previous.initiator_kind = 'SYSTEM'
+                         AND previous.status IN (
+                             'FAILED', 'STALE_IGNORED',
+                             'TECHNICAL_ABORTED'
+                         )
+                       ORDER BY previous.completed_at DESC,
+                                previous.id DESC
+                       LIMIT 1
+                   ) AS latest_system_fault_code
             FROM dev_port port
             LEFT JOIN dev_factory_installed_bag factory_installation
               ON factory_installation.asset_id = port.asset_id
@@ -193,6 +221,138 @@ public class AutomaticDeviceActivationService {
         reconcile(assetId, UUID.randomUUID());
     }
 
+    /** Creates one administrator-owned initial-baseline attempt. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public BaselineAttempt createManualInitialBaseline(
+            String hardwareSn,
+            int portNo,
+            UUID expectedLatestMeasurementUid,
+            long platformAdminId,
+            UUID correlationUid) {
+        if (portNo < 1 || portNo > 6) {
+            throw invalidBaselineRequest("投口编号无效");
+        }
+        AssetFacts asset = lockAssignedAssetByHardwareSn(hardwareSn);
+        if (asset == null) {
+            throw new TargetApiException(
+                    404, "COMMON.RESOURCE_NOT_FOUND", "设备不存在或不可用");
+        }
+        ConfigurationFacts configuration = latestConfiguration(asset);
+        if (configuration == null
+                || !"APPLIED".equals(configuration.applicationStatus())) {
+            throw invalidBaselineState(
+                    "DEVICE.CONFIGURATION_NOT_APPLIED",
+                    "设备最新配置尚未生效，不能开始皮重测量");
+        }
+        jdbc.query(
+                LOCK_INITIAL_BASELINE_CAPACITY_SQL,
+                (rs, ignored) -> rs.getLong("port_id"),
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id());
+        PortBaselineFacts port = loadPortBaselineFacts(
+                asset, configuration).stream()
+                .filter(candidate -> candidate.portNo() == portNo)
+                .findFirst()
+                .orElseThrow(() -> invalidBaselineRequest("投口不存在"));
+        requireCompleteAutomaticBaselineFacts(port);
+        List<UUID> latestRows = jdbc.query("""
+                        SELECT measurement_uid
+                        FROM rec_port_baseline_measurement
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                        ORDER BY started_at DESC, id DESC
+                        LIMIT 1
+                        FOR UPDATE
+                        """,
+                (rs, ignored) -> UUID.fromString(
+                        rs.getString("measurement_uid")),
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id(),
+                port.portId());
+        UUID latest = latestRows.isEmpty() ? null : latestRows.getFirst();
+        if (!Objects.equals(latest, expectedLatestMeasurementUid)) {
+            throw new TargetApiException(
+                    409,
+                    "DEVICE.BASELINE_MEASUREMENT_CHANGED",
+                    "皮重测量状态已变化，请刷新后重试");
+        }
+        if (port.activeMeasurement()) {
+            throw invalidBaselineState(
+                    "DEVICE.BASELINE_MEASUREMENT_ACTIVE",
+                    "该投口已有进行中的皮重测量");
+        }
+        if (!requiresAutomaticInitialBaseline(
+                port.factoryBagId(),
+                port.currentBagId(),
+                port.capacityCurrentBagId(),
+                port.baselineState(),
+                port.currentBaselineId(),
+                port.currentBaselineBagId())) {
+            throw invalidBaselineState(
+                    "DEVICE.BASELINE_MANUAL_ATTEMPT_UNAVAILABLE",
+                    "当前袋已不是待验收的厂家空袋，或皮重已经有效");
+        }
+        Integer busy = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_device_occupancy
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                        """,
+                Integer.class,
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id());
+        Integer activeClean = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM rec_clean_operation
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                          AND status IN (
+                              'PREPARED', 'EDGE_SAVED', 'IN_PROGRESS',
+                              'RECOVERY_REQUIRED'
+                          )
+                        """,
+                Integer.class,
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id(),
+                port.portId());
+        Long pendingDelivery = jdbc.queryForObject("""
+                        SELECT pending_delivery_result_session_id
+                        FROM rec_port_capacity_state
+                        WHERE tenant_id = ?
+                          AND organization_id = ?
+                          AND asset_id = ?
+                          AND port_id = ?
+                        """,
+                Long.class,
+                asset.tenantId(),
+                asset.organizationId(),
+                asset.id(),
+                port.portId());
+        if ((busy != null && busy > 0)
+                || (activeClean != null && activeClean > 0)
+                || pendingDelivery != null) {
+            throw invalidBaselineState(
+                    "DEVICE.BASELINE_PORT_BUSY",
+                    "设备或投口仍有未结束作业，不能测量空袋皮重");
+        }
+        return createBaselineMeasurement(
+                asset,
+                configuration,
+                port,
+                correlationUid,
+                "PLATFORM_ADMIN",
+                platformAdminId);
+    }
+
     private void reconcile(long assetId, UUID correlationUid) {
         AssetFacts asset = lockAssignedAsset(assetId);
         if (asset == null) {
@@ -244,6 +404,17 @@ public class AutomaticDeviceActivationService {
             return null;
         }
         return asset;
+    }
+
+    private AssetFacts lockAssignedAssetByHardwareSn(String hardwareSn) {
+        List<Long> rows = jdbc.query("""
+                        SELECT id
+                        FROM dev_device_asset
+                        WHERE hardware_sn = ?
+                        """,
+                (rs, ignored) -> rs.getLong("id"),
+                hardwareSn);
+        return rows.size() == 1 ? lockAssignedAsset(rows.getFirst()) : null;
     }
 
     private ConfigurationFacts latestConfiguration(AssetFacts asset) {
@@ -540,7 +711,50 @@ public class AutomaticDeviceActivationService {
                 asset.organizationId(),
                 asset.id());
 
-        List<PortBaselineFacts> ports = jdbc.query(
+        List<PortBaselineFacts> ports = loadPortBaselineFacts(
+                asset, configuration);
+        if (ports.size() != asset.portCount()) {
+            throw new IllegalStateException(
+                    "automatic device port count differs expected="
+                            + asset.portCount()
+                            + " actual=" + ports.size());
+        }
+        for (PortBaselineFacts port : ports) {
+            requireCompleteAutomaticBaselineFacts(port);
+            if (!requiresAutomaticInitialBaseline(
+                    port.factoryBagId(),
+                    port.currentBagId(),
+                    port.capacityCurrentBagId(),
+                    port.baselineState(),
+                    port.currentBaselineId(),
+                    port.currentBaselineBagId())) {
+                continue;
+            }
+            if (port.activeMeasurement()) {
+                continue;
+            }
+            if (port.systemAttempts() >= 4
+                    || isPermanentBaselineDispatchFailure(
+                    port.latestSystemFaultCode())) {
+                continue;
+            }
+            if (!baselineRetryDue(port, databaseNow())) {
+                continue;
+            }
+            createBaselineMeasurement(
+                    asset,
+                    configuration,
+                    port,
+                    correlationUid,
+                    "SYSTEM",
+                    null);
+        }
+    }
+
+    private List<PortBaselineFacts> loadPortBaselineFacts(
+            AssetFacts asset,
+            ConfigurationFacts configuration) {
+        return jdbc.query(
                 LOAD_INITIAL_BASELINE_FACTS_SQL,
                 (rs, ignored) -> new PortBaselineFacts(
                         rs.getLong("port_id"),
@@ -562,48 +776,23 @@ public class AutomaticDeviceActivationService {
                         rs.getLong("fullness_confirmation_wait_ms"),
                         rs.getLong("weight_measurement_timeout_ms"),
                         rs.getBoolean("active_measurement"),
-                        rs.getInt("failed_measurements"),
-                        nullableLocalDateTime(rs, "last_failed_at")),
+                        rs.getInt("system_attempts"),
+                        nullableLocalDateTime(
+                                rs, "last_system_terminal_at"),
+                        rs.getString("latest_system_fault_code")),
                 configuration.configurationId(),
                 asset.tenantId(),
                 asset.organizationId(),
                 asset.id());
-        if (ports.size() != asset.portCount()) {
-            throw new IllegalStateException(
-                    "automatic device port count differs expected="
-                            + asset.portCount()
-                            + " actual=" + ports.size());
-        }
-        for (PortBaselineFacts port : ports) {
-            requireCompleteAutomaticBaselineFacts(port);
-            if (!requiresAutomaticInitialBaseline(
-                    port.factoryBagId(),
-                    port.currentBagId(),
-                    port.capacityCurrentBagId(),
-                    port.baselineState(),
-                    port.currentBaselineId(),
-                    port.currentBaselineBagId())) {
-                continue;
-            }
-            if (port.activeMeasurement()) {
-                continue;
-            }
-            if (!baselineRetryDue(port, databaseNow())) {
-                continue;
-            }
-            createBaselineMeasurement(
-                    asset,
-                    configuration,
-                    port,
-                    correlationUid);
-        }
     }
 
-    private void createBaselineMeasurement(
+    private BaselineAttempt createBaselineMeasurement(
             AssetFacts asset,
             ConfigurationFacts configuration,
             PortBaselineFacts port,
-            UUID correlationUid) {
+            UUID correlationUid,
+            String initiatorKind,
+            Long platformAdminId) {
         LocalDateTime now = databaseNow();
         UUID measurementUid = UUID.randomUUID();
         byte[] ruleFingerprint = fullnessRuleFingerprint(port);
@@ -621,7 +810,7 @@ public class AutomaticDeviceActivationService {
                     created_at, updated_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    'SYSTEM', NULL, NULL,
+                    ?, ?, NULL,
                     'PENDING', NULL, NULL, NULL, NULL,
                     ?, NULL, 0, ?, ?
                 )
@@ -636,6 +825,8 @@ public class AutomaticDeviceActivationService {
                 port.snapshotId(),
                 port.capacityVersion(),
                 ruleFingerprint,
+                initiatorKind,
+                platformAdminId,
                 now,
                 now,
                 now);
@@ -690,7 +881,8 @@ public class AutomaticDeviceActivationService {
                 BASELINE_TARGET_TYPE,
                 measurementUid,
                 envelopeSha256);
-        taskRegistration.register(new ReliableDeviceTaskRegistration(
+        UUID taskUid = taskRegistration.register(
+                new ReliableDeviceTaskRegistration(
                 BASELINE_TASK_TYPE,
                 BASELINE_TASK_TYPE + ":"
                         + measurementUid.toString().toUpperCase(Locale.ROOT),
@@ -709,6 +901,7 @@ public class AutomaticDeviceActivationService {
                 12,
                 false,
                 now));
+        return new BaselineAttempt(measurementUid, taskUid);
     }
 
     private long insertCommand(
@@ -939,13 +1132,30 @@ public class AutomaticDeviceActivationService {
     private static boolean baselineRetryDue(
             PortBaselineFacts port,
             LocalDateTime now) {
-        if (port.failedMeasurements() == 0
-                || port.lastFailedAt() == null) {
+        if (port.systemAttempts() == 0
+                || port.lastSystemTerminalAt() == null) {
             return true;
         }
-        int exponent = Math.min(port.failedMeasurements() - 1, 7);
-        long delaySeconds = Math.min(3_600L, 30L << exponent);
-        return !now.isBefore(port.lastFailedAt().plusSeconds(delaySeconds));
+        int exponent = Math.min(port.systemAttempts() - 1, 2);
+        long delaySeconds = 30L << exponent;
+        return !now.isBefore(
+                port.lastSystemTerminalAt().plusSeconds(delaySeconds));
+    }
+
+    static boolean isPermanentBaselineDispatchFailure(String faultCode) {
+        return "DEVICE_IDENTITY_UNRESOLVED".equals(faultCode)
+                || "PERMANENT_TECHNICAL_FAILURE".equals(faultCode);
+    }
+
+    private static TargetApiException invalidBaselineRequest(String message) {
+        return new TargetApiException(
+                400, "COMMON.INVALID_REQUEST", message);
+    }
+
+    private static TargetApiException invalidBaselineState(
+            String code,
+            String message) {
+        return new TargetApiException(422, code, message);
     }
 
     static boolean requiresAutomaticInitialBaseline(
@@ -1016,7 +1226,11 @@ public class AutomaticDeviceActivationService {
             long fullnessConfirmationWaitMs,
             long measurementTimeoutMs,
             boolean activeMeasurement,
-            int failedMeasurements,
-            LocalDateTime lastFailedAt) {
+            int systemAttempts,
+            LocalDateTime lastSystemTerminalAt,
+            String latestSystemFaultCode) {
+    }
+
+    public record BaselineAttempt(UUID measurementUid, UUID taskUid) {
     }
 }

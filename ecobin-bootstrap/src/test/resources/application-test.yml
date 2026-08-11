@@ -12,6 +12,8 @@ ecobin:
   device:
     activation:
       scheduler-enabled: false
+    delivery-observation-reconciliation:
+      scheduler-enabled: false
   development:
     default-platform-admin:
       enabled: false

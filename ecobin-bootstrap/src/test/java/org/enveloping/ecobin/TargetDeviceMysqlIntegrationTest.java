@@ -4,6 +4,10 @@ import jakarta.servlet.http.Cookie;
 import org.enveloping.ecobin.device.api.port.ReliableDeviceCommandSubmissionPort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmission;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.device.application.delivery.DeliveryCommandObservationReconciliationItemService;
+import org.enveloping.ecobin.device.application.delivery.DeliveryCommandObservationReconciliationScheduler;
+import org.enveloping.ecobin.device.application.target.AutomaticDeviceActivationScheduler;
+import org.enveloping.ecobin.device.application.target.TargetDeviceApplication;
 import org.enveloping.ecobin.framework.reliability.TrustedInboxScopeResolver;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxExecutionLane;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxMessage;
@@ -11,6 +15,7 @@ import org.enveloping.ecobin.operations.api.inbox.TrustedInboxPort;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceipt;
 import org.enveloping.ecobin.operations.api.inbox.TrustedInboxReceiptState;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceInboxWorkerPort;
+import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.recycling.application.bag.Eb1BagCodeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -67,6 +73,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.external.fake.block-inbound=true",
         "ecobin.operations.reliable.workers-enabled=false",
         "ecobin.device.activation.scheduler-enabled=false",
+        "ecobin.device.delivery-observation-reconciliation.scheduler-enabled=false",
         "ecobin.miniapp.device-entry-base-url=https://example.test/ecobin/device",
         "ecobin.development.default-platform-admin.enabled=false",
         "ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
@@ -100,6 +107,8 @@ class TargetDeviceMysqlIntegrationTest {
     private ReliableDeviceInboxWorkerPort deviceInboxWorker;
     @Autowired
     private Eb1BagCodeService bagCodeService;
+    @Autowired
+    private ReliableOperationsJdbcRepository reliableOperationsRepository;
 
     private String run;
     private String platformLogin;
@@ -124,6 +133,25 @@ class TargetDeviceMysqlIntegrationTest {
                 UUID.randomUUID().toString(),
                 platformLogin,
                 passwordEncoder.encode(PLATFORM_PASSWORD));
+    }
+
+    @Test
+    void reconciliationCandidateQueriesAreValidOnMysql() {
+        TargetDeviceApplication application =
+                mock(TargetDeviceApplication.class);
+
+        new AutomaticDeviceActivationScheduler(jdbc, application)
+                .reconcileIncompleteAssets();
+        new DeliveryCommandObservationReconciliationScheduler(
+                jdbc,
+                mock(DeliveryCommandObservationReconciliationItemService.class))
+                .reconcileHistoricalDeliveryObservations();
+        assertTrue(reliableOperationsRepository
+                .lockLegacyBaselineEvidenceWaits(
+                        jdbc.queryForObject(
+                                "SELECT CURRENT_TIMESTAMP(3)",
+                                java.time.LocalDateTime.class))
+                .isEmpty());
     }
 
     @Test

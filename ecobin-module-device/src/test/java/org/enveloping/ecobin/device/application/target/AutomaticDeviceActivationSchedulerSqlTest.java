@@ -22,7 +22,7 @@ class AutomaticDeviceActivationSchedulerSqlTest {
     }
 
     @Test
-    void retriesFactoryBaselineOnlyWhileFactoryBagStillOccupiesPort() {
+    void selectsOnlyRetryableFactoryBaselineGenerations() {
         String sql = AutomaticDeviceActivationScheduler
                 .FIND_INCOMPLETE_ASSET_IDS_SQL
                 .toUpperCase(Locale.ROOT);
@@ -32,7 +32,14 @@ class AutomaticDeviceActivationSchedulerSqlTest {
                         "JOIN REC_BAG FACTORY_BAG",
                         "JOIN REC_BAG_CURRENT_OCCUPANCY CURRENT_OCCUPANCY",
                         "CURRENT_OCCUPANCY.BAG_ID = FACTORY_BAG.ID",
-                        "FACTORY_INSTALLATION.TARE_STATUS <> 'READY'")
+                        "CAPACITY.CURRENT_BAG_ID = FACTORY_BAG.ID",
+                        "CAPACITY.BASELINE_STATE <> 'VALID'",
+                        "APPLICATION.STATUS = 'APPLIED'",
+                        "ATTEMPTED.INITIATOR_KIND = 'SYSTEM'",
+                        ") < 4",
+                        "ACTIVE.STATUS = 'PENDING'",
+                        "'DEVICE_IDENTITY_UNRESOLVED'",
+                        "'PERMANENT_TECHNICAL_FAILURE'")
                 .doesNotContain("FROM DEV_FACTORY_INSTALLED_BAG BAG");
     }
 }

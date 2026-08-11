@@ -190,7 +190,11 @@ public class MiniappDeliveryQueryService {
                 .ConfirmedFullnessState.FULL) {
             blockers.add(PORT_FULL);
         }
-        if (facts.currentBagPresent()
+        // 配置未精确应用时，设备模块按契约隐藏模式；查询只保留阻断，
+        // 不能把这个展示态空值传给开始投递使用的严格代际策略。
+        if (fullnessMode == null) {
+            blockers.add(CONFIGURATION_NOT_APPLIED);
+        } else if (facts.currentBagPresent()
                 && CurrentPortGenerationPolicy
                 .requiresWeightBaseline(fullnessMode)
                 && facts.baselineState()

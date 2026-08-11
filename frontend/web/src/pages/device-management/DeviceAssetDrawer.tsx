@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Descriptions,
   Divider,
   Drawer,
@@ -35,15 +36,18 @@ import {
   listDeviceAcceptanceEvidence,
   listDeviceConfigurationVersions,
   listPlatformDeviceConfigurationVersions,
+  listPlatformDeviceTechnicalIssues,
   releaseDeviceConfiguration,
   resynchronizePlatformDeviceConfiguration,
   rollForwardPlatformDeviceConfiguration,
+  startPlatformBaselineMeasurementAttempt,
   type DeviceAcceptanceEvidence,
   type DeviceAsset,
   type DeviceConfigurationApplication,
   type DeviceConfigurationReleaseRequest,
   type DeviceConfigurationVersion,
   type DeviceConfigurationVersionSummary,
+  type DeviceTechnicalIssue,
 } from '@/api/deviceDirectory';
 import { ApiProblem } from '@/api/request';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -92,7 +96,28 @@ interface PlatformConfigurationRecovery {
   reason: string;
 }
 
+interface ManualBaselineAttempt {
+  causeFixedConfirmed: boolean;
+  emptyBagConfirmed: boolean;
+  reason: string;
+}
+
 type PlatformRecoveryKind = 'roll-forward' | 'resynchronize';
+
+type TechnicalIssueLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
+interface TechnicalIssueLoadState {
+  status: TechnicalIssueLoadStatus;
+  data: DeviceTechnicalIssue[];
+  error?: string;
+  hasLoaded: boolean;
+}
+
+const EMPTY_TECHNICAL_ISSUE_LOAD: TechnicalIssueLoadState = {
+  status: 'idle',
+  data: [],
+  hasLoaded: false,
+};
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiProblem) {
@@ -213,20 +238,28 @@ export default function DeviceAssetDrawer({
   const executeCommand = useCommandExecutor();
   const [configForm] = Form.useForm<DailyConfigurationEdits>();
   const [recoveryForm] = Form.useForm<PlatformConfigurationRecovery>();
+  const [baselineForm] = Form.useForm<ManualBaselineAttempt>();
   const [evidence, setEvidence] = useState<DeviceAcceptanceEvidence[]>([]);
+  const [technicalIssueLoad, setTechnicalIssueLoad] =
+    useState<TechnicalIssueLoadState>(EMPTY_TECHNICAL_ISSUE_LOAD);
   const [versions, setVersions] = useState<DeviceConfigurationVersionSummary[]>([]);
   const [latestVersion, setLatestVersion] = useState<DeviceConfigurationVersion>();
   const [latestApplication, setLatestApplication] =
     useState<DeviceConfigurationApplication>();
   const [loadingEvidence, setLoadingEvidence] = useState(false);
+  const technicalIssueRequest = useRef(0);
   const [loadingConfiguration, setLoadingConfiguration] = useState(false);
   const [configurationModalOpen, setConfigurationModalOpen] = useState(false);
   const [recoveryKind, setRecoveryKind] = useState<PlatformRecoveryKind>();
   const [submitting, setSubmitting] = useState(false);
   const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [baselineSubmitting, setBaselineSubmitting] = useState(false);
+  const [baselineIssue, setBaselineIssue] = useState<DeviceTechnicalIssue>();
   const [reevaluating, setReevaluating] = useState(false);
   const [entryQrDataUrl, setEntryQrDataUrl] = useState<string>();
   const [entryQrError, setEntryQrError] = useState(false);
+  const technicalIssues = technicalIssueLoad.data;
+  const loadingTechnicalIssues = technicalIssueLoad.status === 'loading';
 
   const canConfigure = Boolean(asset) && (
     (mode === 'organization' && Boolean(organizationCode))
@@ -242,6 +275,34 @@ export default function DeviceAssetDrawer({
       message.error(errorMessage(error));
     } finally {
       setLoadingEvidence(false);
+    }
+  };
+
+  const loadTechnicalIssues = async () => {
+    if (!asset || mode !== 'platform') return;
+    const requestId = ++technicalIssueRequest.current;
+    setTechnicalIssueLoad((current) => ({
+      ...current,
+      status: 'loading',
+      error: undefined,
+    }));
+    try {
+      const data = await listPlatformDeviceTechnicalIssues(asset.hardwareSn);
+      if (technicalIssueRequest.current !== requestId) return;
+      setTechnicalIssueLoad({
+        status: 'loaded',
+        data,
+        hasLoaded: true,
+      });
+    } catch (error) {
+      if (technicalIssueRequest.current !== requestId) return;
+      const readableError = errorMessage(error);
+      setTechnicalIssueLoad((current) => ({
+        ...current,
+        status: 'error',
+        error: readableError,
+      }));
+      message.error(readableError);
     }
   };
 
@@ -295,12 +356,16 @@ export default function DeviceAssetDrawer({
   };
 
   useEffect(() => {
+    technicalIssueRequest.current += 1;
     if (!open) return;
     setEvidence([]);
+    setTechnicalIssueLoad(EMPTY_TECHNICAL_ISSUE_LOAD);
     setVersions([]);
     setLatestVersion(undefined);
     setLatestApplication(undefined);
+    setBaselineIssue(undefined);
     void loadEvidence();
+    void loadTechnicalIssues();
     void loadConfiguration();
     // The stable identities below intentionally define a new drawer target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -361,7 +426,7 @@ export default function DeviceAssetDrawer({
               setReevaluating(true);
               try {
                 await onReevaluateAcceptance(asset);
-                await loadEvidence();
+                await Promise.all([loadEvidence(), loadTechnicalIssues()]);
               } finally {
                 setReevaluating(false);
               }
@@ -496,7 +561,7 @@ export default function DeviceAssetDrawer({
         message.success(`已重新提交 v${latestVersion.versionNo} 下发任务`);
       }
       setRecoveryKind(undefined);
-      await loadConfiguration();
+      await Promise.all([loadConfiguration(), loadTechnicalIssues()]);
       onChanged();
     } catch (error) {
       message.error(errorMessage(error));
@@ -504,6 +569,112 @@ export default function DeviceAssetDrawer({
       setRecoverySubmitting(false);
     }
   };
+
+  const openManualBaselineAttempt = (issue: DeviceTechnicalIssue) => {
+    if (issue.portNo == null || !issue.latestMeasurementUid) return;
+    baselineForm.setFieldsValue({
+      causeFixedConfirmed: false,
+      emptyBagConfirmed: false,
+      reason: '',
+    });
+    setBaselineIssue(issue);
+  };
+
+  const submitManualBaselineAttempt = async () => {
+    if (
+      !asset
+      || !baselineIssue
+      || baselineIssue.portNo == null
+      || !baselineIssue.latestMeasurementUid
+    ) return;
+    const values = await baselineForm.validateFields();
+    const payload = {
+      expectedLatestMeasurementUid: baselineIssue.latestMeasurementUid,
+      causeFixedConfirmed: true as const,
+      emptyBagConfirmed: true as const,
+      reason: values.reason,
+    };
+    setBaselineSubmitting(true);
+    try {
+      await executeCommand(
+        commandKey(
+          'device.baseline.manual-attempt',
+          `${asset.hardwareSn}:${baselineIssue.portNo}`,
+          payload,
+        ),
+        (intent) => startPlatformBaselineMeasurementAttempt(
+          asset.hardwareSn,
+          baselineIssue.portNo!,
+          payload,
+          intent,
+        ),
+      );
+      message.success(
+        `已为 ${baselineIssue.portNo} 号投口创建新的皮重测量代际`,
+      );
+      setBaselineIssue(undefined);
+      await loadTechnicalIssues();
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setBaselineSubmitting(false);
+    }
+  };
+
+  const reevaluateAcceptanceFromIssue = async () => {
+    if (!asset) return;
+    setReevaluating(true);
+    try {
+      await onReevaluateAcceptance(asset);
+      await Promise.all([loadEvidence(), loadTechnicalIssues()]);
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setReevaluating(false);
+    }
+  };
+
+  const issueActions = (issue: DeviceTechnicalIssue) => (
+    <Space wrap>
+      {issue.nextActions.includes('REEVALUATE_ACCEPTANCE') && (
+        <Button
+          size="small"
+          loading={reevaluating}
+          onClick={() => void reevaluateAcceptanceFromIssue()}
+        >
+          重新读取验收证据
+        </Button>
+      )}
+      {issue.nextActions.includes('RESYNCHRONIZE_CONFIGURATION') && (
+        <Button
+          size="small"
+          disabled={!latestApplication}
+          onClick={() => openPlatformRecovery('resynchronize')}
+        >
+          重新下发当前配置
+        </Button>
+      )}
+      {issue.nextActions.includes('PUBLISH_NEW_CONFIGURATION') && (
+        <Button
+          size="small"
+          type="primary"
+          disabled={!latestVersion}
+          onClick={() => openPlatformRecovery('roll-forward')}
+        >
+          发布修复版本
+        </Button>
+      )}
+      {issue.nextActions.includes('START_MANUAL_BASELINE_MEASUREMENT') && (
+        <Button
+          size="small"
+          type="primary"
+          onClick={() => openManualBaselineAttempt(issue)}
+        >
+          现场确认后重新测量
+        </Button>
+      )}
+    </Space>
+  );
 
   return (
     <>
@@ -606,6 +777,144 @@ export default function DeviceAssetDrawer({
 
             {mode === 'platform' && (
               <section>
+                <Space
+                  align="center"
+                  style={{
+                    width: '100%',
+                    justifyContent: 'space-between',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Space>
+                    <SafetyCertificateOutlined />
+                    <Typography.Title level={5} style={{ margin: 0 }}>
+                      设备问题与安全恢复
+                    </Typography.Title>
+                  </Space>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={loadingTechnicalIssues}
+                    onClick={() => void loadTechnicalIssues()}
+                  >
+                    刷新
+                  </Button>
+                </Space>
+                <Spin spinning={loadingTechnicalIssues}>
+                  {technicalIssueLoad.status === 'error' && (
+                    <Alert
+                      type={technicalIssueLoad.hasLoaded ? 'warning' : 'error'}
+                      showIcon
+                      style={{ marginBottom: technicalIssues.length ? 12 : 0 }}
+                      message={technicalIssueLoad.hasLoaded
+                        ? '设备问题刷新失败'
+                        : '设备问题加载失败'}
+                      description={(
+                        <Space direction="vertical" size={8}>
+                          <Typography.Text>
+                            {technicalIssueLoad.hasLoaded
+                              ? '以下内容可能已过期，请重试后再判断设备当前状态。'
+                              : '暂时无法判断设备是否健康，请重试加载。'}
+                          </Typography.Text>
+                          {technicalIssueLoad.error && (
+                            <Typography.Text type="secondary">
+                              {technicalIssueLoad.error}
+                            </Typography.Text>
+                          )}
+                          <Button
+                            size="small"
+                            onClick={() => void loadTechnicalIssues()}
+                          >
+                            重试加载
+                          </Button>
+                        </Space>
+                      )}
+                    />
+                  )}
+                  {technicalIssueLoad.status === 'loaded'
+                    && !technicalIssues.length ? (
+                    <Alert
+                      type="success"
+                      showIcon
+                      message="当前没有需要平台处理的设备问题"
+                      description="系统仍会继续监测验收、配置、投递、清运和初始空袋皮重。"
+                    />
+                    ) : null}
+                  {technicalIssueLoad.hasLoaded
+                    && technicalIssues.length > 0 && (
+                    <List
+                      split={false}
+                      dataSource={technicalIssues}
+                      renderItem={(issue) => (
+                        <List.Item style={{ padding: '6px 0' }}>
+                          <Alert
+                            style={{ width: '100%' }}
+                            showIcon
+                            type={issue.severity === 'CRITICAL'
+                              ? 'error'
+                              : issue.severity === 'WARNING'
+                                ? 'warning'
+                                : 'info'}
+                            message={(
+                              <Space wrap>
+                                <Typography.Text strong>
+                                  {issue.title}
+                                </Typography.Text>
+                                <Tag>{issue.state}</Tag>
+                                {issue.portNo != null && (
+                                  <Tag>{issue.portNo} 号投口</Tag>
+                                )}
+                              </Space>
+                            )}
+                            description={(
+                              <Space
+                                direction="vertical"
+                                size={8}
+                                style={{ width: '100%' }}
+                              >
+                                <Typography.Text>
+                                  {issue.description}
+                                </Typography.Text>
+                                <Typography.Text
+                                  type="secondary"
+                                  style={{ fontSize: 12 }}
+                                >
+                                  问题代码：{issue.code}
+                                  {issue.automaticAttemptNo != null
+                                    && issue.automaticAttemptLimit != null
+                                    ? ` · 系统测量 ${issue.automaticAttemptNo}/${issue.automaticAttemptLimit}`
+                                    : ''}
+                                  {issue.occurredAt
+                                    ? ` · ${formatShanghaiTime(issue.occurredAt)}`
+                                    : ''}
+                                </Typography.Text>
+                                {issue.diagnostic && (
+                                  <Typography.Text
+                                    type="secondary"
+                                    code
+                                    style={{ fontSize: 12 }}
+                                  >
+                                    {issue.diagnostic}
+                                  </Typography.Text>
+                                )}
+                                {issueActions(issue)}
+                              </Space>
+                            )}
+                          />
+                        </List.Item>
+                      )}
+                    />
+                    )}
+                  {loadingTechnicalIssues
+                    && !technicalIssueLoad.hasLoaded && (
+                    <div style={{ minHeight: 56 }} aria-label="正在加载设备问题" />
+                    )}
+                </Spin>
+              </section>
+            )}
+
+            {mode === 'platform' && (
+              <section>
                 <Space style={{ marginBottom: 12 }}>
                   <SafetyCertificateOutlined />
                   <Typography.Title level={5} style={{ margin: 0 }}>
@@ -686,9 +995,9 @@ export default function DeviceAssetDrawer({
                   message={mode === 'platform'
                     ? '两种恢复操作处理的问题不同'
                     : '安装、通电和联网后无需机构确认'}
-                  description={mode === 'platform'
-                    ? '“重新下发”只适用于命令尚未到达设备的传输阻断；设备已接收或已经明确失败时，排除故障后必须发布更高的修复版本。'
-                    : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
+                      description={mode === 'platform'
+                        ? '“重新下发”只适用于命令尚未到达设备的传输阻断；同版本但摘要不同属于内容冲突，设备已接收或已经明确失败时，排除故障后都必须发布更高的修复版本。'
+                        : '系统会自动下发配置并测量厂家初始袋皮重；这里仅用于日常改价或调整投口配置。'}
                 />
                 {mode === 'platform' && latestApplication?.lastFailureCode && (
                   <Alert
@@ -861,6 +1170,55 @@ export default function DeviceAssetDrawer({
             name="reason"
             label="操作原因"
             rules={[{ required: true, message: '请说明本次配置恢复原因' }]}
+          >
+            <Input.TextArea maxLength={500} showCount rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`${baselineIssue?.portNo ?? '-'} 号投口：重新测量空袋皮重`}
+        open={Boolean(baselineIssue)}
+        confirmLoading={baselineSubmitting}
+        onOk={() => void submitManualBaselineAttempt()}
+        onCancel={() => setBaselineIssue(undefined)}
+        okText="创建新的测量代际"
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="这不是重放上一条失败命令"
+          description="系统会结束保留上一代失败事实，并创建全新的皮重测量和设备命令。只有现场已排除故障且厂家袋仍为空时才能执行。"
+          style={{ marginBottom: 20 }}
+        />
+        <Form form={baselineForm} layout="vertical">
+          <Form.Item
+            name="causeFixedConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认已排除上次失败原因')),
+            }]}
+          >
+            <Checkbox>我已检查并排除上次失败原因</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="emptyBagConfirmed"
+            valuePropName="checked"
+            rules={[{
+              validator: (_, value) => value
+                ? Promise.resolve()
+                : Promise.reject(new Error('请先确认当前厂家袋为空')),
+            }]}
+          >
+            <Checkbox>我已确认投口中的厂家预装袋仍为空</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="reason"
+            label="现场处理说明"
+            rules={[{ required: true, message: '请记录检查和处理结果' }]}
           >
             <Input.TextArea maxLength={500} showCount rows={3} />
           </Form.Item>

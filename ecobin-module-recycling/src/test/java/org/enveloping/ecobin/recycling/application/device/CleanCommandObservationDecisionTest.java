@@ -2,11 +2,36 @@ package org.enveloping.ecobin.recycling.application.device;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.enveloping.ecobin.recycling.application.device.CleanCommandObservationDecision.Action;
 
 class CleanCommandObservationDecisionTest {
+
+    @Test
+    void commandTimesUseOnlyDeviceValuesBoundedByBusinessAndReceipt() {
+        LocalDateTime createdAt = LocalDateTime.of(
+                2026, 8, 11, 12, 0);
+        LocalDateTime receivedAt = createdAt.plusSeconds(5);
+        LocalDateTime valid = createdAt.plusSeconds(2);
+
+        assertThat(ApplyCleanCommandObservationService
+                .trustedOperationTime(valid, createdAt, receivedAt))
+                .isEqualTo(valid);
+        assertThat(ApplyCleanCommandObservationService
+                .trustedOperationTime(null, createdAt, receivedAt))
+                .isEqualTo(receivedAt);
+        assertThat(ApplyCleanCommandObservationService
+                .trustedOperationTime(
+                        createdAt.minusSeconds(1), createdAt, receivedAt))
+                .isEqualTo(receivedAt);
+        assertThat(ApplyCleanCommandObservationService
+                .trustedOperationTime(
+                        receivedAt.plusSeconds(1), createdAt, receivedAt))
+                .isEqualTo(receivedAt);
+    }
 
     @Test
     void projectsTrustedStartStagesToMonotonicSafetyActions() {

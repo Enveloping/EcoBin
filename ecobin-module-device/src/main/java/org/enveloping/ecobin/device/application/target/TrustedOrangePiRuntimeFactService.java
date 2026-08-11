@@ -1,5 +1,6 @@
 package org.enveloping.ecobin.device.application.target;
 
+import org.enveloping.ecobin.device.application.delivery.ApplyDeliveryCommandObservationService;
 import org.enveloping.ecobin.device.api.port.ApplyTrustedPhotoStatusBusinessPort;
 import org.enveloping.ecobin.device.api.port.TrustedCleanCommandObservationBusinessPort;
 import org.enveloping.ecobin.device.api.port.TrustedEdgeRestartedBusinessPort;
@@ -203,6 +204,10 @@ public class TrustedOrangePiRuntimeFactService
     private final TrustedOrganizationInboxRefFactory inboxRefFactory;
     private final ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness;
     private final ReliablePhotoUploadGrantService photoUploadGrants;
+    private final ApplyDeliveryCommandObservationService
+            deliveryCommandObservation;
+    private final BaselineMeasurementTechnicalAbortService
+            baselineTechnicalAborts;
     private final List<TrustedCleanCommandObservationBusinessPort>
             cleanCommandObservationBusinessPorts;
     private final List<TrustedEdgeRestartedBusinessPort>
@@ -217,6 +222,10 @@ public class TrustedOrangePiRuntimeFactService
             TrustedOrganizationInboxRefFactory inboxRefFactory,
             ApplyTrustedPhotoStatusBusinessPort photoStatusBusiness,
             ReliablePhotoUploadGrantService photoUploadGrants,
+            ApplyDeliveryCommandObservationService
+                    deliveryCommandObservation,
+            BaselineMeasurementTechnicalAbortService
+                    baselineTechnicalAborts,
             List<TrustedCleanCommandObservationBusinessPort>
                     cleanCommandObservationBusinessPorts,
             List<TrustedEdgeRestartedBusinessPort>
@@ -229,6 +238,8 @@ public class TrustedOrangePiRuntimeFactService
         this.inboxRefFactory = inboxRefFactory;
         this.photoStatusBusiness = photoStatusBusiness;
         this.photoUploadGrants = photoUploadGrants;
+        this.deliveryCommandObservation = deliveryCommandObservation;
+        this.baselineTechnicalAborts = baselineTechnicalAborts;
         this.cleanCommandObservationBusinessPorts = List.copyOf(
                 cleanCommandObservationBusinessPorts);
         this.edgeRestartedBusinessPorts = List.copyOf(
@@ -797,13 +808,10 @@ public class TrustedOrangePiRuntimeFactService
                     "baseline result does not resolve its frozen intent");
         }
         BaselineTarget target = rows.getFirst();
-        if (!"PENDING".equals(target.measurementStatus())
-                || Set.of(
-                        "PHYSICAL_SUCCEEDED",
-                        "PHYSICAL_FAILED",
-                        "PRE_START_FAILED",
-                        "EDGE_RESTARTED")
-                .contains(target.commandState())) {
+        boolean technicallyAborted = "TECHNICAL_ABORTED".equals(
+                target.measurementStatus());
+        if (!canApplyBaselineResult(
+                target.measurementStatus(), target.commandState())) {
             throw new UntrustedInboxSourceException(
                     "baseline intent is already terminal");
         }
@@ -836,7 +844,7 @@ public class TrustedOrangePiRuntimeFactService
                 organizationId,
                 asset.assetId(),
                 now);
-        boolean stale = target.capacityVersion()
+        boolean stale = technicallyAborted || target.capacityVersion()
                 != target.capacityVersionSnapshot()
                 || !Long.valueOf(target.bagId()).equals(
                         target.currentBagId())
@@ -851,7 +859,12 @@ public class TrustedOrangePiRuntimeFactService
                 && "STABLE".equals(normalized.status())
                 && normalized.weightGrams() != null
                 && normalized.weightGrams() >= 0;
-        if (success) {
+        if (technicallyAborted) {
+            applyLateTechnicallyAbortedBaseline(
+                    target,
+                    physicalResultId,
+                    now);
+        } else if (success) {
             applySuccessfulBaseline(
                     target,
                     physicalResultId,
@@ -876,12 +889,14 @@ public class TrustedOrangePiRuntimeFactService
                     asset.assetId(),
                     now);
         }
-        completeBaselineCommand(
-                target,
-                tenantId,
-                organizationId,
-                asset.assetId(),
-                now);
+        if (!technicallyAborted) {
+            completeBaselineCommand(
+                    target,
+                    tenantId,
+                    organizationId,
+                    asset.assetId(),
+                    now);
+        }
         taskProofPort.completeDispatchFromTrustedCommandObservation(
                 UUID.fromString(commandUid));
         touchLastDeviceEvent(
@@ -889,6 +904,27 @@ public class TrustedOrangePiRuntimeFactService
         // The confirmation contract describes the generic database effect;
         // the detailed success or retry state remains in the baseline rows.
         return "UPDATED";
+    }
+
+    private void applyLateTechnicallyAbortedBaseline(
+            BaselineTarget target,
+            long physicalResultId,
+            LocalDateTime now) {
+        requireSingle(jdbc.update("""
+                        UPDATE rec_port_baseline_measurement
+                        SET status = 'STALE_IGNORED',
+                            physical_result_id = ?,
+                            stable_total_weight_g = NULL,
+                            result_baseline_id = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND status = 'TECHNICAL_ABORTED'
+                        """,
+                physicalResultId,
+                now,
+                target.measurementId()),
+                "store late technically aborted baseline result");
     }
 
     private void requireBaselineLock(String sql, Object... arguments) {
@@ -1612,6 +1648,15 @@ public class TrustedOrangePiRuntimeFactService
                     asset.assetId()),
                     "advance observed device command");
         }
+        projectDeliveryCommandObservation(
+                command,
+                stage,
+                errorCode,
+                event.occurredAt(),
+                now,
+                tenantId,
+                organizationId,
+                asset.assetId());
         projectCleanCommandObservation(
                 command,
                 stage,
@@ -1621,6 +1666,13 @@ public class TrustedOrangePiRuntimeFactService
                 tenantId,
                 organizationId,
                 asset.assetId());
+        projectBaselineCommandObservation(
+                event.commandUid(),
+                command,
+                shouldAdvance,
+                stage,
+                errorCode,
+                now);
         if ("FAILED".equals(stage)
                 && "EDGE_RESTARTED".equals(errorCode)) {
             abortRestartedWork(
@@ -1633,6 +1685,30 @@ public class TrustedOrangePiRuntimeFactService
         return new CommandObservationResult(
                 shouldAdvance ? "UPDATED" : "NO_ACTION_REQUIRED",
                 false);
+    }
+
+    private void projectDeliveryCommandObservation(
+            CommandRow command,
+            String stage,
+            String errorCode,
+            LocalDateTime occurredAt,
+            LocalDateTime receivedAt,
+            long tenantId,
+            long organizationId,
+            long assetId) {
+        if (command.deliverySessionId() == null) {
+            return;
+        }
+        deliveryCommandObservation.apply(
+                tenantId,
+                organizationId,
+                assetId,
+                command.deliverySessionId(),
+                command.commandType(),
+                stage,
+                errorCode,
+                occurredAt,
+                receivedAt);
     }
 
     private void projectCleanCommandObservation(
@@ -1660,6 +1736,52 @@ public class TrustedOrangePiRuntimeFactService
                         receivedAt);
         cleanCommandObservationBusinessPorts.forEach(
                 port -> port.applyCleanCommandObservation(observation));
+    }
+
+    private void projectBaselineCommandObservation(
+            String commandUid,
+            CommandRow command,
+            boolean commandAdvanced,
+            String stage,
+            String errorCode,
+            LocalDateTime receivedAt) {
+        if (!shouldTechnicallyAbortBaselineCommand(
+                command.baselineMeasurementId() != null,
+                commandAdvanced,
+                stage,
+                errorCode)) {
+            return;
+        }
+        baselineTechnicalAborts.abortByCommand(
+                UUID.fromString(commandUid), errorCode, receivedAt);
+    }
+
+    static boolean shouldTechnicallyAbortBaselineCommand(
+            boolean targetsBaseline,
+            boolean commandAdvanced,
+            String stage,
+            String errorCode) {
+        return targetsBaseline
+                && commandAdvanced
+                && Set.of("REJECTED", "PRE_START_FAILED", "FAILED")
+                .contains(stage)
+                && !("FAILED".equals(stage)
+                && "EDGE_RESTARTED".equals(errorCode));
+    }
+
+    static boolean canApplyBaselineResult(
+            String measurementStatus,
+            String commandState) {
+        if ("TECHNICAL_ABORTED".equals(measurementStatus)) {
+            return true;
+        }
+        return "PENDING".equals(measurementStatus)
+                && !Set.of(
+                        "PHYSICAL_SUCCEEDED",
+                        "PHYSICAL_FAILED",
+                        "PRE_START_FAILED",
+                        "EDGE_RESTARTED")
+                .contains(commandState);
     }
 
     private void abortRestartedWork(
@@ -1722,7 +1844,7 @@ public class TrustedOrangePiRuntimeFactService
                 port -> port.abortRestartedWork(work));
     }
 
-    private static boolean shouldAdvanceCommand(
+    static boolean shouldAdvanceCommand(
             String current,
             String desired) {
         if (Set.of(
@@ -1732,23 +1854,21 @@ public class TrustedOrangePiRuntimeFactService
                 "EDGE_RESTARTED").contains(current)) {
             return false;
         }
-        int currentRank = switch (current) {
-            case "CREATED" -> 0;
-            case "QUEUED" -> 1;
-            case "EDGE_ACCEPTED" -> 2;
-            case "PHYSICAL_STARTED" -> 3;
+        return switch (current) {
+            case "CREATED", "QUEUED" -> Set.of(
+                    "EDGE_ACCEPTED", "PHYSICAL_STARTED",
+                    "PRE_START_FAILED", "PHYSICAL_FAILED",
+                    "EDGE_RESTARTED").contains(desired);
+            case "EDGE_ACCEPTED" -> Set.of(
+                    "PHYSICAL_STARTED", "PRE_START_FAILED",
+                    "PHYSICAL_FAILED", "EDGE_RESTARTED")
+                    .contains(desired);
+            case "PHYSICAL_STARTED" -> Set.of(
+                    "PHYSICAL_FAILED", "EDGE_RESTARTED")
+                    .contains(desired);
             default -> throw new IllegalStateException(
                     "device command has an unsupported state");
         };
-        int desiredRank = switch (desired) {
-            case "EDGE_ACCEPTED" -> 2;
-            case "PHYSICAL_STARTED" -> 3;
-            case "PRE_START_FAILED", "PHYSICAL_FAILED",
-                 "EDGE_RESTARTED" -> 4;
-            default -> throw new IllegalArgumentException(
-                    "desired command state is unsupported");
-        };
-        return desiredRank > currentRank;
     }
 
     private void mergePortRuntime(

@@ -313,3 +313,47 @@ test('profile keeps the accepted full-width artwork and screen proportions', () 
   assert.match(profileStyle, /\.shortcut-card\s*\{[\s\S]*height:\s*218rpx;/);
   assert.match(profileStyle, /\.menu-card\s*\{[\s\S]*height:\s*367rpx;/);
 });
+
+test('organization account sheet sits flush with the custom tab bar surface', () => {
+  const profileStyle = source(
+    '../miniprogram/miniprogram/pages/profile/profile.wxss',
+  );
+  const tabBarStyle = source(
+    '../miniprogram/miniprogram/custom-tab-bar/index.wxss',
+  );
+  const tabBarSurfaceRule = tabBarStyle.match(
+    /\.tab-bar::before\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  const maskRule = profileStyle.match(
+    /\.account-sheet-mask\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  const sheetRule = profileStyle.match(
+    /\.account-sheet\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  const sheetExtensionRule = profileStyle.match(
+    /\.account-sheet::after\s*\{([\s\S]*?)\}/,
+  )?.[1];
+
+  assert.ok(tabBarSurfaceRule, 'custom tab bar surface rule must exist');
+  assert.ok(maskRule, 'account sheet mask rule must exist');
+  assert.ok(sheetRule, 'account sheet rule must exist');
+  assert.ok(
+    sheetExtensionRule,
+    'account sheet background must extend behind the custom tab bar',
+  );
+  const tabBarSurfaceHeight = tabBarSurfaceRule.match(
+    /height:\s*([^;]+);/,
+  )?.[1].trim();
+  const sheetBottomClearance = maskRule.match(
+    /padding-bottom:\s*([^;]+);/,
+  )?.[1].trim();
+  assert.equal(sheetBottomClearance, tabBarSurfaceHeight);
+  const sheetExtensionHeight = sheetExtensionRule.match(
+    /height:\s*([^;]+);/,
+  )?.[1].trim();
+  assert.equal(sheetExtensionHeight, tabBarSurfaceHeight);
+  assert.match(maskRule, /box-sizing:\s*border-box;/);
+  assert.match(sheetRule, /padding:\s*18rpx 30rpx 54rpx;/);
+  assert.match(sheetExtensionRule, /top:\s*100%;/);
+  assert.match(sheetExtensionRule, /background:\s*#fff;/);
+});

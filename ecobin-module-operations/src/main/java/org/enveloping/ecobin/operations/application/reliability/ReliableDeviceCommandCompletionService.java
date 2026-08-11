@@ -1,7 +1,9 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
 import org.enveloping.ecobin.device.api.port.ExpiredUnstartedDeviceWorkPort;
+import org.enveloping.ecobin.device.api.port.BlockedDeviceCommandBusinessPort;
 import org.enveloping.ecobin.device.api.result.DeviceCommandSubmissionResult;
+import org.enveloping.ecobin.device.api.result.BlockedDeviceCommand;
 import org.enveloping.ecobin.operations.infrastructure.config.ReliableTaskProperties;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository;
 import org.enveloping.ecobin.operations.infrastructure.persistence.reliability.ReliableOperationsJdbcRepository.DeviceTaskExecution;
@@ -27,6 +29,8 @@ public class ReliableDeviceCommandCompletionService {
     private final ObjectMapper objectMapper;
     private final List<ExpiredUnstartedDeviceWorkPort>
             expiredUnstartedWorkPorts;
+    private final List<BlockedDeviceCommandBusinessPort>
+            blockedCommandBusinessPorts;
 
     private static final Set<String> SAFE_CONTROL_COMMANDS = Set.of(
             "CONFIRM_EDGE_EVENT",
@@ -35,20 +39,28 @@ public class ReliableDeviceCommandCompletionService {
             "SYNC_DEVICE_ENTRY_URL");
     private static final Duration CONFIGURATION_EVIDENCE_WINDOW =
             Duration.ofMinutes(2);
+    private static final Duration BASELINE_EVIDENCE_GRACE =
+            Duration.ofSeconds(30);
     private static final Duration PHYSICAL_EVIDENCE_GRACE =
             Duration.ofSeconds(30);
+    private static final long MIN_BASELINE_MEASUREMENT_TIMEOUT_MS = 1_000;
+    private static final long MAX_BASELINE_MEASUREMENT_TIMEOUT_MS = 6_000;
 
     public ReliableDeviceCommandCompletionService(
             ReliableOperationsJdbcRepository repository,
             ReliableTaskProperties properties,
             ObjectMapper objectMapper,
             List<ExpiredUnstartedDeviceWorkPort>
-                    expiredUnstartedWorkPorts) {
+                    expiredUnstartedWorkPorts,
+            List<BlockedDeviceCommandBusinessPort>
+                    blockedCommandBusinessPorts) {
         this.repository = repository;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.expiredUnstartedWorkPorts = List.copyOf(
                 expiredUnstartedWorkPorts);
+        this.blockedCommandBusinessPorts = List.copyOf(
+                blockedCommandBusinessPorts);
     }
 
     @Transactional(
@@ -109,6 +121,11 @@ public class ReliableDeviceCommandCompletionService {
 
         if (result.outcome()
                 == DeviceCommandSubmissionResult.Outcome.TARGET_NOT_FOUND) {
+            projectBlockedCommand(
+                    claim.commandUid(),
+                    claim.commandType(),
+                    "DEVICE_IDENTITY_UNRESOLVED",
+                    now);
             repository.blockDeviceTask(
                     execution.taskId(),
                     execution.consecutiveFailureCount() + 1,
@@ -121,6 +138,11 @@ public class ReliableDeviceCommandCompletionService {
 
         if (result.outcome()
                 == DeviceCommandSubmissionResult.Outcome.PERMANENT_FAILURE) {
+            projectBlockedCommand(
+                    claim.commandUid(),
+                    claim.commandType(),
+                    "PERMANENT_TECHNICAL_FAILURE",
+                    now);
             repository.blockDeviceTask(
                     execution.taskId(),
                     execution.consecutiveFailureCount() + 1,
@@ -160,6 +182,11 @@ public class ReliableDeviceCommandCompletionService {
                     == DeviceCommandSubmissionResult.Outcome.PLATFORM_ACCEPTED
                     ? "platform accepted submissions but no trusted device proof arrived"
                     : "automatic device submission retry limit reached";
+            projectBlockedCommand(
+                    claim.commandUid(),
+                    claim.commandType(),
+                    reason,
+                    now);
             repository.blockDeviceTask(
                     execution.taskId(),
                     execution.consecutiveFailureCount()
@@ -209,18 +236,111 @@ public class ReliableDeviceCommandCompletionService {
             }
             closed += commandIds.size();
         }
-        return closed + repository.blockExpiredDeviceEvidenceWaits(now);
+        int legacyDeadlines = 0;
+        for (var task : repository.lockLegacyBaselineEvidenceWaits(now)) {
+            LocalDateTime deadline = evidenceDeadline(
+                    task.commandType(),
+                    task.semanticEnvelopeJson(),
+                    task.acceptedAt());
+            if (deadline.isAfter(now)) {
+                repository.rescheduleLegacyBaselineEvidenceWait(
+                        task.taskId(),
+                        task.wakeVersion(),
+                        deadline,
+                        now);
+            } else {
+                projectBlockedCommand(
+                        task.commandUid(),
+                        task.commandType(),
+                        "DEVICE_EVIDENCE_TIMEOUT",
+                        now);
+                repository.blockExpiredDeviceEvidenceWait(
+                        task.taskId(), task.wakeVersion(), now);
+            }
+            legacyDeadlines++;
+        }
+        var expiredEvidence =
+                repository.lockExpiredDeviceEvidenceWaits(now);
+        for (var task : expiredEvidence) {
+            projectBlockedCommand(
+                    task.commandUid(),
+                    task.commandType(),
+                    task.reasonCode(),
+                    now);
+            repository.blockExpiredDeviceEvidenceWait(
+                    task.taskId(), task.wakeVersion(), now);
+        }
+        int reconciled = 0;
+        for (var task : repository.lockUnalignedBlockedPhysicalCommands()) {
+            projectBlockedCommand(
+                    task.commandUid(),
+                    task.commandType(),
+                    task.reasonCode(),
+                    task.blockedAt() == null ? now : task.blockedAt());
+            reconciled++;
+        }
+        return closed + legacyDeadlines + expiredEvidence.size()
+                + reconciled;
+    }
+
+    private void projectBlockedCommand(
+            java.util.UUID commandUid,
+            String commandType,
+            String reasonCode,
+            LocalDateTime blockedAt) {
+        BlockedDeviceCommand.Certainty certainty = Set.of(
+                "DEVICE_IDENTITY_UNRESOLVED",
+                "PERMANENT_TECHNICAL_FAILURE")
+                .contains(reasonCode)
+                ? BlockedDeviceCommand.Certainty.DEFINITELY_NOT_ACCEPTED
+                : BlockedDeviceCommand.Certainty.OUTCOME_UNKNOWN;
+        var blocked = new BlockedDeviceCommand(
+                commandUid,
+                commandType,
+                certainty,
+                reasonCode,
+                blockedAt);
+        blockedCommandBusinessPorts.forEach(
+                port -> port.applyBlockedDeviceCommand(blocked));
     }
 
     private LocalDateTime evidenceDeadline(
             ClaimedDeviceCommandTask claim,
             LocalDateTime now) {
-        if ("APPLY_CONFIGURATION".equals(claim.commandType())) {
+        return evidenceDeadline(
+                claim.commandType(), claim.semanticEnvelopeJson(), now);
+    }
+
+    private LocalDateTime evidenceDeadline(
+            String commandType,
+            String semanticEnvelopeJson,
+            LocalDateTime now) {
+        if ("APPLY_CONFIGURATION".equals(commandType)) {
             return now.plus(CONFIGURATION_EVIDENCE_WINDOW);
         }
         try {
             JsonNode root = objectMapper.readTree(
-                    claim.semanticEnvelopeJson());
+                    semanticEnvelopeJson);
+            if ("MEASURE_EMPTY_BAG_BASELINE".equals(
+                    commandType)) {
+                JsonNode timeout = root.path("payload")
+                        .get("measurementTimeoutMs");
+                if (timeout == null
+                        || !timeout.isIntegralNumber()
+                        || !timeout.canConvertToLong()) {
+                    throw new ReliableTaskInvariantException(
+                            "baseline evidence timeout is missing or invalid");
+                }
+                long timeoutMs = timeout.longValue();
+                if (timeoutMs < MIN_BASELINE_MEASUREMENT_TIMEOUT_MS
+                        || timeoutMs
+                        > MAX_BASELINE_MEASUREMENT_TIMEOUT_MS) {
+                    throw new ReliableTaskInvariantException(
+                            "baseline evidence timeout is outside the frozen contract");
+                }
+                return now.plus(BASELINE_EVIDENCE_GRACE)
+                        .plus(Duration.ofMillis(timeoutMs));
+            }
             JsonNode value = root.get("expiresAt");
             if (value == null || !value.isTextual()) {
                 return now.plus(PHYSICAL_EVIDENCE_GRACE);

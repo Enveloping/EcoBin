@@ -65,7 +65,8 @@ class RuntimeSafetyConfigurationTest {
             "V43__authenticated_bag_label_batches.sql",
             "V44__clean_operation_web_queries.sql",
             "V45__clean_device_lists_and_terminal_event_quarantine.sql",
-            "V46__global_runtime_snapshot_policy.sql"
+            "V46__global_runtime_snapshot_policy.sql",
+            "V47__device_work_state_alignment.sql"
     };
 
     @Test

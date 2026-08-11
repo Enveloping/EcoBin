@@ -55,8 +55,71 @@ public class AutomaticDeviceActivationScheduler {
                        AND current_occupancy.port_id = port.id
                        AND current_occupancy.bag_id = factory_bag.id
                        AND current_occupancy.occupancy_type = 'PORT_BOUND'
+                      JOIN rec_port_capacity_state capacity
+                        ON capacity.tenant_id = port.tenant_id
+                       AND capacity.organization_id = port.organization_id
+                       AND capacity.asset_id = port.asset_id
+                       AND capacity.port_id = port.id
+                       AND capacity.current_bag_id = factory_bag.id
+                      JOIN dev_config_version version
+                        ON version.asset_id = port.asset_id
+                       AND version.tenant_id = port.tenant_id
+                       AND version.organization_id = port.organization_id
+                       AND version.version_no = (
+                           SELECT MAX(latest.version_no)
+                           FROM dev_config_version latest
+                           WHERE latest.asset_id = port.asset_id
+                             AND latest.tenant_id = port.tenant_id
+                             AND latest.organization_id =
+                                 port.organization_id
+                       )
+                      JOIN dev_config_application application
+                        ON application.asset_id = port.asset_id
+                       AND application.tenant_id = port.tenant_id
+                       AND application.organization_id =
+                           port.organization_id
+                       AND application.config_version_id = version.id
+                       AND application.status = 'APPLIED'
                       WHERE port.asset_id = asset.id
-                        AND factory_installation.tare_status <> 'READY'
+                        AND capacity.baseline_state <> 'VALID'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM rec_port_baseline_measurement active
+                            WHERE active.port_id = port.id
+                              AND active.status = 'PENDING'
+                        )
+                        AND (
+                            SELECT COUNT(*)
+                            FROM rec_port_baseline_measurement attempted
+                            WHERE attempted.port_id = port.id
+                              AND attempted.bag_id = factory_bag.id
+                              AND attempted.device_config_version_id =
+                                  version.id
+                              AND attempted.initiator_kind = 'SYSTEM'
+                        ) < 4
+                        AND COALESCE(
+                            (
+                                SELECT terminal.fault_code
+                                FROM rec_port_baseline_measurement terminal
+                                WHERE terminal.port_id = port.id
+                                  AND terminal.bag_id = factory_bag.id
+                                  AND terminal.device_config_version_id =
+                                      version.id
+                                  AND terminal.initiator_kind = 'SYSTEM'
+                                  AND terminal.status IN (
+                                      'FAILED',
+                                      'STALE_IGNORED',
+                                      'TECHNICAL_ABORTED'
+                                  )
+                                ORDER BY terminal.completed_at DESC,
+                                         terminal.id DESC
+                                LIMIT 1
+                            ),
+                            ''
+                        ) NOT IN (
+                            'DEVICE_IDENTITY_UNRESOLVED',
+                            'PERMANENT_TECHNICAL_FAILURE'
+                        )
                   )
                   OR NOT EXISTS (
                       SELECT 1

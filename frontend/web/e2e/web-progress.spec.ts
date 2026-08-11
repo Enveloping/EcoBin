@@ -2394,6 +2394,14 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
       return;
     }
     if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/technical-issues`
+    ) {
+      await json(route, []);
+      return;
+    }
+    if (
       request.method() === 'POST'
       && url.pathname
         === `/api/v1/web/platform/device-assets/${hardwareSn}/acceptance-evaluations`
@@ -2452,10 +2460,127 @@ test('failed acceptance reevaluation refreshes CSRF and reports once', async ({
   ).toBeVisible();
 });
 
+test('device technical issue failures never masquerade as a healthy device', async ({
+  page,
+}) => {
+  const hardwareSn = 'SN-TECHNICAL-ISSUE-ERROR';
+  const session = {
+    ...platformSession,
+    capabilities: ['device.read', 'device.manage'],
+  };
+  const asset = permanentDeviceAsset({ hardwareSn });
+  let technicalIssueRequests = 0;
+  const issue = {
+    issueUid: 'baseline:port:1',
+    category: 'BASELINE',
+    state: 'ACTION_REQUIRED',
+    severity: 'WARNING',
+    code: 'BASELINE_MEASUREMENT_TECHNICALLY_ABORTED',
+    title: '1 号投口皮重测量需要处理',
+    description: '排除故障并确认空袋后创建新的测量代际。',
+    portNo: 1,
+    taskUid: '59ca8ff0-7d95-4b85-97dc-bdb6fc90e95c',
+    latestMeasurementUid: '372c8db0-c95b-4e90-a706-60b65eea5607',
+    blockedReasonCode: 'DEVICE_EVIDENCE_TIMEOUT',
+    httpStatus: null,
+    externalErrorCode: null,
+    diagnostic: null,
+    automaticAttemptNo: 1,
+    automaticAttemptLimit: 4,
+    occurredAt: '2026-08-11T08:00:00.000Z',
+    nextActions: ['CONTACT_SUPPORT'],
+  };
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      await json(route, { items: [], page: 1, pageSize: 200, total: 0 });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/device-assets'
+    ) {
+      await json(route, { items: [asset], page: 1, pageSize: 20, total: 1 });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/acceptance-evidence`
+    ) {
+      await json(route, []);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/technical-issues`
+    ) {
+      technicalIssueRequests += 1;
+      if (technicalIssueRequests === 2) {
+        await json(route, [issue]);
+      } else {
+        await route.fulfill(problem(
+          500,
+          'DATA.SCHEMA_OR_QUERY_ERROR',
+          '设备问题查询失败',
+        ));
+      }
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/devices');
+  await page.getByText(hardwareSn, { exact: true }).click();
+  const drawer = page.locator('.ant-drawer').filter({ hasText: hardwareSn });
+
+  await expect(drawer.getByText('设备问题加载失败', { exact: true }))
+    .toBeVisible();
+  await expect(
+    drawer.getByText('当前没有需要平台处理的设备问题', { exact: true }),
+  ).toHaveCount(0);
+
+  await drawer.getByRole('button', { name: '重试加载' }).click();
+  await expect(drawer.getByText(issue.title, { exact: true })).toBeVisible();
+
+  await drawer.getByRole('button', { name: '刷新' }).click();
+  await expect(drawer.getByText('设备问题刷新失败', { exact: true }))
+    .toBeVisible();
+  await expect(
+    drawer.getByText('以下内容可能已过期', { exact: false }),
+  ).toBeVisible();
+  await expect(drawer.getByText(issue.title, { exact: true })).toBeVisible();
+  await expect(
+    drawer.getByText('当前没有需要平台处理的设备问题', { exact: true }),
+  ).toHaveCount(0);
+});
+
 test('platform creates a real asset and writes its only tenant ownership', async ({
   page,
 }) => {
   const hardwareSn = 'SN-PERMANENT-01';
+  const factoryBagCode =
+    'EB1_K1_000G40R40M30E209185GR38E1W_GRQ320Z8YDWC8V49M7W0';
   const tenantCode = 'tenant-device';
   const session = {
     ...platformSession,
@@ -2542,6 +2667,14 @@ test('platform creates a real asset and writes its only tenant ownership', async
       return;
     }
     if (
+      method === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/device-assets/${hardwareSn}/technical-issues`
+    ) {
+      await json(route, []);
+      return;
+    }
+    if (
       method === 'POST'
       && url.pathname
         === `/api/v1/web/platform/device-assets/${hardwareSn}/tenant-assignments`
@@ -2585,7 +2718,7 @@ test('platform creates a real asset and writes its only tenant ownership', async
   await createDialog.locator('.ant-form-item')
     .filter({ hasText: '1 号投口厂家初始袋码' })
     .locator('input')
-    .fill('BAG-FACTORY-0001');
+    .fill(factoryBagCode);
   await createDialog.getByRole('button', { name: '创建资产' }).click();
 
   await expect.poll(() => createRequest).toEqual({
@@ -2594,7 +2727,7 @@ test('platform creates a real asset and writes its only tenant ownership', async
       modelCode: 'ECOBIN-V1',
       productionBatch: '2026-08',
       expectedPortCount: 1,
-      factoryBags: [{ portNo: 1, bagCode: 'BAG-FACTORY-0001' }],
+      factoryBags: [{ portNo: 1, bagCode: factoryBagCode }],
     },
     key: expect.any(String),
   });
