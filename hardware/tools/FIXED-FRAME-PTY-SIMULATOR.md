@@ -52,9 +52,11 @@ uv run --python 3.11 python tools/fixed_frame_pty_simulator.py \
   --delivery-pre-grams 10000 \
   --delivery-post-grams 12500 \
   --delivery-full 0 \
+  --delivery-result-delay-ms 40000 \
   --clean-pre-grams 12500 \
   --clean-post-grams 800 \
   --clean-full 0 \
+  --clean-result-delay-ms 40000 \
   --self-test-weight-grams 10000 \
   --self-test-weight-valid 1 \
   --self-test-full 0 \
@@ -86,16 +88,18 @@ uv run --python 3.11 python tools/fixed_frame_pty_simulator.py --help
 | `--delivery-pre-grams` | DD 的投递前总重量 | `10000` |
 | `--delivery-post-grams` | DD 的投递后总重量 | `12500` |
 | `--delivery-full` | DD 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
+| `--delivery-result-delay-ms` | 收到 AA 后等待多久发送 DD | `40000` |
 | `--clean-pre-grams` | EF 的清运前总重量 | `12500` |
 | `--clean-post-grams` | EF 的清运后新袋皮重 | `800` |
 | `--clean-full` | EF 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
+| `--clean-result-delay-ms` | 收到 EE 后等待多久发送 EF | `40000` |
 | `--self-test-weight-grams` | F1 的当前总重量 | `10000` |
 | `--self-test-weight-valid` | F1 重量有效标志，`0` 无效、`1` 有效 | `1` |
 | `--self-test-full` | F1 红外原始值，`0` 未遮挡、`1` 遮挡 | `0` |
 | `--self-test-full-valid` | F1 红外有效标志，`0` 无效、`1` 有效 | `1` |
 | `--smoke-state` | F1 烟感值，`0` 正常、`1` 报警、`2` 无法读取 | `0` |
 | `--smoke-change-to` | 首次 F1 后发送一次 CC，值同 `--smoke-state`；不填写则不发送 | 不发送 |
-| `--response-delay-ms` | 收到 AA/EE/F0 后发送对应结果的延迟 | `500` |
+| `--response-delay-ms` | F0 自检响应以及随后可选 CC 变化的延迟 | `500` |
 | `--exit-after-responses` | 发出指定数量的 F1/CC/DD/EF 后自动退出 | 不自动退出 |
 
 两个重量字段的合法范围都是 `0..350000` 克。投递业务净重按 `POST - PRE` 计算；清运
@@ -131,7 +135,8 @@ uv run --python 3.11 python main.py
 仓库中的 `ecobin-mcu-simulator.service` 是对应的 systemd 运行单元，显式配置健康 F1：
 重量 10000 克、重量/红外有效位均为 1、红外未遮挡、烟感正常。该单元不配置
 `--smoke-change-to`，避免正式常驻模拟器启动后主动制造报警或传感器故障；CC 变化使用
-隔离 PTY 测试验证。
+隔离 PTY 测试验证。当前常驻单元把 DD 投递结果和 EF 清运结果都延迟 40 秒，用于模拟
+用户实际操作耗时；F0 自检仍只使用 500 毫秒通用延迟，因此不会因业务等待影响启动自检。
 
 本测试只替换 MCU。无真实摄像头时，可以把
 `ECOBIN_CAMERA_OUTSIDE`、`ECOBIN_CAMERA_INSIDE` 分别设为

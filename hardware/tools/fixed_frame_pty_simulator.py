@@ -238,6 +238,8 @@ class SimulatorConfig:
     smoke_state: int = 0
     smoke_change_to: Optional[int] = None
     response_delay_ms: int = 500
+    delivery_result_delay_ms: int = 40_000
+    clean_result_delay_ms: int = 40_000
 
     def __post_init__(self) -> None:
         _validate_weight(
@@ -289,6 +291,24 @@ class SimulatorConfig:
             or self.response_delay_ms < 0
         ):
             raise ValueError("response_delay_ms must be a non-negative integer")
+        for name, value in (
+            ("delivery_result_delay_ms", self.delivery_result_delay_ms),
+            ("clean_result_delay_ms", self.clean_result_delay_ms),
+        ):
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+            ):
+                raise ValueError(f"{name} must be a non-negative integer")
+
+    def response_delay_for(self, request_name: str) -> int:
+        """Return the configured delay for one simulated MCU response."""
+        if request_name == "DELIVERY_START":
+            return self.delivery_result_delay_ms
+        if request_name == "CLEAN_START":
+            return self.clean_result_delay_ms
+        return self.response_delay_ms
 
 
 class VirtualFixedFrameMcu:
@@ -503,7 +523,7 @@ class LinuxPtyFixedFrameSimulator:
                             order += 1
                             due = (
                                 time.monotonic()
-                                + self.config.response_delay_ms / 1000.0
+                                + self.config.response_delay_for(name) / 1000.0
                             )
                             heapq.heappush(
                                 pending,
@@ -707,7 +727,22 @@ def parse_args(
         "--response-delay-ms",
         type=_non_negative_integer,
         default=500,
-        help="delay between a valid command and its response",
+        help=(
+            "delay before an F1 self-test response and its optional "
+            "following CC smoke change"
+        ),
+    )
+    parser.add_argument(
+        "--delivery-result-delay-ms",
+        type=_non_negative_integer,
+        default=40_000,
+        help="delay before the DD delivery result",
+    )
+    parser.add_argument(
+        "--clean-result-delay-ms",
+        type=_non_negative_integer,
+        default=40_000,
+        help="delay before the EF clean result",
     )
     parser.add_argument(
         "--exit-after-responses",
@@ -746,6 +781,8 @@ def main(arguments: Optional[Sequence[str]] = None) -> int:
         smoke_state=args.smoke_state,
         smoke_change_to=args.smoke_change_to,
         response_delay_ms=args.response_delay_ms,
+        delivery_result_delay_ms=args.delivery_result_delay_ms,
+        clean_result_delay_ms=args.clean_result_delay_ms,
     )
     simulator = LinuxPtyFixedFrameSimulator(
         config,

@@ -55,7 +55,11 @@ def run_smoke(response_delay_ms: int = 10) -> dict:
         root = Path(directory)
         link_path = root / "fixed-frame-mcu"
         simulator = LinuxPtyFixedFrameSimulator(
-            SimulatorConfig(response_delay_ms=response_delay_ms),
+            SimulatorConfig(
+                response_delay_ms=response_delay_ms,
+                delivery_result_delay_ms=response_delay_ms,
+                clean_result_delay_ms=response_delay_ms,
+            ),
             link_path,
             exit_after_responses=3,
             log=lambda message: None,

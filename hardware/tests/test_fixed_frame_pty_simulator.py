@@ -161,11 +161,43 @@ def test_command_line_defaults_expose_a_stable_linux_serial_link():
 
     assert args.link.as_posix() == "/tmp/ecobin-fixed-frame-mcu"
     assert args.response_delay_ms == 500
+    assert args.delivery_result_delay_ms == 40_000
+    assert args.clean_result_delay_ms == 40_000
     assert args.delivery_post_grams > args.delivery_pre_grams
     assert args.clean_post_grams < args.clean_pre_grams
     assert args.self_test_weight_valid == 1
     assert args.self_test_full_valid == 1
     assert args.smoke_state == 0
+
+
+def test_business_result_delays_are_independent_from_self_test_delay():
+    config = SimulatorConfig(
+        response_delay_ms=500,
+        delivery_result_delay_ms=40_000,
+        clean_result_delay_ms=40_000,
+    )
+
+    assert config.response_delay_for("SELF_TEST") == 500
+    assert config.response_delay_for("DELIVERY_START") == 40_000
+    assert config.response_delay_for("CLEAN_START") == 40_000
+
+    args = parse_args([
+        "--delivery-result-delay-ms",
+        "40000",
+        "--clean-result-delay-ms",
+        "40000",
+    ])
+    assert args.delivery_result_delay_ms == 40_000
+    assert args.clean_result_delay_ms == 40_000
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ("delivery_result_delay_ms", "clean_result_delay_ms"),
+)
+def test_business_result_delay_rejects_negative_values(field_name):
+    with pytest.raises(ValueError, match=field_name):
+        SimulatorConfig(**{field_name: -1})
 
 
 @pytest.mark.skipif(
@@ -175,7 +207,11 @@ def test_command_line_defaults_expose_a_stable_linux_serial_link():
 def test_real_fixed_frame_adapter_round_trips_over_linux_pty(tmp_path):
     link_path = tmp_path / "virtual-mcu"
     simulator = LinuxPtyFixedFrameSimulator(
-        SimulatorConfig(response_delay_ms=10),
+        SimulatorConfig(
+            response_delay_ms=10,
+            delivery_result_delay_ms=10,
+            clean_result_delay_ms=10,
+        ),
         link_path,
         exit_after_responses=3,
         log=lambda message: None,
@@ -237,7 +273,11 @@ def test_real_device_entry_url_is_fire_and_forget_and_replayed_on_reopen(
 ):
     link_path = tmp_path / "virtual-mcu-device-entry-url"
     simulator = LinuxPtyFixedFrameSimulator(
-        SimulatorConfig(response_delay_ms=10),
+        SimulatorConfig(
+            response_delay_ms=10,
+            delivery_result_delay_ms=10,
+            clean_result_delay_ms=10,
+        ),
         link_path,
         log=lambda message: None,
     )
