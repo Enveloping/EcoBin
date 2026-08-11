@@ -366,6 +366,7 @@
             "first_possible_unlock_at"
             "solenoid_powered_off_at"
             "cleaner_confirmed_closed_at"
+            "execution_deadline_at"
             "pre_unlock_end_requested_at"
             "recovery_requested_at"
             "reopen_count"

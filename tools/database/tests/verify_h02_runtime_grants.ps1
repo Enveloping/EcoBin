@@ -112,6 +112,44 @@ if ($catalog.UpdateColumns.ContainsKey("dev_port")) {
     )
 }
 
+$cleanOperationRequiredColumns = @(
+    "pre_unlock_weight_status"
+    "pre_unlock_weight_g"
+    "pre_unlock_weight_fault_code"
+    "status"
+    "edge_saved_confirmed"
+    "first_unlock_may_have_executed"
+    "clean_lock_deenergized_confirmed"
+    "cleaner_physical_close_confirmed"
+    "edge_saved_at"
+    "first_possible_unlock_at"
+    "solenoid_powered_off_at"
+    "cleaner_confirmed_closed_at"
+    "execution_deadline_at"
+    "pre_unlock_end_requested_at"
+    "recovery_requested_at"
+    "reopen_count"
+    "recovery_count"
+    "completion_record_id"
+    "ended_at"
+    "end_reason"
+    "lock_version"
+    "updated_at"
+)
+$cleanOperationColumns = @(
+    $catalog.UpdateColumns.rec_clean_operation
+)
+if (@(
+        Compare-Object `
+            $cleanOperationRequiredColumns `
+            $cleanOperationColumns
+    ).Count -ne 0) {
+    throw (
+        "rec_clean_operation runtime UPDATE grants must include the " +
+        "complete reviewed state-machine projection"
+    )
+}
+
 $assetRequiredColumns = @(
     "tenant_id"
     "tenant_assigned_at"
