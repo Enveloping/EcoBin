@@ -69,6 +69,9 @@ test('clean workbench maps all six device filters and both destination pages', (
   const cleanSource = source(
     '../miniprogram/miniprogram/pages/clean/clean.ts',
   );
+  const cleanMarkup = source(
+    '../miniprogram/miniprogram/pages/clean/clean.wxml',
+  );
   const deviceFilters = [
     'ALL',
     'ONLINE',
@@ -79,7 +82,16 @@ test('clean workbench maps all six device filters and both destination pages', (
   ];
 
   for (const filter of deviceFilters) {
-    assert.match(cleanSource, new RegExp(`['"]${filter}['"]`));
+    assert.match(
+      cleanSource,
+      new RegExp(`(?:^|\\s)(?:['"])?${filter}(?:['"])?\\s*:`, 'm'),
+      `${filter} should exist in the filter title mapping`,
+    );
+    assert.match(
+      cleanMarkup,
+      new RegExp(`data-filter=['"]${filter}['"]`),
+      `${filter} should be connected to a workbench card`,
+    );
   }
   assert.match(cleanSource, /\/pages\/clean-devices\/clean-devices/);
   assert.match(cleanSource, /\/pages\/clean-records\/clean-records/);
