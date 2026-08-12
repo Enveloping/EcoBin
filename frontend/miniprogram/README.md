@@ -12,8 +12,9 @@
   或第二套模式 Token。
 - 每次启动先删除旧版 `ecobin_token/ecobin_role/ecobin_user_info`；登录创建响应返回
   Token，`GET .../sessions/current` 的安全投影不再次返回 Token。
-- 服务端返回唯一 `audience`（`miniapp` / `miniapp-staff`）和唯一 `entryMode`
-  （`USER` / `CLEANING` / `MANAGEMENT`）；客户端只据此路由，不自行推导权限。
+- 当前小程序只保留用户端 `USER` 和清运端 `CLEANING`，经营管理统一使用
+  Web 管理后台。过渡期收到旧 `miniapp-staff / MANAGEMENT` 会话时，客户端只引导
+  选择机构账号并换发用户/清运会话，不再提供小程序管理页。
 - `401` 最多重新执行一次 `wx.login`。安全查询可以重试；写请求只有携带原始
   `Idempotency-Key` 时才允许重放。重登录后的 audience 或 entryMode 任一变化时立即
   切换入口，不在原入口重放请求。

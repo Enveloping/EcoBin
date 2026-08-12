@@ -242,7 +242,10 @@ export function entryUrlFor(entryMode: EntryMode): string {
     case 'CLEANING':
       return '/pages/clean/clean'
     case 'MANAGEMENT':
-      return '/pages/management/management'
+      // 小程序管理端已下线。旧的 miniapp-staff 会话仍可能在
+      // 过渡期内被服务端签发，先进入机构选择页，选择后服务端
+      // 会换发普通用户或清运会话，避免跳转到已删除的页面。
+      return '/pages/account-switcher/account-switcher'
   }
 }
 

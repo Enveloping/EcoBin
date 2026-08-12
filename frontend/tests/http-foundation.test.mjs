@@ -246,7 +246,7 @@ test('the device entry directory falls back to the SPA instead of 403', () => {
   );
 });
 
-test('cleaning and management profiles share an organization account center', () => {
+test('miniapp management page is retired while cleaning keeps account switching', () => {
   const appJson = JSON.parse(readFileSync(
     new URL('../miniprogram/miniprogram/app.json', import.meta.url),
     'utf8',
@@ -255,15 +255,43 @@ test('cleaning and management profiles share an organization account center', ()
     appJson.pages.includes('pages/account-switcher/account-switcher'),
     true,
   );
-  for (const relativePath of [
-    '../miniprogram/miniprogram/pages/clean-profile/clean-profile.ts',
-    '../miniprogram/miniprogram/pages/management/management.ts',
-  ]) {
-    assert.match(
-      readFileSync(new URL(relativePath, import.meta.url), 'utf8'),
-      /pages\/account-switcher\/account-switcher/,
+  assert.equal(
+    appJson.pages.includes('pages/management/management'),
+    false,
+  );
+  for (const extension of ['ts', 'json', 'wxml', 'wxss']) {
+    assert.equal(
+      existsSync(new URL(
+        `../miniprogram/miniprogram/pages/management/management.${extension}`,
+        import.meta.url,
+      )),
+      false,
     );
   }
+  assert.match(
+    readFileSync(new URL(
+      '../miniprogram/miniprogram/pages/clean-profile/clean-profile.ts',
+      import.meta.url,
+    ), 'utf8'),
+    /pages\/account-switcher\/account-switcher/,
+  );
+  const authUtilitySource = readFileSync(
+    new URL('../miniprogram/miniprogram/utils/auth.ts', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(authUtilitySource, /pages\/management\/management/);
+  assert.match(
+    authUtilitySource,
+    /case 'MANAGEMENT':[\s\S]*?pages\/account-switcher\/account-switcher/,
+  );
+  const previewSource = readFileSync(
+    new URL(
+      '../miniprogram/miniprogram/utils/test-entry-preview.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  assert.doesNotMatch(previewSource, /mode:\s*'MANAGEMENT'/);
   const apiSource = readFileSync(
     new URL('../miniprogram/miniprogram/api/auth.ts', import.meta.url),
     'utf8',

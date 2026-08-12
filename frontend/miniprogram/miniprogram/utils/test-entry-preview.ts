@@ -9,7 +9,6 @@ const PREVIEW_MODES: ReadonlyArray<{
   { label: '跟随登录身份' },
   { label: '用户端', mode: 'USER' },
   { label: '清运端', mode: 'CLEANING' },
-  { label: '管理端', mode: 'MANAGEMENT' },
 ]
 
 export const ENTRY_PREVIEW_NOTICE = '仅切换界面，当前账号权限未改变'
