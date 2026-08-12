@@ -138,6 +138,7 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
       nextActions: ['WAIT'],
     });
     assert.equal(accepted.idempotencyKey, key);
+    assert.equal(Number.isFinite(accepted.acceptedAtMs), true);
     const progressed = projectCleanOperationIntent(accepted, {
       operationUid,
       status: 'IN_PROGRESS',
@@ -159,6 +160,7 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
     assert.equal(progressed.idempotencyKey, key);
     assert.equal(progressed.lastStatus, 'IN_PROGRESS');
     assert.equal(progressed.recommendedPollAfterMs, 1750);
+    assert.equal(progressed.acceptedAtMs, accepted.acceptedAtMs);
   } finally {
     globalThis.wx = previousWx;
   }
@@ -197,7 +199,8 @@ test('operation page saves before POST, gates phone scan and never links complet
   assert.match(page, /pendingBagScanAfterPhone = false/);
   assert.match(page, /isWechatPhoneGrantCancelled\(event\.detail\)/);
   assert.match(page, /onHide\(\)[\s\S]*?clearPollTimer\(\)/);
-  assert.match(page, /recommendedPollAfterMs/);
+  assert.match(page, /businessOperationPollDelay/);
+  assert.match(page, /schedulePoll\(0\)/);
   assert.doesNotMatch(page, /maximumElapsedMs|5 \* 60 \* 1000/);
   assert.doesNotMatch(page, /pages\/clean-records/);
   assert.match(markup, /确认开始清运/);

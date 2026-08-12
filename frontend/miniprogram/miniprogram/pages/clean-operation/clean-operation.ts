@@ -23,6 +23,7 @@ import {
   sameCleanOperationRequest,
   type PendingCleanOperationIntent,
 } from '../../utils/clean-operation-intent'
+import { businessOperationPollDelay } from '../../utils/business-operation-polling'
 import {
   autoSelectedCleanPortNo,
   cleanBlockerText,
@@ -474,7 +475,8 @@ Page({
       this.intent = acceptCleanOperationIntent(intent, accepted)
       this.setData({ operationUid: accepted.operationUid })
       this.applyStatus(accepted.status)
-      this.schedulePoll(accepted.recommendedPollAfterMs)
+      // 受理后立即读取一次权威状态，后续再按统一的 5 秒/3 秒节奏查询。
+      this.schedulePoll(0)
     } catch (error) {
       if (knownClientFailure(error)) {
         forgetCleanOperationIntent()
@@ -549,10 +551,10 @@ Page({
         || projection.status === 'EDGE_SAVED'
         || projection.status === 'IN_PROGRESS'
       ) {
-        this.schedulePoll(
-          projection.recommendedPollAfterMs
-          ?? this.intent.recommendedPollAfterMs,
-        )
+        const acceptedAtMs = Number.isFinite(this.intent.acceptedAtMs)
+          ? this.intent.acceptedAtMs as number
+          : Date.parse(this.intent.createdAt)
+        this.schedulePoll(businessOperationPollDelay(acceptedAtMs))
       }
     } catch {
       if (this.visible) {

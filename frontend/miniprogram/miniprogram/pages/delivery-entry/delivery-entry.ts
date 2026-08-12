@@ -26,6 +26,7 @@ import {
   routePendingDeviceEntry,
   type PendingDeviceEntry,
 } from '../../utils/device-entry-intent'
+import { businessOperationPollDelay } from '../../utils/business-operation-polling'
 import { requestPhoneBindingBeforeAction } from '../../utils/phone-binding-prompt'
 import { MiniappApiProblem } from '../../utils/request'
 import type {
@@ -106,11 +107,6 @@ function portCard(port: DeliveryPortOption): DeliveryPortCard {
       .map((blocker) => BLOCKER_TEXT[blocker] || blocker)
       .join('；'),
   }
-}
-
-function pollDelay(value: number | null | undefined): number {
-  if (!Number.isFinite(value)) return 1000
-  return Math.min(60000, Math.max(250, Math.trunc(value as number)))
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -468,12 +464,13 @@ Page({
   async pollSession(entry: PendingDeviceEntry) {
     if (this.polling || !entry.accepted) return
     this.polling = true
-    let previousPhase: DeliverySessionPhase | undefined
-    let unchangedCount = 0
-    const backoffMs = [1000, 2000, 3000, 5000, 10000]
+    // 新请求会持久化受理时刻；旧版本遗留的在途缓存从本次恢复时开始计时。
+    const acceptedAtMs = Number.isFinite(entry.acceptedAtMs)
+      ? entry.acceptedAtMs as number
+      : Date.now()
     try {
       // 202 响应之后，设备执行、结果上报和后端建单都在异步推进。
-      // 轮询只读取权威状态；状态不变时逐步退避，避免长流程持续每秒打接口。
+      // 轮询只读取权威状态；前 120 秒每 5 秒查询一次，之后每 3 秒一次。
       while (this.pageVisible) {
         const current = peekPendingDeviceEntry()
         if (
@@ -492,20 +489,7 @@ Page({
           completePendingDeviceEntry(entry.entryId)
           return
         }
-        if (session.phase === previousPhase) {
-          unchangedCount = Math.min(
-            unchangedCount + 1,
-            backoffMs.length - 1,
-          )
-        } else {
-          previousPhase = session.phase
-          unchangedCount = 0
-        }
-        const waitMs = Math.max(
-          pollDelay(session.recommendedPollAfterMs),
-          backoffMs[unchangedCount],
-        )
-        await delay(waitMs)
+        await delay(businessOperationPollDelay(acceptedAtMs))
         if (!this.pageVisible) return
       }
     } catch (error) {

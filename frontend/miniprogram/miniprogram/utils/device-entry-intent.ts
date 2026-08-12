@@ -22,6 +22,8 @@ export interface PendingDeviceEntry extends DeviceLink {
   startAttemptCount?: number
   lastStartAttemptAt?: number
   accepted?: DeliverySessionAccepted
+  /** 服务端受理成功的本地时间，用于跨页面保持轮询阶段。 */
+  acceptedAtMs?: number
   /** 最近一次由该设备码明确选中的机构账号。 */
   selectedOrganizationUserUid?: string
   identitySelectedAt?: number
@@ -291,7 +293,11 @@ export function markPendingDeviceEntryStarted(
 ): PendingDeviceEntry | undefined {
   const entry = peekPendingDeviceEntry()
   if (!entry || entry.entryId !== entryId) return undefined
-  const started = writePending({ ...entry, accepted })
+  const started = writePending({
+    ...entry,
+    accepted,
+    acceptedAtMs: Date.now(),
+  })
   if (!started) return undefined
   rememberHandled(started)
   return started
