@@ -195,6 +195,15 @@ test('ordinary-link QR entry trusts WeChat routing and extracts only the device 
   assert.match(intentSource, /captureScannedDeviceEntry/);
   assert.match(intentSource, /pendingDeviceEntry/);
   assert.match(doorEntrySource, /captureScannedDeviceEntry/);
+  assert.match(
+    doorEntrySource,
+    /export function startDoorEntry\(\): void \{\s*scanDevice\(\)\s*\}/,
+  );
+  assert.match(doorEntrySource, /wx\.scanCode\(/);
+  assert.doesNotMatch(
+    doorEntrySource,
+    /showActionSheet|showModal|填写设备链接|enterDeviceLink/,
+  );
   assert.match(deliveryApiSource, /\/api\/v1\/miniapp\/devices/);
   assert.match(deliveryApiSource, /requestAccepted/);
 });

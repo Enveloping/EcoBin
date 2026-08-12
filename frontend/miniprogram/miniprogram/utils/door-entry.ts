@@ -1,4 +1,3 @@
-import { test } from '../config/index'
 import { ensureLoggedIn, routeToEntry } from './auth'
 import {
   captureScannedDeviceEntry,
@@ -53,28 +52,6 @@ function scanDevice(): void {
   })
 }
 
-function enterDeviceLink(): void {
-  wx.showModal({
-    title: '填写设备二维码链接',
-    editable: true,
-    placeholderText: '粘贴包含 deviceCode 的完整设备链接',
-    confirmText: '识别',
-    success: (result) => {
-      if (result.confirm) void acceptDeviceLink(result.content || '')
-    },
-  })
-}
-
 export function startDoorEntry(): void {
-  if (!test) {
-    scanDevice()
-    return
-  }
-  wx.showActionSheet({
-    itemList: ['扫码识别', '填写设备链接'],
-    success: (result) => {
-      if (result.tapIndex === 0) scanDevice()
-      if (result.tapIndex === 1) enterDeviceLink()
-    },
-  })
+  scanDevice()
 }

@@ -19,9 +19,6 @@ export const FEATURES: Readonly<{
   entryPreview: true,
 }
 
-/** 开发演示开关：true 时允许扫码或手动填写规范设备二维码链接。 */
-export const test = true
-
 /** 请求超时（ms） */
 export const TIMEOUT = 15000
 
