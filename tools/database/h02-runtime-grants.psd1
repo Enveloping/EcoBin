@@ -97,6 +97,7 @@
             "status"
             "auth_version"
             "lock_version"
+            "last_login_at"
             "frozen_at"
             "updated_at"
         )

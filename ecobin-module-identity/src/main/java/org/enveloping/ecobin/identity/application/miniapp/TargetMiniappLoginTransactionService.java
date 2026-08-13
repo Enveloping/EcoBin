@@ -122,7 +122,8 @@ public class TargetMiniappLoginTransactionService {
                         "首次使用必须扫描设备二维码");
             }
             requireSubjectActive(subject);
-            selection = newestAvailableAccount(channel.id(), subject);
+            selection = mostRecentlyLoggedInAvailableAccount(
+                    channel.id(), subject);
             if (selection == null) {
                 throw new TargetApiException(
                         403,
@@ -150,7 +151,9 @@ public class TargetMiniappLoginTransactionService {
         ManagementBinding management = selectionOperationUid == null
                 ? managementBinding(channel.id(), scope, user)
                 : null;
-        Instant issuedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Instant loginRecordedAt =
+                Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Instant issuedAt = loginRecordedAt.truncatedTo(ChronoUnit.SECONDS);
         Instant expiresAt = issuedAt.plus(sessionDuration);
         UUID sessionUid = UUID.randomUUID();
 
@@ -180,6 +183,7 @@ public class TargetMiniappLoginTransactionService {
                     timestamp(expiresAt),
                     management.staffAuthVersion(),
                     timestamp(issuedAt));
+            recordSuccessfulLogin(selection, loginRecordedAt);
             String token = tokenProvider.generateTargetMiniappToken(
                     management.staffUid(),
                     sessionUid,
@@ -232,6 +236,7 @@ public class TargetMiniappLoginTransactionService {
                 timestamp(expiresAt),
                 user.authVersion(),
                 timestamp(issuedAt));
+        recordSuccessfulLogin(selection, loginRecordedAt);
         String token = tokenProvider.generateTargetMiniappToken(
                 user.uid(),
                 sessionUid,
@@ -372,7 +377,7 @@ public class TargetMiniappLoginTransactionService {
                 openid).stream().findFirst().orElse(null);
     }
 
-    private LoginSelection newestAvailableAccount(
+    private LoginSelection mostRecentlyLoggedInAvailableAccount(
             long channelId,
             WechatSubjectRow subject) {
         return jdbc.query("""
@@ -404,7 +409,7 @@ public class TargetMiniappLoginTransactionService {
                           AND t.status = 'ENABLED'
                           AND o.status = 'ENABLED'
                           AND b.status = 'ACTIVE'
-                        ORDER BY u.registered_at DESC, u.id DESC
+                        ORDER BY u.last_login_at DESC, u.id DESC
                         LIMIT 1
                         FOR UPDATE
                         """,
@@ -461,12 +466,13 @@ public class TargetMiniappLoginTransactionService {
                             phone_e164, phone_bound_at,
                             nickname, avatar_url, status,
                             auth_version, lock_version,
-                            registered_at, registered_via_asset_id,
+                            registered_at, last_login_at,
+                            registered_via_asset_id,
                             frozen_at, created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, ?, ?,
                             NULL, NULL, '微信用户', NULL, 'ACTIVE',
-                            0, 0, ?, ?, NULL, ?, ?
+                            0, 0, ?, ?, ?, NULL, ?, ?
                         )
                         """,
                 uid.toString(),
@@ -475,10 +481,43 @@ public class TargetMiniappLoginTransactionService {
                 channel.id(),
                 subject.id(),
                 timestamp(registeredAt),
+                timestamp(registeredAt),
                 asset.assetId(),
                 timestamp(registeredAt),
                 timestamp(registeredAt));
         return organizationUserByUid(uid, true);
+    }
+
+    /**
+     * 只有已经写入新会话的事务才能推进最近登录投影。
+     *
+     * <p>微信主体和目标账号在选择阶段已经加锁；GREATEST 仍作为时钟回拨和
+     * 迟到事务的纵深防御。登录活动不改变账号授权版本或配置锁版本。</p>
+     */
+    private void recordSuccessfulLogin(
+            LoginSelection selection,
+            Instant loginRecordedAt) {
+        int updated = jdbc.update("""
+                        UPDATE iam_organization_user
+                        SET last_login_at = GREATEST(last_login_at, ?),
+                            updated_at = GREATEST(updated_at, ?)
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND organization_id = ?
+                          AND miniapp_channel_id = ?
+                          AND wechat_subject_id = ?
+                        """,
+                timestamp(loginRecordedAt),
+                timestamp(loginRecordedAt),
+                selection.user().id(),
+                selection.scope().tenantId(),
+                selection.scope().organizationId(),
+                selection.user().channelId(),
+                selection.subject().id());
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "successful miniapp session lost its organization account");
+        }
     }
 
     private void initializeWallet(

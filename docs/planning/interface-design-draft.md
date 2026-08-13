@@ -1,13 +1,19 @@
 # EcoBin P0 目标接口设计基线
 
 > [!IMPORTANT]
+> 2026-08-14 已新增并冻结 I-059：小程序仍复用有效本地会话；需要新会话且没有设备
+> 公开码时，登录接口按服务端最近成功登录时间选择第一个可用机构账号。账号列表沿用既有
+> 响应结构并按同一规则排序，不公开最近登录时间。详见
+> [`../architecture/recent-miniapp-organization-account-v49.md`](../architecture/recent-miniapp-organization-account-v49.md)。
+
+> [!IMPORTANT]
 > 2026-08-09 已冻结并实现 V43 平台袋码接口：平台管理员分页查看、幂等批量签发、读取
 > 明细和删除补打历史；小程序只扫描原始 EB1 文本，后端负责防伪验真。接口不扩展到
 > 租户、机构、香橙派、MCU 或 OneNet。详见
 > [`../architecture/authenticated-bag-labels-v43.md`](../architecture/authenticated-bag-labels-v43.md)。
 
 > [!IMPORTANT]
-> 2026-08-08 已新增并冻结 I-058：游客页面、设备扫码注册、最近机构账号登录、账号列表/切换、平台共享渠道和即时设备二维码 URL 取代旧接口语义。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
+> 2026-08-08 已新增并冻结 I-058：游客页面、设备扫码注册、机构账号登录、账号列表/切换、平台共享渠道和即时设备二维码 URL 取代旧接口语义；默认账号顺序已由 I-059 覆盖。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
 
 > [!IMPORTANT]
 > 2026-08-07 已新增并冻结 I-057：HTTP/小程序统一使用永久 `deviceCode`，OneNet/COS/边缘切换到不含部署码的 v2 契约；平台自动机器验收并拥有禁用/恢复/报废权，租户只做一次性机构分配，机构没有部署或激活操作。冲突内容以 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 为准。
@@ -15,7 +21,7 @@
 > [!IMPORTANT]
 > 2026-08-02：满溢接口由 V25 更新为设备状态变化被动入站；只有当前袋明确 `FULL` 阻止下一次投递，旧主动检测/人工重检前置要求不再生效。详见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md)。
 
-> 状态：**接口设计基线已完成；I-001～I-058 均已确认**
+> 状态：**接口设计基线已完成；I-001～I-059 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)、[`database-design-draft.md`](database-design-draft.md)
 > 当前运行接口：[`../api/api-frontend.md`](../api/api-frontend.md)、当前 Controller、Web/小程序请求封装、OneNet 物模型及香橙派实现

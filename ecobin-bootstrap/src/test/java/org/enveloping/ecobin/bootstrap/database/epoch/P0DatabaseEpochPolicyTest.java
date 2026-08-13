@@ -11,12 +11,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class P0DatabaseEpochPolicyTest {
 
     @Test
-    void acceptsTheExactV1MarkerAndCompleteV48Epoch() {
+    void acceptsTheExactV1MarkerAndCompleteV49Epoch() {
         var verification = P0DatabaseEpochPolicy.verify(validSnapshot());
 
         assertEquals("ecobin_target", verification.catalog());
         assertEquals("ecobin_app", verification.principal());
-        assertEquals(48, verification.minimumVersion());
+        assertEquals(49, verification.minimumVersion());
         assertEquals(229072802, verification.v1Checksum());
     }
 
@@ -57,7 +57,7 @@ class P0DatabaseEpochPolicyTest {
     }
 
     @Test
-    void rejectsAnEpochBelowV48() {
+    void rejectsAnEpochBelowV49() {
         List<P0DatabaseEpochPolicy.Migration> migrations =
                 new ArrayList<>(validMigrations());
         migrations.removeLast();
@@ -132,7 +132,7 @@ class P0DatabaseEpochPolicyTest {
                 "V1__p0_epoch_and_iam_core.sql",
                 229072802,
                 true));
-        for (int version = 2; version <= 48; version++) {
+        for (int version = 2; version <= 49; version++) {
             migrations.add(migration(
                     version,
                     Integer.toString(version),

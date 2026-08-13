@@ -1,9 +1,15 @@
 # EcoBin P0 目标数据库设计草案
 
 > [!IMPORTANT]
+> 2026-08-14 已推进 V49：`iam_organization_user.last_login_at` 保存机构账号最近一次
+> 成功签发小程序会话的服务端投影；首次创建等于注册时间，迁移以既有普通/管理会话
+> 回填，后续只单调推进。该字段用于无设备码且需要新会话时的默认账号选择，不向客户端
+> 公开。当前目标为 V49、99 张领域表、76 条有效权限定义。
+
+> [!IMPORTANT]
 > 2026-08-10 已推进 V46：新增单例 `dev_runtime_snapshot_policy`，保存平台全局运行快照
 > 兜底周期和可续跑下发游标；`dev_config_version` 只增加策略版本来源标记，不改写旧配置。
-> 当前目标为 V46、99 张领域表、76 条有效权限定义，不包含历史数据清理或归档。
+> V46 不包含历史数据清理或归档。
 
 > [!IMPORTANT]
 > 2026-08-09 已推进 V44：只为 `rec_clean_operation` 增加 Web 机构时间列表及状态时间列表索引，
@@ -24,10 +30,10 @@
 > [!IMPORTANT]
 > 2026-08-02：容量数据模型已由 V25 增量更新为设备上报当前袋 `FULL/NOT_FULL`，旧主动检测表仅保留历史兼容。现行模型见 [`../architecture/fullness-reporting-v25.md`](../architecture/fullness-reporting-v25.md) 和 V25 迁移。
 
-> 状态：**数据库设计基线已确认，D-001～D-048 均已确认**
+> 状态：**数据库设计基线已确认，D-001～D-049 均已确认**
 > 整理日期：2026-07-24
 > 上游输入：[`requirements-baseline.md`](requirements-baseline.md)、[`p0-scope-baseline.md`](p0-scope-baseline.md)、[`business-model-baseline.md`](business-model-baseline.md)、[`system-architecture-draft.md`](system-architecture-draft.md)
-> 当前目标结构：独立目标迁移已推进到 V35，共 99 张领域表；V35 只以向前兼容方式增加免确认收款授权模型和新旧提现收款模式快照，运行时代码尚未切换到授权后转账
+> 当前目标结构：独立目标迁移已推进到 V49，共 99 张领域表；V49 增加最近成功登录机构账号投影，既有表族数量不变
 > 历史字段讨论：[`../architecture/database-refactor-fields-draft.md`](../architecture/database-refactor-fields-draft.md)
 > 目的：把冻结的业务事实和架构边界落实为目标表、字段、约束、索引、事务锁根及迁移方案；F-04～F-06 已把 V1～V10 落为独立迁移，F-07 已验证只读纪元门禁，V-01、V-02 已使用目标身份和钱包表完成纵切；H-02 已完成本地开发演练和服务器整改阶段 0～3，目标数据库、加密备份和隔离恢复已通过，V-09 已 ready 但尚未授权，其他纵向业务仍不能当作已经实施。
 > 文档结构：本文件保存总状态、审计、表族概览、分章导航和后续顺序；各决策正文位于 [`database-design/`](database-design/) 下。

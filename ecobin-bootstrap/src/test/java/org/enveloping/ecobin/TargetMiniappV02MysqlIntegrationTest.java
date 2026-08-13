@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -363,6 +364,14 @@ class TargetMiniappV02MysqlIntegrationTest {
                 ordinaryToken,
                 "/api/v1/miniapp/auth/sessions/current",
                 401);
+        LocalDateTime loginBeforeManagement = jdbc.queryForObject("""
+                        SELECT last_login_at
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """,
+                LocalDateTime.class,
+                organizationUserUid.toString());
+        Thread.sleep(20L);
         JsonNode management = login(ordinaryCode, null, 201);
         assertEquals("miniapp-staff",
                 management.path("audience").asText());
@@ -370,6 +379,14 @@ class TargetMiniappV02MysqlIntegrationTest {
                 management.path("entryMode").asText());
         assertEquals(wechatSubjectUid,
                 management.path("subjectUid").asText());
+        LocalDateTime loginAfterManagement = jdbc.queryForObject("""
+                        SELECT last_login_at
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """,
+                LocalDateTime.class,
+                organizationUserUid.toString());
+        assertTrue(loginAfterManagement.isAfter(loginBeforeManagement));
         String managementToken =
                 management.path("accessToken").asText();
 
@@ -719,6 +736,14 @@ class TargetMiniappV02MysqlIntegrationTest {
                 accounts.get(0).path("organizationUserUid").asText());
         assertTrue(accounts.get(0).path("selected").asBoolean());
 
+        LocalDateTime firstLoginBeforeSelection = jdbc.queryForObject("""
+                        SELECT last_login_at
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """,
+                LocalDateTime.class,
+                first.path("organizationUserUid").asText());
+        Thread.sleep(20L);
         UUID selectionOperationUid = UUID.randomUUID();
         Map<String, Object> selectionRequest = Map.of(
                 "organizationUserUid",
@@ -748,6 +773,15 @@ class TargetMiniappV02MysqlIntegrationTest {
                 organizationCode,
                 selected.path("organization")
                         .path("organizationCode").asText());
+        LocalDateTime firstLoginAfterSelection = jdbc.queryForObject("""
+                        SELECT last_login_at
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """,
+                LocalDateTime.class,
+                first.path("organizationUserUid").asText());
+        assertTrue(firstLoginAfterSelection.isAfter(
+                firstLoginBeforeSelection));
 
         MvcResult selectionReplay = mockMvc.perform(
                         post("/api/v1/miniapp/auth/"
@@ -770,6 +804,13 @@ class TargetMiniappV02MysqlIntegrationTest {
                 selected.path("accessToken").asText(),
                 json(selectionReplay).path("data")
                         .path("accessToken").asText());
+        assertEquals(firstLoginAfterSelection, jdbc.queryForObject("""
+                        SELECT last_login_at
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """,
+                LocalDateTime.class,
+                first.path("organizationUserUid").asText()));
 
         MvcResult selectionConflict = mockMvc.perform(
                         post("/api/v1/miniapp/auth/"
@@ -795,6 +836,31 @@ class TargetMiniappV02MysqlIntegrationTest {
         assertEquals(
                 "COMMON.IDEMPOTENCY_KEY_CONFLICT",
                 json(selectionConflict).path("code").asText());
+
+        JsonNode mostRecentlyLoggedIn = login(
+                sharedWechatCode, null, 201);
+        assertEquals(
+                first.path("organizationUserUid").asText(),
+                mostRecentlyLoggedIn.path("organizationUserUid").asText());
+        MvcResult recentlyOrderedAccountsResult = mockMvc.perform(
+                        get("/api/v1/miniapp/me/organization-accounts")
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + mostRecentlyLoggedIn
+                                                .path("accessToken").asText()))
+                .andReturn();
+        assertEquals(
+                200,
+                recentlyOrderedAccountsResult.getResponse().getStatus(),
+                recentlyOrderedAccountsResult.getResponse()
+                        .getContentAsString());
+        JsonNode recentlyOrderedAccounts = json(
+                recentlyOrderedAccountsResult).path("data").path("accounts");
+        assertEquals(
+                first.path("organizationUserUid").asText(),
+                recentlyOrderedAccounts.get(0)
+                        .path("organizationUserUid").asText());
+        assertTrue(recentlyOrderedAccounts.get(0).path("selected").asBoolean());
 
         phoneBind(
                 first.path("accessToken").asText(),
@@ -847,6 +913,32 @@ class TargetMiniappV02MysqlIntegrationTest {
                 Integer.class,
                 tenantId,
                 secondOrganizationId));
+
+        Thread.sleep(20L);
+        JsonNode rescannedSecond = login(
+                sharedWechatCode, secondDeviceCode, 201);
+        assertEquals(
+                second.path("organizationUserUid").asText(),
+                rescannedSecond.path("organizationUserUid").asText());
+        JsonNode selectedAfterRescan = login(sharedWechatCode, null, 201);
+        assertEquals(
+                second.path("organizationUserUid").asText(),
+                selectedAfterRescan.path("organizationUserUid").asText());
+
+        jdbc.update("""
+                        UPDATE iam_organization_user
+                        SET status = 'FROZEN',
+                            frozen_at = UTC_TIMESTAMP(3),
+                            auth_version = auth_version + 1,
+                            lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE organization_user_uid = ?
+                        """,
+                second.path("organizationUserUid").asText());
+        JsonNode fallback = login(sharedWechatCode, null, 201);
+        assertEquals(
+                first.path("organizationUserUid").asText(),
+                fallback.path("organizationUserUid").asText());
     }
 
     @Test

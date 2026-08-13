@@ -1756,12 +1756,12 @@ class TargetWebIdentityMysqlIntegrationTest {
                     organization_user_uid, tenant_id, organization_id,
                     miniapp_channel_id, wechat_subject_id, phone_e164,
                     phone_bound_at, status, auth_version, lock_version,
-                    registered_at, created_at, updated_at
+                    registered_at, last_login_at, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, '+8613900000000', ?,
-                          'ACTIVE', 0, 0, ?, ?, ?)
+                          'ACTIVE', 0, 0, ?, ?, ?, ?)
                 """, sharedUserUid.toString(), fixture.tenantId(),
                 sharedOrganizationId, fixture.miniappId(),
-                fixture.subjectId(), sharedNow, sharedNow, sharedNow,
+                fixture.subjectId(), sharedNow, sharedNow, sharedNow, sharedNow,
                 sharedNow);
         long sharedUserId = jdbc.queryForObject("""
                 SELECT id
@@ -3673,10 +3673,10 @@ class TargetWebIdentityMysqlIntegrationTest {
                     organization_user_uid, tenant_id, organization_id,
                     miniapp_channel_id, wechat_subject_id, phone_e164,
                     phone_bound_at, status, auth_version, lock_version,
-                    registered_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 0, ?, ?, ?)
+                    registered_at, last_login_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 0, ?, ?, ?, ?)
                 """, userUid.toString(), scope[0], scope[1], miniappId,
-                subjectId, phone, now, now, now, now);
+                subjectId, phone, now, now, now, now, now);
         long userId = jdbc.queryForObject("""
                 SELECT id FROM iam_organization_user
                 WHERE miniapp_channel_id = ? AND wechat_subject_id = ?
@@ -4017,12 +4017,12 @@ class TargetWebIdentityMysqlIntegrationTest {
                         organization_user_uid, tenant_id, organization_id,
                         miniapp_channel_id, wechat_subject_id, phone_e164,
                         phone_bound_at, status, auth_version, lock_version,
-                        registered_at, created_at, updated_at
+                        registered_at, last_login_at, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, NULL, NULL, 'ACTIVE', 0, 0,
-                              ?, ?, ?)
+                              ?, ?, ?, ?)
                     """, UUID.randomUUID().toString(), fixture.tenantId(),
                     fixture.organizationId(), miniappId, subjectId,
-                    now, now, now);
+                    now, now, now, now);
             long userId = jdbc.queryForObject("""
                     SELECT id FROM iam_organization_user
                     WHERE miniapp_channel_id = ? AND wechat_subject_id = ?

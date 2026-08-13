@@ -766,9 +766,10 @@ class ReliableInboxMysqlIntegrationTest {
                     organization_user_uid, tenant_id, organization_id,
                     miniapp_channel_id, wechat_subject_id, status,
                     auth_version, lock_version, registered_at,
-                    created_at, updated_at
+                    last_login_at, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0, 0,
-                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3),
+                    UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
                 """, organizationUserUid.toString(), tenantId,
                 organizationId, miniappId, subjectId);
         long organizationUserId = jdbc.queryForObject("""

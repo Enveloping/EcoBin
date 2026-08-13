@@ -11,10 +11,10 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 99' -or
         $provisionSource -notmatch 'Expected 99 domain tables') {
-    throw "H-02 provisioning must enforce the V48 99-table shape"
+    throw "H-02 provisioning must enforce the V49 99-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 48') {
-    throw "H-02 provisioning must migrate through V48"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 49') {
+    throw "H-02 provisioning must migrate through V49"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -87,6 +87,12 @@ if (@(Compare-Object @("lock_version") $bindingColumns).Count -ne 0) {
 $subjectColumns = @($catalog.UpdateColumns.iam_wechat_subject)
 if (@(Compare-Object @("lock_version") $subjectColumns).Count -ne 0) {
     throw "V39 WeChat subject locking grant is not minimal"
+}
+$organizationUserColumns = @(
+    $catalog.UpdateColumns.iam_organization_user
+)
+if ($organizationUserColumns -notcontains "last_login_at") {
+    throw "V49 organization-user last-login runtime grant is missing"
 }
 
 $factoryBagColumns = @(

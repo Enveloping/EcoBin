@@ -2173,6 +2173,7 @@
           "Miniapp authentication"
         ],
         "summary": "Exchange one wx.login code for exactly one audience session",
+        "description": "A valid device entry explicitly selects its permanently assigned organization account. Without a device entry, an existing WeChat subject selects its most recently successfully signed-in available organization account; a still-valid client session is reused by the mini-program without calling this operation.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -2253,7 +2254,7 @@
         "operationId": "listCurrentMiniappOrganizationAccounts",
         "tags": ["Miniapp authentication"],
         "summary": "List safe organization-account summaries for the current WeChat subject",
-        "description": "This identity-only directory may cross tenant boundaries, but never returns wallet, order or other tenant business data.",
+        "description": "This identity-only directory may cross tenant boundaries, but never returns wallet, order or other tenant business data. Available accounts are ordered by most recent successful sign-in, then by internal id for deterministic ties; the last-sign-in timestamp is not exposed.",
         "security": [{"miniappBearer": []}],
         "responses": {
           "200": {"$ref": "#/components/responses/MiniappOrganizationAccountList"},
@@ -2267,6 +2268,7 @@
         "operationId": "selectCurrentMiniappOrganizationAccount",
         "tags": ["Miniapp authentication"],
         "summary": "Select one organization account and issue a new single-organization session",
+        "description": "A newly committed session advances that account's server-side recent-sign-in projection. Replaying the same idempotency key returns the original session without advancing it again.",
         "security": [{"miniappBearer": []}],
         "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {
@@ -2292,7 +2294,7 @@
         "operationId": "listCurrentMiniappStaffOrganizationAccounts",
         "tags": ["Miniapp authentication"],
         "summary": "List safe organization-account summaries while using a management session",
-        "description": "The management session contributes only its verified WeChat subject identity. The response contains identity summaries and never tenant business data.",
+        "description": "The management session contributes only its verified WeChat subject identity. The response contains identity summaries and never tenant business data. Available accounts are ordered by most recent successful sign-in; the timestamp is not exposed.",
         "security": [{"miniappBearer": []}],
         "responses": {
           "200": {"$ref": "#/components/responses/MiniappOrganizationAccountList"},

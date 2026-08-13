@@ -64,7 +64,7 @@ public class TargetMiniappOrganizationAccountService {
                         WHERE u.miniapp_channel_id = ?
                           AND u.wechat_subject_id = ?
                           AND u.status = 'ACTIVE'
-                        ORDER BY u.registered_at DESC, u.id DESC
+                        ORDER BY u.last_login_at DESC, u.id DESC
                         """,
                 (rs, ignored) -> new OrganizationAccountSummary(
                         UUID.fromString(

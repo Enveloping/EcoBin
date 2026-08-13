@@ -1,6 +1,11 @@
 # EcoBin P0 系统架构设计基线
 
 > [!IMPORTANT]
+> 2026-08-14 的 D-049 / I-059 只在 identity 模块增加服务端最近成功登录投影和默认
+> 机构账号选择，不引入跨租户业务令牌、客户端设备标识或新的跨模块依赖。详见
+> [`../architecture/recent-miniapp-organization-account-v49.md`](../architecture/recent-miniapp-organization-account-v49.md)。
+
+> [!IMPORTANT]
 > 2026-08-08 的 D-048 / I-058 增加平台级小程序渠道和微信身份层，但不创建跨租户业务令牌：账号枚举/切换是身份服务的受控特权用例，切换后的普通业务仍只带一个租户和机构上下文。详见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
 
 > [!IMPORTANT]

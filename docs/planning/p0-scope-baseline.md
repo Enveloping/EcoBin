@@ -1,7 +1,7 @@
 # EcoBin 一周 P0 范围基线
 
 > [!IMPORTANT]
-> 2026-08-08 已按 D-048 / I-058 重新冻结小程序身份范围：共享 AppID、多机构独立账号、设备扫码注册、最近账号静默登录和游客浏览。旧的每机构 AppID 与直接注册规则由 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md) 覆盖。
+> 2026-08-08 已按 D-048 / I-058 重新冻结小程序身份范围：共享 AppID、多机构独立账号、设备扫码注册、既有账号静默登录和游客浏览；2026-08-14 的 D-049 / I-059 又把默认账号明确为最近成功登录的可用账号。旧的每机构 AppID 与直接注册规则由 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md) 覆盖，账号顺序详见 [`../architecture/recent-miniapp-organization-account-v49.md`](../architecture/recent-miniapp-organization-account-v49.md)。
 
 > [!IMPORTANT]
 > 2026-08-07 已按 D-047 / I-057 重新冻结设备范围：永久归属、平台自动机器验收、机构仅安装联网、无部署码、无人工经营开关。本文中调拨、回收、现场验收或部署进度等旧范围均由 [`../architecture/permanent-device-ownership-v36.md`](../architecture/permanent-device-ownership-v36.md) 覆盖。

@@ -1,6 +1,12 @@
 # EcoBin P0 详细设计与任务拆分总索引
 
 > [!IMPORTANT]
+> 2026-08-14 已批准 D-049 / I-059 / V49：在账号上保存只单调推进的最近成功登录投影；
+> 登录、扫码和手工切换只有成功写入新会话才更新，幂等重放和失败事务不更新。客户端和
+> HTTP 结构保持不变。完整边界见
+> [`../architecture/recent-miniapp-organization-account-v49.md`](../architecture/recent-miniapp-organization-account-v49.md)。
+
+> [!IMPORTANT]
 > 2026-08-08 已批准 D-048 / I-058 / V39 的前向切换：先冻结共享小程序身份边界，再成对修改数据库、后端、Web 和小程序；不保留机构 AppID/OpenID 旧模型或二维码等待流程。完整施工边界见 [`../architecture/shared-miniapp-multi-organization-identity-v39.md`](../architecture/shared-miniapp-multi-organization-identity-v39.md)。
 
 > [!IMPORTANT]
