@@ -51,10 +51,10 @@
   },
   "permission": {
     "scope.userLocation": {
-      "desc": "用于清运员在地图上选择设备安装位置"
+      "desc": "用于清运员获取手机当前位置并在地图中校准设备安装坐标"
     }
   },
-  "requiredPrivateInfos": ["chooseLocation"],
+  "requiredPrivateInfos": ["getLocation", "chooseLocation"],
   "componentFramework": "glass-easel",
   "lazyCodeLoading": "requiredComponents"
 }

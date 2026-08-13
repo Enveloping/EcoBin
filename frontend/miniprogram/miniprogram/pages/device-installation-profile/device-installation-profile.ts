@@ -23,16 +23,34 @@ function coordinate(value: number | string): string {
   return normalized.toFixed(7)
 }
 
-function locationAddress(
-  address: string,
-  name: string,
-): string {
+function locationAddress(address: string, name: string): string {
   const normalizedAddress = String(address || '').trim()
   const normalizedName = String(name || '').trim()
   if (!normalizedName || normalizedAddress.includes(normalizedName)) {
     return normalizedAddress || normalizedName
   }
   return [normalizedAddress, normalizedName].filter(Boolean).join(' ')
+}
+
+const MAX_ACCEPTABLE_LOCATION_ACCURACY_METERS = 100
+
+function locationAccuracyMeters(
+  result: WechatMiniprogram.GetLocationSuccessCallbackResult,
+): number | null {
+  const horizontalAccuracy = Number(result.horizontalAccuracy)
+  if (Number.isFinite(horizontalAccuracy) && horizontalAccuracy >= 0) {
+    return horizontalAccuracy
+  }
+  const accuracy = Number(result.accuracy)
+  return Number.isFinite(accuracy) && accuracy >= 0 ? accuracy : null
+}
+
+function locationPermissionDenied(error: WechatMiniprogram.GeneralCallbackResult) {
+  const message = String(error.errMsg || '').toLowerCase()
+  return message.includes('auth deny')
+    || message.includes('auth denied')
+    || message.includes('permission denied')
+    || message.includes('scope.userlocation')
 }
 
 Page({
@@ -49,6 +67,8 @@ Page({
     updatedText: '',
     loading: true,
     saving: false,
+    locating: false,
+    locationAccuracyText: '',
     errorMessage: '',
     hasLocation: false,
   },
@@ -95,6 +115,7 @@ Page({
       longitude: profile.longitude || '',
       latitude: profile.latitude || '',
       hasLocation: Boolean(profile.longitude && profile.latitude),
+      locationAccuracyText: '',
       updatedText: profile.updatedAt
         ? formatLocalDateTime(profile.updatedAt)
         : '尚未保存',
@@ -109,16 +130,64 @@ Page({
     this.setData({ address: String(event.detail.value || '') })
   },
 
+  onLocateCurrentPosition() {
+    if (this.data.locating) return
+    this.setData({ locating: true })
+    wx.getLocation({
+      type: 'gcj02',
+      isHighAccuracy: true,
+      highAccuracyExpireTime: 8000,
+      success: result => {
+        const accuracyMeters = locationAccuracyMeters(result)
+        if (accuracyMeters !== null
+          && accuracyMeters > MAX_ACCEPTABLE_LOCATION_ACCURACY_METERS) {
+          wx.showModal({
+            title: '定位精度较低',
+            content: `当前位置误差约 ${Math.ceil(accuracyMeters)} 米，未更新设备坐标。请在手机系统中开启精确位置，或到室外后重试。`,
+            showCancel: false,
+          })
+          return
+        }
+        this.setData({
+          longitude: coordinate(result.longitude),
+          latitude: coordinate(result.latitude),
+          hasLocation: true,
+          locationAccuracyText: accuracyMeters === null
+            ? '本次定位精度未知'
+            : `本次定位误差约 ${Math.max(1, Math.ceil(accuracyMeters))} 米`,
+        })
+        wx.showToast({ title: '已获取当前位置', icon: 'success' })
+      },
+      fail: error => {
+        if (locationPermissionDenied(error)) {
+          wx.showModal({
+            title: '无法获取位置',
+            content: '请允许小程序使用位置信息，并在手机系统中为微信开启精确位置。',
+            confirmText: '去设置',
+            success: result => {
+              if (result.confirm) wx.openSetting()
+            },
+          })
+          return
+        }
+        wx.showToast({ title: '手机定位失败，请重试', icon: 'none' })
+      },
+      complete: () => this.setData({ locating: false }),
+    })
+  },
+
   onChooseLocation() {
-    const latitude = Number(this.data.latitude)
-    const longitude = Number(this.data.longitude)
+    if (this.data.locating || !this.data.hasLocation) return
     const options: WechatMiniprogram.ChooseLocationOption = {
+      latitude: Number(this.data.latitude),
+      longitude: Number(this.data.longitude),
       success: result => {
         this.setData({
           address: locationAddress(result.address, result.name),
           longitude: coordinate(result.longitude),
           latitude: coordinate(result.latitude),
           hasLocation: true,
+          locationAccuracyText: '已在地图中确认位置',
         })
       },
       fail: error => {
@@ -126,12 +195,6 @@ Page({
           wx.showToast({ title: '地图位置选择失败', icon: 'none' })
         }
       },
-    }
-    if (this.data.hasLocation
-      && Number.isFinite(latitude)
-      && Number.isFinite(longitude)) {
-      options.latitude = latitude
-      options.longitude = longitude
     }
     wx.chooseLocation(options)
   },
@@ -151,7 +214,7 @@ Page({
     if (!this.data.hasLocation
       || !this.data.longitude
       || !this.data.latitude) {
-      wx.showToast({ title: '请先在地图中选择位置', icon: 'none' })
+      wx.showToast({ title: '请先获取手机当前位置', icon: 'none' })
       return
     }
     if (!address) {

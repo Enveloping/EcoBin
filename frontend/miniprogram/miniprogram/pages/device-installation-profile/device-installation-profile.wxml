@@ -36,29 +36,42 @@
         bindinput="onNameInput"
       />
 
-      <view class="field-label field-label--location"><text>地图位置</text><text class="required">必选</text></view>
-      <view class="location-picker {{hasLocation ? 'location-picker--selected' : ''}}" bindtap="onChooseLocation">
+      <view class="field-label field-label--location"><text>手机定位</text><text class="required">必选</text></view>
+      <view class="location-picker {{hasLocation ? 'location-picker--selected' : ''}}" bindtap="onLocateCurrentPosition">
         <view class="location-picker-icon"><t-icon name="location" size="38rpx" color="{{hasLocation ? '#0b9327' : '#7f8b82'}}" /></view>
         <view class="location-picker-copy">
-          <view class="location-picker-title">{{hasLocation ? '位置已选择' : '打开地图选择位置'}}</view>
-          <view class="location-picker-hint">{{hasLocation ? '可再次点击调整定位点' : '地图会定位到手机附近，可拖动选择准确位置'}}</view>
+          <view class="location-picker-title">{{locating ? '正在获取高精度定位…' : (hasLocation ? '重新获取手机当前位置' : '获取手机当前位置')}}</view>
+          <view class="location-picker-hint">{{locating ? '定位可能需要几秒钟，请稍候' : (hasLocation ? '点击后会用手机当前位置更新坐标' : '将请求系统高精度定位，不会打开地图')}}</view>
         </view>
         <t-icon name="chevron-right" size="28rpx" color="#9ba49d" />
       </view>
 
-      <view wx:if="{{hasLocation}}" class="coordinate-panel">
+      <view
+        wx:if="{{hasLocation}}"
+        class="coordinate-panel coordinate-panel--interactive"
+        bindtap="onChooseLocation"
+        hover-class="coordinate-panel--pressed"
+      >
         <view><text>经度</text><text>{{longitude}}</text></view>
         <view><text>纬度</text><text>{{latitude}}</text></view>
-        <view class="coordinate-system">坐标系 GCJ-02（微信地图）</view>
+        <view class="coordinate-system">
+          坐标系 GCJ-02（微信定位）
+          <text wx:if="{{locationAccuracyText}}"> · {{locationAccuracyText}}</text>
+        </view>
+        <view class="coordinate-action">
+          <text>点击坐标可进入地图微调</text>
+          <t-icon name="chevron-right" size="25rpx" color="#628268" />
+        </view>
       </view>
 
       <view class="field-label field-label--address"><text>详细地址</text><text class="required">必填</text></view>
+      <view class="field-hint">手机定位只返回经纬度；地图选择会带回基础地址，也可继续手动补充</view>
       <textarea
         class="address-input"
         maxlength="500"
         auto-height
         value="{{address}}"
-        placeholder="地图会自动带回基础地址，可继续补充楼栋、门口等信息"
+        placeholder="请输入街道、园区、楼栋或门口等详细安装地址"
         bindinput="onAddressInput"
       ></textarea>
       <view class="updated-copy">上次保存：{{updatedText}}</view>

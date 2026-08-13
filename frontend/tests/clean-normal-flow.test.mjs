@@ -267,6 +267,9 @@ test('cleaners edit an independent current installation profile from both device
   const markup = source(
     '../miniprogram/miniprogram/pages/device-installation-profile/device-installation-profile.wxml',
   );
+  const styles = source(
+    '../miniprogram/miniprogram/pages/device-installation-profile/device-installation-profile.wxss',
+  );
   const operation = source(
     '../miniprogram/miniprogram/pages/clean-operation/clean-operation.ts',
   );
@@ -277,17 +280,44 @@ test('cleaners edit an independent current installation profile from both device
   assert.ok(app.pages.includes(
     'pages/device-installation-profile/device-installation-profile',
   ));
-  assert.deepEqual(app.requiredPrivateInfos, ['chooseLocation']);
+  assert.deepEqual(app.requiredPrivateInfos, [
+    'getLocation',
+    'chooseLocation',
+  ]);
   assert.match(api, /\/installation-profile/);
   assert.match(api, /http\.get<DeviceInstallationProfile>/);
   assert.match(api, /http\.put<DeviceInstallationProfile>/);
   assert.match(page, /requireEntryMode\(\['CLEANING'\]\)/);
+  assert.match(page, /wx\.getLocation\(\{/);
+  assert.match(page, /type:\s*'gcj02'/);
+  assert.match(page, /isHighAccuracy:\s*true/);
+  assert.match(page, /highAccuracyExpireTime:\s*8000/);
+  assert.match(page, /horizontalAccuracy/);
+  assert.match(page, /MAX_ACCEPTABLE_LOCATION_ACCURACY_METERS\s*=\s*100/);
+  assert.match(page, /定位精度较低/);
+  assert.match(page, /未更新设备坐标/);
   assert.match(page, /wx\.chooseLocation\(options\)/);
+  assert.match(page, /latitude:\s*Number\(this\.data\.latitude\)/);
+  assert.match(page, /longitude:\s*Number\(this\.data\.longitude\)/);
+  assert.match(page, /address:\s*locationAddress\(result\.address, result\.name\)/);
   assert.match(page, /expectedVersion:\s*this\.data\.version/);
   assert.match(page, /COMMON\.VERSION_CONFLICT/);
   assert.match(page, /installationProfileUpdated/);
   assert.doesNotMatch(page, /configuration-releases|OneNet|applyConfiguration/);
   assert.match(markup, /坐标系 GCJ-02/);
+  assert.match(markup, /获取手机当前位置/);
+  assert.match(markup, /bindtap="onChooseLocation"/);
+  assert.match(markup, /点击坐标可进入地图微调/);
+  assert.match(markup, /地图选择会带回基础地址/);
+  assert.doesNotMatch(markup, /打开地图选择位置|拖动选择/);
+  assert.match(
+    styles,
+    /\.coordinate-panel view\.coordinate-action\s*\{[^}]*flex-direction:\s*row;[^}]*\}/s,
+  );
+  assert.match(
+    styles,
+    /\.coordinate-panel \.coordinate-action text:first-child\s*\{[^}]*white-space:\s*nowrap;[^}]*\}/s,
+  );
   assert.match(markup, /不会通知香橙派或 MCU/);
   assert.doesNotMatch(markup, /bindinput="onLongitude|bindinput="onLatitude/);
   assert.match(operation, /onConfigureInstallation/);

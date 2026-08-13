@@ -54,6 +54,7 @@ page { background: #f4f7f3; }
 .field-label--location,
 .field-label--address { margin-top: 30rpx; }
 .required { color: #a86119; font-size: 18rpx; font-weight: 520; }
+.field-hint { margin: -3rpx 0 13rpx; color: #8e9890; font-size: 19rpx; line-height: 1.45; }
 .text-input,
 .address-input {
   width: 100%;
@@ -84,10 +85,14 @@ page { background: #f4f7f3; }
 .location-picker-hint { margin-top: 5rpx; color: #849087; font-size: 19rpx; line-height: 1.45; }
 
 .coordinate-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; margin-top: 14rpx; padding: 17rpx 18rpx; background: #f6f8f6; border-radius: 15rpx; }
+.coordinate-panel--interactive { border: 1rpx solid transparent; transition: background .15s ease, border-color .15s ease; }
+.coordinate-panel--pressed { background: #ebf6ed; border-color: #9bcba4; }
 .coordinate-panel view:not(.coordinate-system) { display: flex; flex-direction: column; gap: 4rpx; }
 .coordinate-panel text:first-child { color: #929b94; font-size: 18rpx; }
 .coordinate-panel text:last-child { font-size: 21rpx; font-variant-numeric: tabular-nums; }
 .coordinate-system { grid-column: 1 / -1; color: #8e9890; font-size: 18rpx; }
+.coordinate-panel view.coordinate-action { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; flex-direction: row; gap: 8rpx; padding-top: 10rpx; color: #47724f; border-top: 1rpx solid #e2eae3; }
+.coordinate-panel .coordinate-action text:first-child { min-width: 0; color: #47724f; font-size: 19rpx; font-weight: 620; white-space: nowrap; }
 .updated-copy { margin-top: 16rpx; color: #9aa29c; font-size: 18rpx; }
 
 .save-button {
