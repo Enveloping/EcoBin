@@ -699,6 +699,58 @@ class TestEventOutboxOperations:
         assert row["retry_count"] == 1
         store.close()
 
+    def test_stale_sender_cannot_reopen_a_business_confirmed_event(self):
+        store = make_store()
+        store.receive_mcu_event("evt-1", "E1", {})
+        stale_event = store.list_pending_events()[0]
+
+        assert store.receive_business_confirmation(
+            "conf-1",
+            "evt-1",
+            "BUSINESS_APPLIED",
+        ) == "ACCEPTED"
+
+        store.mark_event_sending(stale_event["event_uid"], 42)
+        store.mark_event_pending_retry(stale_event["event_uid"])
+
+        row = store.get_event("evt-1")
+        assert row["state"] == EVENT_CONFIRMED
+        assert row["confirmed_at"] is not None
+        assert row["mqtt_msg_id"] is None
+        assert row["retry_count"] == 0
+        assert store.list_pending_events() == []
+        assert store.count_pending_reliable_events() == 0
+        store.close()
+
+    def test_initialize_repairs_a_confirmed_event_left_pending(self):
+        store = make_store()
+        path = store.db_path
+        store.receive_mcu_event("evt-1", "E1", {})
+        assert store.receive_business_confirmation(
+            "conf-1",
+            "evt-1",
+            "BUSINESS_APPLIED",
+        ) == "ACCEPTED"
+        store._conn.execute(
+            """UPDATE event_outbox
+               SET state='PENDING', mqtt_msg_id=42,
+                   next_retry_at='2000-01-01T00:00:00'
+               WHERE event_uid='evt-1'"""
+        )
+        store._conn.commit()
+        store.close()
+
+        recovered = EdgeStore(path)
+        recovered.initialize()
+
+        row = recovered.get_event("evt-1")
+        assert row["state"] == EVENT_CONFIRMED
+        assert row["confirmed_at"] is not None
+        assert row["mqtt_msg_id"] is None
+        assert row["next_retry_at"] is None
+        assert recovered.list_pending_events() == []
+        recovered.close()
+
     def test_iso_retry_timestamp_becomes_due(self):
         store = make_store()
         store.receive_mcu_event("evt-1", "E1", {})

@@ -430,6 +430,9 @@ def test_duplicate_confirmation_reuses_and_requeues_exact_receipt(
         command=command,
     ) == "DUPLICATE"
     assert store.get_event(receipt_uid)["state"] == "PENDING"
+    assert [
+        event["event_uid"] for event in store.list_pending_events()
+    ] == [receipt_uid]
     receipt_count = store._conn.execute(
         """SELECT COUNT(*) AS count FROM event_outbox
            WHERE event_type='BUSINESS_CONFIRMATION_RECEIPT'"""

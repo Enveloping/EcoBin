@@ -1751,6 +1751,10 @@ class EdgeStore:
                 """SELECT * FROM event_outbox
                    WHERE state = 'PENDING' AND tombstoned = 0
                      AND (
+                       event_type='BUSINESS_CONFIRMATION_RECEIPT'
+                       OR confirmed_at IS NULL
+                     )
+                     AND (
                        next_retry_at IS NULL
                        OR datetime(next_retry_at) <= datetime('now')
                      )
@@ -1768,6 +1772,20 @@ class EdgeStore:
             ).fetchone()
             if not exists:
                 return 0
+            repaired = self._conn.execute(
+                """UPDATE event_outbox
+                   SET state='CONFIRMED', mqtt_msg_id=NULL,
+                       next_retry_at=NULL
+                   WHERE state<>'CONFIRMED'
+                     AND confirmed_at IS NOT NULL
+                     AND event_type<>'BUSINESS_CONFIRMATION_RECEIPT'"""
+            ).rowcount
+            if repaired:
+                logger.warning(
+                    "Repaired %d reliable event states from durable "
+                    "business confirmations",
+                    repaired,
+                )
             return self._conn.execute(
                 """UPDATE event_outbox
                    SET state='PENDING', mqtt_msg_id=NULL,
@@ -1781,7 +1799,8 @@ class EdgeStore:
             rows = self._conn.execute(
                 """SELECT payload_json FROM event_outbox
                    WHERE state IN ('PENDING', 'SENDING')
-                     AND tombstoned=0"""
+                     AND tombstoned=0
+                     AND confirmed_at IS NULL"""
             ).fetchall()
         count = 0
         for row in rows:
@@ -3096,7 +3115,13 @@ class EdgeStore:
     def mark_event_sending(self, event_uid: str, mqtt_msg_id: int) -> None:
         with self.transaction():
             self._conn.execute(
-                "UPDATE event_outbox SET state='SENDING', mqtt_msg_id=? WHERE event_uid=?",
+                """UPDATE event_outbox
+                   SET state='SENDING', mqtt_msg_id=?
+                   WHERE event_uid=? AND state='PENDING'
+                     AND (
+                       event_type='BUSINESS_CONFIRMATION_RECEIPT'
+                       OR confirmed_at IS NULL
+                     )""",
                 (mqtt_msg_id, event_uid),
             )
 
@@ -3115,7 +3140,9 @@ class EdgeStore:
             self._conn.execute(
                 "UPDATE event_outbox SET state='PENDING', "
                 "retry_count=retry_count+1, next_retry_at=? "
-                "WHERE event_uid=? AND state IN ('PENDING', 'SENDING')",
+                "WHERE event_uid=? AND state IN ('PENDING', 'SENDING') "
+                "AND (event_type='BUSINESS_CONFIRMATION_RECEIPT' "
+                "OR confirmed_at IS NULL)",
                 (next_retry, event_uid),
             )
 
@@ -3149,7 +3176,11 @@ class EdgeStore:
                            last_platform_reply_at=?,
                            next_retry_at=NULL
                        WHERE event_uid=?
-                         AND state<>'CONFIRMED'""",
+                         AND state<>'CONFIRMED'
+                         AND (
+                           event_type='BUSINESS_CONFIRMATION_RECEIPT'
+                           OR confirmed_at IS NULL
+                         )""",
                     (code, now, event_uid),
                 )
             else:
@@ -3173,7 +3204,11 @@ class EdgeStore:
     def mark_control_receipt_published(self, event_uid: str) -> bool:
         with self.transaction():
             cur = self._conn.execute(
-                "UPDATE event_outbox SET state=?, confirmed_at=? WHERE event_uid=? AND event_type='BUSINESS_CONFIRMATION_RECEIPT'",
+                """UPDATE event_outbox
+                   SET state=?, confirmed_at=?, mqtt_msg_id=NULL,
+                       next_retry_at=NULL
+                   WHERE event_uid=? AND event_type=
+                     'BUSINESS_CONFIRMATION_RECEIPT'""",
                 (EVENT_CONFIRMED, self._now(), event_uid),
             )
             return cur.rowcount > 0
@@ -3773,7 +3808,10 @@ class EdgeStore:
                  _json.dumps(payload, ensure_ascii=False) if payload else None),
             )
             conn.execute(
-                "UPDATE event_outbox SET state=?, confirmed_at=? WHERE event_uid=?",
+                """UPDATE event_outbox
+                   SET state=?, confirmed_at=?, mqtt_msg_id=NULL,
+                       next_retry_at=NULL
+                   WHERE event_uid=?""",
                 (EVENT_CONFIRMED, self._now(), event_uid),
             )
             return "ACCEPTED"
@@ -3841,7 +3879,8 @@ class EdgeStore:
                     conn.execute(
                         """UPDATE event_outbox
                            SET state='PENDING', mqtt_msg_id=NULL,
-                               next_retry_at=NULL, tombstoned=0
+                               next_retry_at=NULL, confirmed_at=NULL,
+                               tombstoned=0
                            WHERE event_uid=? AND event_type=
                              'BUSINESS_CONFIRMATION_RECEIPT'""",
                         (existing["receipt_event_uid"],),
@@ -3915,7 +3954,8 @@ class EdgeStore:
             )
             conn.execute(
                 """UPDATE event_outbox
-                   SET state=?, confirmed_at=?
+                   SET state=?, confirmed_at=?, mqtt_msg_id=NULL,
+                       next_retry_at=NULL
                    WHERE event_uid=?""",
                 (
                     EVENT_CONFIRMED,
