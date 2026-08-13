@@ -3349,6 +3349,40 @@
         }
       }
     },
+    "/api/v1/miniapp/devices/{deviceCode}/installation-profile": {
+      "parameters": [{"$ref": "#/components/parameters/DeviceCode"}],
+      "get": {
+        "operationId": "getMiniappDeviceInstallationProfile",
+        "tags": ["Device inventory"],
+        "summary": "Read the accepted device's current installation profile in the cleaner organization",
+        "security": [{"miniappBearer": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceInstallationProfileOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      },
+      "put": {
+        "operationId": "updateMiniappDeviceInstallationProfile",
+        "tags": ["Device inventory"],
+        "summary": "Replace current installation name and GCJ-02 location without publishing machine configuration",
+        "security": [{"miniappBearer": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateDeviceInstallationProfileRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DeviceInstallationProfileOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
     "/api/v1/miniapp/clean-operations/{operationUid}": {
       "parameters": [{"name": "operationUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
       "get": {
@@ -6627,6 +6661,21 @@
         }
       }
 ,
+      "DeviceInstallationProfileOk": {
+        "description": "Current permanent-asset installation profile",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/NoStore"},
+          "X-Request-Id": {"$ref": "#/components/headers/RequestId"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeviceInstallationProfileEnvelope"
+            }
+          }
+        }
+      }
+,
       "DeviceAssetCreated": {
         "description": "Permanent device asset created",
         "headers": {
@@ -6700,7 +6749,6 @@
         "additionalProperties": false,
         "required": [
           "expectedLatestVersion",
-          "locationCorrectionConfirmed",
           "device",
           "ports"
         ],
@@ -6710,7 +6758,6 @@
             "type": ["string", "null"],
             "maxLength": 500
           },
-          "locationCorrectionConfirmed": {"type": "boolean"},
           "device": {
             "$ref": "#/components/schemas/DeviceConfigurationDeviceInput"
           },
@@ -6728,7 +6775,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "displayName",
           "mcuHeartbeatIntervalMs",
           "mcuHeartbeatMissThreshold",
           "doorCloseRetryLimit",
@@ -6736,23 +6782,6 @@
           "negativeWeightThresholdGram"
         ],
         "properties": {
-          "displayName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "address": {
-            "type": ["string", "null"],
-            "maxLength": 500
-          },
-          "longitude": {
-            "type": ["string", "null"],
-            "pattern": "^-?(180(\\.0+)?|1[0-7][0-9](\\.\\d+)?|[0-9]{1,2}(\\.\\d+)?)$"
-          },
-          "latitude": {
-            "type": ["string", "null"],
-            "pattern": "^-?(90(\\.0+)?|[0-8]?[0-9](\\.\\d+)?)$"
-          },
           "mcuHeartbeatIntervalMs": {"type": "integer", "minimum": 1},
           "mcuHeartbeatMissThreshold": {"type": "integer", "minimum": 1},
           "doorCloseRetryLimit": {"type": "integer", "minimum": 0},
@@ -7108,7 +7137,6 @@
           "runtimeSnapshotPolicyVersion",
           "contentSha256",
           "mcuPayloadSha256",
-          "deviceDisplayName",
           "publicationSource",
           "publishedBy",
           "publishedAt",
@@ -7119,7 +7147,6 @@
           "runtimeSnapshotPolicyVersion": {"type": ["integer", "null"], "minimum": 1},
           "contentSha256": {"$ref": "#/components/schemas/Sha256Hex"},
           "mcuPayloadSha256": {"$ref": "#/components/schemas/Sha256Hex"},
-          "deviceDisplayName": {"type": "string", "minLength": 1, "maxLength": 100},
           "publicationSource": {"type": "string", "maxLength": 16},
           "publishedBy": {"type": "string", "minLength": 1, "maxLength": 100},
           "publishedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
@@ -7149,10 +7176,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "displayName",
-          "address",
-          "longitude",
-          "latitude",
           "edgeHeartbeatIntervalMs",
           "edgeHeartbeatMissThreshold",
           "mcuHeartbeatIntervalMs",
@@ -7167,10 +7190,6 @@
           "smokeMonitoringEnabled"
         ],
         "properties": {
-          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
-          "address": {"type": ["string", "null"], "maxLength": 500},
-          "longitude": {"type": ["string", "null"]},
-          "latitude": {"type": ["string", "null"]},
           "edgeHeartbeatIntervalMs": {"type": "integer", "minimum": 600000, "maximum": 4294967295},
           "edgeHeartbeatMissThreshold": {"type": "integer", "const": 3},
           "mcuHeartbeatIntervalMs": {"type": "integer", "minimum": 1},
@@ -12484,6 +12503,69 @@
         }
       }
 ,
+      "DeviceInstallationProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deviceCode",
+          "version",
+          "complete",
+          "displayName",
+          "address",
+          "longitude",
+          "latitude",
+          "coordinateSystem",
+          "updatedAt"
+        ],
+        "properties": {
+          "deviceCode": {"$ref": "#/components/schemas/DeviceCode"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "complete": {"type": "boolean"},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "address": {"type": ["string", "null"], "maxLength": 500},
+          "longitude": {"type": ["string", "null"]},
+          "latitude": {"type": ["string", "null"]},
+          "coordinateSystem": {"type": "string", "const": "GCJ02"},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"}
+        }
+      }
+,
+      "UpdateDeviceInstallationProfileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedVersion",
+          "displayName",
+          "address",
+          "longitude",
+          "latitude"
+        ],
+        "properties": {
+          "expectedVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "address": {"type": "string", "minLength": 1, "maxLength": 500},
+          "longitude": {
+            "type": "string",
+            "pattern": "^-?(?:180(?:\\.0{1,7})?|1[0-7][0-9](?:\\.[0-9]{1,7})?|[1-9]?[0-9](?:\\.[0-9]{1,7})?)$"
+          },
+          "latitude": {
+            "type": "string",
+            "pattern": "^-?(?:90(?:\\.0{1,7})?|[1-8]?[0-9](?:\\.[0-9]{1,7})?)$"
+          }
+        }
+      }
+,
+      "DeviceInstallationProfileEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "data", "requestId"],
+        "properties": {
+          "code": {"type": "string", "const": "OK"},
+          "data": {"$ref": "#/components/schemas/DeviceInstallationProfile"},
+          "requestId": {"type": "string"}
+        }
+      }
+,
       "DeviceAsset": {
         "type": "object",
         "additionalProperties": false,
@@ -12507,6 +12589,7 @@
           "retiredAt",
           "createdAt",
           "updatedAt",
+          "installationProfile",
           "oneNetMapping"
         ],
         "properties": {
@@ -12602,6 +12685,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "installationProfile": {
+            "$ref": "#/components/schemas/DeviceInstallationProfile"
           },
           "oneNetMapping": {
             "$ref": "#/components/schemas/ComputedOneNetMapping"

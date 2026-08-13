@@ -83,7 +83,28 @@ public final class DeviceModels {
             Instant retiredAt,
             Instant createdAt,
             Instant updatedAt,
+            DeviceInstallationProfileView installationProfile,
             ComputedOneNetMapping oneNetMapping) {
+    }
+
+    public record DeviceInstallationProfileView(
+            String deviceCode,
+            long version,
+            boolean complete,
+            String displayName,
+            String address,
+            String longitude,
+            String latitude,
+            String coordinateSystem,
+            Instant updatedAt) {
+    }
+
+    public record UpdateDeviceInstallationProfileRequest(
+            @NotNull @Min(0) @Max(9007199254740991L) Long expectedVersion,
+            @NotBlank @Size(max = 100) String displayName,
+            @NotBlank @Size(max = 500) String address,
+            @NotBlank String longitude,
+            @NotBlank String latitude) {
     }
 
     public record AssignTenantRequest(
@@ -296,7 +317,6 @@ public final class DeviceModels {
     public record ConfigurationReleaseRequest(
             @NotNull @Min(0) Long expectedLatestVersion,
             @Size(max = 500) String reason,
-            @NotNull Boolean locationCorrectionConfirmed,
             @NotNull @Valid ConfigurationDeviceRequest device,
             @NotEmpty @Size(max = 6)
             List<@Valid ConfigurationPortRequest> ports) {
@@ -323,10 +343,6 @@ public final class DeviceModels {
     }
 
     public record ConfigurationDeviceRequest(
-            @NotBlank @Size(max = 100) String displayName,
-            @Size(max = 500) String address,
-            String longitude,
-            String latitude,
             @NotNull @Min(1) Long mcuHeartbeatIntervalMs,
             @NotNull @Min(1) Long mcuHeartbeatMissThreshold,
             @NotNull @Min(0) Long doorCloseRetryLimit,
@@ -367,10 +383,6 @@ public final class DeviceModels {
     }
 
     public record ConfigurationDeviceSnapshot(
-            String displayName,
-            String address,
-            String longitude,
-            String latitude,
             long edgeHeartbeatIntervalMs,
             long edgeHeartbeatMissThreshold,
             long mcuHeartbeatIntervalMs,
@@ -424,7 +436,6 @@ public final class DeviceModels {
             Long runtimeSnapshotPolicyVersion,
             String contentSha256,
             String mcuPayloadSha256,
-            String deviceDisplayName,
             String publicationSource,
             String publishedBy,
             Instant publishedAt,

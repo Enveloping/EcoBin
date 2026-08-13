@@ -52,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=${ECOBIN_V02_MYSQL_URL}",
@@ -59,6 +60,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "spring.datasource.password=${ECOBIN_V02_MYSQL_PASSWORD}",
         "spring.sql.init.mode=never",
         "jwt.secret=v02_mysql_test_jwt_secret_at_least_32_bytes_long",
+        "bagCodeKeyK1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "ecobin.database.epoch.test-bypass=false",
         "ecobin.external.mode=fake",
         "ecobin.external.fake.block-inbound=true",
@@ -215,6 +217,8 @@ class TargetMiniappV02MysqlIntegrationTest {
                             asset_uid, device_public_code,
                             hardware_sn, model_name, production_batch,
                             expected_port_count,
+                            installation_display_name,
+                            installation_updated_at,
                             tenant_id, tenant_assigned_at,
                             organization_id, organization_assigned_at,
                             acceptance_status, accepted_at,
@@ -226,6 +230,7 @@ class TargetMiniappV02MysqlIntegrationTest {
                             created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, 'V02 model', NULL, 1,
+                            'V02 test device', UTC_TIMESTAMP(3),
                             ?, UTC_TIMESTAMP(3),
                             ?, UTC_TIMESTAMP(3),
                             'PASSED', UTC_TIMESTAMP(3),
@@ -645,6 +650,8 @@ class TargetMiniappV02MysqlIntegrationTest {
                             asset_uid, device_public_code,
                             hardware_sn, model_name, production_batch,
                             expected_port_count,
+                            installation_display_name,
+                            installation_updated_at,
                             tenant_id, tenant_assigned_at,
                             organization_id, organization_assigned_at,
                             acceptance_status, accepted_at,
@@ -656,6 +663,7 @@ class TargetMiniappV02MysqlIntegrationTest {
                             created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, 'V02 model', NULL, 1,
+                            'V02 second test device', UTC_TIMESTAMP(3),
                             ?, UTC_TIMESTAMP(3),
                             ?, UTC_TIMESTAMP(3),
                             'PASSED', UTC_TIMESTAMP(3),
@@ -991,6 +999,117 @@ class TargetMiniappV02MysqlIntegrationTest {
                 401);
         JsonNode ordinaryAgain = login(wxLoginCode, null, 201);
         assertEquals("USER", ordinaryAgain.path("entryMode").asText());
+    }
+
+    @Test
+    void cleanerUpdatesIndependentInstallationProfileIdempotently()
+            throws Exception {
+        String wxLoginCode = "fake:installation:" + run;
+        JsonNode registered = login(wxLoginCode, deviceCode, 201);
+        UUID userUid = UUID.fromString(
+                registered.path("organizationUserUid").asText());
+
+        asPlatformActor();
+        OrganizationUserView granted = bindingService.grantCleanOperation(
+                UUID.randomUUID(),
+                tenantCode,
+                organizationCode,
+                userUid,
+                new AccountVersionCommand(0L, 0L, "install device"));
+        assertTrue(granted.cleanOperationEnabled());
+
+        JsonNode cleanerLogin = login(wxLoginCode, null, 201);
+        assertEquals("CLEANING", cleanerLogin.path("entryMode").asText());
+        String token = cleanerLogin.path("accessToken").asText();
+        String path = "/api/v1/miniapp/devices/" + deviceCode
+                + "/installation-profile";
+
+        MvcResult initialResult = mockMvc.perform(
+                        get(path).header(
+                                "Authorization", "Bearer " + token))
+                .andReturn();
+        assertEquals(200, initialResult.getResponse().getStatus(),
+                initialResult.getResponse().getContentAsString());
+        JsonNode initial = json(initialResult).path("data");
+        assertEquals(0, initial.path("version").asLong());
+        assertFalse(initial.path("complete").asBoolean());
+        assertEquals("V02 test device",
+                initial.path("displayName").asText());
+
+        Map<String, Object> firstBody = Map.of(
+                "expectedVersion", 0,
+                "displayName", "东门回收箱",
+                "address", "园区东门 1 号岗亭",
+                "longitude", "113.1234567",
+                "latitude", "23.1000000");
+        JsonNode saved = putInstallationProfile(
+                token, path, firstBody, 200).path("data");
+        assertEquals(1, saved.path("version").asLong());
+        assertTrue(saved.path("complete").asBoolean());
+        assertEquals("GCJ02", saved.path("coordinateSystem").asText());
+        assertEquals("113.1234567", saved.path("longitude").asText());
+
+        JsonNode replay = putInstallationProfile(
+                token, path, firstBody, 200).path("data");
+        assertEquals(1, replay.path("version").asLong());
+        assertEquals("东门回收箱", replay.path("displayName").asText());
+
+        Map<String, Object> staleDifferentBody = Map.of(
+                "expectedVersion", 0,
+                "displayName", "西门回收箱",
+                "address", "园区西门",
+                "longitude", "113.2000000",
+                "latitude", "23.2000000");
+        JsonNode conflict = putInstallationProfile(
+                token, path, staleDifferentBody, 409);
+        assertEquals("COMMON.VERSION_CONFLICT",
+                conflict.path("code").asText());
+
+        Map<String, Object> stored = jdbc.queryForMap("""
+                        SELECT installation_profile_version AS version,
+                               installation_display_name AS display_name,
+                               control_version,
+                               installation_updated_by_organization_user_id
+                                   AS updater_id
+                        FROM dev_device_asset
+                        WHERE device_public_code = ?
+                        """, deviceCode);
+        assertEquals(1L, ((Number) stored.get("version")).longValue());
+        assertEquals("东门回收箱", stored.get("display_name"));
+        assertEquals(0L,
+                ((Number) stored.get("control_version")).longValue());
+        assertNotNull(stored.get("updater_id"));
+        assertEquals(0, jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM dev_config_version
+                        WHERE asset_id = (
+                            SELECT id FROM dev_device_asset
+                            WHERE device_public_code = ?
+                        )
+                        """, Integer.class, deviceCode));
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM ops_audit_log
+                        WHERE action_code =
+                            'device.installation-profile.update'
+                          AND target_stable_key = ?
+                        """, Integer.class, deviceCode));
+    }
+
+    private JsonNode putInstallationProfile(
+            String token,
+            String path,
+            Map<String, Object> body,
+            int expectedStatus) throws Exception {
+        MvcResult result = mockMvc.perform(
+                        put(path)
+                                .header(
+                                        "Authorization",
+                                        "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(body)))
+                .andReturn();
+        assertEquals(expectedStatus, result.getResponse().getStatus(),
+                result.getResponse().getContentAsString());
+        return json(result);
     }
 
     private String crossingRebind(

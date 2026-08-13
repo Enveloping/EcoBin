@@ -117,6 +117,10 @@ Page({
   advancing: false,
   starting: false,
   polling: false,
+  optionsRequest: undefined as Promise<unknown> | undefined,
+  startRequest: undefined as Promise<unknown> | undefined,
+  sessionRefreshRequest: undefined as Promise<void> | undefined,
+  lastSessionRefreshAt: 0,
   pageVisible: false,
   terminal: false,
   displayedEntryId: undefined as string | undefined,
@@ -161,6 +165,38 @@ Page({
 
   onUnload() {
     this.pageVisible = false
+  },
+
+  onPullDownRefresh() {
+    void this.refreshFromPullDown()
+      .finally(() => wx.stopPullDownRefresh())
+  },
+
+  async refreshFromPullDown() {
+    // 创建会话或读取投口的请求已经发出时，只等待原请求完成，
+    // 不通过下拉动作重复发送同一个业务请求。
+    if (this.startRequest) {
+      await this.startRequest.catch(() => undefined)
+      return
+    }
+    if (this.optionsRequest) {
+      await this.optionsRequest.catch(() => undefined)
+      return
+    }
+
+    const entry = peekPendingDeviceEntry()
+    if (entry?.accepted && !this.terminal) {
+      try {
+        // refreshSessionOnce 自带单飞：自动查询在途时会直接复用它。
+        await this.refreshSessionOnce(entry)
+      } catch (error) {
+        if (this.pageVisible) this.showError(error)
+      }
+      return
+    }
+    if (!this.advancing && !this.starting && !this.terminal) {
+      await this.advancePendingEntry()
+    }
   },
 
   async advancePendingEntry() {
@@ -255,7 +291,14 @@ Page({
     })
     // GET 结果只负责帮助用户选择投口。它和真正 POST 之间可能发生并发变化，
     // 因此不能把 deliveryAllowed 当作最终授权。
-    const options = await getDeliveryOptions(entry.deviceCode)
+    const request = getDeliveryOptions(entry.deviceCode)
+    this.optionsRequest = request
+    let options
+    try {
+      options = await request
+    } finally {
+      if (this.optionsRequest === request) this.optionsRequest = undefined
+    }
     requirePendingEntry(entry.entryId)
     if (options.deviceCode !== entry.deviceCode) {
       throw new Error('设备响应与二维码不一致')
@@ -373,11 +416,18 @@ Page({
         state: 'starting',
         message: '正在提交投递请求，请勿重复操作',
       })
-      const accepted = await startDeliverySession(
+      const request = startDeliverySession(
         attempted.deviceCode,
         portNo,
         attempted.idempotencyKey,
       )
+      this.startRequest = request
+      let accepted
+      try {
+        accepted = await request
+      } finally {
+        if (this.startRequest === request) this.startRequest = undefined
+      }
       const started = markPendingDeviceEntryStarted(entryId, accepted)
       if (!started) throw new Error('无法保存投递会话状态')
       this.showAccepted(started)
@@ -464,13 +514,9 @@ Page({
   async pollSession(entry: PendingDeviceEntry) {
     if (this.polling || !entry.accepted) return
     this.polling = true
-    // 新请求会持久化受理时刻；旧版本遗留的在途缓存从本次恢复时开始计时。
-    const acceptedAtMs = Number.isFinite(entry.acceptedAtMs)
-      ? entry.acceptedAtMs as number
-      : Date.now()
     try {
       // 202 响应之后，设备执行、结果上报和后端建单都在异步推进。
-      // 轮询只读取权威状态；前 120 秒每 5 秒查询一次，之后每 3 秒一次。
+      // 轮询只读取权威状态，并始终保持每 5 秒一次的固定节奏。
       while (this.pageVisible) {
         const current = peekPendingDeviceEntry()
         if (
@@ -480,22 +526,77 @@ Page({
         ) {
           return
         }
-        const session = await getDeliverySession(
-          current.accepted.sessionUid,
-          current.deviceCode,
-        )
-        this.presentSession(session)
-        if (session.status !== 'ACTIVE') {
-          completePendingDeviceEntry(entry.entryId)
-          return
+        try {
+          await this.refreshSessionOnce(current)
+        } catch (error) {
+          if (this.pageVisible) this.showError(error)
         }
-        await delay(businessOperationPollDelay(acceptedAtMs))
+        const refreshed = peekPendingDeviceEntry()
+        if (
+          this.terminal
+          || !refreshed
+          || refreshed.entryId !== entry.entryId
+          || !refreshed.accepted
+        ) return
+        await this.waitForNextAutomaticRefresh()
         if (!this.pageVisible) return
       }
-    } catch (error) {
-      if (this.pageVisible) this.showError(error)
     } finally {
       this.polling = false
+    }
+  },
+
+  refreshSessionOnce(entry: PendingDeviceEntry): Promise<void> {
+    if (this.sessionRefreshRequest) return this.sessionRefreshRequest
+    const request = this.fetchAndPresentSession(entry)
+    this.sessionRefreshRequest = request
+    // 清理只针对本次请求，避免旧请求的 finally 清掉后来创建的新请求。
+    void request.then(
+      () => {
+        this.lastSessionRefreshAt = Date.now()
+        if (this.sessionRefreshRequest === request) {
+          this.sessionRefreshRequest = undefined
+        }
+      },
+      () => {
+        this.lastSessionRefreshAt = Date.now()
+        if (this.sessionRefreshRequest === request) {
+          this.sessionRefreshRequest = undefined
+        }
+      },
+    )
+    return request
+  },
+
+  async waitForNextAutomaticRefresh() {
+    while (this.pageVisible && !this.terminal) {
+      const elapsedMs = Math.max(0, Date.now() - this.lastSessionRefreshAt)
+      const remainingMs = businessOperationPollDelay() - elapsedMs
+      if (remainingMs <= 0) return
+      await delay(remainingMs)
+    }
+  },
+
+  async fetchAndPresentSession(entry: PendingDeviceEntry) {
+    const current = peekPendingDeviceEntry()
+    if (
+      !current
+      || current.entryId !== entry.entryId
+      || !current.accepted
+    ) return
+    const session = await getDeliverySession(
+      current.accepted.sessionUid,
+      current.deviceCode,
+    )
+    const latest = peekPendingDeviceEntry()
+    if (
+      !latest
+      || latest.entryId !== entry.entryId
+      || !latest.accepted
+    ) return
+    this.presentSession(session)
+    if (session.status !== 'ACTIVE') {
+      completePendingDeviceEntry(entry.entryId)
     }
   },
 

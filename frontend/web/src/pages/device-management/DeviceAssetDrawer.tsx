@@ -80,10 +80,6 @@ interface DeviceAssetDrawerProps {
 
 interface DailyConfigurationEdits {
   reason: string;
-  device?: {
-    displayName?: string;
-    address?: string;
-  };
   ports?: Array<{
     displayName?: string;
     enabled?: boolean;
@@ -135,13 +131,7 @@ function mergeConfiguration(
   return {
     expectedLatestVersion: current.versionNo,
     reason: edits.reason,
-    locationCorrectionConfirmed:
-      (edits.device?.address ?? null) !== current.device.address,
-    device: {
-      ...current.device,
-      displayName: edits.device?.displayName ?? current.device.displayName,
-      address: edits.device?.address?.trim() || null,
-    },
+    device: { ...current.device },
     ports: current.ports.map((port, index) => ({
       ...port,
       displayName: edits.ports?.[index]?.displayName ?? port.displayName,
@@ -464,10 +454,6 @@ export default function DeviceAssetDrawer({
     if (!latestVersion) return;
     configForm.setFieldsValue({
       reason: '',
-      device: {
-        displayName: latestVersion.device.displayName,
-        address: latestVersion.device.address ?? undefined,
-      },
       ports: latestVersion.ports.map((port) => ({
         displayName: port.displayName,
         enabled: port.enabled,
@@ -724,6 +710,31 @@ export default function DeviceAssetDrawer({
                 </Descriptions.Item>
                 <Descriptions.Item label="永久机构">
                   {asset.organizationCode ?? '尚未分配'}
+                </Descriptions.Item>
+                <Descriptions.Item label="现场设备名称">
+                  {asset.installationProfile.displayName}
+                </Descriptions.Item>
+                <Descriptions.Item label="安装资料版本">
+                  V{asset.installationProfile.version}
+                  {asset.installationProfile.complete ? (
+                    <Tag color="success" style={{ marginLeft: 8 }}>完整</Tag>
+                  ) : (
+                    <Tag color="warning" style={{ marginLeft: 8 }}>待完善</Tag>
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="安装地址" span={2}>
+                  {asset.installationProfile.address ?? '尚未设置'}
+                </Descriptions.Item>
+                <Descriptions.Item label="安装坐标" span={2}>
+                  {asset.installationProfile.longitude
+                    && asset.installationProfile.latitude
+                    ? `${asset.installationProfile.longitude}, `
+                      + `${asset.installationProfile.latitude} `
+                      + `(${asset.installationProfile.coordinateSystem})`
+                    : '尚未设置'}
+                </Descriptions.Item>
+                <Descriptions.Item label="安装资料更新时间" span={2}>
+                  {formatShanghaiTime(asset.installationProfile.updatedAt)}
                 </Descriptions.Item>
                 <Descriptions.Item label="投口数量">
                   {asset.expectedPortCount}
@@ -1030,7 +1041,7 @@ export default function DeviceAssetDrawer({
                               </Space>
                             }
                             description={
-                              `${version.deviceDisplayName} · ${version.publishedBy}`
+                              `${version.publishedBy}`
                               + ` · ${formatShanghaiTime(version.publishedAt)}`
                             }
                           />
@@ -1047,7 +1058,7 @@ export default function DeviceAssetDrawer({
 
       <Modal
         width={760}
-        title="发布日常价格与设备配置"
+        title="发布日常价格与机器配置"
         open={configurationModalOpen}
         confirmLoading={submitting}
         onOk={() => void publishConfiguration()}
@@ -1058,7 +1069,7 @@ export default function DeviceAssetDrawer({
           type="warning"
           showIcon
           message="发布会生成一个不可修改的新版本"
-          description="当前进行中的投递或清运继续使用启动时冻结的旧配置；新业务只在新版本精确应用后使用它。"
+          description="当前进行中的投递或清运继续使用启动时冻结的旧配置；新业务只在新版本精确应用后使用它。设备名称和安装位置由清运员在安装资料页维护，不属于机器配置。"
           style={{ marginBottom: 20 }}
         />
         <Form form={configForm} layout="vertical">
@@ -1069,23 +1080,6 @@ export default function DeviceAssetDrawer({
           >
             <Input.TextArea maxLength={500} showCount rows={2} />
           </Form.Item>
-          <Space size={16} style={{ width: '100%' }} align="start">
-            <Form.Item
-              name={['device', 'displayName']}
-              label="设备显示名"
-              rules={[{ required: true }]}
-              style={{ flex: 1 }}
-            >
-              <Input maxLength={100} />
-            </Form.Item>
-            <Form.Item
-              name={['device', 'address']}
-              label="安装地址"
-              style={{ flex: 2 }}
-            >
-              <Input maxLength={500} />
-            </Form.Item>
-          </Space>
           <Divider orientation="left">投口日常参数</Divider>
           {latestVersion?.ports.map((port, index) => (
             <Card

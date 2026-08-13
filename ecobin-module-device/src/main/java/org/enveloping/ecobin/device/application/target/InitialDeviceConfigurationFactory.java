@@ -22,7 +22,6 @@ final class InitialDeviceConfigurationFactory {
     }
 
     ConfigurationReleaseRequest create(
-            String hardwareSn,
             String modelCode,
             int portCount) {
         String profile = properties.profileFor(modelCode);
@@ -33,19 +32,14 @@ final class InitialDeviceConfigurationFactory {
                             + profile);
         }
         return fixedFrameDigitalInfrared(
-                hardwareSn, modelCode, portCount);
+                modelCode, portCount);
     }
 
     private ConfigurationReleaseRequest fixedFrameDigitalInfrared(
-            String hardwareSn,
             String modelCode,
             int portCount) {
         ConfigurationDeviceRequest device =
                 new ConfigurationDeviceRequest(
-                        "回收箱 " + hardwareSn,
-                        null,
-                        null,
-                        null,
                         5_000L,
                         3L,
                         3L,
@@ -88,7 +82,6 @@ final class InitialDeviceConfigurationFactory {
         return new ConfigurationReleaseRequest(
                 0L,
                 "按设备型号 " + modelCode + " 自动发布初始配置",
-                false,
                 device,
                 ports);
     }

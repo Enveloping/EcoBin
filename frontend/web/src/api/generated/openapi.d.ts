@@ -2516,6 +2516,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/miniapp/devices/{deviceCode}/installation-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        /** Read the accepted device's current installation profile in the cleaner organization */
+        get: operations["getMiniappDeviceInstallationProfile"];
+        /** Replace current installation name and GCJ-02 location without publishing machine configuration */
+        put: operations["updateMiniappDeviceInstallationProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/miniapp/clean-operations/{operationUid}": {
         parameters: {
             query?: never;
@@ -4846,15 +4866,10 @@ export interface components {
         DeviceConfigurationReleaseRequest: {
             expectedLatestVersion: components["schemas"]["ExpectedVersion"];
             reason?: string | null;
-            locationCorrectionConfirmed: boolean;
             device: components["schemas"]["DeviceConfigurationDeviceInput"];
             ports: components["schemas"]["DeviceConfigurationPortInput"][];
         };
         DeviceConfigurationDeviceInput: {
-            displayName: string;
-            address?: string | null;
-            longitude?: string | null;
-            latitude?: string | null;
             mcuHeartbeatIntervalMs: number;
             mcuHeartbeatMissThreshold: number;
             doorCloseRetryLimit: number;
@@ -4976,7 +4991,6 @@ export interface components {
             runtimeSnapshotPolicyVersion: number | null;
             contentSha256: components["schemas"]["Sha256Hex"];
             mcuPayloadSha256: components["schemas"]["Sha256Hex"];
-            deviceDisplayName: string;
             publicationSource: string;
             publishedBy: string;
             publishedAt: components["schemas"]["UtcTimestamp"];
@@ -4987,10 +5001,6 @@ export interface components {
             nextBeforeVersionNo: number | null;
         };
         DeviceConfigurationDeviceSnapshot: {
-            displayName: string;
-            address: string | null;
-            longitude: string | null;
-            latitude: string | null;
             edgeHeartbeatIntervalMs: number;
             /** @constant */
             edgeHeartbeatMissThreshold: 3;
@@ -7507,6 +7517,31 @@ export interface components {
             deviceName: string;
             currentComputedValue: boolean;
         };
+        DeviceInstallationProfile: {
+            deviceCode: components["schemas"]["DeviceCode"];
+            version: components["schemas"]["ExpectedVersion"];
+            complete: boolean;
+            displayName: string;
+            address: string | null;
+            longitude: string | null;
+            latitude: string | null;
+            /** @constant */
+            coordinateSystem: "GCJ02";
+            updatedAt: components["schemas"]["UtcTimestamp"];
+        };
+        UpdateDeviceInstallationProfileRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            displayName: string;
+            address: string;
+            longitude: string;
+            latitude: string;
+        };
+        DeviceInstallationProfileEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["DeviceInstallationProfile"];
+            requestId: string;
+        };
         DeviceAsset: {
             /** Format: uuid */
             assetUid: string;
@@ -7539,6 +7574,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            installationProfile: components["schemas"]["DeviceInstallationProfile"];
             oneNetMapping: components["schemas"]["ComputedOneNetMapping"];
         };
         DeviceAssetPage: {
@@ -8463,6 +8499,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["DeviceAssetEnvelope"];
+            };
+        };
+        /** @description Current permanent-asset installation profile */
+        DeviceInstallationProfileOk: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["DeviceInstallationProfileEnvelope"];
             };
         };
         /** @description Permanent device asset created */
@@ -11701,6 +11748,47 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];
             404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getMiniappDeviceInstallationProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DeviceInstallationProfileOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    updateMiniappDeviceInstallationProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDeviceInstallationProfileRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DeviceInstallationProfileOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     getMiniappCleanOperation: {

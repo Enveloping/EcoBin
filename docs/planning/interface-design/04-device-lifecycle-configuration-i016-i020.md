@@ -228,19 +228,17 @@ POST {deploymentBase}/{deploymentCode}/configuration-releases
 {
   "expectedLatestVersion": 3,
   "reason": null,
-  "locationCorrectionConfirmed": false,
   "device": {
-    "displayName": "A区1号设备",
-    "address": "A区北门",
-    "longitude": "113.123456",
-    "latitude": "23.123456",
-    "edgeHeartbeatIntervalMs": 3600000,
-    "edgeHeartbeatMissThreshold": 3,
     "mcuHeartbeatIntervalMs": 5000,
     "mcuHeartbeatMissThreshold": 3,
     "doorCloseRetryLimit": 3,
     "continueDeliveryWaitMs": 30000,
-    "negativeWeightThresholdGram": 500
+    "negativeWeightThresholdGram": 500,
+    "deliveryAutoCloseMs": 60000,
+    "weightMeasurementTimeoutMs": 10000,
+    "deliveryDoorTravelWaitMs": 4000,
+    "cleanSolenoidPulseMs": 1000,
+    "smokeMonitoringEnabled": true
   },
   "ports": [
     {
@@ -266,8 +264,8 @@ POST {deploymentBase}/{deploymentCode}/configuration-releases
 - 单价遵守 I-002 的四位小数元/千克字符串且必须严格大于零；暂停免费回收使用 `enabled=false`，不能把价格设为零。一次投递会话冻结首次开门前已经应用的版本、当前袋和单价，后续价格、袋或配置变化不追溯修改该会话。
 - 满溢模式只允许 `INFRARED_ONLY`、`WEIGHT_ONLY`、`INFRARED_OR_WEIGHT`；重量阈值必须大于零。配置应用本身不触发红外或重量采样，也不重新解释、清除现有满溢事件或严重安全锁；新规则只供后续真实投递后检测使用。
 - 后端固定的 60 秒开始授权有效期不是租户设备参数，不能通过该请求修改。它只限制 `START_DELIVERY_SESSION` 能否首次执行；设备在期限内可靠受理并开始首轮后，整场继续投递不再依赖云端期限或在线重新授权。30 秒选择窗口及负重量阈值来自本会话冻结配置。若以后增加整场最长时限，必须作为新的明确配置同时进入后端快照、命令摘要和设备单调计时，不能复用已废弃的分段结果期限或云端继续处理任务。
-- 首次配置以外修改地址或坐标时必须提交 `locationCorrectionConfirmed=true` 并审计；它只表示文字纠正或小范围坐标修正。实际迁址返回 `422 DEVICE.DEPLOYMENT_RELOCATION_NOT_SUPPORTED`，不能借配置修改历史机构或部署地点。
-- 服务端按固定 Schema、字段顺序、数值格式及 `portNo` 排序规范化内容后计算 SHA-256。与当前最高版本内容完全相同的新发布返回 `422 DEVICE.CONFIGURATION_UNCHANGED`，不制造空版本。
+- 设备展示名称、详细地址和 GCJ-02 经纬度属于永久资产的独立安装资料，不属于机器运行配置。配置发布请求不得携带这些字段，也不再接受 `locationCorrectionConfirmed`。清运员通过 `GET/PUT /api/v1/miniapp/devices/{deviceCode}/installation-profile` 维护当前资料；该操作使用独立资料版本，不创建配置版本、不下发设备，也不改变验收或业务资格。
+- 配置内容 Schema 从版本 2 开始只包含机器运行参数和投口配置。V48 以前版本中的设备名称和位置仅作为历史快照保留，不参与新版本内容规范化。服务端按固定 Schema、字段顺序、数值格式及 `portNo` 排序规范化内容后计算 SHA-256。与当前最高版本内容完全相同的新发布返回 `422 DEVICE.CONFIGURATION_UNCHANGED`，不制造空版本。
 
 ### 3. 发布事务与新旧版本
 

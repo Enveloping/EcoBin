@@ -38,6 +38,15 @@
         <view><text>最近清运</text><text>{{item.lastCleanText}}</text></view>
       </view>
       <view wx:if="{{item.fullPortCount > 0}}" class="fullness-note">最早满溢确认：{{item.oldestFullText}}</view>
+      <view
+        class="installation-action"
+        data-device-code="{{item.deviceCode}}"
+        catchtap="onConfigureInstallation"
+      >
+        <t-icon name="edit" size="24rpx" color="#118f2a" />
+        <text>配置设备信息</text>
+        <t-icon name="chevron-right" size="24rpx" color="#93a097" />
+      </view>
     </view>
 
     <view wx:if="{{devices.length === 0}}" class="state-card">

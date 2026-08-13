@@ -11,10 +11,10 @@ $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
 if ($provisionSource -notmatch '\$tables\.Count -ne 99' -or
         $provisionSource -notmatch 'Expected 99 domain tables') {
-    throw "H-02 provisioning must enforce the V47 99-table shape"
+    throw "H-02 provisioning must enforce the V48 99-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 47') {
-    throw "H-02 provisioning must migrate through V47"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 48') {
+    throw "H-02 provisioning must migrate through V48"
 }
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
@@ -151,6 +151,13 @@ if (@(
 }
 
 $assetRequiredColumns = @(
+    "installation_display_name"
+    "installation_address"
+    "installation_latitude"
+    "installation_longitude"
+    "installation_profile_version"
+    "installation_updated_by_organization_user_id"
+    "installation_updated_at"
     "tenant_id"
     "tenant_assigned_at"
     "organization_id"
@@ -170,7 +177,7 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V41"
+    throw "dev_device_asset runtime UPDATE grants do not match V48"
 }
 $rolloutRequiredColumns = @(
     "rollout_uid"

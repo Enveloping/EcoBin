@@ -9,6 +9,7 @@ import type {
   CleanOperationStatus,
   CleanOptionsView,
   CleanPortOption,
+  DeviceInstallationProfile,
 } from '../../types/api'
 import { getEntryMode, getSession, markPhoneBound } from '../../utils/auth'
 import {
@@ -132,7 +133,9 @@ Page({
   intent: null as PendingCleanOperationIntent | null,
   pollTimer: undefined as ReturnType<typeof setTimeout> | undefined,
   visible: false,
-  polling: false,
+  optionsRequest: undefined as Promise<unknown> | undefined,
+  submitRequest: undefined as Promise<unknown> | undefined,
+  pollRequest: undefined as Promise<void> | undefined,
   submitting: false,
   phoneBindingIntentKey: '',
   pendingBagScanAfterPhone: false,
@@ -224,6 +227,37 @@ Page({
     this.clearPollTimer()
   },
 
+  onPullDownRefresh() {
+    void this.refreshFromPullDown()
+      .finally(() => wx.stopPullDownRefresh())
+  },
+
+  async refreshFromPullDown() {
+    // POST 或选项 GET 已在途时，只等待原请求完成，不重复发起。
+    if (this.submitRequest) {
+      await this.submitRequest.catch(() => undefined)
+      return
+    }
+    if (this.optionsRequest) {
+      await this.optionsRequest.catch(() => undefined)
+      return
+    }
+
+    if (this.intent?.operationUid && this.shouldPoll()) {
+      this.clearPollTimer()
+      // pollOnce 自带单飞：自动查询在途时会直接复用它。
+      await this.pollOnce()
+      return
+    }
+    if (!this.submitting && (
+      this.data.stage === 'loading'
+      || this.data.stage === 'options'
+      || this.data.stage === 'error'
+    )) {
+      await this.loadOptions()
+    }
+  },
+
   restoreIntent(intent: PendingCleanOperationIntent) {
     this.intent = intent
     this.setData({
@@ -266,7 +300,14 @@ Page({
     if (!this.data.deviceCode || this.data.previewOnly) return
     this.setData({ loading: true, stage: 'loading', errorMessage: '' })
     try {
-      const options = await cleanOptions(this.data.deviceCode, false)
+      const request = cleanOptions(this.data.deviceCode, false)
+      this.optionsRequest = request
+      let options
+      try {
+        options = await request
+      } finally {
+        if (this.optionsRequest === request) this.optionsRequest = undefined
+      }
       this.applyOptions(options)
     } catch (error) {
       this.setData({
@@ -302,6 +343,25 @@ Page({
 
   onRetryOptions() {
     void this.loadOptions()
+  },
+
+  onConfigureInstallation() {
+    if (!this.data.deviceCode || this.data.stage !== 'options') return
+    wx.navigateTo({
+      url: `/pages/device-installation-profile/device-installation-profile?deviceCode=${
+        encodeURIComponent(this.data.deviceCode)
+      }`,
+      events: {
+        installationProfileUpdated: (
+          profile: DeviceInstallationProfile,
+        ) => {
+          this.setData({
+            deviceName: profile.displayName || this.data.deviceCode,
+            address: profile.address || '暂未设置安装地址',
+          })
+        },
+      },
+    })
   },
 
   onSelectPort(event: WechatMiniprogram.TouchEvent) {
@@ -466,16 +526,23 @@ Page({
       errorMessage: '',
     })
     try {
-      const accepted = await startCleanOperation(
+      const request = startCleanOperation(
         intent.deviceCode,
         intent.portNo,
         intent.installedBagQr,
         intent.idempotencyKey,
       )
+      this.submitRequest = request
+      let accepted
+      try {
+        accepted = await request
+      } finally {
+        if (this.submitRequest === request) this.submitRequest = undefined
+      }
       this.intent = acceptCleanOperationIntent(intent, accepted)
       this.setData({ operationUid: accepted.operationUid })
       this.applyStatus(accepted.status)
-      // 受理后立即读取一次权威状态，后续再按统一的 5 秒/3 秒节奏查询。
+      // 受理后立即读取一次权威状态，后续固定每 5 秒查询一次。
       this.schedulePoll(0)
     } catch (error) {
       if (knownClientFailure(error)) {
@@ -537,12 +604,29 @@ Page({
     this.pollTimer = undefined
   },
 
-  async pollOnce() {
+  pollOnce(): Promise<void> {
+    if (this.pollRequest) return this.pollRequest
     const intent = this.intent
-    if (!this.visible || !intent?.operationUid || this.polling) return
-    this.polling = true
+    if (!this.visible || !intent?.operationUid) return Promise.resolve()
+    const request = this.fetchAndApplyOperation(intent)
+    this.pollRequest = request
+    void request.then(
+      () => {
+        if (this.pollRequest === request) this.pollRequest = undefined
+      },
+      () => {
+        if (this.pollRequest === request) this.pollRequest = undefined
+      },
+    )
+    return request
+  },
+
+  async fetchAndApplyOperation(intent: PendingCleanOperationIntent) {
+    const operationUid = intent.operationUid
+    if (!operationUid) return
     try {
-      const projection = await cleanOperation(intent.operationUid, false)
+      const projection = await cleanOperation(operationUid, false)
+      if (this.intent?.operationUid !== operationUid) return
       this.intent = projectCleanOperationIntent(intent, projection)
       this.setData({ cleanRecordNo: projection.cleanRecordNo || '' })
       this.applyStatus(projection.status)
@@ -551,10 +635,7 @@ Page({
         || projection.status === 'EDGE_SAVED'
         || projection.status === 'IN_PROGRESS'
       ) {
-        const acceptedAtMs = Number.isFinite(this.intent.acceptedAtMs)
-          ? this.intent.acceptedAtMs as number
-          : Date.parse(this.intent.createdAt)
-        this.schedulePoll(businessOperationPollDelay(acceptedAtMs))
+        this.schedulePoll(businessOperationPollDelay())
       }
     } catch {
       if (this.visible) {
@@ -564,8 +645,6 @@ Page({
           statusDescription: '网络异常或服务返回了未知状态。原清运操作仍被保留，可继续查询，不能重新发起另一笔相同操作。',
         })
       }
-    } finally {
-      this.polling = false
     }
   },
 

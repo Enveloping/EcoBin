@@ -1,0 +1,116 @@
+page { background: #f4f7f3; }
+
+.installation-page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx calc(52rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  color: #1d291f;
+}
+
+.identity-card,
+.form-card,
+.state-card {
+  background: #fff;
+  border: 1rpx solid #e3eae4;
+  border-radius: 26rpx;
+  box-shadow: 0 12rpx 34rpx rgba(34, 66, 39, .055);
+}
+
+.identity-card {
+  display: flex;
+  align-items: center;
+  padding: 25rpx;
+}
+
+.identity-mark {
+  display: flex;
+  width: 78rpx;
+  height: 78rpx;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: #ebf8ed;
+  border-radius: 23rpx;
+}
+
+.identity-copy { min-width: 0; flex: 1; margin-left: 20rpx; }
+.eyebrow { color: #8b968d; font-size: 20rpx; }
+.device-code { margin-top: 6rpx; overflow: hidden; font-size: 24rpx; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.version-tag { flex: 0 0 auto; padding: 8rpx 14rpx; color: #158d2c; font-size: 19rpx; background: #ecf8ee; border-radius: 99rpx; }
+
+.notice-card {
+  margin: 20rpx 2rpx 24rpx;
+  padding: 20rpx 22rpx;
+  color: #5c6b60;
+  font-size: 21rpx;
+  line-height: 1.65;
+  background: #eaf4ed;
+  border-left: 6rpx solid #42a958;
+  border-radius: 4rpx 18rpx 18rpx 4rpx;
+}
+
+.form-card { padding: 30rpx 26rpx; }
+.field-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13rpx; font-size: 23rpx; font-weight: 680; }
+.field-label--location,
+.field-label--address { margin-top: 30rpx; }
+.required { color: #a86119; font-size: 18rpx; font-weight: 520; }
+.text-input,
+.address-input {
+  width: 100%;
+  box-sizing: border-box;
+  color: #233027;
+  font-size: 24rpx;
+  background: #f7f9f7;
+  border: 1rpx solid #dfe6e0;
+  border-radius: 17rpx;
+}
+.text-input { height: 78rpx; padding: 0 22rpx; }
+.address-input { min-height: 126rpx; padding: 20rpx 22rpx; line-height: 1.55; }
+
+.location-picker {
+  display: flex;
+  min-height: 108rpx;
+  align-items: center;
+  padding: 18rpx 19rpx;
+  box-sizing: border-box;
+  background: #f7f9f7;
+  border: 1rpx dashed #cbd5cd;
+  border-radius: 19rpx;
+}
+.location-picker--selected { background: #f0faf2; border-color: #8bc997; border-style: solid; }
+.location-picker-icon { display: flex; width: 62rpx; height: 62rpx; align-items: center; justify-content: center; flex: 0 0 auto; background: #fff; border-radius: 18rpx; }
+.location-picker-copy { min-width: 0; flex: 1; margin: 0 16rpx; }
+.location-picker-title { font-size: 23rpx; font-weight: 670; }
+.location-picker-hint { margin-top: 5rpx; color: #849087; font-size: 19rpx; line-height: 1.45; }
+
+.coordinate-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; margin-top: 14rpx; padding: 17rpx 18rpx; background: #f6f8f6; border-radius: 15rpx; }
+.coordinate-panel view:not(.coordinate-system) { display: flex; flex-direction: column; gap: 4rpx; }
+.coordinate-panel text:first-child { color: #929b94; font-size: 18rpx; }
+.coordinate-panel text:last-child { font-size: 21rpx; font-variant-numeric: tabular-nums; }
+.coordinate-system { grid-column: 1 / -1; color: #8e9890; font-size: 18rpx; }
+.updated-copy { margin-top: 16rpx; color: #9aa29c; font-size: 18rpx; }
+
+.save-button {
+  height: 86rpx;
+  margin-top: 28rpx;
+  color: #fff;
+  font-size: 27rpx;
+  font-weight: 700;
+  line-height: 86rpx;
+  background: #10a92a;
+  border: 0;
+  border-radius: 44rpx;
+  box-shadow: 0 12rpx 25rpx rgba(16, 169, 42, .18);
+}
+.save-button::after { border: 0; }
+.save-button[disabled] { color: #fff; background: #8bc994; }
+.bottom-hint { margin-top: 17rpx; color: #949d96; text-align: center; font-size: 19rpx; }
+
+.state-card { display: flex; min-height: 420rpx; align-items: center; justify-content: center; flex-direction: column; padding: 48rpx 32rpx; box-sizing: border-box; }
+.state-icon { display: flex; width: 102rpx; height: 102rpx; align-items: center; justify-content: center; background: #fff3e2; border-radius: 32rpx; }
+.state-title { margin-top: 23rpx; font-size: 28rpx; font-weight: 700; }
+.state-copy { max-width: 520rpx; margin-top: 10rpx; color: #89938b; text-align: center; font-size: 21rpx; line-height: 1.6; }
+.retry-action { display: flex; min-width: 190rpx; height: 68rpx; align-items: center; justify-content: center; margin-top: 26rpx; color: #fff; font-size: 23rpx; font-weight: 650; background: #10a92a; border-radius: 36rpx; }
+.spinner { width: 54rpx; height: 54rpx; border: 5rpx solid #d9ebdc; border-top-color: #14a62e; border-radius: 50%; animation: spin .75s linear infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }

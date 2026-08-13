@@ -32,8 +32,6 @@ export interface PendingCleanOperationIntent {
   lastStatus: CleanOperationStatus | null
   cleanRecordNo: string | null
   createdAt: string
-  /** 服务端受理成功的本地时间，用于跨页面保持轮询阶段。 */
-  acceptedAtMs?: number
 }
 
 export function parseCleaningDeviceCode(raw: string): string {
@@ -76,13 +74,6 @@ function isPendingCleanOperationIntent(
     || !UUID_V4.test(intent.idempotencyKey ?? '')
     || !validPollDelay(intent.recommendedPollAfterMs)
     || typeof intent.createdAt !== 'string'
-    || (
-      intent.acceptedAtMs !== undefined
-      && (
-        typeof intent.acceptedAtMs !== 'number'
-        || !Number.isFinite(intent.acceptedAtMs)
-      )
-    )
   ) {
     return false
   }
@@ -201,7 +192,6 @@ export function acceptCleanOperationIntent(
     statusUrl: accepted.statusUrl,
     recommendedPollAfterMs: accepted.recommendedPollAfterMs,
     lastStatus: accepted.status,
-    acceptedAtMs: Date.now(),
   }
   rememberCleanOperationIntent(next)
   return next

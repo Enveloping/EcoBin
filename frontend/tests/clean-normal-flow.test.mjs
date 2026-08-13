@@ -138,7 +138,6 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
       nextActions: ['WAIT'],
     });
     assert.equal(accepted.idempotencyKey, key);
-    assert.equal(Number.isFinite(accepted.acceptedAtMs), true);
     const progressed = projectCleanOperationIntent(accepted, {
       operationUid,
       status: 'IN_PROGRESS',
@@ -160,7 +159,6 @@ test('pending clean intent is durable before acceptance and keeps its UUIDv4', (
     assert.equal(progressed.idempotencyKey, key);
     assert.equal(progressed.lastStatus, 'IN_PROGRESS');
     assert.equal(progressed.recommendedPollAfterMs, 1750);
-    assert.equal(progressed.acceptedAtMs, accepted.acceptedAtMs);
   } finally {
     globalThis.wx = previousWx;
   }
@@ -201,6 +199,8 @@ test('operation page saves before POST, gates phone scan and never links complet
   assert.match(page, /onHide\(\)[\s\S]*?clearPollTimer\(\)/);
   assert.match(page, /businessOperationPollDelay/);
   assert.match(page, /schedulePoll\(0\)/);
+  assert.match(page, /onPullDownRefresh\(\)/);
+  assert.match(page, /if \(this\.pollRequest\) return this\.pollRequest/);
   assert.doesNotMatch(page, /maximumElapsedMs|5 \* 60 \* 1000/);
   assert.doesNotMatch(page, /pages\/clean-records/);
   assert.match(markup, /确认开始清运/);
@@ -256,4 +256,40 @@ test('clean device lists cover six operational filters and keep scan as the star
   assert.match(list, /startCleaningEntry\(\)/);
   assert.match(markup, /扫码开始清运/);
   assert.doesNotMatch(markup, /bindtap="onStartDevice"/);
+});
+
+test('cleaners edit an independent current installation profile from both device entries', () => {
+  const app = JSON.parse(source('../miniprogram/miniprogram/app.json'));
+  const api = source('../miniprogram/miniprogram/api/clean.ts');
+  const page = source(
+    '../miniprogram/miniprogram/pages/device-installation-profile/device-installation-profile.ts',
+  );
+  const markup = source(
+    '../miniprogram/miniprogram/pages/device-installation-profile/device-installation-profile.wxml',
+  );
+  const operation = source(
+    '../miniprogram/miniprogram/pages/clean-operation/clean-operation.ts',
+  );
+  const devices = source(
+    '../miniprogram/miniprogram/pages/clean-devices/clean-devices.ts',
+  );
+
+  assert.ok(app.pages.includes(
+    'pages/device-installation-profile/device-installation-profile',
+  ));
+  assert.deepEqual(app.requiredPrivateInfos, ['chooseLocation']);
+  assert.match(api, /\/installation-profile/);
+  assert.match(api, /http\.get<DeviceInstallationProfile>/);
+  assert.match(api, /http\.put<DeviceInstallationProfile>/);
+  assert.match(page, /requireEntryMode\(\['CLEANING'\]\)/);
+  assert.match(page, /wx\.chooseLocation\(options\)/);
+  assert.match(page, /expectedVersion:\s*this\.data\.version/);
+  assert.match(page, /COMMON\.VERSION_CONFLICT/);
+  assert.match(page, /installationProfileUpdated/);
+  assert.doesNotMatch(page, /configuration-releases|OneNet|applyConfiguration/);
+  assert.match(markup, /坐标系 GCJ-02/);
+  assert.match(markup, /不会通知香橙派或 MCU/);
+  assert.doesNotMatch(markup, /bindinput="onLongitude|bindinput="onLatitude/);
+  assert.match(operation, /onConfigureInstallation/);
+  assert.match(devices, /onConfigureInstallation/);
 });

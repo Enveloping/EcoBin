@@ -1,22 +1,11 @@
-const INITIAL_POLL_WINDOW_MS = 120 * 1000
-const INITIAL_POLL_INTERVAL_MS = 5 * 1000
-const FOLLOW_UP_POLL_INTERVAL_MS = 3 * 1000
+const POLL_INTERVAL_MS = 5 * 1000
 
 /**
  * 投递、清运受理后的查询节奏。
  *
- * 以服务端受理成功的本地时刻为起点：前 120 秒每 5 秒查询一次，
- * 从第 120 秒开始每 3 秒查询一次。页面隐藏再恢复时仍沿用原起点。
+ * 自动查询始终每 5 秒执行一次。用户下拉刷新不经过这里，
+ * 会立即读取一次状态；如果已有同一状态请求在途，则等待并复用该请求。
  */
-export function businessOperationPollDelay(
-  acceptedAtMs: number,
-  nowMs = Date.now(),
-): number {
-  const elapsedMs = Number.isFinite(acceptedAtMs)
-    && Number.isFinite(nowMs)
-    ? Math.max(0, nowMs - acceptedAtMs)
-    : 0
-  return elapsedMs < INITIAL_POLL_WINDOW_MS
-    ? INITIAL_POLL_INTERVAL_MS
-    : FOLLOW_UP_POLL_INTERVAL_MS
+export function businessOperationPollDelay(): number {
+  return POLL_INTERVAL_MS
 }

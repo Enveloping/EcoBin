@@ -453,7 +453,6 @@ public class AutomaticDeviceActivationService {
             UUID correlationUid) {
         ConfigurationReleaseRequest request =
                 initialConfigurationFactory.create(
-                        asset.hardwareSn(),
                         asset.modelCode(),
                         asset.portCount());
         RuntimeSnapshotPolicyProvider.Policy runtimePolicy =
@@ -471,8 +470,7 @@ public class AutomaticDeviceActivationService {
         long configurationId = insertAndReturnKey("""
                 INSERT INTO dev_config_version (
                     tenant_id, organization_id, asset_id,
-                    version_no, schema_version, device_display_name,
-                    location_address, latitude, longitude,
+                    version_no, schema_version,
                     edge_heartbeat_interval_ms,
                     edge_heartbeat_miss_threshold,
                     runtime_snapshot_policy_version_no,
@@ -491,7 +489,7 @@ public class AutomaticDeviceActivationService {
                     published_by_staff_account_id,
                     published_at, created_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, 'SYSTEM', NULL, ?, ?
                 )
@@ -501,10 +499,6 @@ public class AutomaticDeviceActivationService {
                 asset.id(),
                 versionNo,
                 DeviceConfigurationCanonicalizer.CONFIGURATION_SCHEMA_VERSION,
-                normalized.device().displayName(),
-                normalized.device().address(),
-                nullableDecimal(normalized.device().latitude()),
-                nullableDecimal(normalized.device().longitude()),
                 normalized.device().edgeHeartbeatIntervalMs(),
                 normalized.device().edgeHeartbeatMissThreshold(),
                 runtimePolicy.version(),
@@ -1040,10 +1034,6 @@ public class AutomaticDeviceActivationService {
 
     private String writeJson(Object value) {
         return objectMapper.writeValueAsString(value);
-    }
-
-    private static BigDecimal nullableDecimal(String value) {
-        return value == null ? null : new BigDecimal(value);
     }
 
     private static Long nullableLong(

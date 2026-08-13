@@ -9,6 +9,8 @@ import type {
   CleanRecordItem,
   CursorPage,
   MiniappCleanRecordDetail,
+  DeviceInstallationProfile,
+  UpdateDeviceInstallationProfileRequest,
 } from '../types/api'
 
 function requireRealCleaningSession(): void {
@@ -39,6 +41,35 @@ export function cleanOptions(deviceCode: string, toast = true) {
   return http.get<CleanOptionsView>(
     `/api/v1/miniapp/devices/${encodeURIComponent(deviceCode)}/clean-options`,
     undefined,
+    { toast, noStore: true },
+  )
+}
+
+export function deviceInstallationProfile(
+  deviceCode: string,
+  toast = true,
+) {
+  requireRealCleaningSession()
+  return http.get<DeviceInstallationProfile>(
+    `/api/v1/miniapp/devices/${
+      encodeURIComponent(deviceCode)
+    }/installation-profile`,
+    undefined,
+    { toast, noStore: true },
+  )
+}
+
+export function updateDeviceInstallationProfile(
+  deviceCode: string,
+  body: UpdateDeviceInstallationProfileRequest,
+  toast = true,
+) {
+  requireRealCleaningSession()
+  return http.put<DeviceInstallationProfile>(
+    `/api/v1/miniapp/devices/${
+      encodeURIComponent(deviceCode)
+    }/installation-profile`,
+    body as unknown as Record<string, unknown>,
     { toast, noStore: true },
   )
 }

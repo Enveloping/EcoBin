@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 20
+    CatalogVersion = 21
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -120,6 +120,13 @@
             "revocation_reason"
         )
         dev_device_asset = @(
+            "installation_display_name"
+            "installation_address"
+            "installation_latitude"
+            "installation_longitude"
+            "installation_profile_version"
+            "installation_updated_by_organization_user_id"
+            "installation_updated_at"
             "tenant_id"
             "tenant_assigned_at"
             "organization_id"

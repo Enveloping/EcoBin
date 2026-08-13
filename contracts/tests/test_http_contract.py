@@ -430,6 +430,7 @@ class HttpContractTests(unittest.TestCase):
     ) -> None:
         document = load_openapi()
         schemas = document["components"]["schemas"]
+        paths = document["paths"]
         required_fields = {
             "CreateDeviceAssetRequest": {
                 "hardwareSn",
@@ -451,7 +452,6 @@ class HttpContractTests(unittest.TestCase):
             },
             "DeviceConfigurationReleaseRequest": {
                 "expectedLatestVersion",
-                "locationCorrectionConfirmed",
                 "device",
                 "ports",
             },
@@ -466,6 +466,28 @@ class HttpContractTests(unittest.TestCase):
         }
         for name, expected in required_fields.items():
             self.assertEqual(expected, set(schemas[name]["required"]), name)
+
+        installation = schemas["DeviceInstallationProfile"]
+        self.assertEqual("GCJ02", installation["properties"]
+                         ["coordinateSystem"]["const"])
+        self.assertIn("installationProfile",
+                      schemas["DeviceAsset"]["required"])
+        installation_path = paths[
+            "/api/v1/miniapp/devices/{deviceCode}/installation-profile"
+        ]
+        self.assertEqual(
+            [{"miniappBearer": []}],
+            installation_path["put"]["security"],
+        )
+        self.assertNotIn(
+            "locationCorrectionConfirmed",
+            schemas["DeviceConfigurationReleaseRequest"]["properties"],
+        )
+        for field in ("displayName", "address", "longitude", "latitude"):
+            self.assertNotIn(
+                field,
+                schemas["DeviceConfigurationDeviceInput"]["properties"],
+            )
 
         paths = document["paths"]
         mutation_paths = {

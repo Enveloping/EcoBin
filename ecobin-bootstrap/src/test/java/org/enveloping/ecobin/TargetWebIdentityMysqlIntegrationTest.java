@@ -3358,6 +3358,8 @@ class TargetWebIdentityMysqlIntegrationTest {
                             asset_uid, device_public_code,
                             hardware_sn, model_name, production_batch,
                             expected_port_count,
+                            installation_display_name,
+                            installation_updated_at,
                             tenant_id, tenant_assigned_at,
                             organization_id, organization_assigned_at,
                             acceptance_status, accepted_at,
@@ -3369,6 +3371,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                             created_at, updated_at
                         ) VALUES (
                             ?, ?, ?, 'Shared miniapp test model', NULL, 1,
+                            'Shared miniapp test device', UTC_TIMESTAMP(3),
                             ?, UTC_TIMESTAMP(3),
                             ?, UTC_TIMESTAMP(3),
                             'PASSED', UTC_TIMESTAMP(3),

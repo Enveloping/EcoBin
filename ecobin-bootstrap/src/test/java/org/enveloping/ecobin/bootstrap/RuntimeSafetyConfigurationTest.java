@@ -66,7 +66,8 @@ class RuntimeSafetyConfigurationTest {
             "V44__clean_operation_web_queries.sql",
             "V45__clean_device_lists_and_terminal_event_quarantine.sql",
             "V46__global_runtime_snapshot_policy.sql",
-            "V47__device_work_state_alignment.sql"
+            "V47__device_work_state_alignment.sql",
+            "V48__device_installation_profiles.sql"
     };
 
     @Test

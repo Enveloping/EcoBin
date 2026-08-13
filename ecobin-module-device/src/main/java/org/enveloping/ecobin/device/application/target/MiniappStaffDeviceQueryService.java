@@ -140,9 +140,8 @@ public class MiniappStaffDeviceQueryService {
     private static String summarySql() {
         return """
                 SELECT asset.device_public_code,
-                       COALESCE(configuration.device_display_name,
-                                asset.device_public_code) AS display_name,
-                       configuration.location_address,
+                       asset.installation_display_name AS display_name,
+                       asset.installation_address AS location_address,
                        COALESCE(runtime.edge_connection_status, 'UNKNOWN')
                            AS edge_connection_status,
                        COALESCE(runtime.mcu_link_status, 'UNKNOWN')
@@ -154,14 +153,6 @@ public class MiniappStaffDeviceQueryService {
                         WHERE port.asset_id = asset.id)
                            AS port_count
                 FROM dev_device_asset asset
-                LEFT JOIN dev_config_version configuration
-                  ON configuration.id = (
-                    SELECT latest.id
-                    FROM dev_config_version latest
-                    WHERE latest.asset_id = asset.id
-                    ORDER BY latest.version_no DESC
-                    LIMIT 1
-                  )
                 LEFT JOIN dev_device_runtime_state runtime
                   ON runtime.asset_id = asset.id
                  AND runtime.tenant_id = asset.tenant_id

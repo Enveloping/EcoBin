@@ -19,10 +19,6 @@ class DeviceConfigurationCanonicalizerTest {
     void matchesFrozenTwoPortMcuDigestVector() {
         ConfigurationDeviceRequest device =
                 new ConfigurationDeviceRequest(
-                        "测试设备",
-                        null,
-                        null,
-                        null,
                         5_000L,
                         3L,
                         3L,
@@ -37,7 +33,6 @@ class DeviceConfigurationCanonicalizerTest {
                 new ConfigurationReleaseRequest(
                         0L,
                         null,
-                        false,
                         device,
                         List.of(port(1, "0.4501"), port(2, "0.4502")));
         var normalized = canonicalizer.normalize(
@@ -48,6 +43,11 @@ class DeviceConfigurationCanonicalizerTest {
                 .isEqualTo(3_600_000L);
         assertThat(normalized.device().edgeHeartbeatMissThreshold())
                 .isEqualTo(3L);
+        assertThat(new String(
+                normalized.canonicalBytes(),
+                java.nio.charset.StandardCharsets.UTF_8))
+                .contains("\"schemaVersion\":2")
+                .doesNotContain("address", "longitude", "latitude");
 
         byte[] actual = canonicalizer.mcuPayloadSha256(
                 8,

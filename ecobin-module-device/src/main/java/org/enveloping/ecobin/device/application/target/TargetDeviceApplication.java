@@ -22,6 +22,7 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionSumm
 import org.enveloping.ecobin.device.web.v1.DeviceModels.ConfigurationVersionView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.CursorPage;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
+import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceInstallationProfileView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryInstalledBagRequest;
@@ -651,8 +652,7 @@ public class TargetDeviceApplication {
                 "device.configuration.manage");
         requireEnabledScope(scope);
         if (request == null
-                || request.expectedLatestVersion() == null
-                || request.locationCorrectionConfirmed() == null) {
+                || request.expectedLatestVersion() == null) {
             throw invalid("配置发布请求不完整");
         }
         String code = normalizeDeviceCode(deviceCode);
@@ -914,14 +914,6 @@ public class TargetDeviceApplication {
                     "DEVICE.CONFIGURATION_UNCHANGED",
                     "完整配置内容与当前最高版本相同");
         }
-        if (previous.isPresent()
-                && locationChanged(previous.get(), normalized.device())
-                && !request.locationCorrectionConfirmed()) {
-            throw unprocessable(
-                    "DEVICE.LOCATION_CORRECTION_CONFIRMATION_REQUIRED",
-                    "非首次修改地址或坐标必须明确确认位置纠正");
-        }
-
         long versionNo = latestVersion + 1;
         byte[] mcuPayloadSha256 = canonicalizer.mcuPayloadSha256(
                 versionNo, normalized);
@@ -929,8 +921,7 @@ public class TargetDeviceApplication {
         long configurationId = insertAndReturnKey("""
                 INSERT INTO dev_config_version (
                     tenant_id, organization_id, asset_id,
-                    version_no, schema_version, device_display_name,
-                    location_address, latitude, longitude,
+                    version_no, schema_version,
                     edge_heartbeat_interval_ms,
                     edge_heartbeat_miss_threshold,
                     runtime_snapshot_policy_version_no,
@@ -949,7 +940,7 @@ public class TargetDeviceApplication {
                     published_by_staff_account_id,
                     published_at, created_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?
                 )
@@ -959,10 +950,6 @@ public class TargetDeviceApplication {
                 asset.id(),
                 versionNo,
                 DeviceConfigurationCanonicalizer.CONFIGURATION_SCHEMA_VERSION,
-                normalized.device().displayName(),
-                normalized.device().address(),
-                nullableDecimal(normalized.device().latitude()),
-                nullableDecimal(normalized.device().longitude()),
                 normalized.device().edgeHeartbeatIntervalMs(),
                 normalized.device().edgeHeartbeatMissThreshold(),
                 runtimePolicy.version(),
@@ -1732,6 +1719,8 @@ public class TargetDeviceApplication {
                                 asset_uid, device_public_code, hardware_sn,
                                 model_name, production_batch,
                                 expected_port_count,
+                                installation_display_name,
+                                installation_updated_at,
                                 tenant_id, tenant_assigned_at,
                                 organization_id, organization_assigned_at,
                                 acceptance_status, accepted_at,
@@ -1743,7 +1732,7 @@ public class TargetDeviceApplication {
                                 retirement_reason, control_version,
                                 created_at, updated_at
                             ) VALUES (
-                                ?, ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?, ?, ?, ?, ?,
                                 NULL, NULL, NULL, NULL,
                                 'PENDING', NULL, NULL, NULL, NULL,
                                 'NORMAL', NULL, NULL, NULL, NULL, 0, ?, ?
@@ -1755,6 +1744,8 @@ public class TargetDeviceApplication {
                     request.modelCode(),
                     request.productionBatch(),
                     request.expectedPortCount(),
+                    "回收箱 " + request.hardwareSn(),
+                    now,
                     now,
                     now);
         } catch (DataIntegrityViolationException exception) {
@@ -2259,9 +2250,6 @@ public class TargetDeviceApplication {
         return """
                 SELECT config.id, config.version_no,
                        config.schema_version,
-                       config.device_display_name,
-                       config.location_address,
-                       config.latitude, config.longitude,
                        config.edge_heartbeat_interval_ms,
                        config.edge_heartbeat_miss_threshold,
                        config.runtime_snapshot_policy_version_no,
@@ -2317,10 +2305,6 @@ public class TargetDeviceApplication {
                 rs.getLong("id"),
                 rs.getLong("version_no"),
                 rs.getInt("schema_version"),
-                rs.getString("device_display_name"),
-                rs.getString("location_address"),
-                decimalString(rs.getBigDecimal("longitude"), 7),
-                decimalString(rs.getBigDecimal("latitude"), 7),
                 rs.getLong("edge_heartbeat_interval_ms"),
                 rs.getLong("edge_heartbeat_miss_threshold"),
                 nullableLong(rs, "runtime_snapshot_policy_version_no"),
@@ -2502,7 +2486,6 @@ public class TargetDeviceApplication {
                 row.runtimeSnapshotPolicyVersion(),
                 row.contentSha256(),
                 row.mcuPayloadSha256(),
-                row.deviceDisplayName(),
                 row.publicationSource(),
                 publisherName(row),
                 row.publishedAt(),
@@ -2623,10 +2606,6 @@ public class TargetDeviceApplication {
     private static ConfigurationDeviceSnapshot configurationDevice(
             ConfigurationVersionRow row) {
         return new ConfigurationDeviceSnapshot(
-                row.deviceDisplayName(),
-                row.address(),
-                row.longitude(),
-                row.latitude(),
                 row.edgeHeartbeatIntervalMs(),
                 row.edgeHeartbeatMissThreshold(),
                 row.mcuHeartbeatIntervalMs(),
@@ -2647,10 +2626,6 @@ public class TargetDeviceApplication {
             ConfigurationVersionRow configuration,
             List<ConfigurationPortSnapshot> ports) {
         ConfigurationDeviceRequest device = new ConfigurationDeviceRequest(
-                configuration.deviceDisplayName(),
-                configuration.address(),
-                configuration.longitude(),
-                configuration.latitude(),
                 configuration.mcuHeartbeatIntervalMs(),
                 configuration.mcuHeartbeatMissThreshold(),
                 configuration.doorCloseRetryLimit(),
@@ -2691,25 +2666,12 @@ public class TargetDeviceApplication {
         return new ConfigurationReleaseRequest(
                 expectedLatestVersion,
                 reason,
-                true,
                 device,
                 portRequests);
     }
 
     private static String publisherName(ConfigurationVersionRow row) {
         return row.publisherName() == null ? "SYSTEM" : row.publisherName();
-    }
-
-    private static boolean locationChanged(
-            ConfigurationVersionRow previous,
-            ConfigurationDeviceSnapshot next) {
-        return !Objects.equals(previous.address(), next.address())
-                || !Objects.equals(
-                normalizedDecimal(previous.longitude()),
-                normalizedDecimal(next.longitude()))
-                || !Objects.equals(
-                normalizedDecimal(previous.latitude()),
-                normalizedDecimal(next.latitude()));
     }
 
     private Optional<DeviceAssetView> findAssetView(
@@ -2768,6 +2730,12 @@ public class TargetDeviceApplication {
                 SELECT asset.asset_uid, asset.device_public_code,
                        asset.hardware_sn, asset.model_name,
                        asset.production_batch, asset.expected_port_count,
+                       asset.installation_display_name,
+                       asset.installation_address,
+                       asset.installation_longitude,
+                       asset.installation_latitude,
+                       asset.installation_profile_version,
+                       asset.installation_updated_at,
                        tenant.tenant_code, organization.organization_code,
                        asset.acceptance_status,
                        channel_binding.miniapp_channel_id,
@@ -2817,10 +2785,33 @@ public class TargetDeviceApplication {
                 instant(rs, "retired_at"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"),
+                installationProfileView(
+                        rs.getString("device_public_code"), rs),
                 new ComputedOneNetMapping(
                         oneNetProductId,
                         hardwareSn,
                         oneNetProductId != null));
+    }
+
+    private static DeviceInstallationProfileView installationProfileView(
+            String deviceCode,
+            ResultSet rs) throws SQLException {
+        String address = rs.getString("installation_address");
+        String longitude = decimalString(
+                rs.getBigDecimal("installation_longitude"), 7);
+        String latitude = decimalString(
+                rs.getBigDecimal("installation_latitude"), 7);
+        return new DeviceInstallationProfileView(
+                deviceCode,
+                rs.getLong("installation_profile_version"),
+                address != null && !address.isBlank()
+                        && longitude != null && latitude != null,
+                rs.getString("installation_display_name"),
+                address,
+                longitude,
+                latitude,
+                "GCJ02",
+                instant(rs, "installation_updated_at"));
     }
 
     private Asset asset(String hardwareSn, boolean lock) {
@@ -3889,10 +3880,6 @@ public class TargetDeviceApplication {
             long id,
             long versionNo,
             int schemaVersion,
-            String deviceDisplayName,
-            String address,
-            String longitude,
-            String latitude,
             long edgeHeartbeatIntervalMs,
             long edgeHeartbeatMissThreshold,
             Long runtimeSnapshotPolicyVersion,

@@ -72,6 +72,21 @@
   border-top: 1rpx solid #edf0ed;
 }
 
+.installation-action {
+  display: flex;
+  align-items: center;
+  gap: 9rpx;
+  margin-top: 18rpx;
+  padding: 16rpx 18rpx;
+  color: #118f2a;
+  font-size: 22rpx;
+  font-weight: 650;
+  background: #eff9f1;
+  border-radius: 16rpx;
+}
+
+.installation-action text { flex: 1; }
+
 .notice {
   margin-top: 20rpx;
   padding: 22rpx 24rpx;

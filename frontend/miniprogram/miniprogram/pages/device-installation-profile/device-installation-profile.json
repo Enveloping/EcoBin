@@ -1,6 +1,6 @@
 {
-  "navigationBarTitleText": "设备清运",
-  "navigationBarBackgroundColor": "#ffffff",
+  "navigationBarTitleText": "配置设备信息",
+  "navigationBarBackgroundColor": "#f4f7f3",
   "navigationBarTextStyle": "black",
   "enablePullDownRefresh": true,
   "usingComponents": {}

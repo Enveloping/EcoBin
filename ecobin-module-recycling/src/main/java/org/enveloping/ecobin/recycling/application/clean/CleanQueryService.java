@@ -89,9 +89,9 @@ public class CleanQueryService {
         requireScope(locked, tenantId, organizationId);
         Asset asset = jdbc.query("""
                         SELECT asset.id,
-                               configuration.device_display_name
+                               asset.installation_display_name
                                    AS display_name,
-                               configuration.location_address AS address,
+                               asset.installation_address AS address,
                                COALESCE(
                                    transport.onenet_connection_status,
                                    'UNKNOWN'
@@ -106,16 +106,6 @@ public class CleanQueryService {
                          AND organization.status = 'ENABLED'
                         LEFT JOIN dev_device_transport_state transport
                           ON transport.asset_id = asset.id
-                        LEFT JOIN dev_config_version configuration
-                          ON configuration.id = (
-                              SELECT latest.id
-                              FROM dev_config_version latest
-                              WHERE latest.tenant_id = asset.tenant_id
-                                AND latest.organization_id = asset.organization_id
-                                AND latest.asset_id = asset.id
-                              ORDER BY latest.version_no DESC
-                              LIMIT 1
-                          )
                         WHERE asset.tenant_id = ?
                           AND asset.organization_id = ?
                           AND asset.device_public_code = ?

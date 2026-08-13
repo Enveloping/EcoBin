@@ -31,8 +31,8 @@ class JdbcMiniappDeliveryDeviceQueryRepository
                    END AS device_busy,
                    configuration.id AS configuration_id,
                    configuration.version_no AS configuration_version,
-                   configuration.device_display_name,
-                   configuration.location_address,
+                   asset.installation_display_name AS device_display_name,
+                   asset.installation_address AS location_address,
                    configuration.edge_heartbeat_interval_ms,
                    configuration.edge_heartbeat_miss_threshold,
                    configuration.content_sha256

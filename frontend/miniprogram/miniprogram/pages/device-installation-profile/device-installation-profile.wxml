@@ -1,0 +1,72 @@
+<view class="installation-page">
+  <view wx:if="{{loading}}" class="state-card">
+    <view class="spinner"></view>
+    <view class="state-title">正在读取设备安装资料</view>
+    <view class="state-copy">只读取当前名称和位置，不会下发机器配置</view>
+  </view>
+
+  <view wx:elif="{{errorMessage}}" class="state-card">
+    <view class="state-icon"><t-icon name="info-circle" size="56rpx" color="#b46a16" /></view>
+    <view class="state-title">暂时无法读取</view>
+    <view class="state-copy">{{errorMessage}}</view>
+    <view class="retry-action" bindtap="onRetry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <view class="identity-card">
+      <view class="identity-mark"><t-icon name="location" size="42rpx" color="#0d9729" /></view>
+      <view class="identity-copy">
+        <view class="eyebrow">安装中的设备</view>
+        <view class="device-code">{{deviceCode}}</view>
+      </view>
+      <view class="version-tag">V{{version}}</view>
+    </view>
+
+    <view class="notice-card">
+      这里保存的是现场安装资料。修改后会立即用于投递页、清运页和管理端展示，不会通知香橙派或 MCU。
+    </view>
+
+    <view class="form-card">
+      <view class="field-label"><text>设备名称</text><text class="required">必填</text></view>
+      <input
+        class="text-input"
+        maxlength="100"
+        value="{{displayName}}"
+        placeholder="例如：东门纸类回收箱"
+        bindinput="onNameInput"
+      />
+
+      <view class="field-label field-label--location"><text>地图位置</text><text class="required">必选</text></view>
+      <view class="location-picker {{hasLocation ? 'location-picker--selected' : ''}}" bindtap="onChooseLocation">
+        <view class="location-picker-icon"><t-icon name="location" size="38rpx" color="{{hasLocation ? '#0b9327' : '#7f8b82'}}" /></view>
+        <view class="location-picker-copy">
+          <view class="location-picker-title">{{hasLocation ? '位置已选择' : '打开地图选择位置'}}</view>
+          <view class="location-picker-hint">{{hasLocation ? '可再次点击调整定位点' : '地图会定位到手机附近，可拖动选择准确位置'}}</view>
+        </view>
+        <t-icon name="chevron-right" size="28rpx" color="#9ba49d" />
+      </view>
+
+      <view wx:if="{{hasLocation}}" class="coordinate-panel">
+        <view><text>经度</text><text>{{longitude}}</text></view>
+        <view><text>纬度</text><text>{{latitude}}</text></view>
+        <view class="coordinate-system">坐标系 GCJ-02（微信地图）</view>
+      </view>
+
+      <view class="field-label field-label--address"><text>详细地址</text><text class="required">必填</text></view>
+      <textarea
+        class="address-input"
+        maxlength="500"
+        auto-height
+        value="{{address}}"
+        placeholder="地图会自动带回基础地址，可继续补充楼栋、门口等信息"
+        bindinput="onAddressInput"
+      ></textarea>
+      <view class="updated-copy">上次保存：{{updatedText}}</view>
+    </view>
+
+    <button class="save-button" loading="{{saving}}" disabled="{{saving}}" bindtap="onSave">
+      {{saving ? '正在保存…' : '保存设备信息'}}
+    </button>
+    <view class="bottom-hint">保存不会中断设备当前业务，也不会创建新的配置版本</view>
+  </block>
+</view>

@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import {
   Alert,
-  Checkbox,
   Col,
   Collapse,
   Form,
@@ -45,12 +44,7 @@ function initialValues(
   if (latest) {
     return {
       reason: null,
-      locationCorrectionConfirmed: false,
       device: {
-        displayName: latest.device.displayName,
-        address: latest.device.address,
-        longitude: latest.device.longitude,
-        latitude: latest.device.latitude,
         mcuHeartbeatIntervalMs: latest.device.mcuHeartbeatIntervalMs,
         mcuHeartbeatMissThreshold:
           latest.device.mcuHeartbeatMissThreshold,
@@ -71,12 +65,7 @@ function initialValues(
   }
   return {
     reason: null,
-    locationCorrectionConfirmed: false,
     device: {
-      displayName: '新接入设备',
-      address: null,
-      longitude: null,
-      latitude: null,
       mcuHeartbeatIntervalMs: 5000,
       mcuHeartbeatMissThreshold: 3,
       doorCloseRetryLimit: 3,
@@ -131,13 +120,7 @@ export default function DeviceConfigurationModal({
     await onSubmit({
       expectedLatestVersion: latest?.versionNo ?? 0,
       reason: optionalText(values.reason),
-      locationCorrectionConfirmed: values.locationCorrectionConfirmed,
-      device: {
-        ...values.device,
-        address: optionalText(values.device.address),
-        longitude: optionalText(values.device.longitude),
-        latitude: optionalText(values.device.latitude),
-      },
+      device: { ...values.device },
       ports: values.ports.map((port, index) => ({
         ...latest?.ports[index],
         ...port,
@@ -170,48 +153,8 @@ export default function DeviceConfigurationModal({
         layout="vertical"
         disabled={submitting}
       >
-        <Typography.Title level={5}>整机信息与安全时序</Typography.Title>
+        <Typography.Title level={5}>整机安全时序</Typography.Title>
         <Row gutter={16}>
-          <Col span={8}>
-            <Form.Item
-              name={['device', 'displayName']}
-              label="设备名称"
-              rules={[
-                { required: true, message: '请输入设备名称' },
-                { max: 100, message: '最多 100 个字符' },
-              ]}
-            >
-              <Input placeholder="例如 A 区 1 号设备" />
-            </Form.Item>
-          </Col>
-          <Col span={16}>
-            <Form.Item
-              name={['device', 'address']}
-              label="安装地址"
-              rules={[{ max: 500, message: '最多 500 个字符' }]}
-            >
-              <Input placeholder="实际安装位置，可暂不填写" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item name={['device', 'longitude']} label="经度">
-              <Input placeholder="113.123456" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item name={['device', 'latitude']} label="纬度">
-              <Input placeholder="23.123456" />
-            </Form.Item>
-          </Col>
-          <Col span={8}>
-            <Form.Item
-              name="locationCorrectionConfirmed"
-              valuePropName="checked"
-              label="位置修正确认"
-            >
-              <Checkbox>确认本次只是文字或小范围坐标修正</Checkbox>
-            </Form.Item>
-          </Col>
           <Col span={8}>
             <Form.Item
               name={['device', 'mcuHeartbeatIntervalMs']}

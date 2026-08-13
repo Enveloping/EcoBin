@@ -3,6 +3,7 @@ import { FEATURES } from '../../config/index'
 import type {
   CleanDeviceFilter,
   CleanDeviceItem,
+  DeviceInstallationProfile,
 } from '../../types/api'
 import { requireEntryMode } from '../../utils/guard'
 import { startCleaningEntry } from '../../utils/cleaning-entry'
@@ -189,6 +190,34 @@ Page({
 
   onScanStart() {
     startCleaningEntry()
+  },
+
+  onConfigureInstallation(event: WechatMiniprogram.TouchEvent) {
+    const deviceCode = String(
+      event.currentTarget.dataset.deviceCode || '',
+    )
+    if (!deviceCode) return
+    wx.navigateTo({
+      url: `/pages/device-installation-profile/device-installation-profile?deviceCode=${
+        encodeURIComponent(deviceCode)
+      }`,
+      events: {
+        installationProfileUpdated: (
+          profile: DeviceInstallationProfile,
+        ) => {
+          this.setData({
+            devices: this.data.devices.map(item => item.deviceCode
+              === profile.deviceCode
+              ? deviceView({
+                ...item,
+                displayName: profile.displayName,
+                address: profile.address,
+              })
+              : item),
+          })
+        },
+      },
+    })
   },
 
   decodeTitle(value?: string): string {

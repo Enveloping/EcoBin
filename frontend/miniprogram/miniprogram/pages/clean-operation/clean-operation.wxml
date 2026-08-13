@@ -37,6 +37,11 @@
         </view>
       </view>
       <view class="device-address">{{address}}</view>
+      <view class="installation-action" bindtap="onConfigureInstallation">
+        <t-icon name="edit" size="25rpx" color="#118f2a" />
+        <text>配置设备信息</text>
+        <t-icon name="chevron-right" size="24rpx" color="#8fa097" />
+      </view>
     </view>
 
     <view wx:if="{{recoverableCount > 0}}" class="notice notice--warning">

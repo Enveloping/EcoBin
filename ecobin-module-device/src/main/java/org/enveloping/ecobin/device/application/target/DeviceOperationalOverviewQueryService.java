@@ -61,19 +61,12 @@ public class DeviceOperationalOverviewQueryService
         jdbc.query("""
                         SELECT asset.id, asset.organization_id,
                                asset.device_public_code,
-                               COALESCE(configuration.device_display_name,
-                                        asset.device_public_code) display_name,
+                               asset.installation_display_name display_name,
                                asset.lifecycle_status,
                                runtime.edge_connection_status
                         FROM dev_device_asset asset
                         LEFT JOIN dev_device_runtime_state runtime
                           ON runtime.asset_id = asset.id
-                        LEFT JOIN dev_config_version configuration
-                          ON configuration.id = (
-                            SELECT latest.id FROM dev_config_version latest
-                            WHERE latest.asset_id = asset.id
-                            ORDER BY latest.version_no DESC LIMIT 1
-                          )
                         WHERE asset.tenant_id = ?
                           AND asset.organization_id IN (
                         """ + placeholders + ")" + """

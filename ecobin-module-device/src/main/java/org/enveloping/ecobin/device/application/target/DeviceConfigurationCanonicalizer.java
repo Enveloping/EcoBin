@@ -33,7 +33,7 @@ import java.util.TreeSet;
 public class DeviceConfigurationCanonicalizer
         implements DeviceCommandCanonicalizationPort {
 
-    static final int CONFIGURATION_SCHEMA_VERSION = 1;
+    static final int CONFIGURATION_SCHEMA_VERSION = 2;
     private static final long UINT32_MAX = 4_294_967_295L;
     private static final long SAFE_INTEGER_MAX = 9_007_199_254_740_991L;
     private static final byte[] MCU_DOMAIN =
@@ -186,11 +186,6 @@ public class DeviceConfigurationCanonicalizer
             ConfigurationDeviceRequest request,
             long edgeHeartbeatIntervalMs,
             long edgeHeartbeatMissThreshold) {
-        String displayName = requiredTrimmed(
-                request.displayName(), 100, "设备显示名");
-        String address = optionalTrimmed(request.address(), 500, "地址");
-        Coordinates coordinates = coordinates(
-                request.longitude(), request.latitude());
         long edgeHeartbeat = range(
                 edgeHeartbeatIntervalMs,
                 RuntimeSnapshotPolicyProvider.MINIMUM_FALLBACK_INTERVAL_MS,
@@ -232,10 +227,6 @@ public class DeviceConfigurationCanonicalizer
         boolean smoke = request.smokeMonitoringEnabled() == null
                 || request.smokeMonitoringEnabled();
         return new ConfigurationDeviceSnapshot(
-                displayName,
-                address,
-                coordinates.longitude(),
-                coordinates.latitude(),
                 edgeHeartbeat,
                 edgeMiss,
                 mcuHeartbeat,
@@ -377,10 +368,6 @@ public class DeviceConfigurationCanonicalizer
     private Map<String, Object> contentDevice(
             ConfigurationDeviceSnapshot device) {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("displayName", device.displayName());
-        result.put("address", device.address());
-        result.put("longitude", device.longitude());
-        result.put("latitude", device.latitude());
         result.put(
                 "edgeHeartbeatIntervalMs",
                 device.edgeHeartbeatIntervalMs());
@@ -563,29 +550,6 @@ public class DeviceConfigurationCanonicalizer
         };
     }
 
-    private static Coordinates coordinates(
-            String longitudeValue,
-            String latitudeValue) {
-        if (blank(longitudeValue) && blank(latitudeValue)) {
-            return new Coordinates(null, null);
-        }
-        if (blank(longitudeValue) || blank(latitudeValue)) {
-            throw valueInvalid("经纬度必须同时提供");
-        }
-        BigDecimal longitude = decimal(
-                longitudeValue, 7, "经度");
-        BigDecimal latitude = decimal(latitudeValue, 7, "纬度");
-        if (longitude.compareTo(BigDecimal.valueOf(-180)) < 0
-                || longitude.compareTo(BigDecimal.valueOf(180)) > 0
-                || latitude.compareTo(BigDecimal.valueOf(-90)) < 0
-                || latitude.compareTo(BigDecimal.valueOf(90)) > 0) {
-            throw valueInvalid("经纬度超出有效范围");
-        }
-        return new Coordinates(
-                canonicalDecimal(longitude, 7),
-                canonicalDecimal(latitude, 7));
-    }
-
     private static DecimalInteger decimalInteger(
             String value,
             int scale,
@@ -675,16 +639,6 @@ public class DeviceConfigurationCanonicalizer
             throw valueInvalid(field + "过长");
         }
         return result;
-    }
-
-    private static String optionalTrimmed(
-            String value,
-            int maximumLength,
-            String field) {
-        if (blank(value)) {
-            return null;
-        }
-        return requiredTrimmed(value, maximumLength, field);
     }
 
     private static boolean blank(String value) {
@@ -871,9 +825,6 @@ public class DeviceConfigurationCanonicalizer
             long unitPriceTenThousandths,
             long configuredFullWeightGrams,
             String machineFullnessMode) {
-    }
-
-    private record Coordinates(String longitude, String latitude) {
     }
 
     private record DecimalInteger(

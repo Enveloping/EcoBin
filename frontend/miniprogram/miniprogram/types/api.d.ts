@@ -469,6 +469,26 @@ export interface CleanDeviceItem {
   oldestFullSince: string | null
 }
 
+export interface DeviceInstallationProfile {
+  deviceCode: string
+  version: number
+  complete: boolean
+  displayName: string
+  address: string | null
+  longitude: string | null
+  latitude: string | null
+  coordinateSystem: 'GCJ02'
+  updatedAt: string
+}
+
+export interface UpdateDeviceInstallationProfileRequest {
+  expectedVersion: number
+  displayName: string
+  address: string
+  longitude: string
+  latitude: string
+}
+
 export interface RecoverableCleanOperation {
   operationUid: string
   portNo: number

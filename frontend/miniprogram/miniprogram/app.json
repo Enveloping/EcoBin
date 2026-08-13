@@ -5,6 +5,7 @@
     "pages/clean/clean",
     "pages/clean-profile/clean-profile",
     "pages/clean-operation/clean-operation",
+    "pages/device-installation-profile/device-installation-profile",
     "pages/clean-devices/clean-devices",
     "pages/clean-records/clean-records",
     "pages/clean-record-detail/clean-record-detail",
@@ -48,6 +49,12 @@
   "usingComponents": {
     "t-icon": "tdesign-miniprogram/icon/icon"
   },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于清运员在地图上选择设备安装位置"
+    }
+  },
+  "requiredPrivateInfos": ["chooseLocation"],
   "componentFramework": "glass-easel",
   "lazyCodeLoading": "requiredComponents"
 }

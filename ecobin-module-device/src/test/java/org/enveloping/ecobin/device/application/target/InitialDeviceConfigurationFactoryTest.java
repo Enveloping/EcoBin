@@ -19,10 +19,9 @@ class InitialDeviceConfigurationFactoryTest {
         InitialDeviceConfigurationFactory factory =
                 new InitialDeviceConfigurationFactory(properties);
 
-        var request = factory.create("HW-TEST-001", "ec-m0", 2);
+        var request = factory.create("ec-m0", 2);
 
         assertThat(request.expectedLatestVersion()).isZero();
-        assertThat(request.locationCorrectionConfirmed()).isFalse();
         assertThat(request.device().continueDeliveryWaitMs())
                 .isEqualTo(30_000L);
         assertThat(request.device().negativeWeightThresholdGram())
@@ -48,7 +47,7 @@ class InitialDeviceConfigurationFactoryTest {
         InitialDeviceConfigurationFactory factory =
                 new InitialDeviceConfigurationFactory(properties);
 
-        var request = factory.create("HW-NEW-001", "NEW-MODEL", 1);
+        var request = factory.create("NEW-MODEL", 1);
 
         assertThat(request.ports().getFirst().fullnessSensorKind())
                 .isEqualTo("DIGITAL_INFRARED");

@@ -32,6 +32,8 @@
 .device-grid text:last-child { margin-top: 5rpx; overflow: hidden; color: #303b32; font-size: 22rpx; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .device-grid .value-warning { color: #b25f13; }
 .fullness-note { margin-top: 17rpx; color: #a66710; font-size: 20rpx; }
+.installation-action { display: flex; align-items: center; gap: 9rpx; margin-top: 20rpx; padding: 16rpx 18rpx; color: #118f2a; font-size: 21rpx; font-weight: 650; background: #eff9f1; border-radius: 15rpx; }
+.installation-action text { flex: 1; }
 .state-card { display: flex; min-height: 370rpx; align-items: center; justify-content: center; flex-direction: column; padding: 46rpx 30rpx; box-sizing: border-box; }
 .state-icon { display: flex; width: 104rpx; height: 104rpx; align-items: center; justify-content: center; background: #edf8ef; border-radius: 34rpx; }
 .state-icon--warning { background: #fff4e2; }
