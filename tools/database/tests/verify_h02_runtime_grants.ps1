@@ -16,6 +16,11 @@ if ($provisionSource -notmatch '\$tables\.Count -ne 99' -or
 if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 51') {
     throw "H-02 provisioning must migrate through V51"
 }
+if ($provisionSource -notmatch
+        'sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08' -or
+        $provisionSource -notmatch '\$RemoteHost\.Length -gt 0') {
+    throw "H-02 provisioning must pin the audited Linux production image ID"
+}
 if ($provisionSource -notmatch '\[switch\]\$AllowExistingBusinessRows') {
     throw "H-02 production resume must explicitly opt in to business rows"
 }

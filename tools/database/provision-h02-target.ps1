@@ -2,8 +2,7 @@
 param(
     [string]$MySqlImage =
         "mysql@sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6",
-    [string]$ExpectedImageId =
-        "sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6",
+    [string]$ExpectedImageId = "",
     [string]$ExpectedMySqlVersion = "8.4.10",
     [string]$JavaHome = "C:\D\002-Tools\004-DevTool\jdk-21.0.10",
     [string]$MavenExecutable = "mvn.cmd",
@@ -38,6 +37,18 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
     $PSNativeCommandUseErrorActionPreference = $false
+}
+
+# The immutable repository digest is shared, but Docker reports a different
+# platform image ID on the audited Linux/amd64 production host. Keep both
+# pinned defaults while retaining an explicit override for a reviewed image.
+if ([string]::IsNullOrWhiteSpace($ExpectedImageId)) {
+    $ExpectedImageId = if ($RemoteHost.Length -gt 0) {
+        "sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08"
+    }
+    else {
+        "sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6"
+    }
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path

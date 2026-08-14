@@ -32,7 +32,9 @@ H-02 只供应目标空库。试点 seed 属于 F-12，入口切换和回退签�
 | 本机端口 | `127.0.0.1:13306` |
 | 数据库 | `ecobin` |
 | MySQL | `8.4.10` |
-| 镜像 digest / ID | `sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6` |
+| 固定镜像引用摘要 | `mysql@sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6` |
+| 本地 Docker image ID | `sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6` |
+| 服务器 Linux/amd64 image ID | `sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08` |
 
 容器只把数据库端口绑定到本机回环地址，不能从局域网直接访问。Compose 使用独立
 bridge 网络供后续目标应用容器接入；数据卷与旧栈没有共享关系。
