@@ -14,7 +14,7 @@ ecobin:
       scheduler-enabled: false
     delivery-observation-reconciliation:
       scheduler-enabled: false
-  development:
+  identity:
     default-platform-admin:
       enabled: false
   operations:

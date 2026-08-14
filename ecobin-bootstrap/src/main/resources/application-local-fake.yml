@@ -6,7 +6,7 @@ ecobin:
   observability:
     http-request-logging:
       include-request-body: true
-  development:
+  identity:
     default-platform-admin:
       enabled: true
   external:

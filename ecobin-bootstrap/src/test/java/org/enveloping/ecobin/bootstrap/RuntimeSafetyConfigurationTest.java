@@ -68,7 +68,8 @@ class RuntimeSafetyConfigurationTest {
             "V46__global_runtime_snapshot_policy.sql",
             "V47__device_work_state_alignment.sql",
             "V48__device_installation_profiles.sql",
-            "V49__recent_miniapp_organization_account.sql"
+            "V49__recent_miniapp_organization_account.sql",
+            "V50__platform_administrator_governance.sql"
     };
 
     @Test
@@ -112,20 +113,18 @@ class RuntimeSafetyConfigurationTest {
                         sources,
                         "ecobin.miniapp.device-entry-base-url"));
         assertEquals(
-                "${defaultPlatformAdminEnabled:true}",
+                "${defaultPlatformAdminEnabled:false}",
                 property(
                         sources,
-                        "ecobin.development.default-platform-admin.enabled"));
+                        "ecobin.identity.default-platform-admin.enabled"));
         assertEquals(
-                "${defaultPlatformAdminLogin:admin}",
+                "${defaultPlatformAdminPassword:}",
                 property(
                         sources,
-                        "ecobin.development.default-platform-admin.login-name"));
-        assertEquals(
-                "${defaultPlatformAdminPassword:admin123}",
-                property(
-                        sources,
-                        "ecobin.development.default-platform-admin.password"));
+                        "ecobin.identity.default-platform-admin.password"));
+        assertNull(property(
+                sources,
+                "ecobin.identity.default-platform-admin.login-name"));
         assertEquals(
                 "optional:file:./.ecobin/application-local-secrets.yml",
                 property(sources, "spring.config.import[0]"));
@@ -165,7 +164,7 @@ class RuntimeSafetyConfigurationTest {
                 true,
                 property(
                         fakeSources,
-                        "ecobin.development.default-platform-admin.enabled"));
+                        "ecobin.identity.default-platform-admin.enabled"));
         assertEquals(
                 false,
                 property(fakeSources, "onenet.subscription.enabled"));
@@ -199,10 +198,10 @@ class RuntimeSafetyConfigurationTest {
                 true,
                 property(realSources, "onenet.subscription.enabled"));
         assertEquals(
-                false,
+                true,
                 property(
                         realSources,
-                        "ecobin.development.default-platform-admin.enabled"));
+                        "ecobin.identity.default-platform-admin.enabled"));
         assertEquals(
                 true,
                 property(
@@ -219,7 +218,7 @@ class RuntimeSafetyConfigurationTest {
     }
 
     @Test
-    void productionProfileKeepsDiagnosticsClosedAndDisablesWeakBootstrap()
+    void productionProfileKeepsDiagnosticsClosedAndEnablesSafeBootstrap()
             throws IOException {
         List<PropertySource<?>> productionSources =
                 new YamlPropertySourceLoader().load(
@@ -228,10 +227,10 @@ class RuntimeSafetyConfigurationTest {
                                 "application-production.yml"));
 
         assertEquals(
-                false,
+                "${defaultPlatformAdminEnabled:true}",
                 property(
                         productionSources,
-                        "ecobin.development.default-platform-admin.enabled"));
+                        "ecobin.identity.default-platform-admin.enabled"));
         assertEquals(
                 false,
                 property(

@@ -14,9 +14,9 @@ logging:
     path: ${ecobinLogPath:/var/log/ecobin/backend}
 
 ecobin:
-  development:
+  identity:
     default-platform-admin:
-      enabled: false
+      enabled: ${defaultPlatformAdminEnabled:true}
   observability:
     http-request-logging:
       include-request-body: false

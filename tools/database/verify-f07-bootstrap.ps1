@@ -18,6 +18,7 @@ $containerName =
     "ecobin-f07-verify-$PID-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $databaseNames = [ordered]@{
     Correct = "ecobin_f07_correct"
+    ExistingAdminUpgrade = "ecobin_f07_existing_admin_upgrade"
     Empty = "ecobin_f07_empty"
     Legacy = "ecobin_f07_legacy"
     WrongV1 = "ecobin_f07_wrong_v1"
@@ -289,7 +290,7 @@ function Start-TestApplication {
         "--dbPassword=$appPassword",
         "--bagCodeKeyK1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         "--externalMode=fake",
-        "--ecobin.development.default-platform-admin.enabled=false",
+        "--ecobin.identity.default-platform-admin.enabled=false",
         "--ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
         "--ecobin.operations.reliable.workers-enabled=false",
         "--onenet.subscription.enabled=false",
@@ -379,7 +380,7 @@ function Assert-ApplicationReady {
                 $diagnostic = $diagnostic.Substring(
                     $diagnostic.Length - 8000)
             }
-            throw "correct V49 application exited before readiness`n$diagnostic"
+            throw "correct V50 application exited before readiness`n$diagnostic"
         }
         try {
             $response = Invoke-WebRequest `
@@ -417,7 +418,7 @@ function Assert-ApplicationReady {
     if ($diagnostic.Length -gt 8000) {
         $diagnostic = $diagnostic.Substring($diagnostic.Length - 8000)
     }
-    throw "correct V49 application did not become ready; " +
+    throw "correct V50 application did not become ready; " +
         "last probe: $lastProbe`n$diagnostic"
 }
 
@@ -633,13 +634,67 @@ CREATE USER 'ecobin_schema_owner'@'%'
     IDENTIFIED BY '$schemaOwnerPassword';
 GRANT ALL PRIVILEGES ON ``$($databaseNames.Correct)``.*
     TO 'ecobin_schema_owner'@'%';
+GRANT ALL PRIVILEGES ON ``$($databaseNames.ExistingAdminUpgrade)``.*
+    TO 'ecobin_schema_owner'@'%';
 GRANT ALL PRIVILEGES ON ``$($databaseNames.Low)``.*
     TO 'ecobin_schema_owner'@'%';
 GRANT SET_ANY_DEFINER ON *.* TO 'ecobin_schema_owner'@'%';
 "@ | Out-Null
 
     Invoke-FlywayMigrate -Database $databaseNames.Correct
+    Invoke-FlywayMigrate `
+        -Database $databaseNames.ExistingAdminUpgrade `
+        -Target "49"
     Invoke-FlywayMigrate -Database $databaseNames.Low -Target "9"
+
+    $existingAdminUid = "50000000-0000-4000-8000-000000000001"
+    $existingAdminPasswordHash =
+        "existing-password-hash-must-survive-v50"
+    Invoke-MySql `
+        -Database $databaseNames.ExistingAdminUpgrade `
+        -Sql @"
+INSERT INTO iam_platform_admin (
+    platform_admin_uid, login_name, password_hash, display_name, enabled,
+    failed_login_count, locked_until, auth_version, password_changed_at,
+    lock_version, created_at, updated_at
+) VALUES (
+    '$existingAdminUid', 'enveloping', '$existingAdminPasswordHash',
+    'Existing platform administrator', 1, 0, NULL, 7,
+    '2026-01-01 00:00:00.000', 11,
+    '2026-01-01 00:00:00.000', '2026-01-01 00:00:00.000'
+);
+"@ | Out-Null
+    $existingAdminBeforeV50 = Invoke-MySql `
+        -Database $databaseNames.ExistingAdminUpgrade `
+        -Sql @"
+SELECT CONCAT_WS(
+    '|', platform_admin_uid, password_hash, auth_version, lock_version,
+    enabled
+)
+FROM iam_platform_admin
+WHERE login_name = 'enveloping';
+"@
+    Invoke-FlywayMigrate -Database $databaseNames.ExistingAdminUpgrade
+    $existingAdminAfterV50 = Invoke-MySql `
+        -Database $databaseNames.ExistingAdminUpgrade `
+        -Sql @"
+SELECT CONCAT_WS(
+    '|', platform_admin_uid, password_hash, auth_version, lock_version,
+    enabled, admin_kind,
+    IF(deleted_at IS NULL, 'NULL', 'NOT_NULL')
+)
+FROM iam_platform_admin
+WHERE login_name = 'enveloping';
+"@
+    if (
+        $existingAdminAfterV50 -ne
+            "${existingAdminBeforeV50}|DEFAULT|NULL"
+    ) {
+        throw (
+            "V50 did not preserve and promote the sole existing " +
+            "platform administrator"
+        )
+    }
 
     $v1Marker = Invoke-MySql -Database $databaseNames.Correct -Sql @"
 SELECT CONCAT_WS('|', version, description, script, checksum, success)
@@ -915,7 +970,7 @@ WHERE schema_name = '$missingDatabase';
         packagedLegacyMigrations = 0
         packagedFlywayLibraries = $packagedFlywayLibraries
         v1Checksum = 229072802
-        targetVersion = 49
+        targetVersion = 50
         domainTables = 99
         permissionReferenceRows = $permissionCount
         businessInstanceRows = $businessRowsAfter
@@ -924,7 +979,8 @@ WHERE schema_name = '$missingDatabase';
         triggerDefinerLocked = $true
         runtimeDdlRejected = $true
         runtimeFactDeleteRejected = $true
-        correctV49Ready = $true
+        correctV50Ready = $true
+        existingAdministratorPromotedWithoutCredentialChange = $true
         fakeIngressBlocked = $true
         fakeIngressContextPathBlocked = $true
         fakeCredentialMixRejected = $true

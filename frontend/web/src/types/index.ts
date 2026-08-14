@@ -14,6 +14,7 @@ export type DirectoryStatus = Schemas['DirectoryStatus'];
 export type PrincipalAccountSummary = Schemas['PrincipalAccountSummary'];
 export type IdentityTenant = Schemas['IdentityTenant'];
 export type IdentityOrganization = Schemas['IdentityOrganization'];
+export type PlatformAdmin = Schemas['PlatformAdmin'];
 export type StaffAccount = Schemas['StaffAccount'];
 export type StaffAccountKind = StaffAccount['accountKind'];
 export type PermissionDefinition = Schemas['PermissionDefinition'];

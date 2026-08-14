@@ -170,18 +170,9 @@ $settings = [ordered]@{
     onenetAccessKey = Get-FirstConfiguredValue `
         -Values $legacy `
         -Names @('onenetAccessKey')
-    defaultPlatformAdminLogin = Get-FirstConfiguredValue `
-        -Values $legacy `
-        -Names @('defaultPlatformAdminLogin') `
-        -Default 'admin'
     defaultPlatformAdminPassword = Get-FirstConfiguredValue `
         -Values $legacy `
-        -Names @('defaultPlatformAdminPassword') `
-        -Default 'admin123'
-    defaultPlatformAdminDisplayName = Get-FirstConfiguredValue `
-        -Values $legacy `
-        -Names @('defaultPlatformAdminDisplayName') `
-        -Default '开发平台管理员'
+        -Names @('defaultPlatformAdminPassword')
 }
 
 foreach ($requiredName in @(

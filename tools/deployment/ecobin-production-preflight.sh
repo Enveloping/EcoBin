@@ -54,7 +54,7 @@ require_root_controlled_file "${compose_file}"
 require_root_controlled_file "${deployment_env}"
 require_root_controlled_file "${runtime_env}"
 
-if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
+if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
     fail "runtime.env contains a secret value; use /run/secrets instead"
 fi
 if grep -Eq '^(wechatAppid|miniappSecretStoreDirectory)=' "${runtime_env}"; then
@@ -161,8 +161,8 @@ db_url="$(env_value "${runtime_env}" dbUrl)"
     || fail "runtime database URL must not auto-create a database"
 [[ "$(env_value "${runtime_env}" dbUsername)" = ecobin_app ]] \
     || fail "runtime database identity must be ecobin_app"
-[[ "$(env_value "${runtime_env}" defaultPlatformAdminEnabled)" = false ]] \
-    || fail "development administrator initializer must be disabled"
+[[ "$(env_value "${runtime_env}" defaultPlatformAdminEnabled)" = true ]] \
+    || fail "default platform administrator bootstrap must be enabled"
 configured_log_path="$(optional_env_value "${runtime_env}" ecobinLogPath)"
 [[ -z "${configured_log_path}" \
     || "${configured_log_path}" = /var/log/ecobin/backend ]] \

@@ -54,7 +54,8 @@ for secret_name in \
     db-app-password \
     db-backup-password \
     jwt-secret \
-    bag-code-key-k1
+    bag-code-key-k1 \
+    default-platform-admin-password
 do
     require_root_file \
         "${source_dir}/${secret_name}" 600 \
@@ -69,6 +70,12 @@ if ! bag_code_key_bytes="$(
 fi
 [[ "${bag_code_key_bytes}" -ge 32 ]] \
     || fail "bag-code-key-k1 must decode to at least 32 bytes"
+
+bootstrap_password="$(<"${source_dir}/default-platform-admin-password")"
+[[ "${#bootstrap_password}" -ge 8 \
+    && "${#bootstrap_password}" -le 256 ]] \
+    || fail "default platform administrator password must contain 8 to 256 characters"
+unset bootstrap_password
 
 if [[ "${external_mode}" = real ]]; then
     for secret_name in \
@@ -173,6 +180,9 @@ install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/jwt-secret" "${backend_dir}/jwtSecret"
 install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/bag-code-key-k1" "${backend_dir}/bagCodeKeyK1"
+install -o root -g "${backend_gid}" -m 0440 \
+    "${source_dir}/default-platform-admin-password" \
+    "${backend_dir}/defaultPlatformAdminPassword"
 
 real_runtime_files=(
     iotAccessId
@@ -225,7 +235,12 @@ rm -f -- \
     "${backend_dir}/db-backup-password" \
     "${backend_dir}/schema-owner-password"
 
-expected_runtime_files=(dbPassword jwtSecret bagCodeKeyK1)
+expected_runtime_files=(
+    dbPassword
+    jwtSecret
+    bagCodeKeyK1
+    defaultPlatformAdminPassword
+)
 if [[ "${external_mode}" = real ]]; then
     expected_runtime_files+=("${real_runtime_files[@]}")
 fi

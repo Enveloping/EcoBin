@@ -30,7 +30,7 @@ external_mode="$(
 [[ "${external_mode}" = fake || "${external_mode}" = real ]] \
     || fail "backend externalMode is missing or invalid"
 
-secret_environment_pattern='^(dbPassword|jwtSecret|bagCodeKeyK1|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)='
+secret_environment_pattern='^(dbPassword|jwtSecret|bagCodeKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)='
 if docker image inspect "${image_name}" \
     --format '{{range .Config.Env}}{{println .}}{{end}}' \
     | grep -Eq "${secret_environment_pattern}"
@@ -100,7 +100,12 @@ docker run \
     "${image_name}" \
     -eu -c '
         test "$(id -u):$(id -g)" = "10001:10001"
-        for file_name in dbPassword jwtSecret bagCodeKeyK1; do
+        for file_name in \
+            dbPassword \
+            jwtSecret \
+            bagCodeKeyK1 \
+            defaultPlatformAdminPassword
+        do
             test -r "/run/secrets/${file_name}"
             test ! -w "/run/secrets/${file_name}"
         done

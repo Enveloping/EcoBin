@@ -91,6 +91,148 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/admin-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List platform administrators as the protected default administrator */
+        get: operations["listPlatformAdministrators"];
+        put?: never;
+        /** Create an ordinary platform administrator */
+        post: operations["createPlatformAdministrator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        /** Read one platform administrator */
+        get: operations["getPlatformAdministrator"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/activations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate an ordinary platform administrator and revoke stale sessions */
+        post: operations["activatePlatformAdministrator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/deactivations": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate an ordinary platform administrator and revoke all sessions */
+        post: operations["deactivatePlatformAdministrator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/password-resets": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset an ordinary platform administrator password and revoke all sessions */
+        post: operations["resetPlatformAdministratorPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/deletions": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Permanently logically delete an ordinary platform administrator */
+        post: operations["deletePlatformAdministrator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/admin-accounts/current/password-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change the current platform administrator password */
+        post: operations["changeCurrentPlatformAdministratorPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/tenants": {
         parameters: {
             query?: never;
@@ -1625,7 +1767,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Exchange one wx.login code for exactly one audience session */
+        /**
+         * Exchange one wx.login code for exactly one audience session
+         * @description A valid device entry explicitly selects its permanently assigned organization account. Without a device entry, an existing WeChat subject selects its most recently successfully signed-in available organization account; a still-valid client session is reused by the mini-program without calling this operation.
+         */
         post: operations["createMiniappSession"];
         delete?: never;
         options?: never;
@@ -1660,7 +1805,7 @@ export interface paths {
         };
         /**
          * List safe organization-account summaries for the current WeChat subject
-         * @description This identity-only directory may cross tenant boundaries, but never returns wallet, order or other tenant business data.
+         * @description This identity-only directory may cross tenant boundaries, but never returns wallet, order or other tenant business data. Available accounts are ordered by most recent successful sign-in, then by internal id for deterministic ties; the last-sign-in timestamp is not exposed.
          */
         get: operations["listCurrentMiniappOrganizationAccounts"];
         put?: never;
@@ -1680,7 +1825,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Select one organization account and issue a new single-organization session */
+        /**
+         * Select one organization account and issue a new single-organization session
+         * @description A newly committed session advances that account's server-side recent-sign-in projection. Replaying the same idempotency key returns the original session without advancing it again.
+         */
         post: operations["selectCurrentMiniappOrganizationAccount"];
         delete?: never;
         options?: never;
@@ -1697,7 +1845,7 @@ export interface paths {
         };
         /**
          * List safe organization-account summaries while using a management session
-         * @description The management session contributes only its verified WeChat subject identity. The response contains identity summaries and never tenant business data.
+         * @description The management session contributes only its verified WeChat subject identity. The response contains identity summaries and never tenant business data. Available accounts are ordered by most recent successful sign-in; the timestamp is not exposed.
          */
         get: operations["listCurrentMiniappStaffOrganizationAccounts"];
         put?: never;
@@ -5101,6 +5249,31 @@ export interface components {
         };
         /** @enum {string} */
         DirectoryStatus: "ENABLED" | "DISABLED";
+        /** @enum {string} */
+        PlatformAdminStatus: "ACTIVE" | "DISABLED" | "DELETED";
+        PlatformAdmin: {
+            platformAdminUid: components["schemas"]["PublicUid"];
+            /** @enum {string} */
+            adminKind: "DEFAULT" | "STANDARD";
+            loginName: string;
+            displayName: string;
+            status: components["schemas"]["PlatformAdminStatus"];
+            version: components["schemas"]["ExpectedVersion"];
+            authVersion: components["schemas"]["ExpectedVersion"];
+            createdAt: components["schemas"]["UtcTimestamp"];
+            updatedAt: components["schemas"]["UtcTimestamp"];
+            deletedAt: components["schemas"]["UtcTimestamp"] | null;
+        };
+        CreatePlatformAdminRequest: {
+            loginName: string;
+            initialPassword: string;
+            displayName: string;
+        };
+        DeletePlatformAdminRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            expectedAuthVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
         PrincipalAccountSummary: {
             staffAccountUid: components["schemas"]["PublicUid"];
             status: components["schemas"]["DirectoryStatus"];
@@ -5174,7 +5347,7 @@ export interface components {
             authVersion: components["schemas"]["ExpectedVersion"];
         };
         DirectoryPage: {
-            items: (components["schemas"]["IdentityTenant"] | components["schemas"]["IdentityOrganization"] | components["schemas"]["StaffAccount"] | components["schemas"]["OrganizationMembership"] | components["schemas"]["OrganizationUser"])[];
+            items: (components["schemas"]["IdentityTenant"] | components["schemas"]["IdentityOrganization"] | components["schemas"]["StaffAccount"] | components["schemas"]["OrganizationMembership"] | components["schemas"]["OrganizationUser"] | components["schemas"]["PlatformAdmin"])[];
             page: number;
             pageSize: number;
             total: number;
@@ -5276,7 +5449,7 @@ export interface components {
         DirectoryEnvelope: {
             /** @constant */
             code: "OK";
-            data: components["schemas"]["IdentityTenant"] | components["schemas"]["IdentityOrganization"] | components["schemas"]["StaffAccount"] | components["schemas"]["OrganizationMembership"] | components["schemas"]["EffectiveAccess"] | components["schemas"]["ProvisionedOrganizationStaff"] | components["schemas"]["OrganizationUserLookup"] | components["schemas"]["OrganizationUser"] | components["schemas"]["StaffMiniappBindingLookup"] | components["schemas"]["StaffMiniappBinding"] | components["schemas"]["DirectoryPage"] | components["schemas"]["PermissionDefinition"][];
+            data: components["schemas"]["IdentityTenant"] | components["schemas"]["IdentityOrganization"] | components["schemas"]["StaffAccount"] | components["schemas"]["OrganizationMembership"] | components["schemas"]["EffectiveAccess"] | components["schemas"]["ProvisionedOrganizationStaff"] | components["schemas"]["OrganizationUserLookup"] | components["schemas"]["OrganizationUser"] | components["schemas"]["StaffMiniappBindingLookup"] | components["schemas"]["StaffMiniappBinding"] | components["schemas"]["PlatformAdmin"] | components["schemas"]["DirectoryPage"] | components["schemas"]["PermissionDefinition"][];
             requestId: string;
         };
         CreateTenantRequest: {
@@ -8539,10 +8712,12 @@ export interface components {
         TenantCode: components["schemas"]["TenantCode"];
         OrganizationCode: components["schemas"]["OrganizationCode"];
         StaffAccountUid: components["schemas"]["PublicUid"];
+        PlatformAdminUid: components["schemas"]["PublicUid"];
         BindingUid: components["schemas"]["PublicUid"];
         OrganizationUserUid: components["schemas"]["PublicUid"];
         DeliveryOrderNo: components["schemas"]["DeliveryOrderNo"];
         DirectoryStatusFilter: components["schemas"]["DirectoryStatus"];
+        PlatformAdminStatusFilter: components["schemas"]["PlatformAdminStatus"];
         DirectoryQuery: string;
         Page: number;
         PageSize: number;
@@ -8709,6 +8884,192 @@ export interface operations {
             204: components["responses"]["NoContent"];
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["CsrfProblem"];
+        };
+    };
+    listPlatformAdministrators: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                status?: components["parameters"]["PlatformAdminStatusFilter"];
+                query?: components["parameters"]["DirectoryQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createPlatformAdministrator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePlatformAdminRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["DirectoryCreated"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getPlatformAdministrator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    activatePlatformAdministrator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    deactivatePlatformAdministrator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountVersionCommand"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    resetPlatformAdministratorPassword: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    deletePlatformAdministrator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                platformAdminUid: components["parameters"]["PlatformAdminUid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeletePlatformAdminRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    changeCurrentPlatformAdministratorPassword: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeOwnPasswordRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["DirectoryOk"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     listIdentityTenants: {

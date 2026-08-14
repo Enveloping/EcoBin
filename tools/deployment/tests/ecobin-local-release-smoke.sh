@@ -123,7 +123,7 @@ EOF
 cat > "${runtime_env}" <<'EOF'
 dbUrl=jdbc:mysql://ecobin-target-mysql84:3306/ecobin?useUnicode=true&characterEncoding=utf-8&serverTimezone=UTC
 dbUsername=ecobin_app
-defaultPlatformAdminEnabled=false
+defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 onenetSubscriptionEnabled=false

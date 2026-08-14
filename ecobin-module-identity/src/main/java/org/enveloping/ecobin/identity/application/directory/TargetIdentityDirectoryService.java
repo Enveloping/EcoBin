@@ -2265,12 +2265,13 @@ public class TargetIdentityDirectoryService {
         boolean valid;
         if (actor.platform()) {
             valid = jdbc.query("""
-                            SELECT enabled, auth_version
+                            SELECT enabled, auth_version, deleted_at
                             FROM iam_platform_admin
                             WHERE id = ?
                             FOR UPDATE
                             """,
                     (rs, ignored) -> rs.getBoolean("enabled")
+                            && rs.getObject("deleted_at") == null
                             && rs.getLong("auth_version")
                             == actor.authVersion(),
                     actor.principalId()).stream()

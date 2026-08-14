@@ -105,14 +105,12 @@ ecobin:
     default-clean-rule:
       operation-timeout-seconds: 1800
 
-  # 仅供默认 FAKE 开发运行：空表时创建一个已知平台管理员。
-  # REAL/production 必须显式关闭，否则启动失败，不会写入弱默认账号。
-  development:
+  identity:
+    # 只在明确启用的运行 profile 中执行。密码来自仓库外秘密；已有账号时
+    # 不读取密码、不创建账号，也绝不重置现有密码。
     default-platform-admin:
-      enabled: ${defaultPlatformAdminEnabled:true}
-      login-name: ${defaultPlatformAdminLogin:admin}
-      password: ${defaultPlatformAdminPassword:admin123}
-      display-name: ${defaultPlatformAdminDisplayName:开发平台管理员}
+      enabled: ${defaultPlatformAdminEnabled:false}
+      password: ${defaultPlatformAdminPassword:}
 
   operations:
     reliable:

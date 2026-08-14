@@ -11,20 +11,21 @@
 5. [V43 平台防伪袋码与标签打印](architecture/authenticated-bag-labels-v43.md)：平台按批签发 EB1 标签，不预建库存；厂家登记和清运换袋时由后端验真。
 6. [V46 设备运行快照全局策略](architecture/runtime-snapshot-reporting-v46.md)：状态变化最多每 5 秒合并，空闲默认每 60 分钟兜底，平台全局配置且不清理历史事实。
 7. [V49 最近登录机构账号选择](architecture/recent-miniapp-organization-account-v49.md)：多机构用户需要新会话时进入最近成功登录的可用账号，设备扫码仍优先。
-8. [应用修改后重新部署操作手册](deployment/application-redeployment-runbook.md)：代码提交后本地构建 JAR/dist、上传服务器、制作运行镜像、预检、激活、验证和回退的日常入口。
-9. [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)：覆盖旧主动检测方案；只有当前袋明确 `FULL` 阻止下一次投递。
-10. [设备接入、配置恢复、投递与清运一致性审查](architecture/device-delivery-clean-generation-consistency-review-2026-08-10.md)：说明厂家袋、当前袋、容量和重量基准之间的不变量，以及配置失败后的新版本恢复边界，并跟踪本轮逐项修复证据。
-11. [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：真实 OneNet/COS、模拟 MCU/双摄的历史联调复盘；自 V38 起模拟来源不再阻止平台机器验收，真实物理质量仍由厂家质检和 H-03 验证。
-12. [产品需求基线](planning/requirements-baseline.md)：当前目标需求；与旧实现冲突时用于判断后续应实现什么。
-13. [一周 P0 范围基线](planning/p0-scope-baseline.md)：近期受控真实闭环的承诺范围和验收边界。
-14. [P0 业务模型基线](planning/business-model-baseline.md)：已冻结的业务主体、事实、状态机和不变量；设备章节由 V36 专题覆盖。
-15. [P0 系统架构设计基线](planning/system-architecture-draft.md)：已冻结的系统边界、九模块布局、一致性、安全、运行与验证方案。
-16. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
-17. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
-18. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
-19. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
-20. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
-21. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V49，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
+8. [V50 平台管理员引导与治理](architecture/platform-administrator-governance-v50.md)：空管理员表创建受保护的默认账号；只有默认管理员能治理其他平台管理员，普通管理员只能自行改密。
+9. [应用修改后重新部署操作手册](deployment/application-redeployment-runbook.md)：代码提交后本地构建 JAR/dist、上传服务器、制作运行镜像、预检、激活、验证和回退的日常入口。
+10. [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)：覆盖旧主动检测方案；只有当前袋明确 `FULL` 阻止下一次投递。
+11. [设备接入、配置恢复、投递与清运一致性审查](architecture/device-delivery-clean-generation-consistency-review-2026-08-10.md)：说明厂家袋、当前袋、容量和重量基准之间的不变量，以及配置失败后的新版本恢复边界，并跟踪本轮逐项修复证据。
+12. [投递全链路联调复盘与复跑手册](operations/delivery-e2e-integration-retrospective-2026-08-02.md)：真实 OneNet/COS、模拟 MCU/双摄的历史联调复盘；自 V38 起模拟来源不再阻止平台机器验收，真实物理质量仍由厂家质检和 H-03 验证。
+13. [产品需求基线](planning/requirements-baseline.md)：当前目标需求；与旧实现冲突时用于判断后续应实现什么。
+14. [一周 P0 范围基线](planning/p0-scope-baseline.md)：近期受控真实闭环的承诺范围和验收边界。
+15. [P0 业务模型基线](planning/business-model-baseline.md)：已冻结的业务主体、事实、状态机和不变量；设备章节由 V36 专题覆盖。
+16. [P0 系统架构设计基线](planning/system-architecture-draft.md)：已冻结的系统边界、九模块布局、一致性、安全、运行与验证方案。
+17. [P0 目标数据库设计基线](planning/database-design-draft.md)：已确认的目标表族、约束、事务、并发和迁移方案。
+18. [P0 目标接口设计基线](planning/interface-design-draft.md)：已冻结的 Web、小程序、OneNet、微信、UART、模块公开端口和机器契约。
+19. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
+20. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
+21. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
+22. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V50，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 
@@ -37,6 +38,7 @@
 - [V43 平台防伪袋码与标签打印](architecture/authenticated-bag-labels-v43.md)
 - [V46 设备运行快照全局策略](architecture/runtime-snapshot-reporting-v46.md)
 - [V49 最近登录机构账号选择](architecture/recent-miniapp-organization-account-v49.md)
+- [V50 平台管理员引导与治理](architecture/platform-administrator-governance-v50.md)
 - [设备接入、配置恢复、投递与清运一致性审查](architecture/device-delivery-clean-generation-consistency-review-2026-08-10.md)
 - [F-01 九模块骨架与过渡退出清单](architecture/f-01-module-transition-inventory.md)
 - [F-02 identity 边界与可信上下文实施证据](architecture/f-02-identity-boundary-evidence.md)

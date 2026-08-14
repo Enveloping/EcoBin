@@ -7,6 +7,7 @@ import {
 } from '@ant-design/pro-components';
 import { App, Card } from 'antd';
 import { changeOwnPassword } from '@/api/identityDirectory';
+import { changeCurrentPlatformAdministratorPassword } from '@/api/platformAdminAccounts';
 import { useAuthStore } from '@/stores/authStore';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { pageHeader } from '@/utils/pageStyle';
@@ -38,9 +39,11 @@ export default function AccountSettingsPage() {
         expectedVersion: session.version,
         expectedAuthVersion: session.authVersion,
       };
-      await executeCommand(
+      await executeCommand<unknown>(
         commandKey('change-own-password', session.subjectUid, payload),
-        (intent) => changeOwnPassword(payload, intent),
+        (intent) => session.accountType === 'PLATFORM_ADMIN'
+          ? changeCurrentPlatformAdministratorPassword(payload, intent)
+          : changeOwnPassword(payload, intent),
       );
       message.success('密码已修改，请重新登录');
       clear();

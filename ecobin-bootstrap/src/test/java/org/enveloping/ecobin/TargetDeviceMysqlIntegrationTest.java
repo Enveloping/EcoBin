@@ -75,7 +75,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "ecobin.device.activation.scheduler-enabled=false",
         "ecobin.device.delivery-observation-reconciliation.scheduler-enabled=false",
         "ecobin.miniapp.device-entry-base-url=https://example.test/ecobin/device",
-        "ecobin.development.default-platform-admin.enabled=false",
+        "ecobin.identity.default-platform-admin.enabled=false",
         "ecobin.funds.wechat-pay.merchant-profile-registration-enabled=false",
         "onenet.subscription.enabled=false",
         "bagCodeKeyK1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",

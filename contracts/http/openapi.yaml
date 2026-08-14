@@ -284,6 +284,159 @@
         }
       }
     },
+    "/api/v1/web/platform/admin-accounts": {
+      "get": {
+        "operationId": "listPlatformAdministrators",
+        "tags": ["Identity directory"],
+        "summary": "List platform administrators as the protected default administrator",
+        "security": [{"webSessionCookie": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PageSize"},
+          {"$ref": "#/components/parameters/PlatformAdminStatusFilter"},
+          {"$ref": "#/components/parameters/DirectoryQuery"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"}
+        }
+      },
+      "post": {
+        "operationId": "createPlatformAdministrator",
+        "tags": ["Identity directory"],
+        "summary": "Create an ordinary platform administrator",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreatePlatformAdminRequest"}}}
+        },
+        "responses": {
+          "201": {"$ref": "#/components/responses/DirectoryCreated"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}": {
+      "parameters": [{"$ref": "#/components/parameters/PlatformAdminUid"}],
+      "get": {
+        "operationId": "getPlatformAdministrator",
+        "tags": ["Identity directory"],
+        "summary": "Read one platform administrator",
+        "security": [{"webSessionCookie": []}],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/activations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/PlatformAdminUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "activatePlatformAdministrator",
+        "tags": ["Identity directory"],
+        "summary": "Activate an ordinary platform administrator and revoke stale sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}},
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/deactivations": {
+      "parameters": [
+        {"$ref": "#/components/parameters/PlatformAdminUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deactivatePlatformAdministrator",
+        "tags": ["Identity directory"],
+        "summary": "Deactivate an ordinary platform administrator and revoke all sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AccountVersionCommand"}}}},
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/password-resets": {
+      "parameters": [
+        {"$ref": "#/components/parameters/PlatformAdminUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "resetPlatformAdministratorPassword",
+        "tags": ["Identity directory"],
+        "summary": "Reset an ordinary platform administrator password and revoke all sessions",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResetPasswordRequest"}}}},
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/admin-accounts/{platformAdminUid}/deletions": {
+      "parameters": [
+        {"$ref": "#/components/parameters/PlatformAdminUid"},
+        {"$ref": "#/components/parameters/IdempotencyKey"}
+      ],
+      "post": {
+        "operationId": "deletePlatformAdministrator",
+        "tags": ["Identity directory"],
+        "summary": "Permanently logically delete an ordinary platform administrator",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeletePlatformAdminRequest"}}}},
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
+    "/api/v1/web/platform/admin-accounts/current/password-changes": {
+      "post": {
+        "operationId": "changeCurrentPlatformAdministratorPassword",
+        "tags": ["Identity directory"],
+        "summary": "Change the current platform administrator password",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ChangeOwnPasswordRequest"}}}},
+        "responses": {
+          "200": {"$ref": "#/components/responses/DirectoryOk"},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
     "/api/v1/web/platform/tenants": {
       "get": {
         "operationId": "listIdentityTenants",
@@ -5483,6 +5636,14 @@
           "$ref": "#/components/schemas/PublicUid"
         }
       },
+      "PlatformAdminUid": {
+        "name": "platformAdminUid",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/PublicUid"
+        }
+      },
       "BindingUid": {
         "name": "bindingUid",
         "in": "path",
@@ -5513,6 +5674,14 @@
         "required": false,
         "schema": {
           "$ref": "#/components/schemas/DirectoryStatus"
+        }
+      },
+      "PlatformAdminStatusFilter": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/PlatformAdminStatus"
         }
       },
       "DirectoryQuery": {
@@ -7463,6 +7632,73 @@
           "DISABLED"
         ]
       },
+      "PlatformAdminStatus": {
+        "type": "string",
+        "enum": ["ACTIVE", "DISABLED", "DELETED"]
+      },
+      "PlatformAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "platformAdminUid",
+          "adminKind",
+          "loginName",
+          "displayName",
+          "status",
+          "version",
+          "authVersion",
+          "createdAt",
+          "updatedAt",
+          "deletedAt"
+        ],
+        "properties": {
+          "platformAdminUid": {"$ref": "#/components/schemas/PublicUid"},
+          "adminKind": {"type": "string", "enum": ["DEFAULT", "STANDARD"]},
+          "loginName": {"type": "string", "minLength": 1, "maxLength": 64},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "status": {"$ref": "#/components/schemas/PlatformAdminStatus"},
+          "version": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "authVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "createdAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "updatedAt": {"$ref": "#/components/schemas/UtcTimestamp"},
+          "deletedAt": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/UtcTimestamp"},
+              {"type": "null"}
+            ]
+          }
+        }
+      },
+      "CreatePlatformAdminRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["loginName", "initialPassword", "displayName"],
+        "properties": {
+          "loginName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "initialPassword": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100}
+        }
+      },
+      "DeletePlatformAdminRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion", "expectedAuthVersion", "reason"],
+        "properties": {
+          "expectedVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "expectedAuthVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
       "PrincipalAccountSummary": {
         "type": "object",
         "additionalProperties": false,
@@ -7821,6 +8057,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/OrganizationUser"
+                },
+                {
+                  "$ref": "#/components/schemas/PlatformAdmin"
                 }
               ]
             }
@@ -8184,6 +8423,9 @@
               },
               {
                 "$ref": "#/components/schemas/StaffMiniappBinding"
+              },
+              {
+                "$ref": "#/components/schemas/PlatformAdmin"
               },
               {
                 "$ref": "#/components/schemas/DirectoryPage"

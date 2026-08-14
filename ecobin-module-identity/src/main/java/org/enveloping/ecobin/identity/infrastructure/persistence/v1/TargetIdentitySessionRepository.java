@@ -36,11 +36,13 @@ public class TargetIdentitySessionRepository {
 
     public Optional<PlatformLoginPrincipal> findPlatformLogin(String loginName) {
         return jdbc.query("""
-                        SELECT id, platform_admin_uid, login_name, password_hash,
-                               display_name, enabled, failed_login_count,
-                               locked_until, auth_version, lock_version
+                        SELECT id, platform_admin_uid, admin_kind, login_name,
+                               password_hash, display_name, enabled,
+                               failed_login_count, locked_until, auth_version,
+                               lock_version, deleted_at
                         FROM iam_platform_admin
                         WHERE login_name = ?
+                          AND deleted_at IS NULL
                         FOR UPDATE
                         """,
                 (rs, row) -> platformLogin(rs),
@@ -189,7 +191,21 @@ public class TargetIdentitySessionRepository {
                         WHERE tenant_id = ?
                           AND staff_account_id = ?
                           AND revoked_at IS NULL
-                        """, reason, tenantId, staffAccountId);
+                """, reason, tenantId, staffAccountId);
+    }
+
+    public void revokeAllPlatformSessions(
+            long platformAdminId,
+            String reason) {
+        jdbc.update("""
+                        UPDATE iam_platform_login_session
+                        SET revoked_at = UTC_TIMESTAMP(3),
+                            revocation_reason = ?
+                        WHERE platform_admin_id = ?
+                          AND revoked_at IS NULL
+                        """,
+                reason,
+                platformAdminId);
     }
 
     public void revokeAllTenantSessions(long tenantId, String reason) {
@@ -310,8 +326,8 @@ public class TargetIdentitySessionRepository {
                         SELECT s.session_uid, s.issued_at, s.expires_at,
                                s.revoked_at, s.auth_version_snapshot,
                                a.id AS principal_id, a.platform_admin_uid,
-                               a.display_name, a.enabled, a.auth_version,
-                               a.lock_version
+                               a.admin_kind, a.display_name, a.enabled,
+                               a.auth_version, a.lock_version, a.deleted_at
                         FROM iam_platform_login_session s
                         JOIN iam_platform_admin a
                           ON a.id = s.platform_admin_id
@@ -325,10 +341,12 @@ public class TargetIdentitySessionRepository {
                         rs.getLong("auth_version_snapshot"),
                         rs.getLong("principal_id"),
                         UUID.fromString(rs.getString("platform_admin_uid")),
+                        rs.getString("admin_kind"),
                         rs.getString("display_name"),
                         rs.getBoolean("enabled"),
                         rs.getLong("auth_version"),
-                        rs.getLong("lock_version")),
+                        rs.getLong("lock_version"),
+                        nullableInstant(rs, "deleted_at")),
                 claims.sessionUid().toString()).stream().findFirst()
                 .orElseThrow(() -> rejected("platform session does not exist"));
         require(row.principalUid().equals(claims.principalUid()),
@@ -337,9 +355,13 @@ public class TargetIdentitySessionRepository {
                 row.issuedAt(), row.expiresAt(), row.revokedAt(),
                 row.authVersionSnapshot(), row.authVersion(), claims);
         require(row.enabled(), "platform account is disabled");
+        require(row.deletedAt() == null, "platform account is deleted");
         Set<String> capabilities = new LinkedHashSet<>(allPermissionCodes());
         capabilities.add("platform-admin.read");
         capabilities.add("platform-admin.manage");
+        if ("DEFAULT".equals(row.adminKind())) {
+            capabilities.add("platform-account.manage");
+        }
         return new TargetWebActor(
                 WebAccountType.PLATFORM_ADMIN,
                 TrustedAudience.WEB_PLATFORM,
@@ -556,6 +578,7 @@ public class TargetIdentitySessionRepository {
         return new PlatformLoginPrincipal(
                 rs.getLong("id"),
                 UUID.fromString(rs.getString("platform_admin_uid")),
+                rs.getString("admin_kind"),
                 rs.getString("login_name"),
                 rs.getString("password_hash"),
                 rs.getString("display_name"),
@@ -563,7 +586,8 @@ public class TargetIdentitySessionRepository {
                 rs.getInt("failed_login_count"),
                 nullableInstant(rs, "locked_until"),
                 rs.getLong("auth_version"),
-                rs.getLong("lock_version"));
+                rs.getLong("lock_version"),
+                nullableInstant(rs, "deleted_at"));
     }
 
     private static StaffLoginPrincipal staffLogin(ResultSet rs)
@@ -640,6 +664,7 @@ public class TargetIdentitySessionRepository {
     public record PlatformLoginPrincipal(
             long id,
             UUID principalUid,
+            String adminKind,
             String loginName,
             String passwordHash,
             String displayName,
@@ -647,7 +672,8 @@ public class TargetIdentitySessionRepository {
             int failedLoginCount,
             Instant lockedUntil,
             long authVersion,
-            long version) {
+            long version,
+            Instant deletedAt) {
     }
 
     public record StaffLoginPrincipal(
@@ -676,10 +702,12 @@ public class TargetIdentitySessionRepository {
             long authVersionSnapshot,
             long principalId,
             UUID principalUid,
+            String adminKind,
             String displayName,
             boolean enabled,
             long authVersion,
-            long version) {
+            long version,
+            Instant deletedAt) {
     }
 
     private record StaffSessionRow(

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 21
+    CatalogVersion = 22
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -23,6 +23,7 @@
             "locked_until"
             "auth_version"
             "password_changed_at"
+            "deleted_at"
             "lock_version"
             "updated_at"
         )

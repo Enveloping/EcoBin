@@ -152,6 +152,37 @@ test('route capability composition and caller-owned command intents are fixed', 
   assert.match(directorySource, /listOrganizationUsers/);
 });
 
+test('platform administrator governance stays root-only while self-service stays universal', () => {
+  const routeSource = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+  const apiSource = readFileSync(
+    new URL('src/api/platformAdminAccounts.ts', webRoot),
+    'utf8',
+  );
+  const pageSource = readFileSync(
+    new URL('src/pages/platform-admins/index.tsx', webRoot),
+    'utf8',
+  );
+  const accountSource = readFileSync(
+    new URL('src/pages/account/index.tsx', webRoot),
+    'utf8',
+  );
+
+  assert.match(
+    routeSource,
+    /path: '\/platform-admins'[\s\S]*?allOf: \['platform-account\.manage'\]/,
+  );
+  assert.match(routeSource, /ALL_WEB_ACCOUNTS/);
+  assert.match(apiSource, /intent\.execute/);
+  assert.doesNotMatch(apiSource, /randomUUID|Math\.random/);
+  assert.match(pageSource, /administrator\.adminKind === 'DEFAULT'/);
+  assert.match(pageSource, /永久逻辑删除/);
+  assert.match(accountSource, /session\.accountType === 'PLATFORM_ADMIN'/);
+  assert.match(accountSource, /changeCurrentPlatformAdministratorPassword/);
+});
+
 test('delivery Web slice stays on generated contracts and additive commands', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),

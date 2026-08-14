@@ -251,18 +251,16 @@ Git 忽略的本地 YAML，不会被复制到共享 IDEA 配置或运行脚本�
 
 ### 默认账号
 
-目标迁移本身不写入任何账号或环境业务数据。为了本地联调，默认
-`externalMode=fake` 启动时，如果 `iam_platform_admin` 为空，应用会幂等创建：
+目标迁移本身不写入账号。启用 `defaultPlatformAdminEnabled=true` 后，应用只在
+`iam_platform_admin` 完全为空时幂等创建受保护的默认平台管理员，规范化登录名为
+`enveloping`；初始密码必须通过 Git 之外的 `defaultPlatformAdminPassword` 提供。
+已有管理员时绝不追加账号或重置密码；V50 会把升级前唯一且登录名匹配的现有账号标记为
+默认管理员，并保留其 UID、密码摘要和版本。
 
-```text
-账号：admin
-密码：admin123
-登录类型：平台管理员
-```
-
-已有任意平台管理员时不会追加默认账号，也不会重置现有密码。可通过
-`defaultPlatformAdminEnabled=false` 关闭；`externalMode=real` 或
-`prod/production` profile 必须关闭，否则应用拒绝启动且不会写入默认账号。
+默认管理员可以创建、停用、启用、永久逻辑删除普通平台管理员，也可以重置普通管理员
+密码；普通管理员只能修改自己的密码。默认管理员本身不能被停用、删除或由他人重置。
+生产通过 `/etc/ecobin/secrets/default-platform-admin-password` 挂载密码，禁止把它写入
+`runtime.env` 或版本库。
 租户、机构、工作人员、设备、袋、钱包和业务配置仍不自动创建；完整试点 seed
 属于 F-12。
 

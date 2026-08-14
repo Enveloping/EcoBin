@@ -1,6 +1,6 @@
 # Web 管理端能力地图
 
-> 状态日期：2026-08-09
+> 状态日期：2026-08-14
 > 适用目录：`frontend/web/`
 > 机器契约：`contracts/http/openapi.yaml`
 
@@ -23,6 +23,7 @@ Web 管理端只调用同源 `/api/v1/**`，使用 `Secure + HttpOnly` Cookie �
 
 | 路由 | 账号范围 | 页面读取能力 | 页面内写能力 | 状态 |
 |---|---|---|---|---|
+| `/platform-admins` | 默认平台管理员 | `platform-account.manage` | 创建、停用/启用、重置密码、永久逻辑删除普通平台管理员 | 已接入；默认管理员受保护，删除要求登录名与原因二次确认 |
 | `/tenant` | 平台管理员 | `tenant.read` | `tenant.manage` | 已接入；含全部/已禁用预设、主体账号与状态编辑 |
 | `/my-tenant` | 租户主体、工作人员 | `tenant.read` | `tenant.manage` | 已接入 |
 | `/organizations` | Web 账号 | `organization.read` | `organization.manage`、`miniapp.manage`、`delivery.configuration.manage` | 已接入；名称可深链机构用户，编辑内含小程序登录与投递规则配置 |
@@ -33,7 +34,7 @@ Web 管理端只调用同源 `/api/v1/**`，使用 `Secure + HttpOnly` Cookie �
 | `/devices` | Web 账号 | `device.read` | `device.configuration.manage`、`device.assignment.manage`；平台固定用例另管理资产、租户永久分配、自动验收复核、配置版本恢复、禁用/恢复和报废 | 已接入；永久资产、一次性归属、运行事实、配置应用、平台修复版本/重同步和自动机器验收证据 |
 | `/clean-operations` | Web 账号 | `clean.read` | - | 已接入；清运操作状态、边缘保存/可能解锁等安全事实、袋码和关联记录 |
 | `/clean-records` | Web 账号 | `clean.read` | `clean.edit` | 已接入；完成记录、设备原始/复算重量、照片、异常、当前有效值和只追加修正历史 |
-| `/account` | 租户主体、工作人员 | 当前会话 | 本人资料与密码命令 | 已接入 |
+| `/account` | 平台管理员、租户主体、工作人员 | 当前会话 | 本人密码命令 | 已接入；改密后撤销会话并重新登录 |
 
 旧 `/access` 只重定向到 `/staff`，不再保留独立“任职与授权”页面。租户、机构、机构用户
 和设备表格使用 URL 中的 `tenant`、`organization`、`organizationUserUid` 传递非敏感
@@ -63,6 +64,11 @@ AppID、展示名称和 AppSecret，后续轮换密钥、激活 AppID，以及�
 
 菜单隐藏与直接地址访问使用同一判断；页面内写按钮继续按更细的真实能力控制。前端控制
 只改善交互，不替代服务端授权。
+
+V50 平台管理员治理不复用租户成员关系。只有数据库中类别为 `DEFAULT` 且当前会话含
+`platform-account.manage` 的账号能看到和调用 `/platform-admins`；普通平台管理员即使
+直接访问地址或构造请求也会被后端拒绝，但仍可在 `/account` 校验当前密码后自行改密。
+被永久逻辑删除的管理员不能恢复、登录或复用原登录名。
 
 ## 3. 业务能力进度
 

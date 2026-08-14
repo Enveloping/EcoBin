@@ -6,6 +6,7 @@ import {
   DollarOutlined,
   IdcardOutlined,
   QrcodeOutlined,
+  SafetyCertificateOutlined,
   ShoppingCartOutlined,
   SettingOutlined,
   SlidersOutlined,
@@ -20,6 +21,9 @@ import { hasRouteAccess } from './access';
 import { directoryPath } from './directoryQuery';
 
 const TenantPage = lazy(() => import('@/pages/tenant'));
+const PlatformAdministratorsPage = lazy(
+  () => import('@/pages/platform-admins'),
+);
 const MyTenantPage = lazy(() => import('@/pages/tenant/MyTenant'));
 const OrganizationPage = lazy(() => import('@/pages/organization'));
 const OrganizationUserPage = lazy(() => import('@/pages/organization-user'));
@@ -69,6 +73,7 @@ export interface AppMenuRoute {
 
 const PLATFORM: WebAccountType[] = ['PLATFORM_ADMIN'];
 const TENANT_WEB: WebAccountType[] = ['TENANT_PRINCIPAL', 'STAFF'];
+const ALL_WEB_ACCOUNTS: WebAccountType[] = [...PLATFORM, ...TENANT_WEB];
 
 function LegacyUserBindingsRedirect() {
   const location = useLocation();
@@ -90,6 +95,14 @@ function LegacyUserBindingsRedirect() {
  * contracts; hidden legacy Bearer pages have been removed from the tree.
  */
 export const appRoutes: AppRoute[] = [
+  {
+    path: '/platform-admins',
+    name: '平台管理员',
+    icon: <SafetyCertificateOutlined />,
+    element: <PlatformAdministratorsPage />,
+    allOf: ['platform-account.manage'],
+    accountTypes: PLATFORM,
+  },
   {
     path: '/tenant',
     name: '租户管理',
@@ -205,7 +218,7 @@ export const appRoutes: AppRoute[] = [
     name: '账号设置',
     icon: <SettingOutlined />,
     element: <AccountSettingsPage />,
-    accountTypes: TENANT_WEB,
+    accountTypes: ALL_WEB_ACCOUNTS,
   },
 ];
 
@@ -243,6 +256,8 @@ export function menuRoutesFor(
   session: LoginResponse | null,
 ): AppMenuRoute[] {
   const menu: AppMenuRoute[] = [];
+  const platformAdministrators = visibleRoute(session, '/platform-admins');
+  if (platformAdministrators) menu.push(leaf(platformAdministrators));
   const tenant = visibleRoute(session, '/tenant');
   if (tenant) {
     menu.push({
