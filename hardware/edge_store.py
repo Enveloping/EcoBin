@@ -1932,8 +1932,8 @@ class EdgeStore:
             raise RuntimeError("stored device entry URL is corrupt") from error
         return record
 
-    def save_fixed_frame_self_test(self, result: dict) -> None:
-        """Atomically retain one F0/F1 result and its current safety projection."""
+    def save_fixed_frame_self_test(self, result: dict) -> bool:
+        """Retain F0/F1 and report whether its smoke projection changed."""
         if not isinstance(result, dict):
             raise ValueError("fixed-frame self-test result must be an object")
         smoke_state = result.get("smokeState")
@@ -1962,8 +1962,7 @@ class EdgeStore:
         )
         with self.transaction():
             now = self._now()
-            values = {
-                "fixed_frame_latest_self_test_json": serialized,
+            smoke_values = {
                 "smoke_state": smoke_state,
                 "smoke_sensor_health": smoke_health,
                 "smoke_fault_code": fault_code or "NONE",
@@ -1971,8 +1970,26 @@ class EdgeStore:
                 "port_1_smoke_sensor_health": smoke_health,
                 "port_1_smoke_fault_code": fault_code or "NONE",
             }
+            placeholders = ",".join("?" for _ in smoke_values)
+            rows = self._conn.execute(
+                f"""SELECT state_key, state_value FROM device_state
+                     WHERE state_key IN ({placeholders})""",
+                tuple(smoke_values),
+            ).fetchall()
+            previous = {
+                row["state_key"]: row["state_value"] for row in rows
+            }
+            projection_changed = any(
+                previous.get(key) != value
+                for key, value in smoke_values.items()
+            )
+            values = {
+                "fixed_frame_latest_self_test_json": serialized,
+                **smoke_values,
+            }
             for key, value in values.items():
                 self._upsert_state(self._conn, key, value, now)
+            return projection_changed
 
     def get_or_create_edge_store_instance_uid(self) -> str:
         """Return the permanent identity of this freshly-created edge DB."""

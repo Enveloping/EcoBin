@@ -27,6 +27,8 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
                           — 可选 HIL 能力位覆盖；未设置时使用 Registry 基线 0x300
     ECOBIN_DOOR_STATE_TIMEOUT— 等待 MCU 开关盖状态秒数（默认: 5）
     ECOBIN_DELIVERY_WEIGHT_TIMEOUT— 等待投递重量秒数（默认: 120）
+    ECOBIN_DEVICE_ENTRY_URL_REFRESH_SECONDS
+                          — 固定帧 MCU 二维码 URL 重发周期秒数（默认: 60）
     ECOBIN_DEVICE_CONFIG_PATH— 设备持久化配置路径
     ECOBIN_DATA_DIR       — 持久数据目录（默认: data/）
     ECOBIN_EDGE_STORE_PATH— SQLite 数据库路径（默认: data/edge.db）
@@ -50,8 +52,9 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
                           — 照片失败后永久缺失期限小时数（默认: 72）
 """
 
-import os
 import logging
+import math
+import os
 from simulated_camera import is_simulated_camera_source
 
 try:
@@ -142,6 +145,10 @@ UART_HIL_REQUIRED_CAPABILITIES = (
 )
 DOOR_STATE_TIMEOUT = float(os.getenv("ECOBIN_DOOR_STATE_TIMEOUT", "5"))
 DELIVERY_WEIGHT_TIMEOUT = float(os.getenv("ECOBIN_DELIVERY_WEIGHT_TIMEOUT", "120"))
+DEVICE_ENTRY_URL_REFRESH_SECONDS = float(os.getenv(
+    "ECOBIN_DEVICE_ENTRY_URL_REFRESH_SECONDS",
+    "60",
+))
 _device_config_path = os.getenv("ECOBIN_DEVICE_CONFIG_PATH", "data/device-config.json")
 DEVICE_CONFIG_PATH = (
     _device_config_path
@@ -219,6 +226,13 @@ def validate():
     }:
         raise ValueError(
             "ECOBIN_MCU_SIMULATED must be true or false"
+        )
+    if (
+        not math.isfinite(DEVICE_ENTRY_URL_REFRESH_SECONDS)
+        or DEVICE_ENTRY_URL_REFRESH_SECONDS <= 0
+    ):
+        raise ValueError(
+            "device entry URL refresh interval must be positive"
         )
     camera_sources = (
         CAMERA_OUTSIDE_SOURCE,

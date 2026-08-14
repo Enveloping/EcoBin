@@ -1012,6 +1012,40 @@ def test_fixed_frame_failed_startup_self_test_blocks_new_delivery(tmp_path):
     store.close()
 
 
+def test_fixed_frame_active_uart_fault_blocks_stale_healthy_snapshot(
+    tmp_path,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    assert store.observe_fault_and_create_event(
+        device_name="SN-DEMO-0001",
+        component="UART",
+        fault_code="UART_PROTOCOL",
+        severity="BLOCK_DEVICE",
+        detail={"reasonCode": "TIMEOUT"},
+    ) == "ACCEPTED"
+    uart = FakeCompatUart()
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(
+        "start-delivery-session.service-wire.json"
+    )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "SAFETY_SENSOR_UNHEALTHY"
+    assert store.get_work_slot() is None
+    assert uart.calls == []
+    store.close()
+
+
 def test_fixed_frame_missing_startup_self_test_blocks_new_delivery(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)

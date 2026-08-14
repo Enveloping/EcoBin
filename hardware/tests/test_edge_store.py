@@ -1070,6 +1070,45 @@ class TestFaultOperations:
         assert store.get_state("port_1_smoke_state") == "ALARM"
         store.close()
 
+    def test_fixed_frame_self_test_reports_smoke_projection_changes(self):
+        store = make_store()
+        timeout = {
+            "queryStatus": "TIMEOUT",
+            "communicationHealthy": False,
+            "portNo": 1,
+            "validFlags": 0,
+            "weightValid": False,
+            "weightGrams": None,
+            "weightMeasurementUid": None,
+            "infraredValid": False,
+            "infraredBlocked": None,
+            "smokeCode": None,
+            "smokeState": "UNKNOWN",
+            "smokeSensorHealth": "TIMEOUT",
+            "faultCode": "SMOKE_SENSOR",
+            "rawFrameHex": None,
+        }
+        normal = {
+            **timeout,
+            "queryStatus": "OK",
+            "communicationHealthy": True,
+            "validFlags": 3,
+            "weightValid": True,
+            "weightGrams": 12_000,
+            "infraredValid": True,
+            "infraredBlocked": False,
+            "smokeCode": 0,
+            "smokeState": "NORMAL",
+            "smokeSensorHealth": "OK",
+            "faultCode": None,
+        }
+
+        assert store.save_fixed_frame_self_test(timeout) is True
+        assert store.save_fixed_frame_self_test(timeout) is False
+        assert store.save_fixed_frame_self_test(normal) is True
+        assert store.save_fixed_frame_self_test(normal) is False
+        store.close()
+
 
 class TestIntegrity:
     """完整性校验与维护。"""

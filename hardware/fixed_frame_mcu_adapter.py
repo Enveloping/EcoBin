@@ -339,12 +339,16 @@ class FixedFrameMcuAdapter:
     def query_self_test(
         self,
         timeout_ms: int = SELF_TEST_TIMEOUT_MS,
-        on_result: Optional[Callable[[dict], None]] = None,
+        on_result: Optional[Callable[[dict], object]] = None,
+        *,
+        queue_unchanged_safety_event: bool = True,
     ) -> dict:
         """Request, optionally persist, then queue one fresh sensor snapshot.
 
         ``on_result`` runs while the serial lock is still held. This keeps a
         following CC frame from being persisted before an older F1 snapshot.
+        A recovery caller may suppress the safety event only when that callback
+        explicitly reports that the projected smoke state is unchanged.
         """
         if (
             not isinstance(timeout_ms, int)
@@ -354,6 +358,8 @@ class FixedFrameMcuAdapter:
             raise ValueError("self-test timeout must be a positive integer")
         if on_result is not None and not callable(on_result):
             raise ValueError("self-test result callback must be callable")
+        if not isinstance(queue_unchanged_safety_event, bool):
+            raise ValueError("safety event queue policy must be boolean")
         with self._io_lock:
             if not self.is_open:
                 return self._finish_self_test(
@@ -370,16 +376,19 @@ class FixedFrameMcuAdapter:
             except Exception as error:
                 logger.error("fixed-frame self-test query write failed: %s", error)
                 result = self._failed_self_test("UART_WRITE_FAILED")
-                self._pending_events.append(
-                    self._to_safety_event(
-                        None,
-                        health="PROTOCOL_ERROR",
+                changed = self._notify_self_test(result, on_result)
+                if queue_unchanged_safety_event or changed is not False:
+                    self._pending_events.append(
+                        self._to_safety_event(
+                            None,
+                            health="PROTOCOL_ERROR",
+                        )
                     )
-                )
-                return self._finish_self_test(result, on_result)
+                return result
 
             deadline = time.monotonic() + timeout_ms / 1000.0
             response: Optional[dict] = None
+            completed_result: Optional[dict] = None
             while time.monotonic() < deadline:
                 chunk = self._read_chunk(deadline)
                 if not chunk:
@@ -390,12 +399,23 @@ class FixedFrameMcuAdapter:
                     if item["frame_type"] == "SELF_TEST":
                         if response is None:
                             response = item
-                            self._pending_events.append(
-                                self._to_safety_event(
-                                    item["smoke_code"],
-                                    raw_frame_hex=item["raw_frame_hex"],
-                                )
+                            completed_result = self._successful_self_test(
+                                response
                             )
+                            changed = self._notify_self_test(
+                                completed_result,
+                                on_result,
+                            )
+                            if (
+                                queue_unchanged_safety_event
+                                or changed is not False
+                            ):
+                                self._pending_events.append(
+                                    self._to_safety_event(
+                                        item["smoke_code"],
+                                        raw_frame_hex=item["raw_frame_hex"],
+                                    )
+                                )
                         else:
                             logger.warning(
                                 "discarding duplicate fixed-frame self-test response"
@@ -404,10 +424,7 @@ class FixedFrameMcuAdapter:
                         self._pending_events.append(self._to_event(item))
                 self._queue_invalid_smoke_events(invalid_smoke_before)
                 if response is not None:
-                    return self._finish_self_test(
-                        self._successful_self_test(response),
-                        on_result,
-                    )
+                    return completed_result
 
             query_status = (
                 "PROTOCOL_ERROR"
@@ -420,21 +437,32 @@ class FixedFrameMcuAdapter:
                 if query_status == "PROTOCOL_ERROR"
                 else "TIMEOUT"
             )
-            self._pending_events.append(
-                self._to_safety_event(None, health=health)
-            )
-            return self._finish_self_test(
-                self._failed_self_test(query_status),
-                on_result,
-            )
+            result = self._failed_self_test(query_status)
+            changed = self._notify_self_test(result, on_result)
+            if queue_unchanged_safety_event or changed is not False:
+                self._pending_events.append(
+                    self._to_safety_event(None, health=health)
+                )
+            return result
+
+    @staticmethod
+    def _notify_self_test(
+        result: dict,
+        on_result: Optional[Callable[[dict], object]],
+    ) -> object:
+        if on_result is None:
+            return None
+        return on_result(result)
 
     @staticmethod
     def _finish_self_test(
         result: dict,
-        on_result: Optional[Callable[[dict], None]],
+        on_result: Optional[Callable[[dict], object]],
     ) -> dict:
-        if on_result is not None:
-            on_result(result)
+        FixedFrameMcuAdapter._notify_self_test(
+            result,
+            on_result,
+        )
         return result
 
     def apply_configuration(

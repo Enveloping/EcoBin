@@ -172,7 +172,7 @@
   `main.py`，双摄可通过两个 `simulated://` 源生成占位 JPEG；运行入口已移除全局
   测试模式，只按显式串口和摄像头源组装。
   Python 3.11 硬件套件当前为
-  `236 passed, 2 skipped, 5 subtests passed`，契约套件为
+  `290 passed, 9 skipped, 5 subtests passed`，契约套件为
   `55 passed, 828 subtests passed`。
   香橙派当时的默认路由/DNS 波动按负责人决定暂不继续处理，不阻塞当前验收。F-11
   已按负责人接受的当前范围转为 `done`；后续验证发现范围内问题时重开，固定帧真机

@@ -308,6 +308,75 @@ def test_self_test_query_preserves_interleaved_business_and_smoke_events():
     assert queued[2]["payload"]["smokeState"] == "ALARM"
 
 
+def test_self_test_retry_suppresses_unchanged_safety_projection():
+    fake = RespondingSerial(
+        bytes.fromhex("F1 03 00 2E E0 00 00 F1")
+    )
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    adapter.query_self_test(
+        timeout_ms=20,
+        on_result=lambda _: False,
+        queue_unchanged_safety_event=False,
+    )
+
+    assert adapter.read_mcu_event(timeout_ms=10) is None
+
+
+def test_self_test_retry_queues_one_changed_projection_before_following_cc():
+    fake = RespondingSerial(
+        bytes.fromhex(
+            "F1 03 00 2E E0 00 00 F1 "
+            "CC 01 CC"
+        )
+    )
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    adapter.query_self_test(
+        timeout_ms=20,
+        on_result=lambda _: True,
+        queue_unchanged_safety_event=False,
+    )
+    queued = [
+        adapter.read_mcu_event(timeout_ms=20),
+        adapter.read_mcu_event(timeout_ms=20),
+    ]
+
+    assert [item["payload"]["smokeState"] for item in queued] == [
+        "NORMAL",
+        "ALARM",
+    ]
+
+
+def test_self_test_retry_suppresses_repeated_timeout_projection():
+    fake = FakeSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+
+    result = adapter.query_self_test(
+        timeout_ms=10,
+        on_result=lambda _: False,
+        queue_unchanged_safety_event=False,
+    )
+
+    assert result["queryStatus"] == "TIMEOUT"
+    assert adapter.read_mcu_event(timeout_ms=10) is None
+
+
 def test_self_test_timeout_and_invalid_response_are_distinct():
     timeout_serial = FakeSerial()
     timeout_adapter = FixedFrameMcuAdapter(

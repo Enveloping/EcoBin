@@ -24,6 +24,7 @@ from config import (
     EDGE_BOOT_ID_PATH, EDGE_RUNTIME_SNAPSHOT_INTERVAL_S,
     EDGE_SOFTWARE_VERSION,
     MQTT_CLEAN_SESSION, MCU_PROTOCOL_MODE, MCU_SIMULATED,
+    DEVICE_ENTRY_URL_REFRESH_SECONDS,
     CAMERA_OUTSIDE_SOURCE, CAMERA_INSIDE_SOURCE, CAMERA_WARMUP_FRAMES,
     EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
@@ -43,6 +44,11 @@ from work_manager import WorkManager
 from command_processor import CommandProcessor
 from device_acceptance import DeviceAcceptanceRunner
 from edge_boot import boot_sequence, recover_after_online_mcu_hello
+from fixed_frame_health_recovery import (
+    FixedFrameHealthRecoveryController,
+    runtime_uart_state,
+)
+from device_entry_url_refresh import DeviceEntryUrlRefreshController
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,6 +154,16 @@ class EcoBinEdge:
             self.work,
             acceptance_runner=self.acceptance,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
+        )
+        self.fixed_frame_health_recovery = FixedFrameHealthRecoveryController(
+            self.store,
+            self.uart,
+            device_name=DEVICE_NAME,
+        )
+        self.device_entry_url_refresh = DeviceEntryUrlRefreshController(
+            self.store,
+            self.uart,
+            interval_seconds=DEVICE_ENTRY_URL_REFRESH_SECONDS,
         )
 
         # -- Wire callbacks --
@@ -336,11 +352,13 @@ class EcoBinEdge:
                             error,
                         )
                         break
-                if (
-                    not self._uart_recovering.is_set()
-                    and self.commands.process_next()
-                ):
-                    progressed = True
+                if not self._uart_recovering.is_set():
+                    recovery = self.fixed_frame_health_recovery.poll()
+                    if recovery["state_changed"]:
+                        progressed = True
+                    if self.commands.process_next():
+                        progressed = True
+                    self.device_entry_url_refresh.poll()
             except Exception as error:
                 logger.error("command consumer error: %s", error)
             if not progressed:
@@ -494,11 +512,7 @@ class EcoBinEdge:
                     if compatibility_mode
                     else "ULTRASONIC"
                 ),
-                "uart_state": (
-                    "READY"
-                    if getattr(self.uart, "is_open", False)
-                    else "DISCONNECTED"
-                ),
+                "uart_state": runtime_uart_state(self.store, self.uart),
                 "compatibility_mode": compatibility_mode,
                 },
                 [],

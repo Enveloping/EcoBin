@@ -237,6 +237,15 @@ class WorkManager:
 
     def _safety_rejection(self, port_no: int) -> Optional[str]:
         if getattr(self._uart, "compatibility_mode", False):
+            if (
+                not getattr(self._uart, "is_open", True)
+                or self._store.get_active_edge_fault(
+                    "UART",
+                    "UART_PROTOCOL",
+                )
+                is not None
+            ):
+                return "SAFETY_SENSOR_UNHEALTHY"
             try:
                 fixed_self_test = json.loads(
                     self._store.get_state(

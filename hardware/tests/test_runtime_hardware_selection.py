@@ -79,6 +79,13 @@ def test_obsolete_environment_value_cannot_relax_camera_path_validation(
         config.validate()
 
 
+def test_device_entry_url_refresh_interval_must_be_positive(monkeypatch):
+    monkeypatch.setattr(config, "DEVICE_ENTRY_URL_REFRESH_SECONDS", 0)
+
+    with pytest.raises(ValueError, match="entry URL refresh interval"):
+        config.validate()
+
+
 def test_explicit_simulated_camera_sources_pass_configuration_validation(
     monkeypatch,
 ):
