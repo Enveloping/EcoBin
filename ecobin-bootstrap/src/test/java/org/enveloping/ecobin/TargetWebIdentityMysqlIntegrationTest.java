@@ -1921,6 +1921,92 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void permanentAuthorizationCreateFailureStopsQueryAndIsExposed()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tf");
+        String organizationCode = code("of");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Authorization create failure");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'CLOSED', channel_state = 'CLOSED',
+                    package_info = NULL,
+                    close_reason = 'TEST_FIXTURE_REPLACED',
+                    closed_at = UTC_TIMESTAMP(3),
+                    channel_updated_at = UTC_TIMESTAMP(3),
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE tenant_id = ? AND organization_id = ?
+                  AND organization_user_id = ?
+                """, fixture.tenantId(), fixture.organizationId(),
+                fixture.userId()));
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "authorization-failure-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.currentMiniapp(false)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        PermanentFailureAuthorizationChannel channel =
+                new PermanentFailureAuthorizationChannel();
+        MerchantTransferAuthorizationApplicationService service =
+                new MerchantTransferAuthorizationApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class),
+                        channel, fundsOperationalControl,
+                        new TransactionTemplate(transactionManager), auditPort,
+                        "https://callback.example");
+
+        var accepted = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(accepted);
+        FundsTaskRef createTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo());
+        var createResult = service.executeTask(fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo()));
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                createResult.outcome());
+        assertEquals(400, createResult.httpStatus());
+        assertEquals("PARAM_ERROR", createResult.externalApiErrorCode());
+        assertTrue(createResult.diagnostic().contains("transfer_scene_id"));
+        assertEquals("FAILED", service.current().status());
+
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var queryResult = service.executeTask(fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 1, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo()));
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                queryResult.outcome());
+        assertEquals(0, channel.queryCount,
+                "query must not call WeChat before create succeeds");
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM fund_wechat_transfer_authorization_observation
+                WHERE out_authorization_no = ?
+                  AND observation_type = 'CREATE_RESPONSE'
+                  AND api_error_code = 'PARAM_ERROR'
+                """, Integer.class, accepted.authorizationNo()));
+    }
+
+    @Test
     void walletAdjustmentPausesAndWakesPreChannelWithdrawal()
             throws Exception {
         BrowserClient platform = platformClient();
@@ -4589,6 +4675,31 @@ class TargetWebIdentityMysqlIntegrationTest {
                     request.userDisplayName(), request.userRecvPerception(),
                     null, null, channelCreatedAt, observedAt, null,
                     null, null, observedAt);
+        }
+    }
+
+    private static final class PermanentFailureAuthorizationChannel
+            implements MerchantTransferAuthorizationChannelPort {
+
+        private int queryCount;
+
+        @Override
+        public AuthorizationResult create(AuthorizationRequest request) {
+            return new AuthorizationResult(
+                    AuthorizationResult.Outcome.PERMANENT_FAILURE,
+                    null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, "PARAM_ERROR",
+                    400, "transfer_scene_id 参数错误", Instant.now());
+        }
+
+        @Override
+        public AuthorizationResult query(AuthorizationQuery query) {
+            queryCount++;
+            return new AuthorizationResult(
+                    AuthorizationResult.Outcome.NOT_FOUND,
+                    null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, "NOT_FOUND",
+                    "authorization does not exist", Instant.now());
         }
     }
 

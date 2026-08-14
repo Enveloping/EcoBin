@@ -139,7 +139,7 @@ public class WechatPayMerchantTransferAuthorizationAdapter
         return new AuthorizationResult(
                 outcome, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, failure.code(),
-                failure.getMessage(), Instant.now());
+                failure.status(), failure.getMessage(), Instant.now());
     }
 
     private static Instant instant(JsonNode node, String field) {

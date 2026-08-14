@@ -11,6 +11,7 @@
         <block wx:elif="{{authorization}}">
           <view wx:if="{{authorization.status === 'ACTIVE'}}" class="authorization-state authorization-state--active">已开通</view>
           <view wx:elif="{{authorization.status === 'PREPARING'}}" class="authorization-state">正在准备授权申请</view>
+          <view wx:elif="{{authorization.status === 'FAILED'}}" class="authorization-state authorization-state--warning">授权申请未被微信受理</view>
           <view wx:elif="{{authorization.status === 'WAIT_USER_CONFIRM'}}" class="authorization-state">等待你完成一次授权</view>
           <view wx:elif="{{authorization.status === 'UNKNOWN'}}" class="authorization-state authorization-state--warning">授权状态需要核对</view>
           <view wx:else class="authorization-state">尚未开通</view>
@@ -26,7 +27,7 @@
         loading="{{authorizationSubmitting}}"
         disabled="{{authorizationSubmitting}}"
         bindtap="onAuthorizationAction"
-      >{{authorization && authorization.status === 'WAIT_USER_CONFIRM' ? '继续授权' : (authorization && (authorization.status === 'PREPARING' || authorization.status === 'UNKNOWN') ? '核对状态' : '立即开通')}}</button>
+      >{{authorization && authorization.status === 'WAIT_USER_CONFIRM' ? '继续授权' : (authorization && authorization.status === 'FAILED' ? '申请失败' : (authorization && (authorization.status === 'PREPARING' || authorization.status === 'UNKNOWN') ? '核对状态' : '立即开通'))}}</button>
     </view>
 
     <view class="balance-panel">

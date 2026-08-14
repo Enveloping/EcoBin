@@ -220,7 +220,8 @@ public class MerchantTransferAuthorizationApplicationService {
         AuthorizationRow row = requiredById(found.id(), true);
         replay = replay(operationUid, scope, QUERY_ACTION);
         if (replay != null) return accepted(replay);
-        if (!isTerminal(row.localState())) {
+        if (!isTerminal(row.localState())
+                && !"FAILED".equals(publicStatus(row))) {
             AuthorizationQueryTaskWakeResult result =
                     operationalControl
                             .wakeMerchantTransferAuthorizationQuery(
@@ -282,6 +283,16 @@ public class MerchantTransferAuthorizationApplicationService {
         if (isTerminal(row.localState())) {
             return done("authorization is terminal");
         }
+        if ("CREATED".equals(row.localState())) {
+            if (row.lastErrorCode() != null) {
+                return blocked(
+                        "authorization query suppressed until the original "
+                                + "create task is recovered");
+            }
+            return waiting(
+                    "authorization query waits for the original create task",
+                    Duration.ofMinutes(5));
+        }
         attemptBoundary.markExternalCallMayHaveStarted(command.attemptUid());
         AuthorizationResult result = channel.query(new AuthorizationQuery(
                 row.mchid(), row.outAuthorizationNo(), row.appid(),
@@ -307,8 +318,9 @@ public class MerchantTransferAuthorizationApplicationService {
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
                     """, trimTo(result.errorCode(), 64), now, row.id());
-            return retry(
-                    "temporary authorization channel error",
+            return channelResult(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
+                    row, "temporary authorization channel error", result,
                     retryDelay(row.id()));
         }
         if (result.outcome()
@@ -323,8 +335,11 @@ public class MerchantTransferAuthorizationApplicationService {
                     command.sourceTaskAttemptId(), row,
                     "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CHANNEL_CONFIGURATION",
                     "CRITICAL", "PERMANENT_CHANNEL_ERROR", result, now);
-            return blocked(
-                    "permanent authorization channel error requires recovery");
+            return channelResult(
+                    ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                    row,
+                    "permanent authorization channel error requires recovery",
+                    result, null);
         }
         if (result.outcome() == AuthorizationResult.Outcome.UNKNOWN_STATE) {
             markUnknown(row, result.channelState(), now);
@@ -351,12 +366,13 @@ public class MerchantTransferAuthorizationApplicationService {
                     + validation.summary());
         }
         if ("CREATE_RESPONSE".equals(observationType)) {
-            return mergeCreateResponse(row, result, now);
+            return mergeCreateResponse(command, row, result, now);
         }
         return mergeQueryResponse(command, row, result, now);
     }
 
     private ReliableFundsTaskExecutorPort.Result mergeCreateResponse(
+            ReliableFundsTaskExecutorPort.Command command,
             AuthorizationRow row,
             AuthorizationResult result,
             LocalDateTime now) {
@@ -378,6 +394,17 @@ public class MerchantTransferAuthorizationApplicationService {
                 WHERE id = ? AND local_state = 'CREATED'
                 """, result.packageInfo(), now, channelCreated,
                 channelCreated, now, now, row.id());
+        AuthorizationQueryTaskWakeResult wake = operationalControl
+                .wakeMerchantTransferAuthorizationQuery(
+                        row.tenantId(), row.organizationId(),
+                        row.outAuthorizationNo(), now);
+        if (wake == AuthorizationQueryTaskWakeResult.NOT_WAKEABLE) {
+            observeIssue(
+                    command.sourceTaskAttemptId(), row,
+                    "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING",
+                    "CRITICAL", "QUERY_TASK_NOT_WAKEABLE_AFTER_CREATE",
+                    result, now);
+        }
         return done("authorization request accepted by WeChat");
     }
 
@@ -523,15 +550,13 @@ public class MerchantTransferAuthorizationApplicationService {
             AuthorizationRow row,
             LocalDateTime now) {
         if ("CREATED".equals(row.localState())) {
-            jdbc.update("""
-                    UPDATE fund_wechat_transfer_authorization
-                    SET last_api_error_code = 'NOT_FOUND',
-                        lock_version = lock_version + 1, updated_at = ?
-                    WHERE id = ?
-                    """, now, row.id());
+            if (row.lastErrorCode() != null) {
+                return blocked(
+                        "authorization query suppressed after create failure");
+            }
             return waiting(
-                    "authorization not found while original create task remains recoverable",
-                    Duration.ofSeconds(30));
+                    "authorization query waits for the original create task",
+                    Duration.ofMinutes(5));
         }
         if ("WAIT_USER_CONFIRM".equals(row.localState())
                 && row.confirmationDeadlineAt() != null
@@ -949,6 +974,8 @@ public class MerchantTransferAuthorizationApplicationService {
             LocalDateTime now) {
         String state = result == null ? null : result.channelState();
         String error = result == null ? null : result.errorCode();
+        String diagnostic = result == null
+                ? "-" : redactChannelDiagnostic(row, result.diagnostic());
         String evidence = issueCode + "|" + row.outAuthorizationNo()
                 + "|" + safe(state) + "|" + safe(error) + "|" + reason;
         operationalControl.observeReconciliationIssue(
@@ -958,7 +985,8 @@ public class MerchantTransferAuthorizationApplicationService {
                         TARGET_TYPE, row.outAuthorizationNo(),
                         RechargeApplicationService.sha256(evidence),
                         "reason=" + reason + "; channelState="
-                                + safe(state) + "; errorCode=" + safe(error),
+                                + safe(state) + "; errorCode=" + safe(error)
+                                + "; message=" + safe(diagnostic),
                         now));
     }
 
@@ -1358,8 +1386,18 @@ public class MerchantTransferAuthorizationApplicationService {
     }
 
     private static String publicStatus(AuthorizationRow row) {
-        return "CREATED".equals(row.localState())
-                ? "PREPARING" : row.localState();
+        if (!"CREATED".equals(row.localState())) {
+            return row.localState();
+        }
+        return isPermanentAuthorizationError(row.lastErrorCode())
+                ? "FAILED" : "PREPARING";
+    }
+
+    private static boolean isPermanentAuthorizationError(String code) {
+        return code != null && java.util.Set.of(
+                "PARAM_ERROR", "NO_AUTH", "SIGN_ERROR",
+                "SIGNATURE_ERROR", "RESPONSE_SIGNATURE_INVALID",
+                "MCHID_MISMATCH").contains(code);
     }
 
     private static boolean isTerminal(String state) {
@@ -1381,19 +1419,58 @@ public class MerchantTransferAuthorizationApplicationService {
                 diagnostic, delay);
     }
 
-    private static ReliableFundsTaskExecutorPort.Result retry(
-            String diagnostic,
-            Duration delay) {
-        return new ReliableFundsTaskExecutorPort.Result(
-                ReliableFundsTaskExecutorPort.Result.Outcome.RETRY,
-                diagnostic, delay);
-    }
-
     private static ReliableFundsTaskExecutorPort.Result blocked(
             String diagnostic) {
         return new ReliableFundsTaskExecutorPort.Result(
                 ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
                 diagnostic);
+    }
+
+    private static ReliableFundsTaskExecutorPort.Result channelResult(
+            ReliableFundsTaskExecutorPort.Result.Outcome outcome,
+            AuthorizationRow row,
+            String summary,
+            AuthorizationResult channelResult,
+            Duration retryAfter) {
+        String diagnostic = summary
+                + "; httpStatus=" + safeNumber(channelResult.httpStatus())
+                + "; errorCode=" + safe(channelResult.errorCode())
+                + "; message=" + redactChannelDiagnostic(
+                row, channelResult.diagnostic());
+        return new ReliableFundsTaskExecutorPort.Result(
+                outcome, diagnostic, retryAfter,
+                channelResult.httpStatus(), channelResult.errorCode());
+    }
+
+    private static String redactChannelDiagnostic(
+            AuthorizationRow row,
+            String diagnostic) {
+        if (diagnostic == null || diagnostic.isBlank()) return "-";
+        String redacted = diagnostic.replaceAll("[\\r\\n\\t]+", " ")
+                .trim();
+        for (String sensitive : List.of(
+                safeSensitive(row.mchid()),
+                safeSensitive(row.appid()),
+                safeSensitive(row.openid()),
+                safeSensitive(row.outAuthorizationNo()),
+                safeSensitive(row.authorizationId()),
+                safeSensitive(row.packageInfo()),
+                safeSensitive(row.notifyUrl()),
+                safeSensitive(row.userDisplayName()),
+                safeSensitive(row.userRecvPerception()))) {
+            if (!sensitive.isEmpty()) {
+                redacted = redacted.replace(sensitive, "[redacted]");
+            }
+        }
+        return trimTo(redacted, 600);
+    }
+
+    private static String safeSensitive(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String safeNumber(Integer value) {
+        return value == null ? "-" : value.toString();
     }
 
     private static void requireUuidV4(UUID value) {

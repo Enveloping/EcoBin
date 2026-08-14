@@ -101,4 +101,30 @@ class WechatPayMerchantTransferAuthorizationAdapterTest {
         assertEquals(Instant.parse("2026-08-06T02:01:00Z"),
                 result.authorizedAt());
     }
+
+    @Test
+    void createKeepsWechatStatusCodeAndDiagnosticForOperations() {
+        when(client.post(eq(
+                "/v3/fund-app/mch-transfer/user-confirm-authorization"),
+                org.mockito.ArgumentMatchers.any(JsonNode.class)))
+                .thenThrow(new WechatPayApiException(
+                        400, "PARAM_ERROR", "transfer_scene_id 参数错误"));
+        var request = new MerchantTransferAuthorizationChannelPort
+                .AuthorizationRequest(
+                "190001", "AU12345678", "wx-app-1", "openid-1",
+                "1001", "金收宝用户-12345678", null,
+                "https://example.com/api/v1/wechat-pay/notifications/"
+                        + "merchant-transfer-authorizations");
+
+        var result = new WechatPayMerchantTransferAuthorizationAdapter(
+                client, mapper).create(request);
+
+        assertEquals(
+                MerchantTransferAuthorizationChannelPort.AuthorizationResult
+                        .Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals(400, result.httpStatus());
+        assertEquals("PARAM_ERROR", result.errorCode());
+        assertEquals("transfer_scene_id 参数错误", result.diagnostic());
+    }
 }

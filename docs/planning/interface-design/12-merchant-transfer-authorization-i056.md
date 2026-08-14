@@ -49,6 +49,7 @@ Authorization: Bearer <aud=miniapp token>
 ```text
 NOT_OPENED
 PREPARING
+FAILED
 WAIT_USER_CONFIRM
 ACTIVE
 CLOSED
@@ -57,6 +58,7 @@ UNKNOWN
 ```
 
 - `PREPARING` 表示本地请求和任务已经建立，但尚未取得可调起参数。
+- `FAILED` 表示原创建任务收到明确的永久渠道错误并已停止；它仍占用当前授权槽，普通用户不能换单重试，必须由平台先排除配置或参数故障，再受控恢复原创建任务。原创建成功后状态继续进入 `WAIT_USER_CONFIRM`。
 - `WAIT_USER_CONFIRM` 才返回当前机构的 `appId/mchId/packageInfo` 和确认期限。
 - `ACTIVE` 才允许创建新提现，不返回 `packageInfo`。
 - `CLOSED` 允许用户重新申请，必须使用新的商户授权单号。
@@ -77,7 +79,7 @@ UNKNOWN
 - 用户已经绑定手机号；
 - 系统普通商户启用且机构 AppID/商户绑定为 `VERIFIED`；
 - 已获批的“二手回收”场景可用；
-- 不存在 `PREPARING/WAIT_USER_CONFIRM/ACTIVE/UNKNOWN` 当前授权。
+- 不存在 `PREPARING/FAILED/WAIT_USER_CONFIRM/ACTIVE/UNKNOWN` 当前授权。
 
 成功短事务生成全平台唯一 `outAuthorizationNo`，冻结 AppID/OpenID/场景、用户展示名称、授权通知地址及请求摘要，并建立唯一创建授权任务。事务不调用微信，返回 `202 Accepted`：
 

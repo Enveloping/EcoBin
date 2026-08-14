@@ -215,6 +215,7 @@ export interface MerchantTransferConfirmationView {
 export type MerchantTransferAuthorizationStatus =
   | 'NOT_OPENED'
   | 'PREPARING'
+  | 'FAILED'
   | 'WAIT_USER_CONFIRM'
   | 'ACTIVE'
   | 'CLOSED'

@@ -6848,7 +6848,7 @@ export interface components {
         EmptyMerchantTransferAuthorizationRequest: Record<string, never>;
         MerchantTransferAuthorizationView: {
             /** @enum {string} */
-            status: "NOT_OPENED" | "PREPARING" | "WAIT_USER_CONFIRM" | "ACTIVE" | "CLOSED" | "EXPIRED" | "UNKNOWN";
+            status: "NOT_OPENED" | "PREPARING" | "FAILED" | "WAIT_USER_CONFIRM" | "ACTIVE" | "CLOSED" | "EXPIRED" | "UNKNOWN";
             authorizationNo?: string | null;
             appId?: string | null;
             mchId?: string | null;
@@ -6867,7 +6867,7 @@ export interface components {
         MerchantTransferAuthorizationAcceptedView: {
             authorizationNo: string;
             /** @enum {string} */
-            status: "PREPARING" | "WAIT_USER_CONFIRM" | "ACTIVE" | "CLOSED" | "EXPIRED" | "UNKNOWN";
+            status: "PREPARING" | "FAILED" | "WAIT_USER_CONFIRM" | "ACTIVE" | "CLOSED" | "EXPIRED" | "UNKNOWN";
             statusUrl: string;
             recommendedPollAfterMs: number;
         };

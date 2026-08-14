@@ -207,7 +207,9 @@ public class ReliableFundsTaskJdbcRepository {
             boolean done,
             boolean blocked,
             Duration retryAfter,
-            long durationMillis) {
+            long durationMillis,
+            Integer httpStatus,
+            String externalApiErrorCode) {
         LocalDateTime now = databaseNow();
         List<Long> current = jdbc.query("""
                 SELECT id FROM ops_reliable_task
@@ -223,10 +225,13 @@ public class ReliableFundsTaskJdbcRepository {
         jdbc.update("""
                 UPDATE ops_task_attempt
                 SET result_recorded_at = ?, technical_result = ?,
+                    http_status = ?, external_api_error_code = ?,
                     duration_ms = ?, redacted_diagnostic = ?
                 WHERE id = ? AND result_recorded_at IS NULL
-                """, now, technicalResult, Math.max(0, durationMillis),
-                safeDiagnostic(diagnostic), claim.attemptId());
+                """, now, technicalResult, httpStatus,
+                safeExternalApiErrorCode(externalApiErrorCode),
+                Math.max(0, durationMillis), safeDiagnostic(diagnostic),
+                claim.attemptId());
         if (done) {
             requireOne(jdbc.update("""
                     UPDATE ops_reliable_task
@@ -298,6 +303,13 @@ public class ReliableFundsTaskJdbcRepository {
     private static String safeDiagnostic(String value) {
         if (value == null || value.isBlank()) return null;
         return value.length() <= 1000 ? value : value.substring(0, 1000);
+    }
+
+    private static String safeExternalApiErrorCode(String value) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.trim();
+        return normalized.length() <= 64
+                ? normalized : normalized.substring(0, 64);
     }
 
     private static void requireOne(int count, String operation) {

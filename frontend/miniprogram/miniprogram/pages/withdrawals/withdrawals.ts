@@ -490,6 +490,9 @@ Page({
           '微信授权申请仍在准备中，请稍后重试',
         )
       }
+      if (current.status === 'FAILED') {
+        throw new Error('微信未受理本次授权申请，请联系管理员处理后再试')
+      }
       if (current.status === 'UNKNOWN') {
         await queryMerchantTransferAuthorization(
           await createIdempotencyKey(),

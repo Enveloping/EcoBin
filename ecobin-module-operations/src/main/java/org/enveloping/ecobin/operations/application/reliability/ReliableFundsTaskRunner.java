@@ -81,7 +81,8 @@ public class ReliableFundsTaskRunner implements ReliableFundsTaskWorkerPort {
                 claim, technical, result.diagnostic(),
                 result.outcome() == Result.Outcome.DONE,
                 result.outcome() == Result.Outcome.BLOCKED,
-                retry, durationMillis);
+                retry, durationMillis, result.httpStatus(),
+                result.externalApiErrorCode());
     }
 
     private static long elapsed(long started) {

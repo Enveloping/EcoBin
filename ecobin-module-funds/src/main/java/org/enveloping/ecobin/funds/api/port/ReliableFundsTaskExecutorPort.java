@@ -28,7 +28,12 @@ public interface ReliableFundsTaskExecutorPort {
         }
     }
 
-    record Result(Outcome outcome, String diagnostic, Duration retryAfter) {
+    record Result(
+            Outcome outcome,
+            String diagnostic,
+            Duration retryAfter,
+            Integer httpStatus,
+            String externalApiErrorCode) {
 
         public Result {
             Objects.requireNonNull(outcome, "outcome");
@@ -37,10 +42,22 @@ public interface ReliableFundsTaskExecutorPort {
                 throw new IllegalArgumentException(
                         "retryAfter must be positive when supplied");
             }
+            if (httpStatus != null
+                    && (httpStatus < 100 || httpStatus > 599)) {
+                throw new IllegalArgumentException(
+                        "httpStatus must be a valid HTTP status");
+            }
+        }
+
+        public Result(
+                Outcome outcome,
+                String diagnostic,
+                Duration retryAfter) {
+            this(outcome, diagnostic, retryAfter, null, null);
         }
 
         public Result(Outcome outcome, String diagnostic) {
-            this(outcome, diagnostic, null);
+            this(outcome, diagnostic, null, null, null);
         }
 
         public enum Outcome {

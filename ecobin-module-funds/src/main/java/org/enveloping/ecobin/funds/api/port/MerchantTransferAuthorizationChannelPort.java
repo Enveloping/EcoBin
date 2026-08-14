@@ -77,12 +77,43 @@ public interface MerchantTransferAuthorizationChannelPort {
             Instant authorizedAt,
             Instant closedAt,
             String errorCode,
+            Integer httpStatus,
             String diagnostic,
             Instant observedAt) {
 
         public AuthorizationResult {
             Objects.requireNonNull(outcome, "outcome");
             Objects.requireNonNull(observedAt, "observedAt");
+            if (httpStatus != null
+                    && (httpStatus < 100 || httpStatus > 599)) {
+                throw new IllegalArgumentException(
+                        "httpStatus must be a valid HTTP status");
+            }
+        }
+
+        public AuthorizationResult(
+                Outcome outcome,
+                String channelState,
+                String outAuthorizationNo,
+                String authorizationId,
+                String appid,
+                String openid,
+                String sceneId,
+                String userDisplayName,
+                String userRecvPerception,
+                String packageInfo,
+                String closeReason,
+                Instant channelCreatedAt,
+                Instant authorizedAt,
+                Instant closedAt,
+                String errorCode,
+                String diagnostic,
+                Instant observedAt) {
+            this(outcome, channelState, outAuthorizationNo,
+                    authorizationId, appid, openid, sceneId,
+                    userDisplayName, userRecvPerception, packageInfo,
+                    closeReason, channelCreatedAt, authorizedAt, closedAt,
+                    errorCode, null, diagnostic, observedAt);
         }
 
         public enum Outcome {
