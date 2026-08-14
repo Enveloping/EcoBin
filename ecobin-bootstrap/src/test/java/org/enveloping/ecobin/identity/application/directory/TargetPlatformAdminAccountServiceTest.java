@@ -141,6 +141,16 @@ class TargetPlatformAdminAccountServiceTest {
     }
 
     @Test
+    void defaultAdministratorListsAdministratorsWithoutFilters() {
+        var page = service.listAdministrators(1, 20, null, null);
+
+        assertEquals(1L, page.total());
+        assertEquals(1, page.items().size());
+        assertEquals("enveloping", page.items().getFirst().loginName());
+        assertEquals("DEFAULT", page.items().getFirst().adminKind());
+    }
+
+    @Test
     void ordinaryAdministratorCannotGovernOthersButCanChangeOwnPassword() {
         Administrator ordinary = insertAdministrator(
                 "STANDARD", "ordinary", USER_PASSWORD, true);

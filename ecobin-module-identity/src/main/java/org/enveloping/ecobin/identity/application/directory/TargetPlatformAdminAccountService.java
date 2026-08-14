@@ -126,7 +126,7 @@ public class TargetPlatformAdminAccountService {
                                auth_version, lock_version, created_at,
                                updated_at, deleted_at
                         FROM iam_platform_admin
-                        """ + where + """
+                        """ + where + " " + """
                         ORDER BY CASE WHEN admin_kind = 'DEFAULT' THEN 0 ELSE 1 END,
                                  created_at,
                                  id
