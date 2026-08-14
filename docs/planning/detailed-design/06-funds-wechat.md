@@ -435,6 +435,7 @@ HTTP 错误、超时、`SYSTEM_ERROR`、限频、`ALREADY_EXISTS` 和未知错�
 
 ```text
 CREATED
+  ├─ 明确未受理 → CREATE_REJECTED（公开为 FAILED，旧请求禁止重放）
   └─ 微信受理 → WAIT_USER_CONFIRM
                     ├─ 可信查单/通知 TAKING_EFFECT → ACTIVE
                     ├─ 可信查单/通知 CLOSED → CLOSED
@@ -448,6 +449,7 @@ CREATED
 4. `QUERY_MERCHANT_TRANSFER_AUTHORIZATION` 使用原 `outAuthorizationNo` 查询，并逐项核对微信返回的商户授权单号、微信授权单号、AppID、OpenID、场景和展示名。只有全部匹配且状态为 `TAKING_EFFECT` 才写 `ACTIVE`。
 5. 微信明确 `CLOSED` 后关闭本地当前授权槽；关闭原因原样保存。服务离线跨过保留期时，只有可信待确认创建事实、确认期限已超过 30 天、从未取得生效证据且查单明确 `NOT_FOUND`，才进入本地 `EXPIRED`；其他 404 保持 `UNKNOWN`。系统不提供应用内撤销授权接口，用户可在微信侧关闭，系统通过通知或查单收敛。
 6. 授权成功后长期有效但不是永久假设；每次新建提现和每次真正提交微信前均锁定复核。身份变化后重新授权，不修改旧授权或旧提现。
+7. 只有签名可信的渠道响应或调用前本地商户身份核对能够明确证明“微信没有受理”时，创建申请才进入 `CREATE_REJECTED` 并释放当前槽。原任务再次被唤醒也不得外调；用户使用新的操作号和新的 `outAuthorizationNo` 重新申请。网络错误和响应验签失败进入 `UNKNOWN`，保留原槽并查原单。
 
 ### 10.4 历史逐笔用户确认收款
 

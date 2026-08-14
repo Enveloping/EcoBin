@@ -27,7 +27,7 @@
         loading="{{authorizationSubmitting}}"
         disabled="{{authorizationSubmitting}}"
         bindtap="onAuthorizationAction"
-      >{{authorization && authorization.status === 'WAIT_USER_CONFIRM' ? '继续授权' : (authorization && authorization.status === 'FAILED' ? '申请失败' : (authorization && (authorization.status === 'PREPARING' || authorization.status === 'UNKNOWN') ? '核对状态' : '立即开通'))}}</button>
+      >{{authorization && authorization.status === 'WAIT_USER_CONFIRM' ? '继续授权' : (authorization && authorization.status === 'FAILED' ? '重新申请' : (authorization && (authorization.status === 'PREPARING' || authorization.status === 'UNKNOWN') ? '核对状态' : '立即开通'))}}</button>
     </view>
 
     <view class="balance-panel">

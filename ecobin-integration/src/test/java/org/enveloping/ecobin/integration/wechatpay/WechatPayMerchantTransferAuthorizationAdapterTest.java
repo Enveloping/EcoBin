@@ -127,4 +127,28 @@ class WechatPayMerchantTransferAuthorizationAdapterTest {
         assertEquals("PARAM_ERROR", result.errorCode());
         assertEquals("transfer_scene_id 参数错误", result.diagnostic());
     }
+
+    @Test
+    void untrustedCreateResponseRemainsUnknownInsteadOfReleasingTheOrder() {
+        when(client.post(eq(
+                "/v3/fund-app/mch-transfer/user-confirm-authorization"),
+                org.mockito.ArgumentMatchers.any(JsonNode.class)))
+                .thenThrow(new WechatPayApiException(
+                        502, "SIGNATURE_ERROR", "微信支付响应验签失败"));
+        var request = new MerchantTransferAuthorizationChannelPort
+                .AuthorizationRequest(
+                "190001", "AU12345678", "wx-app-1", "openid-1",
+                "1001", "JSBUser1234567890abcdef", null,
+                "https://example.com/api/v1/wechat-pay/notifications/"
+                        + "merchant-transfer-authorizations");
+
+        var result = new WechatPayMerchantTransferAuthorizationAdapter(
+                client, mapper).create(request);
+
+        assertEquals(
+                MerchantTransferAuthorizationChannelPort.AuthorizationResult
+                        .Outcome.UNKNOWN_STATE,
+                result.outcome());
+        assertEquals("SIGNATURE_ERROR", result.errorCode());
+    }
 }

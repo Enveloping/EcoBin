@@ -50,6 +50,7 @@ import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /** 微信免确认收款授权聚合及其可靠渠道任务。 */
@@ -68,6 +69,9 @@ public class MerchantTransferAuthorizationApplicationService {
             "merchant-transfer-authorization.create";
     private static final String QUERY_ACTION =
             "merchant-transfer-authorization.query";
+    private static final Set<String> DEFINITIVE_CREATE_REJECTION_CODES =
+            Set.of("PARAM_ERROR", "NO_AUTH", "SIGN_ERROR",
+                    "MCHID_MISMATCH");
 
     private final JdbcTemplate jdbc;
     private final FundsAccessService access;
@@ -153,8 +157,8 @@ public class MerchantTransferAuthorizationApplicationService {
 
         String outAuthorizationNo = RechargeApplicationService.stableNo(
                 "AU", operationUid);
-        String userDisplayName = "金收宝用户-" + scope.organizationUserUid()
-                .toString().replace("-", "").substring(24);
+        String userDisplayName = safeUserDisplayName(
+                scope.organizationUserUid());
         String notifyUrl = notifyBaseUrl
                 + "/api/v1/wechat-pay/notifications/"
                 + "merchant-transfer-authorizations";
@@ -254,6 +258,11 @@ public class MerchantTransferAuthorizationApplicationService {
             ReliableFundsTaskExecutorPort.Command command) {
         AuthorizationRow row = requiredByOutNo(
                 command.targetStableKey(), false);
+        if ("CREATE_REJECTED".equals(row.localState())) {
+            return blocked(
+                    "permanently rejected authorization request cannot be "
+                            + "replayed; a new user request is required");
+        }
         if (!"CREATED".equals(row.localState())) {
             return done("authorization creation already converged");
         }
@@ -325,12 +334,31 @@ public class MerchantTransferAuthorizationApplicationService {
         }
         if (result.outcome()
                 == AuthorizationResult.Outcome.PERMANENT_FAILURE) {
-            jdbc.update("""
-                    UPDATE fund_wechat_transfer_authorization
-                    SET last_api_error_code = ?,
-                        lock_version = lock_version + 1, updated_at = ?
-                    WHERE id = ?
-                    """, trimTo(result.errorCode(), 64), now, row.id());
+            boolean definitiveCreateRejection =
+                    "CREATE_RESPONSE".equals(observationType)
+                            && isDefinitiveCreateRejection(
+                            result.errorCode());
+            if (definitiveCreateRejection) {
+                jdbc.update("""
+                        UPDATE fund_wechat_transfer_authorization
+                        SET local_state = 'CREATE_REJECTED',
+                            last_api_error_code = ?,
+                            submitted_at = COALESCE(submitted_at, ?),
+                            channel_updated_at = COALESCE(
+                                channel_updated_at, ?),
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND local_state = 'CREATED'
+                        """, trimTo(result.errorCode(), 64), now, now,
+                        now, row.id());
+            } else {
+                jdbc.update("""
+                        UPDATE fund_wechat_transfer_authorization
+                        SET last_api_error_code = ?,
+                            lock_version = lock_version + 1, updated_at = ?
+                        WHERE id = ?
+                        """, trimTo(result.errorCode(), 64), now, row.id());
+            }
             observeIssue(
                     command.sourceTaskAttemptId(), row,
                     "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_CHANNEL_CONFIGURATION",
@@ -338,7 +366,12 @@ public class MerchantTransferAuthorizationApplicationService {
             return channelResult(
                     ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
                     row,
-                    "permanent authorization channel error requires recovery",
+                    definitiveCreateRejection
+                            ? "authorization creation was definitively "
+                            + "rejected; a new application is required after "
+                            + "the cause is fixed"
+                            : "permanent authorization channel error requires "
+                            + "operator recovery against the original order",
                     result, null);
         }
         if (result.outcome() == AuthorizationResult.Outcome.UNKNOWN_STATE) {
@@ -1386,22 +1419,29 @@ public class MerchantTransferAuthorizationApplicationService {
     }
 
     private static String publicStatus(AuthorizationRow row) {
-        if (!"CREATED".equals(row.localState())) {
-            return row.localState();
-        }
-        return isPermanentAuthorizationError(row.lastErrorCode())
-                ? "FAILED" : "PREPARING";
+        return switch (row.localState()) {
+            case "CREATED" -> "PREPARING";
+            case "CREATE_REJECTED" -> "FAILED";
+            default -> row.localState();
+        };
     }
 
-    private static boolean isPermanentAuthorizationError(String code) {
-        return code != null && java.util.Set.of(
-                "PARAM_ERROR", "NO_AUTH", "SIGN_ERROR",
-                "SIGNATURE_ERROR", "RESPONSE_SIGNATURE_INVALID",
-                "MCHID_MISMATCH").contains(code);
+    private static boolean isDefinitiveCreateRejection(String code) {
+        return code != null
+                && DEFINITIVE_CREATE_REJECTION_CODES.contains(code);
     }
 
     private static boolean isTerminal(String state) {
-        return "CLOSED".equals(state) || "EXPIRED".equals(state);
+        return "CREATE_REJECTED".equals(state)
+                || "CLOSED".equals(state)
+                || "EXPIRED".equals(state);
+    }
+
+    private static String safeUserDisplayName(UUID organizationUserUid) {
+        String compactUid = Objects.requireNonNull(
+                        organizationUserUid, "organizationUserUid")
+                .toString().replace("-", "");
+        return "JSBUser" + compactUid.substring(compactUid.length() - 16);
     }
 
     private static ReliableFundsTaskExecutorPort.Result done(

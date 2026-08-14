@@ -69,7 +69,8 @@ class RuntimeSafetyConfigurationTest {
             "V47__device_work_state_alignment.sql",
             "V48__device_installation_profiles.sql",
             "V49__recent_miniapp_organization_account.sql",
-            "V50__platform_administrator_governance.sql"
+            "V50__platform_administrator_governance.sql",
+            "V51__merchant_transfer_authorization_create_rejection.sql"
     };
 
     @Test

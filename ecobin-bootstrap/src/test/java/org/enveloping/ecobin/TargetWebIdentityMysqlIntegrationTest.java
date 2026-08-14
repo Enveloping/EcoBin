@@ -1967,8 +1967,9 @@ class TargetWebIdentityMysqlIntegrationTest {
                         new TransactionTemplate(transactionManager), auditPort,
                         "https://callback.example");
 
+        UUID firstOperationUid = UUID.randomUUID();
         var accepted = new TransactionTemplate(transactionManager).execute(
-                status -> service.create(UUID.randomUUID()));
+                status -> service.create(firstOperationUid));
         assertNotNull(accepted);
         FundsTaskRef createTask = fundsTask(
                 MerchantTransferAuthorizationApplicationService.CREATE_TASK,
@@ -1984,6 +1985,11 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals("PARAM_ERROR", createResult.externalApiErrorCode());
         assertTrue(createResult.diagnostic().contains("transfer_scene_id"));
         assertEquals("FAILED", service.current().status());
+        assertNotNull(channel.createRequest);
+        assertTrue(channel.createRequest.userDisplayName().matches(
+                        "^[A-Za-z0-9]{1,32}$"),
+                "the WeChat display name must avoid punctuation, emoji "
+                        + "and control characters");
 
         FundsTaskRef queryTask = fundsTask(
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
@@ -1993,7 +1999,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo()));
 
-        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 queryResult.outcome());
         assertEquals(0, channel.queryCount,
                 "query must not call WeChat before create succeeds");
@@ -2004,6 +2010,42 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND observation_type = 'CREATE_RESPONSE'
                   AND api_error_code = 'PARAM_ERROR'
                 """, Integer.class, accepted.authorizationNo()));
+
+        var blockedRetry = service.executeTask(fundsCommand(
+                createTask.taskUid(), createTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.CREATE_TASK,
+                accepted.authorizationNo()));
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                blockedRetry.outcome());
+        assertEquals(1, channel.createCount,
+                "a permanently rejected immutable request must not call "
+                        + "WeChat again");
+
+        var replay = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(firstOperationUid));
+        assertNotNull(replay);
+        assertEquals(accepted.authorizationNo(), replay.authorizationNo(),
+                "the original idempotency key must still replay its history");
+
+        var replacement = new TransactionTemplate(transactionManager).execute(
+                status -> service.create(UUID.randomUUID()));
+        assertNotNull(replacement);
+        assertEquals("PREPARING", replacement.status());
+        assertFalse(accepted.authorizationNo().equals(
+                replacement.authorizationNo()));
+        assertEquals("CREATE_REJECTED", jdbc.queryForObject("""
+                SELECT local_state
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM fund_wechat_transfer_authorization
+                WHERE miniapp_channel_id = ?
+                  AND wechat_subject_id = ?
+                  AND current_authorization_slot = 1
+                """, Integer.class,
+                fixture.miniappId(), fixture.subjectId()));
     }
 
     @Test
@@ -4681,10 +4723,14 @@ class TargetWebIdentityMysqlIntegrationTest {
     private static final class PermanentFailureAuthorizationChannel
             implements MerchantTransferAuthorizationChannelPort {
 
+        private AuthorizationRequest createRequest;
+        private int createCount;
         private int queryCount;
 
         @Override
         public AuthorizationResult create(AuthorizationRequest request) {
+            createRequest = request;
+            createCount++;
             return new AuthorizationResult(
                     AuthorizationResult.Outcome.PERMANENT_FAILURE,
                     null, null, null, null, null, null, null, null,

@@ -1,6 +1,12 @@
 # EcoBin P0 目标接口设计基线
 
 > [!IMPORTANT]
+> 2026-08-14 已前向修订 I-056：免确认收款授权创建被明确拒绝时，旧不可变请求停止且
+> 对外为 `FAILED`；用户排除原因后以新幂等操作和新商户授权单号重新申请。不确定结果仍
+> 使用原单查证，禁止换号。详见
+> [`interface-design/12-merchant-transfer-authorization-i056.md`](interface-design/12-merchant-transfer-authorization-i056.md)。
+
+> [!IMPORTANT]
 > 2026-08-14 已实施 V50 平台管理员治理接口：默认管理员可创建、停用、启用、永久逻辑
 > 删除及重置普通平台管理员密码；普通管理员只保留自助改密入口。权限以服务端账号类别
 > 和当前会话能力双重复核。详见

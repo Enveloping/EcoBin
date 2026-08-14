@@ -106,6 +106,14 @@ public class WechatPayMerchantTransferAuthorizationAdapter
 
     private static AuthorizationResult createError(
             WechatPayApiException failure) {
+        if (java.util.Set.of(
+                "SIGNATURE_ERROR", "RESPONSE_SIGNATURE_INVALID")
+                .contains(failure.code())) {
+            // 请求已经离开本机，但响应无法作为可信的“未受理”证据。
+            // 必须保留原商户授权单号查单，不能释放槽位后换号重试。
+            return error(
+                    AuthorizationResult.Outcome.UNKNOWN_STATE, failure);
+        }
         if ("INVALID_REQUEST".equals(failure.code())) {
             return error(
                     AuthorizationResult.Outcome.RETRYABLE_FAILURE, failure);

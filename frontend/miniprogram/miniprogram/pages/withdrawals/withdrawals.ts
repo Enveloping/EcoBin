@@ -471,6 +471,7 @@ Page({
         current.status === 'NOT_OPENED'
         || current.status === 'CLOSED'
         || current.status === 'EXPIRED'
+        || current.status === 'FAILED'
       ) {
         await createMerchantTransferAuthorization(
           await createIdempotencyKey(),
@@ -491,7 +492,7 @@ Page({
         )
       }
       if (current.status === 'FAILED') {
-        throw new Error('微信未受理本次授权申请，请联系管理员处理后再试')
+        throw new Error('微信仍未受理授权申请，请检查后重新申请')
       }
       if (current.status === 'UNKNOWN') {
         await queryMerchantTransferAuthorization(

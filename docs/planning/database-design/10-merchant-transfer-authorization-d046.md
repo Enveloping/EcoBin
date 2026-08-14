@@ -6,6 +6,9 @@
 >
 > 确认日期：2026-08-06
 >
+> 2026-08-14 前向修订：明确未被微信受理的创建请求进入
+> `CREATE_REJECTED`；旧请求不可重放，用户排除原因后以新操作和新单号重新申请。
+>
 > 上游决定：所有新提现在创建前必须先具有当前有效的微信免确认收款授权；历史逐笔确认提现继续按原快照收敛。
 
 ## D-046 决策
@@ -36,19 +39,25 @@ CLOSED
 本地投影固定为：
 
 ```text
-CREATED → WAIT_USER_CONFIRM → ACTIVE → CLOSED
-              ├──────────────→ EXPIRED
-              └──────────────→ UNKNOWN
+CREATED ──明确未受理──→ CREATE_REJECTED
+   └──────微信受理────→ WAIT_USER_CONFIRM → ACTIVE → CLOSED
+                              ├────────────→ EXPIRED
+                              └────────────→ UNKNOWN
 ```
 
 - `CREATED` 只表示本地固定了授权请求和可靠任务，尚无微信受理事实。
+- `CREATE_REJECTED` 表示创建接口已经返回可验证的明确拒绝，例如
+  `PARAM_ERROR`。它对外展示为 `FAILED`，旧请求快照、原商户授权单号、观察和阻断任务都
+  永久保留，但不再占当前授权槽，也不得恢复原创建任务再次外调。用户排除参数或配置原因后，
+  使用新的幂等操作号生成新的 `out_authorization_no`。网络中断、响应验签失败或其他无法证明
+  “微信未受理”的情况不得进入该状态，而应进入 `UNKNOWN` 并继续占槽、按原单查证。
 - `WAIT_USER_CONFIRM` 必须保存微信返回的 `package_info`、渠道创建时间和精确 24 小时确认期限。
 - 只有微信 `TAKING_EFFECT` 且返回的授权身份与本地快照完全一致，才能进入 `ACTIVE` 并保存非空 `authorization_id`。
 - `CLOSED` 必须保存微信关闭时间和原始关闭原因；关闭后不能再用于创建提现或提交转账。
 - `EXPIRED` 只处理服务离线跨过微信保留期的恢复：本地已有可信 `WAIT_USER_CONFIRM` 创建事实、确认期限已超过 30 天、从未取得授权单号或生效证据，且原单查单明确返回 `NOT_FOUND` 时，才以 `USER_OVERDUE_UNCONFIRMED_AFTER_RETENTION` 释放当前槽。普通 404、刚过 24 小时或查询暂时失败不得推断过期。
 - 未知状态、身份矛盾、可信来源之间的相反状态进入 `UNKNOWN`，停止自动创建提现和自动渠道归并，并建立对账异常。若相反证据指向已经 `CLOSED/EXPIRED` 的旧授权且同作用域已有较新的当前授权，旧行保留终态并设置 `state_conflict=1`，较新的当前行改为 `UNKNOWN`；这样既不违反当前槽唯一键，也能阻止继续提现。若没有较新当前行，旧行自身进入 `UNKNOWN` 并重新占槽。
 
-授权历史允许多条，但同一 `merchant_profile_id + appid + openid + scene_id` 最多一条 `CREATED/WAIT_USER_CONFIRM/ACTIVE/UNKNOWN`。V35 使用终态返回 `NULL` 的 `current_authorization_slot` 生成列和唯一键实现当前槽；`CLOSED/EXPIRED` 历史不占当前槽。未知状态继续占槽，防止系统在事实不明时创建第二份授权。
+授权历史允许多条，但同一 `merchant_profile_id + appid + openid + scene_id` 最多一条 `CREATED/WAIT_USER_CONFIRM/ACTIVE/UNKNOWN`。V35 使用终态返回 `NULL` 的 `current_authorization_slot` 生成列和唯一键实现当前槽；V51 将 `CREATE_REJECTED` 明确为不占槽的本地终态，`CLOSED/EXPIRED` 历史同样不占当前槽。未知状态继续占槽，防止系统在事实不明时创建第二份授权。
 
 ## 3. 强关系与不可变快照
 
@@ -113,7 +122,7 @@ tenant → organization → miniapp → organization user
 
 授权状态查询是外部调用，不能持有上述数据库锁。短事务只固定任务、原授权单号和请求摘要；网络调用后在新事务追加观察并归并。
 
-## 6. V35 迁移兼容边界
+## 6. V35 基础模型与 V51 前向修订
 
 V35 新增两张表，目标数据库由 97 张领域表推进为 99 张，epoch 从 V34 推进为 V35。
 
@@ -128,6 +137,10 @@ V35 是“先扩表、后切应用”的单向兼容窗口，不承诺新写入�
 
 运行账号只可更新授权投影的状态、微信授权单号、页面参数、错误、关闭原因、阶段时间和锁版本；请求身份及摘要不可更新。授权观察只允许 `SELECT/INSERT`，不允许 `UPDATE/DELETE`。
 
+V51 不修改任何请求快照或渠道观察，只扩展本地状态约束，并把已有的明确创建拒绝从
+`CREATED + 永久错误码` 前向归并为 `CREATE_REJECTED`。已有响应验签失败等不确定结果前向归并为
+`UNKNOWN`。应用纪元因此提升到 V51；迁移前的 V50 应用不能与产生 `CREATE_REJECTED` 的新写入并行。
+
 ## 7. 官方规则依据
 
 - [发起免确认收款授权](https://pay.weixin.qq.com/doc/v3/merchant/4015901167)：授权申请 24 小时有效，授权成功后长期有效，必须保存商户授权单号和微信授权单号。
@@ -137,6 +150,6 @@ V35 是“先扩表、后切应用”的单向兼容窗口，不承诺新写入�
 
 ## 8. 当前实施状态
 
-V35 数据库形状、强约束、最小权限和 epoch 门禁，以及授权端口、微信/Fake 适配器、可靠任务、通知入口、提现状态机、小程序和 OpenAPI 均已在代码中实现。Fresh MySQL V1→V35 迁移和授权提现主路径已经完成自动化验证。
+V35 数据库形状以及 V51 的创建拒绝终态、强约束、最小权限和 epoch 门禁，连同授权端口、微信/Fake 适配器、可靠任务、通知入口、提现状态机、小程序和 OpenAPI 均已在代码中实现。Fresh MySQL V1→V51 迁移和授权提现主路径由自动化验证覆盖。
 
 该状态不等于真实微信渠道已验收。生产环境必须先执行 V35，再启动新应用；第一条 `AUTHORIZED` 权威数据产生后只能前向修复。真实普通商户仍需完成首次授权、关闭竞态、授权后小额转账、主动查单和回调验收后，才可将自动收款视为可上线能力。
