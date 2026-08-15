@@ -71,7 +71,7 @@ public final class WechatChannelEvidencePolicy {
         } else if (actual.transferAmountCent() != expectedAmountCent) {
             violations.add("AMOUNT_MISMATCH");
         }
-        requireEqual(actual.openid(), expectedOpenid,
+        compareWhenPresent(actual.openid(), expectedOpenid,
                 "OPENID", violations);
         return new Validation(violations);
     }

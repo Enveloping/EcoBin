@@ -58,7 +58,23 @@ class WechatChannelEvidencePolicyTest {
     }
 
     @Test
-    void transferQueryWithoutWechatRecipientOrAmountIsNotEvidence() {
+    void transferQueryWithoutOptionalWechatRecipientIsTrusted() {
+        MerchantTransferResult result = new MerchantTransferResult(
+                MerchantTransferResult.Outcome.SUCCESS,
+                "SUCCESS", "WXTR420001", null, null, null, null,
+                Instant.parse("2026-08-03T02:00:00Z"),
+                "190001", "MT123", "wx-app-1", 1000L, null);
+
+        var validation = WechatChannelEvidencePolicy.validateTransferQuery(
+                "190001", "wx-app-1", "MT123", "WXTR420001",
+                1000L, "openid-1", result);
+
+        assertTrue(validation.trusted());
+        assertFalse(validation.violations().contains("OPENID_MISSING"));
+    }
+
+    @Test
+    void transferQueryWithoutRequiredAmountIsNotEvidence() {
         MerchantTransferResult result = new MerchantTransferResult(
                 MerchantTransferResult.Outcome.SUCCESS,
                 "SUCCESS", "WXTR420001", null, null, null, null,
@@ -71,7 +87,6 @@ class WechatChannelEvidencePolicyTest {
 
         assertFalse(validation.trusted());
         assertTrue(validation.violations().contains("AMOUNT_MISSING"));
-        assertTrue(validation.violations().contains("OPENID_MISSING"));
     }
 
     @Test

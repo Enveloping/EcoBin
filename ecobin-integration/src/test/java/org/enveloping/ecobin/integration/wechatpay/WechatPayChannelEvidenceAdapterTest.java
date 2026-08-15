@@ -130,6 +130,36 @@ class WechatPayChannelEvidenceAdapterTest {
     }
 
     @Test
+    void transferQueryKeepsOptionalMissingRecipientAsNull()
+            throws Exception {
+        when(client.get("/v3/fund-app/mch-transfer/transfer-bills/"
+                + "out-bill-no/MT-NO-OPENID"))
+                .thenReturn(mapper.readTree("""
+                        {
+                          "mch_id":"190001",
+                          "out_bill_no":"MT-NO-OPENID",
+                          "transfer_bill_no":"WXTR420002",
+                          "appid":"wx-app-1",
+                          "state":"SUCCESS",
+                          "transfer_amount":888,
+                          "transfer_remark":"test",
+                          "create_time":"2026-08-15T10:00:00+08:00",
+                          "update_time":"2026-08-15T10:01:00+08:00"
+                        }
+                        """));
+
+        var result = new WechatPayMerchantTransferAdapter(client, mapper).query(
+                new MerchantTransferChannelPort.MerchantTransferQuery(
+                        "190001", "MT-NO-OPENID"));
+
+        assertEquals(
+                MerchantTransferChannelPort.MerchantTransferResult.Outcome.SUCCESS,
+                result.outcome());
+        assertEquals(888L, result.transferAmountCent());
+        assertNull(result.openid());
+    }
+
+    @Test
     void transferQueryDistinguishesAConfirmedMissingOriginalBill() {
         when(client.get("/v3/fund-app/mch-transfer/transfer-bills/"
                 + "out-bill-no/MT404"))

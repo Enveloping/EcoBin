@@ -1134,6 +1134,11 @@ public class WithdrawalApplicationService {
                     "Wechat transfer evidence mismatch: "
                             + evidence.safeSummary());
         }
+        if ("QUERY".equals(observationType)) {
+            operationalControl.resolveMerchantTransferEvidenceMismatch(
+                    known.tenantId(), known.organizationId(),
+                    known.outBillNo(), now);
+        }
         if (!WechatChannelEvidencePolicy
                 .isTransferStateCompatibleWithCollectionMode(
                         known.withdrawal().collectionMode(),

@@ -945,6 +945,16 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertEquals(4, channel.queryCount);
         assertEquals("SUCCEEDED|990|0|990|0|0",
                 withdrawalFundsState(withdrawalNo));
+        assertEquals("RESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(issue_row.state, '|',
+                              issue_row.system_verified_resolved_at IS NOT NULL)
+                FROM ops_reconciliation_issue issue_row
+                WHERE issue_row.issue_code =
+                      'FUNDS.MERCHANT_TRANSFER_EVIDENCE_MISMATCH'
+                  AND issue_row.subject_type = 'WECHAT_TRANSFER'
+                  AND issue_row.subject_stable_key = ?
+                """, String.class,
+                "MT" + withdrawalNo.substring(2)));
         assertEquals(2, jdbc.queryForObject("""
                 SELECT COUNT(*) FROM fund_user_wallet_entry entry_row
                 JOIN fund_withdrawal_order withdrawal
@@ -4960,7 +4970,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                     "SUCCESS", transferBillNo(), null, null, null,
                     null, Instant.now(), originalRequest.mchid(),
                     originalRequest.outBillNo(), originalRequest.appid(),
-                    observedAmount, openid);
+                    observedAmount, queryCount == 4 ? null : openid);
         }
 
         private String transferBillNo() {
