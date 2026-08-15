@@ -920,6 +920,10 @@ public class WithdrawalApplicationService {
     private TransferPreparation prepareTransfer(
             String withdrawalNo, UUID taskUid) {
         WithdrawalRow initial = requiredWithdrawalByNo(withdrawalNo, false);
+        if (isTerminalWithdrawalState(initial.state())) {
+            return TransferPreparation.completed(
+                    "withdrawal already terminal: " + initial.state());
+        }
         if ("CHANNEL_PROCESSING".equals(initial.state())) {
             TransferSnapshot existing = transferSnapshot(withdrawalNo);
             if ("NOT_ENOUGH".equals(existing.lastApiErrorCode())) {
@@ -2683,6 +2687,15 @@ public class WithdrawalApplicationService {
             throw validation("不支持的提现状态");
         }
         return result;
+    }
+
+    private static boolean isTerminalWithdrawalState(String state) {
+        return switch (state) {
+            case "SUCCEEDED", "REJECTED", "LOCAL_CANCELLED",
+                    "LOCAL_ABORTED_BEFORE_CHANNEL", "CHANNEL_FAILED",
+                    "CHANNEL_CANCELLED" -> true;
+            default -> false;
+        };
     }
 
     private static String classification(

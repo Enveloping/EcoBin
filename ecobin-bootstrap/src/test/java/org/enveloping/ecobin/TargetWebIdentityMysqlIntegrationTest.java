@@ -1067,6 +1067,100 @@ class TargetWebIdentityMysqlIntegrationTest {
     }
 
     @Test
+    void terminalWithdrawalSubmitTaskConvergesWithoutCallingWechatAgain()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("tt");
+        String organizationCode = code("ot");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Terminal transfer task convergence");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        CurrentMiniappIdentity actor = new CurrentMiniappIdentity(
+                fixture.tenantId(), tenantCode, fixture.organizationId(),
+                organizationCode, fixture.miniappId(), fixture.appid(),
+                fixture.subjectId(), fixture.userId(), fixture.userUid(),
+                UUID.randomUUID(), "terminal-transfer-user");
+        when(identity.currentMiniapp(true)).thenReturn(actor);
+        when(identity.lockWithdrawalTransferIdentity(any()))
+                .thenReturn(true);
+        AuditPort audit = mock(AuditPort.class);
+        when(audit.append(any())).thenReturn(1L);
+        FailingMerchantTransferChannel channel =
+                new FailingMerchantTransferChannel(fixture.openid());
+        WithdrawalApplicationService service =
+                new WithdrawalApplicationService(
+                        jdbc, new FundsAccessService(jdbc, identity),
+                        reliableFundsTasks,
+                        mock(ReliableFundsAttemptBoundaryPort.class), channel,
+                        new TransactionTemplate(transactionManager), audit,
+                        fundsOperationalControl, fundsListCursorCodec,
+                        merchantTransferAuthorizationService,
+                        "https://fake.invalid");
+
+        UUID createUid = UUID.randomUUID();
+        service.create(createUid, new CreateWithdrawalRequest("0.10"));
+        String withdrawalNo = RechargeApplicationService.stableNo(
+                "WD", createUid);
+        LocalDateTime now = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_withdrawal_order
+                SET business_state = 'READY_TO_SUBMIT', reviewed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE withdrawal_order_no = ?
+                  AND business_state = 'PENDING_REVIEW'
+                """, now, now, withdrawalNo));
+        String snapshot = "{\"withdrawalNo\":\""
+                + withdrawalNo + "\"}";
+        UUID taskUid = new TransactionTemplate(transactionManager).execute(
+                status -> reliableFundsTasks.register(
+                        new ReliableFundsTaskRegistrationPort
+                                .ReliableFundsTaskRegistration(
+                                fixture.tenantId(), fixture.organizationId(),
+                                "SUBMIT_MERCHANT_TRANSFER",
+                                "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                                "WITHDRAWAL_ORDER", withdrawalNo, 1, snapshot,
+                                RechargeApplicationService.sha256(snapshot),
+                                500, null)));
+        assertNotNull(taskUid);
+        long taskId = jdbc.queryForObject("""
+                SELECT id FROM ops_reliable_task WHERE task_uid = ?
+                """, Long.class, taskUid.toString());
+
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                service.executeTask(fundsCommand(
+                        taskUid, taskId, 1, fixture, withdrawalNo)).outcome());
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                service.executeTask(fundsCommand(
+                        taskUid, taskId, 2, fixture, withdrawalNo)).outcome());
+        assertEquals("CHANNEL_FAILED|1000|0|1000|0|0",
+                withdrawalFundsState(withdrawalNo));
+        assertEquals(1, channel.submitCount);
+        assertEquals(1, channel.queryCount);
+
+        ReliableFundsTaskExecutorPort.Result staleTaskResult =
+                service.executeTask(fundsCommand(
+                        taskUid, taskId, 3, fixture, withdrawalNo));
+
+        assertEquals(
+                ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                staleTaskResult.outcome());
+        assertEquals("withdrawal already terminal: CHANNEL_FAILED",
+                staleTaskResult.diagnostic());
+        assertEquals(1, channel.submitCount);
+        assertEquals(1, channel.queryCount);
+        assertEquals("CHANNEL_FAILED|1000|0|1000|0|0",
+                withdrawalFundsState(withdrawalNo));
+    }
+
+    @Test
     void oppositeTrustedTransferCallbackCreatesReconciliationIssue()
             throws Exception {
         BrowserClient platform = platformClient();
@@ -4767,6 +4861,8 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         private final String openid;
         private AuthorizedMerchantTransferRequest request;
+        private int submitCount;
+        private int queryCount;
 
         private FailingMerchantTransferChannel(String openid) {
             this.openid = openid;
@@ -4781,6 +4877,7 @@ class TargetWebIdentityMysqlIntegrationTest {
         @Override
         public MerchantTransferResult submitAuthorized(
                 AuthorizedMerchantTransferRequest request) {
+            submitCount++;
             this.request = request;
             return new MerchantTransferResult(
                     MerchantTransferResult.Outcome.PROCESSING,
@@ -4792,6 +4889,7 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         @Override
         public MerchantTransferResult query(MerchantTransferQuery query) {
+            queryCount++;
             assertEquals(request.mchid(), query.mchid());
             assertEquals(request.outBillNo(), query.outBillNo());
             return new MerchantTransferResult(
