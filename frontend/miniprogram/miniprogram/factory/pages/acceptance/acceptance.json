@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "设备出厂端",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "t-icon": "tdesign-miniprogram/icon/icon"
+  }
+}

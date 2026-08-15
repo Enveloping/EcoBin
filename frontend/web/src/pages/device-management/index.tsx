@@ -62,7 +62,6 @@ interface AssetFormValues {
   modelCode: string;
   productionBatch?: string;
   expectedPortCount: number;
-  factoryBags: Array<{ bagCode: string }>;
 }
 
 interface AssignmentFormValues {
@@ -82,9 +81,6 @@ interface ControlState {
   kind: DeviceControlKind;
   asset: DeviceAsset;
 }
-
-const AUTHENTICATED_BAG_CODE =
-  /^EB1_K[0-9A-Z]{1,6}_[0-9A-HJKMNP-TV-Z]{26}_[0-9A-HJKMNP-TV-Z]{20}$/;
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiProblem) {
@@ -132,7 +128,6 @@ export default function DeviceManagementPage() {
   const [assignment, setAssignment] = useState<AssignmentState>();
   const [control, setControl] = useState<ControlState>();
   const [submitting, setSubmitting] = useState(false);
-  const [portCount, setPortCount] = useState(1);
 
   const platform = directoryScope.platform;
   const tenantManager = !platform && (
@@ -263,12 +258,6 @@ export default function DeviceManagementPage() {
       modelCode: values.modelCode.trim(),
       productionBatch: values.productionBatch?.trim() || null,
       expectedPortCount: values.expectedPortCount,
-      factoryBags: values.factoryBags
-        .slice(0, values.expectedPortCount)
-        .map((bag, index) => ({
-          portNo: index + 1,
-          bagCode: bag.bagCode.trim(),
-        })),
     };
     setSubmitting(true);
     try {
@@ -391,9 +380,7 @@ export default function DeviceManagementPage() {
           onClick={() => {
             assetForm.setFieldsValue({
               expectedPortCount: 1,
-              factoryBags: [{ bagCode: '' }],
             });
-            setPortCount(1);
             setAssetModalOpen(true);
           }}
         >
@@ -528,15 +515,8 @@ export default function DeviceManagementPage() {
         <Alert
           type="warning"
           showIcon
-          message="硬件 SN 和厂家初始袋创建后不能替换"
-          description={(
-            <span>
-              OneNet 设备名固定等于硬件 SN；每个投口必须登记一个真实、唯一、
-              由平台签发的 EB1 空袋码。可先到{' '}
-              <Typography.Link href="/bag-labels">袋码管理</Typography.Link>
-              {' '}生成并打印标签。
-            </span>
-          )}
+          message="这里只登记设备资产，不登记厂家初始袋"
+          description="硬件 SN 创建后不可替换。设备首次装袋必须由已绑定的厂家操作员在共享小程序的设备出厂端逐口扫描 EB1 袋码；所有投口完成装袋后，设备才会进入自动验收。"
           style={{ marginBottom: 20 }}
         />
         <Form form={assetForm} layout="vertical">
@@ -575,26 +555,9 @@ export default function DeviceManagementPage() {
                 min={1}
                 max={6}
                 precision={0}
-                onChange={(value) => setPortCount(Number(value) || 1)}
               />
             </Form.Item>
           </Space>
-          {Array.from({ length: portCount }, (_, index) => (
-            <Form.Item
-              key={index}
-              name={['factoryBags', index, 'bagCode']}
-              label={`${index + 1} 号投口厂家初始袋码`}
-              rules={[
-                { required: true },
-                {
-                  pattern: AUTHENTICATED_BAG_CODE,
-                  message: '请扫描或粘贴平台签发的完整 EB1 袋码',
-                },
-              ]}
-            >
-              <Input maxLength={64} />
-            </Form.Item>
-          ))}
         </Form>
       </Modal>
 

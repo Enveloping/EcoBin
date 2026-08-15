@@ -10,6 +10,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -67,6 +68,24 @@ public class JwtTokenProvider {
                 .id(sessionUid.toString())
                 .audience()
                     .add(audienceName(audience))
+                    .and()
+                .issuedAt(Date.from(issuedAt))
+                .expiration(Date.from(expiresAt))
+                .signWith(secretKey)
+                .compact();
+    }
+
+    public String generateTargetFactoryMiniappToken(
+            UUID principalUid,
+            UUID sessionUid,
+            Instant issuedAt,
+            Instant expiresAt) {
+        return Jwts.builder()
+                .issuer("ecobin")
+                .subject(principalUid.toString())
+                .id(sessionUid.toString())
+                .audience()
+                    .add(audienceName(TrustedAudience.MINIAPP_FACTORY))
                     .and()
                 .issuedAt(Date.from(issuedAt))
                 .expiration(Date.from(expiresAt))
@@ -135,6 +154,34 @@ public class JwtTokenProvider {
                 claims.getExpiration().toInstant());
     }
 
+    public TargetFactoryMiniappSessionClaims
+            parseTargetFactoryMiniappSession(String token) {
+        Claims claims = parseClaims(token);
+        if (!"ecobin".equals(claims.getIssuer())) {
+            throw new IllegalArgumentException("target token issuer mismatch");
+        }
+        Set<String> audiences = claims.getAudience();
+        if (audiences == null
+                || audiences.size() != 1
+                || !"miniapp-factory".equals(
+                audiences.iterator().next())) {
+            throw new IllegalArgumentException(
+                    "target token audience mismatch");
+        }
+        if (claims.getSubject() == null
+                || claims.getId() == null
+                || claims.getIssuedAt() == null
+                || claims.getExpiration() == null) {
+            throw new IllegalArgumentException(
+                    "target token is missing required claims");
+        }
+        return new TargetFactoryMiniappSessionClaims(
+                UUID.fromString(claims.getSubject()),
+                UUID.fromString(claims.getId()),
+                claims.getIssuedAt().toInstant(),
+                claims.getExpiration().toInstant());
+    }
+
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
@@ -149,6 +196,25 @@ public class JwtTokenProvider {
             case WEB_STAFF -> "web-staff";
             case MINIAPP -> "miniapp";
             case MINIAPP_STAFF -> "miniapp-staff";
+            case MINIAPP_FACTORY -> "miniapp-factory";
         };
+    }
+
+    public record TargetFactoryMiniappSessionClaims(
+            UUID principalUid,
+            UUID sessionUid,
+            Instant issuedAt,
+            Instant expiresAt) {
+
+        public TargetFactoryMiniappSessionClaims {
+            Objects.requireNonNull(principalUid, "principalUid");
+            Objects.requireNonNull(sessionUid, "sessionUid");
+            Objects.requireNonNull(issuedAt, "issuedAt");
+            Objects.requireNonNull(expiresAt, "expiresAt");
+            if (!expiresAt.isAfter(issuedAt)) {
+                throw new IllegalArgumentException(
+                        "expiresAt must be after issuedAt");
+            }
+        }
     }
 }

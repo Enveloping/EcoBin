@@ -27,7 +27,8 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
     public Optional<SuccessfulAudit> findSuccessful(UUID operationUid) {
         List<SuccessfulAudit> entries = jdbc.query("""
                         SELECT operation_uid, actor_kind, platform_admin_id,
-                               staff_account_id, organization_user_id,
+                               factory_operator_id, staff_account_id,
+                               organization_user_id,
                                scope_kind, tenant_id, organization_id,
                                action_code, target_type,
                                target_stable_key, safe_change_summary
@@ -38,6 +39,7 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
                         UUID.fromString(resultSet.getString("operation_uid")),
                         AuditActorKind.valueOf(resultSet.getString("actor_kind")),
                         nullableLong(resultSet, "platform_admin_id"),
+                        nullableLong(resultSet, "factory_operator_id"),
                         nullableLong(resultSet, "staff_account_id"),
                         nullableLong(resultSet, "organization_user_id"),
                         AuditScopeKind.valueOf(resultSet.getString("scope_kind")),
@@ -57,7 +59,8 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
                         INSERT INTO ops_audit_log (
                             audit_uid, request_uid, operation_uid, scope_kind,
                             tenant_id, organization_id, actor_kind,
-                            platform_admin_id, staff_account_id,
+                            platform_admin_id, factory_operator_id,
+                            staff_account_id,
                             organization_user_id, system_actor_code,
                             actor_display_snapshot,
                             action_code, target_type, target_stable_key,
@@ -65,7 +68,7 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
                             safe_change_summary, occurred_at, created_at
                         ) VALUES (
                             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, ?
+                            ?, ?, ?, ?, ?, ?, ?
                         )
                         """,
                 entry.auditUid().toString(),
@@ -77,6 +80,7 @@ public class OperationsAuditJdbcAdapter implements AuditPort {
                 entry.organizationId(),
                 entry.actorKind().name(),
                 entry.platformAdminId(),
+                entry.factoryOperatorId(),
                 entry.staffAccountId(),
                 entry.organizationUserId(),
                 entry.systemActorCode(),

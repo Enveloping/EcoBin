@@ -11,6 +11,7 @@ import { changeCurrentPlatformAdministratorPassword } from '@/api/platformAdminA
 import { useAuthStore } from '@/stores/authStore';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { pageHeader } from '@/utils/pageStyle';
+import MaintenanceAccessPanel from './MaintenanceAccessPanel';
 
 interface PasswordForm {
   currentPassword: string;
@@ -83,6 +84,11 @@ export default function AccountSettingsPage() {
           />
         </ProForm>
       </Card>
+      {session?.accountType === 'PLATFORM_ADMIN' && (
+        <div style={{ maxWidth: 960, marginTop: 20 }}>
+          <MaintenanceAccessPanel />
+        </div>
+      )}
     </PageContainer>
   );
 }

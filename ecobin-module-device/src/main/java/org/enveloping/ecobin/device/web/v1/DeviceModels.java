@@ -42,19 +42,7 @@ public final class DeviceModels {
             @NotBlank @Size(max = 64) String hardwareSn,
             @NotBlank @Size(max = 100) String modelCode,
             @Size(max = 64) String productionBatch,
-            @NotNull @Min(1) @Max(6) Integer expectedPortCount,
-            @NotEmpty @Size(max = 6)
-            List<@Valid FactoryInstalledBagRequest> factoryBags) {
-
-        public CreateDeviceAssetRequest {
-            factoryBags = factoryBags == null
-                    ? null : List.copyOf(factoryBags);
-        }
-    }
-
-    public record FactoryInstalledBagRequest(
-            @NotNull @Min(1) @Max(6) Integer portNo,
-            @NotBlank @Size(min = 8, max = 64) String bagCode) {
+            @NotNull @Min(1) @Max(6) Integer expectedPortCount) {
     }
 
     public record ComputedOneNetMapping(

@@ -26,7 +26,7 @@ from onenet_wire import (
 
 logger = logging.getLogger("edge-store")
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 WORK_TYPE_NONE = "NONE"
 WORK_TYPE_DELIVERY = "DELIVERY"
 WORK_TYPE_CLEAN = "CLEAN"
@@ -43,6 +43,18 @@ PHOTO_UPLOADED = "UPLOADED"
 PHOTO_DEAD = "DEAD"
 FAULT_OBSERVED = "OBSERVED"
 FAULT_RECOVERED = "RECOVERED"
+REMOTE_SUPPORT_TERMINAL_STATES = frozenset({
+    "CLOSED",
+    "FAILED",
+    "EXPIRED",
+})
+REMOTE_SUPPORT_FAILURE_CODES = frozenset({
+    "CREDENTIALS_INVALID",
+    "SSH_NOT_AVAILABLE",
+    "SSH_START_FAILED",
+    "SSH_EXITED",
+    "PROCESS_SUPERVISION_FAILED",
+})
 
 
 def _parse_utc_instant(value: str, field: str) -> datetime:
@@ -55,6 +67,16 @@ def _parse_utc_instant(value: str, field: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{field} must include a UTC offset")
     return parsed.astimezone(timezone.utc)
+
+
+def _require_uuid4_local(value: str, field: str) -> str:
+    try:
+        parsed = _uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise ValueError(f"{field} must be a UUIDv4") from error
+    if parsed.version != 4 or str(parsed) != value:
+        raise ValueError(f"{field} must be a lowercase UUIDv4")
+    return value
 
 
 def _validate_device_entry_url(url: str, sha256: str) -> None:
@@ -117,7 +139,7 @@ class EdgeStore:
         current = row[0] or 0
         if current == CURRENT_SCHEMA_VERSION:
             return
-        if current != 0:
+        if current not in {0, 9}:
             raise RuntimeError(
                 "EdgeStore 数据库时代不兼容；永久资产 v9 不读取旧设备数据库"
             )
@@ -156,7 +178,35 @@ class EdgeStore:
             current = 8
         if current < 9:
             conn.execute("INSERT INTO schema_version (version) VALUES (9)")
+            current = 9
+        if current < 10:
+            self._migrate_v10()
+            conn.execute("INSERT INTO schema_version (version) VALUES (10)")
         conn.commit()
+
+    def _migrate_v10(self) -> None:
+        """Add the independent, reboot-safe remote-support control slot."""
+
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS remote_support_session (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                session_uid TEXT NOT NULL,
+                command_uid TEXT NOT NULL,
+                device_name TEXT NOT NULL,
+                remote_port INTEGER NOT NULL
+                    CHECK (remote_port BETWEEN 22011 AND 22014),
+                expires_at TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN (
+                    'CONNECTING', 'OPEN', 'CLOSING', 'CLOSED',
+                    'FAILED', 'EXPIRED'
+                )),
+                failure_code TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
 
     def _create_tables(self) -> None:
         conn = self._conn
@@ -1089,7 +1139,7 @@ class EdgeStore:
         *,
         physical_recovery_required: bool = True,
     ) -> dict[str, int]:
-        """Requeue configuration only; never resume physical commands."""
+        """Requeue idempotent controls; never resume physical commands."""
         with self.transaction():
             config = self._conn.execute(
                 """UPDATE command_inbox
@@ -1100,6 +1150,19 @@ class EdgeStore:
                        'RECOVERY_REQUIRED'
                    )
                      AND command_type='APPLY_CONFIGURATION'"""
+            ).rowcount
+            remote_support = self._conn.execute(
+                """UPDATE command_inbox
+                   SET state='PENDING', processing_started_at=NULL,
+                       last_error='PROCESS_RESTARTED'
+                   WHERE state IN (
+                       'PROCESSING', 'WAITING_MCU_RESULT',
+                       'RECOVERY_REQUIRED'
+                   )
+                     AND command_type IN (
+                       'OPEN_REMOTE_SUPPORT_TUNNEL',
+                       'CLOSE_REMOTE_SUPPORT_TUNNEL'
+                     )"""
             ).rowcount
             acceptance = self._conn.execute(
                 """UPDATE command_inbox
@@ -1122,7 +1185,9 @@ class EdgeStore:
                    )
                      AND command_type NOT IN (
                          'APPLY_CONFIGURATION',
-                         'REQUEST_DEVICE_ACCEPTANCE'
+                         'REQUEST_DEVICE_ACCEPTANCE',
+                         'OPEN_REMOTE_SUPPORT_TUNNEL',
+                         'CLOSE_REMOTE_SUPPORT_TUNNEL'
                      )"""
             ).fetchall()
             physical_failed = 0
@@ -1151,6 +1216,7 @@ class EdgeStore:
                 ).rowcount
             return {
                 "configuration_requeued": config,
+                "remote_support_requeued": remote_support,
                 "acceptance_grant_lost": acceptance,
                 "physical_locked": 0,
                 "physical_failed": physical_failed,
@@ -2702,6 +2768,249 @@ class EdgeStore:
                 conn.execute("UPDATE photo_outbox SET tombstoned=1 WHERE photo_uid=?", (r["photo_uid"],))
                 count += 1
             return count
+
+    # ── 独立远程维护隧道槽 ──
+
+    def request_remote_support_open(
+        self,
+        *,
+        session_uid: str,
+        command_uid: str,
+        device_name: str,
+        remote_port: int,
+        expires_at: str,
+    ) -> str:
+        """Persist desired OPEN and CONNECTING evidence in one transaction."""
+
+        _require_uuid4_local(session_uid, "session_uid")
+        _require_uuid4_local(command_uid, "command_uid")
+        if not isinstance(device_name, str) or not device_name:
+            raise ValueError("device_name is required")
+        if (
+            isinstance(remote_port, bool)
+            or not isinstance(remote_port, int)
+            or remote_port not in range(22011, 22015)
+        ):
+            raise ValueError("remote_port must be one of 22011..22014")
+        if _parse_utc_instant(expires_at, "expires_at") <= datetime.now(timezone.utc):
+            raise ValueError("remote support session is already expired")
+        with self.transaction():
+            existing = self._conn.execute(
+                "SELECT * FROM remote_support_session WHERE singleton_id=1"
+            ).fetchone()
+            if existing:
+                same_session = existing["session_uid"] == session_uid
+                same_request = (
+                    same_session
+                    and existing["remote_port"] == remote_port
+                    and existing["expires_at"] == expires_at
+                    and existing["device_name"] == device_name
+                )
+                if same_session:
+                    # A session UID is a permanent idempotency identity.  A
+                    # delayed/replayed open must never resurrect a CLOSED,
+                    # FAILED or EXPIRED lease; a genuinely new lease uses a
+                    # new session UID.
+                    return "DUPLICATE" if same_request else "CONFLICT"
+                if existing["state"] not in REMOTE_SUPPORT_TERMINAL_STATES:
+                    return "CONFLICT"
+            now = self._now()
+            self._conn.execute(
+                """INSERT INTO remote_support_session
+                   (singleton_id, session_uid, command_uid, device_name,
+                    remote_port, expires_at, state, failure_code,
+                    attempt_count, next_attempt_at, created_at, updated_at)
+                   VALUES (1,?,?,?,?,?,'CONNECTING',NULL,0,NULL,?,?)
+                   ON CONFLICT(singleton_id) DO UPDATE SET
+                     session_uid=excluded.session_uid,
+                     command_uid=excluded.command_uid,
+                     device_name=excluded.device_name,
+                     remote_port=excluded.remote_port,
+                     expires_at=excluded.expires_at,
+                     state='CONNECTING', failure_code=NULL,
+                     attempt_count=0, next_attempt_at=NULL,
+                     created_at=excluded.created_at,
+                     updated_at=excluded.updated_at""",
+                (
+                    session_uid,
+                    command_uid,
+                    device_name,
+                    remote_port,
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+            self._create_remote_support_status_event_in_tx(
+                self._conn,
+                session_uid=session_uid,
+                command_uid=command_uid,
+                device_name=device_name,
+                remote_port=remote_port,
+                state="CONNECTING",
+                failure_code=None,
+            )
+            return "ACCEPTED"
+
+    def request_remote_support_close(
+        self,
+        session_uid: str,
+        command_uid: str,
+    ) -> str:
+        _require_uuid4_local(session_uid, "session_uid")
+        _require_uuid4_local(command_uid, "command_uid")
+        with self.transaction():
+            row = self._conn.execute(
+                "SELECT * FROM remote_support_session WHERE singleton_id=1"
+            ).fetchone()
+            if row is None or row["session_uid"] != session_uid:
+                return "NOT_FOUND"
+            if row["state"] in REMOTE_SUPPORT_TERMINAL_STATES:
+                return "ALREADY_TERMINAL"
+            if row["state"] == "CLOSING":
+                return "DUPLICATE"
+            self._conn.execute(
+                """UPDATE remote_support_session
+                   SET command_uid=?, state='CLOSING', failure_code=NULL,
+                       next_attempt_at=NULL, updated_at=?
+                   WHERE singleton_id=1""",
+                (command_uid, self._now()),
+            )
+            return "ACCEPTED"
+
+    def get_remote_support_session(self) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM remote_support_session WHERE singleton_id=1"
+            ).fetchone()
+        return dict(row) if row else None
+
+    def transition_remote_support_session(
+        self,
+        session_uid: str,
+        state: str,
+        *,
+        failure_code: Optional[str] = None,
+    ) -> str:
+        if state not in {
+            "CONNECTING",
+            "OPEN",
+            "CLOSED",
+            "FAILED",
+            "EXPIRED",
+        }:
+            raise ValueError("invalid remote support status state")
+        if failure_code is not None and failure_code not in REMOTE_SUPPORT_FAILURE_CODES:
+            raise ValueError("invalid remote support failure code")
+        if state == "FAILED" and failure_code is None:
+            raise ValueError("FAILED remote support state requires failure_code")
+        with self.transaction():
+            row = self._conn.execute(
+                "SELECT * FROM remote_support_session WHERE singleton_id=1"
+            ).fetchone()
+            if row is None or row["session_uid"] != session_uid:
+                return "STALE"
+            if row["state"] in REMOTE_SUPPORT_TERMINAL_STATES:
+                return "TERMINAL"
+            if row["state"] == state and row["failure_code"] == failure_code:
+                return "DUPLICATE"
+            now = self._now()
+            self._conn.execute(
+                """UPDATE remote_support_session
+                   SET state=?, failure_code=?, next_attempt_at=NULL,
+                       attempt_count=CASE WHEN ?='OPEN' THEN 0 ELSE attempt_count END,
+                       updated_at=?
+                   WHERE singleton_id=1 AND session_uid=?""",
+                (state, failure_code, state, now, session_uid),
+            )
+            self._create_remote_support_status_event_in_tx(
+                self._conn,
+                session_uid=session_uid,
+                command_uid=row["command_uid"],
+                device_name=row["device_name"],
+                remote_port=row["remote_port"],
+                state=state,
+                failure_code=failure_code,
+            )
+            return "ACCEPTED"
+
+    def record_remote_support_retry(
+        self,
+        session_uid: str,
+        *,
+        next_attempt_at: float,
+        failure_code: str,
+    ) -> int:
+        if failure_code not in REMOTE_SUPPORT_FAILURE_CODES:
+            raise ValueError("invalid remote support failure code")
+        with self.transaction():
+            row = self._conn.execute(
+                "SELECT * FROM remote_support_session WHERE singleton_id=1"
+            ).fetchone()
+            if (
+                row is None
+                or row["session_uid"] != session_uid
+                or row["state"] in REMOTE_SUPPORT_TERMINAL_STATES
+                or row["state"] == "CLOSING"
+            ):
+                return 0
+            attempts = int(row["attempt_count"]) + 1
+            self._conn.execute(
+                """UPDATE remote_support_session
+                   SET state='CONNECTING', failure_code=?, attempt_count=?,
+                       next_attempt_at=?, updated_at=?
+                   WHERE singleton_id=1 AND session_uid=?""",
+                (
+                    failure_code,
+                    attempts,
+                    float(next_attempt_at),
+                    self._now(),
+                    session_uid,
+                ),
+            )
+            if row["state"] != "CONNECTING" or row["failure_code"] != failure_code:
+                self._create_remote_support_status_event_in_tx(
+                    self._conn,
+                    session_uid=session_uid,
+                    command_uid=row["command_uid"],
+                    device_name=row["device_name"],
+                    remote_port=row["remote_port"],
+                    state="CONNECTING",
+                    failure_code=failure_code,
+                )
+            return attempts
+
+    def _create_remote_support_status_event_in_tx(
+        self,
+        conn,
+        *,
+        session_uid: str,
+        command_uid: str,
+        device_name: str,
+        remote_port: int,
+        state: str,
+        failure_code: Optional[str],
+    ) -> None:
+        event_uid = self._new_uid()
+        sequence = self._next_seq(conn)
+        payload = {
+            "sessionUid": session_uid,
+            "state": state,
+            "remotePort": remote_port,
+            "failureCode": failure_code,
+        }
+        envelope = build_event_envelope(
+            event_uid=event_uid,
+            device_name=device_name,
+            edge_event_sequence=sequence,
+            event_type="REMOTE_SUPPORT_TUNNEL_STATUS",
+            target_type="DEVICE_ASSET",
+            target_uid=device_name,
+            command_uid=command_uid,
+            delivery_class="RELIABLE_FACT",
+            payload=payload,
+        )
+        self._insert_event(conn, envelope, "REMOTE_SUPPORT_TUNNEL_STATUS")
 
     def close(self) -> None:
         with self._lock:

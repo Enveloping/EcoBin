@@ -13,6 +13,18 @@ import {
   isSilentLoginSuppressed,
   routeToEntry,
 } from './utils/auth'
+import {
+  ensureFactorySession,
+  FactoryApiProblem,
+} from './api/factory'
+import {
+  captureFactoryBindingEntry,
+  forgetFactoryBinding,
+  isFactoryBindingKnown,
+  isFactoryModeSuppressed,
+  isFactoryPage,
+  routeToFactoryAcceptance,
+} from './utils/factory-mode'
 
 let bootstrapping: Promise<void> | undefined
 let bootstrapSequence = 0
@@ -24,7 +36,44 @@ function errorCode(error: unknown): string {
   return typeof code === 'string' ? code : ''
 }
 
-async function bootstrapIdentity(sequence: number): Promise<void> {
+function factoryBindingRequired(error: unknown): boolean {
+  return error instanceof FactoryApiProblem
+    && error.code === 'IDENTITY.FACTORY_BINDING_REQUIRED'
+}
+
+async function enterFactoryIfBound(sequence: number): Promise<boolean> {
+  if (isFactoryModeSuppressed()) return false
+  try {
+    await ensureFactorySession()
+    if (sequence !== bootstrapSequence) return true
+    const pending = peekPendingDeviceEntry()
+    const deviceCode = pending?.deviceCode
+    if (pending) dismissPendingDeviceEntry(pending.entryId)
+    routeToFactoryAcceptance(deviceCode)
+    return true
+  } catch (error) {
+    if (sequence !== bootstrapSequence) return true
+    if (factoryBindingRequired(error)) {
+      forgetFactoryBinding()
+      return false
+    }
+    if (errorCode(error) === 'IDENTITY.FACTORY_OPERATOR_UNAVAILABLE') {
+      forgetFactoryBinding()
+      return false
+    }
+    console.warn('[factory-auth] 厂家身份自动识别暂未完成', error)
+    // 已知厂家微信在网络不确定时不能降级成用户投递，避免扫描设备码后
+    // 因一次探测超时而建立错误的普通用户业务。
+    if (!isFactoryBindingKnown()) return false
+    const pending = peekPendingDeviceEntry()
+    const deviceCode = pending?.deviceCode
+    if (pending) dismissPendingDeviceEntry(pending.entryId)
+    routeToFactoryAcceptance(deviceCode)
+    return true
+  }
+}
+
+async function bootstrapOrdinaryIdentity(sequence: number): Promise<void> {
   const pending = peekPendingDeviceEntry()
   const current = getSession()
 
@@ -67,12 +116,17 @@ async function bootstrapIdentity(sequence: number): Promise<void> {
     routeToEntry(session)
   } catch (error) {
     if (sequence !== bootstrapSequence) return
-    // 新用户从普通入口进入时，后端明确要求先扫码注册；这不是页面错误，
-    // 首页继续保持游客态即可。
+    // 新用户从普通入口进入时，后端明确要求先扫码注册；首页保持游客态。
     if (errorCode(error) !== 'IDENTITY.DEVICE_REGISTRATION_REQUIRED') {
       console.warn('[miniapp-auth] 静默登录暂未完成', error)
     }
   }
+}
+
+async function bootstrapIdentity(sequence: number): Promise<void> {
+  // 同一微信如果已经绑定厂家操作员，厂家身份始终先于普通用户/清运身份。
+  if (await enterFactoryIfBound(sequence)) return
+  await bootstrapOrdinaryIdentity(sequence)
 }
 
 function startIdentityBootstrap(): void {
@@ -97,9 +151,16 @@ App<IAppOption>({
   },
   onLaunch() {
     migrateLegacyMiniappCredentials(wx)
+    const options = wx.getEnterOptionsSync()
+    captureFactoryBindingEntry(options)
+    captureOrdinaryDeviceEntry(options)
   },
   onShow() {
-    captureOrdinaryDeviceEntry(wx.getEnterOptionsSync())
+    const options = wx.getEnterOptionsSync()
+    captureFactoryBindingEntry(options)
+    captureOrdinaryDeviceEntry(options)
+    // 分包页面负责自身会话和错误展示，避免 App 自动路由造成循环。
+    if (isFactoryPage(options.path)) return
     startIdentityBootstrap()
   },
 })

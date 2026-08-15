@@ -3,6 +3,7 @@ package org.enveloping.ecobin.device.application.target;
 import org.enveloping.ecobin.device.api.port.TrustedPlatformDeviceAssetFactPort;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
+import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,7 +29,8 @@ public class TrustedPlatformDeviceAssetFactService
     private static final Set<String> SUPPORTED = Set.of(
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
-            "SAFETY_SENSOR_STATE_CHANGED");
+            "SAFETY_SENSOR_STATE_CHANGED",
+            "REMOTE_SUPPORT_TUNNEL_STATUS");
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
@@ -37,14 +39,17 @@ public class TrustedPlatformDeviceAssetFactService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final ReliablePlatformEdgeConfirmationService confirmationService;
+    private final RemoteSupportSessionService remoteSupportSessions;
 
     public TrustedPlatformDeviceAssetFactService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            ReliablePlatformEdgeConfirmationService confirmationService) {
+            ReliablePlatformEdgeConfirmationService confirmationService,
+            RemoteSupportSessionService remoteSupportSessions) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.confirmationService = confirmationService;
+        this.remoteSupportSessions = remoteSupportSessions;
     }
 
     @Override
@@ -55,7 +60,7 @@ public class TrustedPlatformDeviceAssetFactService
             throw new IllegalArgumentException(
                     "unsupported platform device asset fact");
         }
-        return inboxEvent.sourceInbox().use(ignoredInboxId -> {
+        return inboxEvent.sourceInbox().use(sourceInboxId -> {
             JsonNode normalized = objectMapper.readTree(
                     inboxEvent.normalizedPayload());
             JsonNode source = requiredObject(normalized, "trustedSource");
@@ -88,6 +93,12 @@ public class TrustedPlatformDeviceAssetFactService
             }
             LocalDateTime now = jdbc.queryForObject(
                     "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+            boolean remoteSupportChanged = false;
+            if ("REMOTE_SUPPORT_TUNNEL_STATUS".equals(
+                    inboxEvent.messageKind())) {
+                remoteSupportChanged = remoteSupportSessions.applyStatus(
+                        sourceInboxId, normalized);
+            }
             confirmationService.ensureApplied(
                     assetIds.getFirst(),
                     hardwareSn,
@@ -95,7 +106,9 @@ public class TrustedPlatformDeviceAssetFactService
                     payloadSha256,
                     "NO_ACTION_REQUIRED",
                     now);
-            return TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
+            return remoteSupportChanged
+                    ? TrustedDeviceEventApplyResult.APPLIED
+                    : TrustedDeviceEventApplyResult.NO_ACTION_REQUIRED;
         });
     }
 

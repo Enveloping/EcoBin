@@ -183,6 +183,59 @@ test('platform administrator governance stays root-only while self-service stays
   assert.match(accountSource, /changeCurrentPlatformAdministratorPassword/);
 });
 
+test('factory operators are independent identities with a hidden miniapp entry', () => {
+  const routeSource = readFileSync(
+    new URL('src/router/routes.tsx', webRoot),
+    'utf8',
+  );
+  const operatorApi = readFileSync(
+    new URL('src/api/factoryOperators.ts', webRoot),
+    'utf8',
+  );
+  const operatorPage = readFileSync(
+    new URL('src/pages/factory-operators/index.tsx', webRoot),
+    'utf8',
+  );
+  const maintenancePanel = readFileSync(
+    new URL('src/pages/account/MaintenanceAccessPanel.tsx', webRoot),
+    'utf8',
+  );
+  const miniRoot = new URL('../miniprogram/miniprogram/', import.meta.url);
+  const appJson = readFileSync(new URL('app.json', miniRoot), 'utf8');
+  const appSource = readFileSync(new URL('app.ts', miniRoot), 'utf8');
+  const profileSource = readFileSync(
+    new URL('pages/profile/profile.ts', miniRoot),
+    'utf8',
+  );
+  const bindingPage = readFileSync(
+    new URL('factory/pages/bind/bind.ts', miniRoot),
+    'utf8',
+  );
+
+  assert.match(
+    routeSource,
+    /path: '\/factory-operators'[\s\S]*?allOf: \['platform-admin\.manage'\]/,
+  );
+  assert.match(operatorApi, /\/api\/v1\/web\/platform\/factory-operators/);
+  assert.match(operatorApi, /intent\.execute/);
+  assert.match(operatorPage, /miniProgramCodeDataUrl/);
+  assert.match(operatorPage, /新建厂家操作员/);
+  assert.doesNotMatch(maintenancePanel, /miniapp|绑定二维码|工厂验收/);
+
+  assert.match(appJson, /"root":\s*"factory"/);
+  assert.match(appJson, /"pages\/bind\/bind"/);
+  assert.doesNotMatch(appJson, /pages\/factory-acceptance/);
+  assert.match(appSource, /enterFactoryIfBound/);
+  assert.match(appSource, /await enterFactoryIfBound\(sequence\)/);
+  assert.match(
+    appSource,
+    /if \(!isFactoryBindingKnown\(\)\) return false[\s\S]*?routeToFactoryAcceptance\(deviceCode\)/,
+  );
+  assert.doesNotMatch(profileSource, /工厂验收|factory\/pages/);
+  assert.match(bindingPage, /consumeFactoryBindingToken/);
+  assert.match(bindingPage, /loginFactory\(token\)/);
+});
+
 test('delivery Web slice stays on generated contracts and additive commands', () => {
   const routeSource = readFileSync(
     new URL('src/router/routes.tsx', webRoot),
@@ -380,7 +433,8 @@ test('device Web slice keeps one permanent asset and automatic activation model'
   assert.match(pageSource, /永久设备资产/);
   assert.match(pageSource, /永久分配租户/);
   assert.match(pageSource, /永久分配机构/);
-  assert.match(pageSource, /factoryBags/);
+  assert.doesNotMatch(pageSource, /factoryBags/);
+  assert.match(pageSource, /共享小程序的设备出厂端/);
   assert.match(pageSource, /联网即可使用/);
   assert.match(pageSource, /运行快照策略/);
   assert.match(runtimePolicySource, /不是设备在线心跳/);

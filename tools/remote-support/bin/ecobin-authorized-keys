@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""OpenSSH AuthorizedKeysCommand for the ecobin-tunnel account."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+
+def _load_module() -> None:
+    repository_library = Path(__file__).resolve().parent.parent / "lib"
+    installed_library = Path("/usr/local/libexec/ecobin-remote-support")
+    sys.path.insert(
+        0, str(repository_library if repository_library.is_dir() else installed_library)
+    )
+
+
+_load_module()
+
+from ecobin_remote_support import (  # noqa: E402
+    DEFAULT_POLICY_PATH,
+    LeaseError,
+    authorized_key_line,
+    find_lease_for_key,
+    load_policy,
+)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("username")
+    parser.add_argument("key_type")
+    parser.add_argument("key_base64")
+    parser.add_argument("fingerprint")
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY_PATH)
+    parser.add_argument("--allow-unprivileged-policy", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.username != "ecobin-tunnel":
+        return 0
+    try:
+        expected_policy_uid = os.getuid() if arguments.allow_unprivileged_policy else 0
+        policy = load_policy(
+            arguments.policy, expected_policy_uid=expected_policy_uid
+        )
+        if os.geteuid() != policy.lease_reader_uid:
+            raise LeaseError("AuthorizedKeysCommand is running as the wrong account")
+        lease, diagnostics = find_lease_for_key(
+            policy,
+            key_type=arguments.key_type,
+            key_base64=arguments.key_base64,
+            fingerprint=arguments.fingerprint,
+        )
+        for diagnostic in diagnostics:
+            print(f"ecobin-authorized-keys: {diagnostic}", file=sys.stderr)
+        if lease is not None:
+            print(authorized_key_line(lease))
+        return 0
+    except LeaseError as exc:
+        print(f"ecobin-authorized-keys: access denied: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

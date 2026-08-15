@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Reference atomic writer and diagnostic CLI for remote-support leases."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+import time
+from pathlib import Path
+
+
+def _load_module() -> None:
+    repository_library = Path(__file__).resolve().parent.parent / "lib"
+    installed_library = Path("/usr/local/libexec/ecobin-remote-support")
+    sys.path.insert(
+        0, str(repository_library if repository_library.is_dir() else installed_library)
+    )
+
+
+_load_module()
+
+from ecobin_remote_support import (  # noqa: E402
+    DEFAULT_POLICY_PATH,
+    Lease,
+    LeaseError,
+    LeaseNotFound,
+    atomic_json_write,
+    load_policy,
+    make_lease,
+    parse_public_key_file,
+    read_actual,
+    read_lease,
+    unlink_and_fsync,
+    writer_lock,
+)
+
+
+def _require_writer(policy: object) -> None:
+    effective_uid = os.geteuid()
+    if effective_uid not in (0, policy.backend_uid):
+        raise LeaseError("lease changes require root or the configured backend UID")
+
+
+def _active_leases(policy: object, now: int) -> list[Lease]:
+    result: list[Lease] = []
+    for port in policy.ports:
+        try:
+            result.append(read_lease(policy, port, now=now))
+        except LeaseError:
+            continue
+    return result
+
+
+def publish(arguments: argparse.Namespace) -> int:
+    policy = load_policy(arguments.policy)
+    _require_writer(policy)
+    now = int(time.time())
+    key_type, key_base64, _fingerprint = parse_public_key_file(
+        arguments.public_key_file
+    )
+    lease = make_lease(
+        policy,
+        session_uid=arguments.session_uid,
+        hardware_sn=arguments.hardware_sn,
+        key_type=key_type,
+        key_base64=key_base64,
+        listen_port=arguments.port,
+        created_at=now,
+        expires_at=arguments.expires_at_epoch,
+    )
+    with writer_lock(policy):
+        try:
+            existing = read_lease(policy, arguments.port, now=now)
+        except LeaseError:
+            existing = None
+        if existing is not None:
+            if (
+                existing.session_uid == lease.session_uid
+                and existing.hardware_sn == lease.hardware_sn
+                and existing.key_fingerprint == lease.key_fingerprint
+                and existing.expires_at == lease.expires_at
+            ):
+                print(f"lease-publish=UNCHANGED port={lease.listen_port}")
+                return 0
+            raise LeaseError("listen slot already has a different active lease")
+        try:
+            actual = read_actual(policy, arguments.port)
+        except LeaseNotFound:
+            actual = None
+        if actual is not None and actual["sessionUid"] != lease.session_uid:
+            raise LeaseError("listen slot still has an actual marker from another session")
+        for other in _active_leases(policy, now):
+            if other.listen_port == lease.listen_port:
+                continue
+            if (
+                other.session_uid == lease.session_uid
+                or other.hardware_sn == lease.hardware_sn
+                or other.key_fingerprint == lease.key_fingerprint
+            ):
+                raise LeaseError("session, device, or key already owns another listen slot")
+        atomic_json_write(
+            policy.desired_directory,
+            f"{lease.listen_port}.json",
+            lease.as_json(),
+            expected_uid=policy.backend_uid,
+            expected_gid=policy.lease_reader_gid,
+        )
+    print(f"lease-publish=CREATED port={lease.listen_port}")
+    return 0
+
+
+def revoke(arguments: argparse.Namespace) -> int:
+    policy = load_policy(arguments.policy)
+    _require_writer(policy)
+    with writer_lock(policy):
+        try:
+            lease = read_lease(policy, arguments.port, require_active=False)
+        except LeaseNotFound:
+            print(f"lease-revoke=ALREADY_ABSENT port={arguments.port}")
+            return 0
+        if lease.session_uid != arguments.session_uid:
+            raise LeaseError("refusing to revoke a slot now owned by another session")
+        unlink_and_fsync(policy.desired_directory, f"{arguments.port}.json")
+
+    deadline = time.monotonic() + arguments.wait_seconds
+    while time.monotonic() < deadline:
+        try:
+            marker = read_actual(policy, arguments.port)
+        except LeaseNotFound:
+            print(f"lease-revoke=CLOSED port={arguments.port}")
+            return 0
+        if marker["sessionUid"] != arguments.session_uid:
+            print(f"lease-revoke=CLOSED port={arguments.port}")
+            return 0
+        time.sleep(0.1)
+    try:
+        marker = read_actual(policy, arguments.port)
+    except LeaseNotFound:
+        print(f"lease-revoke=CLOSED port={arguments.port}")
+        return 0
+    if marker["sessionUid"] == arguments.session_uid:
+        print(
+            f"lease-revoke=ACTUAL_MARKER_TIMEOUT port={arguments.port}",
+            file=sys.stderr,
+        )
+        return 3
+    print(f"lease-revoke=CLOSED port={arguments.port}")
+    return 0
+
+
+def show(arguments: argparse.Namespace) -> int:
+    policy = load_policy(arguments.policy)
+    result: dict[str, object] = {"listenHost": policy.listen_host, "slots": []}
+    slots: list[dict[str, object]] = []
+    for port in policy.ports:
+        slot: dict[str, object] = {"port": port}
+        try:
+            lease = read_lease(policy, port, require_active=False)
+            slot["desired"] = {
+                "sessionUid": lease.session_uid,
+                "hardwareSn": lease.hardware_sn,
+                "keyFingerprint": lease.key_fingerprint,
+                "createdAtEpochSecond": lease.created_at,
+                "expiresAtEpochSecond": lease.expires_at,
+            }
+        except LeaseNotFound:
+            slot["desired"] = None
+        except LeaseError as exc:
+            slot["desired"] = {"invalid": str(exc)}
+        try:
+            marker = read_actual(policy, port)
+            slot["actual"] = marker
+        except LeaseNotFound:
+            slot["actual"] = None
+        except LeaseError as exc:
+            slot["actual"] = {"invalid": str(exc)}
+        slots.append(slot)
+    result["slots"] = slots
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY_PATH)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    publish_parser = subparsers.add_parser("publish")
+    publish_parser.add_argument("--session-uid", required=True)
+    publish_parser.add_argument("--hardware-sn", required=True)
+    publish_parser.add_argument("--port", required=True, type=int)
+    publish_parser.add_argument("--public-key-file", required=True, type=Path)
+    publish_parser.add_argument("--expires-at-epoch", required=True, type=int)
+    publish_parser.set_defaults(handler=publish)
+
+    revoke_parser = subparsers.add_parser("revoke")
+    revoke_parser.add_argument("--session-uid", required=True)
+    revoke_parser.add_argument("--port", required=True, type=int)
+    revoke_parser.add_argument("--wait-seconds", type=float, default=5.0)
+    revoke_parser.set_defaults(handler=revoke)
+
+    show_parser = subparsers.add_parser("show")
+    show_parser.set_defaults(handler=show)
+    return parser
+
+
+def main() -> int:
+    arguments = build_parser().parse_args()
+    wait_seconds = getattr(arguments, "wait_seconds", 0)
+    if not math.isfinite(wait_seconds) or wait_seconds < 0 or wait_seconds > 30:
+        print("ecobin-leasectl: wait-seconds must be between 0 and 30", file=sys.stderr)
+        return 2
+    try:
+        return arguments.handler(arguments)
+    except LeaseError as exc:
+        print(f"ecobin-leasectl: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

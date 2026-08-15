@@ -1,0 +1,1 @@
+restrict,port-forwarding,permitopen="127.0.0.1:22011",permitopen="127.0.0.1:22012",permitopen="127.0.0.1:22013",permitopen="127.0.0.1:22014" ecobin-jump

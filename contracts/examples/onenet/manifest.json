@@ -69,6 +69,14 @@
       "schema": "../../onenet/commands/commands.schema.json"
     },
     {
+      "file": "open-remote-support-tunnel.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
+      "file": "close-remote-support-tunnel.command.json",
+      "schema": "../../onenet/commands/commands.schema.json"
+    },
+    {
       "file": "device-command-observed.event.json",
       "schema": "../../onenet/events/events.schema.json"
     },
@@ -106,6 +114,10 @@
     },
     {
       "file": "device-acceptance-evidence.event.json",
+      "schema": "../../onenet/events/events.schema.json"
+    },
+    {
+      "file": "remote-support-tunnel-status.event.json",
       "schema": "../../onenet/events/events.schema.json"
     }
   ],

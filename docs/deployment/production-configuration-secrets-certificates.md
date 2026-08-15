@@ -1,7 +1,7 @@
 # EcoBin 生产部署配置、密钥与证书清单
 
 > 适用目标：`ubuntu@115.159.67.35`、Ubuntu 22.04、
-> `https://www.jinshoubao.com`、目标数据库 V51。
+> `https://www.jinshoubao.com`、目标数据库 V52。
 >
 > 本文只记录配置项名称、用途和存放位置，不记录任何真实值。完整的安装、启动、
 > Nginx 切换和回退步骤见
@@ -28,7 +28,8 @@
 ```text
 /etc/ecobin/
 ├── compose/
-│   └── docker-compose.target-app.yml       root:root 0600
+│   ├── docker-compose.target-app.yml       root:root 0600
+│   └── docker-compose.remote-support.yml   root:root 0644
 ├── h02/
 │   ├── docker-compose.h02-server.yml       数据库 Compose
 │   └── compose.env                         数据库非秘密部署参数
@@ -40,6 +41,8 @@
 │   ├── db-backup-password                  root:root 0600
 │   ├── jwt-secret                          root:root 0600
 │   ├── bag-code-key-k1                     root:root 0600
+│   ├── device-enrollment-key-k1            root:root 0600；条件启用
+│   ├── remote-support-maintenance-user-ca  root:root 0600；条件启用
 │   ├── default-platform-admin-password     root:root 0600
 │   └── ...                                 Real 模式渠道秘密
 ├── wechatpay/                              root:root 0755
@@ -115,6 +118,8 @@ externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 miniappDeviceEntryBaseUrl=https://www.jinshoubao.com/device-entry/
 onenetSubscriptionEnabled=false
+deviceEnrollmentEnabled=false
+remoteSupportEnabled=false
 TZ=UTC
 ```
 
@@ -142,6 +147,8 @@ TZ=UTC
 iotSubscriptionName=<OneNet北向订阅名称>
 onenetProductId=<OneNet产品ID>
 onenetSubscriptionEnabled=true
+deviceEnrollmentEnabled=false
+remoteSupportEnabled=false
 
 cosRegion=<例如ap-shanghai>
 cosBucketName=<完整bucket-appId>
@@ -185,7 +192,7 @@ H02_VOLUME_NAME=ecobin-target-mysql84-data
 H02_NETWORK_NAME=ecobin-target-db
 ```
 
-当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V51。V51 是数据库纪元门禁，
+当前服务器目标库的实际版本必须在应用部署前现场核对并前向升级到 V52。V52 是数据库纪元门禁，
 不是可以通过修改 `runtime.env` 绕过的配置项。
 
 ### 3.5 从仓库安装到服务器的固定文件
@@ -193,9 +200,11 @@ H02_NETWORK_NAME=ecobin-target-db
 | 仓库文件 | 服务器位置 | 建议权限 |
 |---|---|---|
 | `deploy/production/docker-compose.target-app.yml` | `/etc/ecobin/compose/docker-compose.target-app.yml` | `root:root 0600` |
+| `deploy/production/docker-compose.remote-support.yml` | `/etc/ecobin/compose/docker-compose.remote-support.yml` | `root:root 0644` |
 | `deploy/production/docker-compose.h02-server.yml` | `/etc/ecobin/h02/docker-compose.h02-server.yml` | `root:root 0600` |
 | `deploy/production/nginx/jinshoubao.com.conf` | `/etc/nginx/sites-available/jinshoubao` | `root:root 0644` |
 | `tools/deployment/ecobin-stage-runtime-secrets.sh` | `/usr/local/sbin/ecobin-stage-runtime-secrets` | `root:root 0755` |
+| `tools/deployment/ecobin-target-app-compose.sh` | `/usr/local/sbin/ecobin-target-app-compose` | `root:root 0755` |
 | `tools/deployment/ecobin-production-preflight.sh` | `/usr/local/sbin/ecobin-production-preflight` | `root:root 0755` |
 | `tools/deployment/ecobin-runtime-secret-probe.sh` | `/usr/local/sbin/ecobin-runtime-secret-probe` | `root:root 0755` |
 | `tools/deployment/ecobin-install-local-release.sh` | `/usr/local/sbin/ecobin-install-local-release` | `root:root 0755` |
@@ -377,13 +386,13 @@ curl --fail --silent http://127.0.0.1:18080/ >/dev/null
 
 Real 模式切换前还应人工确认：
 
-- [ ] 目标数据库已经是 V51，且共有 99 张领域表；
+- [ ] 目标数据库已经是 V52，且共有 112 张领域表、76 条权限定义；
 - [ ] 发布包来自干净 Git 提交，归档和包内逐文件 SHA-256 校验均通过；
 - [ ] 两个本地镜像的标签、image ID、发布记录和镜像标签一致；
 - [ ] `deployment.env` 与 `runtime.env` 均为 `root:root 0600` 且使用 LF；
 - [ ] `/var/log/ecobin/backend` 为真实目录、不是符号链接，权限精确为
   `10001:10001 0750`；
-- [ ] `/etc/ecobin/secrets` 的基础六项和 Real 七项全部存在；
+- [ ] `/etc/ecobin/secrets` 的基础项和 Real 渠道项全部存在；启用设备注册/远程维护时，对应 K1/CA 私钥也存在且权限正确；
 - [ ] `bag-code-key-k1` 是有效 Base64，解码后至少 32 字节；
 - [ ] APIv3 密钥正好 32 字节且没有换行；
 - [ ] 商户私钥、商户 API 证书和证书序列号互相匹配；

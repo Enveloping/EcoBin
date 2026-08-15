@@ -1,0 +1,42 @@
+page { background: #f4f7f3; }
+.factory-page { min-height: 100vh; padding: 28rpx 28rpx calc(50rpx + env(safe-area-inset-bottom)); box-sizing: border-box; color: #1e2b21; }
+.hero-card, .state-card, .device-card { background: #fff; border: 1rpx solid #e1e9e2; border-radius: 26rpx; box-shadow: 0 12rpx 34rpx rgba(34, 66, 39, .055); }
+.hero-card { display: flex; align-items: center; padding: 25rpx; }
+.hero-icon { display: flex; width: 78rpx; height: 78rpx; align-items: center; justify-content: center; flex: 0 0 auto; background: #eaf8ed; border-radius: 23rpx; }
+.hero-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; margin-left: 20rpx; }
+.hero-title { font-size: 29rpx; font-weight: 720; }
+.hero-sub { margin-top: 6rpx; overflow: hidden; color: #849087; font-size: 20rpx; text-overflow: ellipsis; white-space: nowrap; }
+.identity-switch { height: 58rpx; margin: 0 0 0 14rpx; padding: 0 18rpx; color: #4f5d52; font-size: 19rpx; line-height: 58rpx; background: #f0f4f0; border-radius: 30rpx; }
+.identity-switch::after, .scan-device-button::after, .slot-action::after { border: 0; }
+.state-card { display: flex; min-height: 430rpx; align-items: center; justify-content: center; flex-direction: column; margin-top: 22rpx; padding: 45rpx 38rpx; box-sizing: border-box; color: #738078; text-align: center; }
+.state-title { margin-top: 22rpx; color: #243027; font-size: 28rpx; font-weight: 700; }
+.state-copy { max-width: 560rpx; margin-top: 12rpx; font-size: 22rpx; line-height: 1.7; }
+.scan-device-button { display: flex; height: 88rpx; align-items: center; justify-content: center; gap: 12rpx; margin-top: 22rpx; color: #fff; font-size: 27rpx; font-weight: 700; line-height: 88rpx; background: #10a92a; border: 0; border-radius: 44rpx; box-shadow: 0 12rpx 25rpx rgba(16, 169, 42, .18); }
+.error-card { margin-top: 18rpx; padding: 20rpx 22rpx; color: #9c3f31; font-size: 21rpx; line-height: 1.55; background: #fff0ed; border-radius: 18rpx; }
+.device-card { margin-top: 22rpx; padding: 28rpx 24rpx; }
+.device-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16rpx; }
+.device-head > view:first-child { display: flex; min-width: 0; flex-direction: column; }
+.eyebrow { color: #8a958c; font-size: 19rpx; }
+.hardware-sn { margin-top: 5rpx; overflow: hidden; font-size: 27rpx; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
+.device-code { margin-top: 5rpx; color: #6f7b72; font-size: 19rpx; }
+.status { flex: 0 0 auto; padding: 8rpx 14rpx; font-size: 19rpx; border-radius: 99rpx; }
+.status-PENDING { color: #8b5b13; background: #fff3db; }
+.status-FAILED { color: #a13d31; background: #ffebe8; }
+.status-PASSED { color: #157f2b; background: #e8f7eb; }
+.complete-notice, .pending-notice { margin-top: 22rpx; padding: 18rpx 20rpx; font-size: 21rpx; line-height: 1.6; border-radius: 16rpx; }
+.complete-notice { display: flex; align-items: flex-start; gap: 10rpx; color: #31723c; background: #ebf8ed; }
+.pending-notice { color: #7f5b22; background: #fff5e5; }
+.slot-list { margin-top: 20rpx; border-top: 1rpx solid #edf1ed; }
+.slot-row { display: flex; min-height: 124rpx; align-items: center; padding: 18rpx 0; border-bottom: 1rpx solid #edf1ed; }
+.slot-number { display: flex; width: 56rpx; height: 56rpx; align-items: center; justify-content: center; flex: 0 0 auto; color: #11872b; font-size: 24rpx; font-weight: 750; background: #ebf8ed; border-radius: 18rpx; }
+.slot-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; margin: 0 16rpx; }
+.slot-title { font-size: 23rpx; font-weight: 680; }
+.bag-code { margin-top: 5rpx; overflow: hidden; color: #4f5d52; font-family: monospace; font-size: 18rpx; text-overflow: ellipsis; white-space: nowrap; }
+.slot-empty { margin-top: 5rpx; color: #9a6d2c; font-size: 19rpx; }
+.installed-at { margin-top: 4rpx; color: #939d95; font-size: 17rpx; }
+.slot-action { min-width: 150rpx; height: 62rpx; padding: 0 18rpx; color: #fff; font-size: 20rpx; line-height: 62rpx; background: #10a92a; border-radius: 32rpx; }
+.slot-action--correct { color: #59665c; background: #eef2ee; }
+.slot-action[disabled] { opacity: .5; }
+.refresh-link { margin-top: 24rpx; color: #11872b; font-size: 21rpx; text-align: center; }
+.spinner { width: 54rpx; height: 54rpx; margin-bottom: 18rpx; border: 5rpx solid #d9ebdc; border-top-color: #14a62e; border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

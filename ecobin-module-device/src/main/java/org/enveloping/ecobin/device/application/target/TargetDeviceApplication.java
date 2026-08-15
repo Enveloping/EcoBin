@@ -1,6 +1,5 @@
 package org.enveloping.ecobin.device.application.target;
 
-import org.enveloping.ecobin.device.api.port.BagCodeAdmissionPort;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AcceptanceEvidenceView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignOrganizationRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.AssignTenantRequest;
@@ -25,7 +24,6 @@ import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceAssetView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceInstallationProfileView;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceControlRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.DeviceTechnicalIssueView;
-import org.enveloping.ecobin.device.web.v1.DeviceModels.FactoryInstalledBagRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.PageData;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyReleaseRequest;
 import org.enveloping.ecobin.device.web.v1.DeviceModels.RuntimeSnapshotPolicyView;
@@ -67,7 +65,6 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -116,7 +113,6 @@ public class TargetDeviceApplication {
     private final String oneNetProductId;
     private final DeviceEntryUrlFactory deviceEntryUrlFactory;
     private final AutomaticDeviceActivationService activationService;
-    private final BagCodeAdmissionPort bagCodeAdmission;
 
     public TargetDeviceApplication(
             JdbcTemplate jdbc,
@@ -131,8 +127,7 @@ public class TargetDeviceApplication {
             ReliableTaskWakePort taskWakePort,
             DeviceCommandTaskRefFactory taskRefFactory,
             @Value("${onenet.product-id:}") String oneNetProductId,
-            DeviceEntryUrlFactory deviceEntryUrlFactory,
-            BagCodeAdmissionPort bagCodeAdmission) {
+            DeviceEntryUrlFactory deviceEntryUrlFactory) {
         this.jdbc = jdbc;
         this.authorizationPort = authorizationPort;
         this.auditPort = auditPort;
@@ -146,7 +141,6 @@ public class TargetDeviceApplication {
         this.taskRefFactory = taskRefFactory;
         this.oneNetProductId = blankToNull(oneNetProductId);
         this.deviceEntryUrlFactory = deviceEntryUrlFactory;
-        this.bagCodeAdmission = bagCodeAdmission;
     }
 
     @Transactional(readOnly = true)
@@ -1718,6 +1712,7 @@ public class TargetDeviceApplication {
                             INSERT INTO dev_device_asset (
                                 asset_uid, device_public_code, hardware_sn,
                                 model_name, production_batch,
+                                registration_source,
                                 expected_port_count,
                                 installation_display_name,
                                 installation_updated_at,
@@ -1732,7 +1727,7 @@ public class TargetDeviceApplication {
                                 retirement_reason, control_version,
                                 created_at, updated_at
                             ) VALUES (
-                                ?, ?, ?, ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?, ?, 'PLATFORM_MANUAL', ?, ?, ?,
                                 NULL, NULL, NULL, NULL,
                                 'PENDING', NULL, NULL, NULL, NULL,
                                 'NORMAL', NULL, NULL, NULL, NULL, 0, ?, ?
@@ -1763,16 +1758,6 @@ public class TargetDeviceApplication {
                         ) VALUES (?, 'UNKNOWN', NULL, NULL, NULL, NULL, 0, ?, ?)
                         """,
                 asset.id(), now, now);
-        for (FactoryBag bag : request.factoryBags()) {
-            jdbc.update("""
-                            INSERT INTO dev_factory_installed_bag (
-                                asset_id, port_no, bag_code, tare_status,
-                                last_failure_code, installed_at,
-                                created_at, updated_at
-                            ) VALUES (?, ?, ?, 'PENDING', NULL, ?, ?, ?)
-                            """,
-                    asset.id(), bag.portNo(), bag.bagCode(), now, now, now);
-        }
         DeviceAssetView response = platformView(request.hardwareSn());
         return new CommandResult<>(
                 response,
@@ -3464,39 +3449,18 @@ public class TargetDeviceApplication {
 
     private NormalizedAssetCreate normalizeCreate(
             CreateDeviceAssetRequest request) {
-        if (request == null || request.expectedPortCount() == null
-                || request.factoryBags() == null) {
+        if (request == null || request.expectedPortCount() == null) {
             throw invalid("设备资产请求不完整");
         }
         int portCount = request.expectedPortCount();
-        if (portCount < 1 || portCount > 6
-                || request.factoryBags().size() != portCount) {
-            throw invalid("厂家初始袋必须恰好覆盖每个投口");
+        if (portCount < 1 || portCount > 6) {
+            throw invalid("设备投口数量必须在 1 到 6 之间");
         }
-        Set<Integer> ports = new LinkedHashSet<>();
-        Set<String> codes = new LinkedHashSet<>();
-        List<FactoryBag> bags = new ArrayList<>();
-        for (FactoryInstalledBagRequest bag : request.factoryBags()) {
-            if (bag == null || bag.portNo() == null
-                    || bag.portNo() < 1 || bag.portNo() > portCount) {
-                throw invalid("厂家初始袋投口编号无效");
-            }
-            String code = bagCodeAdmission.authenticate(bag.bagCode())
-                    .orElseThrow(() -> invalid(
-                            "厂家初始袋码未通过 EB1 防伪校验"))
-                    .value();
-            if (!ports.add(bag.portNo()) || !codes.add(code)) {
-                throw invalid("厂家初始袋投口或袋码重复");
-            }
-            bags.add(new FactoryBag(bag.portNo(), code));
-        }
-        bags.sort(java.util.Comparator.comparingInt(FactoryBag::portNo));
         return new NormalizedAssetCreate(
                 normalizeHardwareSn(request.hardwareSn()),
                 required(request.modelCode(), 100, "modelCode"),
                 optional(request.productionBatch(), 64),
-                portCount,
-                List.copyOf(bags));
+                portCount);
     }
 
     private long insertAndReturnKey(String sql, Object... args) {
@@ -3839,8 +3803,7 @@ public class TargetDeviceApplication {
             String hardwareSn,
             String modelCode,
             String productionBatch,
-            int expectedPortCount,
-            List<FactoryBag> factoryBags) {
+            int expectedPortCount) {
     }
 
     private record EvidenceDecision(

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.enveloping.ecobin.identity.api.error.WechatExchangeException;
 import org.enveloping.ecobin.identity.api.port.WechatPhoneNumberPort;
+import org.enveloping.ecobin.identity.api.port.WechatMiniProgramCodePort;
 import org.enveloping.ecobin.identity.api.port.WechatSessionPort;
 import org.enveloping.ecobin.identity.api.result.WechatPhoneNumber;
 import org.enveloping.ecobin.identity.api.result.WechatSession;
@@ -13,6 +14,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.HttpStatusCodeException;
 import tools.jackson.databind.ObjectMapper;
@@ -36,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap;
         havingValue = "real")
 @RequiredArgsConstructor
 public class WechatMiniappClient
-        implements WechatSessionPort, WechatPhoneNumberPort {
+        implements WechatSessionPort, WechatPhoneNumberPort,
+        WechatMiniProgramCodePort {
 
     private final RestTemplate restTemplate;
 
@@ -54,6 +57,8 @@ public class WechatMiniappClient
             "https://api.weixin.qq.com/cgi-bin/stable_token";
     private static final String PHONE_NUMBER_URL =
             "https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token={accessToken}";
+    private static final String MINI_PROGRAM_CODE_URL =
+            "https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token={accessToken}";
 
     private final Map<String, AccessToken> accessTokens =
             new ConcurrentHashMap<>();
@@ -175,6 +180,82 @@ public class WechatMiniappClient
         return new WechatPhoneNumber(
                 pureNumber,
                 phoneInfo.path("countryCode").asText(null));
+    }
+
+    @Override
+    public byte[] generate(
+            String appid,
+            String appSecret,
+            String page,
+            String scene) {
+        AccessToken token = accessToken(appid, appSecret, false);
+        byte[] result = requestMiniProgramCode(
+                appid, token.value(), page, scene);
+        JsonNode rejection = jsonResponse(result);
+        int errorCode = rejection == null
+                ? 0 : rejection.path("errcode").asInt(-1);
+        if (errorCode == 40001 || errorCode == 42001) {
+            accessTokens.remove(tokenKey(appid, appSecret));
+            token = accessToken(appid, appSecret, true);
+            result = requestMiniProgramCode(
+                    appid, token.value(), page, scene);
+            rejection = jsonResponse(result);
+            errorCode = rejection == null
+                    ? 0 : rejection.path("errcode").asInt(-1);
+        }
+        if (rejection != null) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=MINI_PROGRAM_CODE "
+                            + "outcome=REJECTED appId={} errcode={} errmsg={}",
+                    appid,
+                    errorCode,
+                    safeWechatMessage(rejection, token.value(), scene));
+            throw unavailable("微信小程序码生成服务暂不可用", null);
+        }
+        return result;
+    }
+
+    private byte[] requestMiniProgramCode(
+            String appid,
+            String accessToken,
+            String page,
+            String scene) {
+        try {
+            ResponseEntity<byte[]> response = restTemplate.postForEntity(
+                    MINI_PROGRAM_CODE_URL,
+                    fixedLengthJson(Map.of(
+                            "scene", scene,
+                            "page", page,
+                            "check_path", false,
+                            "env_version", "release")),
+                    byte[].class,
+                    accessToken);
+            byte[] body = response.getBody();
+            if (body == null || body.length == 0) {
+                throw unavailable("微信小程序码生成服务返回为空", null);
+            }
+            return body;
+        } catch (HttpStatusCodeException exception) {
+            log.warn(
+                    "WECHAT_MINIAPP_DIAGNOSTIC stage=MINI_PROGRAM_CODE "
+                            + "outcome=HTTP_REJECTED appId={} httpStatus={}",
+                    appid,
+                    exception.getStatusCode().value());
+            throw unavailable("微信小程序码生成服务暂不可用", exception);
+        } catch (RestClientException exception) {
+            throw unavailable("微信小程序码生成服务暂不可用", exception);
+        }
+    }
+
+    private JsonNode jsonResponse(byte[] body) {
+        if (body.length == 0 || body[0] != '{') {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(body);
+        } catch (Exception invalidJson) {
+            throw unavailable("微信小程序码响应无法解析", invalidJson);
+        }
     }
 
     private AccessToken accessToken(

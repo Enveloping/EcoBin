@@ -3319,6 +3319,45 @@ def build_onenet_examples() -> dict[str, Any]:
             "deviceEntryUrlSha256": device_entry_url_sha256,
         },
     )
+    remote_support_session_uid = (
+        "8b000000-0000-4000-8000-000000000001"
+    )
+    open_remote_support_command_uid = (
+        "8b000000-0000-4000-8000-000000000002"
+    )
+    open_remote_support_command = _command(
+        open_remote_support_command_uid,
+        "OPEN_REMOTE_SUPPORT_TUNNEL",
+        "REMOTE_SUPPORT_SESSION",
+        remote_support_session_uid,
+        {
+            "sessionUid": remote_support_session_uid,
+            "remotePort": 22011,
+            "expiresAt": "2026-07-24T01:01:00.000Z",
+        },
+    )
+    close_remote_support_command = _command(
+        "8b000000-0000-4000-8000-000000000003",
+        "CLOSE_REMOTE_SUPPORT_TUNNEL",
+        "REMOTE_SUPPORT_SESSION",
+        remote_support_session_uid,
+        {"sessionUid": remote_support_session_uid},
+    )
+    remote_support_status_event = _event(
+        "8b000000-0000-4000-8000-000000000004",
+        1056,
+        "REMOTE_SUPPORT_TUNNEL_STATUS",
+        "RELIABLE_FACT",
+        "DEVICE_ASSET",
+        "SN-CONTRACT-0001",
+        {
+            "sessionUid": remote_support_session_uid,
+            "state": "OPEN",
+            "remotePort": 22011,
+            "failureCode": None,
+        },
+        command_uid=open_remote_support_command_uid,
+    )
 
     return {
         "apply-configuration.command.json": (
@@ -3389,6 +3428,14 @@ def build_onenet_examples() -> dict[str, Any]:
             sync_device_entry_url_command,
             "../../onenet/commands/commands.schema.json",
         ),
+        "open-remote-support-tunnel.command.json": (
+            open_remote_support_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
+        "close-remote-support-tunnel.command.json": (
+            close_remote_support_command,
+            "../../onenet/commands/commands.schema.json",
+        ),
         "device-command-observed.event.json": (
             command_observed_event,
             "../../onenet/events/events.schema.json",
@@ -3427,6 +3474,10 @@ def build_onenet_examples() -> dict[str, Any]:
         ),
         "device-acceptance-evidence.event.json": (
             acceptance_evidence_event,
+            "../../onenet/events/events.schema.json",
+        ),
+        "remote-support-tunnel-status.event.json": (
+            remote_support_status_event,
             "../../onenet/events/events.schema.json",
         ),
     }
@@ -4481,8 +4532,11 @@ def _project_root_parameters(
             if property_summary["kind"] != "object":
                 raise ValueError("typed payload must be an object")
             for payload_name, payload_schema in property_summary["properties"].items():
+                wire_name = payload_name
+                if _safe_id(wire_name, 32) in seen_identifiers:
+                    wire_name = f"payload{_upper_camel(payload_name)}"
                 append_parameter(
-                    payload_name,
+                    wire_name,
                     payload_schema,
                     f"$.payload.{payload_name}",
                 )

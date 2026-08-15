@@ -13,9 +13,9 @@ RemainAfterExit=yes
 EnvironmentFile=/etc/ecobin/deployment.env
 ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0750 ${ECOBIN_BACKEND_LOG_DIRECTORY}
 ExecStartPre=/usr/local/sbin/ecobin-production-preflight
-ExecStart=/usr/bin/docker compose --env-file /etc/ecobin/deployment.env --file /etc/ecobin/compose/docker-compose.target-app.yml up --detach --no-build --wait --wait-timeout 180
-ExecReload=/usr/bin/docker compose --env-file /etc/ecobin/deployment.env --file /etc/ecobin/compose/docker-compose.target-app.yml up --detach --no-build --wait --wait-timeout 180
-ExecStop=/usr/bin/docker compose --env-file /etc/ecobin/deployment.env --file /etc/ecobin/compose/docker-compose.target-app.yml stop --timeout 60
+ExecStart=/usr/local/sbin/ecobin-target-app-compose up
+ExecReload=/usr/local/sbin/ecobin-target-app-compose reload
+ExecStop=/usr/local/sbin/ecobin-target-app-compose stop
 TimeoutStartSec=300
 TimeoutStopSec=90
 

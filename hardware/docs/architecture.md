@@ -2,6 +2,9 @@
 
 > 香橙派 Zero3 网关程序 — 模块划分、组件通信与数据流转
 
+首次自动注册、维护 CA 与 OneNet 按需反向 SSH 的运行和部署边界见
+[`enrollment-and-remote-support.md`](enrollment-and-remote-support.md)。
+
 ## 一、总览：程序在做什么
 
 香橙派 Zero3 作为**中继网关**，桥接三个世界：

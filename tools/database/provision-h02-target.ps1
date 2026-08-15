@@ -1005,15 +1005,18 @@ WHERE table_schema = '$DatabaseName'
                 $existingMaxVersion -eq 50) -or
             ($existingDomainTableCount -eq 99 -and
                 $existingHistoryCount -eq 51 -and
-                $existingMaxVersion -eq 51)
+                $existingMaxVersion -eq 51) -or
+            ($existingDomainTableCount -eq 112 -and
+                $existingHistoryCount -eq 52 -and
+                $existingMaxVersion -eq 52)
         )
         if (-not $resumeLayoutValid) {
             throw (
-                "Migrated resume requires a complete V30 through V51 " +
+                "Migrated resume requires a complete V30 through V52 " +
                 "target database"
             )
         }
-        if ($existingMaxVersion -lt 51) {
+        if ($existingMaxVersion -lt 52) {
             # Check before changing the owner account so a stale local tunnel
             # fails without opening a database mutation window.
             if ($RemoteHost.Length -gt 0) {
@@ -1072,7 +1075,7 @@ GRANT SELECT (
 "@ | Out-Null
         }
 
-        Invoke-FlywayMigration -Target 51 -OwnerPassword $ownerPassword
+        Invoke-FlywayMigration -Target 52 -OwnerPassword $ownerPassword
         $migrationCompleted = $true
 
         Invoke-RootSql -Sql @"
@@ -1107,8 +1110,8 @@ ALTER USER 'ecobin_schema_owner'@'%' ACCOUNT LOCK;
         (Invoke-RootSql -Sql $tableSql) -split "`r?`n" |
             Where-Object { $_.Length -gt 0 }
     )
-    if ($tables.Count -ne 99) {
-        throw "Expected 99 domain tables, got $($tables.Count)"
+    if ($tables.Count -ne 112) {
+        throw "Expected 112 domain tables, got $($tables.Count)"
     }
 
     $grantCatalog = Import-PowerShellDataFile -Path $grantCatalogPath
@@ -1147,8 +1150,8 @@ WHERE version = '1';
     $historyCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
         -Sql "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;")
-    if ($historyCount -ne 51) {
-        throw "Expected fifty-one successful Flyway migrations"
+    if ($historyCount -ne 52) {
+        throw "Expected fifty-two successful Flyway migrations"
     }
     $permissionCount = [int](Invoke-RootSql `
         -Database $DatabaseName `
@@ -1162,7 +1165,8 @@ WHERE version = '1';
             Where-Object {
                 $_ -notin @(
                     "iam_permission_definition",
-                    "dev_runtime_snapshot_policy"
+                    "dev_runtime_snapshot_policy",
+                    "dev_remote_support_port_slot"
                 )
             } |
             ForEach-Object {
@@ -1457,7 +1461,7 @@ WHERE user = 'ecobin_schema_owner' AND host = '%';
     if (-not $migrationCompleted) {
         if ($upgradeExistingMigratedEnvironment) {
             Write-Warning (
-                "The target may contain a failed V51 forward migration. " +
+                "The target may contain a failed V52 forward migration. " +
                 "It was intentionally preserved. Restore from the " +
                 "pre-migration backup; do not run Flyway repair. " +
                 "Container=$ContainerName Volume=$VolumeName"

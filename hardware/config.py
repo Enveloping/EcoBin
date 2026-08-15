@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env 文件。
+EcoBin 设备配置模块 —— 普通配置读取环境变量，设备密钥读取注册凭证。
 
 使用方法:
     from config import PRODUCT_ID, DEVICE_NAME, DEVICE_KEY
     # 或按需导入单项
 
-配置优先级: .env 文件 > 系统环境变量 > 默认值
-复制 .env.example 为 .env 并填入真实凭证即可使用。
+OneNet 迁移优先级: 完整旧 .env 三项 > 注册凭证；禁止部分混用。
 
 环境变量:
+    ECOBIN_DEVICE_CREDENTIALS_PATH — 注册后 0600 凭证文件路径
     ECOBIN_PRODUCT_ID     — OneNet 产品 ID
     ECOBIN_DEVICE_NAME    — 设备名称 = biz_device.sn
     ECOBIN_DEVICE_KEY     — 设备密钥 Base64（必填，无默认值）
@@ -55,6 +55,11 @@ EcoBin 设备配置模块 —— 所有配置从环境变量读取，优先 .env
 import logging
 import math
 import os
+from device_credentials import (
+    credentials_path_from_environment,
+    effective_onenet_credentials,
+    load_device_credentials,
+)
 from simulated_camera import is_simulated_camera_source
 
 try:
@@ -75,10 +80,18 @@ def _first_environment_value(*names: str) -> str:
             return value.strip()
     return ""
 
-# ── OneNet 设备凭证 ──
-PRODUCT_ID = os.getenv("ECOBIN_PRODUCT_ID", "")
-DEVICE_NAME = os.getenv("ECOBIN_DEVICE_NAME", "")
-DEVICE_KEY = os.getenv("ECOBIN_DEVICE_KEY", "")
+# ── 注册后设备凭证 ──
+DEVICE_CREDENTIALS_PATH = credentials_path_from_environment()
+DEVICE_CREDENTIALS = load_device_credentials(DEVICE_CREDENTIALS_PATH)
+_onenet_credentials = effective_onenet_credentials(DEVICE_CREDENTIALS)
+PRODUCT_ID = _onenet_credentials.product_id
+DEVICE_NAME = _onenet_credentials.device_name
+DEVICE_KEY = _onenet_credentials.device_key
+REMOTE_SUPPORT_CREDENTIALS = (
+    DEVICE_CREDENTIALS.remote_support
+    if DEVICE_CREDENTIALS is not None
+    else None
+)
 
 # ── COS 可信公开环境 ──
 # 同时兼容项目根 .env 使用的 Spring 风格名称；永久密钥不会在设备侧读取。
@@ -105,8 +118,14 @@ TRUSTED_COS_ENVIRONMENT = {
 }
 
 # ── MQTT ──
-MQTT_HOST = os.getenv("ECOBIN_MQTT_HOST", "studio-mqtt.heclouds.com")
-MQTT_PORT = int(os.getenv("ECOBIN_MQTT_PORT", "1883"))
+MQTT_HOST = os.getenv(
+    "ECOBIN_MQTT_HOST",
+    _onenet_credentials.mqtt_host,
+)
+MQTT_PORT = int(os.getenv(
+    "ECOBIN_MQTT_PORT",
+    str(_onenet_credentials.mqtt_port),
+))
 MQTT_CLEAN_SESSION = os.getenv("ECOBIN_MQTT_CLEAN_SESSION", "true").lower() in (
     "true",
     "1",
@@ -187,6 +206,10 @@ EDGE_BOOT_ID_PATH = os.getenv(
 )
 EDGE_PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 EDGE_FAULT_DIR = os.path.join(DATA_DIR, "faults")
+REMOTE_SUPPORT_RUNTIME_DIR = os.getenv(
+    "ECOBIN_REMOTE_SUPPORT_RUNTIME_DIR",
+    "/run/ecobin/remote-support",
+)
 # 尚无已应用平台配置时只采用固定的一小时默认值；正式周期来自平台
 # applyConfiguration，避免环境变量形成未受平台审计的单设备覆盖。
 EDGE_RUNTIME_SNAPSHOT_INTERVAL_S = 3600.0
@@ -208,13 +231,6 @@ PHOTO_RETENTION_HOURS = int(os.getenv(
 ))
 
 # ── 凭证校验 ──
-_REQUIRED = [
-    "ECOBIN_PRODUCT_ID",
-    "ECOBIN_DEVICE_NAME",
-    "ECOBIN_DEVICE_KEY",
-]
-
-
 def validate():
     """检查必填环境变量是否已设置，缺失则报 error。"""
     if MCU_PROTOCOL_MODE not in {"fixed-frame", "uart-v1"}:
@@ -280,10 +296,15 @@ def validate():
         raise ValueError(
             "configured COS base URL differs from bucket and region"
         )
-    for env_var in _REQUIRED:
-        if not os.getenv(env_var):
+    for field, value in (
+        ("OneNet productId", PRODUCT_ID),
+        ("OneNet deviceName", DEVICE_NAME),
+        ("OneNet deviceKey", DEVICE_KEY),
+    ):
+        if not value:
             logger.error(
-                "%s 未设置！请复制 .env.example 为 .env 并填入真实凭证", env_var
+                "%s 未配置；请完成设备注册或提供完整的旧环境凭证",
+                field,
             )
     # 确保 DATA_DIR 存在
     os.makedirs(DATA_DIR, exist_ok=True)

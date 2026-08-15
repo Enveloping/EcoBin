@@ -33,7 +33,8 @@ public class ReliableDeviceInboxWorkerService
     private static final Set<String> PLATFORM_DEVICE_ASSET_FACTS = Set.of(
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
-            "SAFETY_SENSOR_STATE_CHANGED");
+            "SAFETY_SENSOR_STATE_CHANGED",
+            "REMOTE_SUPPORT_TUNNEL_STATUS");
 
     private final ReliableInboxTaskRunner runner;
     private final TrustedPlatformInboxRefFactory platformInboxRefFactory;

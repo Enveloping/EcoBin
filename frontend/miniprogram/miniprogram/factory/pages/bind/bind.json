@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "绑定厂家身份",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "t-icon": "tdesign-miniprogram/icon/icon"
+  }
+}

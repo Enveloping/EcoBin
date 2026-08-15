@@ -2,6 +2,7 @@ package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedPlatformDeviceAssetFactEvent;
+import org.enveloping.ecobin.device.application.remote.RemoteSupportSessionService;
 import org.enveloping.ecobin.framework.reliability.TrustedPlatformInboxRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,7 +49,8 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                 new TrustedPlatformDeviceAssetFactService(
                         jdbc,
                         JsonMapper.builder().build(),
-                        confirmationService);
+                        confirmationService,
+                        mock(RemoteSupportSessionService.class));
 
         TrustedDeviceEventApplyResult result = service.apply(
                 new TrustedPlatformDeviceAssetFactEvent(

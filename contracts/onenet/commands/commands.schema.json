@@ -13,7 +13,9 @@
     { "$ref": "#/$defs/confirmEdgeEventCommand" },
     { "$ref": "#/$defs/providePhotoUploadGrantCommand" },
     { "$ref": "#/$defs/requestDeviceAcceptanceCommand" },
-    { "$ref": "#/$defs/syncDeviceEntryUrlCommand" }
+    { "$ref": "#/$defs/syncDeviceEntryUrlCommand" },
+    { "$ref": "#/$defs/openRemoteSupportTunnelCommand" },
+    { "$ref": "#/$defs/closeRemoteSupportTunnelCommand" }
   ],
   "$defs": {
     "configIdentity": {
@@ -674,6 +676,34 @@
         }
       }
     },
+    "openRemoteSupportTunnelPayload": {
+      "type": "object",
+      "required": ["sessionUid", "remotePort", "expiresAt"],
+      "additionalProperties": false,
+      "properties": {
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "remotePort": {
+          "type": "integer",
+          "minimum": 22011,
+          "maximum": 22014
+        },
+        "expiresAt": {
+          "$ref": "../common.schema.json#/$defs/utcInstant"
+        }
+      }
+    },
+    "closeRemoteSupportTunnelPayload": {
+      "type": "object",
+      "required": ["sessionUid"],
+      "additionalProperties": false,
+      "properties": {
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        }
+      }
+    },
     "applyConfigurationCommand": {
       "allOf": [
         { "$ref": "../command-envelope.schema.json" },
@@ -933,6 +963,54 @@
             },
             "payload": {
               "$ref": "#/$defs/syncDeviceEntryUrlPayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "openRemoteSupportTunnelCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "OPEN_REMOTE_SUPPORT_TUNNEL" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "REMOTE_SUPPORT_SESSION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/openRemoteSupportTunnelPayload"
+            },
+            "cosGrant": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "closeRemoteSupportTunnelCommand": {
+      "allOf": [
+        { "$ref": "../command-envelope.schema.json" },
+        {
+          "properties": {
+            "commandType": { "const": "CLOSE_REMOTE_SUPPORT_TUNNEL" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "REMOTE_SUPPORT_SESSION" }
+                  }
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/closeRemoteSupportTunnelPayload"
             },
             "cosGrant": { "type": "null" }
           }

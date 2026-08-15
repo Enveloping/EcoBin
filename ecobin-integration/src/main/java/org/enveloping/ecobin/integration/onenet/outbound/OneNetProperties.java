@@ -26,6 +26,12 @@ public class OneNetProperties {
     /** 物模型服务调用路径（AIoT 融合平台「设备服务调用」API，见 docs/references/设备服务调用.md） */
     private String invokeServicePath = "/thingmodel/call-service";
 
+    /** 设备创建 API；仅设备注册续作使用。 */
+    private String createDevicePath = "/device/create";
+
+    /** 设备详情 API；用于幂等恢复不确定的创建结果。 */
+    private String deviceDetailPath = "/device/detail";
+
     /** 产品ID */
     private String productId;
 

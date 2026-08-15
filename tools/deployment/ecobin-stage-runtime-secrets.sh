@@ -8,6 +8,10 @@ backend_uid="${ECOBIN_BACKEND_UID:-10001}"
 backend_gid="${ECOBIN_BACKEND_GID:-10001}"
 backend_dir="${runtime_root}/backend"
 external_mode="$(printf '%s' "${externalMode:-fake}" | tr '[:upper:]' '[:lower:]')"
+device_enrollment_enabled="$(printf '%s' "${deviceEnrollmentEnabled:-false}" \
+    | tr '[:upper:]' '[:lower:]')"
+remote_support_enabled="$(printf '%s' "${remoteSupportEnabled:-false}" \
+    | tr '[:upper:]' '[:lower:]')"
 
 fail() {
     printf '%s\n' "$1" >&2
@@ -17,6 +21,12 @@ fail() {
 [[ "$(id -u)" = 0 ]] || fail "runtime secrets must be staged by root"
 [[ "${external_mode}" = fake || "${external_mode}" = real ]] \
     || fail "externalMode must be fake or real"
+[[ "${device_enrollment_enabled}" = true \
+    || "${device_enrollment_enabled}" = false ]] \
+    || fail "deviceEnrollmentEnabled must be true or false"
+[[ "${remote_support_enabled}" = true \
+    || "${remote_support_enabled}" = false ]] \
+    || fail "remoteSupportEnabled must be true or false"
 
 require_directory() {
     local path="$1"
@@ -70,6 +80,29 @@ if ! bag_code_key_bytes="$(
 fi
 [[ "${bag_code_key_bytes}" -ge 32 ]] \
     || fail "bag-code-key-k1 must decode to at least 32 bytes"
+
+if [[ "${device_enrollment_enabled}" = true ]]; then
+    require_root_file \
+        "${source_dir}/device-enrollment-key-k1" 600 \
+        "device enrollment global K1"
+    if ! enrollment_key_bytes="$(
+        base64 --decode < "${source_dir}/device-enrollment-key-k1" \
+            2>/dev/null | wc -c
+    )"; then
+        fail "device-enrollment-key-k1 must be valid Base64"
+    fi
+    [[ "${enrollment_key_bytes}" -ge 32 ]] \
+        || fail "device-enrollment-key-k1 must decode to at least 32 bytes"
+fi
+
+if [[ "${remote_support_enabled}" = true ]]; then
+    require_root_file \
+        "${source_dir}/remote-support-maintenance-user-ca" 600 \
+        "remote support maintenance user CA private key"
+    ssh-keygen -y -f \
+        "${source_dir}/remote-support-maintenance-user-ca" >/dev/null 2>&1 \
+        || fail "remote support maintenance user CA private key is invalid or encrypted"
+fi
 
 bootstrap_password="$(<"${source_dir}/default-platform-admin-password")"
 [[ "${#bootstrap_password}" -ge 8 \
@@ -184,6 +217,24 @@ install -o root -g "${backend_gid}" -m 0440 \
     "${source_dir}/default-platform-admin-password" \
     "${backend_dir}/defaultPlatformAdminPassword"
 
+if [[ "${device_enrollment_enabled}" = true ]]; then
+    install -o root -g "${backend_gid}" -m 0440 \
+        "${source_dir}/device-enrollment-key-k1" \
+        "${backend_dir}/deviceEnrollmentKeyK1"
+else
+    rm -f -- "${backend_dir}/deviceEnrollmentKeyK1"
+fi
+
+if [[ "${remote_support_enabled}" = true ]]; then
+    install -d -o root -g "${backend_gid}" -m 0750 \
+        "${backend_dir}/remote-support"
+    install -o root -g "${backend_gid}" -m 0440 \
+        "${source_dir}/remote-support-maintenance-user-ca" \
+        "${backend_dir}/remote-support/maintenance-user-ca"
+else
+    rm -rf -- "${backend_dir}/remote-support"
+fi
+
 real_runtime_files=(
     iotAccessId
     iotSecretKey
@@ -241,6 +292,9 @@ expected_runtime_files=(
     bagCodeKeyK1
     defaultPlatformAdminPassword
 )
+if [[ "${device_enrollment_enabled}" = true ]]; then
+    expected_runtime_files+=(deviceEnrollmentKeyK1)
+fi
 if [[ "${external_mode}" = real ]]; then
     expected_runtime_files+=("${real_runtime_files[@]}")
 fi
@@ -250,8 +304,16 @@ for runtime_secret in "${expected_runtime_files[@]}"; do
         || fail "invalid runtime secret owner/mode for ${runtime_secret}: ${metadata}"
 done
 
+if [[ "${remote_support_enabled}" = true ]]; then
+    metadata="$(stat -c '%u:%g:%a' \
+        "${backend_dir}/remote-support/maintenance-user-ca")"
+    [[ "${metadata}" = "0:${backend_gid}:440" ]] \
+        || fail "invalid runtime secret owner/mode for remote support CA: ${metadata}"
+fi
+
 [[ "$(stat -c '%u:%g:%a' "${backend_dir}")" \
     = "0:${backend_gid}:750" ]] \
     || fail "invalid backend runtime secret directory metadata"
-printf 'runtime secrets staged mode=%s backend_uid=%s backend_gid=%s\n' \
-    "${external_mode}" "${backend_uid}" "${backend_gid}"
+printf 'runtime secrets staged mode=%s enrollment=%s remote_support=%s backend_uid=%s backend_gid=%s\n' \
+    "${external_mode}" "${device_enrollment_enabled}" \
+    "${remote_support_enabled}" "${backend_uid}" "${backend_gid}"

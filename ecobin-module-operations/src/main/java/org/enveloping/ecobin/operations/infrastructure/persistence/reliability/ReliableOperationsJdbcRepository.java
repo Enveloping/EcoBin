@@ -978,6 +978,8 @@ public class ReliableOperationsJdbcRepository {
                                     AND candidate.task_type IN (
                                         'REQUEST_DEVICE_ACCEPTANCE',
                                         'SYNC_DEVICE_ENTRY_URL',
+                                        'OPEN_REMOTE_SUPPORT_TUNNEL',
+                                        'CLOSE_REMOTE_SUPPORT_TUNNEL',
                                         'CONFIRM_EDGE_EVENT'
                                     )
                                 )
@@ -1001,7 +1003,9 @@ public class ReliableOperationsJdbcRepository {
                                         'CONFIRM_EDGE_EVENT',
                                         'PROVIDE_PHOTO_UPLOAD_GRANT',
                                         'REQUEST_DEVICE_ACCEPTANCE',
-                                        'SYNC_DEVICE_ENTRY_URL'
+                                        'SYNC_DEVICE_ENTRY_URL',
+                                        'OPEN_REMOTE_SUPPORT_TUNNEL',
+                                        'CLOSE_REMOTE_SUPPORT_TUNNEL'
                                     )
                                     AND eligible_command.id IS NULL
                                 )
@@ -1019,7 +1023,9 @@ public class ReliableOperationsJdbcRepository {
                                         'CONFIRM_EDGE_EVENT',
                                         'PROVIDE_PHOTO_UPLOAD_GRANT',
                                         'REQUEST_DEVICE_ACCEPTANCE',
-                                        'SYNC_DEVICE_ENTRY_URL'
+                                        'SYNC_DEVICE_ENTRY_URL',
+                                        'OPEN_REMOTE_SUPPORT_TUNNEL',
+                                        'CLOSE_REMOTE_SUPPORT_TUNNEL'
                                     )
                                     AND transport.onenet_connection_status =
                                         'ONLINE'
@@ -1067,6 +1073,8 @@ public class ReliableOperationsJdbcRepository {
                         AND t.task_type IN (
                             'REQUEST_DEVICE_ACCEPTANCE',
                             'SYNC_DEVICE_ENTRY_URL',
+                            'OPEN_REMOTE_SUPPORT_TUNNEL',
+                            'CLOSE_REMOTE_SUPPORT_TUNNEL',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )
@@ -1254,7 +1262,9 @@ public class ReliableOperationsJdbcRepository {
                               'CONFIRM_EDGE_EVENT',
                               'PROVIDE_PHOTO_UPLOAD_GRANT',
                               'REQUEST_DEVICE_ACCEPTANCE',
-                              'SYNC_DEVICE_ENTRY_URL'
+                              'SYNC_DEVICE_ENTRY_URL',
+                              'OPEN_REMOTE_SUPPORT_TUNNEL',
+                              'CLOSE_REMOTE_SUPPORT_TUNNEL'
                           )
                           AND c.id IS NULL
                       )
@@ -1947,6 +1957,8 @@ public class ReliableOperationsJdbcRepository {
                         AND task.task_type IN (
                             'REQUEST_DEVICE_ACCEPTANCE',
                             'SYNC_DEVICE_ENTRY_URL',
+                            'OPEN_REMOTE_SUPPORT_TUNNEL',
+                            'CLOSE_REMOTE_SUPPORT_TUNNEL',
                             'CONFIRM_EDGE_EVENT'
                         )
                     )

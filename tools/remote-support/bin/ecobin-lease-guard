@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Forced command that ties an SSH process to one live desired lease."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+
+def _load_module() -> None:
+    repository_library = Path(__file__).resolve().parent.parent / "lib"
+    installed_library = Path("/usr/local/libexec/ecobin-remote-support")
+    sys.path.insert(
+        0, str(repository_library if repository_library.is_dir() else installed_library)
+    )
+
+
+_load_module()
+
+from ecobin_remote_support import (  # noqa: E402
+    DEFAULT_POLICY_PATH,
+    Lease,
+    LeaseError,
+    acquire_guard_lock,
+    actual_marker,
+    atomic_json_write,
+    listener_is_loopback,
+    load_policy,
+    read_lease,
+    remove_own_actual_marker,
+    wait_for_listener,
+)
+
+
+_stop_requested = False
+
+
+def _request_stop(_signal_number: int, _frame: object) -> None:
+    global _stop_requested
+    _stop_requested = True
+
+
+def _same_lease(expected: Lease, current: Lease) -> bool:
+    return (
+        current.session_uid == expected.session_uid
+        and current.hardware_sn == expected.hardware_sn
+        and current.key_fingerprint == expected.key_fingerprint
+        and current.listen_port == expected.listen_port
+        and current.expires_at == expected.expires_at
+    )
+
+
+def _terminate_sshd_parent() -> None:
+    """Best-effort termination closes forwarded channels without waiting for clients."""
+    connection = os.environ.get("SSH_CONNECTION", "").split()
+    if len(connection) != 4 or not connection[1].isdigit() or not connection[3].isdigit():
+        return
+    candidate_pid = os.getppid()
+    visited: set[int] = set()
+    for _ in range(6):
+        if candidate_pid <= 1 or candidate_pid in visited:
+            return
+        visited.add(candidate_pid)
+        try:
+            command_name = Path(f"/proc/{candidate_pid}/comm").read_text(
+                encoding="ascii"
+            ).strip()
+            status_lines = Path(f"/proc/{candidate_pid}/status").read_text(
+                encoding="ascii"
+            ).splitlines()
+            uid_line = next(line for line in status_lines if line.startswith("Uid:"))
+            parent_line = next(line for line in status_lines if line.startswith("PPid:"))
+            candidate_effective_uid = int(uid_line.split()[2])
+            next_pid = int(parent_line.split()[1])
+        except (OSError, StopIteration, ValueError):
+            return
+        if (
+            command_name in ("sshd", "sshd-session")
+            and candidate_effective_uid == os.geteuid()
+        ):
+            try:
+                os.kill(candidate_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            return
+        candidate_pid = next_pid
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--session-uid", required=True)
+    parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY_PATH)
+    parser.add_argument("--allow-unprivileged-policy", action="store_true")
+    arguments = parser.parse_args()
+
+    if os.environ.get("SSH_ORIGINAL_COMMAND") != "ecobin-lease-guard":
+        print(
+            "ecobin-lease-guard: required lease guard command was not requested",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        expected_policy_uid = os.getuid() if arguments.allow_unprivileged_policy else 0
+        policy = load_policy(
+            arguments.policy, expected_policy_uid=expected_policy_uid
+        )
+        if os.geteuid() != policy.tunnel_uid:
+            raise LeaseError("lease guard is running as the wrong account")
+        policy.require_port(arguments.port)
+        lease = read_lease(policy, arguments.port)
+        if lease.session_uid != arguments.session_uid:
+            raise LeaseError("forced command does not match the active session")
+        lock_descriptor = acquire_guard_lock(policy, arguments.port)
+    except LeaseError as exc:
+        print(f"ecobin-lease-guard: tunnel rejected: {exc}", file=sys.stderr)
+        return 1
+
+    marker_written = False
+    try:
+        if not wait_for_listener(policy, arguments.port):
+            raise LeaseError("expected loopback reverse listener did not appear")
+        connected_at = int(time.time())
+        atomic_json_write(
+            policy.actual_directory,
+            f"{arguments.port}.json",
+            actual_marker(lease, os.getpid(), connected_at),
+            expected_uid=policy.tunnel_uid,
+            expected_gid=policy.backend_gid,
+        )
+        marker_written = True
+        while not _stop_requested:
+            time.sleep(policy.guard_poll_seconds)
+            try:
+                current = read_lease(policy, arguments.port)
+            except LeaseError:
+                break
+            if not _same_lease(lease, current):
+                break
+            if not listener_is_loopback(arguments.port):
+                break
+        return 0
+    except LeaseError as exc:
+        print(f"ecobin-lease-guard: tunnel closed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if marker_written:
+            remove_own_actual_marker(policy, lease, os.getpid())
+        os.close(lock_descriptor)
+        _terminate_sshd_parent()
+
+
+if __name__ == "__main__":
+    for handled_signal in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(handled_signal, _request_stop)
+    raise SystemExit(main())

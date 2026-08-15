@@ -25,6 +25,10 @@ export const TIMEOUT = 15000
 /** 本地存储 key */
 export const STORAGE_KEYS = {
   session: 'ecobin_miniapp_session',
+  factorySession: 'ecobin_factory_session_v1',
+  factoryBindingKnown: 'ecobin_factory_binding_known_v1',
+  factoryModeSuppressed: 'ecobin_factory_mode_suppressed_v1',
+  pendingFactoryBindingToken: 'ecobin_factory_binding_token_v1',
   silentLoginSuppressed: 'ecobin_silent_login_suppressed',
   pendingDeviceEntry: 'ecobin_pending_device_entry',
   lastHandledDeviceEntry: 'ecobin_last_handled_device_entry',

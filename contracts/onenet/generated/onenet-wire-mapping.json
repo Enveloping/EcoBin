@@ -466,6 +466,112 @@
       ],
       "schemaRef": "events/events.schema.json#/$defs/cleanCompleteEvent"
     },
+    "closeRemoteSupportTunnel": {
+      "commandType": "CLOSE_REMOTE_SUPPORT_TUNNEL",
+      "inputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandType",
+          "nullable": false,
+          "wireIdentifier": "commandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.targetDeviceName",
+          "nullable": false,
+          "wireIdentifier": "targetDeviceName"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.issuedAt",
+          "nullable": false,
+          "wireIdentifier": "issuedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "expiresAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "payloadSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/closeRemoteSupportTunnelCommand"
+    },
     "configurationProgress": {
       "deliveryClass": "RELIABLE_FACT",
       "eventType": "CONFIGURATION_PROGRESS",
@@ -2096,6 +2202,124 @@
       "outputSchemaRef": "command-receipt.schema.json",
       "schemaRef": "commands/commands.schema.json#/$defs/measureEmptyBagBaselineCommand"
     },
+    "openRemoteSupportTunnel": {
+      "commandType": "OPEN_REMOTE_SUPPORT_TUNNEL",
+      "inputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandType",
+          "nullable": false,
+          "wireIdentifier": "commandType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.targetDeviceName",
+          "nullable": false,
+          "wireIdentifier": "targetDeviceName"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.issuedAt",
+          "nullable": false,
+          "wireIdentifier": "issuedAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "expiresAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSchemaVersion",
+          "nullable": false,
+          "wireIdentifier": "payloadSchemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.remotePort",
+          "nullable": false,
+          "wireIdentifier": "remotePort"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.expiresAt",
+          "nullable": false,
+          "wireIdentifier": "payloadExpiresAt"
+        },
+        {
+          "encoding": "FLATTENED_OPTIONAL_OBJECT",
+          "jsonPath": "$.cosGrant",
+          "nullable": true,
+          "wireIdentifier": "cosGrant"
+        }
+      ],
+      "kind": "SERVICE",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.receiptState",
+          "nullable": false,
+          "wireIdentifier": "receiptState"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.errorCode",
+          "nullable": true,
+          "wireIdentifier": "errorCode"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeBootId",
+          "nullable": false,
+          "wireIdentifier": "edgeBootId"
+        }
+      ],
+      "outputSchemaRef": "command-receipt.schema.json",
+      "schemaRef": "commands/commands.schema.json#/$defs/openRemoteSupportTunnelCommand"
+    },
     "photoStatusReported": {
       "deliveryClass": "RELIABLE_FACT",
       "eventType": "PHOTO_STATUS_REPORTED",
@@ -2438,6 +2662,98 @@
       ],
       "outputSchemaRef": "command-receipt.schema.json",
       "schemaRef": "commands/commands.schema.json#/$defs/providePhotoUploadGrantCommand"
+    },
+    "remoteSupportTunnelStatus": {
+      "deliveryClass": "RELIABLE_FACT",
+      "eventType": "REMOTE_SUPPORT_TUNNEL_STATUS",
+      "kind": "EVENT",
+      "outputMappings": [
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.schemaVersion",
+          "nullable": false,
+          "wireIdentifier": "schemaVersion"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventUid",
+          "nullable": false,
+          "wireIdentifier": "eventUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.edgeEventSequence",
+          "nullable": false,
+          "wireIdentifier": "edgeEventSequence"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.eventType",
+          "nullable": false,
+          "wireIdentifier": "eventType"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.deliveryClass",
+          "nullable": false,
+          "wireIdentifier": "deliveryClass"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.target",
+          "nullable": false,
+          "wireIdentifier": "target"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.commandUid",
+          "nullable": false,
+          "wireIdentifier": "commandUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.occurredAt",
+          "nullable": true,
+          "wireIdentifier": "occurredAt"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.clockQuality",
+          "nullable": false,
+          "wireIdentifier": "clockQuality"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payloadSha256",
+          "nullable": false,
+          "wireIdentifier": "payloadSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.sessionUid",
+          "nullable": false,
+          "wireIdentifier": "sessionUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.state",
+          "nullable": false,
+          "wireIdentifier": "state"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.remotePort",
+          "nullable": false,
+          "wireIdentifier": "remotePort"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.failureCode",
+          "nullable": true,
+          "wireIdentifier": "failureCode"
+        }
+      ],
+      "schemaRef": "events/events.schema.json#/$defs/remoteSupportTunnelStatusEvent"
     },
     "requestDeviceAcceptance": {
       "commandType": "REQUEST_DEVICE_ACCEPTANCE",

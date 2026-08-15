@@ -27,6 +27,16 @@
     "pages/mall/mall",
     "pages/placeholder/placeholder"
   ],
+  "subPackages": [
+    {
+      "root": "factory",
+      "name": "factory",
+      "pages": [
+        "pages/acceptance/acceptance",
+        "pages/bind/bind"
+      ]
+    }
+  ],
   "window": {
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "EcoBin",

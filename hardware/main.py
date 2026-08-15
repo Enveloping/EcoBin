@@ -12,10 +12,12 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 
 from config import (
     PRODUCT_ID, DEVICE_NAME, DEVICE_KEY, MQTT_HOST, MQTT_PORT,
@@ -29,6 +31,8 @@ from config import (
     EDGE_PHOTO_DIR, PHOTO_UPLOAD_POLL_SECONDS,
     PHOTO_GRANT_EXPIRY_SKEW_SECONDS, PHOTO_RETENTION_HOURS,
     TRUSTED_COS_ENVIRONMENT, COS_REQUEST_TIMEOUT_SECONDS,
+    REMOTE_SUPPORT_CREDENTIALS, REMOTE_SUPPORT_RUNTIME_DIR,
+    DEVICE_CREDENTIALS,
     validate as config_validate,
 )
 from cos_photo_uploader import CosPhotoUploader
@@ -49,6 +53,7 @@ from fixed_frame_health_recovery import (
     runtime_uart_state,
 )
 from device_entry_url_refresh import DeviceEntryUrlRefreshController
+from remote_support import RemoteSupportManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,6 +80,12 @@ class EcoBinEdge:
         # -- EdgeStore (SQLite) --
         self.store = EdgeStore(EDGE_STORE_PATH)
         self.store.initialize()
+        _seed_enrolled_device_entry_url(
+            self.store,
+            DEVICE_CREDENTIALS.device_entry_url
+            if DEVICE_CREDENTIALS is not None
+            else None,
+        )
 
         # -- 读取 boot ID --
         self._edge_boot_id = load_or_generate_edge_boot_id(EDGE_BOOT_ID_PATH)
@@ -148,12 +159,18 @@ class EcoBinEdge:
             device_name=DEVICE_NAME,
             edge_software_version=EDGE_SOFTWARE_VERSION,
         )
+        self.remote_support = RemoteSupportManager(
+            self.store,
+            REMOTE_SUPPORT_CREDENTIALS,
+            runtime_dir=REMOTE_SUPPORT_RUNTIME_DIR,
+        )
         self.commands = CommandProcessor(
             self.store,
             self.uart,
             self.work,
             acceptance_runner=self.acceptance,
             trusted_cos_environment=TRUSTED_COS_ENVIRONMENT,
+            remote_support_manager=self.remote_support,
         )
         self.fixed_frame_health_recovery = FixedFrameHealthRecoveryController(
             self.store,
@@ -207,6 +224,10 @@ class EcoBinEdge:
 
     def run(self):
         logger.info("EcoBin Edge v2 starting (boot_id=%d)", self._edge_boot_id)
+        # Remote support is intentionally independent from UART and the single
+        # physical work slot.  A still-valid session can reconnect even while
+        # the MCU boot check is diagnosing a fault.
+        self.remote_support.start()
 
         # -- Boot sequence --
         result = boot_sequence(
@@ -547,6 +568,10 @@ class EcoBinEdge:
         except Exception:
             pass
         try:
+            self.remote_support.stop()
+        except Exception:
+            pass
+        try:
             self.store.close()
         except Exception:
             pass
@@ -593,6 +618,24 @@ def _make_uart_link(
         )
         kwargs["required_capability_bitmap"] = hil_required_capabilities
     return UartLink(**kwargs)
+
+
+def _seed_enrolled_device_entry_url(store, device_entry_url):
+    """Seed the factory QR URL once, before an acceptance command exists."""
+
+    if not device_entry_url or store.get_device_entry_url() is not None:
+        return False
+    issued_at = (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    store.save_device_entry_url(
+        device_entry_url,
+        hashlib.sha256(device_entry_url.encode("ascii")).hexdigest(),
+        issued_at,
+    )
+    return True
 
 
 if __name__ == "__main__":

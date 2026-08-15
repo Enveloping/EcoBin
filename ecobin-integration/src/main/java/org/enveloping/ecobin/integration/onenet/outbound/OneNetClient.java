@@ -156,6 +156,14 @@ public class OneNetClient
                     submission.commandType())) {
                 identifier = "syncDeviceEntryUrl";
                 params = projectSyncDeviceEntryUrl(envelope);
+            } else if ("OPEN_REMOTE_SUPPORT_TUNNEL".equals(
+                    submission.commandType())) {
+                identifier = "openRemoteSupportTunnel";
+                params = projectRemoteSupport(envelope, true);
+            } else if ("CLOSE_REMOTE_SUPPORT_TUNNEL".equals(
+                    submission.commandType())) {
+                identifier = "closeRemoteSupportTunnel";
+                params = projectRemoteSupport(envelope, false);
             } else {
                 return permanent(
                         "COMMAND_TYPE_UNSUPPORTED",
@@ -1792,6 +1800,79 @@ public class OneNetClient
         }
         target.put("deviceEntryUrl", url);
         target.put("deviceEntryUrlSha256", digest);
+    }
+
+    private Map<String, Object> projectRemoteSupport(
+            JsonNode envelope,
+            boolean opening) {
+        JsonNode target = requiredObject(envelope, "target");
+        JsonNode payload = requiredObject(envelope, "payload");
+        String deviceName = requiredBoundedText(
+                envelope, "targetDeviceName", 64);
+        String sessionUid = requiredUuid(payload, "sessionUid");
+        if (!"REMOTE_SUPPORT_SESSION".equals(
+                requiredText(target, "type"))
+                || !sessionUid.equals(requiredUuid(target, "uid"))) {
+            throw new IllegalArgumentException(
+                    "remote support target differs from its session");
+        }
+        if (payload.size() != (opening ? 3 : 1)) {
+            throw new IllegalArgumentException(
+                    "remote support payload fields differ from its command");
+        }
+        String issuedAtText = requiredInstant(envelope, "issuedAt");
+        String expiresAtText = requiredInstant(envelope, "expiresAt");
+        Instant issuedAt = Instant.parse(issuedAtText);
+        Instant expiresAt = Instant.parse(expiresAtText);
+        long maximumSeconds = opening ? 1800 : 300;
+        if (!expiresAt.isAfter(issuedAt)
+                || expiresAt.isAfter(
+                issuedAt.plusSeconds(maximumSeconds))) {
+            throw new IllegalArgumentException(
+                    "remote support command lifetime is invalid");
+        }
+        String payloadSha256 = requiredMatchingText(
+                envelope,
+                "payloadSha256",
+                "^[0-9a-f]{64}$",
+                64);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> semanticPayload = objectMapper.convertValue(
+                payload, Map.class);
+        if (!payloadSha256.equals(
+                OneNetCanonicalJson.payloadSha256(semanticPayload))) {
+            throw new IllegalArgumentException(
+                    "remote support payload digest differs");
+        }
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        requiredInteger(envelope, "schemaVersion", 2, 2);
+        params.put("schemaVersion", 1);
+        params.put("commandUid", requiredUuid(envelope, "commandUid"));
+        params.put("commandType", 1);
+        params.put("targetDeviceName", deviceName);
+        params.put("target", Map.of("type", 1, "uid", sessionUid));
+        params.put("issuedAt", issuedAtText);
+        params.put("expiresAt", expiresAtText);
+        requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
+        params.put("payloadSchemaVersion", 1);
+        params.put("payloadSha256", payloadSha256);
+        params.put("sessionUid", sessionUid);
+        if (opening) {
+            params.put(
+                    "remotePort",
+                    requiredInteger(
+                            payload, "remotePort", 22011, 22014));
+            String payloadExpiresAt = requiredInstant(
+                    payload, "expiresAt");
+            if (!expiresAtText.equals(payloadExpiresAt)) {
+                throw new IllegalArgumentException(
+                        "remote support payload expiry differs from its envelope");
+            }
+            params.put("payloadExpiresAt", payloadExpiresAt);
+        }
+        params.put("cosGrantPresent", false);
+        return params;
     }
 
     private static void putNullableText(

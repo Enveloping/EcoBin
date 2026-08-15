@@ -644,6 +644,7 @@ def _validate_event_semantics(instance: Mapping[str, Any], mapping: Mapping[str,
         "BASELINE_MEASUREMENT_COMPLETE",
         "BUSINESS_CONFIRMATION_RECEIPT",
         "DEVICE_ACCEPTANCE_EVIDENCE",
+        "REMOTE_SUPPORT_TUNNEL_STATUS",
     }
     if event_type in command_bound_events and instance["commandUid"] is None:
         raise ContractError(f"{event_type}: originating commandUid is required")
@@ -900,6 +901,8 @@ def _validate_command_semantics(
         "MEASURE_EMPTY_BAG_BASELINE": "measurementUid",
         "CONFIRM_EDGE_EVENT": "originalEventUid",
         "PROVIDE_PHOTO_UPLOAD_GRANT": "grantRequestEventUid",
+        "OPEN_REMOTE_SUPPORT_TUNNEL": "sessionUid",
+        "CLOSE_REMOTE_SUPPORT_TUNNEL": "sessionUid",
     }.get(command_type)
     if command_type in {
         "REQUEST_DEVICE_ACCEPTANCE",

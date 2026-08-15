@@ -17,7 +17,10 @@ WORKDIR /app
 COPY app.jar /app/app.jar
 COPY backend-healthcheck.sh /usr/local/bin/ecobin-backend-healthcheck
 
-RUN test -n "${ECOBIN_RELEASE_ID}" \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends openssh-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -n "${ECOBIN_RELEASE_ID}" \
     && test -n "${ECOBIN_GIT_COMMIT}" \
     && test -n "${ECOBIN_ARTIFACT_SHA256}" \
     && test -s /app/app.jar \

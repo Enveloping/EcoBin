@@ -76,6 +76,19 @@ ecobin:
         slow-query-threshold-ms: 200
 
   device:
+    enrollment:
+      # 全局 K1 只用于设备第一次注册；生产值必须通过 /run/secrets 注入。
+      enabled: ${deviceEnrollmentEnabled:false}
+      key-id: ${deviceEnrollmentKeyId:K1}
+      key-base64: ${deviceEnrollmentKeyK1:}
+      challenge-lifetime: ${deviceEnrollmentChallengeLifetime:10m}
+      retry-delay: ${deviceEnrollmentRetryDelay:10s}
+      provisioning-timeout: ${deviceEnrollmentProvisioningTimeout:2m}
+      challenge-limit-per-minute: ${deviceEnrollmentChallengeLimitPerMinute:20}
+      model-code: ${deviceEnrollmentModelCode:EC-M0}
+      expected-port-count: ${deviceEnrollmentExpectedPortCount:1}
+      mqtt-host: ${deviceEnrollmentMqttHost:studio-mqtt.heclouds.com}
+      mqtt-port: ${deviceEnrollmentMqttPort:1883}
     activation:
       # 永久分配机构后自动补齐初始配置和出厂袋皮重；定时器只负责失败补偿。
       scheduler-enabled: true
@@ -89,6 +102,19 @@ ecobin:
         ECOBIN-V1: fixed-frame-digital-infrared
       unit-price-yuan-per-kg: "0.4500"
       fullness-weight-kg: "50.000"
+
+  remote-support:
+    # 关闭时不会创建租约、签发证书或返回维护连接资料。
+    enabled: ${remoteSupportEnabled:false}
+    tunnel-host: ${remoteSupportTunnelHost:}
+    tunnel-ssh-port: ${remoteSupportTunnelSshPort:22}
+    tunnel-user: ${remoteSupportTunnelUser:ecobin-tunnel}
+    tunnel-server-host-public-key: ${remoteSupportTunnelServerHostPublicKey:}
+    jump-user: ${remoteSupportJumpUser:ecobin-jump}
+    maintenance-ca-public-key: ${remoteSupportMaintenanceCaPublicKey:}
+    signer-ca-private-key-path: ${remoteSupportSignerCaPrivateKeyPath:}
+    lease-desired-directory: ${remoteSupportLeaseDesiredDirectory:}
+    lease-actual-directory: ${remoteSupportLeaseActualDirectory:}
 
   recycling:
     # EB1 实体袋码的签发与验真密钥。生产由 /run/secrets/bagCodeKeyK1 注入，

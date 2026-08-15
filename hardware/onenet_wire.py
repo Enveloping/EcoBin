@@ -10,7 +10,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -28,6 +28,8 @@ COMMAND_IDENTIFIERS = {
     "providePhotoUploadGrant": "PROVIDE_PHOTO_UPLOAD_GRANT",
     "requestDeviceAcceptance": "REQUEST_DEVICE_ACCEPTANCE",
     "syncDeviceEntryUrl": "SYNC_DEVICE_ENTRY_URL",
+    "openRemoteSupportTunnel": "OPEN_REMOTE_SUPPORT_TUNNEL",
+    "closeRemoteSupportTunnel": "CLOSE_REMOTE_SUPPORT_TUNNEL",
 }
 
 COMMAND_TYPE_BY_CODE = {
@@ -220,6 +222,10 @@ def validate_command_envelope(
         )
     elif command_type == "SYNC_DEVICE_ENTRY_URL":
         _validate_device_entry_url_payload(command["payload"])
+    elif command_type == "OPEN_REMOTE_SUPPORT_TUNNEL":
+        _validate_open_remote_support(command)
+    elif command_type == "CLOSE_REMOTE_SUPPORT_TUNNEL":
+        _validate_close_remote_support(command)
     elif command_type == "START_DELIVERY_SESSION" and command.get("cosGrant"):
         validate_cos_grant(
             command["cosGrant"],
@@ -280,6 +286,14 @@ def _validate_command_target(command: dict[str, Any]) -> None:
         "PROVIDE_PHOTO_UPLOAD_GRANT": (
             "PHOTO_GRANT_REQUEST",
             "grantRequestEventUid",
+        ),
+        "OPEN_REMOTE_SUPPORT_TUNNEL": (
+            "REMOTE_SUPPORT_SESSION",
+            "sessionUid",
+        ),
+        "CLOSE_REMOTE_SUPPORT_TUNNEL": (
+            "REMOTE_SUPPORT_SESSION",
+            "sessionUid",
         ),
     }
     if command_type in {
@@ -569,6 +583,40 @@ def _validate_device_entry_url_payload(payload: dict[str, Any]) -> None:
         raise ValueError("deviceEntryUrlSha256 is invalid")
     if hashlib.sha256(url.encode("ascii")).hexdigest() != digest:
         raise ValueError("deviceEntryUrlSha256 mismatch")
+
+
+def _validate_open_remote_support(command: dict[str, Any]) -> None:
+    payload = command["payload"]
+    if set(payload) != {"sessionUid", "remotePort", "expiresAt"}:
+        raise ValueError("open remote support payload fields are invalid")
+    _require_uuid4(payload.get("sessionUid"), "sessionUid")
+    remote_port = payload.get("remotePort")
+    if (
+        isinstance(remote_port, bool)
+        or not isinstance(remote_port, int)
+        or remote_port not in range(22011, 22015)
+    ):
+        raise ValueError("remotePort must be one of 22011..22014")
+    payload_expiry = _parse_utc_instant(
+        payload.get("expiresAt"),
+        "payload.expiresAt",
+    )
+    envelope_expiry = _parse_utc_instant(
+        command.get("expiresAt"),
+        "expiresAt",
+    )
+    if payload_expiry != envelope_expiry:
+        raise ValueError("remote support expiry differs from command expiry")
+    issued_at = _parse_utc_instant(command.get("issuedAt"), "issuedAt")
+    if not issued_at < payload_expiry <= issued_at + timedelta(minutes=30):
+        raise ValueError("remote support lifetime must not exceed 30 minutes")
+
+
+def _validate_close_remote_support(command: dict[str, Any]) -> None:
+    payload = command["payload"]
+    if set(payload) != {"sessionUid"}:
+        raise ValueError("close remote support payload fields are invalid")
+    _require_uuid4(payload.get("sessionUid"), "sessionUid")
 
 
 def encode_command_receipt(command_uid: str, receipt_state: str, edge_boot_id: int,
@@ -1022,6 +1070,16 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
             "deviceEntryUrl": scalars.get("deviceEntryUrl"),
             "deviceEntryUrlSha256": scalars.get("deviceEntryUrlSha256"),
         }
+    if identifier == "openRemoteSupportTunnel":
+        return {
+            "sessionUid": scalars.get("sessionUid"),
+            "remotePort": scalars.get("remotePort"),
+            "expiresAt": scalars.get("payloadExpiresAt"),
+        }
+    if identifier == "closeRemoteSupportTunnel":
+        return {
+            "sessionUid": scalars.get("sessionUid"),
+        }
     payload = dict(params)
     payload.pop("target", None)
     payload.pop("cosGrantSessionTokenParts", None)
@@ -1100,6 +1158,8 @@ def _target_type_for_command(command_type: str, wire_value: Any) -> str:
         "PROVIDE_PHOTO_UPLOAD_GRANT": "PHOTO_GRANT_REQUEST",
         "REQUEST_DEVICE_ACCEPTANCE": "DEVICE_ASSET",
         "SYNC_DEVICE_ENTRY_URL": "DEVICE_ASSET",
+        "OPEN_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
+        "CLOSE_REMOTE_SUPPORT_TUNNEL": "REMOTE_SUPPORT_SESSION",
     }
     return mapping.get(command_type, str(wire_value))
 

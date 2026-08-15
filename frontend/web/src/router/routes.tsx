@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   SlidersOutlined,
   TeamOutlined,
+  ToolOutlined,
   TruckOutlined,
   UserOutlined,
   WalletOutlined,
@@ -23,6 +24,9 @@ import { directoryPath } from './directoryQuery';
 const TenantPage = lazy(() => import('@/pages/tenant'));
 const PlatformAdministratorsPage = lazy(
   () => import('@/pages/platform-admins'),
+);
+const FactoryOperatorsPage = lazy(
+  () => import('@/pages/factory-operators'),
 );
 const MyTenantPage = lazy(() => import('@/pages/tenant/MyTenant'));
 const OrganizationPage = lazy(() => import('@/pages/organization'));
@@ -101,6 +105,14 @@ export const appRoutes: AppRoute[] = [
     icon: <SafetyCertificateOutlined />,
     element: <PlatformAdministratorsPage />,
     allOf: ['platform-account.manage'],
+    accountTypes: PLATFORM,
+  },
+  {
+    path: '/factory-operators',
+    name: '厂家操作员',
+    icon: <ToolOutlined />,
+    element: <FactoryOperatorsPage />,
+    allOf: ['platform-admin.manage'],
     accountTypes: PLATFORM,
   },
   {
@@ -258,6 +270,8 @@ export function menuRoutesFor(
   const menu: AppMenuRoute[] = [];
   const platformAdministrators = visibleRoute(session, '/platform-admins');
   if (platformAdministrators) menu.push(leaf(platformAdministrators));
+  const factoryOperators = visibleRoute(session, '/factory-operators');
+  if (factoryOperators) menu.push(leaf(factoryOperators));
   const tenant = visibleRoute(session, '/tenant');
   if (tenant) {
     menu.push({

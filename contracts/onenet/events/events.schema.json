@@ -17,7 +17,8 @@
     { "$ref": "#/$defs/photoUploadGrantRequestedEvent" },
     { "$ref": "#/$defs/businessConfirmationReceiptEvent" },
     { "$ref": "#/$defs/deviceRuntimeSnapshotEvent" },
-    { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" }
+    { "$ref": "#/$defs/deviceAcceptanceEvidenceEvent" },
+    { "$ref": "#/$defs/remoteSupportTunnelStatusEvent" }
   ],
   "$defs": {
     "configSnapshot": {
@@ -968,6 +969,48 @@
         }
       }
     },
+    "remoteSupportTunnelStatusPayload": {
+      "type": "object",
+      "required": ["sessionUid", "state", "remotePort", "failureCode"],
+      "additionalProperties": false,
+      "properties": {
+        "sessionUid": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "state": {
+          "enum": ["CONNECTING", "OPEN", "CLOSED", "FAILED", "EXPIRED"]
+        },
+        "remotePort": {
+          "type": "integer",
+          "minimum": 22011,
+          "maximum": 22014
+        },
+        "failureCode": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "const": "FAILED" } },
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "failureCode": { "type": "string" }
+            }
+          }
+        }
+      ]
+    },
     "runtimePort": {
       "type": "object",
       "required": [
@@ -1621,6 +1664,33 @@
             },
             "payload": {
               "$ref": "#/$defs/deviceAcceptanceEvidencePayload"
+            }
+          }
+        }
+      ]
+    },
+    "remoteSupportTunnelStatusEvent": {
+      "allOf": [
+        { "$ref": "../event-envelope.schema.json" },
+        {
+          "properties": {
+            "eventType": { "const": "REMOTE_SUPPORT_TUNNEL_STATUS" },
+            "deliveryClass": { "const": "RELIABLE_FACT" },
+            "target": {
+              "allOf": [
+                { "$ref": "../common.schema.json#/$defs/target" },
+                {
+                  "properties": {
+                    "type": { "const": "DEVICE_ASSET" }
+                  }
+                }
+              ]
+            },
+            "commandUid": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            "payload": {
+              "$ref": "#/$defs/remoteSupportTunnelStatusPayload"
             }
           }
         }

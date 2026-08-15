@@ -1,0 +1,10 @@
+page { background: #f4f7f3; }
+.bind-page { display: flex; min-height: 100vh; align-items: center; padding: 44rpx 28rpx; box-sizing: border-box; }
+.bind-card { width: 100%; padding: 76rpx 42rpx; box-sizing: border-box; background: #fff; border: 1rpx solid #e1e9e2; border-radius: 28rpx; box-shadow: 0 16rpx 42rpx rgba(34, 66, 39, .07); }
+.state-block { display: flex; align-items: center; flex-direction: column; text-align: center; }
+.title { margin-top: 26rpx; color: #243027; font-size: 31rpx; font-weight: 720; }
+.copy { margin-top: 14rpx; color: #6e7b71; font-size: 23rpx; line-height: 1.65; }
+.copy.error { color: #94483d; }
+.hint { margin-top: 28rpx; padding-top: 24rpx; color: #929c94; font-size: 20rpx; line-height: 1.65; border-top: 1rpx solid #edf1ed; }
+.spinner { width: 62rpx; height: 62rpx; border: 6rpx solid #d9ebdc; border-top-color: #14a62e; border-radius: 50%; animation: spin .75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

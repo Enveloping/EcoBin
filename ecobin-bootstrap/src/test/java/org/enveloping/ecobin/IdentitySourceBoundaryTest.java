@@ -93,6 +93,12 @@ class IdentitySourceBoundaryTest {
 
         assertEquals(List.of(
                         Path.of(
+                                "ecobin-module-device/src/main/java/org/enveloping/ecobin/device/"
+                                        + "application/factory/FactoryAcceptanceService.java"),
+                        Path.of(
+                                "ecobin-module-device/src/main/java/org/enveloping/ecobin/device/"
+                                        + "application/remote/RemoteSupportSessionService.java"),
+                        Path.of(
                                 "ecobin-module-funds/src/main/java/org/enveloping/ecobin/funds/"
                                         + "infrastructure/registration/"
                                         + "JdbcOrganizationBootstrapParticipant.java"),

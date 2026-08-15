@@ -5,9 +5,9 @@ container_name="ecobin-target-mysql84"
 volume_name="ecobin-target-mysql84-data"
 network_name="ecobin-target-db"
 database_name="ecobin"
-expected_migrations="${H02_EXPECTED_MIGRATIONS:-31}"
-expected_tables="${H02_EXPECTED_TABLES:-96}"
-expected_permissions="${H02_EXPECTED_PERMISSIONS:-77}"
+expected_migrations="${H02_EXPECTED_MIGRATIONS:-52}"
+expected_tables="${H02_EXPECTED_TABLES:-112}"
+expected_permissions="${H02_EXPECTED_PERMISSIONS:-76}"
 backup_path="${H02_BACKUP_PATH:-/var/backups/ecobin/h02/20260727T075001Z/ecobin-h02-permission-catalog-20260727T075001Z.sql.gz.cms}"
 
 if [[ "$(id -u)" != "0" ]]; then
@@ -58,7 +58,8 @@ business_rows="$(
           AND table_type = 'BASE TABLE'
           AND table_name NOT IN (
               'flyway_schema_history',
-              'iam_permission_definition'
+              'iam_permission_definition',
+              'dev_remote_support_port_slot'
           );
         SET @count_sql = CONCAT(
             'SELECT COALESCE(SUM(row_count), 0) FROM (',

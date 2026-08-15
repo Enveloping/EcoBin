@@ -5,6 +5,7 @@
 ## 快速开始
 
 1. [项目上下文](architecture/project-context.md)：当前阶段、跨会话决策、已知工程坑和续作入口。
+2. [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)：全局厂家引导密钥的一次性清理、OneNet 自动创建设备、验收前真实装袋、管理员公钥一次登记及四端口按需反向 SSH。
 2. [V36 设备永久归属、自动验收与无部署码模型](architecture/permanent-device-ownership-v36.md)：设备全链路目标，覆盖旧部署、调拨和人工激活模型；2026-08-10 补充未分配设备运行、故障与安全事实的平台作用域。
 3. [V41 全局固定设备二维码入口](architecture/global-miniapp-device-entry-v41.md)：普通二维码统一使用全局地址，设备公开码区分设备和机构，渠道/机构不再保存入口地址。
 4. [V42 设备入口 URL 下发](architecture/device-entry-url-edge-delivery-v42.md)：验收时保存完整 URL，全局地址改变时自动下发，MCU 无应答且屏幕结果不进入平台验收。
@@ -25,13 +26,14 @@
 19. [P0 详细设计与任务拆分](planning/detailed-design-draft.md)：已批准的施工方案、跨端责任、任务依赖与目标窗口。
 20. [P0 受控闭环正式任务](planning/tasks/p0-controlled-loop/00-index.md)：历史任务入口；设备相关旧部署步骤由 V36 裁决覆盖。
 21. [权限与角色设计](architecture/permission-design.md)：三类登录主体、多租户隔离和接口鉴权。
-22. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V51，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
+22. [旧运行数据库设计](architecture/database-design.md)：V1～V14 旧实现的表结构；新栈目标迁移已推进到 V52，并由只读 epoch guard 校验，运行制品不携带 Flyway 或迁移脚本。
 
 ## 目录说明
 
 ### `architecture/` — 架构与领域设计
 
 - [项目上下文](architecture/project-context.md)
+- [V52 设备自注册、厂家初始袋与按需远程维护](architecture/device-enrollment-factory-acceptance-remote-support-v52.md)
 - [V25 设备上报当前袋满溢状态](architecture/fullness-reporting-v25.md)
 - [V41 全局固定设备二维码入口](architecture/global-miniapp-device-entry-v41.md)
 - [V42 设备入口 URL 下发](architecture/device-entry-url-edge-delivery-v42.md)
@@ -66,6 +68,7 @@
 
 ### `deployment/` — 部署与运维
 
+- [设备自注册、厂家验收与按需反向 SSH 部署手册](deployment/device-enrollment-and-remote-support-rollout.md)：V52 数据迁移、服务器 SSH 边界、生产秘密、香橙派注册包、试点验收和功能回退。
 - [应用修改后重新部署操作手册](deployment/application-redeployment-runbook.md)：日常代码发布的范围判断、构建、上传、安装、预检、激活、验证与回退步骤。
 - [生产部署配置、密钥与证书清单](deployment/production-configuration-secrets-certificates.md)：逐项说明服务器配置文件、秘密、微信支付公钥/商户证书、机构小程序配置和启动前验收。
 - [目标单机部署手册](deployment/target-single-host-deployment.md)：当前 `115.159.67.35` 目标栈的安装、启动、Nginx 切换与回退步骤。

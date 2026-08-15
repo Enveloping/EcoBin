@@ -17,6 +17,7 @@ public record AuditEntry(
         Long organizationId,
         AuditActorKind actorKind,
         Long platformAdminId,
+        Long factoryOperatorId,
         Long staffAccountId,
         Long organizationUserId,
         String systemActorCode,
@@ -30,6 +31,54 @@ public record AuditEntry(
         String reason,
         String safeChangeSummaryJson,
         Instant occurredAt) {
+
+    /** Compatibility constructor for non-factory audit writers. */
+    public AuditEntry(
+            UUID auditUid,
+            UUID requestUid,
+            UUID operationUid,
+            AuditScopeKind scopeKind,
+            Long tenantId,
+            Long organizationId,
+            AuditActorKind actorKind,
+            Long platformAdminId,
+            Long staffAccountId,
+            Long organizationUserId,
+            String systemActorCode,
+            String actorDisplaySnapshot,
+            String actionCode,
+            String targetType,
+            String targetStableKey,
+            String entryChannel,
+            String result,
+            UUID sessionUid,
+            String reason,
+            String safeChangeSummaryJson,
+            Instant occurredAt) {
+        this(
+                auditUid,
+                requestUid,
+                operationUid,
+                scopeKind,
+                tenantId,
+                organizationId,
+                actorKind,
+                platformAdminId,
+                null,
+                staffAccountId,
+                organizationUserId,
+                systemActorCode,
+                actorDisplaySnapshot,
+                actionCode,
+                targetType,
+                targetStableKey,
+                entryChannel,
+                result,
+                sessionUid,
+                reason,
+                safeChangeSummaryJson,
+                occurredAt);
+    }
 
     public AuditEntry {
         Objects.requireNonNull(auditUid, "auditUid");

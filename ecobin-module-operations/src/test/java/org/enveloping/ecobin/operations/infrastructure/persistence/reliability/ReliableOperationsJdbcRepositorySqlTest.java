@@ -165,6 +165,8 @@ class ReliableOperationsJdbcRepositorySqlTest {
                 + "AND " + alias + ".task_type IN ( "
                 + "'REQUEST_DEVICE_ACCEPTANCE', "
                 + "'SYNC_DEVICE_ENTRY_URL', "
+                + "'OPEN_REMOTE_SUPPORT_TUNNEL', "
+                + "'CLOSE_REMOTE_SUPPORT_TUNNEL', "
                 + "'CONFIRM_EDGE_EVENT' )";
     }
 

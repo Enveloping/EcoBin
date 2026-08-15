@@ -2,6 +2,7 @@
 set -euo pipefail
 
 compose_file="${ECOBIN_APP_COMPOSE_FILE:-/etc/ecobin/compose/docker-compose.target-app.yml}"
+remote_compose_file="${ECOBIN_REMOTE_SUPPORT_COMPOSE_FILE:-/etc/ecobin/compose/docker-compose.remote-support.yml}"
 deployment_env="${ECOBIN_DEPLOYMENT_ENV_FILE:-/etc/ecobin/deployment.env}"
 runtime_env="${ECOBIN_RUNTIME_ENV_FILE:-/etc/ecobin/runtime.env}"
 release_store="${ECOBIN_RELEASE_STORE:-/var/lib/ecobin/releases}"
@@ -54,7 +55,7 @@ require_root_controlled_file "${compose_file}"
 require_root_controlled_file "${deployment_env}"
 require_root_controlled_file "${runtime_env}"
 
-if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
+if grep -Eq '^(dbPassword|jwtSecret|bagCodeKeyK1|deviceEnrollmentKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)=' "${runtime_env}"; then
     fail "runtime.env contains a secret value; use /run/secrets instead"
 fi
 if grep -Eq '^(wechatAppid|miniappSecretStoreDirectory)=' "${runtime_env}"; then
@@ -174,6 +175,57 @@ external_mode="$(env_value "${runtime_env}" externalMode \
     | tr '[:upper:]' '[:lower:]')"
 [[ "${external_mode}" = fake || "${external_mode}" = real ]] \
     || fail "externalMode must be fake or real"
+device_enrollment_enabled="$(env_value \
+    "${runtime_env}" deviceEnrollmentEnabled | tr '[:upper:]' '[:lower:]')"
+remote_support_enabled="$(env_value \
+    "${runtime_env}" remoteSupportEnabled | tr '[:upper:]' '[:lower:]')"
+[[ "${device_enrollment_enabled}" = true \
+    || "${device_enrollment_enabled}" = false ]] \
+    || fail "deviceEnrollmentEnabled must be true or false"
+[[ "${remote_support_enabled}" = true \
+    || "${remote_support_enabled}" = false ]] \
+    || fail "remoteSupportEnabled must be true or false"
+
+if [[ "${device_enrollment_enabled}" = true ]]; then
+    [[ -r "${runtime_secret_root}/backend/deviceEnrollmentKeyK1" ]] \
+        || fail "enabled device enrollment is missing its runtime K1"
+else
+    [[ ! -e "${runtime_secret_root}/backend/deviceEnrollmentKeyK1" ]] \
+        || fail "disabled device enrollment must not retain its runtime K1"
+fi
+
+if [[ "${remote_support_enabled}" = true ]]; then
+    require_root_controlled_file "${remote_compose_file}"
+    for key in \
+        remoteSupportTunnelHost \
+        remoteSupportTunnelServerHostPublicKey \
+        remoteSupportMaintenanceCaPublicKey \
+        remoteSupportSignerCaPrivateKeyPath \
+        remoteSupportLeaseDesiredDirectory \
+        remoteSupportLeaseActualDirectory
+    do
+        env_value "${runtime_env}" "${key}" >/dev/null
+    done
+    [[ "$(env_value "${runtime_env}" remoteSupportSignerCaPrivateKeyPath)" \
+        = /run/secrets/remote-support/maintenance-user-ca ]] \
+        || fail "unexpected remote support CA private key path"
+    [[ -r "${runtime_secret_root}/backend/remote-support/maintenance-user-ca" ]] \
+        || fail "enabled remote support is missing its runtime CA private key"
+    desired_directory="$(env_value \
+        "${runtime_env}" remoteSupportLeaseDesiredDirectory)"
+    actual_directory="$(env_value \
+        "${runtime_env}" remoteSupportLeaseActualDirectory)"
+    [[ "${desired_directory}" = /var/lib/ecobin/remote-support/desired \
+        && "${actual_directory}" = /run/ecobin/remote-support/actual ]] \
+        || fail "remote support lease directories must use the installed SSH boundary paths"
+    [[ -d "${desired_directory}" && ! -L "${desired_directory}" ]] \
+        || fail "remote support desired lease directory is missing or is a link"
+    [[ -d "${actual_directory}" && ! -L "${actual_directory}" ]] \
+        || fail "remote support actual lease directory is missing or is a link"
+else
+    [[ ! -e "${runtime_secret_root}/backend/remote-support" ]] \
+        || fail "disabled remote support must not retain its runtime CA private key"
+fi
 
 external_non_secret_keys=(
     iotSubscriptionName
@@ -223,9 +275,14 @@ db_network_name="$(env_value "${deployment_env}" ECOBIN_DB_NETWORK_NAME)"
     --format '{{.Internal}}')" = true ]] \
     || fail "${db_network_name} is missing or is not internal"
 
-docker compose \
-    --env-file "${deployment_env}" \
-    --file "${compose_file}" \
-    config --quiet
+compose_args=(
+    compose
+    --env-file "${deployment_env}"
+    --file "${compose_file}"
+)
+if [[ "${remote_support_enabled}" = true ]]; then
+    compose_args+=(--file "${remote_compose_file}")
+fi
+docker "${compose_args[@]}" config --quiet
 
 printf 'production-preflight=PASS mode=%s\n' "${external_mode}"

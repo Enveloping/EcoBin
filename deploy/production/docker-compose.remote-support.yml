@@ -1,0 +1,15 @@
+services:
+  backend:
+    volumes:
+      - type: bind
+        source: ${ECOBIN_REMOTE_SUPPORT_DESIRED_DIRECTORY:-/var/lib/ecobin/remote-support/desired}
+        target: /var/lib/ecobin/remote-support/desired
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ECOBIN_REMOTE_SUPPORT_ACTUAL_DIRECTORY:-/run/ecobin/remote-support/actual}
+        target: /run/ecobin/remote-support/actual
+        read_only: true
+        bind:
+          create_host_path: false

@@ -1,0 +1,73 @@
+<view class="factory-page">
+  <view class="hero-card">
+    <view class="hero-icon"><t-icon name="tools" size="52rpx" color="#11872b" /></view>
+    <view class="hero-copy">
+      <text class="hero-title">设备出厂端</text>
+      <text class="hero-sub">{{displayName ? displayName + ' · ' + operatorCode : '正在识别厂家操作员'}}</text>
+    </view>
+    <button wx:if="{{displayName}}" class="identity-switch" loading="{{switchingIdentity}}" bindtap="switchIdentity">切换身份</button>
+  </view>
+
+  <view wx:if="{{booting}}" class="state-card">
+    <view class="spinner"></view>
+    <text>正在校验厂家身份…</text>
+  </view>
+
+  <view wx:elif="{{unauthorized}}" class="state-card">
+    <t-icon name="lock-off" size="82rpx" color="#8a958c" />
+    <text class="state-title">厂家身份未绑定或已失效</text>
+    <text class="state-copy">请联系平台管理员，在 Web 管理端为你的厂家工号重新生成一次性微信小程序码，并使用本人微信扫描。</text>
+  </view>
+
+  <block wx:else>
+    <view wx:if="{{errorMessage}}" class="error-card">{{errorMessage}}</view>
+
+    <button class="scan-device-button" loading="{{loading}}" bindtap="scanDevice">
+      <t-icon name="scan" size="40rpx" color="#fff" />
+      <text>{{deviceCode ? '扫描另一台设备' : '扫描待出厂设备'}}</text>
+    </button>
+
+    <view wx:if="{{deviceCode}}" class="device-card">
+      <view class="device-head">
+        <view>
+          <text class="eyebrow">当前设备</text>
+          <text class="hardware-sn">{{hardwareSn}}</text>
+          <text class="device-code">{{deviceCode}}</text>
+        </view>
+        <view class="status status-{{acceptanceStatus}}">
+          {{acceptanceStatus === 'PASSED' ? '验收通过' : (acceptanceStatus === 'FAILED' ? '验收未通过' : '等待验收')}}
+        </view>
+      </view>
+
+      <view wx:if="{{complete}}" class="complete-notice">
+        <t-icon name="check-circle" size="36rpx" color="#11872b" />
+        <text>{{acceptanceStatus === 'PASSED' ? '设备已通过验收，首次袋信息已锁定。' : '所有投口已完成首次装袋；设备在线后系统会自动开始验收，无需再点确认。'}}</text>
+      </view>
+      <view wx:else class="pending-notice">
+        必须把 {{expectedPortCount}} 个投口全部登记完成，系统才允许设备开始验收。
+      </view>
+
+      <view class="slot-list">
+        <view class="slot-row" wx:for="{{slots}}" wx:key="portNo">
+          <view class="slot-number">{{item.portNo}}</view>
+          <view class="slot-copy">
+            <text class="slot-title">{{item.portNo}} 号投口</text>
+            <text wx:if="{{item.installed}}" class="bag-code">{{item.bagCode}}</text>
+            <text wx:else class="slot-empty">尚未登记初始袋</text>
+            <text wx:if="{{item.installedAtText}}" class="installed-at">{{item.installedAtText}}</text>
+          </view>
+          <button
+            class="slot-action {{item.installed ? 'slot-action--correct' : ''}}"
+            disabled="{{submittingPort > 0 || acceptanceStatus === 'PASSED'}}"
+            loading="{{submittingPort === item.portNo}}"
+            data-port-no="{{item.portNo}}"
+            data-installed="{{item.installed}}"
+            bindtap="scanBag"
+          >{{item.installed ? '更正袋码' : '扫描袋码'}}</button>
+        </view>
+      </view>
+
+      <view class="refresh-link" bindtap="refresh">刷新设备状态</view>
+    </view>
+  </block>
+</view>

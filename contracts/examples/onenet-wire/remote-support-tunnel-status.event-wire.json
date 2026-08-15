@@ -1,0 +1,35 @@
+{
+  "identifier": "remoteSupportTunnelStatus",
+  "kind": "EVENT",
+  "oneJsonPayload": {
+    "id": "115",
+    "params": {
+      "remoteSupportTunnelStatus": {
+        "value": {
+          "clockQuality": 1,
+          "commandUid": "8b000000-0000-4000-8000-000000000002",
+          "deliveryClass": 1,
+          "edgeEventSequence": 1056,
+          "eventType": 1,
+          "eventUid": "8b000000-0000-4000-8000-000000000004",
+          "failureCode": "",
+          "failureCodePresent": false,
+          "occurredAt": "2026-07-24T01:00:30.000Z",
+          "occurredAtPresent": true,
+          "payloadSha256": "746f185bd2ef0cc58f6d76c110cc62a1c4bc0692a32bf205d79b7e123c5d6293",
+          "remotePort": 22011,
+          "schemaVersion": 1,
+          "sessionUid": "8b000000-0000-4000-8000-000000000001",
+          "state": 2,
+          "target": {
+            "type": 1,
+            "uid": "SN-CONTRACT-0001"
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "replyTopicTemplate": "$sys/{pid}/{device-name}/thing/event/post/reply",
+  "topicTemplate": "$sys/{pid}/{device-name}/thing/event/post"
+}

@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 22
+    CatalogVersion = 24
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -26,6 +26,35 @@
             "deleted_at"
             "lock_version"
             "updated_at"
+        )
+        iam_platform_admin_maintenance_ssh_key = @(
+            "revoked_at"
+            "revoked_reason"
+            "lock_version"
+            "updated_at"
+        )
+        iam_factory_operator = @(
+            "display_name"
+            "enabled"
+            "auth_version"
+            "lock_version"
+            "updated_at"
+        )
+        iam_factory_operator_binding_intent = @(
+            "status"
+            "consumed_at"
+            "consumed_wechat_subject_id"
+        )
+        iam_factory_operator_miniapp_binding = @(
+            "status"
+            "revoked_at"
+            "revocation_reason"
+            "lock_version"
+            "updated_at"
+        )
+        iam_factory_operator_miniapp_session = @(
+            "revoked_at"
+            "revocation_reason"
         )
         iam_tenant = @(
             "enterprise_name"
@@ -146,11 +175,61 @@
             "control_version"
             "updated_at"
         )
-        # Factory bag identity and installation facts remain immutable. Only
-        # the automatic real-device tare measurement projection may advance.
+        # The factory mini-program may correct a mis-scanned label before
+        # acceptance. Topology and source stay immutable; correction replaces
+        # only the label binding and resets the automatic tare projection.
         dev_factory_installed_bag = @(
+            "bag_code"
+            "installed_by_factory_operator_id"
+            "label_item_id"
             "tare_status"
             "last_failure_code"
+            "installed_at"
+            "updated_at"
+        )
+        dev_device_enrollment_challenge = @(
+            "status"
+            "consumed_at"
+        )
+        dev_device_enrollment = @(
+            "status"
+            "asset_id"
+            "onenet_device_id"
+            "encrypted_response"
+            "response_nonce"
+            "response_sha256"
+            "failure_code"
+            "attempt_count"
+            "next_attempt_at"
+            "completed_at"
+            "updated_at"
+        )
+        rec_bag_label_claim = @(
+            "released_at"
+            "release_reason"
+        )
+        # Fixed ports are seeded by V52. Only the inert version column is
+        # exposed so allocation can serialize on a slot locking read.
+        dev_remote_support_port_slot = @(
+            "lock_version"
+        )
+        dev_remote_support_session = @(
+            "state"
+            "close_operation_uid"
+            "close_request_sha256"
+            "close_command_uid"
+            "device_reported_state"
+            "server_lease_state"
+            "failure_code"
+            "failure_detail"
+            "certificate_serial"
+            "certificate_text"
+            "certificate_sha256"
+            "certificate_issued_at"
+            "opened_at"
+            "close_requested_at"
+            "closed_at"
+            "lock_version"
             "updated_at"
         )
         dev_device_entry_url_rollout = @(

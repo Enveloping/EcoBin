@@ -1,9 +1,11 @@
 package org.enveloping.ecobin.integration.fake;
 
 import org.enveloping.ecobin.device.api.port.CosUploadCredentialPort;
+import org.enveloping.ecobin.device.api.port.OneNetDeviceProvisioningPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferChannelPort;
 import org.enveloping.ecobin.funds.api.port.MerchantTransferAuthorizationChannelPort;
 import org.enveloping.ecobin.funds.api.port.NativePaymentChannelPort;
+import org.enveloping.ecobin.identity.api.port.WechatMiniProgramCodePort;
 import org.enveloping.ecobin.integration.config.ExternalAdapterModeProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -28,6 +30,11 @@ public class FakeExternalAdapterConfiguration {
     }
 
     @Bean
+    OneNetDeviceProvisioningPort fakeOneNetDeviceProvisioningPort() {
+        return new FakeOneNetDeviceProvisioningAdapter();
+    }
+
+    @Bean
     CosUploadCredentialPort fakeCosUploadCredentialPort() {
         return new FakeCosUploadCredentialAdapter();
     }
@@ -35,6 +42,11 @@ public class FakeExternalAdapterConfiguration {
     @Bean
     FakeWechatSessionAdapter fakeWechatMiniappAdapter() {
         return new FakeWechatSessionAdapter();
+    }
+
+    @Bean
+    WechatMiniProgramCodePort fakeWechatMiniProgramCodePort() {
+        return new FakeWechatMiniProgramCodeAdapter();
     }
 
     @Bean

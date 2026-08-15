@@ -46,6 +46,10 @@ V51 是一次不可与旧应用并行的状态迁移：它会把已有的微信�
 直接激活理解该状态的新后端，再恢复入口。不能让 V50 后端在 V51 数据库上继续接受新的
 授权申请，否则旧代码可能把已经终结的失败行当成未知公开状态，或再次生成旧格式的展示名称。
 
+V52 新增设备注册、厂家验收小程序、初始袋标签占用和远程维护事实，并把 epoch 门禁推进到
+V52。执行前同样必须停止旧后端写入；迁移完成后只能激活理解 V52 的后端。远程维护默认
+关闭，服务器 SSH 边界和条件秘密未安装完毕前不要打开功能开关。
+
 ## 3. 发布前检查
 
 在开发机仓库根目录执行：
@@ -79,7 +83,9 @@ ssh ubuntu@115.159.67.35 "mkdir -p /tmp/ecobin-deploy-control"
 
 scp `
   .\deploy\production\docker-compose.target-app.yml `
+  .\deploy\production\docker-compose.remote-support.yml `
   .\tools\deployment\ecobin-install-local-release.sh `
+  .\tools\deployment\ecobin-target-app-compose.sh `
   .\tools\deployment\ecobin-stage-runtime-secrets.sh `
   .\tools\deployment\ecobin-production-preflight.sh `
   .\tools\deployment\ecobin-runtime-secret-probe.sh `
@@ -95,12 +101,18 @@ cd /tmp/ecobin-deploy-control
 sudo install -o root -g root -m 0600 \
   docker-compose.target-app.yml \
   /etc/ecobin/compose/docker-compose.target-app.yml
+sudo install -o root -g root -m 0644 \
+  docker-compose.remote-support.yml \
+  /etc/ecobin/compose/docker-compose.remote-support.yml
 sudo install -o root -g root -m 0755 \
   ecobin-install-local-release.sh \
   /usr/local/sbin/ecobin-install-local-release
 sudo install -o root -g root -m 0755 \
   ecobin-stage-runtime-secrets.sh \
   /usr/local/sbin/ecobin-stage-runtime-secrets
+sudo install -o root -g root -m 0755 \
+  ecobin-target-app-compose.sh \
+  /usr/local/sbin/ecobin-target-app-compose
 sudo install -o root -g root -m 0755 \
   ecobin-production-preflight.sh \
   /usr/local/sbin/ecobin-production-preflight
@@ -301,9 +313,11 @@ sudo systemctl start ecobin-target-app.service
 | Web 运行时镜像 | [`web.Dockerfile`](../../deploy/production/runtime-images/web.Dockerfile) | 随发布包上传 |
 | 安装发布并写镜像身份 | [`ecobin-install-local-release.sh`](../../tools/deployment/ecobin-install-local-release.sh) | `/usr/local/sbin/ecobin-install-local-release` |
 | 生成只读运行秘密目录 | [`ecobin-stage-runtime-secrets.sh`](../../tools/deployment/ecobin-stage-runtime-secrets.sh) | `/usr/local/sbin/ecobin-stage-runtime-secrets` |
+| 根据功能开关组合并执行 Compose | [`ecobin-target-app-compose.sh`](../../tools/deployment/ecobin-target-app-compose.sh) | `/usr/local/sbin/ecobin-target-app-compose` |
 | 激活前生产门禁 | [`ecobin-production-preflight.sh`](../../tools/deployment/ecobin-production-preflight.sh) | `/usr/local/sbin/ecobin-production-preflight` |
 | 容器秘密和隔离探针 | [`ecobin-runtime-secret-probe.sh`](../../tools/deployment/ecobin-runtime-secret-probe.sh) | `/usr/local/sbin/ecobin-runtime-secret-probe` |
 | 应用 Compose | [`docker-compose.target-app.yml`](../../deploy/production/docker-compose.target-app.yml) | `/etc/ecobin/compose/docker-compose.target-app.yml` |
+| 远程维护 Compose 叠加 | [`docker-compose.remote-support.yml`](../../deploy/production/docker-compose.remote-support.yml) | `/etc/ecobin/compose/docker-compose.remote-support.yml` |
 | systemd 应用入口 | [`ecobin-target-app.service`](../../tools/deployment/systemd/ecobin-target-app.service) | `/etc/systemd/system/ecobin-target-app.service` |
 | 完整首次部署 | [`target-single-host-deployment.md`](target-single-host-deployment.md) | 文档 |
 | 配置、密钥和证书 | [`production-configuration-secrets-certificates.md`](production-configuration-secrets-certificates.md) | 文档 |

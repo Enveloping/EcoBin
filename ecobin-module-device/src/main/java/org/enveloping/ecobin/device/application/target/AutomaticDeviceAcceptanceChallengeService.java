@@ -111,6 +111,17 @@ public class AutomaticDeviceAcceptanceChallengeService
                 || !"ONLINE".equals(asset.transportStatus())) {
             return false;
         }
+        Integer installedBagCount = jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM dev_factory_installed_bag
+                        WHERE asset_id = ?
+                        """,
+                Integer.class,
+                asset.id());
+        if (installedBagCount == null
+                || installedBagCount != asset.expectedPortCount()) {
+            return false;
+        }
         Integer active = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM ops_reliable_task

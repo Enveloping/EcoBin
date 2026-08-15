@@ -22,7 +22,10 @@ COPY --from=build /build/ecobin-bootstrap/target/ecobin-bootstrap-*.jar /app/app
 COPY deploy/production/backend-healthcheck.sh \
     /usr/local/bin/ecobin-backend-healthcheck
 
-RUN groupadd --gid 10001 ecobin \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends openssh-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 ecobin \
     && useradd --uid 10001 --gid 10001 --no-create-home \
         --home-dir /nonexistent --shell /usr/sbin/nologin ecobin \
     && chmod 0555 /usr/local/bin/ecobin-backend-healthcheck

@@ -40,6 +40,11 @@ public class AutomaticDeviceAcceptanceChallengeScheduler {
                         WHERE asset.acceptance_status <> 'PASSED'
                           AND asset.lifecycle_status = 'NORMAL'
                           AND transport.onenet_connection_status = 'ONLINE'
+                          AND (
+                              SELECT COUNT(*)
+                              FROM dev_factory_installed_bag bag
+                              WHERE bag.asset_id = asset.id
+                          ) = asset.expected_port_count
                         ORDER BY asset.id
                         LIMIT 20
                         """,

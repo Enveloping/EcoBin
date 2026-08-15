@@ -15,12 +15,12 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 99' -or
-        $provisionSource -notmatch 'Expected 99 domain tables') {
-    throw "H-02 provisioning must enforce the V51 99-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 112' -or
+        $provisionSource -notmatch 'Expected 112 domain tables') {
+    throw "H-02 provisioning must enforce the V52 112-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 51') {
-    throw "H-02 provisioning must migrate through V51"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 52') {
+    throw "H-02 provisioning must migrate through V52"
 }
 if ($provisionSource -notmatch
         'sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08' -or
@@ -39,8 +39,10 @@ if ($provisionSource -notmatch
     throw "H-02 must retain the default empty-target business-row guard"
 }
 if ($provisionSource -notmatch
-        '"dev_runtime_snapshot_policy"') {
-    throw "H-02 must exclude the seeded V46 policy from business-row checks"
+        '"dev_runtime_snapshot_policy"' -or
+        $provisionSource -notmatch
+        '"dev_remote_support_port_slot"') {
+    throw "H-02 must exclude seeded policy and port-slot reference rows from business-row checks"
 }
 
 foreach ($entry in $catalog.UpdateColumns.GetEnumerator()) {
@@ -120,8 +122,12 @@ $factoryBagColumns = @(
     $catalog.UpdateColumns.dev_factory_installed_bag
 )
 $factoryBagRequiredColumns = @(
+    "bag_code"
+    "installed_by_factory_operator_id"
+    "label_item_id"
     "tare_status"
     "last_failure_code"
+    "installed_at"
     "updated_at"
 )
 if (@(
@@ -129,8 +135,50 @@ if (@(
     ).Count -ne 0) {
     throw (
         "Factory-installed bag runtime UPDATE grants must be limited to " +
-        "the automatic tare projection"
+        "factory label correction and the automatic tare projection"
     )
+}
+
+$v52UpdateGrants = @{
+    dev_device_enrollment_challenge = @("status", "consumed_at")
+    dev_device_enrollment = @(
+        "status", "asset_id", "onenet_device_id", "encrypted_response",
+        "response_nonce", "response_sha256", "failure_code",
+        "attempt_count", "next_attempt_at", "completed_at", "updated_at"
+    )
+    iam_platform_admin_maintenance_ssh_key = @(
+        "revoked_at", "revoked_reason", "lock_version", "updated_at"
+    )
+    iam_factory_operator = @(
+        "display_name", "enabled", "auth_version", "lock_version",
+        "updated_at"
+    )
+    iam_factory_operator_binding_intent = @(
+        "status", "consumed_at", "consumed_wechat_subject_id"
+    )
+    iam_factory_operator_miniapp_binding = @(
+        "status", "revoked_at", "revocation_reason", "lock_version",
+        "updated_at"
+    )
+    iam_factory_operator_miniapp_session = @(
+        "revoked_at", "revocation_reason"
+    )
+    rec_bag_label_claim = @("released_at", "release_reason")
+    dev_remote_support_port_slot = @("lock_version")
+    dev_remote_support_session = @(
+        "state", "close_operation_uid", "close_request_sha256",
+        "close_command_uid", "device_reported_state", "server_lease_state",
+        "failure_code", "failure_detail", "certificate_serial",
+        "certificate_text", "certificate_sha256", "certificate_issued_at",
+        "opened_at", "close_requested_at", "closed_at", "lock_version",
+        "updated_at"
+    )
+}
+foreach ($entry in $v52UpdateGrants.GetEnumerator()) {
+    $actual = @($catalog.UpdateColumns[$entry.Key])
+    if (@(Compare-Object @($entry.Value) $actual).Count -ne 0) {
+        throw "V52 runtime UPDATE grant mismatch for $($entry.Key)"
+    }
 }
 if ($catalog.UpdateColumns.ContainsKey("dev_port")) {
     throw (

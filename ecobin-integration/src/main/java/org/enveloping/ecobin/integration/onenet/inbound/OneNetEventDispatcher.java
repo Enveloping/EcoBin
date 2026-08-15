@@ -130,7 +130,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             new EventContract(
                     "BUSINESS_CONFIRMATION_RECEIPT",
                     "CONTROL_RECEIPT",
-                    "BUSINESS_CONFIRMATION")));
+                    "BUSINESS_CONFIRMATION")),
+            Map.entry("remoteSupportTunnelStatus",
+            new EventContract(
+                    "REMOTE_SUPPORT_TUNNEL_STATUS",
+                    "RELIABLE_FACT",
+                    "DEVICE_ASSET")));
 
     private static final Map<Long, String> CLOCK_QUALITY = Map.of(
             1L, "SYNCED",
@@ -228,7 +233,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             "DEVICE_RUNTIME_SNAPSHOT",
             "DEVICE_FAULT_OBSERVED",
             "DEVICE_FAULT_RECOVERED",
-            "SAFETY_SENSOR_STATE_CHANGED");
+            "SAFETY_SENSOR_STATE_CHANGED",
+            "REMOTE_SUPPORT_TUNNEL_STATUS");
 
     private final TrustedInboxPort trustedInboxPort;
     private final TrustedDeviceSourceScopePort sourceScopePort;
@@ -704,6 +710,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 || "BASELINE_MEASUREMENT_COMPLETE".equals(
                 messageKind)
                 || "DEVICE_ACCEPTANCE_EVIDENCE".equals(
+                messageKind)
+                || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
                 messageKind)) {
             return pattern(wire, "commandUid", UUID_V4);
         }
@@ -755,6 +763,8 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     safetyPayload(wire);
             case "BUSINESS_CONFIRMATION_RECEIPT" ->
                     confirmationReceiptPayload(wire);
+            case "REMOTE_SUPPORT_TUNNEL_STATUS" ->
+                    remoteSupportStatusPayload(wire);
             default -> throw permanent(
                     "unsupported trusted event payload");
         };
@@ -2565,6 +2575,40 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         return payload;
     }
 
+    private static Map<String, Object> remoteSupportStatusPayload(
+            JsonNode wire) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put(
+                "sessionUid",
+                pattern(wire, "sessionUid", UUID_V4));
+        String state = enumText(
+                integer(wire, "state"),
+                Map.of(
+                        1L, "CONNECTING",
+                        2L, "OPEN",
+                        3L, "CLOSED",
+                        4L, "FAILED",
+                        5L, "EXPIRED"),
+                "state");
+        payload.put("state", state);
+        payload.put(
+                "remotePort",
+                requiredIntegerInRange(
+                        wire, "remotePort", 22011, 22014));
+        String failureCode = nullablePresenceText(
+                wire,
+                "failureCodePresent",
+                "failureCode",
+                "^[A-Z][A-Z0-9_]{0,63}$",
+                64);
+        if ("FAILED".equals(state) && failureCode == null) {
+            throw permanent(
+                    "failed remote support status lacks failureCode");
+        }
+        payload.put("failureCode", failureCode);
+        return payload;
+    }
+
     private static void validateSemanticShape(
             EventContract contract,
             Map<String, Object> event,
@@ -2637,6 +2681,12 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 && event.get("commandUid") == null) {
             throw permanent(
                     "acceptance evidence lacks its platform challenge command");
+        }
+        if ("REMOTE_SUPPORT_TUNNEL_STATUS".equals(
+                contract.messageKind())
+                && event.get("commandUid") == null) {
+            throw permanent(
+                    "remote support status lacks its command or device target");
         }
     }
 

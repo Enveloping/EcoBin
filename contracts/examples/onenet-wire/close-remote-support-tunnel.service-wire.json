@@ -1,0 +1,40 @@
+{
+  "callServiceApiBodyTemplate": {
+    "device_name": "<HARDWARE_SN>",
+    "identifier": "closeRemoteSupportTunnel",
+    "params": {
+      "commandType": 1,
+      "commandUid": "8b000000-0000-4000-8000-000000000003",
+      "cosGrantPresent": false,
+      "expiresAt": "2026-07-24T01:01:00.000Z",
+      "issuedAt": "2026-07-24T01:00:00.000Z",
+      "payloadSchemaVersion": 1,
+      "payloadSha256": "bd918b47b8841ae46f1c5654b6a90d03dd93f7b52fbbd3286b00b7271a0128c9",
+      "schemaVersion": 1,
+      "sessionUid": "8b000000-0000-4000-8000-000000000001",
+      "target": {
+        "type": 1,
+        "uid": "8b000000-0000-4000-8000-000000000001"
+      },
+      "targetDeviceName": "SN-CONTRACT-0001"
+    },
+    "product_id": "<PRODUCT_ID>"
+  },
+  "deviceAcceptedReplyTemplate": {
+    "code": 200,
+    "data": {
+      "commandUid": "8b000000-0000-4000-8000-000000000003",
+      "edgeBootId": 9001,
+      "errorCode": "",
+      "errorCodePresent": false,
+      "receiptState": 1,
+      "schemaVersion": 1
+    },
+    "id": "<COPY_REQUEST_ID>",
+    "msg": "accepted"
+  },
+  "deviceInvokeTopicTemplate": "$sys/{pid}/{device-name}/thing/service/closeRemoteSupportTunnel/invoke",
+  "deviceReplyTopicTemplate": "$sys/{pid}/{device-name}/thing/service/closeRemoteSupportTunnel/invoke_reply",
+  "identifier": "closeRemoteSupportTunnel",
+  "kind": "SYNC_SERVICE"
+}

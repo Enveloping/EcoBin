@@ -2,7 +2,7 @@
 
 > 适用主机：`115.159.67.35`（Ubuntu 22.04）
 > 当前公网入口：`https://www.jinshoubao.com`
-> 目标数据库纪元：V51
+> 目标数据库纪元：V52
 > 本文只描述目标栈。旧 `ecobin-web`、`ecobin-backend`、`ecobin-mysql`
 > 容器和旧数据卷必须继续保留，不能与目标栈交叉连接。
 
@@ -46,6 +46,10 @@ ecobin-target-mysql84:3306
   [`production-configuration-secrets-certificates.md`](production-configuration-secrets-certificates.md)
 - 应用 Compose：
   [`deploy/production/docker-compose.target-app.yml`](../../deploy/production/docker-compose.target-app.yml)
+- 远程维护按期开启时叠加的 Compose：
+  [`deploy/production/docker-compose.remote-support.yml`](../../deploy/production/docker-compose.remote-support.yml)
+- V52 设备注册、厂家验收和反向 SSH 专项部署：
+  [`device-enrollment-and-remote-support-rollout.md`](device-enrollment-and-remote-support-rollout.md)
 - Compose 非秘密变量模板：
   [`deploy/production/deployment.env.example`](../../deploy/production/deployment.env.example)
 - 后端非秘密运行配置模板：
@@ -64,7 +68,8 @@ ecobin-target-mysql84:3306
 ```text
 /etc/ecobin/
 ├── compose/
-│   └── docker-compose.target-app.yml       root:root 0600
+│   ├── docker-compose.target-app.yml       root:root 0600
+│   └── docker-compose.remote-support.yml   root:root 0644
 ├── deployment.env                          root:root 0600；只含镜像和部署参数
 ├── runtime.env                             root:root 0600；只含非秘密运行参数
 ├── secrets/                                root:root 0700
@@ -73,6 +78,8 @@ ecobin-target-mysql84:3306
 │   ├── db-backup-password                  root:root 0600
 │   ├── jwt-secret                          root:root 0600
 │   ├── bag-code-key-k1                     root:root 0600
+│   ├── device-enrollment-key-k1            root:root 0600；仅注册开启时使用
+│   ├── remote-support-maintenance-user-ca  root:root 0600；仅远程维护开启时使用
 │   ├── default-platform-admin-password     root:root 0600
 │   └── ...                                 Real 模式渠道秘密
 └── wechatpay/                              root:root 0755
@@ -181,6 +188,8 @@ dbUsername=ecobin_app
 defaultPlatformAdminEnabled=true
 externalMode=fake
 onenetSubscriptionEnabled=false
+deviceEnrollmentEnabled=false
+remoteSupportEnabled=false
 TZ=UTC
 ```
 
@@ -293,6 +302,12 @@ sudo install -d -o root -g root -m 0700 /etc/ecobin/compose
 sudo install -o root -g root -m 0600 \
   deploy/production/docker-compose.target-app.yml \
   /etc/ecobin/compose/docker-compose.target-app.yml
+sudo install -o root -g root -m 0644 \
+  deploy/production/docker-compose.remote-support.yml \
+  /etc/ecobin/compose/docker-compose.remote-support.yml
+sudo install -o root -g root -m 0755 \
+  tools/deployment/ecobin-target-app-compose.sh \
+  /usr/local/sbin/ecobin-target-app-compose
 sudo install -o root -g root -m 0755 \
   tools/deployment/ecobin-stage-runtime-secrets.sh \
   /usr/local/sbin/ecobin-stage-runtime-secrets
@@ -325,7 +340,7 @@ sudo systemctl daemon-reload
 
 顺序如下：
 
-1. 确认目标 MySQL 已是完整 V51、99 张领域表、76 条权限定义；是否要求业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
+1. 确认目标 MySQL 已是完整 V52、112 张领域表、76 条权限定义；V52 固定四行远程端口槽属于系统种子，是否要求其他业务数据为空取决于当前部署是否已经承接试验数据，禁止为了满足旧手册而清空现有数据；
 2. 上传、校验并安装同一干净 Git 提交生成的本地发布包；
 3. 确认安装脚本已写入本地标签和对应 image ID，再写入其余运行配置和秘密；
 4. 执行秘密暂存；

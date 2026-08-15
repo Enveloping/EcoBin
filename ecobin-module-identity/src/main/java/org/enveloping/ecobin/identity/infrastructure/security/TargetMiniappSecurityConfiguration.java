@@ -24,7 +24,7 @@ import java.util.Map;
 public class TargetMiniappSecurityConfiguration {
 
     @Bean
-    @Order(2)
+    @Order(3)
     public SecurityFilterChain targetMiniappSecurityFilterChain(
             HttpSecurity http,
             TargetMiniappSessionService sessionService,

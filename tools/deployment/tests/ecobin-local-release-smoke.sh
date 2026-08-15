@@ -127,6 +127,8 @@ defaultPlatformAdminEnabled=true
 externalMode=fake
 ecobinLogPath=/var/log/ecobin/backend
 onenetSubscriptionEnabled=false
+deviceEnrollmentEnabled=false
+remoteSupportEnabled=false
 TZ=UTC
 EOF
 printf 'services: {}\n' > "${compose_file}"
@@ -175,5 +177,13 @@ grep -Fq 'target: /var/log/ecobin/backend' \
 grep -Fq \
     'ExecStartPre=/usr/bin/install -d -o 10001 -g 10001 -m 0750 ${ECOBIN_BACKEND_LOG_DIRECTORY}' \
     "${repository_root}/tools/deployment/systemd/ecobin-target-app.service"
+grep -Fq 'ExecStart=/usr/local/sbin/ecobin-target-app-compose up' \
+    "${repository_root}/tools/deployment/systemd/ecobin-target-app.service"
+
+ECOBIN_APP_COMPOSE_FILE="${compose_file}" \
+ECOBIN_DEPLOYMENT_ENV_FILE="${deployment_env}" \
+ECOBIN_RUNTIME_ENV_FILE="${runtime_env}" \
+bash "${repository_root}/tools/deployment/ecobin-target-app-compose.sh" \
+    config
 
 printf 'ecobin-local-release-smoke=PASS\n'

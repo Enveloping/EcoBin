@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "cos-python-sdk-v5>=1.9.44",
+    "cryptography>=45.0.0,<47",
     "dotenv>=0.9.9",
     "opencv-python-headless>=4.10.0.84,<5",
     "paho-mqtt>=2.1.0",

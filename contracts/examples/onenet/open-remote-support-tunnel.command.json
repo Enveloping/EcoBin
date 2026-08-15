@@ -1,0 +1,20 @@
+{
+  "commandType": "OPEN_REMOTE_SUPPORT_TUNNEL",
+  "commandUid": "8b000000-0000-4000-8000-000000000002",
+  "cosGrant": null,
+  "expiresAt": "2026-07-24T01:01:00.000Z",
+  "issuedAt": "2026-07-24T01:00:00.000Z",
+  "payload": {
+    "expiresAt": "2026-07-24T01:01:00.000Z",
+    "remotePort": 22011,
+    "sessionUid": "8b000000-0000-4000-8000-000000000001"
+  },
+  "payloadSchemaVersion": 2,
+  "payloadSha256": "3170db5b7529020920430deb0d8f6530567d470228fe453892a7013351bd2fc5",
+  "schemaVersion": 2,
+  "target": {
+    "type": "REMOTE_SUPPORT_SESSION",
+    "uid": "8b000000-0000-4000-8000-000000000001"
+  },
+  "targetDeviceName": "SN-CONTRACT-0001"
+}

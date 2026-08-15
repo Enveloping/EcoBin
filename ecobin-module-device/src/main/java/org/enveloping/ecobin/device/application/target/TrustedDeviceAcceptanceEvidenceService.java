@@ -261,7 +261,12 @@ public class TrustedDeviceAcceptanceEvidenceService
                         SELECT asset.id, asset.device_public_code,
                                asset.expected_port_count,
                                asset.acceptance_status,
-                               transport.onenet_connection_status
+                               transport.onenet_connection_status,
+                               (
+                                   SELECT COUNT(*)
+                                   FROM dev_factory_installed_bag bag
+                                   WHERE bag.asset_id = asset.id
+                               ) AS installed_bag_count
                         FROM dev_device_asset asset
                         JOIN dev_device_transport_state transport
                           ON transport.asset_id = asset.id
@@ -274,7 +279,9 @@ public class TrustedDeviceAcceptanceEvidenceService
                         rs.getInt("expected_port_count"),
                         rs.getString("acceptance_status"),
                         "ONLINE".equals(rs.getString(
-                                "onenet_connection_status"))),
+                                "onenet_connection_status")),
+                        rs.getInt("installed_bag_count")
+                                == rs.getInt("expected_port_count")),
                 hardwareSn);
         if (rows.size() != 1) {
             throw new UntrustedInboxSourceException(
@@ -333,6 +340,8 @@ public class TrustedDeviceAcceptanceEvidenceService
             LocalDateTime receivedAt) {
         List<String> result = new ArrayList<>();
         addUnless(result, asset.oneNetOnline(), "ONENET_NOT_ONLINE");
+        addUnless(result, asset.factoryBagsComplete(),
+                "FACTORY_BAGS_INCOMPLETE");
         addUnless(result,
                 Duration.between(
                         observedAt.toInstant(ZoneOffset.UTC),
@@ -501,7 +510,8 @@ public class TrustedDeviceAcceptanceEvidenceService
             String devicePublicCode,
             int expectedPortCount,
             String acceptanceStatus,
-            boolean oneNetOnline) {
+            boolean oneNetOnline,
+            boolean factoryBagsComplete) {
     }
 
     private record ExistingEvidence(String evidenceUid) {

@@ -12,6 +12,10 @@ import type {
 } from '../types/api'
 import { clearPendingDeviceEntry } from './device-entry-intent'
 import { resetPhoneBindingPromptState } from './phone-binding-prompt'
+import {
+  isFactoryModeSuppressed,
+  preferFactoryMode,
+} from './factory-mode'
 
 let sessionClearedLocally = false
 
@@ -259,13 +263,15 @@ export function routeToEntry(session = getSession()): void {
 
 export async function logout(): Promise<void> {
   const session = getSession()
+  const returnToFactory = isFactoryModeSuppressed()
   try {
     if (session) await deleteCurrentSession(session.audience)
   } finally {
     cancelActiveLogin()
     clearPendingDeviceEntry()
     clearSession()
-    writeSilentLoginSuppressed(true)
+    if (returnToFactory) preferFactoryMode()
+    writeSilentLoginSuppressed(!returnToFactory)
     wx.reLaunch({ url: '/pages/home/home' })
   }
 }

@@ -61,6 +61,7 @@ import {
   configurationColors,
   configurationLabels,
 } from './devicePresentation';
+import RemoteSupportPanel from './RemoteSupportPanel';
 
 export type DeviceManagementMode = 'platform' | 'tenant' | 'organization';
 export type DeviceControlKind = 'disable' | 'restore' | 'retire';
@@ -785,6 +786,10 @@ export default function DeviceAssetDrawer({
                 </Descriptions.Item>
               </Descriptions>
             </Card>
+
+            {mode === 'platform' && (
+              <RemoteSupportPanel hardwareSn={asset.hardwareSn} />
+            )}
 
             {mode === 'platform' && (
               <section>

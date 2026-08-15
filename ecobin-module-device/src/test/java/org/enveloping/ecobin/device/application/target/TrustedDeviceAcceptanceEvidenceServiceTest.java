@@ -26,7 +26,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
 
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true),
+                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true, true),
                 healthyEvidence(true, true),
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -65,7 +65,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
 
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true),
+                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true, true),
                 evidence,
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -81,7 +81,7 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         LocalDateTime observedAt = LocalDateTime.of(
                 2026, 8, 7, 12, 0);
         var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true);
+                1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true, true);
 
         assertThat(service.failures(
                 asset,

@@ -1,0 +1,20 @@
+<view class="bind-page">
+  <view class="bind-card">
+    <view wx:if="{{state === 'BINDING'}}" class="state-block">
+      <view class="spinner"></view>
+      <text class="title">正在绑定厂家身份</text>
+      <text class="copy">请稍候，不要关闭小程序。</text>
+    </view>
+    <view wx:elif="{{state === 'SUCCEEDED'}}" class="state-block">
+      <t-icon name="check-circle" size="88rpx" color="#11872b" />
+      <text class="title">绑定成功</text>
+      <text class="copy">{{displayName}} · {{operatorCode}}</text>
+    </view>
+    <view wx:else class="state-block">
+      <t-icon name="error-circle" size="88rpx" color="#b44a3b" />
+      <text class="title">无法完成绑定</text>
+      <text class="copy error">{{errorMessage}}</text>
+      <text class="hint">一次性码只能由指定厂家操作员使用一次。请联系平台管理员重新生成。</text>
+    </view>
+  </view>
+</view>

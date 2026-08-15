@@ -4999,6 +4999,360 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/device-enrollment/challenges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a short-lived self-enrollment challenge */
+        post: operations["createDeviceEnrollmentChallenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/device-enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authenticate a factory device and provision its OneNet identity */
+        post: operations["submitDeviceEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/maintenance-ssh-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the current platform administrator's maintenance public keys */
+        get: operations["listOwnPlatformMaintenanceSshKeys"];
+        put?: never;
+        /** Register one Ed25519 maintenance public key */
+        post: operations["createOwnPlatformMaintenanceSshKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/maintenance-ssh-keys/{keyUid}/revocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                keyUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke one maintenance key owned by the current administrator */
+        post: operations["revokeOwnPlatformMaintenanceSshKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/factory-operators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List platform-scoped factory operators and their WeChat binding state */
+        get: operations["listFactoryOperators"];
+        put?: never;
+        /** Create a platform-scoped factory operator without Web login privileges */
+        post: operations["createFactoryOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Read one factory operator */
+        get: operations["getFactoryOperator"];
+        /** Update the display name of a factory operator */
+        put: operations["updateFactoryOperator"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate a factory operator; a new binding code is still required */
+        post: operations["activateFactoryOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/deactivations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate a factory operator and revoke its binding and sessions */
+        post: operations["deactivateFactoryOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/miniapp-binding-intents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a five-minute, one-time official WeChat mini-program binding code */
+        post: operations["createFactoryOperatorBindingIntent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/miniapp-binding-revocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke the operator's active WeChat binding and factory sessions */
+        post: operations["revokeFactoryOperatorBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-factory/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bind or log in an independent factory operator through wx.login */
+        post: operations["createFactoryMiniappSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-factory/auth/sessions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current factory miniapp session without returning its token */
+        get: operations["getCurrentFactoryMiniappSession"];
+        put?: never;
+        post?: never;
+        /** Revoke the current factory miniapp session */
+        delete: operations["deleteCurrentFactoryMiniappSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-factory/device-assets/{deviceCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        /** Read first-bag installation progress for a factory device */
+        get: operations["getFactoryAcceptanceDevice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-factory/device-assets/{deviceCode}/factory-bags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the authenticated first bag installed in one physical port */
+        post: operations["installFactoryBag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-factory/device-assets/{deviceCode}/factory-bags/{portNo}/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Correct an erroneous first-bag scan while retaining the audit trail */
+        post: operations["correctFactoryBag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/remote-support-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["schemas"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a short-lived reverse-SSH support session for one device */
+        post: operations["openRemoteSupportSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/device-assets/{hardwareSn}/remote-support-sessions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["schemas"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        /** Recover the current administrator's active support session for one device */
+        get: operations["getCurrentRemoteSupportSessionForAsset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/remote-support-sessions/{sessionUid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        /** Poll a remote support session owned by the current administrator */
+        get: operations["getRemoteSupportSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/web/platform/remote-support-sessions/{sessionUid}/closures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop an active remote support session and release its shared port */
+        post: operations["closeRemoteSupportSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7624,16 +7978,11 @@ export interface components {
         DeviceAssetLifecycleStatus: "NORMAL" | "DISABLED" | "RETIRED";
         /** @enum {string} */
         DeviceAcceptanceStatus: "PENDING" | "FAILED" | "PASSED";
-        FactoryInstalledBagInput: {
-            portNo: number;
-            bagCode: components["schemas"]["AuthenticatedBagCode"];
-        };
         CreateDeviceAssetRequest: {
             hardwareSn: components["schemas"]["HardwareSn"];
             modelCode: string;
             productionBatch?: string | null;
             expectedPortCount: number;
-            factoryBags: components["schemas"]["FactoryInstalledBagInput"][];
         };
         /** @description Raw QR payload. Authentication is performed server-side with the key identified inside the code. */
         AuthenticatedBagCode: string;
@@ -7966,6 +8315,271 @@ export interface components {
             /** @constant */
             code: "OK";
             data: components["schemas"]["StaffDeviceDetail"];
+            requestId: string;
+        };
+        DeviceEnrollmentChallenge: {
+            /** @constant */
+            schemaVersion: 1;
+            challengeUid: components["schemas"]["UuidV4"];
+            enrollmentKeyId: string;
+            nonce: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        DeviceEnrollmentRequest: {
+            /** @constant */
+            schemaVersion: 1;
+            enrollmentUid: components["schemas"]["UuidV4"];
+            challengeUid: components["schemas"]["UuidV4"];
+            enrollmentKeyId: string;
+            /** @enum {string} */
+            enrollmentMode: "SELF_ENROLLMENT" | "LEGACY_ADOPTION";
+            hardwareSn: string;
+            identityPublicKey: string;
+            responseWrapPublicKey: string;
+            tunnelPublicKey: string;
+            sshHostPublicKey: string;
+            registrationMac: string;
+            signature: string;
+            legacyProof?: string | null;
+        };
+        DeviceEnrollmentEncryptedResponse: {
+            /** @constant */
+            schemaVersion: 1;
+            /** @constant */
+            algorithm: "X25519-HKDF-SHA256-AES-256-GCM";
+            ephemeralPublicKey: string;
+            nonce: string;
+            aadSha256: string;
+            ciphertext: string;
+        };
+        DeviceEnrollmentResult: {
+            /** @constant */
+            schemaVersion: 1;
+            enrollmentUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            status: "PENDING" | "READY" | "FAILED";
+            retryAfterMs: number | null;
+            encryptedResponse: components["schemas"]["DeviceEnrollmentEncryptedResponse"] | null;
+            failureCode: string | null;
+        };
+        CreateMaintenanceSshKeyRequest: {
+            label: string;
+            /** @description One OpenSSH Ed25519 public key; private keys are never uploaded. */
+            publicKey: string;
+        };
+        RevokeMaintenanceSshKeyRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
+        MaintenanceSshKey: {
+            maintenanceSshKeyUid: components["schemas"]["UuidV4"];
+            label: string;
+            publicKey: string;
+            fingerprintSha256: string;
+            /** @enum {string} */
+            status: "ACTIVE" | "REVOKED";
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            revokedAt: string | null;
+            revokedReason: string | null;
+        };
+        MaintenanceSshKeyEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MaintenanceSshKey"];
+            requestId: string;
+        };
+        MaintenanceSshKeyListEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["MaintenanceSshKey"][];
+            requestId: string;
+        };
+        CreateFactoryOperatorRequest: {
+            operatorCode: string;
+            displayName: string;
+        };
+        UpdateFactoryOperatorRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            displayName: string;
+        };
+        FactoryOperatorStatusRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
+        FactoryBindingRevocationRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
+        FactoryOperator: {
+            factoryOperatorUid: components["schemas"]["UuidV4"];
+            operatorCode: string;
+            displayName: string;
+            /** @enum {string} */
+            status: "ACTIVE" | "DISABLED";
+            /** Format: int64 */
+            version: number;
+            /** Format: int64 */
+            authVersion: number;
+            /** @enum {string} */
+            bindingStatus: "ACTIVE" | "UNBOUND";
+            bindingUid: components["schemas"]["UuidV4"] | null;
+            /** Format: date-time */
+            boundAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        FactoryOperatorPage: {
+            items: components["schemas"]["FactoryOperator"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        FactoryOperatorEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FactoryOperator"];
+            requestId: string;
+        };
+        FactoryOperatorPageEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FactoryOperatorPage"];
+            requestId: string;
+        };
+        FactoryBindingIntentCreated: {
+            bindingIntentUid: components["schemas"]["UuidV4"];
+            /** Format: date-time */
+            expiresAt: string;
+            readonly miniProgramCodeDataUrl: string;
+        };
+        FactoryBindingIntentCreatedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FactoryBindingIntentCreated"];
+            requestId: string;
+        };
+        FactoryMiniappLoginRequest: {
+            appId: string;
+            wxLoginCode: string;
+            bindingToken?: string | null;
+        };
+        FactoryMiniappSessionCreated: {
+            readonly accessToken: string;
+            /** @constant */
+            tokenType: "Bearer";
+            /** @constant */
+            audience: "miniapp-factory";
+            /** @constant */
+            entryMode: "FACTORY_ACCEPTANCE";
+            /** Format: date-time */
+            expiresAt: string;
+            factoryOperatorUid: components["schemas"]["UuidV4"];
+            operatorCode: string;
+            displayName: string;
+            capabilities: ("factory.acceptance.read" | "factory.bag.install" | "factory.bag.correct")[];
+            newlyBound: boolean;
+        };
+        FactoryMiniappSessionView: {
+            /** @constant */
+            audience: "miniapp-factory";
+            /** @constant */
+            entryMode: "FACTORY_ACCEPTANCE";
+            /** Format: date-time */
+            expiresAt: string;
+            factoryOperatorUid: components["schemas"]["UuidV4"];
+            operatorCode: string;
+            displayName: string;
+            capabilities: ("factory.acceptance.read" | "factory.bag.install" | "factory.bag.correct")[];
+        };
+        FactoryMiniappSessionCreatedEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FactoryMiniappSessionCreated"];
+            requestId: string;
+        };
+        FactoryMiniappSessionViewEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FactoryMiniappSessionView"];
+            requestId: string;
+        };
+        InstallFactoryBagRequest: {
+            portNo: number;
+            bagCode: string;
+        };
+        CorrectFactoryBagRequest: {
+            bagCode: string;
+            reason: string;
+        };
+        FactoryBagSlot: {
+            portNo: number;
+            bagCode: components["schemas"]["AuthenticatedBagCode"];
+            /** Format: date-time */
+            installedAt: string;
+        };
+        FactoryAcceptance: {
+            deviceCode: components["schemas"]["DeviceCode"];
+            hardwareSn: components["schemas"]["HardwareSn"];
+            expectedPortCount: number;
+            acceptanceStatus: components["schemas"]["DeviceAcceptanceStatus"];
+            allFactoryBagsInstalled: boolean;
+            acceptanceCanStart: boolean;
+            factoryBags: components["schemas"]["FactoryBagSlot"][];
+        };
+        FactoryAcceptanceEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["FactoryAcceptance"];
+            requestId: string;
+        };
+        OpenRemoteSupportRequest: {
+            maintenanceSshKeyUid: components["schemas"]["UuidV4"];
+            lifetimeSeconds: number;
+            reason: string;
+        };
+        CloseRemoteSupportRequest: {
+            reason: string;
+        };
+        RemoteSupportSession: {
+            sessionUid: components["schemas"]["UuidV4"];
+            hardwareSn: components["schemas"]["HardwareSn"];
+            maintenanceSshKeyUid: components["schemas"]["UuidV4"];
+            /** @enum {string} */
+            state: "PREPARING" | "CONNECTING" | "OPEN" | "CLOSING" | "CLOSED" | "FAILED" | "EXPIRED";
+            remotePort: number;
+            /** Format: date-time */
+            connectDeadlineAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            openedAt: string | null;
+            /** Format: date-time */
+            closedAt: string | null;
+            failureCode: string | null;
+            /** @description Short-lived OpenSSH user certificate; never a private key. */
+            readonly certificate: string | null;
+            bastionHost: string;
+            bastionSshPort: number;
+            bastionUser: string;
+            targetUser: string;
+            hostKeyAlias: string;
+            knownHostsLine: string;
+            sshCommand: string;
+            version: number;
+        };
+        RemoteSupportSessionEnvelope: {
+            /** @constant */
+            code: "OK";
+            data: components["schemas"]["RemoteSupportSession"];
             requestId: string;
         };
     };
@@ -15346,6 +15960,685 @@ export interface operations {
         };
         responses: {
             202: components["responses"]["DeviceConfigurationAccepted"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    createDeviceEnrollmentChallenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Challenge created; the response is never cacheable */
+            201: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceEnrollmentChallenge"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    submitDeviceEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceEnrollmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Enrollment is ready and encrypted credentials are returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceEnrollmentResult"];
+                };
+            };
+            /** @description Provisioning is still pending */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceEnrollmentResult"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            /** @description Enrollment reached a terminal failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceEnrollmentResult"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalProblem"];
+        };
+    };
+    listOwnPlatformMaintenanceSshKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Maintenance keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceSshKeyListEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createOwnPlatformMaintenanceSshKey: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMaintenanceSshKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key registered */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceSshKeyEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    revokeOwnPlatformMaintenanceSshKey: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                keyUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeMaintenanceSshKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceSshKeyEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    listFactoryOperators: {
+        parameters: {
+            query?: {
+                page?: number;
+                pageSize?: number;
+                status?: "ACTIVE" | "DISABLED";
+                query?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Factory operator page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorPageEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    createFactoryOperator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFactoryOperatorRequest"];
+            };
+        };
+        responses: {
+            /** @description Factory operator created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    getFactoryOperator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Factory operator */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    updateFactoryOperator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFactoryOperatorRequest"];
+            };
+        };
+        responses: {
+            /** @description Factory operator updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    activateFactoryOperator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactoryOperatorStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Factory operator activated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    deactivateFactoryOperator: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactoryOperatorStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Factory operator deactivated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    createFactoryOperatorBindingIntent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Official mini-program code generated without exposing the raw token */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryBindingIntentCreatedEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    revokeFactoryOperatorBinding: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactoryBindingRevocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Factory binding revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+        };
+    };
+    createFactoryMiniappSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactoryMiniappLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Factory miniapp session created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryMiniappSessionCreatedEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            403: components["responses"]["ForbiddenProblem"];
+            409: components["responses"]["ConflictProblem"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getCurrentFactoryMiniappSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current factory miniapp session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryMiniappSessionViewEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+        };
+    };
+    deleteCurrentFactoryMiniappSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: components["responses"]["NoContent"];
+            401: components["responses"]["UnauthorizedProblem"];
+        };
+    };
+    getFactoryAcceptanceDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Factory acceptance progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryAcceptanceEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    installFactoryBag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallFactoryBagRequest"];
+            };
+        };
+        responses: {
+            /** @description Bag installed and current acceptance progress returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryAcceptanceEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    correctFactoryBag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectFactoryBagRequest"];
+            };
+        };
+        responses: {
+            /** @description Bag corrected and current acceptance progress returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryAcceptanceEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    openRemoteSupportSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                hardwareSn: components["schemas"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenRemoteSupportRequest"];
+            };
+        };
+        responses: {
+            /** @description Remote support request created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSupportSessionEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    getCurrentRemoteSupportSessionForAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hardwareSn: components["schemas"]["HardwareSn"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current active support session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSupportSessionEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    getRemoteSupportSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current remote support state and ephemeral connection material */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSupportSessionEnvelope"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    closeRemoteSupportSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                sessionUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseRemoteSupportRequest"];
+            };
+        };
+        responses: {
+            /** @description Close requested or session already terminal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSupportSessionEnvelope"];
+                };
+            };
             400: components["responses"]["InvalidRequest"];
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenProblem"];

@@ -165,7 +165,8 @@
             "DEVICE_ASSET",
             "EDGE_EVENT",
             "BUSINESS_CONFIRMATION",
-            "PHOTO_GRANT_REQUEST"
+            "PHOTO_GRANT_REQUEST",
+            "REMOTE_SUPPORT_SESSION"
           ]
         },
         "uid": {

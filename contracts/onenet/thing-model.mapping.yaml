@@ -162,6 +162,20 @@
       "schemaRef": "commands/commands.schema.json#/$defs/syncDeviceEntryUrlCommand",
       "deliveryKind": "CONTROL_COMMAND",
       "cosGrantAllowed": false
+    },
+    "openRemoteSupportTunnel": {
+      "commandType": "OPEN_REMOTE_SUPPORT_TUNNEL",
+      "targetType": "REMOTE_SUPPORT_SESSION",
+      "schemaRef": "commands/commands.schema.json#/$defs/openRemoteSupportTunnelCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
+    },
+    "closeRemoteSupportTunnel": {
+      "commandType": "CLOSE_REMOTE_SUPPORT_TUNNEL",
+      "targetType": "REMOTE_SUPPORT_SESSION",
+      "schemaRef": "commands/commands.schema.json#/$defs/closeRemoteSupportTunnelCommand",
+      "deliveryKind": "CONTROL_COMMAND",
+      "cosGrantAllowed": false
     }
   },
   "events": {
@@ -254,6 +268,12 @@
       "deliveryClass": "RELIABLE_FACT",
       "targetType": "DEVICE_ASSET",
       "schemaRef": "events/events.schema.json#/$defs/deviceAcceptanceEvidenceEvent"
+    },
+    "remoteSupportTunnelStatus": {
+      "eventType": "REMOTE_SUPPORT_TUNNEL_STATUS",
+      "deliveryClass": "RELIABLE_FACT",
+      "targetType": "DEVICE_ASSET",
+      "schemaRef": "events/events.schema.json#/$defs/remoteSupportTunnelStatusEvent"
     }
   },
   "semanticChecksBeyondJsonSchema": [
@@ -271,7 +291,8 @@
     "configuration stages, command observation stages and receipt outcomes enforce their error/mcu identity relationships",
     "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind work, slot and photo identity",
     "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation"
-    ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence"
+    ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence",
+    "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID"
   ],
   "forbiddenLegacyIdentifiers": [
     "openDeliveryDoor",
@@ -307,6 +328,10 @@
     "PROVIDE_PHOTO_UPLOAD_GRANT": "PROVIDE_PHOTO_GRANT",
     "REQUEST_DEVICE_ACCEPTANCE": "REQUEST_DEV_ACCEPT",
     "SYNC_DEVICE_ENTRY_URL": "SYNC_DEVICE_URL",
+    "OPEN_REMOTE_SUPPORT_TUNNEL": "OPEN_REMOTE_TUNNEL",
+    "CLOSE_REMOTE_SUPPORT_TUNNEL": "CLOSE_REMOTE_TUNNEL",
+    "REMOTE_SUPPORT_TUNNEL_STATUS": "REMOTE_TUNNEL_STATUS",
+    "REMOTE_SUPPORT_SESSION": "REMOTE_SESSION",
     "CONFIGURATION_APPLICATION": "CONFIG_APPLICATION",
     "BASELINE_MEASUREMENT": "BASELINE_MEAS",
     "BUSINESS_CONFIRMATION": "BIZ_CONFIRMATION",

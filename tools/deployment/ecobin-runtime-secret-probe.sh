@@ -22,6 +22,18 @@ external_mode="$(
         | tail -n 1 \
         | tr '[:upper:]' '[:lower:]'
 )"
+device_enrollment_enabled="$(
+    printf '%s\n' "${container_environment}" \
+        | sed -n 's/^deviceEnrollmentEnabled=//p' \
+        | tail -n 1 \
+        | tr '[:upper:]' '[:lower:]'
+)"
+remote_support_enabled="$(
+    printf '%s\n' "${container_environment}" \
+        | sed -n 's/^remoteSupportEnabled=//p' \
+        | tail -n 1 \
+        | tr '[:upper:]' '[:lower:]'
+)"
 
 [[ "${image_user}" = 10001:10001 ]] \
     || fail "backend image user is not 10001:10001"
@@ -29,8 +41,14 @@ external_mode="$(
     || fail "backend container user is not 10001:10001"
 [[ "${external_mode}" = fake || "${external_mode}" = real ]] \
     || fail "backend externalMode is missing or invalid"
+[[ "${device_enrollment_enabled}" = true \
+    || "${device_enrollment_enabled}" = false ]] \
+    || fail "backend deviceEnrollmentEnabled is missing or invalid"
+[[ "${remote_support_enabled}" = true \
+    || "${remote_support_enabled}" = false ]] \
+    || fail "backend remoteSupportEnabled is missing or invalid"
 
-secret_environment_pattern='^(dbPassword|jwtSecret|bagCodeKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)='
+secret_environment_pattern='^(dbPassword|jwtSecret|bagCodeKeyK1|deviceEnrollmentKeyK1|defaultPlatformAdminPassword|wechatSecret|iotAccessId|iotSecretKey|onenetAccessKey|cosSecretId|cosSecretKey|wechatPayApiV3Key|MYSQL_ROOT_PASSWORD|DB_RUNTIME_PASSWORD)='
 if docker image inspect "${image_name}" \
     --format '{{range .Config.Env}}{{println .}}{{end}}' \
     | grep -Eq "${secret_environment_pattern}"
@@ -94,6 +112,8 @@ docker run \
     --user 10001:10001 \
     --read-only \
     --env "ECOBIN_PROBE_MODE=${external_mode}" \
+    --env "ECOBIN_PROBE_ENROLLMENT=${device_enrollment_enabled}" \
+    --env "ECOBIN_PROBE_REMOTE_SUPPORT=${remote_support_enabled}" \
     --mount \
         type=bind,src=/run/ecobin-secrets/backend,dst=/run/secrets,readonly \
     --entrypoint /bin/sh \
@@ -109,6 +129,20 @@ docker run \
             test -r "/run/secrets/${file_name}"
             test ! -w "/run/secrets/${file_name}"
         done
+
+        if [ "${ECOBIN_PROBE_ENROLLMENT}" = true ]; then
+            test -r /run/secrets/deviceEnrollmentKeyK1
+            test ! -w /run/secrets/deviceEnrollmentKeyK1
+        else
+            test ! -e /run/secrets/deviceEnrollmentKeyK1
+        fi
+
+        if [ "${ECOBIN_PROBE_REMOTE_SUPPORT}" = true ]; then
+            test -r /run/secrets/remote-support/maintenance-user-ca
+            test ! -w /run/secrets/remote-support/maintenance-user-ca
+        else
+            test ! -e /run/secrets/remote-support
+        fi
         for file_name in \
             mysql-root-password \
             db-backup-password \
@@ -151,5 +185,6 @@ docker run \
 
     '
 
-printf 'runtime-security-probe=PASS mode=%s backend=%s web=%s\n' \
-    "${external_mode}" "${backend_container}" "${web_container}"
+printf 'runtime-security-probe=PASS mode=%s enrollment=%s remote_support=%s backend=%s web=%s\n' \
+    "${external_mode}" "${device_enrollment_enabled}" \
+    "${remote_support_enabled}" "${backend_container}" "${web_container}"

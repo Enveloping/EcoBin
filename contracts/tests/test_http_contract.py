@@ -436,7 +436,6 @@ class HttpContractTests(unittest.TestCase):
                 "hardwareSn",
                 "modelCode",
                 "expectedPortCount",
-                "factoryBags",
             },
             "AssignDeviceTenantRequest": {
                 "tenantCode",
@@ -482,6 +481,10 @@ class HttpContractTests(unittest.TestCase):
         self.assertNotIn(
             "locationCorrectionConfirmed",
             schemas["DeviceConfigurationReleaseRequest"]["properties"],
+        )
+        self.assertNotIn(
+            "factoryBags",
+            schemas["CreateDeviceAssetRequest"]["properties"],
         )
         for field in ("displayName", "address", "longitude", "latitude"):
             self.assertNotIn(
@@ -542,6 +545,123 @@ class HttpContractTests(unittest.TestCase):
                 operation["parameters"],
                 path,
             )
+
+    def test_enrollment_factory_and_remote_support_surfaces_are_published(
+        self,
+    ) -> None:
+        document = load_openapi()
+        paths = document["paths"]
+        expected_methods = {
+            "/api/v1/device-enrollment/challenges": {"post"},
+            "/api/v1/device-enrollments": {"post"},
+            "/api/v1/web/platform/maintenance-ssh-keys": {"get", "post"},
+            (
+                "/api/v1/web/platform/maintenance-ssh-keys/"
+                "{keyUid}/revocations"
+            ): {"post"},
+            "/api/v1/web/platform/factory-operators": {"get", "post"},
+            (
+                "/api/v1/web/platform/factory-operators/"
+                "{factoryOperatorUid}"
+            ): {"get", "put"},
+            (
+                "/api/v1/web/platform/factory-operators/"
+                "{factoryOperatorUid}/activations"
+            ): {"post"},
+            (
+                "/api/v1/web/platform/factory-operators/"
+                "{factoryOperatorUid}/deactivations"
+            ): {"post"},
+            (
+                "/api/v1/web/platform/factory-operators/"
+                "{factoryOperatorUid}/miniapp-binding-intents"
+            ): {"post"},
+            (
+                "/api/v1/web/platform/factory-operators/"
+                "{factoryOperatorUid}/miniapp-binding-revocations"
+            ): {"post"},
+            "/api/v1/miniapp-factory/auth/sessions": {"post"},
+            "/api/v1/miniapp-factory/auth/sessions/current": {
+                "get", "delete"
+            },
+            (
+                "/api/v1/miniapp-factory/device-assets/"
+                "{deviceCode}"
+            ): {"get"},
+            (
+                "/api/v1/miniapp-factory/device-assets/"
+                "{deviceCode}/factory-bags"
+            ): {"post"},
+            (
+                "/api/v1/miniapp-factory/device-assets/"
+                "{deviceCode}/factory-bags/{portNo}/corrections"
+            ): {"post"},
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}/"
+                "remote-support-sessions"
+            ): {"post"},
+            (
+                "/api/v1/web/platform/device-assets/{hardwareSn}/"
+                "remote-support-sessions/current"
+            ): {"get"},
+            (
+                "/api/v1/web/platform/remote-support-sessions/"
+                "{sessionUid}"
+            ): {"get"},
+            (
+                "/api/v1/web/platform/remote-support-sessions/"
+                "{sessionUid}/closures"
+            ): {"post"},
+        }
+        for path, methods in expected_methods.items():
+            self.assertIn(path, paths)
+            self.assertEqual(
+                methods,
+                {
+                    method for method in paths[path]
+                    if method in {
+                        "get", "put", "post", "delete", "patch",
+                        "options", "head", "trace",
+                    }
+                },
+                path,
+            )
+
+        for path in (
+            "/api/v1/device-enrollment/challenges",
+            "/api/v1/device-enrollments",
+            "/api/v1/miniapp-factory/auth/sessions",
+        ):
+            self.assertEqual([], paths[path]["post"]["security"], path)
+
+        self.assertEqual(
+            [{"miniappBearer": []}],
+            paths[
+                "/api/v1/miniapp-factory/device-assets/"
+                "{deviceCode}"
+            ]["get"]["security"],
+        )
+        schemas = document["components"]["schemas"]
+        self.assertNotIn(
+            "accessToken",
+            schemas["FactoryMiniappSessionView"]["properties"],
+        )
+        self.assertNotIn(
+            "bindingToken",
+            schemas["FactoryBindingIntentCreated"]["properties"],
+        )
+        self.assertIn(
+            "miniProgramCodeDataUrl",
+            schemas["FactoryBindingIntentCreated"]["properties"],
+        )
+        self.assertNotIn(
+            "privateKey",
+            schemas["MaintenanceSshKey"]["properties"],
+        )
+        self.assertNotIn(
+            "privateKey",
+            schemas["RemoteSupportSession"]["properties"],
+        )
 
     def test_cleaning_controller_surface_is_in_authoritative_contract(
         self,

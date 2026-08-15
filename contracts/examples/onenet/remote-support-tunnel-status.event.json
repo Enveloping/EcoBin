@@ -1,0 +1,21 @@
+{
+  "clockQuality": "SYNCED",
+  "commandUid": "8b000000-0000-4000-8000-000000000002",
+  "deliveryClass": "RELIABLE_FACT",
+  "edgeEventSequence": 1056,
+  "eventType": "REMOTE_SUPPORT_TUNNEL_STATUS",
+  "eventUid": "8b000000-0000-4000-8000-000000000004",
+  "occurredAt": "2026-07-24T01:00:30.000Z",
+  "payload": {
+    "failureCode": null,
+    "remotePort": 22011,
+    "sessionUid": "8b000000-0000-4000-8000-000000000001",
+    "state": "OPEN"
+  },
+  "payloadSha256": "746f185bd2ef0cc58f6d76c110cc62a1c4bc0692a32bf205d79b7e123c5d6293",
+  "schemaVersion": 2,
+  "target": {
+    "type": "DEVICE_ASSET",
+    "uid": "SN-CONTRACT-0001"
+  }
+}
