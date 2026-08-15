@@ -474,9 +474,9 @@ public class MerchantTransferAuthorizationApplicationService {
             return blocked(
                     "active authorization unexpectedly returned to waiting state");
         }
-        // 查询接口会刷新仅十分钟有效的 package，必须优先保存本次查询值。
-        String packageInfo = result.packageInfo() != null
-                ? result.packageInfo() : row.packageInfo();
+        // 首次授权页只能使用创建接口返回的 package。状态查询不申请新的
+        // 授权展示页，也不能用查询响应覆盖原 package。
+        String packageInfo = row.packageInfo();
         if (packageInfo == null) {
             if ("CREATED".equals(row.localState())) {
                 return waiting(

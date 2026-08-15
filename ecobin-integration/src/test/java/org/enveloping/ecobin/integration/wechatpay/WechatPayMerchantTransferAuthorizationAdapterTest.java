@@ -11,6 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -65,8 +66,7 @@ class WechatPayMerchantTransferAuthorizationAdapterTest {
     void queryKeepsCompleteActiveAuthorizationIdentity() throws Exception {
         when(client.get(
                 "/v3/fund-app/mch-transfer/user-confirm-authorization/"
-                        + "out-authorization-no/AU12345678"
-                        + "?is_display_authorization=true"))
+                        + "out-authorization-no/AU12345678"))
                 .thenReturn(mapper.readTree("""
                         {
                           "out_authorization_no":"AU12345678",
@@ -100,6 +100,62 @@ class WechatPayMerchantTransferAuthorizationAdapterTest {
                 result.channelCreatedAt());
         assertEquals(Instant.parse("2026-08-06T02:01:00Z"),
                 result.authorizedAt());
+    }
+
+    @Test
+    void queryKeepsWaitingStateWithoutRequestingAReplacementLaunchPackage()
+            throws Exception {
+        when(client.get(
+                "/v3/fund-app/mch-transfer/user-confirm-authorization/"
+                        + "out-authorization-no/AU12345678"))
+                .thenReturn(mapper.readTree("""
+                        {
+                          "out_authorization_no":"AU12345678",
+                          "appid":"wx-app-1",
+                          "openid":"openid-1",
+                          "transfer_scene_id":"1001",
+                          "user_display_name":"金收宝用户-12345678",
+                          "state":"WAIT_USER_CONFIRM",
+                          "create_time":"2026-08-06T10:00:00+08:00"
+                        }
+                        """));
+
+        var result = new WechatPayMerchantTransferAuthorizationAdapter(
+                client, mapper).query(
+                new MerchantTransferAuthorizationChannelPort
+                        .AuthorizationQuery(
+                        "190001", "AU12345678", "wx-app-1", "openid-1",
+                        "1001", "金收宝用户-12345678", null, null));
+
+        assertEquals(
+                MerchantTransferAuthorizationChannelPort.AuthorizationResult
+                        .Outcome.WAIT_USER_CONFIRM,
+                result.outcome());
+        assertNull(result.packageInfo());
+    }
+
+    @Test
+    void queryTreatsInvalidRequestAsPermanentInsteadOfRetrying() {
+        when(client.get(
+                "/v3/fund-app/mch-transfer/user-confirm-authorization/"
+                        + "out-authorization-no/AU12345678"))
+                .thenThrow(new WechatPayApiException(
+                        400, "INVALID_REQUEST",
+                        "用户未确认授权或已取消授权，不支持当前操作"));
+
+        var result = new WechatPayMerchantTransferAuthorizationAdapter(
+                client, mapper).query(
+                new MerchantTransferAuthorizationChannelPort
+                        .AuthorizationQuery(
+                        "190001", "AU12345678", "wx-app-1", "openid-1",
+                        "1001", "金收宝用户-12345678", null, null));
+
+        assertEquals(
+                MerchantTransferAuthorizationChannelPort.AuthorizationResult
+                        .Outcome.PERMANENT_FAILURE,
+                result.outcome());
+        assertEquals(400, result.httpStatus());
+        assertEquals("INVALID_REQUEST", result.errorCode());
     }
 
     @Test

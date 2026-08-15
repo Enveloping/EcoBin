@@ -60,15 +60,14 @@ public class WechatPayMerchantTransferAuthorizationAdapter
         }
         try {
             return map(client.get(BASE + "/out-authorization-no/"
-                    + encode(query.outAuthorizationNo())
-                    + "?is_display_authorization=true"));
+                    + encode(query.outAuthorizationNo())));
         } catch (WechatPayApiException failure) {
             if (failure.status() == 404
                     && "NOT_FOUND".equals(failure.code())) {
                 return error(
                         AuthorizationResult.Outcome.NOT_FOUND, failure);
             }
-            return permanentOrRetryable(failure);
+            return queryError(failure);
         }
     }
 
@@ -117,6 +116,17 @@ public class WechatPayMerchantTransferAuthorizationAdapter
         if ("INVALID_REQUEST".equals(failure.code())) {
             return error(
                     AuthorizationResult.Outcome.RETRYABLE_FAILURE, failure);
+        }
+        return permanentOrRetryable(failure);
+    }
+
+    private static AuthorizationResult queryError(
+            WechatPayApiException failure) {
+        if ("INVALID_REQUEST".equals(failure.code())) {
+            // 查单使用固定商户单号与固定请求结构；同一请求被微信判为
+            // INVALID_REQUEST 后，后台自动重复发送不会改变结果。
+            return error(
+                    AuthorizationResult.Outcome.PERMANENT_FAILURE, failure);
         }
         return permanentOrRetryable(failure);
     }

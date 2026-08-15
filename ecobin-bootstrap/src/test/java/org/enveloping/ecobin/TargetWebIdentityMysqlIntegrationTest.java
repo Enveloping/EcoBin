@@ -1717,17 +1717,35 @@ class TargetWebIdentityMysqlIntegrationTest {
                 accepted.authorizationNo()));
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 createResult.outcome());
-        assertEquals("WAIT_USER_CONFIRM", service.current().status());
+        var waitingBeforeQuery = service.current();
+        assertEquals("WAIT_USER_CONFIRM", waitingBeforeQuery.status());
+        assertEquals("authorization-package",
+                waitingBeforeQuery.packageInfo());
+        assertTrue(waitingBeforeQuery.confirmationRequired());
+        assertNull(waitingBeforeQuery.lastSuccessfulQueryAt());
 
         FundsTaskRef queryTask = fundsTask(
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo());
-        var queryResult = service.executeTask(fundsCommand(
+        var waitingQueryResult = service.executeTask(fundsCommand(
                 queryTask.taskUid(), queryTask.taskId(), 1, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo()));
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
-                queryResult.outcome());
+                waitingQueryResult.outcome());
+        var waitingAfterQuery = service.current();
+        assertEquals("WAIT_USER_CONFIRM", waitingAfterQuery.status());
+        assertEquals("authorization-package",
+                waitingAfterQuery.packageInfo());
+        assertTrue(waitingAfterQuery.confirmationRequired());
+        assertNotNull(waitingAfterQuery.lastSuccessfulQueryAt());
+
+        var activeQueryResult = service.executeTask(fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo()));
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                activeQueryResult.outcome());
         assertEquals("ACTIVE", service.current().status());
 
         String sharedOrganizationCode = code("ob");
@@ -1859,7 +1877,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 fixture, "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION",
                 closed.toString());
         ReliableFundsTaskExecutorPort.Command callbackSource = fundsCommand(
-                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                queryTask.taskUid(), queryTask.taskId(), 3, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo());
         Boolean applied = new TransactionTemplate(transactionManager).execute(
@@ -1892,7 +1910,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 lateActive.toString());
         ReliableFundsTaskExecutorPort.Command lateCallbackSource =
                 fundsCommand(
-                        queryTask.taskUid(), queryTask.taskId(), 3, fixture,
+                        queryTask.taskUid(), queryTask.taskId(), 4, fixture,
                         MerchantTransferAuthorizationApplicationService
                                 .QUERY_TASK,
                         accepted.authorizationNo());
@@ -4687,6 +4705,7 @@ class TargetWebIdentityMysqlIntegrationTest {
 
         private AuthorizationRequest request;
         private Instant channelCreatedAt;
+        private int queryCount;
 
         @Override
         public AuthorizationResult create(AuthorizationRequest request) {
@@ -4707,6 +4726,18 @@ class TargetWebIdentityMysqlIntegrationTest {
             assertEquals(request.outAuthorizationNo(),
                     query.outAuthorizationNo());
             Instant observedAt = Instant.now();
+            queryCount++;
+            if (queryCount == 1) {
+                return new AuthorizationResult(
+                        AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
+                        "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
+                        null, request.appid(), request.openid(),
+                        request.sceneId(), request.userDisplayName(),
+                        request.userRecvPerception(),
+                        "query-package-must-be-ignored", null,
+                        channelCreatedAt, null, null, null, null,
+                        observedAt);
+            }
             String authorizationId = ("WXAUTH"
                     + request.outAuthorizationNo()).substring(0, 32);
             return new AuthorizationResult(
