@@ -254,6 +254,30 @@ public class FundsOperationalControlService
             long organizationId,
             String outAuthorizationNo,
             LocalDateTime wakeAt) {
+        return wakeExactAuthorizationQuery(
+                tenantId, organizationId, outAuthorizationNo,
+                AuthorizationQueryWakeMode.GENERAL, wakeAt);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AuthorizationQueryTaskWakeResult
+    convergeTerminalMerchantTransferAuthorizationQuery(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime wakeAt) {
+        return wakeExactAuthorizationQuery(
+                tenantId, organizationId, outAuthorizationNo,
+                AuthorizationQueryWakeMode.TERMINAL_CONVERGENCE, wakeAt);
+    }
+
+    private AuthorizationQueryTaskWakeResult wakeExactAuthorizationQuery(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            AuthorizationQueryWakeMode mode,
+            LocalDateTime wakeAt) {
         if (tenantId <= 0 || organizationId <= 0
                 || outAuthorizationNo == null
                 || outAuthorizationNo.isBlank()) {
@@ -288,6 +312,11 @@ public class FundsOperationalControlService
             return AuthorizationQueryTaskWakeResult.NOT_WAKEABLE;
         }
         WithdrawalSubmitTask task = tasks.getFirst();
+        if (mode == AuthorizationQueryWakeMode.TERMINAL_CONVERGENCE
+                && ("DONE".equals(task.state())
+                    || "CANCELLED".equals(task.state()))) {
+            return AuthorizationQueryTaskWakeResult.ALREADY_TERMINAL;
+        }
         if (task.dispatchWaitReason() != null
                 || task.wakeVersion() >= 9_007_199_254_740_991L) {
             return AuthorizationQueryTaskWakeResult.NOT_WAKEABLE;
@@ -317,8 +346,9 @@ public class FundsOperationalControlService
                       AND wake_version = ?
                     """, nextWakeVersion, wakeAt, task.id(),
                     task.leaseToken(), task.wakeVersion());
-        } else if ("DONE".equals(task.state())
-                || "BLOCKED".equals(task.state())) {
+        } else if ("BLOCKED".equals(task.state())
+                || (mode == AuthorizationQueryWakeMode.GENERAL
+                    && "DONE".equals(task.state()))) {
             updated = jdbc.update("""
                     UPDATE ops_reliable_task
                     SET state = 'PENDING', next_run_at = ?,
@@ -341,6 +371,11 @@ public class FundsOperationalControlService
                             + updated + " rows");
         }
         return AuthorizationQueryTaskWakeResult.WOKEN;
+    }
+
+    private enum AuthorizationQueryWakeMode {
+        GENERAL,
+        TERMINAL_CONVERGENCE
     }
 
     private WithdrawalSubmitTaskWakeResult reopenExactWithdrawalTask(

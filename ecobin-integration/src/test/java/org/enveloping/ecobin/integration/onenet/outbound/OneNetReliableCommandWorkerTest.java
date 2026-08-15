@@ -36,6 +36,28 @@ class OneNetReliableCommandWorkerTest {
     }
 
     @Test
+    void startupReconcilesPersistedDeviceGatesBeforeDraining() {
+        AtomicInteger sequence = new AtomicInteger();
+        AtomicInteger reconciliationOrder = new AtomicInteger();
+        AtomicInteger drainOrder = new AtomicInteger();
+        var worker = new OneNetReliableCommandWorker(
+                workerId -> {
+                    drainOrder.compareAndSet(0, sequence.incrementAndGet());
+                    return new ReliableWorkerBatchResult(0, 0, 0);
+                },
+                () -> {
+                    reconciliationOrder.set(sequence.incrementAndGet());
+                    return 1;
+                },
+                disabledDiagnosticLogger());
+
+        worker.startupDrain();
+
+        assertEquals(1, reconciliationOrder.get());
+        assertEquals(2, drainOrder.get());
+    }
+
+    @Test
     void databaseFailureLogsSafeStructuredDiagnostic(CapturedOutput output) {
         var sqlFailure = new SQLSyntaxErrorException(
                 "denied secret-payload-marker", "42000", 1142);

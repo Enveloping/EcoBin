@@ -30,6 +30,8 @@ public class ReliablePlatformDeviceControlTaskRegistrationService
         long[] assetKey = new long[1];
         registration.sourceAsset().writeForeignKeyTo(
                 value -> assetKey[0] = value);
+        String dispatchWaitReason =
+                repository.lockInitialDeviceDispatchWaitReason(assetKey[0]);
         UUID taskUid = repository.insertPlatformDeviceControlTask(
                 assetKey[0],
                 registration.taskType(),
@@ -42,6 +44,7 @@ public class ReliablePlatformDeviceControlTaskRegistrationService
                 registration.correlationUid(),
                 registration.causationUid(),
                 registration.maxAutoAttempts(),
+                dispatchWaitReason,
                 repository.databaseNow());
         workSignal.deviceCommand();
         return taskUid;

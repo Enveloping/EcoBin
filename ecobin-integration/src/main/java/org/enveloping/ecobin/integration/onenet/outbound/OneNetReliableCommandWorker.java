@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.integration.onenet.outbound;
 
 import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
+import org.enveloping.ecobin.operations.api.reliability.DeviceTaskGateReconciliationPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
 import org.slf4j.Logger;
@@ -40,6 +41,7 @@ public class OneNetReliableCommandWorker {
             LoggerFactory.getLogger(OneNetReliableCommandWorker.class);
 
     private final ReliableDeviceCommandWorkerPort runner;
+    private final DeviceTaskGateReconciliationPort gateReconciliation;
     private final OneNetDiagnosticLogger diagnosticLogger;
     private final Executor executor;
     private final int workerCount;
@@ -51,11 +53,13 @@ public class OneNetReliableCommandWorker {
     @Autowired
     public OneNetReliableCommandWorker(
             ReliableDeviceCommandWorkerPort runner,
+            DeviceTaskGateReconciliationPort gateReconciliation,
             OneNetDiagnosticLogger diagnosticLogger,
             @Qualifier("oneNetOutboundExecutor") Executor executor,
             @Value("${ecobin.operations.reliable.iot-device.worker-count:2}")
             int workerCount) {
         this.runner = runner;
+        this.gateReconciliation = gateReconciliation;
         this.diagnosticLogger = diagnosticLogger;
         this.executor = executor;
         this.workerCount = workerCount;
@@ -64,7 +68,14 @@ public class OneNetReliableCommandWorker {
     OneNetReliableCommandWorker(
             ReliableDeviceCommandWorkerPort runner,
             OneNetDiagnosticLogger diagnosticLogger) {
-        this(runner, diagnosticLogger, Runnable::run, 1);
+        this(runner, () -> 0, diagnosticLogger, Runnable::run, 1);
+    }
+
+    OneNetReliableCommandWorker(
+            ReliableDeviceCommandWorkerPort runner,
+            DeviceTaskGateReconciliationPort gateReconciliation,
+            OneNetDiagnosticLogger diagnosticLogger) {
+        this(runner, gateReconciliation, diagnosticLogger, Runnable::run, 1);
     }
 
     /** Direct, synchronous single drain used by focused worker diagnostics. */
@@ -75,7 +86,13 @@ public class OneNetReliableCommandWorker {
 
     @EventListener(ApplicationReadyEvent.class)
     public void startupDrain() {
-        wake();
+        try {
+            gateReconciliation.reconcileAll();
+        } catch (RuntimeException failure) {
+            logFailure(failure);
+        } finally {
+            wake();
+        }
     }
 
     @TransactionalEventListener(

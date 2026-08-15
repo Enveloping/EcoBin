@@ -42,6 +42,8 @@ public class ReliableDeviceTaskRegistrationService
                 || registration.initialRunAt().isBefore(now)
                 ? now
                 : registration.initialRunAt();
+        String dispatchWaitReason =
+                repository.lockInitialDeviceDispatchWaitReason(keys[2]);
         if (registration.supersedePriorPendingTasks()) {
             repository.cancelSupersededDeviceTasks(
                     keys[0],
@@ -66,6 +68,7 @@ public class ReliableDeviceTaskRegistrationService
                 registration.causationUid(),
                 registration.maxAutoAttempts(),
                 initialRunAt,
+                dispatchWaitReason,
                 now);
         workSignal.deviceCommand();
         return taskUid;

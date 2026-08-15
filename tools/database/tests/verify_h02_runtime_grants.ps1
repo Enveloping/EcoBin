@@ -9,6 +9,12 @@ $catalog = Import-PowerShellDataFile -LiteralPath $catalogPath
 $provisionPath = Join-Path $PSScriptRoot "../provision-h02-target.ps1"
 $provisionSource = Get-Content -LiteralPath $provisionPath -Raw
 
+if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
+        $provisionSource -notmatch 'migrationManifestSha256' -or
+        $provisionSource -notmatch 'migrationSourceCommit') {
+    throw "H-02 provisioning must reject dirty migrations and record provenance"
+}
+
 if ($provisionSource -notmatch '\$tables\.Count -ne 99' -or
         $provisionSource -notmatch 'Expected 99 domain tables') {
     throw "H-02 provisioning must enforce the V51 99-table shape"

@@ -43,6 +43,7 @@ import java.util.HexFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -51,6 +52,9 @@ public class RechargeApplicationService {
     private static final long MIN_GROSS_CENT = 100;
     private static final long MAX_GROSS_CENT = 20_000_000;
     private static final int FEE_RATE_PPM = 6_000;
+    private static final Set<String> DEFINITIVE_CREATE_REJECTION_CODES =
+            Set.of("PARAM_ERROR", "NO_AUTH", "SIGN_ERROR",
+                    "MCHID_MISMATCH");
 
     private final JdbcTemplate jdbc;
     private final FundsAccessService access;
@@ -499,6 +503,15 @@ public class RechargeApplicationService {
 
     private Result createNative(Command command) {
         PaymentSnapshot payment = paymentSnapshot(command.targetStableKey());
+        if (!"PENDING_PAYMENT".equals(payment.businessState())) {
+            return new Result(Result.Outcome.DONE,
+                    "recharge is already terminal or paid");
+        }
+        Result recordedRejection = transactions.execute(status ->
+                convergeRecordedDefinitiveCreateRejection(command, payment));
+        if (recordedRejection != null) {
+            return recordedRejection;
+        }
         Result invalid = validateOriginalNativeRequest(command, payment);
         if (invalid != null) {
             return invalid;
@@ -604,6 +617,22 @@ public class RechargeApplicationService {
                     result, now);
             return new Result(Result.Outcome.BLOCKED,
                     "refunded payment requires reconciliation");
+        }
+        if (attemptKind == PaymentAttemptKind.CREATE
+                && result.outcome()
+                == NativePaymentResult.Outcome.PERMANENT_FAILURE
+                && isDefinitiveNativeCreateRejection(result.errorCode())
+                && canProjectDefinitiveCreateRejection(current)) {
+            projectDefinitiveCreateRejection(
+                    current, result.errorCode(), now);
+            observePaymentIssue(
+                    command, current,
+                    "FUNDS.NATIVE_PAYMENT_CHANNEL_CONFIGURATION",
+                    "CRITICAL", "DEFINITIVE_CREATE_REJECTION",
+                    result, now);
+            return new Result(Result.Outcome.BLOCKED,
+                    "native payment creation was definitively rejected; "
+                            + "the recharge order was closed without posting");
         }
         if (result.outcome() == NativePaymentResult.Outcome.UNKNOWN_STATE
                 || result.outcome()
@@ -807,6 +836,119 @@ public class RechargeApplicationService {
         };
     }
 
+    /**
+     * Repairs tasks produced before definitive native-create rejection was
+     * projected onto the business order.  The immutable observation is read
+     * locally; no new WeChat request is issued.
+     */
+    private Result convergeRecordedDefinitiveCreateRejection(
+            Command command,
+            PaymentSnapshot snapshot) {
+        PaymentSnapshot current = lockPayment(snapshot.rechargeNo());
+        if (!"PENDING_PAYMENT".equals(current.businessState())) {
+            return new Result(Result.Outcome.DONE,
+                    "recharge is already terminal or paid");
+        }
+        List<String> recordedCodes = jdbc.query("""
+                SELECT api_error_code
+                FROM fund_wechat_payment_observation
+                WHERE payment_id = ?
+                  AND observation_type = 'CREATE_RESPONSE'
+                  AND api_error_code IN (
+                      'PARAM_ERROR', 'NO_AUTH', 'SIGN_ERROR',
+                      'MCHID_MISMATCH'
+                  )
+                ORDER BY observed_at DESC, id DESC
+                LIMIT 1
+                """, (rs, ignored) -> rs.getString("api_error_code"),
+                current.paymentId());
+        if (recordedCodes.isEmpty()) {
+            return null;
+        }
+        String errorCode = recordedCodes.getFirst();
+        if (!canProjectDefinitiveCreateRejection(current)) {
+            NativePaymentResult conflict = new NativePaymentResult(
+                    NativePaymentResult.Outcome.PERMANENT_FAILURE,
+                    current.channelState(), current.codeUrl(),
+                    current.transactionId(), errorCode,
+                    "recorded create rejection conflicts with later evidence",
+                    null);
+            observePaymentIssue(
+                    command, current,
+                    "FUNDS.NATIVE_PAYMENT_TERMINAL_CONFLICT",
+                    "CRITICAL",
+                    "CREATE_REJECTION_CONFLICTS_WITH_PAYMENT_EVIDENCE",
+                    conflict, databaseNow());
+            return new Result(Result.Outcome.BLOCKED,
+                    "recorded create rejection conflicts with payment evidence");
+        }
+        projectDefinitiveCreateRejection(
+                current, errorCode, databaseNow());
+        return new Result(Result.Outcome.DONE,
+                "recorded native create rejection converged locally");
+    }
+
+    private boolean canProjectDefinitiveCreateRejection(
+            PaymentSnapshot current) {
+        if (current.codeUrl() != null
+                || NativePaymentLifecyclePolicy.successAlreadyEstablished(
+                        current.businessState(), current.channelState(),
+                        current.transactionId())) {
+            return false;
+        }
+        Integer conflictingEvidence = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM fund_wechat_payment_observation
+                WHERE payment_id = ?
+                  AND (
+                      transaction_id IS NOT NULL
+                      OR raw_channel_state IN (
+                          'SUCCESS', 'SIMULATED_SUCCESS'
+                      )
+                      OR observation_type = 'CALLBACK'
+                  )
+                """, Integer.class, current.paymentId());
+        return conflictingEvidence != null && conflictingEvidence == 0;
+    }
+
+    private void projectDefinitiveCreateRejection(
+            PaymentSnapshot current,
+            String errorCode,
+            LocalDateTime now) {
+        int paymentUpdated = jdbc.update("""
+                UPDATE fund_wechat_payment
+                SET channel_state = 'CREATE_REJECTED',
+                    last_api_error_code = ?, channel_updated_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE id = ?
+                  AND code_url IS NULL
+                  AND transaction_id IS NULL
+                """, errorCode, now, now, current.paymentId());
+        if (paymentUpdated != 1) {
+            throw new IllegalStateException(
+                    "definitive native create rejection payment projection "
+                            + "updated " + paymentUpdated + " rows");
+        }
+        String businessState = NativePaymentLifecyclePolicy
+                .closedBusinessState(current.expiresAt(), now);
+        int rechargeUpdated = jdbc.update("""
+                UPDATE fund_recharge_order
+                SET business_state = ?, closed_at = ?,
+                    lock_version = lock_version + 1, updated_at = ?
+                WHERE id = ? AND business_state = 'PENDING_PAYMENT'
+                """, businessState, now, now, current.rechargeId());
+        if (rechargeUpdated != 1) {
+            throw new IllegalStateException(
+                    "definitive native create rejection recharge projection "
+                            + "updated " + rechargeUpdated + " rows");
+        }
+    }
+
+    private static boolean isDefinitiveNativeCreateRejection(String code) {
+        return code != null
+                && DEFINITIVE_CREATE_REJECTION_CODES.contains(code);
+    }
+
     private static boolean isAuthoritativeNativeQuery(
             PaymentAttemptKind attemptKind,
             NativePaymentResult result) {
@@ -965,7 +1107,8 @@ public class RechargeApplicationService {
                        r.net_amount_cent, r.business_state, r.expires_at,
                        p.id payment_id, p.mchid_snapshot, p.appid_snapshot,
                        p.out_trade_no, p.request_amount_cent, p.currency,
-                       p.description, p.time_expire, p.channel_state,
+                       p.description, p.time_expire, p.code_url,
+                       p.channel_state,
                        p.transaction_id, p.notify_url_snapshot,
                        p.notify_url_sha256, p.request_sha256
                 FROM fund_recharge_order r
@@ -987,6 +1130,7 @@ public class RechargeApplicationService {
                         rs.getString("description"),
                         rs.getString("currency"),
                         rs.getObject("time_expire", LocalDateTime.class),
+                        rs.getString("code_url"),
                         rs.getString("business_state"),
                         rs.getString("channel_state"),
                         rs.getString("transaction_id"),
@@ -1004,7 +1148,8 @@ public class RechargeApplicationService {
                        r.net_amount_cent, r.business_state, r.expires_at,
                        p.id payment_id, p.mchid_snapshot, p.appid_snapshot,
                        p.out_trade_no, p.request_amount_cent, p.currency,
-                       p.description, p.time_expire, p.channel_state,
+                       p.description, p.time_expire, p.code_url,
+                       p.channel_state,
                        p.transaction_id, p.notify_url_snapshot,
                        p.notify_url_sha256, p.request_sha256
                 FROM fund_recharge_order r
@@ -1026,6 +1171,7 @@ public class RechargeApplicationService {
                         rs.getString("description"),
                         rs.getString("currency"),
                         rs.getObject("time_expire", LocalDateTime.class),
+                        rs.getString("code_url"),
                         rs.getString("business_state"),
                         rs.getString("channel_state"),
                         rs.getString("transaction_id"),
@@ -1349,6 +1495,7 @@ public class RechargeApplicationService {
         private final String description;
         private final String currency;
         private final LocalDateTime expiresAt;
+        private final String codeUrl;
         private final String businessState;
         private final String channelState;
         private final String transactionId;
@@ -1362,7 +1509,8 @@ public class RechargeApplicationService {
             long organizationId, long paymentId, String mchid,
             String appid, String outTradeNo, long amountCent,
             long feeCent, long netCent, String description,
-            String currency, LocalDateTime expiresAt, String businessState,
+            String currency, LocalDateTime expiresAt, String codeUrl,
+            String businessState,
             String channelState, String transactionId,
             String notifyUrlSnapshot, byte[] notifyUrlSha256,
             byte[] requestSha256) {
@@ -1380,6 +1528,7 @@ public class RechargeApplicationService {
             this.description = description;
             this.currency = currency;
             this.expiresAt = expiresAt;
+            this.codeUrl = codeUrl;
             this.businessState = businessState;
             this.channelState = channelState;
             this.transactionId = transactionId;
@@ -1404,6 +1553,7 @@ public class RechargeApplicationService {
         String description() { return description; }
         String currency() { return currency; }
         LocalDateTime expiresAt() { return expiresAt; }
+        String codeUrl() { return codeUrl; }
         String businessState() { return businessState; }
         String channelState() { return channelState; }
         String transactionId() { return transactionId; }

@@ -351,6 +351,22 @@ public class MerchantTransferAuthorizationApplicationService {
                         WHERE id = ? AND local_state = 'CREATED'
                         """, trimTo(result.errorCode(), 64), now, now,
                         now, row.id());
+                AuthorizationQueryTaskWakeResult convergence =
+                        operationalControl
+                                .convergeTerminalMerchantTransferAuthorizationQuery(
+                                        row.tenantId(),
+                                        row.organizationId(),
+                                        row.outAuthorizationNo(),
+                                        now);
+                if (convergence
+                        == AuthorizationQueryTaskWakeResult.NOT_WAKEABLE) {
+                    observeIssue(
+                            command.sourceTaskAttemptId(), row,
+                            "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_QUERY_RECOVERY_MISSING",
+                            "CRITICAL",
+                            "QUERY_TASK_NOT_CONVERGENT_AFTER_CREATE_REJECTION",
+                            result, now);
+                }
             } else {
                 jdbc.update("""
                         UPDATE fund_wechat_transfer_authorization

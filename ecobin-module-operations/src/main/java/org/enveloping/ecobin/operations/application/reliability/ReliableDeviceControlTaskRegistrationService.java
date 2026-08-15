@@ -35,6 +35,8 @@ public class ReliableDeviceControlTaskRegistrationService
                     keys[1] = organizationKey;
                     keys[2] = assetKey;
                 });
+        String dispatchWaitReason =
+                repository.lockInitialDeviceDispatchWaitReason(keys[2]);
         UUID taskUid = repository.insertDeviceControlTask(
                 keys[0],
                 keys[1],
@@ -49,6 +51,7 @@ public class ReliableDeviceControlTaskRegistrationService
                 registration.correlationUid(),
                 registration.causationUid(),
                 registration.maxAutoAttempts(),
+                dispatchWaitReason,
                 repository.databaseNow());
         workSignal.deviceCommand();
         return taskUid;

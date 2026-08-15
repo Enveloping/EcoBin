@@ -27,6 +27,35 @@ public class ReliableOperationsJdbcRepository {
                 "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
     }
 
+    /**
+     * Locks the asset transport row and derives the dispatch gate that a newly
+     * registered device task must start with.  Registration and lifecycle
+     * ingestion therefore cannot observe and publish two different transport
+     * states inside the same transaction.
+     */
+    public String lockInitialDeviceDispatchWaitReason(long assetId) {
+        return jdbcTemplate.queryForObject("""
+                SELECT CASE
+                    WHEN COALESCE(
+                        transport.onenet_connection_status,
+                        'UNKNOWN'
+                    ) = 'OFFLINE'
+                    THEN 'DEVICE_OFFLINE'
+                    WHEN COALESCE(
+                        transport.onenet_connection_status,
+                        'UNKNOWN'
+                    ) = 'UNKNOWN'
+                    THEN 'DEVICE_PRESENCE_UNKNOWN'
+                    ELSE NULL
+                END
+                FROM dev_device_asset asset
+                LEFT JOIN dev_device_transport_state transport
+                  ON transport.asset_id = asset.id
+                WHERE asset.id = ?
+                FOR UPDATE
+                """, String.class, assetId);
+    }
+
     public long requireDeviceAssetId(String hardwareSn) {
         Long assetId = jdbcTemplate.queryForObject("""
                 SELECT id
@@ -278,6 +307,7 @@ public class ReliableOperationsJdbcRepository {
             UUID causationUid,
             int maxAutoAttempts,
             LocalDateTime initialRunAt,
+            String dispatchWaitReason,
             LocalDateTime now) {
         UUID taskUid = UUID.randomUUID();
         int inserted = jdbcTemplate.update("""
@@ -293,7 +323,8 @@ public class ReliableOperationsJdbcRepository {
                     state, next_run_at, lease_token, lease_worker, lease_until,
                     attempt_sequence, consecutive_failure_count, wake_version,
                     handled_wake_version, completed_at, blocked_reason_code,
-                    blocked_diagnostic, lock_version, created_at, updated_at
+                    blocked_diagnostic, dispatch_wait_reason,
+                    lock_version, created_at, updated_at
                 ) VALUES (
                     ?, 'ORGANIZATION', ?, ?,
                     'BUSINESS_INTENT', ?, 'DEVICE', ?,
@@ -303,7 +334,7 @@ public class ReliableOperationsJdbcRepository {
                     ?, ?, NULL,
                     100, 1, ?,
                     'PENDING', ?, NULL, NULL, NULL,
-                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                    0, 0, 0, 0, NULL, NULL, NULL, ?, 0, ?, ?
                 )
                 """,
                 taskUid.toString(),
@@ -322,6 +353,7 @@ public class ReliableOperationsJdbcRepository {
                 nullableUuid(causationUid),
                 maxAutoAttempts,
                 initialRunAt,
+                dispatchWaitReason,
                 now,
                 now);
         requireSingleRow(inserted, "insert device business task");
@@ -342,6 +374,7 @@ public class ReliableOperationsJdbcRepository {
             UUID correlationUid,
             UUID causationUid,
             int maxAutoAttempts,
+            String dispatchWaitReason,
             LocalDateTime now) {
         UUID taskUid = UUID.randomUUID();
         int inserted = jdbcTemplate.update("""
@@ -357,7 +390,8 @@ public class ReliableOperationsJdbcRepository {
                     state, next_run_at, lease_token, lease_worker, lease_until,
                     attempt_sequence, consecutive_failure_count, wake_version,
                     handled_wake_version, completed_at, blocked_reason_code,
-                    blocked_diagnostic, lock_version, created_at, updated_at
+                    blocked_diagnostic, dispatch_wait_reason,
+                    lock_version, created_at, updated_at
                 ) VALUES (
                     ?, 'ORGANIZATION', ?, ?,
                     'BUSINESS_INTENT', ?, 'DEVICE', ?,
@@ -367,7 +401,7 @@ public class ReliableOperationsJdbcRepository {
                     ?, ?, NULL,
                     100, 1, ?,
                     'PENDING', ?, NULL, NULL, NULL,
-                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                    0, 0, 0, 0, NULL, NULL, NULL, ?, 0, ?, ?
                 )
                 """,
                 taskUid.toString(),
@@ -385,6 +419,7 @@ public class ReliableOperationsJdbcRepository {
                 nullableUuid(causationUid),
                 maxAutoAttempts,
                 now,
+                dispatchWaitReason,
                 now,
                 now);
         requireSingleRow(inserted, "insert device control task");
@@ -403,6 +438,7 @@ public class ReliableOperationsJdbcRepository {
             UUID correlationUid,
             UUID causationUid,
             int maxAutoAttempts,
+            String dispatchWaitReason,
             LocalDateTime now) {
         UUID taskUid = UUID.randomUUID();
         int inserted = jdbcTemplate.update("""
@@ -418,7 +454,8 @@ public class ReliableOperationsJdbcRepository {
                     state, next_run_at, lease_token, lease_worker, lease_until,
                     attempt_sequence, consecutive_failure_count, wake_version,
                     handled_wake_version, completed_at, blocked_reason_code,
-                    blocked_diagnostic, lock_version, created_at, updated_at
+                    blocked_diagnostic, dispatch_wait_reason,
+                    lock_version, created_at, updated_at
                 ) VALUES (
                     ?, 'PLATFORM', NULL, NULL,
                     'BUSINESS_INTENT', ?, 'DEVICE', ?,
@@ -428,7 +465,7 @@ public class ReliableOperationsJdbcRepository {
                     ?, ?, NULL,
                     50, 1, ?,
                     'PENDING', ?, NULL, NULL, NULL,
-                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                    0, 0, 0, 0, NULL, NULL, NULL, ?, 0, ?, ?
                 )
                 """,
                 taskUid.toString(),
@@ -444,6 +481,7 @@ public class ReliableOperationsJdbcRepository {
                 nullableUuid(causationUid),
                 maxAutoAttempts,
                 now,
+                dispatchWaitReason,
                 now,
                 now);
         requireSingleRow(inserted, "insert platform device control task");
@@ -1922,7 +1960,7 @@ public class ReliableOperationsJdbcRepository {
                              AND (
                 %s
                              ) IS NULL
-                        THEN ?
+                        THEN GREATEST(task.next_run_at, ?)
                         ELSE task.next_run_at
                     END,
                     task.wake_version = task.wake_version + 1,

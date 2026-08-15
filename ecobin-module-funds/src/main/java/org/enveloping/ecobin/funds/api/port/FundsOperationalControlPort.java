@@ -56,6 +56,18 @@ public interface FundsOperationalControlPort {
             String outAuthorizationNo,
             LocalDateTime wakeAt);
 
+    /**
+     * Converges the query task after the authorization aggregate has entered
+     * a terminal state. Unlike the general wake operation, an already DONE or
+     * CANCELLED query is never reopened.
+     */
+    AuthorizationQueryTaskWakeResult
+    convergeTerminalMerchantTransferAuthorizationQuery(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime wakeAt);
+
     void resolveMerchantTransferAuthorizationEvidenceMismatch(
             long tenantId,
             long organizationId,
@@ -81,6 +93,7 @@ public interface FundsOperationalControlPort {
 
     enum AuthorizationQueryTaskWakeResult {
         WOKEN,
+        ALREADY_TERMINAL,
         NOT_WAKEABLE
     }
 

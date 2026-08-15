@@ -62,6 +62,21 @@ Windows ACL，不显示密码，也不会生成仓库内 `.env`。schema owner �
 
 ## 4. 执行
 
+### 4.1 迁移来源必须可复现
+
+`provision-h02-target.ps1` 在接触 Docker、密码目录或目标数据库之前，只检查
+`ecobin-bootstrap/src/main/resources/db/p0-migration`：
+
+- 已跟踪迁移文件存在未提交或已暂存修改时拒绝执行；
+- 迁移目录出现未跟踪 SQL 草稿时拒绝执行；
+- 工作树其他目录存在修改不影响 H-02；
+- 成功执行时把 Git 提交号、所有迁移文件的 SHA-256 清单以及清单摘要写入证据目录。
+
+这个保护用于避免本地 H-02 再次从“尚未提交的迁移草稿”建库。它不允许通过
+Flyway `repair` 掩盖校验和差异；遇到历史草稿库时应备份后重建。
+
+### 4.2 运行供应脚本
+
 在 H-02 worktree 的 PowerShell 中运行：
 
 ```powershell

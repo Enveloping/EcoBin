@@ -4,6 +4,7 @@ import org.enveloping.ecobin.framework.observability.DiagnosticLoggingProperties
 import org.enveloping.ecobin.framework.observability.DiagnosticPayloadSanitizer;
 import org.enveloping.ecobin.integration.onenet.OneNetDiagnosticLogger;
 import org.enveloping.ecobin.operations.api.reliability.ReliableDeviceCommandWorkerPort;
+import org.enveloping.ecobin.operations.api.reliability.DeviceTaskGateReconciliationPort;
 import org.enveloping.ecobin.operations.api.reliability.ReliableWorkerBatchResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -30,6 +31,9 @@ class OneNetReliableCommandWorkerWiringTest {
             context.registerBean(
                     ReliableDeviceCommandWorkerPort.class,
                     () -> workerId -> new ReliableWorkerBatchResult(0, 0, 0));
+            context.registerBean(
+                    DeviceTaskGateReconciliationPort.class,
+                    () -> () -> 0);
             context.registerBean(
                     OneNetDiagnosticLogger.class,
                     OneNetReliableCommandWorkerWiringTest::diagnosticLogger);

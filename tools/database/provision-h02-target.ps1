@@ -52,6 +52,9 @@ if ([string]::IsNullOrWhiteSpace($ExpectedImageId)) {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+$migrationDirectory = Join-Path $repoRoot `
+    "ecobin-bootstrap/src/main/resources/db/p0-migration"
+. (Join-Path $PSScriptRoot "h02-migration-provenance.ps1")
 $localComposeFile = if ($RemoteHost.Length -gt 0) {
     Join-Path $repoRoot "deploy/production/docker-compose.h02-server.yml"
 }
@@ -675,6 +678,10 @@ function Start-RemoteDatabaseTunnel {
     throw "SSH database tunnel did not become ready"
 }
 
+$migrationProvenance = Get-H02MigrationProvenance `
+    -RepositoryRoot $repoRoot `
+    -MigrationDirectory $migrationDirectory
+
 if ($SecretDirectory.StartsWith(
     $repoRoot,
     [StringComparison]::OrdinalIgnoreCase
@@ -805,6 +812,11 @@ if ($actualImageId -ne $ExpectedImageId) {
 }
 
 Protect-LocalDirectory -Path $evidenceDirectory
+[IO.File]::WriteAllText(
+    (Join-Path $evidenceDirectory "migration-manifest.sha256"),
+    $migrationProvenance.Manifest,
+    [Text.UTF8Encoding]::new($false)
+)
 
 $ownerPassword = New-RandomSecret
 if ($resumeExistingEnvironment) {
@@ -1374,6 +1386,11 @@ WHERE user = 'ecobin_trigger_definer' AND host = '%';
         mysqlConfiguration = $configEvidence
         flywayV1Marker = $markerEvidence
         successfulMigrations = $historyCount
+        migrationSourceCommit = $migrationProvenance.Commit
+        migrationManifestSha256 = $migrationProvenance.ManifestSha256
+        migrationFileCount = $migrationProvenance.FileCount
+        migrationRelativeDirectory =
+            $migrationProvenance.RelativeDirectory
         domainTables = $tables.Count
         permissionDefinitions = $permissionCount
         businessRows = $businessRowCount

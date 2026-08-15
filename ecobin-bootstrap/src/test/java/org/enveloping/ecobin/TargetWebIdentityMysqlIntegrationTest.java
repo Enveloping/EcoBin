@@ -2176,6 +2176,22 @@ class TargetWebIdentityMysqlIntegrationTest {
         FundsTaskRef createTask = fundsTask(
                 MerchantTransferAuthorizationApplicationService.CREATE_TASK,
                 accepted.authorizationNo());
+        FundsTaskRef queryTask = fundsTask(
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        assertEquals(1, jdbc.update("""
+                UPDATE ops_reliable_task
+                SET state = 'BLOCKED', next_run_at = NULL,
+                    lease_token = NULL, lease_worker = NULL,
+                    lease_until = NULL,
+                    completed_at = UTC_TIMESTAMP(3),
+                    blocked_reason_code = 'DATA_ERROR',
+                    blocked_diagnostic = 'terminal convergence fixture',
+                    handled_wake_version = wake_version,
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE id = ? AND state = 'PENDING'
+                """, queryTask.taskId()));
         var createResult = service.executeTask(fundsCommand(
                 createTask.taskUid(), createTask.taskId(), 1, fixture,
                 MerchantTransferAuthorizationApplicationService.CREATE_TASK,
@@ -2192,10 +2208,9 @@ class TargetWebIdentityMysqlIntegrationTest {
                         "^[A-Za-z0-9]{1,32}$"),
                 "the WeChat display name must avoid punctuation, emoji "
                         + "and control characters");
-
-        FundsTaskRef queryTask = fundsTask(
-                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
-                accepted.authorizationNo());
+        assertEquals("PENDING", jdbc.queryForObject("""
+                SELECT state FROM ops_reliable_task WHERE id = ?
+                """, String.class, queryTask.taskId()));
         var queryResult = service.executeTask(fundsCommand(
                 queryTask.taskUid(), queryTask.taskId(), 1, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
@@ -2587,6 +2602,115 @@ class TargetWebIdentityMysqlIntegrationTest {
                   AND subject_stable_key = ?
                   AND state = 'UNRESOLVED'
                 """, Integer.class, channel.request.outTradeNo()));
+    }
+
+    @Test
+    void definitiveNativeCreateRejectionClosesOrderAndReplaysLocally()
+            throws Exception {
+        BrowserClient platform = platformClient();
+        String tenantCode = code("nr");
+        String organizationCode = code("ng");
+        createEnabledTenant(platform, tenantCode);
+        createAndActivateOrganization(
+                platform, tenantCode, organizationCode,
+                "Native create rejection convergence");
+        WithdrawalCreationFixture fixture = seedWithdrawalCreationFixture(
+                tenantCode, organizationCode);
+        long staffId = jdbc.queryForObject("""
+                SELECT staff.id
+                FROM iam_staff_account staff
+                JOIN iam_tenant tenant ON tenant.id = staff.tenant_id
+                WHERE tenant.tenant_code = ?
+                ORDER BY staff.id LIMIT 1
+                """, Long.class, tenantCode);
+        FundsIdentityAccessPort identity = mock(FundsIdentityAccessPort.class);
+        when(identity.authorizeWeb(
+                false, organizationCode, "recharge.create", true))
+                .thenReturn(new AuthorizedWebIdentity(
+                        false, tenantCode, staffId, UUID.randomUUID(),
+                        UUID.randomUUID(), "native-rejection-staff"));
+        DefinitiveFailureNativeChannel channel =
+                new DefinitiveFailureNativeChannel();
+        RechargeApplicationService service = new RechargeApplicationService(
+                jdbc, new FundsAccessService(jdbc, identity),
+                reliableFundsTasks, channel, fundsOperationalControl,
+                mock(ReliableFundsAttemptBoundaryPort.class),
+                new TransactionTemplate(transactionManager),
+                fundsListCursorCodec,
+                "https://native-rejection.example");
+
+        UUID operationUid = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> service.create(
+                        false, null, organizationCode, operationUid,
+                        "1.00", "/api/v1/web/recharges"));
+        String rechargeNo = RechargeApplicationService.stableNo(
+                "RC", operationUid);
+        FundsTaskRef createTask = fundsTask(
+                "CREATE_NATIVE_PAYMENT", rechargeNo);
+
+        ReliableFundsTaskExecutorPort.Result rejected = service.executeTask(
+                fundsCommand(createTask.taskUid(), createTask.taskId(), 1,
+                        fixture, "CREATE_NATIVE_PAYMENT", rechargeNo));
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                rejected.outcome());
+        assertEquals(1, channel.createCount);
+        assertEquals("CLOSED|CREATE_REJECTED|NO_AUTH",
+                jdbc.queryForObject("""
+                        SELECT CONCAT(
+                            recharge.business_state, '|',
+                            payment.channel_state, '|',
+                            payment.last_api_error_code)
+                        FROM fund_recharge_order recharge
+                        JOIN fund_wechat_payment payment
+                          ON payment.recharge_order_id = recharge.id
+                        WHERE recharge.recharge_order_no = ?
+                        """, String.class, rechargeNo));
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM fund_organization_payout_entry entry
+                JOIN fund_recharge_order recharge
+                  ON recharge.id = entry.recharge_order_id
+                WHERE recharge.recharge_order_no = ?
+                """, Integer.class, rechargeNo));
+
+        // Recreate the historical pre-fix projection: immutable rejection
+        // evidence exists, but the business order was left pending.
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_recharge_order
+                SET business_state = 'PENDING_PAYMENT', closed_at = NULL,
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE recharge_order_no = ? AND business_state = 'CLOSED'
+                """, rechargeNo));
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_payment payment
+                JOIN fund_recharge_order recharge
+                  ON recharge.id = payment.recharge_order_id
+                SET payment.channel_state = 'API_ERROR',
+                    payment.lock_version = payment.lock_version + 1,
+                    payment.updated_at = UTC_TIMESTAMP(3)
+                WHERE recharge.recharge_order_no = ?
+                """, rechargeNo));
+
+        ReliableFundsTaskExecutorPort.Result replay = service.executeTask(
+                fundsCommand(createTask.taskUid(), createTask.taskId(), 2,
+                        fixture, "CREATE_NATIVE_PAYMENT", rechargeNo));
+
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
+                replay.outcome());
+        assertEquals(1, channel.createCount,
+                "recorded permanent rejection must converge without another "
+                        + "WeChat create request");
+        assertEquals("CLOSED|CREATE_REJECTED", jdbc.queryForObject("""
+                SELECT CONCAT(recharge.business_state, '|',
+                              payment.channel_state)
+                FROM fund_recharge_order recharge
+                JOIN fund_wechat_payment payment
+                  ON payment.recharge_order_id = recharge.id
+                WHERE recharge.recharge_order_no = ?
+                """, String.class, rechargeNo));
     }
 
     @Test
@@ -4806,6 +4930,34 @@ class TargetWebIdentityMysqlIntegrationTest {
         @Override
         public NativePaymentResult close(NativePaymentQuery query) {
             throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class DefinitiveFailureNativeChannel
+            implements NativePaymentChannelPort {
+
+        private int createCount;
+
+        @Override
+        public NativePaymentResult create(NativePaymentRequest request) {
+            createCount++;
+            return new NativePaymentResult(
+                    NativePaymentResult.Outcome.PERMANENT_FAILURE,
+                    "API_ERROR", null, null, "NO_AUTH",
+                    "merchant has no native payment permission",
+                    Instant.now());
+        }
+
+        @Override
+        public NativePaymentResult query(NativePaymentQuery query) {
+            throw new AssertionError(
+                    "definitive create rejection must not be queried");
+        }
+
+        @Override
+        public NativePaymentResult close(NativePaymentQuery query) {
+            throw new AssertionError(
+                    "an order rejected before creation must not be closed");
         }
     }
 

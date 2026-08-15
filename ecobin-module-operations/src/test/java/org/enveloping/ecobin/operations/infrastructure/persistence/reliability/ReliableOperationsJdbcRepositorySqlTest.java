@@ -132,8 +132,30 @@ class ReliableOperationsJdbcRepositorySqlTest {
 
         var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(jdbc).update(sqlCaptor.capture(), any(Object[].class));
-        assertTrue(normalize(sqlCaptor.getValue()).contains(
-                platformScope("task")));
+        String sql = normalize(sqlCaptor.getValue());
+        assertTrue(sql.contains(platformScope("task")));
+        assertTrue(sql.contains(
+                "GREATEST(task.next_run_at, ?)"));
+    }
+
+    @Test
+    void locksTransportStateWhenDerivingANewTaskGate() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(
+                anyString(), eq(String.class), eq(13L)))
+                .thenReturn("DEVICE_OFFLINE");
+        ReliableOperationsJdbcRepository repository =
+                new ReliableOperationsJdbcRepository(jdbc);
+
+        String reason = repository.lockInitialDeviceDispatchWaitReason(13L);
+
+        var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForObject(
+                sqlCaptor.capture(), eq(String.class), eq(13L));
+        String sql = normalize(sqlCaptor.getValue());
+        assertEquals("DEVICE_OFFLINE", reason);
+        assertTrue(sql.contains("onenet_connection_status"));
+        assertTrue(sql.endsWith("FOR UPDATE"));
     }
 
     private static String platformScope(String alias) {

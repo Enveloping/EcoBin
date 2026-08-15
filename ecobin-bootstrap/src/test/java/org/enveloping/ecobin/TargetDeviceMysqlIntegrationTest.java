@@ -372,6 +372,13 @@ class TargetDeviceMysqlIntegrationTest {
                           AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
                           AND state = 'PENDING'
                         """, Integer.class, assetId));
+        assertEquals("DEVICE_PRESENCE_UNKNOWN", jdbc.queryForObject("""
+                        SELECT dispatch_wait_reason
+                        FROM ops_reliable_task
+                        WHERE source_device_asset_id = ?
+                          AND task_type = 'ENSURE_DEVICE_CONFIGURATION'
+                          AND state = 'PENDING'
+                        """, String.class, assetId));
 
         JsonNode platformVersions = data(read(
                 platform,
