@@ -633,6 +633,8 @@
       "required": [
         "challengeUid",
         "expectedPortCount",
+        "factoryBagRevision",
+        "factoryBagSetSha256",
         "deviceEntryUrl",
         "deviceEntryUrlSha256"
       ],
@@ -645,6 +647,13 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 6
+        },
+        "factoryBagRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "factoryBagSetSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
         },
         "deviceEntryUrl": {
           "type": "string",

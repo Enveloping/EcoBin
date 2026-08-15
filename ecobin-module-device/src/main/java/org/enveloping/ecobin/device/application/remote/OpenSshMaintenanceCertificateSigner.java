@@ -142,15 +142,7 @@ public class OpenSshMaintenanceCertificateSigner {
             if (Files.getFileStore(path).supportsFileAttributeView("posix")) {
                 Set<PosixFilePermission> permissions =
                         Files.getPosixFilePermissions(path);
-                if (permissions.contains(PosixFilePermission.GROUP_READ)
-                        || permissions.contains(PosixFilePermission.GROUP_WRITE)
-                        || permissions.contains(PosixFilePermission.GROUP_EXECUTE)
-                        || permissions.contains(PosixFilePermission.OTHERS_READ)
-                        || permissions.contains(PosixFilePermission.OTHERS_WRITE)
-                        || permissions.contains(PosixFilePermission.OTHERS_EXECUTE)) {
-                    throw new IllegalStateException(
-                            "maintenance CA private key permissions are too broad");
-                }
+                requireSafePrivateCaPermissions(permissions);
             }
         } catch (IOException failure) {
             throw new IllegalStateException(
@@ -158,6 +150,19 @@ public class OpenSshMaintenanceCertificateSigner {
                     failure);
         }
         return path;
+    }
+
+    static void requireSafePrivateCaPermissions(
+            Set<PosixFilePermission> permissions) {
+        if (!permissions.contains(PosixFilePermission.OWNER_READ)
+                || permissions.contains(PosixFilePermission.GROUP_WRITE)
+                || permissions.contains(PosixFilePermission.GROUP_EXECUTE)
+                || permissions.contains(PosixFilePermission.OTHERS_READ)
+                || permissions.contains(PosixFilePermission.OTHERS_WRITE)
+                || permissions.contains(PosixFilePermission.OTHERS_EXECUTE)) {
+            throw new IllegalStateException(
+                    "maintenance CA private key permissions are too broad");
+        }
     }
 
     private static void setPosixPermissionsIfSupported(

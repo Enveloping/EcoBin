@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -91,11 +92,12 @@ public class TrustedDeviceAcceptanceEvidenceService
             requireIntegerEquals(event, "schemaVersion", 2);
             requireTextEquals(target, "type", "DEVICE_ASSET");
             requireTextEquals(target, "uid", hardwareSn);
-            requireIntegerEquals(payload, "evidenceSchemaVersion", 2);
+            requireIntegerEquals(payload, "evidenceSchemaVersion", 3);
             UUID commandUid = UUID.fromString(
                     requiredPattern(event, "commandUid", UUID_V4));
             UUID challengeUid = UUID.fromString(
                     requiredPattern(payload, "challengeUid", UUID_V4));
+            Evidence facts = evidence(payload);
 
             AssetState asset = lockAsset(hardwareSn);
             LocalDateTime receivedAt = databaseNow();
@@ -123,10 +125,17 @@ public class TrustedDeviceAcceptanceEvidenceService
                         asset.id(), asset.acceptanceStatus(), false);
             }
 
-            challengePort.consume(
-                    asset.id(), commandUid, challengeUid, receivedAt);
+            if (!matchesFactoryBagGeneration(asset, facts)) {
+                throw new IllegalArgumentException(
+                        "acceptance evidence uses a stale factory bag generation");
+            }
 
-            Evidence facts = evidence(payload);
+            challengePort.consume(
+                    asset.id(), commandUid, challengeUid,
+                    facts.factoryBagRevision(),
+                    asset.factoryBagSetSha256(),
+                    receivedAt);
+
             List<String> failures = failures(
                     asset,
                     facts,
@@ -141,6 +150,8 @@ public class TrustedDeviceAcceptanceEvidenceService
                             INSERT INTO dev_device_acceptance_evidence (
                                 evidence_uid, asset_id,
                                 challenge_uid, command_uid,
+                                factory_bag_revision,
+                                factory_bag_set_sha256,
                                 evidence_schema_version,
                                 edge_store_instance_uid,
                                 edge_software_version,
@@ -162,7 +173,7 @@ public class TrustedDeviceAcceptanceEvidenceService
                                 evidence_sha256,
                                 observed_at, received_at, created_at
                             ) VALUES (
-                                ?, ?, ?, ?, 2, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                ?, ?, ?, ?, ?, ?, 3, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                 ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?
                             )
                             """,
@@ -170,6 +181,9 @@ public class TrustedDeviceAcceptanceEvidenceService
                     asset.id(),
                     challengeUid.toString(),
                     commandUid.toString(),
+                    facts.factoryBagRevision(),
+                    HexFormat.of().parseHex(
+                            facts.factoryBagSetSha256()),
                     facts.edgeStoreInstanceUid(),
                     facts.edgeSoftwareVersion(),
                     facts.edgeProtocolVersion(),
@@ -260,12 +274,36 @@ public class TrustedDeviceAcceptanceEvidenceService
         List<AssetState> rows = jdbc.query("""
                         SELECT asset.id, asset.device_public_code,
                                asset.expected_port_count,
+                               asset.factory_bag_revision,
+                               asset.factory_bag_set_sha256,
                                asset.acceptance_status,
                                transport.onenet_connection_status,
                                (
                                    SELECT COUNT(*)
                                    FROM dev_factory_installed_bag bag
                                    WHERE bag.asset_id = asset.id
+                                     AND (
+                                         bag.installation_source =
+                                             'LEGACY_GRANDFATHERED'
+                                         OR (
+                                             bag.installation_source =
+                                                 'FACTORY_MINIAPP'
+                                             AND bag.label_item_id IS NOT NULL
+                                             AND bag.installed_by_factory_operator_id
+                                                 IS NOT NULL
+                                             AND EXISTS (
+                                                 SELECT 1
+                                                 FROM rec_bag_label_claim claim
+                                                 WHERE claim.label_item_id =
+                                                       bag.label_item_id
+                                                   AND claim.asset_id =
+                                                       bag.asset_id
+                                                   AND claim.port_no =
+                                                       bag.port_no
+                                                   AND claim.released_at IS NULL
+                                             )
+                                         )
+                                     )
                                ) AS installed_bag_count
                         FROM dev_device_asset asset
                         JOIN dev_device_transport_state transport
@@ -277,6 +315,8 @@ public class TrustedDeviceAcceptanceEvidenceService
                         rs.getLong("id"),
                         rs.getString("device_public_code"),
                         rs.getInt("expected_port_count"),
+                        rs.getLong("factory_bag_revision"),
+                        rs.getBytes("factory_bag_set_sha256"),
                         rs.getString("acceptance_status"),
                         "ONLINE".equals(rs.getString(
                                 "onenet_connection_status")),
@@ -311,6 +351,8 @@ public class TrustedDeviceAcceptanceEvidenceService
     private Evidence evidence(JsonNode payload) {
         return new Evidence(
                 requiredPattern(payload, "challengeUid", UUID_V4),
+                requiredLong(payload, "factoryBagRevision", 0),
+                requiredPattern(payload, "factoryBagSetSha256", SHA256),
                 requiredText(payload, "edgeSoftwareVersion", 64),
                 requiredText(payload, "edgeProtocolVersion", 32),
                 requiredPattern(payload, "edgeStoreInstanceUid", UUID_V4),
@@ -331,6 +373,18 @@ public class TrustedDeviceAcceptanceEvidenceService
                 requiredPattern(payload, "sensorSampleSha256", SHA256),
                 requiredPattern(payload, "cameraCaptureSha256", SHA256),
                 requiredPattern(payload, "cameraUploadSha256", SHA256));
+    }
+
+    static boolean matchesFactoryBagGeneration(
+            AssetState asset,
+            Evidence evidence) {
+        return asset.factoryBagSetSha256() != null
+                && evidence.factoryBagRevision()
+                    == asset.factoryBagRevision()
+                && MessageDigest.isEqual(
+                        HexFormat.of().parseHex(
+                                evidence.factoryBagSetSha256()),
+                        asset.factoryBagSetSha256());
     }
 
     List<String> failures(
@@ -472,6 +526,19 @@ public class TrustedDeviceAcceptanceEvidenceService
         return Math.toIntExact(value.longValue());
     }
 
+    private static long requiredLong(
+            JsonNode parent,
+            String field,
+            long minimum) {
+        JsonNode value = parent == null ? null : parent.get(field);
+        if (value == null || !value.isIntegralNumber()
+                || value.longValue() < minimum) {
+            throw new IllegalArgumentException(
+                    field + " is outside the supported range");
+        }
+        return value.longValue();
+    }
+
     private static void requireTextEquals(
             JsonNode parent, String field, String expected) {
         if (!expected.equals(requiredText(parent, field, 64))) {
@@ -509,6 +576,8 @@ public class TrustedDeviceAcceptanceEvidenceService
             long id,
             String devicePublicCode,
             int expectedPortCount,
+            long factoryBagRevision,
+            byte[] factoryBagSetSha256,
             String acceptanceStatus,
             boolean oneNetOnline,
             boolean factoryBagsComplete) {
@@ -519,6 +588,8 @@ public class TrustedDeviceAcceptanceEvidenceService
 
     record Evidence(
             String challengeUid,
+            long factoryBagRevision,
+            String factoryBagSetSha256,
             String edgeSoftwareVersion,
             String edgeProtocolVersion,
             String edgeStoreInstanceUid,

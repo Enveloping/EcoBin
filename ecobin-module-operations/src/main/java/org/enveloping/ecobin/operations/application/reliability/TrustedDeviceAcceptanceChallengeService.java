@@ -8,7 +8,9 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Closes only the exact platform challenge proven by an authenticated event. */
@@ -28,9 +30,19 @@ public class TrustedDeviceAcceptanceChallengeService
             long assetId,
             UUID commandUid,
             UUID challengeUid,
+            long factoryBagRevision,
+            byte[] factoryBagSetSha256,
             LocalDateTime receivedAt) {
         List<ChallengeTask> rows = jdbc.query("""
-                        SELECT id, state, wake_version
+                        SELECT id, state, wake_version,
+                               CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                                   redacted_execution_snapshot,
+                                   '$.payload.factoryBagRevision'
+                               )) AS UNSIGNED) AS factory_bag_revision,
+                               JSON_UNQUOTE(JSON_EXTRACT(
+                                   redacted_execution_snapshot,
+                                   '$.payload.factoryBagSetSha256'
+                               )) AS factory_bag_set_sha256
                         FROM ops_reliable_task
                         WHERE scope_kind = 'PLATFORM'
                           AND tenant_id IS NULL
@@ -49,7 +61,9 @@ public class TrustedDeviceAcceptanceChallengeService
                 (rs, ignored) -> new ChallengeTask(
                         rs.getLong("id"),
                         rs.getString("state"),
-                        rs.getLong("wake_version")),
+                        rs.getLong("wake_version"),
+                        rs.getLong("factory_bag_revision"),
+                        rs.getString("factory_bag_set_sha256")),
                 assetId,
                 challengeUid.toString(),
                 commandUid.toString());
@@ -61,6 +75,14 @@ public class TrustedDeviceAcceptanceChallengeService
         if ("CANCELLED".equals(task.state())) {
             throw new ReliableTaskInvariantException(
                     "cancelled acceptance challenge cannot be consumed");
+        }
+        if (!sameFactoryBagSnapshot(
+                task.factoryBagRevision(),
+                task.factoryBagSetSha256(),
+                factoryBagRevision,
+                factoryBagSetSha256)) {
+            throw new ReliableTaskInvariantException(
+                    "acceptance evidence differs from its factory bag snapshot");
         }
         if ("DONE".equals(task.state())) {
             return;
@@ -92,6 +114,51 @@ public class TrustedDeviceAcceptanceChallengeService
         }
     }
 
-    private record ChallengeTask(long id, String state, long wakeVersion) {
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void cancelOutstanding(long assetId, LocalDateTime cancelledAt) {
+        jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET state = 'CANCELLED',
+                            next_run_at = NULL,
+                            lease_token = NULL,
+                            lease_worker = NULL,
+                            lease_until = NULL,
+                            dispatch_wait_reason = NULL,
+                            handled_wake_version = wake_version,
+                            completed_at = COALESCE(completed_at, ?),
+                            blocked_reason_code = NULL,
+                            blocked_diagnostic = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE scope_kind = 'PLATFORM'
+                          AND tenant_id IS NULL
+                          AND organization_id IS NULL
+                          AND task_type = 'REQUEST_DEVICE_ACCEPTANCE'
+                          AND source_device_asset_id = ?
+                          AND state IN ('PENDING', 'BLOCKED')
+                        """,
+                cancelledAt,
+                cancelledAt,
+                assetId);
+    }
+
+    static boolean sameFactoryBagSnapshot(
+            long taskRevision,
+            String taskDigest,
+            long evidenceRevision,
+            byte[] evidenceDigest) {
+        String suppliedDigest = evidenceDigest == null
+                ? null : HexFormat.of().formatHex(evidenceDigest);
+        return taskRevision == evidenceRevision
+                && Objects.equals(taskDigest, suppliedDigest);
+    }
+
+    private record ChallengeTask(
+            long id,
+            String state,
+            long wakeVersion,
+            long factoryBagRevision,
+            String factoryBagSetSha256) {
     }
 }

@@ -1701,6 +1701,20 @@ public class OneNetClient
         scalarFields.put(
                 "expectedPortCount",
                 requiredInteger(payload, "expectedPortCount", 1, 6));
+        scalarFields.put(
+                "factoryBagRevision",
+                requiredInteger(
+                        payload,
+                        "factoryBagRevision",
+                        0,
+                        9_007_199_254_740_991L));
+        scalarFields.put(
+                "factoryBagSetSha256",
+                requiredMatchingText(
+                        payload,
+                        "factoryBagSetSha256",
+                        "^[0-9a-f]{64}$",
+                        64));
         putDeviceEntryUrl(payload, scalarFields);
 
         Map<String, Object> first = new LinkedHashMap<>();

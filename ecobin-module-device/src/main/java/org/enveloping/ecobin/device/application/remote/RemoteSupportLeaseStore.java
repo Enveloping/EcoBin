@@ -110,6 +110,36 @@ public class RemoteSupportLeaseStore {
         }
     }
 
+    public void synchronizeDesired(Lease lease) {
+        requireEnabled();
+        requirePort(lease.port());
+        Path directory = requireDirectory(
+                properties.getLeaseDesiredDirectory(), true);
+        Path target = directory.resolve(lease.port() + ".json");
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)
+                && desiredMatches(target, lease)) {
+            return;
+        }
+        publish(lease);
+    }
+
+    public void removeDesired(int port) {
+        requireEnabled();
+        requirePort(port);
+        Path directory = requireDirectory(
+                properties.getLeaseDesiredDirectory(), true);
+        Path target = directory.resolve(port + ".json");
+        try {
+            if (Files.deleteIfExists(target)) {
+                forceDirectory(directory);
+            }
+        } catch (IOException failure) {
+            throw new IllegalStateException(
+                    "remote support desired lease cannot be removed",
+                    failure);
+        }
+    }
+
     public void revoke(UUID sessionUid, int port) {
         requireEnabled();
         requirePort(port);
@@ -141,19 +171,31 @@ public class RemoteSupportLeaseStore {
             int port,
             String expectedFingerprint,
             Instant expiresAt) {
+        return inspectActual(
+                sessionUid, hardwareSn, port,
+                expectedFingerprint, expiresAt)
+                == RemoteSupportReconciliationPolicy.ActualLeaseState.MATCH;
+    }
+
+    public RemoteSupportReconciliationPolicy.ActualLeaseState inspectActual(
+            UUID sessionUid,
+            String hardwareSn,
+            int port,
+            String expectedFingerprint,
+            Instant expiresAt) {
         if (!properties.isEnabled()) {
-            return false;
+            return RemoteSupportReconciliationPolicy.ActualLeaseState.ABSENT;
         }
         requirePort(port);
         Path directory = requireDirectory(
                 properties.getLeaseActualDirectory(), false);
         Path marker = directory.resolve(port + ".json");
         if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
-            return false;
+            return RemoteSupportReconciliationPolicy.ActualLeaseState.ABSENT;
         }
         try {
             JsonNode value = readSmallRegularFile(marker);
-            return value.size() == 9
+            boolean matches = value.size() == 9
                     && value.path("schemaVersion").asInt() == 1
                     && sessionUid.toString().equals(
                             value.path("sessionUid").asString())
@@ -167,9 +209,25 @@ public class RemoteSupportLeaseStore {
                     && value.path("expiresAtEpochSecond").longValue()
                             == expiresAt.getEpochSecond()
                     && value.path("guardPid").longValue() > 0;
+            return matches
+                    ? RemoteSupportReconciliationPolicy.ActualLeaseState.MATCH
+                    : RemoteSupportReconciliationPolicy.ActualLeaseState.CONFLICT;
         } catch (RuntimeException invalidMarker) {
-            return false;
+            return RemoteSupportReconciliationPolicy.ActualLeaseState.CONFLICT;
         }
+    }
+
+    public boolean portIsClear(int port) {
+        requireEnabled();
+        requirePort(port);
+        Path desired = requireDirectory(
+                properties.getLeaseDesiredDirectory(), true)
+                .resolve(port + ".json");
+        Path actual = requireDirectory(
+                properties.getLeaseActualDirectory(), false)
+                .resolve(port + ".json");
+        return !Files.exists(desired, LinkOption.NOFOLLOW_LINKS)
+                && !Files.exists(actual, LinkOption.NOFOLLOW_LINKS);
     }
 
     public static KeyParts keyParts(String canonicalPublicKey) {
@@ -195,6 +253,33 @@ public class RemoteSupportLeaseStore {
             return objectMapper.readTree(Files.readAllBytes(path));
         } catch (IOException failure) {
             throw new IllegalStateException("lease file cannot be read", failure);
+        }
+    }
+
+    private boolean desiredMatches(Path path, Lease lease) {
+        try {
+            JsonNode value = readSmallRegularFile(path);
+            return value.size() == 10
+                    && value.path("schemaVersion").asInt() == 1
+                    && lease.sessionUid().toString().equals(
+                            value.path("sessionUid").asString())
+                    && lease.hardwareSn().equals(
+                            value.path("hardwareSn").asString())
+                    && lease.keyType().equals(
+                            value.path("keyType").asString())
+                    && lease.keyBase64().equals(
+                            value.path("keyBase64").asString())
+                    && lease.keyFingerprint().equals(
+                            value.path("keyFingerprint").asString())
+                    && "127.0.0.1".equals(
+                            value.path("listenHost").asString())
+                    && value.path("listenPort").asInt() == lease.port()
+                    && value.path("createdAtEpochSecond").longValue()
+                            == lease.createdAt().getEpochSecond()
+                    && value.path("expiresAtEpochSecond").longValue()
+                            == lease.expiresAt().getEpochSecond();
+        } catch (RuntimeException invalidLease) {
+            return false;
         }
     }
 
@@ -235,6 +320,12 @@ public class RemoteSupportLeaseStore {
     }
 
     private static void forceDirectory(Path directory) throws IOException {
+        // Windows cannot open a directory as a FileChannel. Production uses
+        // a POSIX filesystem, where the directory fsync remains mandatory.
+        if (!Files.getFileStore(directory)
+                .supportsFileAttributeView("posix")) {
+            return;
+        }
         try (FileChannel channel = FileChannel.open(
                 directory, StandardOpenOption.READ)) {
             channel.force(true);

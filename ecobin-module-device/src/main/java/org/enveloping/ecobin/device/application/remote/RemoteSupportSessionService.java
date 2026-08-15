@@ -21,6 +21,8 @@ import org.enveloping.ecobin.identity.api.port.PlatformMaintenanceSshKeyQueryPor
 import org.enveloping.ecobin.identity.api.query.DeviceScopeAuthorizationQuery;
 import org.enveloping.ecobin.identity.api.result.ActivePlatformMaintenanceSshKey;
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeviceScope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -50,6 +52,9 @@ import java.util.UUID;
 /** Audited short-lived reverse-SSH sessions backed by the four-port lease pool. */
 @Service
 public class RemoteSupportSessionService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(
+            RemoteSupportSessionService.class);
 
     private static final String OPEN_TASK = "OPEN_REMOTE_SUPPORT_TUNNEL";
     private static final String CLOSE_TASK = "CLOSE_REMOTE_SUPPORT_TUNNEL";
@@ -172,8 +177,6 @@ public class RemoteSupportSessionService {
                         tunnelKey.fingerprint(),
                         instant(now),
                         instant(expiresAt));
-        leases.publish(lease);
-        registerRollbackLeaseCompensation(sessionUid, port);
 
         Long[] sessionId = new Long[1];
         try {
@@ -194,6 +197,9 @@ public class RemoteSupportSessionService {
                                                         requested_by_platform_admin_uid,
                                                         maintenance_ssh_key_id,
                                                         maintenance_ssh_key_uid,
+                                                        tunnel_public_key,
+                                                        tunnel_fingerprint_sha256,
+                                                        ssh_host_public_key,
                                                         reason, state, port_no,
                                                         open_command_uid,
                                                         close_operation_uid,
@@ -209,15 +215,19 @@ public class RemoteSupportSessionService {
                                                         connect_deadline_at,
                                                         expires_at, opened_at,
                                                         close_requested_at,
-                                                        closed_at, lock_version,
+                                                        closed_at,
+                                                        lease_released_at,
+                                                        lock_version,
                                                         created_at, updated_at
                                                     ) VALUES (
-                                                        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                                        ?, ?, ?, ?, ?, ?, ?, ?,
+                                                        ?, ?, ?, ?,
                                                         'PREPARING', ?, ?,
                                                         NULL, NULL, NULL, NULL,
                                                         'DESIRED', NULL, NULL,
                                                         NULL, NULL, NULL, NULL,
                                                         ?, ?, NULL, NULL, NULL,
+                                                        NULL,
                                                         0, ?, ?
                                                     )
                                                     """,
@@ -230,6 +240,11 @@ public class RemoteSupportSessionService {
                                             maintenanceKeyId,
                                             key.maintenanceSshKeyUid()
                                                     .toString(),
+                                            asset.tunnelPublicKey(),
+                                            DeviceEnrollmentCrypto
+                                                    .sshFingerprint(
+                                                            asset.tunnelPublicKey()),
+                                            asset.hostPublicKey(),
                                             reason,
                                             port,
                                             commandUid.toString(),
@@ -271,6 +286,7 @@ public class RemoteSupportSessionService {
                         """,
                 now,
                 sessionId[0]), "start remote support connection");
+        registerAfterCommitLeasePublish(lease);
         return view(requireSession(sessionUid, actor.principalUid(), false));
     }
 
@@ -349,7 +365,8 @@ public class RemoteSupportSessionService {
                                         updated_at = ?
                                     WHERE id = ?
                                       AND state IN (
-                                          'PREPARING', 'CONNECTING', 'OPEN'
+                                          'PREPARING', 'CONNECTING', 'OPEN',
+                                          'RECONNECTING'
                                       )
                                     """,
                             operationUid.toString(),
@@ -483,7 +500,7 @@ public class RemoteSupportSessionService {
                             WHERE id = ?
                               AND state IN (
                                   'PREPARING', 'CONNECTING', 'OPEN',
-                                  'CLOSING'
+                                  'RECONNECTING', 'CLOSING'
                               )
                             """,
                     terminal,
@@ -505,7 +522,8 @@ public class RemoteSupportSessionService {
                                 updated_at = ?
                             WHERE id = ?
                               AND state IN (
-                                  'PREPARING', 'CONNECTING', 'OPEN'
+                                  'PREPARING', 'CONNECTING', 'OPEN',
+                                  'RECONNECTING'
                               )
                             """,
                     state,
@@ -529,81 +547,129 @@ public class RemoteSupportSessionService {
         if (!properties.isEnabled()) {
             return;
         }
-        List<UUID> sessions = jdbc.query("""
-                        SELECT session_uid
+        List<ReservedSession> sessions = jdbc.query("""
+                        SELECT session_uid, port_no
                         FROM dev_remote_support_session
-                        WHERE state IN (
-                            'PREPARING', 'CONNECTING', 'OPEN', 'CLOSING'
-                        )
+                        WHERE lease_released_at IS NULL
                         ORDER BY id
-                        LIMIT 20
                         """,
-                (rs, ignored) -> UUID.fromString(
-                        rs.getString("session_uid")));
-        for (UUID sessionUid : sessions) {
-            reconcileOne(sessionUid);
+                (rs, ignored) -> new ReservedSession(
+                        UUID.fromString(rs.getString("session_uid")),
+                        rs.getInt("port_no")));
+        for (int port : List.of(22011, 22012, 22013, 22014)) {
+            if (sessions.stream().noneMatch(row -> row.port() == port)) {
+                leases.removeDesired(port);
+            }
+        }
+        for (ReservedSession session : sessions) {
+            reconcileOne(session.sessionUid());
         }
     }
 
     private void reconcileOne(UUID sessionUid) {
         RemoteSession session = sessionForReconciliation(sessionUid, true);
-        if (session == null || isTerminal(session.state())) {
+        if (session == null || session.leaseReleasedAt() != null) {
             return;
         }
         LocalDateTime now = databaseNow();
-        if (!session.expiresAt().isAfter(now)) {
-            leases.revoke(sessionUid, session.port());
-            markTerminal(session, "EXPIRED", null, now);
+        if (!isTerminal(session.state())
+                && !session.expiresAt().isAfter(now)) {
+            terminateAndReconcileRelease(
+                    session, "EXPIRED", null, now);
             return;
         }
-        Optional<ActivePlatformMaintenanceSshKey> activeKey =
-                sshKeys.resolveActive(
-                        session.requestedByPlatformAdminUid(),
-                        session.maintenanceSshKeyUid());
-        if (activeKey.isEmpty()) {
-            leases.revoke(sessionUid, session.port());
-            markTerminal(
+        Optional<ActivePlatformMaintenanceSshKey> activeKey = Optional.empty();
+        if (!isTerminal(session.state())) {
+            activeKey = sshKeys.resolveActive(
+                    session.requestedByPlatformAdminUid(),
+                    session.maintenanceSshKeyUid());
+        }
+        if (!isTerminal(session.state()) && activeKey.isEmpty()) {
+            terminateAndReconcileRelease(
                     session,
                     "FAILED",
                     "MAINTENANCE_SSH_KEY_REVOKED",
                     now);
             return;
         }
-        if ("CLOSING".equals(session.state())) {
-            leases.revoke(sessionUid, session.port());
-            jdbc.update("""
-                            UPDATE dev_remote_support_session
-                            SET server_lease_state = 'REVOKED',
-                                updated_at = ?,
-                                lock_version = lock_version + 1
-                            WHERE id = ?
-                            """,
-                    now,
-                    session.id());
-            return;
+
+        boolean desiredRequired = List.of(
+                "PREPARING", "CONNECTING", "OPEN", "RECONNECTING")
+                .contains(session.state());
+        if (desiredRequired) {
+            leases.synchronizeDesired(expectedLease(session));
+        } else {
+            leases.removeDesired(session.port());
         }
-        boolean actual = leases.actualMatches(
+
+        RemoteSupportReconciliationPolicy.ActualLeaseState actual =
+                leases.inspectActual(
                 sessionUid,
                 session.hardwareSn(),
                 session.port(),
                 session.tunnelFingerprint(),
                 instant(session.expiresAt()));
-        if ("OPEN".equals(session.state()) && !actual) {
-            leases.revoke(sessionUid, session.port());
-            markTerminal(session, "FAILED", "SERVER_LEASE_LOST", now);
+
+        RemoteSupportReconciliationPolicy.Decision decision =
+                RemoteSupportReconciliationPolicy.decide(
+                        session.state(), actual);
+        if (decision.failureCode() != null) {
+            leases.removeDesired(session.port());
+            markTerminal(
+                    session, "FAILED", decision.failureCode(), now);
+            updateServerLeaseState(session.id(), "ERROR", now);
             return;
         }
-        if (!"OPEN".equals(session.state())
+
+        if (decision.releaseLease()) {
+            releaseLease(session, decision.nextState(), now);
+            return;
+        }
+        if (isTerminal(session.state())) {
+            updateServerLeaseState(
+                    session.id(),
+                    actual == RemoteSupportReconciliationPolicy
+                            .ActualLeaseState.CONFLICT
+                            ? "ERROR" : "REVOKED",
+                    now);
+            return;
+        }
+        if ("CLOSING".equals(session.state())) {
+            updateServerLeaseState(session.id(), "REVOKED", now);
+            return;
+        }
+        if (!decision.nextState().equals(session.state())) {
+            requireSingle(jdbc.update("""
+                            UPDATE dev_remote_support_session
+                            SET state = ?, server_lease_state = ?,
+                                lock_version = lock_version + 1,
+                                updated_at = ?
+                            WHERE id = ? AND state = ?
+                            """,
+                    decision.nextState(),
+                    "OPEN".equals(decision.nextState())
+                            ? "ACTIVE" : "DESIRED",
+                    now,
+                    session.id(),
+                    session.state()), "transition remote support lease");
+            return;
+        }
+
+        if (("PREPARING".equals(session.state())
+                || "CONNECTING".equals(session.state()))
                 && !session.connectDeadlineAt().isAfter(now)
-                && !(actual && "OPEN".equals(
+                && !(actual == RemoteSupportReconciliationPolicy
+                        .ActualLeaseState.MATCH && "OPEN".equals(
                         session.deviceReportedState()))) {
-            leases.revoke(sessionUid, session.port());
-            markTerminal(session, "FAILED", "CONNECT_TIMEOUT", now);
+            terminateAndReconcileRelease(
+                    session, "FAILED", "CONNECT_TIMEOUT", now);
             return;
         }
-        if (actual
+        if (actual == RemoteSupportReconciliationPolicy
+                    .ActualLeaseState.MATCH
                 && "OPEN".equals(session.deviceReportedState())
-                && !"OPEN".equals(session.state())) {
+                && ("PREPARING".equals(session.state())
+                    || "CONNECTING".equals(session.state()))) {
             ActivePlatformMaintenanceSshKey key = activeKey.orElseThrow();
             Instant validAfter = instant(now).minusSeconds(30);
             Instant validBefore = min(
@@ -628,7 +694,8 @@ public class RemoteSupportSessionService {
                                 opened_at = COALESCE(opened_at, ?),
                                 lock_version = lock_version + 1,
                                 updated_at = ?
-                            WHERE id = ? AND state = 'CONNECTING'
+                            WHERE id = ?
+                              AND state IN ('PREPARING', 'CONNECTING')
                             """,
                     session.id(),
                     certificate,
@@ -638,6 +705,82 @@ public class RemoteSupportSessionService {
                     now,
                     session.id());
         }
+    }
+
+    private RemoteSupportLeaseStore.Lease expectedLease(
+            RemoteSession session) {
+        RemoteSupportLeaseStore.KeyParts key =
+                RemoteSupportLeaseStore.keyParts(
+                        session.tunnelPublicKey());
+        return new RemoteSupportLeaseStore.Lease(
+                session.sessionUid(),
+                session.hardwareSn(),
+                session.port(),
+                key.keyType(),
+                key.keyBase64(),
+                key.fingerprint(),
+                instant(session.createdAt()),
+                instant(session.expiresAt()));
+    }
+
+    private void terminateAndReconcileRelease(
+            RemoteSession session,
+            String terminalState,
+            String failureCode,
+            LocalDateTime now) {
+        leases.removeDesired(session.port());
+        markTerminal(session, terminalState, failureCode, now);
+        RemoteSupportReconciliationPolicy.ActualLeaseState actual =
+                leases.inspectActual(
+                        session.sessionUid(),
+                        session.hardwareSn(),
+                        session.port(),
+                        session.tunnelFingerprint(),
+                        instant(session.expiresAt()));
+        if (actual == RemoteSupportReconciliationPolicy
+                .ActualLeaseState.ABSENT) {
+            releaseLease(session, terminalState, now);
+        } else if (actual == RemoteSupportReconciliationPolicy
+                .ActualLeaseState.CONFLICT) {
+            updateServerLeaseState(session.id(), "ERROR", now);
+        }
+    }
+
+    private void releaseLease(
+            RemoteSession session,
+            String state,
+            LocalDateTime now) {
+        requireSingle(jdbc.update("""
+                        UPDATE dev_remote_support_session
+                        SET state = ?, server_lease_state = 'ABSENT',
+                            closed_at = COALESCE(closed_at, ?),
+                            lease_released_at = COALESCE(
+                                lease_released_at, ?),
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND lease_released_at IS NULL
+                        """,
+                state,
+                now,
+                now,
+                now,
+                session.id()), "release remote support lease");
+    }
+
+    private void updateServerLeaseState(
+            long sessionId,
+            String state,
+            LocalDateTime now) {
+        jdbc.update("""
+                        UPDATE dev_remote_support_session
+                        SET server_lease_state = ?,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ? AND lease_released_at IS NULL
+                        """,
+                state,
+                now,
+                sessionId);
     }
 
     private void registerOpenTask(
@@ -762,7 +905,7 @@ public class RemoteSupportSessionService {
     }
 
     private int allocatePort() {
-        Integer port = jdbc.query("""
+        List<Integer> candidates = jdbc.query("""
                         SELECT slot.port_no
                         FROM dev_remote_support_port_slot slot
                         LEFT JOIN dev_remote_support_session active
@@ -770,28 +913,25 @@ public class RemoteSupportSessionService {
                         WHERE slot.enabled = 1
                           AND active.id IS NULL
                         ORDER BY slot.port_no
-                        LIMIT 1
                         FOR UPDATE
                         """,
-                (rs, ignored) -> rs.getInt("port_no"))
-                .stream().findFirst().orElse(null);
-        if (port == null) {
-            throw conflict(
-                    "DEVICE.REMOTE_SUPPORT_PORT_POOL_EXHAUSTED",
-                    "远程维护端口当前均被占用，请稍后重试");
+                (rs, ignored) -> rs.getInt("port_no"));
+        for (int candidate : candidates) {
+            leases.removeDesired(candidate);
+            if (leases.portIsClear(candidate)) {
+                return candidate;
+            }
         }
-        return port;
+        throw conflict(
+                "DEVICE.REMOTE_SUPPORT_PORT_POOL_EXHAUSTED",
+                "远程维护端口当前均被占用或仍在清理，请稍后重试");
     }
 
     private RemoteSession activeSessionForAsset(long assetId) {
         return jdbc.query("""
-                        SELECT session.*, asset.hardware_sn,
-                               maintenance.tunnel_fingerprint_sha256,
-                               maintenance.ssh_host_public_key
+                        SELECT session.*, asset.hardware_sn
                         FROM dev_remote_support_session session
                         JOIN dev_device_asset asset ON asset.id = session.asset_id
-                        JOIN dev_device_maintenance_identity maintenance
-                          ON maintenance.asset_id = session.asset_id
                         WHERE session.active_asset_id = ?
                         """,
                 RemoteSupportSessionService::mapSession,
@@ -852,13 +992,9 @@ public class RemoteSupportSessionService {
             boolean forUpdate,
             Object... arguments) {
         String sql = """
-                SELECT session.*, asset.hardware_sn,
-                       maintenance.tunnel_fingerprint_sha256,
-                       maintenance.ssh_host_public_key
+                SELECT session.*, asset.hardware_sn
                 FROM dev_remote_support_session session
                 JOIN dev_device_asset asset ON asset.id = session.asset_id
-                JOIN dev_device_maintenance_identity maintenance
-                  ON maintenance.asset_id = session.asset_id
                 WHERE
                 """ + predicate + (forUpdate ? " FOR UPDATE" : "");
         return jdbc.query(sql,
@@ -892,8 +1028,11 @@ public class RemoteSupportSessionService {
                 rs.getObject("expires_at", LocalDateTime.class),
                 rs.getObject("opened_at", LocalDateTime.class),
                 rs.getObject("closed_at", LocalDateTime.class),
+                rs.getObject("lease_released_at", LocalDateTime.class),
+                rs.getObject("created_at", LocalDateTime.class),
                 rs.getLong("lock_version"),
                 rs.getString("hardware_sn"),
+                rs.getString("tunnel_public_key"),
                 "SHA256:" + java.util.Base64.getEncoder()
                         .withoutPadding().encodeToString(
                                 rs.getBytes("tunnel_fingerprint_sha256")),
@@ -918,6 +1057,10 @@ public class RemoteSupportSessionService {
                 instant(session.expiresAt()),
                 nullableInstant(session.openedAt()),
                 nullableInstant(session.closedAt()),
+                nullableInstant(session.leaseReleasedAt()),
+                session.leaseReleasedAt() == null
+                        && ("CLOSING".equals(session.state())
+                            || isTerminal(session.state())),
                 session.failureCode(),
                 session.certificate(),
                 properties.getTunnelHost(),
@@ -976,28 +1119,45 @@ public class RemoteSupportSessionService {
                 instant(occurredAt)));
     }
 
-    private void registerRollbackLeaseCompensation(
-            UUID sessionUid,
-            int port) {
+    void registerAfterCommitLeasePublish(
+            RemoteSupportLeaseStore.Lease lease) {
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override
-                    public void afterCompletion(int status) {
-                        if (status != STATUS_COMMITTED) {
-                            leases.revoke(sessionUid, port);
+                    public void afterCommit() {
+                        try {
+                            leases.synchronizeDesired(lease);
+                        } catch (RuntimeException failure) {
+                            LOGGER.warn(
+                                    "remote support desired lease will be "
+                                            + "repaired by reconciliation: session={}",
+                                    lease.sessionUid(),
+                                    failure);
                         }
                     }
                 });
     }
 
-    private void registerAfterCommitLeaseRevoke(
+    void registerAfterCommitLeaseRevoke(
             UUID sessionUid,
             int port) {
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        leases.revoke(sessionUid, port);
+                        try {
+                            // A delayed terminal status for an already
+                            // released session must never delete a newer
+                            // session that has since reused this port.
+                            leases.revoke(sessionUid, port);
+                        } catch (RuntimeException failure) {
+                            LOGGER.warn(
+                                    "remote support desired lease revoke will "
+                                            + "be retried by reconciliation: "
+                                            + "session={}",
+                                    sessionUid,
+                                    failure);
+                        }
                     }
                 });
     }
@@ -1233,6 +1393,9 @@ public class RemoteSupportSessionService {
             String hostPublicKey) {
     }
 
+    private record ReservedSession(UUID sessionUid, int port) {
+    }
+
     private record RemoteSession(
             long id,
             UUID sessionUid,
@@ -1255,8 +1418,11 @@ public class RemoteSupportSessionService {
             LocalDateTime expiresAt,
             LocalDateTime openedAt,
             LocalDateTime closedAt,
+            LocalDateTime leaseReleasedAt,
+            LocalDateTime createdAt,
             long version,
             String hardwareSn,
+            String tunnelPublicKey,
             String tunnelFingerprint,
             String hostPublicKey) {
     }

@@ -1,10 +1,12 @@
 package org.enveloping.ecobin.device.application.factory;
 
 import org.enveloping.ecobin.device.api.port.BagCodeAdmissionPort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.CorrectFactoryBagRequest;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.FactoryAcceptanceView;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.FactoryBagSlotView;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.InstallFactoryBagRequest;
+import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.VerifyFactoryBagRequest;
 import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
@@ -40,18 +42,21 @@ public class FactoryAcceptanceService {
     private final BagCodeAdmissionPort bagAdmission;
     private final FactoryMiniappAuthorizationPort authorization;
     private final AuditPort auditPort;
+    private final TrustedDeviceAcceptanceChallengePort acceptanceChallenges;
 
     public FactoryAcceptanceService(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             BagCodeAdmissionPort bagAdmission,
             FactoryMiniappAuthorizationPort authorization,
-            AuditPort auditPort) {
+            AuditPort auditPort,
+            TrustedDeviceAcceptanceChallengePort acceptanceChallenges) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.bagAdmission = bagAdmission;
         this.authorization = authorization;
         this.auditPort = auditPort;
+        this.acceptanceChallenges = acceptanceChallenges;
     }
 
     @Transactional(readOnly = true)
@@ -156,10 +161,111 @@ public class FactoryAcceptanceService {
                         requestSha256,
                         now);
             });
+            advanceFactoryBagGeneration(asset.id(), now);
         } catch (DataIntegrityViolationException collision) {
             throw conflict(
                     "DEVICE.FACTORY_BAG_ALREADY_CLAIMED",
                     "该袋码已被使用，或投口已由另一请求登记");
+        }
+        return view(normalizedDeviceCode);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public FactoryAcceptanceView verify(
+            UUID operationUid,
+            String deviceCode,
+            int portNo,
+            VerifyFactoryBagRequest request) {
+        requireOperationUid(operationUid);
+        String normalizedDeviceCode = requireDeviceCode(deviceCode);
+        if (request == null) {
+            throw invalid("补扫确认请求不能为空");
+        }
+        String bagCode = authenticate(request.bagCode());
+        byte[] requestSha256 = fingerprint(
+                "VERIFY", normalizedDeviceCode, portNo, bagCode, null);
+        AuthorizedFactoryOperatorIdentity actor = authorization
+                .requireCapability(
+                        FactoryMiniappAuthorizationPort.BAG_INSTALL);
+        FactoryAcceptanceView replay = replay(
+                operationUid, requestSha256, normalizedDeviceCode);
+        if (replay != null) {
+            return replay;
+        }
+        Asset asset = lockAsset(normalizedDeviceCode);
+        requireMutable(asset, portNo);
+        CurrentBag previous = currentBag(asset.id(), portNo);
+        if (previous == null) {
+            throw conflict(
+                    "DEVICE.FACTORY_BAG_NOT_INSTALLED",
+                    "该投口没有可补扫确认的存量初始袋");
+        }
+        if (!"PLATFORM_CREATE".equals(previous.installationSource())) {
+            throw conflict(
+                    "DEVICE.FACTORY_BAG_ALREADY_VERIFIED",
+                    "该投口已经完成厂家扫码，如扫错请使用更正袋码");
+        }
+        if (!previous.bagCode().equals(bagCode)) {
+            throw conflict(
+                    "DEVICE.FACTORY_BAG_LEGACY_CODE_MISMATCH",
+                    "实体袋码与平台旧记录不同，请使用更正袋码并填写原因");
+        }
+        Label label = lockLabel(bagCode);
+        requireLabelUnused(label, bagCode);
+
+        LocalDateTime now = databaseNow();
+        try {
+            actor.persistenceRef().writeForeignKeyTo(factoryOperatorId -> {
+                insertActiveClaim(
+                        label.id(), asset.id(), portNo,
+                        factoryOperatorId, now);
+                requireSingle(jdbc.update("""
+                                UPDATE dev_factory_installed_bag
+                                SET installation_source = 'FACTORY_MINIAPP',
+                                    installed_by_factory_operator_id = ?,
+                                    label_item_id = ?, tare_status = 'PENDING',
+                                    last_failure_code = NULL,
+                                    installed_at = ?, updated_at = ?
+                                WHERE asset_id = ? AND port_no = ?
+                                  AND bag_code = ?
+                                  AND installation_source = 'PLATFORM_CREATE'
+                                """,
+                        factoryOperatorId,
+                        label.id(),
+                        now,
+                        now,
+                        asset.id(),
+                        portNo,
+                        bagCode), "verify legacy factory bag");
+                insertChange(
+                        operationUid,
+                        requestSha256,
+                        asset.id(),
+                        portNo,
+                        "VERIFIED",
+                        bagCode,
+                        bagCode,
+                        factoryOperatorId,
+                        null,
+                        now);
+                appendAudit(
+                        operationUid,
+                        actor,
+                        factoryOperatorId,
+                        "device.factory-bag.verify",
+                        normalizedDeviceCode,
+                        portNo,
+                        bagCode,
+                        bagCode,
+                        null,
+                        requestSha256,
+                        now);
+            });
+            advanceFactoryBagGeneration(asset.id(), now);
+        } catch (DataIntegrityViolationException collision) {
+            throw conflict(
+                    "DEVICE.FACTORY_BAG_ALREADY_CLAIMED",
+                    "该袋码已被其他设备或投口使用");
         }
         return view(normalizedDeviceCode);
     }
@@ -204,39 +310,32 @@ public class FactoryAcceptanceService {
         LocalDateTime now = databaseNow();
         try {
             actor.persistenceRef().writeForeignKeyTo(factoryOperatorId -> {
-                int released = jdbc.update("""
-                                UPDATE rec_bag_label_claim
-                                SET released_at = ?, release_reason = ?
-                                WHERE label_item_id = ?
-                                  AND asset_id = ? AND port_no = ?
-                                  AND released_at IS NULL
-                                """,
-                        now,
-                        reason,
-                        previous.labelItemId(),
-                        asset.id(),
-                        portNo);
-                requireSingle(released, "release factory label claim");
-                jdbc.update("""
-                                INSERT INTO rec_bag_label_claim (
-                                    claim_uid, label_item_id, claim_kind,
-                                    asset_id, port_no,
-                                    claimed_by_factory_operator_id,
-                                    claimed_at, released_at,
-                                    release_reason, created_at
-                                ) VALUES (?, ?, 'FACTORY_INSTALLATION', ?, ?, ?,
-                                          ?, NULL, NULL, ?)
-                                """,
-                        UUID.randomUUID().toString(),
-                        replacement.id(),
-                        asset.id(),
-                        portNo,
-                        factoryOperatorId,
-                        now,
-                        now);
+                if (previous.labelItemId() != null) {
+                    int released = jdbc.update("""
+                                    UPDATE rec_bag_label_claim
+                                    SET released_at = ?, release_reason = ?
+                                    WHERE label_item_id = ?
+                                      AND asset_id = ? AND port_no = ?
+                                      AND released_at IS NULL
+                                    """,
+                            now,
+                            reason,
+                            previous.labelItemId(),
+                            asset.id(),
+                            portNo);
+                    requireSingle(released, "release factory label claim");
+                } else if (!"PLATFORM_CREATE".equals(
+                        previous.installationSource())) {
+                    throw new IllegalStateException(
+                            "verified factory bag has no active label claim");
+                }
+                insertActiveClaim(
+                        replacement.id(), asset.id(), portNo,
+                        factoryOperatorId, now);
                 int updated = jdbc.update("""
                                 UPDATE dev_factory_installed_bag
                                 SET bag_code = ?,
+                                    installation_source = 'FACTORY_MINIAPP',
                                     installed_by_factory_operator_id = ?,
                                     label_item_id = ?, tare_status = 'PENDING',
                                     last_failure_code = NULL,
@@ -253,19 +352,6 @@ public class FactoryAcceptanceService {
                         portNo,
                         previous.bagCode());
                 requireSingle(updated, "correct factory bag");
-                jdbc.update("""
-                                UPDATE dev_device_asset
-                                SET acceptance_status = 'PENDING',
-                                    accepted_at = NULL,
-                                    acceptance_evidence_sha256 = NULL,
-                                    last_acceptance_evaluated_at = NULL,
-                                    acceptance_failure_json = NULL,
-                                    control_version = control_version + 1,
-                                    updated_at = ?
-                                WHERE id = ?
-                                """,
-                        now,
-                        asset.id());
                 insertChange(
                         operationUid,
                         requestSha256,
@@ -290,6 +376,7 @@ public class FactoryAcceptanceService {
                         requestSha256,
                         now);
             });
+            advanceFactoryBagGeneration(asset.id(), now);
         } catch (DataIntegrityViolationException collision) {
             throw conflict(
                     "DEVICE.FACTORY_BAG_ALREADY_CLAIMED",
@@ -339,18 +426,43 @@ public class FactoryAcceptanceService {
                 deviceCode).stream().findFirst()
                 .orElseThrow(FactoryAcceptanceService::notFound);
         List<FactoryBagSlotView> bags = jdbc.query("""
-                        SELECT port_no, bag_code, installed_at
-                        FROM dev_factory_installed_bag
-                        WHERE asset_id = ?
-                        ORDER BY port_no
+                        SELECT bag.port_no, bag.bag_code,
+                               bag.installation_source, bag.installed_at,
+                               CASE
+                                   WHEN bag.installation_source =
+                                        'LEGACY_GRANDFATHERED' THEN 1
+                                   WHEN bag.installation_source =
+                                        'FACTORY_MINIAPP'
+                                     AND bag.installed_by_factory_operator_id
+                                         IS NOT NULL
+                                     AND bag.label_item_id IS NOT NULL
+                                     AND EXISTS (
+                                         SELECT 1
+                                         FROM rec_bag_label_claim claim
+                                         WHERE claim.label_item_id =
+                                               bag.label_item_id
+                                           AND claim.asset_id = bag.asset_id
+                                           AND claim.port_no = bag.port_no
+                                           AND claim.released_at IS NULL
+                                     ) THEN 1
+                                   ELSE 0
+                               END AS factory_verified
+                        FROM dev_factory_installed_bag bag
+                        WHERE bag.asset_id = ?
+                        ORDER BY bag.port_no
                         """,
                 (rs, ignored) -> new FactoryBagSlotView(
                         rs.getInt("port_no"),
                         rs.getString("bag_code"),
+                        rs.getString("installation_source"),
+                        verificationStatus(
+                                rs.getString("installation_source"),
+                                rs.getBoolean("factory_verified")),
                         rs.getObject("installed_at", LocalDateTime.class)
                                 .toInstant(ZoneOffset.UTC)),
                 asset.id());
-        boolean complete = bags.size() == asset.expectedPortCount();
+        boolean complete = allFactoryBagsVerified(
+                asset.expectedPortCount(), bags);
         return new FactoryAcceptanceView(
                 asset.deviceCode(),
                 asset.hardwareSn(),
@@ -437,16 +549,96 @@ public class FactoryAcceptanceService {
 
     private CurrentBag currentBag(long assetId, int portNo) {
         return jdbc.query("""
-                        SELECT bag_code, label_item_id
+                        SELECT bag_code, installation_source, label_item_id
                         FROM dev_factory_installed_bag
                         WHERE asset_id = ? AND port_no = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> new CurrentBag(
                         rs.getString("bag_code"),
-                        rs.getLong("label_item_id")),
+                        rs.getString("installation_source"),
+                        (Long) rs.getObject("label_item_id")),
                 assetId,
                 portNo).stream().findFirst().orElse(null);
+    }
+
+    static String verificationStatus(
+            String installationSource,
+            boolean verified) {
+        if ("LEGACY_GRANDFATHERED".equals(installationSource)) {
+            return "LEGACY_GRANDFATHERED";
+        }
+        return verified ? "FACTORY_VERIFIED" : "NEEDS_FACTORY_SCAN";
+    }
+
+    static boolean allFactoryBagsVerified(
+            int expectedPortCount,
+            List<FactoryBagSlotView> bags) {
+        return bags.size() == expectedPortCount
+                && bags.stream().allMatch(bag -> !"NEEDS_FACTORY_SCAN"
+                        .equals(bag.verificationStatus()));
+    }
+
+    private void insertActiveClaim(
+            long labelItemId,
+            long assetId,
+            int portNo,
+            long factoryOperatorId,
+            LocalDateTime now) {
+        jdbc.update("""
+                        INSERT INTO rec_bag_label_claim (
+                            claim_uid, label_item_id, claim_kind,
+                            asset_id, port_no,
+                            claimed_by_factory_operator_id,
+                            claimed_at, released_at,
+                            release_reason, created_at
+                        ) VALUES (?, ?, 'FACTORY_INSTALLATION', ?, ?, ?,
+                                  ?, NULL, NULL, ?)
+                        """,
+                UUID.randomUUID().toString(),
+                labelItemId,
+                assetId,
+                portNo,
+                factoryOperatorId,
+                now,
+                now);
+    }
+
+    private void advanceFactoryBagGeneration(
+            long assetId,
+            LocalDateTime now) {
+        List<String> canonicalBags = jdbc.query("""
+                        SELECT port_no, bag_code
+                        FROM dev_factory_installed_bag
+                        WHERE asset_id = ?
+                        ORDER BY port_no
+                        """,
+                (rs, ignored) -> rs.getInt("port_no") + ":"
+                        + rs.getString("bag_code"),
+                assetId);
+        byte[] digest = factoryBagSetSha256(canonicalBags);
+        acceptanceChallenges.cancelOutstanding(assetId, now);
+        requireSingle(jdbc.update("""
+                        UPDATE dev_device_asset
+                        SET factory_bag_revision = factory_bag_revision + 1,
+                            factory_bag_set_sha256 = ?,
+                            acceptance_status = 'PENDING',
+                            accepted_at = NULL,
+                            acceptance_evidence_sha256 = NULL,
+                            last_acceptance_evaluated_at = NULL,
+                            acceptance_failure_json = NULL,
+                            control_version = control_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                digest,
+                now,
+                assetId), "advance factory bag generation");
+    }
+
+    static byte[] factoryBagSetSha256(List<String> canonicalBags) {
+        return sha256(String.join("\n", canonicalBags)
+                .getBytes(StandardCharsets.US_ASCII));
     }
 
     private void insertChange(
@@ -629,6 +821,9 @@ public class FactoryAcceptanceService {
     private record Label(long id, String bagCode) {
     }
 
-    private record CurrentBag(String bagCode, long labelItemId) {
+    private record CurrentBag(
+            String bagCode,
+            String installationSource,
+            Long labelItemId) {
     }
 }

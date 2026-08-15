@@ -2149,10 +2149,16 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
         payload.put(
                 "evidenceSchemaVersion",
                 exactEnum(
-                        wire, "evidenceSchemaVersion", 1, 2L));
+                        wire, "evidenceSchemaVersion", 1, 3L));
         payload.put(
                 "challengeUid",
                 pattern(wire, "challengeUid", UUID_V4));
+        payload.put(
+                "factoryBagRevision",
+                nonNegativeSafeInteger(wire, "factoryBagRevision"));
+        payload.put(
+                "factoryBagSetSha256",
+                pattern(wire, "factoryBagSetSha256", SHA256));
         payload.put(
                 "edgeSoftwareVersion",
                 text(wire, "edgeSoftwareVersion", 64));

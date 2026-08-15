@@ -41,10 +41,10 @@
 
       <view wx:if="{{complete}}" class="complete-notice">
         <t-icon name="check-circle" size="36rpx" color="#11872b" />
-        <text>{{acceptanceStatus === 'PASSED' ? '设备已通过验收，首次袋信息已锁定。' : '所有投口已完成首次装袋；设备在线后系统会自动开始验收，无需再点确认。'}}</text>
+        <text>{{acceptanceStatus === 'PASSED' ? '设备已通过验收，首次袋信息已锁定。' : '所有投口的实体袋均已核验；设备在线后系统会自动开始验收，无需再点确认。'}}</text>
       </view>
       <view wx:else class="pending-notice">
-        必须把 {{expectedPortCount}} 个投口全部登记完成，系统才允许设备开始验收。
+        必须把 {{expectedPortCount}} 个投口全部登记并完成实体扫码核验，系统才允许设备开始验收。平台历史录入记录不会直接放行。
       </view>
 
       <view class="slot-list">
@@ -54,16 +54,16 @@
             <text class="slot-title">{{item.portNo}} 号投口</text>
             <text wx:if="{{item.installed}}" class="bag-code">{{item.bagCode}}</text>
             <text wx:else class="slot-empty">尚未登记初始袋</text>
+            <text wx:if="{{item.installed}}" class="installed-at">{{item.statusText}}</text>
             <text wx:if="{{item.installedAtText}}" class="installed-at">{{item.installedAtText}}</text>
           </view>
           <button
             class="slot-action {{item.installed ? 'slot-action--correct' : ''}}"
-            disabled="{{submittingPort > 0 || acceptanceStatus === 'PASSED'}}"
+            disabled="{{submittingPort > 0 || acceptanceStatus === 'PASSED' || item.actionDisabled}}"
             loading="{{submittingPort === item.portNo}}"
             data-port-no="{{item.portNo}}"
-            data-installed="{{item.installed}}"
             bindtap="scanBag"
-          >{{item.installed ? '更正袋码' : '扫描袋码'}}</button>
+          >{{item.actionText}}</button>
         </view>
       </view>
 

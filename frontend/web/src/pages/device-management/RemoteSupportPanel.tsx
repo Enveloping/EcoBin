@@ -36,6 +36,7 @@ const stateCopy: Record<RemoteSupportState, { label: string; color: string }> = 
   PREPARING: { label: '正在准备服务器租约', color: 'processing' },
   CONNECTING: { label: '等待设备建立隧道', color: 'processing' },
   OPEN: { label: '已开放', color: 'success' },
+  RECONNECTING: { label: '设备暂时离线，等待重连', color: 'warning' },
   CLOSING: { label: '正在关闭', color: 'warning' },
   CLOSED: { label: '已关闭', color: 'default' },
   FAILED: { label: '建立失败', color: 'error' },
@@ -99,7 +100,8 @@ export default function RemoteSupportPanel({ hardwareSn }: {
           const restored = await getRemoteSupportSession(sessionUid);
           if (cancelled) return;
           setSession(restored);
-          if (terminalStates.has(restored.state)) {
+          if (terminalStates.has(restored.state)
+              && !restored.leaseCleanupPending) {
             sessionStorage.removeItem(storageKey(hardwareSn));
           }
         } catch (error) {
@@ -120,14 +122,16 @@ export default function RemoteSupportPanel({ hardwareSn }: {
   }, [hardwareSn]);
 
   useEffect(() => {
-    if (!session || terminalStates.has(session.state)) return undefined;
+    if (!session || (terminalStates.has(session.state)
+        && !session.leaseCleanupPending)) return undefined;
     let cancelled = false;
     const timer = window.setInterval(() => {
       void getRemoteSupportSession(session.sessionUid)
         .then((updated) => {
           if (cancelled) return;
           setSession(updated);
-          if (terminalStates.has(updated.state)) {
+          if (terminalStates.has(updated.state)
+              && !updated.leaseCleanupPending) {
             sessionStorage.removeItem(storageKey(hardwareSn));
           }
         })
@@ -137,7 +141,12 @@ export default function RemoteSupportPanel({ hardwareSn }: {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [hardwareSn, session?.sessionUid, session?.state]);
+  }, [
+    hardwareSn,
+    session?.sessionUid,
+    session?.state,
+    session?.leaseCleanupPending,
+  ]);
 
   const open = async () => {
     const values = await openForm.validateFields();
@@ -185,13 +194,15 @@ export default function RemoteSupportPanel({ hardwareSn }: {
     }
   };
 
-  const active = session && !terminalStates.has(session.state);
+  const canClose = session && !terminalStates.has(session.state);
+  const reservesPort = session
+    && (canClose || session.leaseCleanupPending);
 
   return (
     <Card
       loading={loading}
       title={<Space><ToolOutlined />临时远程维护</Space>}
-      extra={!active ? (
+      extra={!reservesPort ? (
         <Button
           type="primary"
           icon={<CodeOutlined />}
@@ -204,7 +215,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
             setOpenModal(true);
           }}
         >开启反向 SSH</Button>
-      ) : (
+      ) : canClose ? (
         <Button
           danger
           icon={<DisconnectOutlined />}
@@ -213,7 +224,7 @@ export default function RemoteSupportPanel({ hardwareSn }: {
             setCloseModal(true);
           }}
         >立即关闭</Button>
-      )}
+      ) : null}
     >
       {!activeKeys.length && (
         <Alert
@@ -225,6 +236,14 @@ export default function RemoteSupportPanel({ hardwareSn }: {
       )}
       {session && (
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          {session.leaseCleanupPending && (
+            <Alert
+              type="warning"
+              showIcon
+              message="会话已结束，服务器正在确认远程入口已清除"
+              description="确认完成前该共享端口不会交给其他设备，也不能在本设备上开启新会话。页面会自动刷新。"
+            />
+          )}
           <Descriptions size="small" bordered column={2}>
             <Descriptions.Item label="会话状态">
               <Tag color={stateCopy[session.state].color}>

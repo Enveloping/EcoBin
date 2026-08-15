@@ -3452,7 +3452,7 @@
         {
           "dataType": {
             "specs": {
-              "1": "2"
+              "1": "3"
             },
             "type": "enum"
           },
@@ -3468,6 +3468,29 @@
           },
           "identifier": "challengeUid",
           "name": "challengeUid"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "max": "9007199254740991",
+              "min": "0",
+              "step": "1",
+              "unit": ""
+            },
+            "type": "int64"
+          },
+          "identifier": "factoryBagRevision",
+          "name": "factoryBagRevision"
+        },
+        {
+          "dataType": {
+            "specs": {
+              "length": 64
+            },
+            "type": "string"
+          },
+          "identifier": "factoryBagSetSha256",
+          "name": "factoryBagSetSha256"
         },
         {
           "dataType": {
@@ -3758,6 +3781,18 @@
           "jsonPath": "$.payload.challengeUid",
           "nullable": false,
           "wireIdentifier": "challengeUid"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryBagRevision",
+          "nullable": false,
+          "wireIdentifier": "factoryBagRevision"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryBagSetSha256",
+          "nullable": false,
+          "wireIdentifier": "factoryBagSetSha256"
         },
         {
           "encoding": "FLAT_TYPED",

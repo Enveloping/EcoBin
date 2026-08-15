@@ -7,15 +7,13 @@
         "TOKEN_6_PART_1",
         "TOKEN_6_PART_2"
       ],
-      "scalarFields": {
+      "scalarFields1": {
         "challengeUid": "8a000000-0000-4000-8000-000000000003",
         "commandType": 1,
         "commandUid": "8a000000-0000-4000-8000-000000000004",
         "cosGrantBaseUrl": "https://ecobin-contract-1250000000.cos.ap-guangzhou.myqcloud.com",
         "cosGrantBucket": "ecobin-contract-1250000000",
-        "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
         "cosGrantGrantUid": "71000000-0000-4000-8000-000000000006",
-        "cosGrantKeyPrefix": "ecobin/device-acceptance/8a000000-0000-4000-8000-000000000003/",
         "cosGrantRegion": "ap-guangzhou",
         "cosGrantTmpSecretId": "TMP_SECRET_ID_6",
         "cosGrantTmpSecretKey": "TMP_SECRET_KEY_6",
@@ -23,11 +21,17 @@
         "deviceEntryUrlSha256": "1b08b21c2249d10e2bf707e9880a020322ed83036a9df47624ca3e31f79444cd",
         "expectedPortCount": 2,
         "expiresAt": "2026-07-24T01:01:00.000Z",
+        "factoryBagRevision": 2,
+        "factoryBagSetSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "issuedAt": "2026-07-24T01:00:00.000Z",
         "payloadSchemaVersion": 1,
-        "payloadSha256": "89d9c1c3ae20adf68d9fb903709b249e5e03fdd77aa9e3bdf270e5574d6cf711",
+        "payloadSha256": "9f6e2746d13557527c1e1dc7e970e86f562f4db4809faaf1a3f500e600ae86a5",
         "schemaVersion": 1,
         "targetDeviceName": "SN-CONTRACT-0001"
+      },
+      "scalarFields2": {
+        "cosGrantExpiresAt": "2026-07-24T01:30:00.000Z",
+        "cosGrantKeyPrefix": "ecobin/device-acceptance/8a000000-0000-4000-8000-000000000003/"
       },
       "target": {
         "type": 1,

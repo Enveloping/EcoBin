@@ -39,6 +39,8 @@ interface FactorySessionView {
 export interface FactoryBagSlot {
   portNo: number
   bagCode: string
+  installationSource: 'PLATFORM_CREATE' | 'FACTORY_MINIAPP' | 'LEGACY_GRANDFATHERED'
+  verificationStatus: 'NEEDS_FACTORY_SCAN' | 'FACTORY_VERIFIED' | 'LEGACY_GRANDFATHERED'
   installedAt: string
 }
 
@@ -47,7 +49,7 @@ export interface FactoryAcceptance {
   hardwareSn: string
   expectedPortCount: number
   acceptanceStatus: 'PENDING' | 'FAILED' | 'PASSED'
-  allFactoryBagsInstalled: boolean
+  allFactoryBagsVerified: boolean
   acceptanceCanStart: boolean
   factoryBags: FactoryBagSlot[]
 }
@@ -274,6 +276,20 @@ export function correctFactoryBag(
     url: `/api/v1/miniapp-factory/device-assets/${encodeURIComponent(deviceCode)}/factory-bags/${portNo}/corrections`,
     method: 'POST',
     data: { bagCode, reason },
+    idempotencyKey,
+  })
+}
+
+export function verifyFactoryBag(
+  deviceCode: string,
+  portNo: number,
+  bagCode: string,
+  idempotencyKey: string,
+) {
+  return authorized<FactoryAcceptance>({
+    url: `/api/v1/miniapp-factory/device-assets/${encodeURIComponent(deviceCode)}/factory-bags/${portNo}/verification`,
+    method: 'POST',
+    data: { bagCode },
     idempotencyKey,
   })
 }

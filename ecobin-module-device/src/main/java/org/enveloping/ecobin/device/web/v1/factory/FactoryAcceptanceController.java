@@ -6,6 +6,7 @@ import org.enveloping.ecobin.device.application.factory.FactoryAcceptanceService
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.CorrectFactoryBagRequest;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.FactoryAcceptanceView;
 import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.InstallFactoryBagRequest;
+import org.enveloping.ecobin.device.web.v1.factory.FactoryAcceptanceModels.VerifyFactoryBagRequest;
 import org.enveloping.ecobin.framework.web.v1.TargetApiEnvelope;
 import org.enveloping.ecobin.framework.web.v1.TargetRequestIds;
 import org.springframework.http.CacheControl;
@@ -56,6 +57,17 @@ public class FactoryAcceptanceController {
             @Valid @RequestBody CorrectFactoryBagRequest body,
             HttpServletRequest request) {
         return noStore(acceptance.correct(
+                operationUid, deviceCode, portNo, body), request);
+    }
+
+    @PostMapping("/factory-bags/{portNo}/verification")
+    public ResponseEntity<TargetApiEnvelope<FactoryAcceptanceView>> verify(
+            @RequestHeader("Idempotency-Key") UUID operationUid,
+            @PathVariable String deviceCode,
+            @PathVariable int portNo,
+            @Valid @RequestBody VerifyFactoryBagRequest body,
+            HttpServletRequest request) {
+        return noStore(acceptance.verify(
                 operationUid, deviceCode, portNo, body), request);
     }
 

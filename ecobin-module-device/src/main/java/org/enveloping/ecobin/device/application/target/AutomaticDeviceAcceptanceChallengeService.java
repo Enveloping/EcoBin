@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,8 +84,11 @@ public class AutomaticDeviceAcceptanceChallengeService
                         SELECT asset.id, asset.hardware_sn,
                                asset.device_public_code,
                                asset.expected_port_count,
+                               asset.factory_bag_revision,
+                               asset.factory_bag_set_sha256,
                                asset.acceptance_status,
                                asset.lifecycle_status,
+                               asset.tenant_id,
                                transport.onenet_connection_status
                         FROM dev_device_asset asset
                         JOIN dev_device_transport_state transport
@@ -97,8 +101,11 @@ public class AutomaticDeviceAcceptanceChallengeService
                         rs.getString("hardware_sn"),
                         rs.getString("device_public_code"),
                         rs.getInt("expected_port_count"),
+                        rs.getLong("factory_bag_revision"),
+                        rs.getBytes("factory_bag_set_sha256"),
                         rs.getString("acceptance_status"),
                         rs.getString("lifecycle_status"),
+                        (Long) rs.getObject("tenant_id"),
                         rs.getString("onenet_connection_status")),
                 assetId);
         if (assets.size() != 1) {
@@ -108,18 +115,39 @@ public class AutomaticDeviceAcceptanceChallengeService
         AssetCandidate asset = assets.getFirst();
         if ("PASSED".equals(asset.acceptanceStatus())
                 || !"NORMAL".equals(asset.lifecycleStatus())
+                || asset.tenantId() != null
                 || !"ONLINE".equals(asset.transportStatus())) {
             return false;
         }
         Integer installedBagCount = jdbc.queryForObject("""
                         SELECT COUNT(*)
-                        FROM dev_factory_installed_bag
-                        WHERE asset_id = ?
+                        FROM dev_factory_installed_bag bag
+                        WHERE bag.asset_id = ?
+                          AND (
+                              bag.installation_source =
+                                  'LEGACY_GRANDFATHERED'
+                              OR (
+                                  bag.installation_source = 'FACTORY_MINIAPP'
+                                  AND bag.installed_by_factory_operator_id
+                                      IS NOT NULL
+                                  AND bag.label_item_id IS NOT NULL
+                                  AND EXISTS (
+                                      SELECT 1
+                                      FROM rec_bag_label_claim claim
+                                      WHERE claim.label_item_id =
+                                            bag.label_item_id
+                                        AND claim.asset_id = bag.asset_id
+                                        AND claim.port_no = bag.port_no
+                                        AND claim.released_at IS NULL
+                                  )
+                              )
+                          )
                         """,
                 Integer.class,
                 asset.id());
         if (installedBagCount == null
-                || installedBagCount != asset.expectedPortCount()) {
+                || installedBagCount != asset.expectedPortCount()
+                || asset.factoryBagSetSha256() == null) {
             return false;
         }
         Integer active = jdbc.queryForObject("""
@@ -128,7 +156,7 @@ public class AutomaticDeviceAcceptanceChallengeService
                         WHERE scope_kind = 'PLATFORM'
                           AND task_type = ?
                           AND source_device_asset_id = ?
-                          AND state = 'PENDING'
+                          AND state IN ('PENDING', 'BLOCKED')
                         """,
                 Integer.class,
                 TASK_TYPE,
@@ -159,6 +187,9 @@ public class AutomaticDeviceAcceptanceChallengeService
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("challengeUid", challengeUid.toString());
         payload.put("expectedPortCount", asset.expectedPortCount());
+        payload.put("factoryBagRevision", asset.factoryBagRevision());
+        payload.put("factoryBagSetSha256", HexFormat.of().formatHex(
+                asset.factoryBagSetSha256()));
         payload.put("deviceEntryUrl", deviceEntry.url());
         payload.put(
                 "deviceEntryUrlSha256",
@@ -221,8 +252,11 @@ public class AutomaticDeviceAcceptanceChallengeService
             String hardwareSn,
             String devicePublicCode,
             int expectedPortCount,
+            long factoryBagRevision,
+            byte[] factoryBagSetSha256,
             String acceptanceStatus,
             String lifecycleStatus,
+            Long tenantId,
             String transportStatus) {
     }
 }

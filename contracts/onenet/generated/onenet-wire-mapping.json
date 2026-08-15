@@ -1059,6 +1059,18 @@
         },
         {
           "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryBagRevision",
+          "nullable": false,
+          "wireIdentifier": "factoryBagRevision"
+        },
+        {
+          "encoding": "FLAT_TYPED",
+          "jsonPath": "$.payload.factoryBagSetSha256",
+          "nullable": false,
+          "wireIdentifier": "factoryBagSetSha256"
+        },
+        {
+          "encoding": "FLAT_TYPED",
           "jsonPath": "$.payload.edgeSoftwareVersion",
           "nullable": false,
           "wireIdentifier": "edgeSoftwareVersion"
@@ -2812,6 +2824,16 @@
               "wireIdentifier": "expectedPortCount"
             },
             {
+              "jsonPath": "$.payload.factoryBagRevision",
+              "presenceFlag": false,
+              "wireIdentifier": "factoryBagRevision"
+            },
+            {
+              "jsonPath": "$.payload.factoryBagSetSha256",
+              "presenceFlag": false,
+              "wireIdentifier": "factoryBagSetSha256"
+            },
+            {
               "jsonPath": "$.payload.deviceEntryUrl",
               "presenceFlag": false,
               "wireIdentifier": "deviceEntryUrl"
@@ -2850,7 +2872,13 @@
               "jsonPath": "$.cosGrant.baseUrl",
               "presenceFlag": false,
               "wireIdentifier": "cosGrantBaseUrl"
-            },
+            }
+          ],
+          "wireIdentifier": "scalarFields1"
+        },
+        {
+          "encoding": "GROUPED_SCALARS",
+          "members": [
             {
               "jsonPath": "$.cosGrant.keyPrefix",
               "presenceFlag": false,
@@ -2862,7 +2890,7 @@
               "wireIdentifier": "cosGrantExpiresAt"
             }
           ],
-          "wireIdentifier": "scalarFields"
+          "wireIdentifier": "scalarFields2"
         },
         {
           "encoding": "FLAT_TYPED",

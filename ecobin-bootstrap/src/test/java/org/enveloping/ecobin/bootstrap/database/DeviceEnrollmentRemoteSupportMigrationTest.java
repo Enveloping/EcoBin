@@ -35,9 +35,19 @@ class DeviceEnrollmentRemoteSupportMigrationTest {
                         "'MINIAPP_FACTORY'",
                         "CREATE TABLE REC_BAG_LABEL_CLAIM",
                         "CREATE TABLE DEV_REMOTE_SUPPORT_SESSION",
+                        "LEGACY_GRANDFATHERED",
+                        "FACTORY_BAG_REVISION",
+                        "FACTORY_BAG_SET_SHA256",
+                        "LEASE_RELEASED_AT",
+                        "'RECONNECTING'",
                         "OPEN_REMOTE_SUPPORT_TUNNEL",
                         "CLOSE_REMOTE_SUPPORT_TUNNEL",
                         "REMOTE_SUPPORT_TUNNEL_STATUS");
+        assertThat(sql)
+                .contains(
+                        "CASE WHEN LEASE_RELEASED_AT IS NULL",
+                        "FACTORY_BAG_REVISION BIGINT",
+                        "FACTORY_BAG_SET_SHA256 BINARY(32)");
         assertThat(sql)
                 .contains("(22011, 1", "(22014, 1")
                 .doesNotContain(

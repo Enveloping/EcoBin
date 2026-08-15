@@ -17,6 +17,8 @@ DEVICE_ENTRY_URL = (
 DEVICE_ENTRY_URL_SHA256 = hashlib.sha256(
     DEVICE_ENTRY_URL.encode("ascii")
 ).hexdigest()
+FACTORY_BAG_REVISION = 3
+FACTORY_BAG_SET_SHA256 = "a" * 64
 
 
 def _instant(delta=timedelta()):
@@ -119,6 +121,8 @@ def _command(challenge_uid):
     payload = {
         "challengeUid": challenge_uid,
         "expectedPortCount": 1,
+        "factoryBagRevision": FACTORY_BAG_REVISION,
+        "factoryBagSetSha256": FACTORY_BAG_SET_SHA256,
         "deviceEntryUrl": DEVICE_ENTRY_URL,
         "deviceEntryUrlSha256": DEVICE_ENTRY_URL_SHA256,
     }
@@ -244,7 +248,12 @@ def test_real_hardware_acceptance_records_reliable_evidence(
     assert event["payload"]["camerasSimulated"] is False
     assert event["payload"]["sensorsHealthy"] is True
     assert event["payload"]["cameraUploadHealthy"] is True
-    assert event["payload"]["evidenceSchemaVersion"] == 2
+    assert event["payload"]["evidenceSchemaVersion"] == 3
+    assert event["payload"]["factoryBagRevision"] == FACTORY_BAG_REVISION
+    assert (
+        event["payload"]["factoryBagSetSha256"]
+        == FACTORY_BAG_SET_SHA256
+    )
     assert event["payload"]["deviceEntryUrlStored"] is True
     assert (
         event["payload"]["deviceEntryUrlSha256"]

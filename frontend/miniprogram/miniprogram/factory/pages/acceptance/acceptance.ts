@@ -5,6 +5,7 @@ import {
   FactoryApiProblem,
   installFactoryBag,
   logoutFactory,
+  verifyFactoryBag,
   type FactoryAcceptance,
   type FactorySession,
 } from '../../../api/factory'
@@ -21,6 +22,23 @@ interface SlotView {
   installed: boolean
   bagCode: string
   installedAtText: string
+  verificationStatus: 'EMPTY' | 'NEEDS_FACTORY_SCAN' | 'FACTORY_VERIFIED' | 'LEGACY_GRANDFATHERED'
+  statusText: string
+  actionText: string
+  actionDisabled: boolean
+}
+
+function slotPresentation(status: SlotView['verificationStatus']) {
+  switch (status) {
+    case 'NEEDS_FACTORY_SCAN':
+      return { statusText: '待实体补扫', actionText: '扫描核验', actionDisabled: false }
+    case 'FACTORY_VERIFIED':
+      return { statusText: '厂家已核验', actionText: '更正袋码', actionDisabled: false }
+    case 'LEGACY_GRANDFATHERED':
+      return { statusText: '历史设备豁免', actionText: '无需补扫', actionDisabled: true }
+    default:
+      return { statusText: '尚未登记', actionText: '扫描袋码', actionDisabled: false }
+  }
 }
 
 function errorCode(error: unknown): string {
@@ -163,11 +181,14 @@ Page({
     const slots: SlotView[] = []
     for (let portNo = 1; portNo <= view.expectedPortCount; portNo += 1) {
       const bag = byPort.get(portNo)
+      const verificationStatus = bag?.verificationStatus || 'EMPTY'
       slots.push({
         portNo,
         installed: !!bag,
         bagCode: bag?.bagCode || '',
         installedAtText: bag ? formatLocalDateTime(bag.installedAt) : '',
+        verificationStatus,
+        ...slotPresentation(verificationStatus),
       })
     }
     this.setData({
@@ -175,7 +196,7 @@ Page({
       hardwareSn: view.hardwareSn,
       expectedPortCount: view.expectedPortCount,
       acceptanceStatus: view.acceptanceStatus,
-      complete: view.allFactoryBagsInstalled,
+      complete: view.allFactoryBagsVerified,
       acceptanceCanStart: view.acceptanceCanStart,
       slots,
       errorMessage: '',
@@ -185,9 +206,9 @@ Page({
   async scanBag(event: WechatMiniprogram.TouchEvent) {
     if (this.data.acceptanceStatus === 'PASSED') return
     const portNo = Number(event.currentTarget.dataset.portNo)
-    const correcting = event.currentTarget.dataset.installed === true
-      || event.currentTarget.dataset.installed === 'true'
     if (!Number.isInteger(portNo) || this.data.submittingPort) return
+    const slot = this.data.slots.find((item) => item.portNo === portNo)
+    if (!slot || slot.actionDisabled) return
     try {
       const scan = await wx.scanCode({ scanType: ['qrCode', 'barCode'] })
       const bagCode = String(scan.result || '').trim()
@@ -195,10 +216,15 @@ Page({
         wx.showToast({ title: '请扫描平台签发的 EB1 袋码', icon: 'none' })
         return
       }
-      if (correcting) {
-        await this.correct(portNo, bagCode)
-      } else {
+      if (!slot.installed) {
         await this.install(portNo, bagCode)
+      } else if (
+        slot.verificationStatus === 'NEEDS_FACTORY_SCAN'
+        && slot.bagCode === bagCode
+      ) {
+        await this.verify(portNo, bagCode)
+      } else {
+        await this.correct(portNo, bagCode)
       }
     } catch (error) {
       if (errorText(error).includes('cancel')) return
@@ -230,7 +256,7 @@ Page({
   async correct(portNo: number, bagCode: string) {
     const reason = await wx.showModal({
       title: `更正 ${portNo} 号投口`,
-      content: '请输入为什么需要更换已登记的袋码。原袋码占用会释放，但更正历史会永久保留。',
+      content: '请输入为什么需要更换已登记的袋码。如存在原袋码占用会同时释放，更正历史会永久保留。',
       editable: true,
       placeholderText: '例如：首次扫码时接线人员拿错了袋子',
       confirmText: '确认更正',
@@ -251,6 +277,27 @@ Page({
         await createIdempotencyKey(),
       ))
       wx.showToast({ title: `${portNo} 号投口已更正`, icon: 'success' })
+    } finally {
+      this.setData({ submittingPort: 0 })
+    }
+  },
+
+  async verify(portNo: number, bagCode: string) {
+    const confirmation = await wx.showModal({
+      title: `核验 ${portNo} 号投口`,
+      content: '扫码结果与平台已有记录一致。确认实体袋确实安装在当前投口后，该投口才会计入出厂验收条件。',
+      confirmText: '确认核验',
+    })
+    if (!confirmation.confirm) return
+    this.setData({ submittingPort: portNo })
+    try {
+      this.renderAcceptance(await verifyFactoryBag(
+        this.data.deviceCode,
+        portNo,
+        bagCode,
+        await createIdempotencyKey(),
+      ))
+      wx.showToast({ title: `${portNo} 号投口已核验`, icon: 'success' })
     } finally {
       this.setData({ submittingPort: 0 })
     }

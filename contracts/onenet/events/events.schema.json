@@ -894,6 +894,8 @@
       "required": [
         "evidenceSchemaVersion",
         "challengeUid",
+        "factoryBagRevision",
+        "factoryBagSetSha256",
         "edgeSoftwareVersion",
         "edgeProtocolVersion",
         "edgeStoreInstanceUid",
@@ -917,9 +919,16 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "evidenceSchemaVersion": { "const": 2 },
+        "evidenceSchemaVersion": { "const": 3 },
         "challengeUid": {
           "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "factoryBagRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "factoryBagSetSha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
         },
         "edgeSoftwareVersion": {
           "type": "string",

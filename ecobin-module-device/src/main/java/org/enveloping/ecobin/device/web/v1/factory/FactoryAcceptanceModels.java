@@ -24,9 +24,15 @@ public final class FactoryAcceptanceModels {
             @NotBlank @Size(max = 500) String reason) {
     }
 
+    public record VerifyFactoryBagRequest(
+            @NotBlank @Size(max = 128) String bagCode) {
+    }
+
     public record FactoryBagSlotView(
             int portNo,
             String bagCode,
+            String installationSource,
+            String verificationStatus,
             Instant installedAt) {
     }
 
@@ -35,7 +41,7 @@ public final class FactoryAcceptanceModels {
             String hardwareSn,
             int expectedPortCount,
             String acceptanceStatus,
-            boolean allFactoryBagsInstalled,
+            boolean allFactoryBagsVerified,
             boolean acceptanceCanStart,
             List<FactoryBagSlotView> factoryBags) {
 

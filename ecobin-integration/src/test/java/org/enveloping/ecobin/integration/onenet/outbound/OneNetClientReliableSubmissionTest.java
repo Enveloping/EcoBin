@@ -728,6 +728,16 @@ class OneNetClientReliableSubmissionTest {
                         .path("targetDeviceName")
                         .asText());
         assertEquals(
+                2,
+                params.path("scalarFields")
+                        .path("factoryBagRevision")
+                        .asLong());
+        assertEquals(
+                "a".repeat(64),
+                params.path("scalarFields")
+                        .path("factoryBagSetSha256")
+                        .asText());
+        assertEquals(
                 "ecobin/device-acceptance/"
                         + "8a000000-0000-4000-8000-000000000003/",
                 params.path("scalarFields")

@@ -34,6 +34,8 @@ public final class RemoteSupportModels {
             Instant expiresAt,
             Instant openedAt,
             Instant closedAt,
+            Instant leaseReleasedAt,
+            boolean leaseCleanupPending,
             String failureCode,
             String certificate,
             String bastionHost,

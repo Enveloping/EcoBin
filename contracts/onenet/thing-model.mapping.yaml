@@ -291,7 +291,7 @@
     "configuration stages, command observation stages and receipt outcomes enforce their error/mcu identity relationships",
     "available photo URL and COS grant bucket/region/baseUrl exactly match trusted runtime configuration, and key/path exactly bind work, slot and photo identity",
     "OneNet nullable presence flags and integer enums are decoded before JSON Schema and payload digest validation"
-    ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence",
+    ,"REQUEST_DEVICE_ACCEPTANCE target uid and targetDeviceName both equal the authenticated immutable device name; challengeUid binds its COS prefix and evidence; factory bag revision and digest must be echoed by DEVICE_ACCEPTANCE_EVIDENCE and still match the current asset",
     "remote support commands target the session UID; OPEN payload expiry exactly equals envelope expiry and is at most 30 minutes; status target is the authenticated device asset and carries the originating command UID"
   ],
   "forbiddenLegacyIdentifiers": [

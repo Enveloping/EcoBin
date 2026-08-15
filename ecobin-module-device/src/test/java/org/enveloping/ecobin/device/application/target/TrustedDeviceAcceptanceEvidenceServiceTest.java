@@ -26,7 +26,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
 
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true, true),
+                        1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
+                        "PENDING", true, true),
                 healthyEvidence(true, true),
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -42,6 +43,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         var evidence = healthyEvidence(true, true);
         evidence = new TrustedDeviceAcceptanceEvidenceService.Evidence(
                 evidence.challengeUid(),
+                evidence.factoryBagRevision(),
+                evidence.factoryBagSetSha256(),
                 evidence.edgeSoftwareVersion(),
                 evidence.edgeProtocolVersion(),
                 evidence.edgeStoreInstanceUid(),
@@ -65,7 +68,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
 
         var failures = service.failures(
                 new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                        1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true, true),
+                        1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
+                        "PENDING", true, true),
                 evidence,
                 observedAt,
                 observedAt.plusSeconds(1));
@@ -81,7 +85,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         LocalDateTime observedAt = LocalDateTime.of(
                 2026, 8, 7, 12, 0);
         var asset = new TrustedDeviceAcceptanceEvidenceService.AssetState(
-                1L, DEVICE_PUBLIC_CODE, 1, "PENDING", true, true);
+                1L, DEVICE_PUBLIC_CODE, 1, 1L, new byte[32],
+                "PENDING", true, true);
 
         assertThat(service.failures(
                 asset,
@@ -97,6 +102,31 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 observedAt,
                 observedAt.plusSeconds(1)))
                 .containsExactly("DEVICE_ENTRY_URL_SHA256_MISMATCH");
+    }
+
+    @Test
+    void lateEvidenceCannotCrossFactoryBagGeneration() {
+        var current = new TrustedDeviceAcceptanceEvidenceService.AssetState(
+                1L, DEVICE_PUBLIC_CODE, 1, 7L, new byte[32],
+                "PENDING", true, true);
+        var matching = healthyEvidence(false, false);
+        matching = withFactoryBagGeneration(
+                matching, 7L, "0".repeat(64));
+
+        assertThat(TrustedDeviceAcceptanceEvidenceService
+                .matchesFactoryBagGeneration(current, matching)).isTrue();
+        assertThat(TrustedDeviceAcceptanceEvidenceService
+                .matchesFactoryBagGeneration(
+                        current,
+                        withFactoryBagGeneration(
+                                matching, 6L, "0".repeat(64))))
+                .isFalse();
+        assertThat(TrustedDeviceAcceptanceEvidenceService
+                .matchesFactoryBagGeneration(
+                        current,
+                        withFactoryBagGeneration(
+                                matching, 7L, "1".repeat(64))))
+                .isFalse();
     }
 
     private static TrustedDeviceAcceptanceEvidenceService service() {
@@ -116,6 +146,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                     boolean camerasSimulated) {
         return new TrustedDeviceAcceptanceEvidenceService.Evidence(
                 "10000000-0000-4000-8000-000000000001",
+                1L,
+                "0".repeat(64),
                 "0.1.0",
                 "2",
                 "20000000-0000-4000-8000-000000000001",
@@ -144,6 +176,8 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
         var evidence = healthyEvidence(false, false);
         return new TrustedDeviceAcceptanceEvidenceService.Evidence(
                 evidence.challengeUid(),
+                evidence.factoryBagRevision(),
+                evidence.factoryBagSetSha256(),
                 evidence.edgeSoftwareVersion(),
                 evidence.edgeProtocolVersion(),
                 evidence.edgeStoreInstanceUid(),
@@ -157,6 +191,37 @@ class TrustedDeviceAcceptanceEvidenceServiceTest {
                 evidence.cameraUploadHealthy(),
                 stored,
                 sha256,
+                evidence.mcuSimulated(),
+                evidence.camerasSimulated(),
+                evidence.verifiedPortCount(),
+                evidence.verifiedCameraCount(),
+                evidence.sensorSampleSha256(),
+                evidence.cameraCaptureSha256(),
+                evidence.cameraUploadSha256());
+    }
+
+    private static TrustedDeviceAcceptanceEvidenceService.Evidence
+            withFactoryBagGeneration(
+                    TrustedDeviceAcceptanceEvidenceService.Evidence evidence,
+                    long revision,
+                    String digest) {
+        return new TrustedDeviceAcceptanceEvidenceService.Evidence(
+                evidence.challengeUid(),
+                revision,
+                digest,
+                evidence.edgeSoftwareVersion(),
+                evidence.edgeProtocolVersion(),
+                evidence.edgeStoreInstanceUid(),
+                evidence.mcuFirmwareVersion(),
+                evidence.persistentStoreHealthy(),
+                evidence.trustedTimeHealthy(),
+                evidence.configurationPersistenceHealthy(),
+                evidence.mcuCommunicationHealthy(),
+                evidence.sensorsHealthy(),
+                evidence.camerasCaptureHealthy(),
+                evidence.cameraUploadHealthy(),
+                evidence.deviceEntryUrlStored(),
+                evidence.deviceEntryUrlSha256(),
                 evidence.mcuSimulated(),
                 evidence.camerasSimulated(),
                 evidence.verifiedPortCount(),

@@ -60,6 +60,8 @@ class DeviceAcceptanceRunner:
         payload = command["payload"]
         challenge_uid = payload["challengeUid"]
         expected_port_count = payload["expectedPortCount"]
+        factory_bag_revision = payload["factoryBagRevision"]
+        factory_bag_set_sha256 = payload["factoryBagSetSha256"]
         grant = command.get("cosGrant")
         if not isinstance(grant, dict):
             raise ValueError("acceptance grant not available")
@@ -105,8 +107,10 @@ class DeviceAcceptanceRunner:
             else "0" * 64
         )
         evidence = {
-            "evidenceSchemaVersion": 2,
+            "evidenceSchemaVersion": 3,
             "challengeUid": challenge_uid,
+            "factoryBagRevision": factory_bag_revision,
+            "factoryBagSetSha256": factory_bag_set_sha256,
             "edgeSoftwareVersion": self._edge_software_version,
             "edgeProtocolVersion": "2",
             "edgeStoreInstanceUid": (

@@ -3257,6 +3257,8 @@ def build_onenet_examples() -> dict[str, Any]:
     device_entry_url_sha256 = hashlib.sha256(
         device_entry_url.encode("ascii")
     ).hexdigest()
+    factory_bag_revision = 2
+    factory_bag_set_sha256 = "a" * 64
     request_acceptance_command = _command(
         acceptance_command_uid,
         "REQUEST_DEVICE_ACCEPTANCE",
@@ -3265,6 +3267,8 @@ def build_onenet_examples() -> dict[str, Any]:
         {
             "challengeUid": acceptance_challenge_uid,
             "expectedPortCount": 2,
+            "factoryBagRevision": factory_bag_revision,
+            "factoryBagSetSha256": factory_bag_set_sha256,
             "deviceEntryUrl": device_entry_url,
             "deviceEntryUrlSha256": device_entry_url_sha256,
         },
@@ -3282,8 +3286,10 @@ def build_onenet_examples() -> dict[str, Any]:
         "DEVICE_ASSET",
         "SN-CONTRACT-0001",
         {
-            "evidenceSchemaVersion": 2,
+            "evidenceSchemaVersion": 3,
             "challengeUid": acceptance_challenge_uid,
+            "factoryBagRevision": factory_bag_revision,
+            "factoryBagSetSha256": factory_bag_set_sha256,
             "edgeSoftwareVersion": "0.1.0",
             "edgeProtocolVersion": "2",
             "edgeStoreInstanceUid": (

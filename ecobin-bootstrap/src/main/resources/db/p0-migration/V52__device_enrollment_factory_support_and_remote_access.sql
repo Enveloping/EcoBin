@@ -6,12 +6,19 @@ ALTER TABLE dev_device_asset
         CHARACTER SET ascii COLLATE ascii_bin
         NOT NULL DEFAULT 'PLATFORM_MANUAL'
         AFTER production_batch,
+    ADD COLUMN factory_bag_revision BIGINT UNSIGNED NOT NULL DEFAULT 0
+        AFTER registration_source,
+    ADD COLUMN factory_bag_set_sha256 BINARY(32) NULL
+        AFTER factory_bag_revision,
     ADD CONSTRAINT ck_dev_asset_registration_source_v52 CHECK (
         registration_source IN (
             'PLATFORM_MANUAL',
             'SELF_ENROLLMENT',
             'LEGACY_ADOPTION'
         )
+    ),
+    ADD CONSTRAINT ck_dev_asset_factory_bag_revision_v52 CHECK (
+        factory_bag_revision >= 0
     );
 
 CREATE TABLE dev_device_enrollment_challenge (
@@ -552,7 +559,9 @@ ALTER TABLE dev_factory_installed_bag
         AFTER installed_by_factory_operator_id,
     ADD CONSTRAINT ck_dev_factory_bag_source_v52 CHECK (
         (
-            installation_source = 'PLATFORM_CREATE'
+            installation_source IN (
+                'PLATFORM_CREATE', 'LEGACY_GRANDFATHERED'
+            )
             AND installed_by_factory_operator_id IS NULL
             AND label_item_id IS NULL
         )
@@ -570,6 +579,45 @@ ALTER TABLE dev_factory_installed_bag
         FOREIGN KEY (label_item_id) REFERENCES rec_bag_label_item (id)
         ON DELETE RESTRICT ON UPDATE RESTRICT,
     ADD CONSTRAINT uq_dev_factory_bag_label_v52 UNIQUE (label_item_id);
+
+-- Existing accepted or already assigned assets keep their historical bag
+-- facts. Mutable factory assets must obtain a real miniapp scan before a
+-- challenge can be scheduled.
+UPDATE dev_factory_installed_bag bag
+JOIN dev_device_asset asset ON asset.id = bag.asset_id
+SET bag.installation_source = 'LEGACY_GRANDFATHERED'
+WHERE asset.acceptance_status = 'PASSED'
+   OR asset.tenant_id IS NOT NULL;
+
+UPDATE dev_device_asset asset
+JOIN (
+    SELECT bag.asset_id,
+           UNHEX(SHA2(GROUP_CONCAT(
+               CONCAT(bag.port_no, ':', bag.bag_code)
+               ORDER BY bag.port_no SEPARATOR '\n'
+           ), 256)) AS bag_set_sha256
+    FROM dev_factory_installed_bag bag
+    GROUP BY bag.asset_id
+) current_bags ON current_bags.asset_id = asset.id
+SET asset.factory_bag_set_sha256 = current_bags.bag_set_sha256;
+
+ALTER TABLE dev_device_acceptance_evidence
+    ADD COLUMN factory_bag_revision BIGINT UNSIGNED NULL
+        AFTER command_uid,
+    ADD COLUMN factory_bag_set_sha256 BINARY(32) NULL
+        AFTER factory_bag_revision,
+    ADD CONSTRAINT ck_dev_acceptance_factory_bag_snapshot_v52 CHECK (
+        (
+            evidence_schema_version < 3
+            AND factory_bag_revision IS NULL
+            AND factory_bag_set_sha256 IS NULL
+        )
+        OR (
+            evidence_schema_version >= 3
+            AND factory_bag_revision IS NOT NULL
+            AND factory_bag_set_sha256 IS NOT NULL
+        )
+    );
 
 CREATE TABLE rec_bag_label_claim (
     id BIGINT NOT NULL AUTO_INCREMENT,
@@ -661,6 +709,9 @@ CREATE TABLE dev_factory_installed_bag_change (
             (change_kind = 'INSTALLED'
                 AND previous_bag_code IS NULL
                 AND reason IS NULL)
+            OR (change_kind = 'VERIFIED'
+                AND previous_bag_code = current_bag_code
+                AND reason IS NULL)
             OR (change_kind = 'CORRECTED'
                 AND previous_bag_code IS NOT NULL
                 AND reason IS NOT NULL
@@ -716,6 +767,11 @@ CREATE TABLE dev_remote_support_session (
     maintenance_ssh_key_id BIGINT NOT NULL,
     maintenance_ssh_key_uid CHAR(36)
         CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    tunnel_public_key VARCHAR(128)
+        CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    tunnel_fingerprint_sha256 BINARY(32) NOT NULL,
+    ssh_host_public_key VARCHAR(128)
+        CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     reason VARCHAR(500) NOT NULL,
     state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     port_no INT NOT NULL,
@@ -741,20 +797,19 @@ CREATE TABLE dev_remote_support_session (
     opened_at DATETIME(3) NULL,
     close_requested_at DATETIME(3) NULL,
     closed_at DATETIME(3) NULL,
+    lease_released_at DATETIME(3) NULL,
     lock_version BIGINT NOT NULL DEFAULT 0,
     created_at DATETIME(3) NOT NULL,
     updated_at DATETIME(3) NOT NULL,
     active_asset_id BIGINT
         GENERATED ALWAYS AS (
-            CASE WHEN state IN (
-                'PREPARING', 'CONNECTING', 'OPEN', 'CLOSING'
-            ) THEN asset_id ELSE NULL END
+            CASE WHEN lease_released_at IS NULL
+                THEN asset_id ELSE NULL END
         ) STORED,
     active_port_no INT
         GENERATED ALWAYS AS (
-            CASE WHEN state IN (
-                'PREPARING', 'CONNECTING', 'OPEN', 'CLOSING'
-            ) THEN port_no ELSE NULL END
+            CASE WHEN lease_released_at IS NULL
+                THEN port_no ELSE NULL END
         ) STORED,
     PRIMARY KEY (id),
     CONSTRAINT uq_dev_remote_support_session_uid UNIQUE (session_uid),
@@ -794,9 +849,14 @@ CREATE TABLE dev_remote_support_session (
     CONSTRAINT ck_dev_remote_support_reason CHECK (
         reason = TRIM(reason) AND CHAR_LENGTH(reason) > 0
     ),
+    CONSTRAINT ck_dev_remote_support_identity_snapshot CHECK (
+        tunnel_public_key REGEXP '^ssh-ed25519 [A-Za-z0-9+/]{68}$'
+        AND ssh_host_public_key REGEXP
+            '^ssh-ed25519 [A-Za-z0-9+/]{68}$'
+    ),
     CONSTRAINT ck_dev_remote_support_state CHECK (
         state IN (
-            'PREPARING', 'CONNECTING', 'OPEN', 'CLOSING',
+            'PREPARING', 'CONNECTING', 'OPEN', 'RECONNECTING', 'CLOSING',
             'CLOSED', 'FAILED', 'EXPIRED'
         )
         AND (device_reported_state IS NULL OR device_reported_state IN (
@@ -834,6 +894,8 @@ CREATE TABLE dev_remote_support_session (
         AND (close_requested_at IS NULL
             OR close_requested_at >= created_at)
         AND (closed_at IS NULL OR closed_at >= created_at)
+        AND (lease_released_at IS NULL
+            OR lease_released_at >= created_at)
         AND (certificate_issued_at IS NULL
             OR certificate_issued_at >= created_at)
     ),

@@ -10,5 +10,9 @@ public interface TrustedDeviceAcceptanceChallengePort {
             long assetId,
             UUID commandUid,
             UUID challengeUid,
+            long factoryBagRevision,
+            byte[] factoryBagSetSha256,
             LocalDateTime receivedAt);
+
+    void cancelOutstanding(long assetId, LocalDateTime cancelledAt);
 }

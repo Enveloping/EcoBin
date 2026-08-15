@@ -5228,7 +5228,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read first-bag installation progress for a factory device */
+        /** Read physical first-bag verification progress for a factory device */
         get: operations["getFactoryAcceptanceDevice"];
         put?: never;
         post?: never;
@@ -5271,6 +5271,26 @@ export interface paths {
         put?: never;
         /** Correct an erroneous first-bag scan while retaining the audit trail */
         post: operations["correctFactoryBag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/miniapp-factory/device-assets/{deviceCode}/factory-bags/{portNo}/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify that a legacy platform-entered bag is physically installed in this port */
+        post: operations["verifyFactoryBag"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5345,7 +5365,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Stop an active remote support session and release its shared port */
+        /** Stop an active remote support session and release its shared port after the server entry disappears */
         post: operations["closeRemoteSupportSession"];
         delete?: never;
         options?: never;
@@ -8520,9 +8540,16 @@ export interface components {
             bagCode: string;
             reason: string;
         };
+        VerifyFactoryBagRequest: {
+            bagCode: string;
+        };
         FactoryBagSlot: {
             portNo: number;
             bagCode: components["schemas"]["AuthenticatedBagCode"];
+            /** @enum {string} */
+            installationSource: "PLATFORM_CREATE" | "FACTORY_MINIAPP" | "LEGACY_GRANDFATHERED";
+            /** @enum {string} */
+            verificationStatus: "NEEDS_FACTORY_SCAN" | "FACTORY_VERIFIED" | "LEGACY_GRANDFATHERED";
             /** Format: date-time */
             installedAt: string;
         };
@@ -8531,7 +8558,7 @@ export interface components {
             hardwareSn: components["schemas"]["HardwareSn"];
             expectedPortCount: number;
             acceptanceStatus: components["schemas"]["DeviceAcceptanceStatus"];
-            allFactoryBagsInstalled: boolean;
+            allFactoryBagsVerified: boolean;
             acceptanceCanStart: boolean;
             factoryBags: components["schemas"]["FactoryBagSlot"][];
         };
@@ -8554,7 +8581,7 @@ export interface components {
             hardwareSn: components["schemas"]["HardwareSn"];
             maintenanceSshKeyUid: components["schemas"]["UuidV4"];
             /** @enum {string} */
-            state: "PREPARING" | "CONNECTING" | "OPEN" | "CLOSING" | "CLOSED" | "FAILED" | "EXPIRED";
+            state: "PREPARING" | "CONNECTING" | "OPEN" | "RECONNECTING" | "CLOSING" | "CLOSED" | "FAILED" | "EXPIRED";
             remotePort: number;
             /** Format: date-time */
             connectDeadlineAt: string;
@@ -8564,6 +8591,10 @@ export interface components {
             openedAt: string | null;
             /** Format: date-time */
             closedAt: string | null;
+            /** Format: date-time */
+            leaseReleasedAt: string | null;
+            /** @description True while the database session is terminal but the reverse-SSH entry has not yet been proven absent. */
+            leaseCleanupPending: boolean;
             failureCode: string | null;
             /** @description Short-lived OpenSSH user certificate; never a private key. */
             readonly certificate: string | null;
@@ -16511,6 +16542,42 @@ export interface operations {
         };
         responses: {
             /** @description Bag corrected and current acceptance progress returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryAcceptanceEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
+            422: components["responses"]["BusinessRuleProblem"];
+        };
+    };
+    verifyFactoryBag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                deviceCode: components["parameters"]["DeviceCode"];
+                portNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyFactoryBagRequest"];
+            };
+        };
+        responses: {
+            /** @description Bag verified and current acceptance progress returned */
             200: {
                 headers: {
                     [name: string]: unknown;

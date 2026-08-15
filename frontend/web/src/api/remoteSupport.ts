@@ -5,6 +5,7 @@ export type RemoteSupportState =
   | 'PREPARING'
   | 'CONNECTING'
   | 'OPEN'
+  | 'RECONNECTING'
   | 'CLOSING'
   | 'CLOSED'
   | 'FAILED'
@@ -20,6 +21,8 @@ export interface RemoteSupportSession {
   expiresAt: string;
   openedAt: string | null;
   closedAt: string | null;
+  leaseReleasedAt: string | null;
+  leaseCleanupPending: boolean;
   failureCode: string | null;
   certificate: string | null;
   bastionHost: string;

@@ -3,7 +3,7 @@
  *
  * 不按开发者工具、真机或发布环境自动切换；需要更换服务器时只修改此常量。
  */
-export const BASE_URL = 'https://115.159.67.35'
+export const BASE_URL = 'https://www.jinshoubao.com'
 
 export const FEATURES: Readonly<{
   targetDeliveryOrderApi: boolean

@@ -535,6 +535,8 @@ def _validate_device_acceptance_command(
     if set(payload) != {
         "challengeUid",
         "expectedPortCount",
+        "factoryBagRevision",
+        "factoryBagSetSha256",
         "deviceEntryUrl",
         "deviceEntryUrlSha256",
     }:
@@ -549,6 +551,15 @@ def _validate_device_acceptance_command(
         or not 1 <= expected_port_count <= 6
     ):
         raise ValueError("expectedPortCount is outside 1..6")
+    factory_bag_revision = payload["factoryBagRevision"]
+    if (
+        isinstance(factory_bag_revision, bool)
+        or not isinstance(factory_bag_revision, int)
+        or factory_bag_revision < 0
+    ):
+        raise ValueError("factoryBagRevision must be non-negative")
+    if not _is_sha256(payload["factoryBagSetSha256"]):
+        raise ValueError("factoryBagSetSha256 is invalid")
     _validate_device_entry_url_payload(
         {
             "deviceEntryUrl": payload["deviceEntryUrl"],
@@ -1062,6 +1073,8 @@ def _extract_payload(identifier: str, scalars: dict[str, Any],
         return {
             "challengeUid": scalars.get("challengeUid"),
             "expectedPortCount": scalars.get("expectedPortCount"),
+            "factoryBagRevision": scalars.get("factoryBagRevision"),
+            "factoryBagSetSha256": scalars.get("factoryBagSetSha256"),
             "deviceEntryUrl": scalars.get("deviceEntryUrl"),
             "deviceEntryUrlSha256": scalars.get("deviceEntryUrlSha256"),
         }
