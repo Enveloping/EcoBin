@@ -1711,12 +1711,14 @@ class TargetWebIdentityMysqlIntegrationTest {
         FundsTaskRef createTask = fundsTask(
                 MerchantTransferAuthorizationApplicationService.CREATE_TASK,
                 accepted.authorizationNo());
-        var createResult = service.executeTask(fundsCommand(
+        var createCommand = fundsCommand(
                 createTask.taskUid(), createTask.taskId(), 1, fixture,
                 MerchantTransferAuthorizationApplicationService.CREATE_TASK,
-                accepted.authorizationNo()));
+                accepted.authorizationNo());
+        var createResult = service.executeTask(createCommand);
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.DONE,
                 createResult.outcome());
+        recordFundsAttemptResult(createCommand, createResult);
         var waitingBeforeQuery = service.current();
         assertEquals("WAIT_USER_CONFIRM", waitingBeforeQuery.status());
         assertEquals("authorization-package",
@@ -1724,24 +1726,102 @@ class TargetWebIdentityMysqlIntegrationTest {
         assertTrue(waitingBeforeQuery.confirmationRequired());
         assertNull(waitingBeforeQuery.lastSuccessfulQueryAt());
 
+        assertEquals(1, jdbc.update("""
+                UPDATE fund_wechat_transfer_authorization
+                SET local_state = 'UNKNOWN',
+                    channel_state = 'WAIT_USER_CONFIRM',
+                    package_info = NULL,
+                    last_api_error_code = 'INVALID_REQUEST',
+                    state_conflict = 1,
+                    lock_version = lock_version + 1,
+                    updated_at = UTC_TIMESTAMP(3)
+                WHERE out_authorization_no = ?
+                """, accepted.authorizationNo()));
+        var damagedByLegacyValidation = service.current();
+        assertEquals("UNKNOWN", damagedByLegacyValidation.status());
+        assertNull(damagedByLegacyValidation.packageInfo());
+        assertFalse(damagedByLegacyValidation.confirmationRequired());
+
         FundsTaskRef queryTask = fundsTask(
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo());
-        var waitingQueryResult = service.executeTask(fundsCommand(
+        var waitingQueryCommand = fundsCommand(
                 queryTask.taskUid(), queryTask.taskId(), 1, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
-                accepted.authorizationNo()));
+                accepted.authorizationNo());
+        LocalDateTime legacyIssueAt = jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class);
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> fundsOperationalControl.observeReconciliationIssue(
+                        new FundsOperationalControlPort.ReconciliationIssue(
+                                fixture.tenantId(), fixture.organizationId(),
+                                waitingQueryCommand.sourceTaskAttemptId(),
+                                "FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH",
+                                "CRITICAL", "WECHAT_TRANSFER_AUTHORIZATION",
+                                accepted.authorizationNo(),
+                                RechargeApplicationService.sha256(
+                                        "legacy-scene-id-missing"),
+                                "reason=SCENE_ID_MISSING", legacyIssueAt)));
+        var waitingQueryResult = service.executeTask(waitingQueryCommand);
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
                 waitingQueryResult.outcome());
+        recordFundsAttemptResult(waitingQueryCommand, waitingQueryResult);
         var waitingAfterQuery = service.current();
         assertEquals("WAIT_USER_CONFIRM", waitingAfterQuery.status());
         assertEquals("authorization-package",
                 waitingAfterQuery.packageInfo());
         assertTrue(waitingAfterQuery.confirmationRequired());
+        assertEquals(fixture.appid(), waitingAfterQuery.appId());
+        assertNotNull(waitingAfterQuery.mchId());
+        assertNotNull(waitingAfterQuery.confirmationExpiresAt());
         assertNotNull(waitingAfterQuery.lastSuccessfulQueryAt());
+        assertEquals("0|-", jdbc.queryForObject("""
+                SELECT CONCAT(state_conflict, '|',
+                              COALESCE(last_api_error_code, '-'))
+                FROM fund_wechat_transfer_authorization
+                WHERE out_authorization_no = ?
+                """, String.class, accepted.authorizationNo()));
+        assertEquals("RESOLVED|1", jdbc.queryForObject("""
+                SELECT CONCAT(state, '|',
+                              system_verified_resolved_at IS NOT NULL)
+                FROM ops_reconciliation_issue
+                WHERE issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH'
+                  AND subject_stable_key = ?
+                """, String.class, accepted.authorizationNo()));
+
+        var mismatchedQueryCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var mismatchedQueryResult = service.executeTask(
+                mismatchedQueryCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.BLOCKED,
+                mismatchedQueryResult.outcome());
+        recordFundsAttemptResult(
+                mismatchedQueryCommand, mismatchedQueryResult);
+        var unknownAfterMismatch = service.current();
+        assertEquals("UNKNOWN", unknownAfterMismatch.status());
+        assertNull(unknownAfterMismatch.packageInfo());
+        assertFalse(unknownAfterMismatch.confirmationRequired());
+
+        var recoveredQueryCommand = fundsCommand(
+                queryTask.taskUid(), queryTask.taskId(), 3, fixture,
+                MerchantTransferAuthorizationApplicationService.QUERY_TASK,
+                accepted.authorizationNo());
+        var recoveredQueryResult = service.executeTask(
+                recoveredQueryCommand);
+        assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
+                recoveredQueryResult.outcome());
+        recordFundsAttemptResult(recoveredQueryCommand, recoveredQueryResult);
+        var recoveredAfterMismatch = service.current();
+        assertEquals("WAIT_USER_CONFIRM", recoveredAfterMismatch.status());
+        assertEquals("authorization-package",
+                recoveredAfterMismatch.packageInfo());
+        assertTrue(recoveredAfterMismatch.confirmationRequired());
 
         var activeQueryResult = service.executeTask(fundsCommand(
-                queryTask.taskUid(), queryTask.taskId(), 2, fixture,
+                queryTask.taskUid(), queryTask.taskId(), 4, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo()));
         assertEquals(ReliableFundsTaskExecutorPort.Result.Outcome.WAITING,
@@ -1877,7 +1957,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 fixture, "WECHAT_TRANSFER_AUTHORIZATION_NOTIFICATION",
                 closed.toString());
         ReliableFundsTaskExecutorPort.Command callbackSource = fundsCommand(
-                queryTask.taskUid(), queryTask.taskId(), 3, fixture,
+                queryTask.taskUid(), queryTask.taskId(), 5, fixture,
                 MerchantTransferAuthorizationApplicationService.QUERY_TASK,
                 accepted.authorizationNo());
         Boolean applied = new TransactionTemplate(transactionManager).execute(
@@ -1910,7 +1990,7 @@ class TargetWebIdentityMysqlIntegrationTest {
                 lateActive.toString());
         ReliableFundsTaskExecutorPort.Command lateCallbackSource =
                 fundsCommand(
-                        queryTask.taskUid(), queryTask.taskId(), 4, fixture,
+                        queryTask.taskUid(), queryTask.taskId(), 6, fixture,
                         MerchantTransferAuthorizationApplicationService
                                 .QUERY_TASK,
                         accepted.authorizationNo());
@@ -2591,6 +2671,23 @@ class TargetWebIdentityMysqlIntegrationTest {
         return new ReliableFundsTaskExecutorPort.Command(
                 taskUid, attemptUid, attemptId,
                 taskType, targetStableKey);
+    }
+
+    private void recordFundsAttemptResult(
+            ReliableFundsTaskExecutorPort.Command command,
+            ReliableFundsTaskExecutorPort.Result result) {
+        String technicalResult = switch (result.outcome()) {
+            case DONE -> "TECHNICAL_SUCCESS";
+            case WAITING -> "NO_ACTION_REQUIRED";
+            case RETRY -> "RETRYABLE_FAILURE";
+            case BLOCKED -> "PERMANENT_TECHNICAL_FAILURE";
+        };
+        assertEquals(1, jdbc.update("""
+                UPDATE ops_task_attempt
+                SET result_recorded_at = UTC_TIMESTAMP(3),
+                    technical_result = ?, duration_ms = 0
+                WHERE id = ? AND technical_result IS NULL
+                """, technicalResult, command.sourceTaskAttemptId()));
     }
 
     private long insertSyntheticWechatInbox(
@@ -4732,10 +4829,30 @@ class TargetWebIdentityMysqlIntegrationTest {
                         AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
                         "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
                         null, request.appid(), request.openid(),
-                        request.sceneId(), request.userDisplayName(),
-                        request.userRecvPerception(),
-                        "query-package-must-be-ignored", null,
-                        channelCreatedAt, null, null, null, null,
+                        null, request.userDisplayName(), null,
+                        null, null,
+                        null, null, null, null, null,
+                        observedAt);
+            }
+            if (queryCount == 2) {
+                return new AuthorizationResult(
+                        AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
+                        "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
+                        null, request.appid(), request.openid(),
+                        "different-transfer-scene",
+                        request.userDisplayName(), null,
+                        null, null,
+                        null, null, null, null, null,
+                        observedAt);
+            }
+            if (queryCount == 3) {
+                return new AuthorizationResult(
+                        AuthorizationResult.Outcome.WAIT_USER_CONFIRM,
+                        "WAIT_USER_CONFIRM", request.outAuthorizationNo(),
+                        null, request.appid(), request.openid(),
+                        null, request.userDisplayName(), null,
+                        null, null,
+                        null, null, null, null, null,
                         observedAt);
             }
             String authorizationId = ("WXAUTH"

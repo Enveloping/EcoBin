@@ -56,6 +56,12 @@ public interface FundsOperationalControlPort {
             String outAuthorizationNo,
             LocalDateTime wakeAt);
 
+    void resolveMerchantTransferAuthorizationEvidenceMismatch(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt);
+
     void observeReconciliationIssue(ReconciliationIssue issue);
 
     enum WithdrawalSubmitTaskWakeResult {

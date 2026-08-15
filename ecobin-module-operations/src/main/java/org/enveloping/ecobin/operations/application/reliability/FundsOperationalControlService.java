@@ -480,6 +480,30 @@ public class FundsOperationalControlService
                 issue.observedAt(), issue.observedAt());
     }
 
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void resolveMerchantTransferAuthorizationEvidenceMismatch(
+            long tenantId,
+            long organizationId,
+            String outAuthorizationNo,
+            LocalDateTime resolvedAt) {
+        jdbc.update("""
+                UPDATE ops_reconciliation_issue
+                SET state = 'RESOLVED',
+                    system_verified_resolved_at = ?,
+                    lock_version = lock_version + 1,
+                    updated_at = ?
+                WHERE scope_kind = 'ORGANIZATION'
+                  AND tenant_id = ? AND organization_id = ?
+                  AND issue_code =
+                    'FUNDS.MERCHANT_TRANSFER_AUTHORIZATION_EVIDENCE_MISMATCH'
+                  AND subject_type = 'WECHAT_TRANSFER_AUTHORIZATION'
+                  AND subject_stable_key = ?
+                  AND state = 'UNRESOLVED'
+                """, resolvedAt, resolvedAt, tenantId, organizationId,
+                outAuthorizationNo);
+    }
+
     private static String sourceKey(
             long merchantProfileId,
             UUID pausedEventUid) {

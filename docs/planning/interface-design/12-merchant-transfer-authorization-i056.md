@@ -12,6 +12,11 @@
 > 2026-08-15 前向修订：授权状态查询固定为普通查单，不申请“授权信息展示页”；
 > 首次授权页始终使用创建授权时返回的原始 `packageInfo`。
 >
+> 2026-08-15 证据规则修订：普通查单只把微信文档标记为必填的身份字段作为必有证据；
+> `transferSceneId`、`userRecvPerception` 和 `createTime` 未返回时不构成冲突，返回时仍须与
+> 本地冻结请求一致。旧版本因可选字段缺失误清空 `packageInfo` 的记录，只能从同一授权单
+> 的可信创建响应观察中恢复，禁止拼造或使用过期参数。
+>
 > 说明：I-056 扩展 I-033/I-035。历史 `USER_CONFIRM` 提现继续使用原确认接口；所有新提现必须先完成一次微信官方授权，之后采用授权后自动收款。
 
 ## 1. 统一业务边界
@@ -146,18 +151,20 @@ POST /api/v1/wechat-pay/notifications/merchant-transfer-authorizations
 保留创建阶段的 `packageInfo`。若固定查单请求被微信以 `INVALID_REQUEST` 拒绝，重复发送同一
 请求不会改变结果，因此当前查询任务进入阻塞并等待排障后人工恢复，不允许后台无限重试。
 
-回调和查询共用同一归并器。每种来源必须核对微信实际提供的全部身份字段；查单需逐项核对：
+回调和查询共用同一归并器，但必须按微信实际承诺返回的字段强度核对，不能把可选字段缺失
+误判为身份冲突。普通查单的规则是：
 
-```text
-outAuthorizationNo
-authorizationId
-appId
-openId
-transferSceneId
-userDisplayName
-userRecvPerception
-state and channel times
-```
+- `outAuthorizationNo + appId + openId + userDisplayName + state` 必须存在并与原请求一致；
+- `transferSceneId + userRecvPerception + createTime` 是可选回显：微信未返回时沿用本地冻结
+  请求和可信创建响应，微信返回时必须一致；
+- `TAKING_EFFECT` 必须同时返回 `authorizationId + authorizeTime`；
+- `CLOSED` 必须同时返回 `closeReason + closeTime`；
+- 只有证据校验通过的查询才记录为“最近成功查询”，HTTP 200 但证据矛盾的观察不算成功。
+
+查询结果为 `WAIT_USER_CONFIRM` 且当前主记录的 `packageInfo` 已被旧版本误清空时，系统可以
+从同一租户、机构、授权记录和商户授权单号下，执行结果可信、状态为 `WAIT_USER_CONFIRM`、
+创建时间一致且 `packageInfo` 唯一的原始 `CREATE_RESPONSE` 观察中恢复。恢复还要求 24 小时
+确认期限未过；缺失、冲突或过期时继续保持 `UNKNOWN` 并阻止提现和重复授权。
 
 授权通知本身不返回场景和用户收款感知，因此以已验签的 `outAuthorizationNo + authorizationId + appId + openId + userDisplayName` 核对原请求；若任一字段缺失或矛盾，只保存观察、推进本地 `UNKNOWN` 并建立对账异常，不得启用提现。系统仍须以主动查单补齐完整授权证据，不能只依赖通知。
 

@@ -478,6 +478,9 @@ public class MerchantTransferAuthorizationApplicationService {
         // 授权展示页，也不能用查询响应覆盖原 package。
         String packageInfo = row.packageInfo();
         if (packageInfo == null) {
+            packageInfo = recoverTrustedCreatePackage(row, now);
+        }
+        if (packageInfo == null) {
             if ("CREATED".equals(row.localState())) {
                 return waiting(
                         "WeChat order exists but package is awaiting original create retry",
@@ -493,6 +496,7 @@ public class MerchantTransferAuthorizationApplicationService {
                     channel_state = 'WAIT_USER_CONFIRM',
                     package_info = ?, authorization_id = NULL,
                     last_api_error_code = NULL, close_reason = NULL,
+                    state_conflict = 0,
                     channel_created_at = ?,
                     confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
                     authorized_at = NULL, closed_at = NULL,
@@ -501,6 +505,7 @@ public class MerchantTransferAuthorizationApplicationService {
                 WHERE id = ?
                 """, packageInfo, channelCreated, channelCreated,
                 now, now, row.id());
+        resolveEvidenceMismatch(row, now);
         AuthorizationRow updated = requiredById(row.id(), false);
         return waiting(
                 "authorization remains waiting for user confirmation",
@@ -534,6 +539,7 @@ public class MerchantTransferAuthorizationApplicationService {
                 SET local_state = 'ACTIVE', channel_state = 'TAKING_EFFECT',
                     authorization_id = ?, package_info = NULL,
                     last_api_error_code = NULL, close_reason = NULL,
+                    state_conflict = 0,
                     channel_created_at = ?,
                     confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
                     authorized_at = COALESCE(authorized_at, ?),
@@ -543,6 +549,7 @@ public class MerchantTransferAuthorizationApplicationService {
                 """, result.authorizationId(), channelCreated,
                 channelCreated, databaseTime(result.authorizedAt()),
                 now, now, row.id());
+        resolveEvidenceMismatch(row, now);
         return waiting(
                 "authorization is active; periodic closure query retained",
                 Duration.ofDays(1));
@@ -565,7 +572,8 @@ public class MerchantTransferAuthorizationApplicationService {
                 SET local_state = 'CLOSED', channel_state = 'CLOSED',
                     authorization_id = COALESCE(authorization_id, ?),
                     package_info = NULL, last_api_error_code = NULL,
-                    close_reason = ?, channel_created_at = ?,
+                    close_reason = ?, state_conflict = 0,
+                    channel_created_at = ?,
                     confirmation_deadline_at = DATE_ADD(?, INTERVAL 24 HOUR),
                     authorized_at = COALESCE(authorized_at, ?),
                     closed_at = ?, channel_updated_at = ?,
@@ -575,7 +583,69 @@ public class MerchantTransferAuthorizationApplicationService {
                 channelCreated, channelCreated,
                 databaseTime(result.authorizedAt()), closedAt,
                 now, now, row.id());
+        resolveEvidenceMismatch(row, now);
         return done("authorization closed");
+    }
+
+    private String recoverTrustedCreatePackage(
+            AuthorizationRow row,
+            LocalDateTime now) {
+        if (row.channelCreatedAt() == null
+                || row.confirmationDeadlineAt() == null
+                || !now.isBefore(row.confirmationDeadlineAt())) {
+            return null;
+        }
+        List<TrustedCreatePackage> candidates = jdbc.query("""
+                SELECT observation.package_info,
+                       observation.observed_channel_created_at
+                FROM fund_wechat_transfer_authorization_observation observation
+                JOIN ops_task_attempt attempt
+                  ON attempt.id = observation.source_task_attempt_id
+                 AND attempt.scope_kind = observation.source_scope_kind
+                 AND attempt.tenant_id = observation.tenant_id
+                 AND attempt.organization_id = observation.organization_id
+                WHERE observation.tenant_id = ?
+                  AND observation.organization_id = ?
+                  AND observation.transfer_authorization_id = ?
+                  AND observation.observation_type = 'CREATE_RESPONSE'
+                  AND observation.evidence_source_kind = 'TASK_ATTEMPT'
+                  AND observation.out_authorization_no = ?
+                  AND observation.observed_out_authorization_no = ?
+                  AND observation.raw_channel_state = 'WAIT_USER_CONFIRM'
+                  AND observation.api_error_code IS NULL
+                  AND observation.package_info IS NOT NULL
+                  AND observation.package_info <> ''
+                  AND observation.observed_channel_created_at IS NOT NULL
+                  AND attempt.technical_result = 'TECHNICAL_SUCCESS'
+                ORDER BY observation.id
+                """, (rs, rowNum) -> new TrustedCreatePackage(
+                        rs.getString("package_info"),
+                        rs.getObject(
+                                "observed_channel_created_at",
+                                LocalDateTime.class)),
+                row.tenantId(), row.organizationId(), row.id(),
+                row.outAuthorizationNo(), row.outAuthorizationNo());
+        if (candidates.isEmpty()) return null;
+        TrustedCreatePackage trusted = candidates.getFirst();
+        if (!trusted.channelCreatedAt().equals(row.channelCreatedAt())) {
+            return null;
+        }
+        for (TrustedCreatePackage candidate : candidates) {
+            if (!candidate.packageInfo().equals(trusted.packageInfo())
+                    || !candidate.channelCreatedAt().equals(
+                    trusted.channelCreatedAt())) {
+                return null;
+            }
+        }
+        return trusted.packageInfo();
+    }
+
+    private void resolveEvidenceMismatch(
+            AuthorizationRow row,
+            LocalDateTime now) {
+        operationalControl.resolveMerchantTransferAuthorizationEvidenceMismatch(
+                row.tenantId(), row.organizationId(),
+                row.outAuthorizationNo(), now);
     }
 
     private ReliableFundsTaskExecutorPort.Result mergeNotFound(
@@ -884,16 +954,17 @@ public class MerchantTransferAuthorizationApplicationService {
                 row.outAuthorizationNo(), "OUT_AUTHORIZATION_NO");
         validation.equal(result.appid(), row.appid(), "APPID");
         validation.equal(result.openid(), row.openid(), "OPENID");
-        validation.equal(result.sceneId(), row.sceneId(), "SCENE_ID");
+        validation.equal(result.channelState(),
+                expectedChannelState(result.outcome()), "STATE");
+        validation.equalIfPresent(
+                result.sceneId(), row.sceneId(), "SCENE_ID");
         validation.equal(result.userDisplayName(),
                 row.userDisplayName(), "USER_DISPLAY_NAME");
-        validation.equalNullable(result.userRecvPerception(),
+        validation.equalIfPresent(result.userRecvPerception(),
                 row.userRecvPerception(), "USER_RECV_PERCEPTION");
-        if (result.channelCreatedAt() == null
-                && row.channelCreatedAt() == null) {
-            validation.violation("CREATE_TIME_MISSING");
+        if (row.channelCreatedAt() == null) {
+            validation.violation("FROZEN_CREATE_TIME_MISSING");
         } else if (result.channelCreatedAt() != null
-                && row.channelCreatedAt() != null
                 && !databaseTime(result.channelCreatedAt()).equals(
                 row.channelCreatedAt())) {
             validation.violation("CREATE_TIME_MISMATCH");
@@ -1167,13 +1238,20 @@ public class MerchantTransferAuthorizationApplicationService {
 
     private Instant lastSuccessfulQueryAt(long authorizationId) {
         LocalDateTime value = jdbc.queryForObject("""
-                SELECT MAX(observed_at)
-                FROM fund_wechat_transfer_authorization_observation
-                WHERE transfer_authorization_id = ?
-                  AND observation_type = 'QUERY'
-                  AND api_error_code IS NULL
-                  AND raw_channel_state IN (
+                SELECT MAX(observation.observed_at)
+                FROM fund_wechat_transfer_authorization_observation observation
+                JOIN ops_task_attempt attempt
+                  ON attempt.id = observation.source_task_attempt_id
+                 AND attempt.scope_kind = observation.source_scope_kind
+                 AND attempt.tenant_id = observation.tenant_id
+                 AND attempt.organization_id = observation.organization_id
+                WHERE observation.transfer_authorization_id = ?
+                  AND observation.observation_type = 'QUERY'
+                  AND observation.api_error_code IS NULL
+                  AND observation.raw_channel_state IN (
                     'WAIT_USER_CONFIRM', 'TAKING_EFFECT', 'CLOSED')
+                  AND attempt.technical_result IN (
+                    'NO_ACTION_REQUIRED', 'TECHNICAL_SUCCESS')
                 """, LocalDateTime.class, authorizationId);
         return instant(value);
     }
@@ -1378,9 +1456,16 @@ public class MerchantTransferAuthorizationApplicationService {
                   AND o.id > COALESCE((
                     SELECT MAX(ok.id)
                     FROM fund_wechat_transfer_authorization_observation ok
+                    JOIN ops_task_attempt attempt
+                      ON attempt.id = ok.source_task_attempt_id
+                     AND attempt.scope_kind = ok.source_scope_kind
+                     AND attempt.tenant_id = ok.tenant_id
+                     AND attempt.organization_id = ok.organization_id
                     WHERE ok.transfer_authorization_id = ?
                       AND ok.api_error_code IS NULL
                       AND ok.raw_channel_state IS NOT NULL
+                      AND attempt.technical_result IN (
+                        'NO_ACTION_REQUIRED', 'TECHNICAL_SUCCESS')
                   ), 0)
                 """, Integer.class, rowId, rowId);
         int failures = count == null ? 1 : Math.max(1, count);
@@ -1621,6 +1706,16 @@ public class MerchantTransferAuthorizationApplicationService {
         return observed == null ? row.channelCreatedAt() : observed;
     }
 
+    private static String expectedChannelState(
+            AuthorizationResult.Outcome outcome) {
+        return switch (outcome) {
+            case WAIT_USER_CONFIRM -> "WAIT_USER_CONFIRM";
+            case ACTIVE -> "TAKING_EFFECT";
+            case CLOSED -> "CLOSED";
+            default -> null;
+        };
+    }
+
     private static Instant instant(LocalDateTime value) {
         return value == null ? null : value.toInstant(ZoneOffset.UTC);
     }
@@ -1692,6 +1787,11 @@ public class MerchantTransferAuthorizationApplicationService {
             LocalDateTime updatedAt) {
     }
 
+    private record TrustedCreatePackage(
+            String packageInfo,
+            LocalDateTime channelCreatedAt) {
+    }
+
     private record EvidenceValidation(List<String> violations) {
 
         private EvidenceValidation {
@@ -1720,8 +1820,9 @@ public class MerchantTransferAuthorizationApplicationService {
             }
         }
 
-        void equalNullable(String actual, String expected, String field) {
-            if (!Objects.equals(actual, expected)) {
+        void equalIfPresent(String actual, String expected, String field) {
+            if (actual != null
+                    && (actual.isBlank() || !actual.equals(expected))) {
                 violations.add(field + "_MISMATCH");
             }
         }

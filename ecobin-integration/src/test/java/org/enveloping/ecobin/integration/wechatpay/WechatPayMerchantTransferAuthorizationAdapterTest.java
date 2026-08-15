@@ -113,10 +113,8 @@ class WechatPayMerchantTransferAuthorizationAdapterTest {
                           "out_authorization_no":"AU12345678",
                           "appid":"wx-app-1",
                           "openid":"openid-1",
-                          "transfer_scene_id":"1001",
                           "user_display_name":"金收宝用户-12345678",
-                          "state":"WAIT_USER_CONFIRM",
-                          "create_time":"2026-08-06T10:00:00+08:00"
+                          "state":"WAIT_USER_CONFIRM"
                         }
                         """));
 
@@ -132,6 +130,8 @@ class WechatPayMerchantTransferAuthorizationAdapterTest {
                         .Outcome.WAIT_USER_CONFIRM,
                 result.outcome());
         assertNull(result.packageInfo());
+        assertNull(result.sceneId());
+        assertNull(result.channelCreatedAt());
     }
 
     @Test
