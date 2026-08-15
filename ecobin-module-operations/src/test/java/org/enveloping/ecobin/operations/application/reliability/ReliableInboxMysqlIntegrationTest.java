@@ -1,5 +1,8 @@
 package org.enveloping.ecobin.operations.application.reliability;
 
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationBinding;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationClaim;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationResult;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletion;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionOutcome;
 import org.enveloping.ecobin.framework.reliability.InboxTaskCompletionPort;
@@ -124,6 +127,10 @@ class ReliableInboxMysqlIntegrationTest {
                     created_at DATETIME(3) NOT NULL,
                     PRIMARY KEY (event_key)
                 ) ENGINE=InnoDB
+                """);
+        jdbc.update("""
+                DELETE FROM ops_audit_log
+                WHERE action_code LIKE 'operations.test.%'
                 """);
         jdbc.update("DELETE FROM ops_alert");
         jdbc.update("DELETE FROM ops_governance_idempotency");
@@ -914,7 +921,7 @@ class ReliableInboxMysqlIntegrationTest {
         UUID operationUid = UUID.randomUUID();
         UUID actorUid = UUID.randomUUID();
         UUID resourceUid = UUID.randomUUID();
-        var request = new GovernanceIdempotencyService.Request(
+        var request = new GlobalOperationBinding(
                 operationUid, "PLATFORM_ADMIN", actorUid,
                 "11".repeat(32), "operations.test.resume",
                 "RELIABLE_TASK", UUID.randomUUID().toString(),
@@ -923,21 +930,22 @@ class ReliableInboxMysqlIntegrationTest {
         CountDownLatch allowFirstCommit = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<GovernanceIdempotencyService.Claim> first =
+            Future<GlobalOperationClaim> first =
                     executor.submit(() -> transactionTemplate.execute(status -> {
                         var claim = service.claim(request);
                         assertFalse(claim.replay());
                         firstClaimed.countDown();
                         awaitUnchecked(allowFirstCommit);
                         service.succeed(operationUid,
-                                new GovernanceIdempotencyService.Result(
+                                new GlobalOperationResult(
                                         resourceUid, "PENDING", 7));
                         return claim;
                     }));
             assertTrue(firstClaimed.await(5, TimeUnit.SECONDS));
-            Future<GovernanceIdempotencyService.Claim> replay =
+            Future<GlobalOperationClaim> replay =
                     executor.submit(() -> transactionTemplate.execute(
                             status -> service.claim(request)));
+            awaitMysqlLockWait("ops_governance_idempotency");
             allowFirstCommit.countDown();
             assertFalse(first.get(5, TimeUnit.SECONDS).replay());
             var replayed = replay.get(5, TimeUnit.SECONDS);
@@ -946,18 +954,162 @@ class ReliableInboxMysqlIntegrationTest {
             assertEquals(7, replayed.result().version());
             assertEquals(1, count("ops_governance_idempotency"));
 
-            var conflict = new GovernanceIdempotencyService.Request(
+            var conflict = new GlobalOperationBinding(
                     operationUid, "PLATFORM_ADMIN", actorUid,
                     "11".repeat(32), "operations.test.resume",
                     "RELIABLE_TASK", request.targetStableKey(),
                     "33".repeat(32));
-            assertThrows(TargetApiException.class, () ->
+            TargetApiException failure = assertThrows(
+                    TargetApiException.class, () ->
                     transactionTemplate.execute(status ->
                             service.claim(conflict)));
+            assertEquals(409, failure.status());
+            assertEquals("COMMON.IDEMPOTENCY_KEY_CONFLICT", failure.code());
         } finally {
             allowFirstCommit.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void governanceIdempotencyRejectsConcurrentCrossActorReuseAfterCommit()
+            throws Exception {
+        GovernanceIdempotencyService service =
+                new GovernanceIdempotencyService(jdbc);
+        UUID operationUid = UUID.randomUUID();
+        UUID resourceUid = UUID.randomUUID();
+        String target = UUID.randomUUID().toString();
+        var winner = new GlobalOperationBinding(
+                operationUid, "PLATFORM_ADMIN", UUID.randomUUID(),
+                "11".repeat(32), "operations.test.resume",
+                "RELIABLE_TASK", target, "22".repeat(32));
+        var crossActor = new GlobalOperationBinding(
+                operationUid, "PLATFORM_ADMIN", UUID.randomUUID(),
+                winner.scopeDigest(), winner.actionCode(),
+                winner.targetType(), winner.targetStableKey(),
+                winner.requestDigest());
+        CountDownLatch firstClaimed = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() ->
+                    transactionTemplate.executeWithoutResult(status -> {
+                        assertFalse(service.claim(winner).replay());
+                        firstClaimed.countDown();
+                        awaitUnchecked(allowFirstCommit);
+                        service.succeed(operationUid,
+                                new GlobalOperationResult(
+                                        resourceUid, "PENDING", 7));
+                    }));
+            assertTrue(firstClaimed.await(5, TimeUnit.SECONDS));
+            Future<TargetApiException> rejected = executor.submit(() -> {
+                secondStarted.countDown();
+                try {
+                    transactionTemplate.execute(status ->
+                            service.claim(crossActor));
+                    throw new AssertionError(
+                            "cross-actor operation UID reuse was accepted");
+                } catch (TargetApiException failure) {
+                    return failure;
+                }
+            });
+            assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+            awaitMysqlLockWait("ops_governance_idempotency");
+            allowFirstCommit.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            TargetApiException failure = rejected.get(5, TimeUnit.SECONDS);
+
+            assertEquals(409, failure.status());
+            assertEquals("COMMON.IDEMPOTENCY_KEY_CONFLICT", failure.code());
+            assertEquals(1, count("ops_governance_idempotency"));
+            assertEquals("SUCCEEDED", jdbc.queryForObject("""
+                    SELECT status
+                    FROM ops_governance_idempotency
+                    WHERE operation_uid = ?
+                    """, String.class, operationUid.toString()));
+            assertEquals(winner.actorUid().toString(), jdbc.queryForObject("""
+                    SELECT actor_uid
+                    FROM ops_governance_idempotency
+                    WHERE operation_uid = ?
+                    """, String.class, operationUid.toString()));
+        } finally {
+            allowFirstCommit.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void governanceIdempotencyRejectsAnOlderAuditedSuccess() {
+        GovernanceIdempotencyService service =
+                new GovernanceIdempotencyService(jdbc);
+        UUID operationUid = UUID.randomUUID();
+        LocalDateTime now = LocalDateTime.now();
+        jdbc.update("""
+                        INSERT INTO ops_audit_log (
+                            audit_uid, request_uid, operation_uid,
+                            scope_kind, actor_kind, system_actor_code,
+                            actor_display_snapshot, action_code,
+                            target_type, target_stable_key, entry_channel,
+                            result, occurred_at, created_at
+                        ) VALUES (
+                            ?, ?, ?, 'PLATFORM', 'SYSTEM',
+                            'F08_IDEMPOTENCY_COMPATIBILITY', 'F08',
+                            'operations.test.legacy-success',
+                            'RELIABLE_TASK', ?, 'SYSTEM_TASK',
+                            'SUCCEEDED', ?, ?
+                        )
+                        """,
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                operationUid.toString(),
+                UUID.randomUUID().toString(),
+                now, now);
+        var attemptedReuse = new GlobalOperationBinding(
+                operationUid, "PLATFORM_ADMIN", UUID.randomUUID(),
+                "11".repeat(32), "operations.test.resume",
+                "RELIABLE_TASK", UUID.randomUUID().toString(),
+                "22".repeat(32));
+
+        TargetApiException failure = assertThrows(
+                TargetApiException.class,
+                () -> transactionTemplate.execute(status ->
+                        service.claim(attemptedReuse)));
+
+        assertEquals(409, failure.status());
+        assertEquals("COMMON.IDEMPOTENCY_KEY_CONFLICT", failure.code());
+        assertEquals(0, count("ops_governance_idempotency"));
+    }
+
+    @Test
+    void governanceIdempotencyClaimRollsBackWithRejectedBusinessTransaction() {
+        GovernanceIdempotencyService service =
+                new GovernanceIdempotencyService(jdbc);
+        UUID operationUid = UUID.randomUUID();
+        UUID resourceUid = UUID.randomUUID();
+        var request = new GlobalOperationBinding(
+                operationUid, "PLATFORM_ADMIN", UUID.randomUUID(),
+                "11".repeat(32), "operations.test.rollback",
+                "RELIABLE_TASK", resourceUid.toString(),
+                "22".repeat(32));
+
+        assertThrows(ForcedCommitFailure.class, () ->
+                transactionTemplate.executeWithoutResult(status -> {
+                    assertFalse(service.claim(request).replay());
+                    throw new ForcedCommitFailure();
+                }));
+        assertEquals(0, count("ops_governance_idempotency"));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertFalse(service.claim(request).replay());
+            service.succeed(operationUid, new GlobalOperationResult(
+                    resourceUid, "PENDING", 1));
+        });
+        assertEquals("SUCCEEDED", jdbc.queryForObject("""
+                SELECT status
+                FROM ops_governance_idempotency
+                WHERE operation_uid = ?
+                """, String.class, operationUid.toString()));
     }
 
     private void assertTaskLockIsNotHeldAfterClaim(UUID taskUid) throws Exception {
@@ -975,6 +1127,27 @@ class ReliableInboxMysqlIntegrationTest {
                 connection.rollback();
             }
         }
+    }
+
+    private void awaitMysqlLockWait(String tableName) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            Integer waits = jdbc.queryForObject("""
+                    SELECT COUNT(*)
+                    FROM performance_schema.data_lock_waits waiting
+                    JOIN performance_schema.data_locks requested
+                      ON requested.engine_lock_id =
+                         waiting.requesting_engine_lock_id
+                    WHERE requested.object_schema = DATABASE()
+                      AND requested.object_name = ?
+                    """, Integer.class, tableName);
+            if (waits != null && waits > 0) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError(
+                "no MySQL lock wait observed for " + tableName);
     }
 
     private TrustedInboxMessage message(

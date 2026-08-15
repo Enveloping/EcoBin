@@ -125,6 +125,18 @@ public class TrustedDeviceAcceptanceEvidenceService
                         asset.id(), asset.acceptanceStatus(), false);
             }
 
+            if (facts.factoryBagRevision() < asset.factoryBagRevision()) {
+                confirmationService.ensureApplied(
+                        asset.id(),
+                        hardwareSn,
+                        eventUid,
+                        payloadSha256,
+                        "NO_ACTION_REQUIRED",
+                        receivedAt);
+                return new DeviceAcceptanceEvidenceApplyResult(
+                        asset.id(), asset.acceptanceStatus(), false);
+            }
+
             if (!matchesFactoryBagGeneration(asset, facts)) {
                 throw new IllegalArgumentException(
                         "acceptance evidence uses a stale factory bag generation");

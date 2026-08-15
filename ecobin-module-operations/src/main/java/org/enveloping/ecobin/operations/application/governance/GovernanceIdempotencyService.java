@@ -1,5 +1,9 @@
 package org.enveloping.ecobin.operations.application.governance;
 
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationBinding;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationClaim;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationIdempotencyPort;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationResult;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -7,11 +11,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
-public class GovernanceIdempotencyService {
+public class GovernanceIdempotencyService
+        implements GlobalOperationIdempotencyPort {
 
     static final String CLAIM_SQL = """
             INSERT INTO ops_governance_idempotency (
@@ -26,21 +30,28 @@ public class GovernanceIdempotencyService {
                 updated_at = updated_at
             """;
 
+    static final String LEGACY_SUCCESS_SQL = """
+            SELECT COUNT(*)
+            FROM ops_audit_log
+            WHERE succeeded_operation_uid = ?
+            """;
+
     private final JdbcTemplate jdbc;
 
     public GovernanceIdempotencyService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public Claim claim(Request request) {
-        GovernanceIdempotency.requireVersionFour(request.operationUid());
+    public GlobalOperationClaim claim(GlobalOperationBinding binding) {
+        GovernanceIdempotency.requireVersionFour(binding.operationUid());
         LocalDateTime now = databaseNow();
         jdbc.update(CLAIM_SQL,
-                request.operationUid().toString(), request.actorKind(),
-                request.actorUid().toString(), request.scopeDigest(),
-                request.actionCode(), request.targetType(),
-                request.targetStableKey(), request.requestDigest(), now, now);
+                binding.operationUid().toString(), binding.actorKind(),
+                binding.actorUid().toString(), binding.scopeDigest(),
+                binding.actionCode(), binding.targetType(),
+                binding.targetStableKey(), binding.requestDigest(), now, now);
         Row row = jdbc.query("""
                         SELECT actor_kind, actor_uid,
                                LOWER(HEX(scope_sha256)) scope_sha256,
@@ -63,22 +74,30 @@ public class GovernanceIdempotencyService {
                         uuid(rs.getString("result_resource_uid")),
                         rs.getString("result_state"),
                         (Long) rs.getObject("result_version")),
-                request.operationUid().toString()).stream().findFirst()
+                binding.operationUid().toString()).stream().findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "idempotency claim disappeared"));
-        if (!row.matches(request)) {
+        if (!row.matches(binding)) {
             throw conflict();
         }
         if ("SUCCEEDED".equals(row.status())) {
-            return new Claim(true, new Result(
+            return GlobalOperationClaim.replay(new GlobalOperationResult(
                     row.resultResourceUid(), row.resultState(),
                     row.resultVersion()));
         }
-        return new Claim(false, null);
+        Integer historicalSuccesses = jdbc.queryForObject(
+                LEGACY_SUCCESS_SQL,
+                Integer.class,
+                binding.operationUid().toString());
+        if (historicalSuccesses != null && historicalSuccesses > 0) {
+            throw conflict();
+        }
+        return GlobalOperationClaim.acquired();
     }
 
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void succeed(UUID operationUid, Result result) {
+    public void succeed(UUID operationUid, GlobalOperationResult result) {
         LocalDateTime now = databaseNow();
         int updated = jdbc.update("""
                         UPDATE ops_governance_idempotency
@@ -114,32 +133,6 @@ public class GovernanceIdempotencyService {
                 "幂等键已经用于其他请求或权限范围");
     }
 
-    public record Request(
-            UUID operationUid,
-            String actorKind,
-            UUID actorUid,
-            String scopeDigest,
-            String actionCode,
-            String targetType,
-            String targetStableKey,
-            String requestDigest) {
-
-        public Request {
-            if (actorUid == null || actorKind == null || scopeDigest == null
-                    || actionCode == null || targetType == null
-                    || targetStableKey == null || requestDigest == null) {
-                throw new IllegalArgumentException(
-                        "idempotency request is incomplete");
-            }
-            HexFormat.of().parseHex(scopeDigest);
-            HexFormat.of().parseHex(requestDigest);
-        }
-    }
-
-    public record Claim(boolean replay, Result result) { }
-
-    public record Result(UUID resourceUid, String state, long version) { }
-
     private record Row(
             String actorKind,
             UUID actorUid,
@@ -153,14 +146,14 @@ public class GovernanceIdempotencyService {
             String resultState,
             Long resultVersion) {
 
-        boolean matches(Request request) {
-            return actorKind.equals(request.actorKind())
-                    && actorUid.equals(request.actorUid())
-                    && scopeDigest.equals(request.scopeDigest())
-                    && actionCode.equals(request.actionCode())
-                    && targetType.equals(request.targetType())
-                    && targetStableKey.equals(request.targetStableKey())
-                    && requestDigest.equals(request.requestDigest());
+        boolean matches(GlobalOperationBinding binding) {
+            return actorKind.equals(binding.actorKind())
+                    && actorUid.equals(binding.actorUid())
+                    && scopeDigest.equals(binding.scopeDigest())
+                    && actionCode.equals(binding.actionCode())
+                    && targetType.equals(binding.targetType())
+                    && targetStableKey.equals(binding.targetStableKey())
+                    && requestDigest.equals(binding.requestDigest());
         }
     }
 }

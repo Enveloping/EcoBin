@@ -1,13 +1,11 @@
 package org.enveloping.ecobin.operations.application.governance;
 
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationDigests;
 import org.enveloping.ecobin.identity.api.result.AuthorizedManagementScope;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,7 +26,7 @@ final class GovernanceIdempotency {
         for (Object value : values) {
             canonical.add(value == null ? "" : value.toString());
         }
-        return digest(canonical);
+        return GlobalOperationDigests.sha256(canonical.toArray());
     }
 
     static String scopeDigest(AuthorizedManagementScope scope) {
@@ -40,23 +38,6 @@ final class GovernanceIdempotency {
                 .map(AuthorizedManagementScope.Organization::code)
                 .sorted(Comparator.naturalOrder())
                 .forEach(canonical::add);
-        return digest(canonical);
-    }
-
-    private static String digest(List<String> values) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            for (String value : values) {
-                byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-                digest.update(Integer.toString(bytes.length)
-                        .getBytes(StandardCharsets.US_ASCII));
-                digest.update((byte) ':');
-                digest.update(bytes);
-                digest.update((byte) ';');
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (Exception exception) {
-            throw new IllegalStateException("SHA-256 unavailable", exception);
-        }
+        return GlobalOperationDigests.sha256(canonical.toArray());
     }
 }

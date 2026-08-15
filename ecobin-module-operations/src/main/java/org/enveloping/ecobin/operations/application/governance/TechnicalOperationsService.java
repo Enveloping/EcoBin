@@ -5,6 +5,9 @@ import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationBinding;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationIdempotencyPort;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationResult;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.ManagementScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.query.ManagementScopeAuthorizationQuery;
@@ -44,14 +47,14 @@ public class TechnicalOperationsService {
     private final ManagementScopeAuthorizationPort authorization;
     private final AuditPort audit;
     private final ObjectMapper objectMapper;
-    private final GovernanceIdempotencyService idempotency;
+    private final GlobalOperationIdempotencyPort idempotency;
 
     public TechnicalOperationsService(
             JdbcTemplate jdbc,
             ManagementScopeAuthorizationPort authorization,
             AuditPort audit,
             ObjectMapper objectMapper,
-            GovernanceIdempotencyService idempotency) {
+            GlobalOperationIdempotencyPort idempotency) {
         this.jdbc = jdbc;
         this.authorization = authorization;
         this.audit = audit;
@@ -164,7 +167,7 @@ public class TechnicalOperationsService {
         String digest = GovernanceIdempotency.requestDigest(
                 taskUid, request.expectedVersion(),
                 request.causeFixedConfirmed(), request.reason());
-        var claim = idempotency.claim(new GovernanceIdempotencyService.Request(
+        var claim = idempotency.claim(new GlobalOperationBinding(
                 operationUid, "PLATFORM_ADMIN", actor.principalUid(),
                 actor.scopeDigest(), "operations.reliable-task.resume",
                 "RELIABLE_TASK", taskUid.toString(), digest));
@@ -235,7 +238,7 @@ public class TechnicalOperationsService {
                 now, now, task.id(), task.version());
         requireOne(updated);
         idempotency.succeed(operationUid,
-                new GovernanceIdempotencyService.Result(
+                new GlobalOperationResult(
                         taskUid, "PENDING", resultVersion));
         return accepted(operationUid, taskUid, resultVersion);
     }
@@ -291,7 +294,7 @@ public class TechnicalOperationsService {
         PlatformAccess actor = platform();
         String digest = GovernanceIdempotency.requestDigest(
                 quarantineUid, request.expectedVersion(), request.reason());
-        var claim = idempotency.claim(new GovernanceIdempotencyService.Request(
+        var claim = idempotency.claim(new GlobalOperationBinding(
                 operationUid, "PLATFORM_ADMIN", actor.principalUid(),
                 actor.scopeDigest(), "operations.quarantine.acknowledge",
                 "MESSAGE_QUARANTINE", quarantineUid.toString(), digest));
@@ -349,7 +352,7 @@ public class TechnicalOperationsService {
                 auditId, now, now, row.id(), row.version());
         requireOne(updated);
         idempotency.succeed(operationUid,
-                new GovernanceIdempotencyService.Result(
+                new GlobalOperationResult(
                         quarantineUid, "ACKNOWLEDGED", resultVersion));
         return new VersionedOperationResult(
                 operationUid, quarantineUid, "ACKNOWLEDGED", resultVersion);

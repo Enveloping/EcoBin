@@ -10,6 +10,11 @@ import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationBinding;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationClaim;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationDigests;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationIdempotencyPort;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationResult;
 import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliableDeviceTaskProofPort;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistration;
@@ -23,7 +28,7 @@ import org.enveloping.ecobin.identity.api.result.ActivePlatformMaintenanceSshKey
 import org.enveloping.ecobin.identity.api.result.AuthorizedDeviceScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -59,6 +64,9 @@ public class RemoteSupportSessionService {
     private static final String OPEN_TASK = "OPEN_REMOTE_SUPPORT_TUNNEL";
     private static final String CLOSE_TASK = "CLOSE_REMOTE_SUPPORT_TUNNEL";
     private static final String TARGET_TYPE = "REMOTE_SUPPORT_SESSION";
+    private static final String OPEN_ACTION = "device.remote-support.open";
+    private static final String CLOSE_ACTION = "device.remote-support.close";
+    private static final String GLOBAL_TARGET_TYPE = "remote-support-session";
     private static final String UUID_V4 =
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
@@ -68,6 +76,7 @@ public class RemoteSupportSessionService {
     private final ObjectMapper objectMapper;
     private final DeviceScopeAuthorizationPort authorization;
     private final PlatformMaintenanceSshKeyQueryPort sshKeys;
+    private final GlobalOperationIdempotencyPort idempotency;
     private final AuditPort auditPort;
     private final PlatformDeviceAssetTaskRefFactory taskRefFactory;
     private final ReliablePlatformDeviceControlTaskRegistrationPort tasks;
@@ -82,6 +91,7 @@ public class RemoteSupportSessionService {
             ObjectMapper objectMapper,
             DeviceScopeAuthorizationPort authorization,
             PlatformMaintenanceSshKeyQueryPort sshKeys,
+            GlobalOperationIdempotencyPort idempotency,
             AuditPort auditPort,
             PlatformDeviceAssetTaskRefFactory taskRefFactory,
             ReliablePlatformDeviceControlTaskRegistrationPort tasks,
@@ -94,6 +104,7 @@ public class RemoteSupportSessionService {
         this.objectMapper = objectMapper;
         this.authorization = authorization;
         this.sshKeys = sshKeys;
+        this.idempotency = idempotency;
         this.auditPort = auditPort;
         this.taskRefFactory = taskRefFactory;
         this.tasks = tasks;
@@ -134,6 +145,21 @@ public class RemoteSupportSessionService {
             requireReplayActorAndRequest(
                     replay, actor, requestSha256, false);
             return view(replay);
+        }
+        GlobalOperationBinding operationBinding = operationBinding(
+                operationUid,
+                actor,
+                OPEN_ACTION,
+                normalizedHardwareSn,
+                requestSha256);
+        GlobalOperationClaim operationClaim = idempotency.claim(
+                operationBinding);
+        if (operationClaim.replay()) {
+            return replayOpenClaim(
+                    operationUid,
+                    actor,
+                    requestSha256,
+                    operationClaim.result());
         }
         ActivePlatformMaintenanceSshKey key = sshKeys.resolveActive(
                         actor.principalUid(),
@@ -179,16 +205,16 @@ public class RemoteSupportSessionService {
                         instant(expiresAt));
 
         Long[] sessionId = new Long[1];
-        try {
-            actor.persistenceRef().writeForeignKeysTo(
-                    (tenantId, organizationId, platformAdminId,
-                     staffAccountId) -> {
-                        if (platformAdminId == null
-                                || staffAccountId != null) {
-                            throw forbidden();
-                        }
-                        key.persistenceRef().writeForeignKeyTo(
-                                maintenanceKeyId -> {
+        actor.persistenceRef().writeForeignKeysTo(
+                (tenantId, organizationId, platformAdminId,
+                 staffAccountId) -> {
+                    if (platformAdminId == null
+                            || staffAccountId != null) {
+                        throw forbidden();
+                    }
+                    key.persistenceRef().writeForeignKeyTo(
+                            maintenanceKeyId -> {
+                                try {
                                     jdbc.update("""
                                                     INSERT INTO dev_remote_support_session (
                                                         session_uid, operation_uid,
@@ -252,30 +278,30 @@ public class RemoteSupportSessionService {
                                             expiresAt,
                                             now,
                                             now);
-                                    sessionId[0] = jdbc.queryForObject("""
-                                                    SELECT id
-                                                    FROM dev_remote_support_session
-                                                    WHERE session_uid = ?
-                                                    """,
-                                            Long.class,
-                                            sessionUid.toString());
-                                    appendAudit(
-                                            operationUid,
-                                            actor,
-                                            platformAdminId,
-                                            "device.remote-support.open",
-                                            sessionUid,
-                                            normalizedHardwareSn,
-                                            reason,
-                                            requestSha256,
-                                            now);
-                                });
-                    });
-        } catch (DataIntegrityViolationException collision) {
-            throw conflict(
-                    "DEVICE.REMOTE_SUPPORT_SLOT_CONFLICT",
-                    "设备或远程维护端口刚被另一会话占用，请重试");
-        }
+                                } catch (DuplicateKeyException collision) {
+                                    throw conflict(
+                                            "DEVICE.REMOTE_SUPPORT_SLOT_CONFLICT",
+                                            "设备或远程维护端口刚被另一会话占用，请重试");
+                                }
+                                sessionId[0] = jdbc.queryForObject("""
+                                                SELECT id
+                                                FROM dev_remote_support_session
+                                                WHERE session_uid = ?
+                                                """,
+                                        Long.class,
+                                        sessionUid.toString());
+                                appendAudit(
+                                        operationUid,
+                                        actor,
+                                        platformAdminId,
+                                        "device.remote-support.open",
+                                        sessionUid,
+                                        normalizedHardwareSn,
+                                        reason,
+                                        requestSha256,
+                                        now);
+                            });
+                });
         registerOpenTask(
                 asset, sessionUid, commandUid, port, now, expiresAt);
         requireSingle(jdbc.update("""
@@ -286,8 +312,11 @@ public class RemoteSupportSessionService {
                         """,
                 now,
                 sessionId[0]), "start remote support connection");
+        RemoteSession created = requireSession(
+                sessionUid, actor.principalUid(), false);
+        succeedOperation(operationUid, created);
         registerAfterCommitLeasePublish(lease);
-        return view(requireSession(sessionUid, actor.principalUid(), false));
+        return view(created);
     }
 
     @Transactional(readOnly = true)
@@ -329,19 +358,45 @@ public class RemoteSupportSessionService {
         AuthorizedDeviceScope actor = authorize();
         TargetWebAuditRequestContext.describe(
                 "device.remote-support.close", sessionUid.toString());
+        RemoteSession replay = sessionByCloseOperation(operationUid, false);
+        if (replay != null) {
+            requireCloseReplay(
+                    replay,
+                    operationUid,
+                    sessionUid,
+                    actor,
+                    requestSha256);
+            return view(replay);
+        }
+        GlobalOperationClaim operationClaim = idempotency.claim(
+                operationBinding(
+                        operationUid,
+                        actor,
+                        CLOSE_ACTION,
+                        sessionUid.toString(),
+                        requestSha256));
+        if (operationClaim.replay()) {
+            return replayCloseClaim(
+                    operationUid,
+                    sessionUid,
+                    actor,
+                    requestSha256,
+                    operationClaim.result());
+        }
         RemoteSession session = requireSession(
                 sessionUid, actor.principalUid(), true);
         if (session.closeOperationUid() != null) {
-            if (!session.closeOperationUid().equals(operationUid)
-                    || !MessageDigest.isEqual(
-                    session.closeRequestSha256(), requestSha256)) {
-                throw conflict(
-                        "COMMON.IDEMPOTENCY_KEY_CONFLICT",
-                        "该会话的关闭操作已绑定到不同请求");
-            }
+            requireCloseReplay(
+                    session,
+                    operationUid,
+                    sessionUid,
+                    actor,
+                    requestSha256);
+            succeedOperation(operationUid, session);
             return view(session);
         }
         if (isTerminal(session.state())) {
+            succeedOperation(operationUid, session);
             return view(session);
         }
         UUID closeCommandUid = UUID.randomUUID();
@@ -388,8 +443,11 @@ public class RemoteSupportSessionService {
                             now);
                 });
         registerCloseTask(session, closeCommandUid, now);
+        RemoteSession closing = requireSession(
+                sessionUid, actor.principalUid(), false);
+        succeedOperation(operationUid, closing);
         registerAfterCommitLeaseRevoke(sessionUid, session.port());
-        return view(requireSession(sessionUid, actor.principalUid(), false));
+        return view(closing);
     }
 
     /** Applies a trusted, platform-scoped status event in the inbox transaction. */
@@ -947,6 +1005,15 @@ public class RemoteSupportSessionService {
                 operationUid.toString());
     }
 
+    private RemoteSession sessionByCloseOperation(
+            UUID operationUid,
+            boolean forUpdate) {
+        return sessionQuery(
+                "session.close_operation_uid = ?",
+                forUpdate,
+                operationUid.toString());
+    }
+
     private RemoteSession requireSession(
             UUID sessionUid,
             UUID actorUid,
@@ -1160,6 +1227,94 @@ public class RemoteSupportSessionService {
                         }
                     }
                 });
+    }
+
+    private GlobalOperationBinding operationBinding(
+            UUID operationUid,
+            AuthorizedDeviceScope actor,
+            String action,
+            String targetStableKey,
+            byte[] requestSha256) {
+        return new GlobalOperationBinding(
+                operationUid,
+                "PLATFORM_ADMIN",
+                actor.principalUid(),
+                GlobalOperationDigests.platformScope(),
+                action,
+                GLOBAL_TARGET_TYPE,
+                targetStableKey,
+                HexFormat.of().formatHex(requestSha256));
+    }
+
+    private RemoteSupportSessionView replayOpenClaim(
+            UUID operationUid,
+            AuthorizedDeviceScope actor,
+            byte[] requestSha256,
+            GlobalOperationResult result) {
+        RemoteSession session = requireSession(
+                result.resourceUid(), actor.principalUid(), false);
+        if (!operationUid.equals(session.operationUid())) {
+            throw new IllegalStateException(
+                    "global open result references another operation");
+        }
+        requireReplayActorAndRequest(
+                session, actor, requestSha256, false);
+        return view(session);
+    }
+
+    private RemoteSupportSessionView replayCloseClaim(
+            UUID operationUid,
+            UUID requestedSessionUid,
+            AuthorizedDeviceScope actor,
+            byte[] requestSha256,
+            GlobalOperationResult result) {
+        if (!requestedSessionUid.equals(result.resourceUid())) {
+            throw new IllegalStateException(
+                    "global close result references another session");
+        }
+        RemoteSession session = requireSession(
+                result.resourceUid(), actor.principalUid(), false);
+        if (session.closeOperationUid() == null) {
+            if (!isTerminal(session.state())) {
+                throw new IllegalStateException(
+                        "global close result has no completed domain close");
+            }
+            return view(session);
+        }
+        requireCloseReplay(
+                session,
+                operationUid,
+                requestedSessionUid,
+                actor,
+                requestSha256);
+        return view(session);
+    }
+
+    private void requireCloseReplay(
+            RemoteSession session,
+            UUID operationUid,
+            UUID requestedSessionUid,
+            AuthorizedDeviceScope actor,
+            byte[] requestSha256) {
+        if (!requestedSessionUid.equals(session.sessionUid())
+                || !operationUid.equals(session.closeOperationUid())) {
+            throw conflict(
+                    "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                    "相同操作标识已绑定到不同远程维护会话");
+        }
+        requireReplayActorAndRequest(
+                session, actor, requestSha256, true);
+    }
+
+    private void succeedOperation(
+            UUID operationUid,
+            RemoteSession session) {
+        idempotency.succeed(
+                operationUid,
+                new GlobalOperationResult(
+                        session.sessionUid(),
+                        session.state(),
+                        session.version()));
     }
 
     private void requireReplayActorAndRequest(

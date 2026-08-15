@@ -5,6 +5,9 @@ import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationBinding;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationIdempotencyPort;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationResult;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.ManagementScopeAuthorizationPort;
 import org.enveloping.ecobin.identity.api.port.GovernanceIdentityQueryPort;
@@ -46,7 +49,7 @@ public class GovernanceQueryService {
     private final ManagementScopeAuthorizationPort authorization;
     private final AuditPort audit;
     private final ObjectMapper objectMapper;
-    private final GovernanceIdempotencyService idempotency;
+    private final GlobalOperationIdempotencyPort idempotency;
     private final GovernanceIdentityQueryPort identity;
 
     public GovernanceQueryService(
@@ -54,7 +57,7 @@ public class GovernanceQueryService {
             ManagementScopeAuthorizationPort authorization,
             AuditPort audit,
             ObjectMapper objectMapper,
-            GovernanceIdempotencyService idempotency,
+            GlobalOperationIdempotencyPort idempotency,
             GovernanceIdentityQueryPort identity) {
         this.jdbc = jdbc;
         this.authorization = authorization;
@@ -312,7 +315,7 @@ public class GovernanceQueryService {
                 alertUid, request.expectedVersion(), request.reason());
         String actorKind = access.platform()
                 ? "PLATFORM_ADMIN" : "STAFF_ACCOUNT";
-        var claim = idempotency.claim(new GovernanceIdempotencyService.Request(
+        var claim = idempotency.claim(new GlobalOperationBinding(
                 operationUid, actorKind, access.principalUid(),
                 access.scopeDigest(), "operations.alert.acknowledge",
                 "ALERT", alertUid.toString(), digest));
@@ -378,7 +381,7 @@ public class GovernanceQueryService {
                     "alert acknowledgement lost its locked row");
         }
         idempotency.succeed(operationUid,
-                new GovernanceIdempotencyService.Result(
+                new GlobalOperationResult(
                         alertUid, "ACKNOWLEDGED", resultVersion));
         return new VersionedOperationResult(
                 operationUid, alertUid, "ACKNOWLEDGED", resultVersion);

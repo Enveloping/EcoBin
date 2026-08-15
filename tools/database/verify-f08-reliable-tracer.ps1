@@ -187,7 +187,8 @@ GRANT TRIGGER ON ecobin_f08.* TO 'ecobin_trigger_definer'@'%';
             "just-in-time claim prevents lease expiry while queued",
             "maximum-in-flight is shared across concurrent runner calls",
             "reliable, device, and fullness alert projections converge",
-            "operational overview module ports return zero-safe metrics"
+            "operational overview module ports return zero-safe metrics",
+            "global operation claims replay, conflict, and roll back on MySQL"
         )
         passed = $true
     } | ConvertTo-Json -Depth 3

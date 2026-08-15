@@ -11,10 +11,16 @@ import org.enveloping.ecobin.framework.audit.AuditActorKind;
 import org.enveloping.ecobin.framework.audit.AuditEntry;
 import org.enveloping.ecobin.framework.audit.AuditPort;
 import org.enveloping.ecobin.framework.audit.AuditScopeKind;
+import org.enveloping.ecobin.framework.audit.SuccessfulAudit;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationBinding;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationClaim;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationDigests;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationIdempotencyPort;
+import org.enveloping.ecobin.framework.idempotency.GlobalOperationResult;
 import org.enveloping.ecobin.framework.web.v1.TargetApiException;
 import org.enveloping.ecobin.identity.api.port.FactoryMiniappAuthorizationPort;
 import org.enveloping.ecobin.identity.api.result.AuthorizedFactoryOperatorIdentity;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -31,6 +37,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /** Factory-only bag admission before a real device may start acceptance. */
@@ -43,6 +50,7 @@ public class FactoryAcceptanceService {
     private final FactoryMiniappAuthorizationPort authorization;
     private final AuditPort auditPort;
     private final TrustedDeviceAcceptanceChallengePort acceptanceChallenges;
+    private final GlobalOperationIdempotencyPort idempotency;
 
     public FactoryAcceptanceService(
             JdbcTemplate jdbc,
@@ -50,13 +58,15 @@ public class FactoryAcceptanceService {
             BagCodeAdmissionPort bagAdmission,
             FactoryMiniappAuthorizationPort authorization,
             AuditPort auditPort,
-            TrustedDeviceAcceptanceChallengePort acceptanceChallenges) {
+            TrustedDeviceAcceptanceChallengePort acceptanceChallenges,
+            GlobalOperationIdempotencyPort idempotency) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.bagAdmission = bagAdmission;
         this.authorization = authorization;
         this.auditPort = auditPort;
         this.acceptanceChallenges = acceptanceChallenges;
+        this.idempotency = idempotency;
     }
 
     @Transactional(readOnly = true)
@@ -84,9 +94,30 @@ public class FactoryAcceptanceService {
                 .requireCapability(
                         FactoryMiniappAuthorizationPort.BAG_INSTALL);
         FactoryAcceptanceView replay = replay(
-                operationUid, requestSha256, normalizedDeviceCode);
+                operationUid,
+                requestSha256,
+                normalizedDeviceCode,
+                portNo,
+                "device.factory-bag.install",
+                actor);
         if (replay != null) {
             return replay;
+        }
+        GlobalOperationClaim claim = idempotency.claim(binding(
+                operationUid,
+                actor,
+                "device.factory-bag.install",
+                normalizedDeviceCode,
+                portNo,
+                requestSha256));
+        if (claim.replay()) {
+            return requireReplay(
+                    operationUid,
+                    requestSha256,
+                    normalizedDeviceCode,
+                    portNo,
+                    "device.factory-bag.install",
+                    actor);
         }
         Asset asset = lockAsset(normalizedDeviceCode);
         requireMutable(asset, portNo);
@@ -161,12 +192,14 @@ public class FactoryAcceptanceService {
                         requestSha256,
                         now);
             });
-            advanceFactoryBagGeneration(asset.id(), now);
-        } catch (DataIntegrityViolationException collision) {
+        } catch (DuplicateKeyException collision) {
             throw conflict(
                     "DEVICE.FACTORY_BAG_ALREADY_CLAIMED",
                     "该袋码已被使用，或投口已由另一请求登记");
         }
+        long revision = advanceFactoryBagGeneration(asset.id(), now);
+        idempotency.succeed(operationUid, new GlobalOperationResult(
+                asset.assetUid(), "INSTALLED", revision));
         return view(normalizedDeviceCode);
     }
 
@@ -188,9 +221,30 @@ public class FactoryAcceptanceService {
                 .requireCapability(
                         FactoryMiniappAuthorizationPort.BAG_INSTALL);
         FactoryAcceptanceView replay = replay(
-                operationUid, requestSha256, normalizedDeviceCode);
+                operationUid,
+                requestSha256,
+                normalizedDeviceCode,
+                portNo,
+                "device.factory-bag.verify",
+                actor);
         if (replay != null) {
             return replay;
+        }
+        GlobalOperationClaim claim = idempotency.claim(binding(
+                operationUid,
+                actor,
+                "device.factory-bag.verify",
+                normalizedDeviceCode,
+                portNo,
+                requestSha256));
+        if (claim.replay()) {
+            return requireReplay(
+                    operationUid,
+                    requestSha256,
+                    normalizedDeviceCode,
+                    portNo,
+                    "device.factory-bag.verify",
+                    actor);
         }
         Asset asset = lockAsset(normalizedDeviceCode);
         requireMutable(asset, portNo);
@@ -261,12 +315,14 @@ public class FactoryAcceptanceService {
                         requestSha256,
                         now);
             });
-            advanceFactoryBagGeneration(asset.id(), now);
-        } catch (DataIntegrityViolationException collision) {
+        } catch (DuplicateKeyException collision) {
             throw conflict(
                     "DEVICE.FACTORY_BAG_ALREADY_CLAIMED",
                     "该袋码已被其他设备或投口使用");
         }
+        long revision = advanceFactoryBagGeneration(asset.id(), now);
+        idempotency.succeed(operationUid, new GlobalOperationResult(
+                asset.assetUid(), "VERIFIED", revision));
         return view(normalizedDeviceCode);
     }
 
@@ -289,9 +345,30 @@ public class FactoryAcceptanceService {
                 .requireCapability(
                         FactoryMiniappAuthorizationPort.BAG_CORRECT);
         FactoryAcceptanceView replay = replay(
-                operationUid, requestSha256, normalizedDeviceCode);
+                operationUid,
+                requestSha256,
+                normalizedDeviceCode,
+                portNo,
+                "device.factory-bag.correct",
+                actor);
         if (replay != null) {
             return replay;
+        }
+        GlobalOperationClaim claim = idempotency.claim(binding(
+                operationUid,
+                actor,
+                "device.factory-bag.correct",
+                normalizedDeviceCode,
+                portNo,
+                requestSha256));
+        if (claim.replay()) {
+            return requireReplay(
+                    operationUid,
+                    requestSha256,
+                    normalizedDeviceCode,
+                    portNo,
+                    "device.factory-bag.correct",
+                    actor);
         }
         Asset asset = lockAsset(normalizedDeviceCode);
         requireMutable(asset, portNo);
@@ -376,19 +453,24 @@ public class FactoryAcceptanceService {
                         requestSha256,
                         now);
             });
-            advanceFactoryBagGeneration(asset.id(), now);
-        } catch (DataIntegrityViolationException collision) {
+        } catch (DuplicateKeyException collision) {
             throw conflict(
                     "DEVICE.FACTORY_BAG_ALREADY_CLAIMED",
                     "更正后的袋码已被其他设备或投口使用");
         }
+        long revision = advanceFactoryBagGeneration(asset.id(), now);
+        idempotency.succeed(operationUid, new GlobalOperationResult(
+                asset.assetUid(), "CORRECTED", revision));
         return view(normalizedDeviceCode);
     }
 
     private FactoryAcceptanceView replay(
             UUID operationUid,
             byte[] requestSha256,
-            String deviceCode) {
+            String deviceCode,
+            int portNo,
+            String actionCode,
+            AuthorizedFactoryOperatorIdentity actor) {
         byte[] prior = jdbc.query("""
                         SELECT request_sha256
                         FROM dev_factory_installed_bag_change
@@ -404,25 +486,67 @@ public class FactoryAcceptanceService {
                     "COMMON.IDEMPOTENCY_KEY_CONFLICT",
                     "相同操作标识已绑定到不同请求");
         }
+        SuccessfulAudit audit = auditPort.findSuccessful(operationUid)
+                .orElseThrow(() -> new IllegalStateException(
+                        "factory bag change has no successful audit"));
+        if (audit.actorKind() != AuditActorKind.FACTORY_OPERATOR
+                || audit.scopeKind() != AuditScopeKind.PLATFORM
+                || !actionCode.equals(audit.actionCode())
+                || !"device-factory-bag".equals(audit.targetType())
+                || !(deviceCode + ":" + portNo).equals(
+                audit.targetStableKey())) {
+            throw idempotencyConflict();
+        }
+        boolean[] sameActor = {false};
+        actor.persistenceRef().writeForeignKeyTo(factoryOperatorId ->
+                sameActor[0] = Objects.equals(
+                        audit.factoryOperatorId(), factoryOperatorId));
+        if (!sameActor[0]) {
+            throw idempotencyConflict();
+        }
         return view(deviceCode);
+    }
+
+    private FactoryAcceptanceView requireReplay(
+            UUID operationUid,
+            byte[] requestSha256,
+            String deviceCode,
+            int portNo,
+            String actionCode,
+            AuthorizedFactoryOperatorIdentity actor) {
+        FactoryAcceptanceView replay = replay(
+                operationUid,
+                requestSha256,
+                deviceCode,
+                portNo,
+                actionCode,
+                actor);
+        if (replay == null) {
+            throw new IllegalStateException(
+                    "completed factory idempotency claim has no change fact");
+        }
+        return replay;
     }
 
     private FactoryAcceptanceView view(String deviceCode) {
         Asset asset = jdbc.query("""
-                        SELECT id, device_public_code, hardware_sn,
+                        SELECT id, asset_uid, device_public_code, hardware_sn,
                                expected_port_count, acceptance_status,
-                               lifecycle_status, tenant_id
+                               lifecycle_status, tenant_id,
+                               factory_bag_revision
                         FROM dev_device_asset
                         WHERE device_public_code = ?
                         """,
                 (rs, ignored) -> new Asset(
                         rs.getLong("id"),
+                        UUID.fromString(rs.getString("asset_uid")),
                         rs.getString("device_public_code"),
                         rs.getString("hardware_sn"),
                         rs.getInt("expected_port_count"),
                         rs.getString("acceptance_status"),
                         rs.getString("lifecycle_status"),
-                        (Long) rs.getObject("tenant_id")),
+                        (Long) rs.getObject("tenant_id"),
+                        rs.getLong("factory_bag_revision")),
                 deviceCode).stream().findFirst()
                 .orElseThrow(FactoryAcceptanceService::notFound);
         List<FactoryBagSlotView> bags = jdbc.query("""
@@ -478,21 +602,24 @@ public class FactoryAcceptanceService {
 
     private Asset lockAsset(String deviceCode) {
         return jdbc.query("""
-                        SELECT id, device_public_code, hardware_sn,
+                        SELECT id, asset_uid, device_public_code, hardware_sn,
                                expected_port_count, acceptance_status,
-                               lifecycle_status, tenant_id
+                               lifecycle_status, tenant_id,
+                               factory_bag_revision
                         FROM dev_device_asset
                         WHERE device_public_code = ?
                         FOR UPDATE
                         """,
                 (rs, ignored) -> new Asset(
                         rs.getLong("id"),
+                        UUID.fromString(rs.getString("asset_uid")),
                         rs.getString("device_public_code"),
                         rs.getString("hardware_sn"),
                         rs.getInt("expected_port_count"),
                         rs.getString("acceptance_status"),
                         rs.getString("lifecycle_status"),
-                        (Long) rs.getObject("tenant_id")),
+                        (Long) rs.getObject("tenant_id"),
+                        rs.getLong("factory_bag_revision")),
                 deviceCode).stream().findFirst()
                 .orElseThrow(FactoryAcceptanceService::notFound);
     }
@@ -604,7 +731,7 @@ public class FactoryAcceptanceService {
                 now);
     }
 
-    private void advanceFactoryBagGeneration(
+    private long advanceFactoryBagGeneration(
             long assetId,
             LocalDateTime now) {
         List<String> canonicalBags = jdbc.query("""
@@ -634,6 +761,36 @@ public class FactoryAcceptanceService {
                 digest,
                 now,
                 assetId), "advance factory bag generation");
+        Long revision = jdbc.queryForObject("""
+                        SELECT factory_bag_revision
+                        FROM dev_device_asset
+                        WHERE id = ?
+                        """,
+                Long.class,
+                assetId);
+        if (revision == null) {
+            throw new IllegalStateException(
+                    "factory bag generation disappeared");
+        }
+        return revision;
+    }
+
+    private static GlobalOperationBinding binding(
+            UUID operationUid,
+            AuthorizedFactoryOperatorIdentity actor,
+            String actionCode,
+            String deviceCode,
+            int portNo,
+            byte[] requestSha256) {
+        return new GlobalOperationBinding(
+                operationUid,
+                "FACTORY_OPERATOR",
+                actor.factoryOperatorUid(),
+                GlobalOperationDigests.platformScope(),
+                actionCode,
+                "device-factory-bag",
+                deviceCode + ":" + portNo,
+                HexFormat.of().formatHex(requestSha256));
     }
 
     static byte[] factoryBagSetSha256(List<String> canonicalBags) {
@@ -808,14 +965,22 @@ public class FactoryAcceptanceService {
         return new TargetApiException(409, code, message);
     }
 
+    private static TargetApiException idempotencyConflict() {
+        return conflict(
+                "COMMON.IDEMPOTENCY_KEY_CONFLICT",
+                "相同操作标识已绑定到不同请求或厂家操作员");
+    }
+
     private record Asset(
             long id,
+            UUID assetUid,
             String deviceCode,
             String hardwareSn,
             int expectedPortCount,
             String acceptanceStatus,
             String lifecycleStatus,
-            Long tenantId) {
+            Long tenantId,
+            long factoryBagRevision) {
     }
 
     private record Label(long id, String bagCode) {
