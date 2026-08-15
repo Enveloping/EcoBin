@@ -33,16 +33,18 @@
   </view>
 
   <view class="wallet-card home-card" bindtap="onWalletTap" hover-class="home-card--pressed">
-    <view class="card-icon">
+    <text class="card-label">我的钱包</text>
+    <view class="card-icon wallet-icon">
       <t-icon name="wallet" size="52rpx" color="#10b927" />
     </view>
-    <view class="card-copy">
-      <text class="card-label">我的钱包</text>
-      <text class="wallet-value {{walletError ? 'wallet-value--error' : ''}}">
-        {{!loggedIn ? '登录后查看' : (!walletDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取，点击重试' : walletBalanceText)))}}
+    <view class="wallet-value {{walletError ? 'wallet-value--error' : ''}}">
+      <text class="wallet-value-text">
+        {{!loggedIn ? '登录后查看' : (!walletDataAvailable ? '¥ —' : (walletLoading ? '读取中' : (walletError ? '暂时无法获取' : walletBalanceText)))}}
       </text>
     </view>
-    <t-icon name="chevron-right" size="32rpx" color="#a3aaa3" />
+    <view class="wallet-chevron">
+      <t-icon name="chevron-right" size="32rpx" color="#a3aaa3" />
+    </view>
   </view>
 
   <view class="recent-card home-card">
@@ -88,9 +90,9 @@
         </view>
       </view>
     </view>
-    <view wx:else class="recent-empty" bindtap="onRetryRecent">
+    <view wx:else class="recent-empty">
       <t-icon name="root-list" size="52rpx" color="#b4bbb4" />
-      <text>{{!deliveryOrderDataAvailable ? '投递记录服务接入中' : (recentError ? '暂时无法获取，点击重试' : '还没有投递订单')}}</text>
+      <text>{{!deliveryOrderDataAvailable ? '投递记录服务接入中' : (recentError ? '暂时无法获取，下拉刷新重试' : '还没有投递订单')}}</text>
     </view>
   </view>
 

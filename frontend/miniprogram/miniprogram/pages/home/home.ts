@@ -32,6 +32,9 @@ import {
 
 Page({
   phoneBindingIntentKey: '',
+  overviewContextKey: '',
+  overviewLoadPromise: null as Promise<void> | null,
+  overviewLoadPromiseContextKey: '',
 
   data: {
     loggedIn: false,
@@ -80,19 +83,31 @@ Page({
           || pendingPhoneGrant
           || !!pendingDeviceEntry
         )
+      const contextKey = session.organizationUserUid
+      const shouldAutoLoad = this.overviewContextKey !== contextKey
+      if (shouldAutoLoad) this.overviewContextKey = contextKey
       this.setData({
         loggedIn: true,
         phoneBound: session.phoneBound,
         showPhoneGrant,
         organizationName: session.organization.displayName,
         ongoingDelivery,
+        ...(shouldAutoLoad ? {
+          walletBalanceText: '—',
+          walletLoading: false,
+          walletError: false,
+          recentDelivery: null,
+          recentLoading: false,
+          recentError: false,
+        } : {}),
       })
       this.setPhoneGrantTabBarHidden(showPhoneGrant)
-      this.loadOverview()
+      if (shouldAutoLoad) void this.refreshOverview(contextKey)
       return
     }
 
     consumePendingPhoneBindingPrompt()
+    this.overviewContextKey = ''
     this.setData({
       loggedIn: false,
       phoneBound: false,
@@ -109,49 +124,87 @@ Page({
     this.setPhoneGrantTabBarHidden(false)
   },
 
-  loadOverview() {
-    if (FEATURES.targetWalletApi) void this.loadWalletSummary()
-    if (FEATURES.targetDeliveryOrderApi) void this.loadRecentDelivery()
+  refreshOverview(contextKey: string): Promise<void> {
+    if (!contextKey) return Promise.resolve()
+    if (
+      this.overviewLoadPromise
+      && this.overviewLoadPromiseContextKey === contextKey
+    ) {
+      return this.overviewLoadPromise
+    }
+
+    const tasks: Promise<void>[] = []
+    if (FEATURES.targetWalletApi) {
+      tasks.push(this.loadWalletSummary(contextKey))
+    }
+    if (FEATURES.targetDeliveryOrderApi) {
+      tasks.push(this.loadRecentDelivery(contextKey))
+    }
+    const request = Promise.all(tasks).then(() => undefined)
+    this.overviewLoadPromise = request
+    this.overviewLoadPromiseContextKey = contextKey
+    const clearRequest = () => {
+      if (this.overviewLoadPromise === request) {
+        this.overviewLoadPromise = null
+        this.overviewLoadPromiseContextKey = ''
+      }
+    }
+    void request.then(clearRequest, clearRequest)
+    return request
   },
 
-  async loadWalletSummary() {
+  async loadWalletSummary(contextKey: string) {
+    if (this.overviewContextKey !== contextKey) return
     this.setData({ walletLoading: true, walletError: false })
     try {
       const wallet = toWalletDisplay(await myWallet(false))
+      if (this.overviewContextKey !== contextKey) return
       this.setData({
         walletBalanceText: wallet.availableBalance === '—'
           ? '—'
           : `¥${wallet.availableBalance}`,
       })
     } catch (error) {
+      if (this.overviewContextKey !== contextKey) return
       this.setData({ walletBalanceText: '—', walletError: true })
     } finally {
-      this.setData({ walletLoading: false })
+      if (this.overviewContextKey === contextKey) {
+        this.setData({ walletLoading: false })
+      }
     }
   },
 
-  async loadRecentDelivery() {
+  async loadRecentDelivery(contextKey: string) {
+    if (this.overviewContextKey !== contextKey) return
     this.setData({ recentLoading: true, recentError: false })
     try {
       const result = await myDeliveries({ limit: 1 }, false)
+      if (this.overviewContextKey !== contextKey) return
       const latest = result.items[0]
       this.setData({
         recentDelivery: latest ? toDeliveryListItem(latest) : null,
       })
     } catch (error) {
+      if (this.overviewContextKey !== contextKey) return
       this.setData({ recentDelivery: null, recentError: true })
     } finally {
-      this.setData({ recentLoading: false })
+      if (this.overviewContextKey === contextKey) {
+        this.setData({ recentLoading: false })
+      }
     }
   },
 
-  onRetryRecent() {
-    if (!FEATURES.targetDeliveryOrderApi) return
-    if (this.data.recentError) void this.loadRecentDelivery()
-  },
-
-  onOpenProfile() {
-    wx.switchTab({ url: '/pages/profile/profile' })
+  async onPullDownRefresh() {
+    try {
+      const contextKey = getSession()?.organizationUserUid || ''
+      if (!contextKey) return
+      if (this.overviewContextKey !== contextKey) this.onShow()
+      if (this.overviewContextKey === contextKey) {
+        await this.refreshOverview(contextKey)
+      }
+    } finally {
+      wx.stopPullDownRefresh()
+    }
   },
 
   onWalletTap() {
@@ -163,15 +216,7 @@ Page({
     ) {
       return
     }
-    if (!FEATURES.targetWalletApi) {
-      this.onOpenProfile()
-      return
-    }
-    if (this.data.walletError) {
-      void this.loadWalletSummary()
-      return
-    }
-    this.onOpenProfile()
+    wx.navigateTo({ url: '/pages/wallet/wallet' })
   },
 
   onOpenOrders() {

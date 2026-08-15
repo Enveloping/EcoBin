@@ -7,13 +7,18 @@
           {{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + availableBalance))}}
         </view>
       </view>
-      <view class="balance-icon">
-        <t-icon name="wallet" size="54rpx" color="#10a625" />
+      <view
+        class="withdrawal-button"
+        bindtap="onWithdrawals"
+        hover-class="withdrawal-button--pressed"
+      >
+        <text>提现</text>
+        <t-icon name="wallet" size="38rpx" color="#10a625" />
       </view>
     </view>
     <view class="balance-meta">
       <view class="balance-meta-item">
-        <text>待审核返现</text>
+        <text>待审核</text>
         <text>{{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + pendingReward))}}</text>
       </view>
       <view class="balance-divider"></view>
@@ -21,17 +26,6 @@
         <text>提现处理中</text>
         <text>{{summaryLoading ? '读取中' : (summaryError ? '—' : ('¥' + withdrawalProcessing))}}</text>
       </view>
-    </view>
-    <view
-      class="withdrawal-entry"
-      bindtap="onWithdrawals"
-      hover-class="withdrawal-entry--pressed"
-    >
-      <view>
-        <view class="withdrawal-entry-title">申请提现</view>
-        <view class="withdrawal-entry-copy">查看人工审核与微信收款状态</view>
-      </view>
-      <t-icon name="chevron-right" size="36rpx" color="#10a625" />
     </view>
   </view>
 

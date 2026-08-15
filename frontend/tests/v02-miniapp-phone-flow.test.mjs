@@ -215,6 +215,15 @@ test('miniapp orders and wallet use the target read contracts', () => {
   const walletApiSource = source(
     '../miniprogram/miniprogram/api/wallet.ts',
   );
+  const homeSource = source(
+    '../miniprogram/miniprogram/pages/home/home.ts',
+  );
+  const homeMarkup = source(
+    '../miniprogram/miniprogram/pages/home/home.wxml',
+  );
+  const homeStyles = source(
+    '../miniprogram/miniprogram/pages/home/home.wxss',
+  );
   const ordersSource = source(
     '../miniprogram/miniprogram/pages/orders/orders.ts',
   );
@@ -230,8 +239,17 @@ test('miniapp orders and wallet use the target read contracts', () => {
   const profileSource = source(
     '../miniprogram/miniprogram/pages/profile/profile.ts',
   );
+  const profileMarkup = source(
+    '../miniprogram/miniprogram/pages/profile/profile.wxml',
+  );
   const walletPageSource = source(
     '../miniprogram/miniprogram/pages/wallet/wallet.ts',
+  );
+  const walletMarkup = source(
+    '../miniprogram/miniprogram/pages/wallet/wallet.wxml',
+  );
+  const walletStyles = source(
+    '../miniprogram/miniprogram/pages/wallet/wallet.wxss',
   );
   const appJsonSource = source(
     '../miniprogram/miniprogram/app.json',
@@ -246,6 +264,11 @@ test('miniapp orders and wallet use the target read contracts', () => {
   assert.doesNotMatch(deliveryApiSource, /\/api\/app\/delivery\/my/);
   assert.match(ordersSource, /nextCursor/);
   assert.match(ordersSource, /reviewStatus:\s*reviewStatus\(this\.data\.active\)/);
+  assert.match(ordersSource, /initialFilter\(options\.reviewStatus\)/);
+  assert.match(
+    ordersSource,
+    /reviewStatusValue === 'PENDING' \? 'PENDING' : 'ALL'/,
+  );
   assert.match(ordersSource, /COMMON\.INVALID_CURSOR/);
   assert.match(detailSource, /deliveryDetail\(this\.deliveryOrderNo,\s*false\)/);
   assert.match(
@@ -259,7 +282,30 @@ test('miniapp orders and wallet use the target read contracts', () => {
     /\/api\/v1\/miniapp\/me\/wallet\/entries/,
   );
   assert.doesNotMatch(walletApiSource, /\/api\/app\/wallet/);
+  assert.match(
+    homeSource,
+    /wx\.navigateTo\(\{ url: '\/pages\/wallet\/wallet' \}\)/,
+  );
+  assert.match(homeMarkup, /class="card-icon wallet-icon"/);
+  assert.match(homeMarkup, /class="wallet-value-text"/);
+  assert.match(homeStyles, /\.wallet-card\s*\{[^}]*display:\s*grid;/);
+  assert.match(homeStyles, /\.wallet-icon\s*\{[^}]*grid-row:\s*2;/);
+  assert.match(homeStyles, /\.wallet-value\s*\{[^}]*grid-row:\s*2;/);
+  assert.match(homeStyles, /\.wallet-value\s*\{[^}]*height:\s*96rpx;/);
+  assert.match(homeStyles, /\.wallet-value\s*\{[^}]*align-items:\s*center;/);
+  assert.match(
+    homeStyles,
+    /\.wallet-value\s*\{[^}]*transform:\s*translateY\(-24rpx\);/,
+  );
+  assert.match(homeStyles, /\.wallet-value-text\s*\{[^}]*line-height:\s*1;/);
   assert.match(profileSource, /\/pages\/wallet\/wallet/);
+  assert.match(
+    profileSource,
+    /\/pages\/orders\/orders\?reviewStatus=PENDING/,
+  );
+  assert.match(profileMarkup, /bindtap="onPendingReviewTap"/);
+  assert.match(profileMarkup, /<text>待审核<\/text>/);
+  assert.doesNotMatch(profileMarkup, /待审核返现/);
   assert.doesNotMatch(
     profileSource,
     /placeholder\/placeholder\?title=钱包明细/,
@@ -268,6 +314,16 @@ test('miniapp orders and wallet use the target read contracts', () => {
   assert.match(walletPageSource, /myWalletEntries/);
   assert.match(walletPageSource, /nextCursor/);
   assert.match(walletPageSource, /COMMON\.INVALID_CURSOR/);
+  assert.match(walletMarkup, /<text>待审核<\/text>/);
+  assert.match(walletMarkup, /class="withdrawal-button"/);
+  assert.match(walletMarkup, /bindtap="onWithdrawals"/);
+  assert.match(walletMarkup, /<text>提现<\/text>/);
+  assert.match(
+    walletPageSource,
+    /onWithdrawals\(\)\s*\{\s*wx\.navigateTo\(\{ url: '\/pages\/withdrawals\/withdrawals' \}\)/,
+  );
+  assert.match(walletStyles, /\.withdrawal-button\s*\{/);
+  assert.doesNotMatch(walletMarkup, /待审核返现|申请提现|withdrawal-entry/);
   assert.match(configSource, /targetDeliveryOrderApi:\s*true/);
   assert.match(configSource, /targetWalletApi:\s*true/);
   assert.match(configSource, /targetWithdrawalApi:\s*true/);
@@ -277,6 +333,55 @@ test('miniapp orders and wallet use the target read contracts', () => {
     /placeholder\/placeholder\?title=(?:账户提现|提现记录)/,
   );
   assert.doesNotMatch(configSource, /targetUserDataApi/);
+});
+
+test('home and profile refresh once automatically per organization account', () => {
+  const homeSource = source(
+    '../miniprogram/miniprogram/pages/home/home.ts',
+  );
+  const homeMarkup = source(
+    '../miniprogram/miniprogram/pages/home/home.wxml',
+  );
+  const homeConfig = JSON.parse(source(
+    '../miniprogram/miniprogram/pages/home/home.json',
+  ));
+  const profileSource = source(
+    '../miniprogram/miniprogram/pages/profile/profile.ts',
+  );
+  const profileConfig = JSON.parse(source(
+    '../miniprogram/miniprogram/pages/profile/profile.json',
+  ));
+
+  assert.equal(homeConfig.enablePullDownRefresh, true);
+  assert.equal(profileConfig.enablePullDownRefresh, true);
+  assert.match(
+    homeSource,
+    /const contextKey = session\.organizationUserUid[\s\S]*const shouldAutoLoad = this\.overviewContextKey !== contextKey/,
+  );
+  assert.match(
+    homeSource,
+    /if \(shouldAutoLoad\) void this\.refreshOverview\(contextKey\)/,
+  );
+  assert.match(homeSource, /overviewLoadPromiseContextKey === contextKey/);
+  assert.match(homeSource, /async onPullDownRefresh\(\)/);
+  assert.match(homeSource, /await this\.refreshOverview\(contextKey\)/);
+  assert.match(homeSource, /wx\.stopPullDownRefresh\(\)/);
+  assert.doesNotMatch(homeSource, /onRetryRecent/);
+  assert.doesNotMatch(homeMarkup, /bindtap="onRetryRecent"|点击重试/);
+  assert.match(homeMarkup, /下拉刷新重试/);
+
+  assert.match(
+    profileSource,
+    /const contextKey = session\.organizationUserUid[\s\S]*const shouldAutoLoad = this\.walletContextKey !== contextKey/,
+  );
+  assert.match(
+    profileSource,
+    /if \(shouldAutoLoad\) void this\.refreshWallet\(contextKey\)/,
+  );
+  assert.match(profileSource, /walletLoadPromiseContextKey === contextKey/);
+  assert.match(profileSource, /async onPullDownRefresh\(\)/);
+  assert.match(profileSource, /await this\.refreshWallet\(contextKey\)/);
+  assert.match(profileSource, /wx\.stopPullDownRefresh\(\)/);
 });
 
 test('cached sessions are validated and ordinary users can really log out', () => {

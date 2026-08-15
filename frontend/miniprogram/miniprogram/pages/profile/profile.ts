@@ -45,6 +45,9 @@ interface MenuItem {
 
 Page({
   phoneBindingIntentKey: '',
+  walletContextKey: '',
+  walletLoadPromise: null as Promise<void> | null,
+  walletLoadPromiseContextKey: '',
 
   data: {
     loggedIn: false,
@@ -86,19 +89,34 @@ Page({
     if (tabBar) (tabBar as any).init()
     const session = getSession()
     if (session) {
+      const contextKey = session.organizationUserUid
+      const shouldAutoLoad = this.walletContextKey !== contextKey
+      if (shouldAutoLoad) this.walletContextKey = contextKey
       this.setData({
         loggedIn: true,
         nickname: session.displayName,
         organizationName: session.organization.displayName,
         phoneBound: session.phoneBound,
         entryPreviewEnabled: isEntryPreviewEnabled(),
+        ...(shouldAutoLoad ? {
+          availableBalanceText: '—',
+          pendingRewardText: '—',
+          withdrawalProcessingText: '—',
+          walletLoading: false,
+          walletError: false,
+          hasAvailableBalance: false,
+          hasWithdrawalProcessing: false,
+          withdrawalProcessingKnown: false,
+          canWithdraw: false,
+        } : {}),
       }, () => {
         this.setPhoneGrantTabBarHidden(this.data.showPhoneGrant)
-        if (FEATURES.targetWalletApi) void this.loadWallet()
+        if (shouldAutoLoad) void this.refreshWallet(contextKey)
       })
       return
     }
 
+    this.walletContextKey = ''
     this.setData({
       loggedIn: false,
       nickname: '请登录',
@@ -112,19 +130,43 @@ Page({
       availableBalanceText: '—',
       pendingRewardText: '—',
       withdrawalProcessingText: '—',
+      hasAvailableBalance: false,
+      hasWithdrawalProcessing: false,
+      withdrawalProcessingKnown: false,
+      canWithdraw: false,
       entryPreviewEnabled: isEntryPreviewEnabled(),
     })
     this.setPhoneGrantTabBarHidden(false)
   },
 
-  async loadWallet() {
-    if (!FEATURES.targetWalletApi) {
-      this.setData({ walletLoading: false, walletError: false })
-      return
+  refreshWallet(contextKey: string): Promise<void> {
+    if (!FEATURES.targetWalletApi || !contextKey) return Promise.resolve()
+    if (
+      this.walletLoadPromise
+      && this.walletLoadPromiseContextKey === contextKey
+    ) {
+      return this.walletLoadPromise
     }
+
+    const request = this.loadWallet(contextKey)
+    this.walletLoadPromise = request
+    this.walletLoadPromiseContextKey = contextKey
+    const clearRequest = () => {
+      if (this.walletLoadPromise === request) {
+        this.walletLoadPromise = null
+        this.walletLoadPromiseContextKey = ''
+      }
+    }
+    void request.then(clearRequest, clearRequest)
+    return request
+  },
+
+  async loadWallet(contextKey: string) {
+    if (this.walletContextKey !== contextKey) return
     this.setData({ walletLoading: true, walletError: false })
     try {
       const wallet = toWalletDisplay(await myWallet(false))
+      if (this.walletContextKey !== contextKey) return
       this.setData({
         availableBalanceText: wallet.availableBalance === '—'
           ? '—'
@@ -141,6 +183,7 @@ Page({
         canWithdraw: wallet.canWithdraw,
       })
     } catch (error) {
+      if (this.walletContextKey !== contextKey) return
       this.setData({
         availableBalanceText: '—',
         pendingRewardText: '—',
@@ -152,15 +195,36 @@ Page({
         walletError: true,
       })
     } finally {
-      this.setData({ walletLoading: false })
+      if (this.walletContextKey === contextKey) {
+        this.setData({ walletLoading: false })
+      }
     }
   },
 
-  onWalletRetry() {
-    if (!FEATURES.targetWalletApi) return
-    const session = getSession()
-    if (requestLoginBeforeAction(session, () => this.onShow())) return
-    void this.loadWallet()
+  async onPullDownRefresh() {
+    try {
+      const contextKey = getSession()?.organizationUserUid || ''
+      if (!contextKey) return
+      if (this.walletContextKey !== contextKey) this.onShow()
+      if (this.walletContextKey === contextKey) {
+        await this.refreshWallet(contextKey)
+      }
+    } finally {
+      wx.stopPullDownRefresh()
+    }
+  },
+
+  onPendingReviewTap() {
+    const url = '/pages/orders/orders?reviewStatus=PENDING'
+    if (
+      requestLoginBeforeAction(getSession(), () => {
+        this.onShow()
+        wx.navigateTo({ url })
+      })
+    ) {
+      return
+    }
+    wx.navigateTo({ url })
   },
 
   onMenuTap(e: WechatMiniprogram.TouchEvent) {

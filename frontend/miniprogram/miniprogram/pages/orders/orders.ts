@@ -19,6 +19,10 @@ function reviewStatus(filter: DeliveryFilter): DeliveryReviewStatus | undefined 
   return filter === 'ALL' ? undefined : filter
 }
 
+function initialFilter(reviewStatusValue: string | undefined): DeliveryFilter {
+  return reviewStatusValue === 'PENDING' ? 'PENDING' : 'ALL'
+}
+
 Page({
   requestGeneration: 0,
   cursorRecoveryUsed: false,
@@ -40,9 +44,15 @@ Page({
     errorMessage: '',
   },
 
-  onLoad() {
+  onLoad(options: Record<string, string | undefined>) {
     if (!FEATURES.targetDeliveryOrderApi) return
-    void this.reload()
+    const active = initialFilter(options.reviewStatus)
+    this.setData({
+      active,
+      currentFilterText: active === 'PENDING' ? '待审核' : '全部订单',
+    }, () => {
+      void this.reload()
+    })
   },
 
   onPullDownRefresh() {
