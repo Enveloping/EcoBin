@@ -1675,47 +1675,47 @@ public class OneNetClient
                     "acceptance command expiry must follow issue time");
         }
 
-        Map<String, Object> scalarFields = new LinkedHashMap<>();
+        Map<String, Object> scalarFields1 = new LinkedHashMap<>();
         // OneNet represents the domain constant "2" as local enum code 1.
         requiredInteger(envelope, "schemaVersion", 2, 2);
-        scalarFields.put("schemaVersion", 1);
-        scalarFields.put(
+        scalarFields1.put("schemaVersion", 1);
+        scalarFields1.put(
                 "commandUid",
                 requiredUuid(envelope, "commandUid"));
-        scalarFields.put("commandType", 1);
-        scalarFields.put("targetDeviceName", deviceName);
-        scalarFields.put("issuedAt", issuedAtText);
-        scalarFields.put("expiresAt", expiresAtText);
+        scalarFields1.put("commandType", 1);
+        scalarFields1.put("targetDeviceName", deviceName);
+        scalarFields1.put("issuedAt", issuedAtText);
+        scalarFields1.put("expiresAt", expiresAtText);
         requiredInteger(envelope, "payloadSchemaVersion", 2, 2);
-        scalarFields.put("payloadSchemaVersion", 1);
-        scalarFields.put(
+        scalarFields1.put("payloadSchemaVersion", 1);
+        scalarFields1.put(
                 "payloadSha256",
                 requiredMatchingText(
                         envelope,
                         "payloadSha256",
                         "^[0-9a-f]{64}$",
                         64));
-        scalarFields.put(
+        scalarFields1.put(
                 "challengeUid",
                 requiredUuid(payload, "challengeUid"));
-        scalarFields.put(
+        scalarFields1.put(
                 "expectedPortCount",
                 requiredInteger(payload, "expectedPortCount", 1, 6));
-        scalarFields.put(
+        scalarFields1.put(
                 "factoryBagRevision",
                 requiredInteger(
                         payload,
                         "factoryBagRevision",
                         0,
                         9_007_199_254_740_991L));
-        scalarFields.put(
+        scalarFields1.put(
                 "factoryBagSetSha256",
                 requiredMatchingText(
                         payload,
                         "factoryBagSetSha256",
                         "^[0-9a-f]{64}$",
                         64));
-        putDeviceEntryUrl(payload, scalarFields);
+        putDeviceEntryUrl(payload, scalarFields1);
 
         Map<String, Object> first = new LinkedHashMap<>();
         Map<String, Object> second = new LinkedHashMap<>();
@@ -1729,11 +1729,21 @@ public class OneNetClient
             throw new IllegalArgumentException(
                     "acceptance command requires COS credentials");
         }
-        scalarFields.putAll(first);
-        scalarFields.putAll(second);
+        scalarFields1.putAll(first);
+        // The generated OneNet model caps a struct at twenty members.  The
+        // two V52 bag-generation fields pushed acceptance credentials across
+        // that boundary: region/baseUrl remain in scalarFields1 while the
+        // final keyPrefix/expiresAt pair lives in scalarFields2.
+        scalarFields1.put(
+                "cosGrantRegion",
+                second.remove("cosGrantRegion"));
+        scalarFields1.put(
+                "cosGrantBaseUrl",
+                second.remove("cosGrantBaseUrl"));
 
         Map<String, Object> params = new LinkedHashMap<>();
-        params.put("scalarFields", scalarFields);
+        params.put("scalarFields1", scalarFields1);
+        params.put("scalarFields2", second);
         params.put("target", Map.of("type", 1, "uid", deviceName));
         params.put(
                 "cosGrantSessionTokenParts",

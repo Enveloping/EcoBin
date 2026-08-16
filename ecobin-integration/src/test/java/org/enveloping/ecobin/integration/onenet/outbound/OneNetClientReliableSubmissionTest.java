@@ -26,6 +26,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -716,31 +717,37 @@ class OneNetClientReliableSubmissionTest {
         assertEquals(
                 "requestDeviceAcceptance",
                 actual.path("identifier").asText());
-        assertEquals(3, params.size());
+        assertEquals(4, params.size());
+        assertFalse(params.has("scalarFields"));
         assertEquals(
                 1,
-                params.path("scalarFields")
+                params.path("scalarFields1")
                         .path("schemaVersion")
                         .asInt());
         assertEquals(
                 HARDWARE_SN,
-                params.path("scalarFields")
+                params.path("scalarFields1")
                         .path("targetDeviceName")
                         .asText());
         assertEquals(
                 2,
-                params.path("scalarFields")
+                params.path("scalarFields1")
                         .path("factoryBagRevision")
                         .asLong());
         assertEquals(
                 "a".repeat(64),
-                params.path("scalarFields")
+                params.path("scalarFields1")
                         .path("factoryBagSetSha256")
+                        .asText());
+        assertEquals(
+                "ap-guangzhou",
+                params.path("scalarFields1")
+                        .path("cosGrantRegion")
                         .asText());
         assertEquals(
                 "ecobin/device-acceptance/"
                         + "8a000000-0000-4000-8000-000000000003/",
-                params.path("scalarFields")
+                params.path("scalarFields2")
                         .path("cosGrantKeyPrefix")
                         .asText());
         assertEquals(
