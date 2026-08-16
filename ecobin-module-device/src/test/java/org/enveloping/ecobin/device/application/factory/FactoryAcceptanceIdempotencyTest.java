@@ -137,6 +137,43 @@ class FactoryAcceptanceIdempotencyTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void locksImmutableIssuedLabelWithSelectOnlyShareLock()
+            throws Exception {
+        UUID operationUid = UUID.randomUUID();
+        when(idempotency.claim(any())).thenReturn(
+                GlobalOperationClaim.acquired());
+        ResultSet asset = assetRow(UUID.randomUUID());
+        doAnswer(invocation -> {
+            RowMapper<Object> mapper = invocation.getArgument(1);
+            return List.of(mapper.mapRow(asset, 0));
+        }).when(jdbc).query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class));
+        AtomicReference<String> labelSql = new AtomicReference<>();
+        doAnswer(invocation -> {
+            labelSql.set(invocation.getArgument(0));
+            return List.of();
+        }).when(jdbc).query(
+                contains("FROM rec_bag_label_item"),
+                any(RowMapper.class),
+                any(Object[].class));
+
+        assertThatThrownBy(() -> service.install(
+                operationUid,
+                DEVICE_CODE,
+                new InstallFactoryBagRequest(1, BAG_CODE)))
+                .isInstanceOf(TargetApiException.class)
+                .extracting("code")
+                .isEqualTo("RECYCLING.BAG_LABEL_NOT_ISSUED");
+
+        assertThat(labelSql.get())
+                .contains("FOR SHARE")
+                .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void completedGlobalClaimReplaysWithoutLockingOrWritingTarget()
             throws Exception {
         UUID operationUid = UUID.randomUUID();

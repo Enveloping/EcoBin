@@ -47,7 +47,10 @@ class DeviceEnrollmentRemoteSupportMigrationTest {
                 .contains(
                         "CASE WHEN LEASE_RELEASED_AT IS NULL",
                         "FACTORY_BAG_REVISION BIGINT",
-                        "FACTORY_BAG_SET_SHA256 BINARY(32)");
+                        "FACTORY_BAG_SET_SHA256 BINARY(32)",
+                        "CONSTRAINT UQ_DEV_FACTORY_BAG_LABEL_V52 UNIQUE (LABEL_ITEM_ID)",
+                        "CONSTRAINT UQ_REC_BAG_LABEL_CLAIM_ACTIVE_LABEL",
+                        "UNIQUE (ACTIVE_LABEL_ITEM_ID)");
         assertThat(sql)
                 .contains("(22011, 1", "(22014, 1")
                 .doesNotContain(

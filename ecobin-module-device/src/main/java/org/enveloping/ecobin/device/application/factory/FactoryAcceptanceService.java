@@ -638,11 +638,14 @@ public class FactoryAcceptanceService {
     }
 
     private Label lockLabel(String bagCode) {
+        // Issued labels are immutable printing facts.  A shared lock keeps the
+        // row alive while the unique active-claim constraint arbitrates
+        // concurrent attempts to bind the same label.
         return jdbc.query("""
                         SELECT id, bag_code
                         FROM rec_bag_label_item
                         WHERE bag_code = ?
-                        FOR UPDATE
+                        FOR SHARE
                         """,
                 (rs, ignored) -> new Label(
                         rs.getLong("id"), rs.getString("bag_code")),
