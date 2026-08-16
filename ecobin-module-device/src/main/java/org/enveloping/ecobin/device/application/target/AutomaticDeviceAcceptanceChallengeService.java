@@ -1,6 +1,7 @@
 package org.enveloping.ecobin.device.application.target;
 
 import org.enveloping.ecobin.device.api.port.DeviceAcceptanceChallengeCoordinatorPort;
+import org.enveloping.ecobin.device.api.port.TrustedDeviceAcceptanceChallengePort;
 import org.enveloping.ecobin.framework.reliability.PlatformDeviceAssetTaskRefFactory;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistration;
 import org.enveloping.ecobin.framework.reliability.ReliablePlatformDeviceControlTaskRegistrationPort;
@@ -39,6 +40,7 @@ public class AutomaticDeviceAcceptanceChallengeService
     private final PlatformDeviceAssetTaskRefFactory taskRefFactory;
     private final ReliablePlatformDeviceControlTaskRegistrationPort
             taskRegistration;
+    private final TrustedDeviceAcceptanceChallengePort acceptanceChallenges;
     private final boolean realExternalMode;
     private final Duration retryInterval;
     private final Duration commandLifetime;
@@ -51,6 +53,7 @@ public class AutomaticDeviceAcceptanceChallengeService
             PlatformDeviceAssetTaskRefFactory taskRefFactory,
             ReliablePlatformDeviceControlTaskRegistrationPort
                     taskRegistration,
+            TrustedDeviceAcceptanceChallengePort acceptanceChallenges,
             @Value("${ecobin.external.mode:fake}") String externalMode,
             @Value("${ecobin.device.acceptance.challenge-retry-interval:PT5M}")
             Duration retryInterval,
@@ -62,6 +65,7 @@ public class AutomaticDeviceAcceptanceChallengeService
         this.deviceEntryUrlFactory = deviceEntryUrlFactory;
         this.taskRefFactory = taskRefFactory;
         this.taskRegistration = taskRegistration;
+        this.acceptanceChallenges = acceptanceChallenges;
         this.realExternalMode = "real".equalsIgnoreCase(externalMode);
         this.retryInterval = positive(retryInterval, "retryInterval");
         this.commandLifetime = positive(commandLifetime, "commandLifetime");
@@ -150,6 +154,8 @@ public class AutomaticDeviceAcceptanceChallengeService
                 || asset.factoryBagSetSha256() == null) {
             return false;
         }
+        LocalDateTime now = databaseNow();
+        acceptanceChallenges.cancelExpiredBlocked(asset.id(), now);
         Integer active = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM ops_reliable_task
@@ -174,7 +180,6 @@ public class AutomaticDeviceAcceptanceChallengeService
                 LocalDateTime.class,
                 TASK_TYPE,
                 asset.id());
-        LocalDateTime now = databaseNow();
         if (latest != null
                 && latest.plus(retryInterval).isAfter(now)) {
             return false;

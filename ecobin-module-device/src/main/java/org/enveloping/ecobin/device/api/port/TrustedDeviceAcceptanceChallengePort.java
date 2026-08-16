@@ -15,4 +15,11 @@ public interface TrustedDeviceAcceptanceChallengePort {
             LocalDateTime receivedAt);
 
     void cancelOutstanding(long assetId, LocalDateTime cancelledAt);
+
+    /**
+     * Cancels only blocked challenges whose frozen command lifetime has
+     * elapsed, allowing the automatic coordinator to issue a fresh
+     * challenge without replaying an expired command.
+     */
+    void cancelExpiredBlocked(long assetId, LocalDateTime cancelledAt);
 }

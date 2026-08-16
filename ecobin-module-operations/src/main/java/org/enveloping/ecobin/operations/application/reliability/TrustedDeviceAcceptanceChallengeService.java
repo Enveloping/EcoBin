@@ -143,6 +143,43 @@ public class TrustedDeviceAcceptanceChallengeService
                 assetId);
     }
 
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void cancelExpiredBlocked(
+            long assetId, LocalDateTime cancelledAt) {
+        jdbc.update("""
+                        UPDATE ops_reliable_task
+                        SET state = 'CANCELLED',
+                            next_run_at = NULL,
+                            lease_token = NULL,
+                            lease_worker = NULL,
+                            lease_until = NULL,
+                            dispatch_wait_reason = NULL,
+                            handled_wake_version = wake_version,
+                            completed_at = COALESCE(completed_at, ?),
+                            blocked_reason_code = NULL,
+                            blocked_diagnostic = NULL,
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE scope_kind = 'PLATFORM'
+                          AND tenant_id IS NULL
+                          AND organization_id IS NULL
+                          AND task_type = 'REQUEST_DEVICE_ACCEPTANCE'
+                          AND source_device_asset_id = ?
+                          AND state = 'BLOCKED'
+                          AND lease_token IS NULL
+                          AND STR_TO_DATE(
+                              JSON_UNQUOTE(JSON_EXTRACT(
+                                  redacted_execution_snapshot,
+                                  '$.expiresAt')),
+                              '%Y-%m-%dT%H:%i:%s.%fZ') <= ?
+                        """,
+                cancelledAt,
+                cancelledAt,
+                assetId,
+                cancelledAt);
+    }
+
     static boolean sameFactoryBagSnapshot(
             long taskRevision,
             String taskDigest,
