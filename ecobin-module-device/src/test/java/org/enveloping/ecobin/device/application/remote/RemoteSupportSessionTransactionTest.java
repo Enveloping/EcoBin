@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -89,6 +91,20 @@ class RemoteSupportSessionTransactionTest {
         afterCommit();
 
         verify(leases).synchronizeDesired(lease);
+    }
+
+    @Test
+    void assetLockDoesNotRequestWritePrivilegeOnImmutableIdentity() {
+        String lockSql = RemoteSupportSessionService.LOCK_ASSET_SQL;
+        String identitySql = RemoteSupportSessionService
+                .READ_MAINTENANCE_IDENTITY_SQL;
+
+        assertTrue(lockSql.contains("dev_device_asset"));
+        assertTrue(lockSql.contains("dev_device_transport_state"));
+        assertTrue(lockSql.contains("FOR UPDATE"));
+        assertFalse(lockSql.contains("dev_device_maintenance_identity"));
+        assertTrue(identitySql.contains("dev_device_maintenance_identity"));
+        assertFalse(identitySql.contains("FOR UPDATE"));
     }
 
     @Test

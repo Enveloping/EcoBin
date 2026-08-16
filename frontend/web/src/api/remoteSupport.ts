@@ -57,6 +57,7 @@ export function getRemoteSupportSession(sessionUid: string) {
     url: `/api/v1/web/platform/remote-support-sessions/${encodeURIComponent(sessionUid)}`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 
@@ -65,6 +66,7 @@ export function getCurrentRemoteSupportSession(hardwareSn: string) {
     url: `/api/v1/web/platform/device-assets/${encodeURIComponent(hardwareSn)}/remote-support-sessions/current`,
     method: 'GET',
     noStore: true,
+    silent: true,
   });
 }
 

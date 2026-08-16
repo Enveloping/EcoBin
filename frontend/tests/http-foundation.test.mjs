@@ -49,6 +49,24 @@ test('miniapp transport omits undefined request fields without changing valid va
   );
 });
 
+test('remote support background reads handle an absent session without global errors', () => {
+  const source = readFileSync(
+    new URL('../web/src/api/remoteSupport.ts', import.meta.url),
+    'utf8',
+  );
+  const sessionRead = source.match(
+    /export function getRemoteSupportSession[\s\S]*?\n}\n/,
+  )?.[0];
+  const currentSessionRead = source.match(
+    /export function getCurrentRemoteSupportSession[\s\S]*?\n}\n/,
+  )?.[0];
+
+  assert.ok(sessionRead);
+  assert.ok(currentSessionRead);
+  assert.match(sessionRead, /silent:\s*true/);
+  assert.match(currentSessionRead, /silent:\s*true/);
+});
+
 test('web startup migration removes the legacy persisted Bearer store', () => {
   const removed = [];
   migrateLegacyWebCredentials({

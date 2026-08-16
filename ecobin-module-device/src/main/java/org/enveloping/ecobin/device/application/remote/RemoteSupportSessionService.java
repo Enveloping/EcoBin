@@ -71,6 +71,21 @@ public class RemoteSupportSessionService {
             "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}"
                     + "-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
     private static final String SHA256 = "^[0-9a-f]{64}$";
+    static final String LOCK_ASSET_SQL = """
+            SELECT asset.id, asset.hardware_sn,
+                   asset.lifecycle_status,
+                   transport.onenet_connection_status
+            FROM dev_device_asset asset
+            JOIN dev_device_transport_state transport
+              ON transport.asset_id = asset.id
+            WHERE asset.hardware_sn = ?
+            FOR UPDATE
+            """;
+    static final String READ_MAINTENANCE_IDENTITY_SQL = """
+            SELECT tunnel_public_key, ssh_host_public_key
+            FROM dev_device_maintenance_identity
+            WHERE asset_id = ?
+            """;
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -934,32 +949,30 @@ public class RemoteSupportSessionService {
     }
 
     private Asset lockAsset(String hardwareSn) {
-        return jdbc.query("""
-                        SELECT asset.id, asset.hardware_sn,
-                               asset.lifecycle_status,
-                               transport.onenet_connection_status,
-                               maintenance.tunnel_public_key,
-                               maintenance.ssh_host_public_key
-                        FROM dev_device_asset asset
-                        JOIN dev_device_transport_state transport
-                          ON transport.asset_id = asset.id
-                        JOIN dev_device_maintenance_identity maintenance
-                          ON maintenance.asset_id = asset.id
-                        WHERE asset.hardware_sn = ?
-                        FOR UPDATE
-                        """,
-                (rs, ignored) -> new Asset(
+        LockedAsset locked = jdbc.query(LOCK_ASSET_SQL,
+                (rs, ignored) -> new LockedAsset(
                         rs.getLong("id"),
                         rs.getString("hardware_sn"),
                         rs.getString("lifecycle_status"),
-                        rs.getString("onenet_connection_status"),
+                        rs.getString("onenet_connection_status")),
+                hardwareSn).stream().findFirst()
+                .orElseThrow(RemoteSupportSessionService
+                        ::remoteSupportIdentityRequired);
+        MaintenanceIdentity identity = jdbc.query(
+                READ_MAINTENANCE_IDENTITY_SQL,
+                (rs, ignored) -> new MaintenanceIdentity(
                         rs.getString("tunnel_public_key"),
                         rs.getString("ssh_host_public_key")),
-                hardwareSn).stream().findFirst()
-                .orElseThrow(() -> new TargetApiException(
-                        422,
-                        "DEVICE.REMOTE_SUPPORT_IDENTITY_REQUIRED",
-                        "设备尚未完成新版维护身份注册"));
+                locked.id()).stream().findFirst()
+                .orElseThrow(RemoteSupportSessionService
+                        ::remoteSupportIdentityRequired);
+        return new Asset(
+                locked.id(),
+                locked.hardwareSn(),
+                locked.lifecycleStatus(),
+                locked.oneNetStatus(),
+                identity.tunnelPublicKey(),
+                identity.hostPublicKey());
     }
 
     private int allocatePort() {
@@ -1528,6 +1541,13 @@ public class RemoteSupportSessionService {
                 "仅平台管理员可以管理远程维护会话");
     }
 
+    private static TargetApiException remoteSupportIdentityRequired() {
+        return new TargetApiException(
+                422,
+                "DEVICE.REMOTE_SUPPORT_IDENTITY_REQUIRED",
+                "设备尚未完成新版维护身份注册");
+    }
+
     private static TargetApiException notFound() {
         return new TargetApiException(
                 404, "RESOURCE.NOT_FOUND", "远程维护会话不存在");
@@ -1544,6 +1564,18 @@ public class RemoteSupportSessionService {
             String hardwareSn,
             String lifecycleStatus,
             String oneNetStatus,
+            String tunnelPublicKey,
+            String hostPublicKey) {
+    }
+
+    private record LockedAsset(
+            long id,
+            String hardwareSn,
+            String lifecycleStatus,
+            String oneNetStatus) {
+    }
+
+    private record MaintenanceIdentity(
             String tunnelPublicKey,
             String hostPublicKey) {
     }
