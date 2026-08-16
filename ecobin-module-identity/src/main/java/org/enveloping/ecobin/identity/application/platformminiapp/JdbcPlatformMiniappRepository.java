@@ -125,7 +125,8 @@ class JdbcPlatformMiniappRepository implements PlatformMiniappRepository {
                             openid, status, auth_version, lock_version,
                             created_at, updated_at
                         ) VALUES (?, ?, ?, 'ACTIVE', 0, 0, ?, ?)
-                        ON DUPLICATE KEY UPDATE id = id
+                        ON DUPLICATE KEY UPDATE
+                            lock_version = lock_version
                         """,
                 subjectUid.toString(),
                 channelId,
