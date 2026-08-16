@@ -1941,6 +1941,187 @@ test('platform configures, activates and enables a shared miniapp channel', asyn
   expect(storedValues.every((value) => !value.includes(fullSecret))).toBe(true);
 });
 
+test('platform binds a factory operator to an existing organization user without exposing OpenID', async ({
+  page,
+}) => {
+  const tenantCode = 'factory-tenant';
+  const organizationCode = 'factory-org';
+  const factoryOperatorUid = '51000000-0000-4000-8000-000000000001';
+  const organizationUserUid = '52000000-0000-4000-8000-000000000001';
+  const session = {
+    ...platformSession,
+    capabilities: ['platform-admin.manage'],
+  };
+  let bound = false;
+  let bindingRequest: Record<string, unknown> | null = null;
+  let bindingIdempotencyKey: string | undefined;
+  const operator = () => ({
+    factoryOperatorUid,
+    operatorCode: 'FACTORY-01',
+    displayName: '验收员甲',
+    status: 'ACTIVE',
+    version: bound ? 3 : 2,
+    authVersion: 0,
+    bindingStatus: bound ? 'ACTIVE' : 'UNBOUND',
+    bindingUid: bound
+      ? '53000000-0000-4000-8000-000000000001'
+      : null,
+    boundAt: bound ? '2026-08-16T08:00:00Z' : null,
+    createdAt: '2026-08-16T07:00:00Z',
+    updatedAt: bound
+      ? '2026-08-16T08:00:00Z'
+      : '2026-08-16T07:00:00Z',
+  });
+
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/sessions/current'
+    ) {
+      await route.fulfill(problem(401));
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/auth/sessions/current'
+    ) {
+      await json(route, session);
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/auth/csrf-token'
+    ) {
+      await json(route, {
+        token: 'factory-binding-csrf',
+        headerName: 'X-CSRF-TOKEN',
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/factory-operators'
+    ) {
+      await json(route, {
+        items: [operator()],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/web/platform/tenants'
+    ) {
+      await json(route, {
+        items: [{
+          tenantCode,
+          enterpriseName: '厂家测试租户',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-08-16T07:00:00Z',
+          updatedAt: '2026-08-16T07:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname
+        === `/api/v1/web/platform/tenants/${tenantCode}/organizations`
+    ) {
+      await json(route, {
+        items: [{
+          organizationCode,
+          organizationName: '厂家测试机构',
+          status: 'ENABLED',
+          version: 1,
+          createdAt: '2026-08-16T07:00:00Z',
+          updatedAt: '2026-08-16T07:00:00Z',
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'GET'
+      && url.pathname === `/api/v1/web/platform/tenants/${tenantCode}`
+        + `/organizations/${organizationCode}/organization-users`
+    ) {
+      await json(route, {
+        items: [{
+          organizationUserUid,
+          nickname: '微信验收测试员',
+          avatarUrl: null,
+          phoneNumber: '+8613812345678',
+          maskedPhoneNumber: '+8613812345678',
+          phoneBound: true,
+          registeredAt: '2026-08-16T07:00:00Z',
+          registrationSource: null,
+          status: 'ACTIVE',
+          cleanOperationEnabled: false,
+          version: 1,
+          authVersion: 0,
+        }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      });
+      return;
+    }
+    if (
+      request.method() === 'PUT'
+      && url.pathname === `/api/v1/web/platform/factory-operators/`
+        + `${factoryOperatorUid}/miniapp-binding`
+    ) {
+      bindingRequest = request.postDataJSON() as Record<string, unknown>;
+      bindingIdempotencyKey = request.headers()['idempotency-key'];
+      bound = true;
+      await json(route, operator());
+      return;
+    }
+    await route.fulfill(problem(404));
+  });
+
+  await page.goto('/factory-operators');
+  await expect(page.getByText('验收员甲', { exact: true })).toBeVisible();
+  await page.getByText('绑定已有微信用户', { exact: true }).click();
+
+  await page.getByLabel('所属租户').click();
+  await page.getByText(`厂家测试租户（${tenantCode}）`, { exact: true }).click();
+  await page.getByLabel('所属机构').click();
+  await page.getByText(
+    `厂家测试机构（${organizationCode}）`,
+    { exact: true },
+  ).click();
+  await page.getByLabel('机构用户').click();
+  await page.getByText(
+    '微信验收测试员 · +8613812345678',
+    { exact: true },
+  ).click();
+  await page.getByRole('button', { name: '确认绑定' }).click();
+
+  await expect(page.getByText('已绑定', { exact: true })).toBeVisible();
+  expect(bindingRequest).toMatchObject({
+    expectedVersion: 2,
+    tenantCode,
+    organizationCode,
+    organizationUserUid,
+  });
+  expect(JSON.stringify(bindingRequest).toLowerCase()).not.toContain('openid');
+  expect(bindingIdempotencyKey).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+});
+
 test('organization edit publishes an immutable delivery rule version', async ({
   page,
 }) => {

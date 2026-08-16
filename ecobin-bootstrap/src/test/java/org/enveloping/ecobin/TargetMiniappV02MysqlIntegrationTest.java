@@ -3,6 +3,7 @@ package org.enveloping.ecobin;
 import org.enveloping.ecobin.framework.context.TrustedAudience;
 import org.enveloping.ecobin.identity.api.command.OrganizationUserRegistrationCommand;
 import org.enveloping.ecobin.identity.api.port.OrganizationUserRegistrationParticipant;
+import org.enveloping.ecobin.identity.application.directory.FactoryOperatorService;
 import org.enveloping.ecobin.identity.application.directory.TargetOrganizationUserBindingService;
 import org.enveloping.ecobin.identity.application.web.TargetWebActor;
 import org.enveloping.ecobin.identity.application.web.TargetWebActorContext;
@@ -15,6 +16,8 @@ import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.PageData;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.SetStaffMiniappBindingRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.StaffMiniappBindingView;
 import org.enveloping.ecobin.identity.web.v1.directory.DirectoryModels.VersionCommand;
+import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.CreateFactoryOperatorRequest;
+import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.SetFactoryOperatorMiniappBindingRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +88,9 @@ class TargetMiniappV02MysqlIntegrationTest {
 
     @Autowired
     private TargetOrganizationUserBindingService bindingService;
+
+    @Autowired
+    private FactoryOperatorService factoryOperatorService;
 
     @Autowired
     private ProbeParticipant participant;
@@ -461,6 +467,91 @@ class TargetMiniappV02MysqlIntegrationTest {
         assertNotNull(audit);
         assertFalse(audit.contains("13812345678"));
         assertFalse(audit.contains("fake-phone:"));
+    }
+
+    @Test
+    void platformBindsExistingOrganizationUserAsFactoryOperatorWithoutOpenId()
+            throws Exception {
+        String wxLoginCode = "fake:factory-existing:" + run;
+        JsonNode ordinary = login(wxLoginCode, deviceCode, 201);
+        UUID organizationUserUid = UUID.fromString(
+                ordinary.path("organizationUserUid").asText());
+        String ordinaryToken = ordinary.path("accessToken").asText();
+
+        asPlatformActor();
+        var operator = factoryOperatorService.create(
+                UUID.randomUUID(),
+                new CreateFactoryOperatorRequest(
+                        "factory-" + run,
+                        "V02 厂家验收员"));
+        UUID bindingOperationUid = UUID.randomUUID();
+        var bindingRequest = new SetFactoryOperatorMiniappBindingRequest(
+                operator.version(),
+                tenantCode,
+                organizationCode,
+                organizationUserUid,
+                "V02 bind an existing WeChat identity");
+        var bound = factoryOperatorService.bindExistingOrganizationUser(
+                bindingOperationUid,
+                operator.factoryOperatorUid(),
+                bindingRequest);
+        assertEquals("ACTIVE", bound.bindingStatus());
+        assertEquals(operator.version() + 1, bound.version());
+        assertNotNull(bound.bindingUid());
+
+        var replay = factoryOperatorService.bindExistingOrganizationUser(
+                bindingOperationUid,
+                operator.factoryOperatorUid(),
+                bindingRequest);
+        assertEquals(bound, replay);
+        clearContexts();
+
+        JsonNode factorySession = factoryLogin(wxLoginCode, 201);
+        assertEquals("miniapp-factory",
+                factorySession.path("audience").asText());
+        assertEquals("FACTORY_ACCEPTANCE",
+                factorySession.path("entryMode").asText());
+        assertEquals(
+                operator.factoryOperatorUid().toString(),
+                factorySession.path("factoryOperatorUid").asText());
+        assertFalse(factorySession.path("newlyBound").asBoolean());
+
+        // Adding the platform-scoped factory role must not revoke or mutate the
+        // organization user's ordinary session and wallet identity.
+        bearerGet(
+                ordinaryToken,
+                "/api/v1/miniapp/auth/sessions/current",
+                200);
+        assertEquals("ACTIVE", jdbc.queryForObject("""
+                        SELECT status
+                        FROM iam_organization_user
+                        WHERE organization_user_uid = ?
+                        """,
+                String.class,
+                organizationUserUid.toString()));
+        assertEquals(1, jdbc.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM fund_user_wallet w
+                        JOIN iam_organization_user u
+                          ON u.tenant_id = w.tenant_id
+                         AND u.organization_id = w.organization_id
+                         AND u.id = w.organization_user_id
+                        WHERE u.organization_user_uid = ?
+                        """,
+                Integer.class,
+                organizationUserUid.toString()));
+
+        String auditSummary = jdbc.queryForObject("""
+                        SELECT safe_change_summary
+                        FROM ops_audit_log
+                        WHERE operation_uid = ?
+                        """,
+                String.class,
+                bindingOperationUid.toString());
+        assertNotNull(auditSummary);
+        assertTrue(auditSummary.contains(
+                "EXISTING_ORGANIZATION_USER"));
+        assertFalse(auditSummary.toLowerCase().contains("openid"));
     }
 
     @Test
@@ -1281,6 +1372,23 @@ class TargetMiniappV02MysqlIntegrationTest {
                                         Map.of(
                                                 "wechatPhoneCode",
                                                 phoneCode))))
+                .andReturn();
+        assertEquals(expectedStatus, result.getResponse().getStatus(),
+                result.getResponse().getContentAsString());
+        JsonNode root = json(result);
+        return expectedStatus < 300 ? root.path("data") : root;
+    }
+
+    private JsonNode factoryLogin(
+            String wxLoginCode,
+            int expectedStatus) throws Exception {
+        MvcResult result = mockMvc.perform(
+                        post("/api/v1/miniapp-factory/auth/sessions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsBytes(
+                                        Map.of(
+                                                "appId", appId,
+                                                "wxLoginCode", wxLoginCode))))
                 .andReturn();
         assertEquals(expectedStatus, result.getResponse().getStatus(),
                 result.getResponse().getContentAsString());

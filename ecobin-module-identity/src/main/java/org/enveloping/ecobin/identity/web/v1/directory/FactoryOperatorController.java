@@ -11,6 +11,7 @@ import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.Fac
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.FactoryBindingRevocationRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.FactoryOperatorStatusRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.FactoryOperatorView;
+import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.SetFactoryOperatorMiniappBindingRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.UpdateFactoryOperatorRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -104,6 +105,16 @@ public class FactoryOperatorController {
             HttpServletRequest request) {
         return ResponseEntity.status(201).body(ok(
                 operators.createBindingIntent(factoryOperatorUid), request));
+    }
+
+    @PutMapping("/{factoryOperatorUid}/miniapp-binding")
+    public TargetApiEnvelope<FactoryOperatorView> setMiniappBinding(
+            @RequestHeader(IDEMPOTENCY_KEY) UUID operationUid,
+            @PathVariable UUID factoryOperatorUid,
+            @Valid @RequestBody SetFactoryOperatorMiniappBindingRequest body,
+            HttpServletRequest request) {
+        return ok(operators.bindExistingOrganizationUser(
+                operationUid, factoryOperatorUid, body), request);
     }
 
     @PostMapping("/{factoryOperatorUid}/miniapp-binding-revocations")

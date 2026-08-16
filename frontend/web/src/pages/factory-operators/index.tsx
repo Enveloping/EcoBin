@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import {
   EditOutlined,
+  LinkOutlined,
   PlusOutlined,
   QrcodeOutlined,
   StopOutlined,
@@ -8,10 +9,13 @@ import {
 import {
   ModalForm,
   PageContainer,
+  ProFormDependency,
+  ProFormSelect,
   ProFormText,
   ProTable,
   type ActionType,
   type ProColumns,
+  type ProFormInstance,
 } from '@ant-design/pro-components';
 import {
   Alert,
@@ -25,6 +29,7 @@ import {
   Typography,
 } from 'antd';
 import {
+  bindFactoryOperatorToOrganizationUser,
   changeFactoryOperatorStatus,
   createFactoryBindingIntent,
   createFactoryOperator,
@@ -35,6 +40,11 @@ import {
   type FactoryOperator,
   type FactoryOperatorStatus,
 } from '@/api/factoryOperators';
+import {
+  listAllIdentityTenants,
+  listAllOrganizationUsers,
+  listAllOrganizations,
+} from '@/api/identityDirectory';
 import { commandKey, useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { pageHeader, proTableConfig } from '@/utils/pageStyle';
 import { formatShanghaiTime } from '@/utils/decimal';
@@ -53,13 +63,25 @@ interface BindingCode {
   intent: FactoryBindingIntent;
 }
 
+interface ExistingUserBindingForm {
+  tenantCode: string;
+  organizationCode: string;
+  organizationUserUid: string;
+  reason: string;
+}
+
 export default function FactoryOperatorsPage() {
   const actionRef = useRef<ActionType>(null);
+  const existingBindingFormRef = useRef<
+    ProFormInstance<ExistingUserBindingForm>
+  >();
   const { message } = App.useApp();
   const executeCommand = useCommandExecutor();
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<FactoryOperator | null>(null);
   const [revoking, setRevoking] = useState<FactoryOperator | null>(null);
+  const [bindingExisting, setBindingExisting] =
+    useState<FactoryOperator | null>(null);
   const [bindingCode, setBindingCode] = useState<BindingCode | null>(null);
   const [bindingLoadingUid, setBindingLoadingUid] = useState('');
 
@@ -74,7 +96,7 @@ export default function FactoryOperatorsPage() {
       commandKey('factory-operator.create', payload.operatorCode, payload),
       (intent) => createFactoryOperator(payload, intent),
     );
-    message.success('厂家操作员已创建；现在可以生成一次性微信绑定码');
+    message.success('厂家操作员已创建；现在可以绑定已有微信用户或生成绑定码');
     setCreateOpen(false);
     reload();
     return true;
@@ -116,7 +138,7 @@ export default function FactoryOperatorsPage() {
       ),
     );
     message.success(enabled
-      ? '操作员已启用；如需使用小程序，请重新生成绑定码'
+      ? '操作员已启用；请重新选择一种微信绑定方式'
       : '操作员已停用，微信绑定和现有工厂会话已撤销');
     reload();
   };
@@ -146,6 +168,34 @@ export default function FactoryOperatorsPage() {
     );
     message.success('微信绑定与已有工厂会话已撤销');
     setRevoking(null);
+    reload();
+    return true;
+  };
+
+  const submitExistingUserBinding = async (
+    values: ExistingUserBindingForm,
+  ) => {
+    if (!bindingExisting) return false;
+    const payload = {
+      tenantCode: values.tenantCode,
+      organizationCode: values.organizationCode,
+      organizationUserUid: values.organizationUserUid,
+      reason: values.reason.trim(),
+    };
+    await executeCommand(
+      commandKey(
+        'factory-operator.binding.set-existing-user',
+        bindingExisting.factoryOperatorUid,
+        { expectedVersion: bindingExisting.version, ...payload },
+      ),
+      (intent) => bindFactoryOperatorToOrganizationUser(
+        bindingExisting,
+        payload,
+        intent,
+      ),
+    );
+    message.success('已有机构用户的微信身份已绑定；本人下次进入小程序即可登录厂家端');
+    setBindingExisting(null);
     reload();
     return true;
   };
@@ -215,7 +265,15 @@ export default function FactoryOperatorsPage() {
         </a>,
         operator.status === 'ACTIVE' && operator.bindingStatus === 'UNBOUND' && (
           <a
-            key='bind'
+            key='bind-existing'
+            onClick={() => setBindingExisting(operator)}
+          >
+            <LinkOutlined /> 绑定已有微信用户
+          </a>
+        ),
+        operator.status === 'ACTIVE' && operator.bindingStatus === 'UNBOUND' && (
+          <a
+            key='bind-code'
             onClick={() => void generateBindingCode(operator)}
           >
             <QrcodeOutlined />
@@ -233,7 +291,7 @@ export default function FactoryOperatorsPage() {
           key='status'
           title={operator.status === 'ACTIVE'
             ? '停用后会立即解除微信绑定并撤销工厂会话，确认继续？'
-            : '启用后仍需生成新的绑定码，确认继续？'}
+            : '启用后仍需重新绑定微信身份，确认继续？'}
           onConfirm={() => toggleStatus(operator)}
         >
           <a>{operator.status === 'ACTIVE' ? '停用' : '启用'}</a>
@@ -246,15 +304,15 @@ export default function FactoryOperatorsPage() {
     <PageContainer
       {...pageHeader(
         '厂家操作员',
-        '平台管理员先建工号，再把一次性微信小程序码交给对应厂家人员扫码；厂家身份不具备 Web 管理权限。',
+        '平台管理员先建工号，再绑定已有机构用户的微信身份或生成一次性小程序码；厂家身份不具备 Web 管理权限。',
       )}
     >
       <Alert
         showIcon
         type='info'
         style={{ marginBottom: 16 }}
-        message='绑定码只用于确认“哪个微信属于哪个厂家操作员”'
-        description='码有效期为 5 分钟且只能使用一次。停用操作员会同时解除绑定；重新启用后必须生成新码。'
+        message='可以绑定已有微信用户，也可以让新人员扫描一次性绑定码'
+        description='选择已有机构用户时，系统只复用其微信身份，不会把机构权限授予厂家操作员，也不会把 OpenID 暴露到 Web。停用操作员会同时解除绑定并撤销厂家会话。'
       />
       <ProTable<FactoryOperator>
         {...proTableConfig}
@@ -353,6 +411,112 @@ export default function FactoryOperatorsPage() {
         <ProFormText
           name='reason'
           label='解除原因'
+          rules={[{ required: true }, { max: 500 }]}
+        />
+      </ModalForm>
+
+      <ModalForm<ExistingUserBindingForm>
+        title={`绑定已有微信用户 · ${bindingExisting?.operatorCode ?? ''}`}
+        open={!!bindingExisting}
+        formRef={existingBindingFormRef}
+        initialValues={{
+          reason: '小程序发布前，由平台管理员绑定已核实的机构用户微信身份',
+        }}
+        onOpenChange={(open) => !open && setBindingExisting(null)}
+        modalProps={{ destroyOnClose: true }}
+        submitter={{ searchConfig: { submitText: '确认绑定' } }}
+        onFinish={submitExistingUserBinding}
+      >
+        <Alert
+          showIcon
+          type='warning'
+          message='绑定的是该用户背后的微信身份，不是机构账号权限。'
+          description='绑定后，该微信下次通过 wx.login 进入小程序时会获得厂家端会话；原有机构用户、钱包和清运身份保持不变。'
+          style={{ marginBottom: 16 }}
+        />
+        <ProFormSelect
+          name='tenantCode'
+          label='所属租户'
+          showSearch
+          rules={[{ required: true, message: '请选择租户' }]}
+          request={async () => {
+            const tenants = await listAllIdentityTenants({
+              status: 'ENABLED',
+            });
+            return tenants.map((tenant) => ({
+              label: `${tenant.enterpriseName}（${tenant.tenantCode}）`,
+              value: tenant.tenantCode,
+            }));
+          }}
+          fieldProps={{
+            optionFilterProp: 'label',
+            onChange: () => existingBindingFormRef.current?.setFieldsValue({
+              organizationCode: undefined,
+              organizationUserUid: undefined,
+            }),
+          }}
+        />
+        <ProFormDependency name={['tenantCode']}>
+          {({ tenantCode }) => (
+            <ProFormSelect
+              name='organizationCode'
+              label='所属机构'
+              showSearch
+              disabled={!tenantCode}
+              params={{ tenantCode }}
+              rules={[{ required: true, message: '请选择机构' }]}
+              request={async ({ tenantCode: selectedTenant }) => {
+                if (!selectedTenant) return [];
+                const organizations = await listAllOrganizations(
+                  { domain: 'platform', tenantCode: selectedTenant },
+                  { status: 'ENABLED' },
+                );
+                return organizations.map((organization) => ({
+                  label: `${organization.organizationName}（${organization.organizationCode}）`,
+                  value: organization.organizationCode,
+                }));
+              }}
+              fieldProps={{
+                optionFilterProp: 'label',
+                onChange: () => existingBindingFormRef.current
+                  ?.setFieldValue('organizationUserUid', undefined),
+              }}
+            />
+          )}
+        </ProFormDependency>
+        <ProFormDependency name={['tenantCode', 'organizationCode']}>
+          {({ tenantCode, organizationCode }) => (
+            <ProFormSelect
+              name='organizationUserUid'
+              label='机构用户'
+              showSearch
+              disabled={!tenantCode || !organizationCode}
+              params={{ tenantCode, organizationCode }}
+              rules={[{ required: true, message: '请选择机构用户' }]}
+              request={async ({
+                tenantCode: selectedTenant,
+                organizationCode: selectedOrganization,
+              }) => {
+                if (!selectedTenant || !selectedOrganization) return [];
+                const users = await listAllOrganizationUsers(
+                  { domain: 'platform', tenantCode: selectedTenant },
+                  selectedOrganization,
+                  { status: 'ACTIVE' },
+                );
+                return users.map((user) => ({
+                  label: `${user.nickname} · ${user.phoneNumber
+                    ?? `编号 ${user.organizationUserUid.slice(0, 8)}…`}`,
+                  value: user.organizationUserUid,
+                }));
+              }}
+              fieldProps={{ optionFilterProp: 'label' }}
+              extra='列表只显示当前机构中未冻结的用户；系统不会向浏览器返回 OpenID。'
+            />
+          )}
+        </ProFormDependency>
+        <ProFormText
+          name='reason'
+          label='绑定原因'
           rules={[{ required: true }, { max: 500 }]}
         />
       </ModalForm>

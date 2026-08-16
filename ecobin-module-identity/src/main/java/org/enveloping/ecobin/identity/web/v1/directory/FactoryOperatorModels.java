@@ -51,6 +51,20 @@ public final class FactoryOperatorModels {
             @NotBlank @Size(max = 500) String reason) {
     }
 
+    public record SetFactoryOperatorMiniappBindingRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotBlank
+            @Size(max = 32)
+            @Pattern(regexp = "^[a-z0-9][a-z0-9-]*$")
+            String tenantCode,
+            @NotBlank
+            @Size(max = 32)
+            @Pattern(regexp = "^[a-z0-9][a-z0-9-]*$")
+            String organizationCode,
+            @NotNull UUID organizationUserUid,
+            @NotBlank @Size(max = 500) String reason) {
+    }
+
     public record FactoryBindingIntentCreated(
             UUID bindingIntentUid,
             Instant expiresAt,

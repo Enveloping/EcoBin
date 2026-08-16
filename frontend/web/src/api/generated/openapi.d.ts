@@ -5165,6 +5165,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/miniapp-binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Bind a factory operator to the canonical WeChat identity of an existing organization user
+         * @description Platform-only fallback for a known organization user. The server resolves the canonical WeChat subject without returning or accepting a raw OpenID. Organization and factory authorization remain independent.
+         */
+        put: operations["setFactoryOperatorMiniappBindingFromOrganizationUser"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/miniapp-binding-revocations": {
         parameters: {
             query?: never;
@@ -8434,6 +8456,13 @@ export interface components {
         };
         FactoryBindingRevocationRequest: {
             expectedVersion: components["schemas"]["ExpectedVersion"];
+            reason: string;
+        };
+        SetFactoryOperatorMiniappBindingRequest: {
+            expectedVersion: components["schemas"]["ExpectedVersion"];
+            tenantCode: components["schemas"]["TenantCode"];
+            organizationCode: components["schemas"]["OrganizationCode"];
+            organizationUserUid: components["schemas"]["PublicUid"];
             reason: string;
         };
         FactoryOperator: {
@@ -16363,6 +16392,40 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
             409: components["responses"]["ConflictProblem"];
             503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    setFactoryOperatorMiniappBindingFromOrganizationUser: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description UUIDv4 generated once for one human intent and reused by every retry of that same intent. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                factoryOperatorUid: components["schemas"]["UuidV4"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFactoryOperatorMiniappBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Existing WeChat identity bound */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryOperatorEnvelope"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            409: components["responses"]["ConflictProblem"];
         };
     };
     revokeFactoryOperatorBinding: {

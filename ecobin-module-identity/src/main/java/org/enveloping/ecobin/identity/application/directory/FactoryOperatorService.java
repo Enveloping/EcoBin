@@ -16,6 +16,7 @@ import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.Fac
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.FactoryBindingRevocationRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.FactoryOperatorStatusRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.FactoryOperatorView;
+import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.SetFactoryOperatorMiniappBindingRequest;
 import org.enveloping.ecobin.identity.web.v1.directory.FactoryOperatorModels.UpdateFactoryOperatorRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,6 +36,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -306,6 +308,135 @@ public class FactoryOperatorService {
         return bindingIntents.create(factoryOperatorUid);
     }
 
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public FactoryOperatorView bindExistingOrganizationUser(
+            UUID operationUid,
+            UUID factoryOperatorUid,
+            SetFactoryOperatorMiniappBindingRequest request) {
+        requireUuidV4(operationUid);
+        requireUuidV4(request.organizationUserUid(), "机构用户编号");
+        TargetWebActor actor = requirePlatformActor();
+        String tenantCode = normalizeDirectoryCode(
+                request.tenantCode(), "租户编码");
+        String organizationCode = normalizeDirectoryCode(
+                request.organizationCode(), "机构编码");
+        String reason = required(request.reason(), 500, "绑定原因");
+        String action = "identity.factory-operator.binding.set-existing-user";
+        byte[] fingerprint = fingerprint(
+                "SET_EXISTING_USER_BINDING",
+                factoryOperatorUid,
+                Map.of(
+                        "platformAdminUid", actor.principalUid().toString(),
+                        "expectedVersion", request.expectedVersion(),
+                        "tenantCode", tenantCode,
+                        "organizationCode", organizationCode,
+                        "organizationUserUid",
+                        request.organizationUserUid().toString(),
+                        "reason", reason));
+        FactoryOperatorView replay = replay(
+                operationUid, action, fingerprint);
+        if (replay != null) return replay;
+
+        long factoryOperatorId = id(factoryOperatorUid);
+        ExistingWechatIdentity candidate = existingWechatIdentity(
+                tenantCode,
+                organizationCode,
+                request.organizationUserUid(),
+                true);
+        requireUsable(candidate);
+
+        Long currentSubjectOwner = activeSubjectBindingOwner(
+                candidate.miniappChannelId(),
+                candidate.wechatSubjectId(),
+                true);
+        lockPendingBindingIntents(factoryOperatorId);
+        FactoryOperatorView before = find(factoryOperatorUid, true);
+
+        // A concurrent retry can only observe the first transaction's audit
+        // after it has waited for the same identity/operator locks.
+        replay = replay(operationUid, action, fingerprint);
+        if (replay != null) return replay;
+
+        requireVersion(before, request.expectedVersion());
+        if (!"ACTIVE".equals(before.status())) {
+            throw conflict(
+                    "IDENTITY.FACTORY_OPERATOR_DISABLED",
+                    "厂家操作员已停用，不能绑定微信身份");
+        }
+        if ("ACTIVE".equals(before.bindingStatus())) {
+            throw conflict(
+                    "IDENTITY.FACTORY_OPERATOR_ALREADY_BOUND",
+                    "该厂家操作员已经绑定微信身份");
+        }
+        if (currentSubjectOwner != null) {
+            throw conflict(
+                    "IDENTITY.FACTORY_SUBJECT_ALREADY_BOUND",
+                    "所选机构用户的微信身份已经绑定其他厂家操作员");
+        }
+
+        int updated = jdbc.update("""
+                        UPDATE iam_factory_operator
+                        SET lock_version = lock_version + 1,
+                            updated_at = UTC_TIMESTAMP(3)
+                        WHERE id = ? AND factory_operator_uid = ?
+                          AND lock_version = ?
+                        """,
+                factoryOperatorId,
+                factoryOperatorUid.toString(),
+                request.expectedVersion());
+        requireUpdated(updated);
+
+        LocalDateTime now = databaseNow();
+        try {
+            jdbc.update("""
+                            INSERT INTO iam_factory_operator_miniapp_binding (
+                                binding_uid, factory_operator_id,
+                                miniapp_channel_id, wechat_subject_id,
+                                status, bound_at, revoked_at,
+                                revocation_reason, lock_version,
+                                created_at, updated_at
+                            ) VALUES (
+                                ?, ?, ?, ?, 'ACTIVE', ?, NULL, NULL, 0, ?, ?
+                            )
+                            """,
+                    UUID.randomUUID().toString(),
+                    factoryOperatorId,
+                    candidate.miniappChannelId(),
+                    candidate.wechatSubjectId(),
+                    now,
+                    now,
+                    now);
+        } catch (DataIntegrityViolationException conflict) {
+            throw new TargetApiException(
+                    409,
+                    "IDENTITY.FACTORY_BINDING_CONFLICT",
+                    "厂家操作员或所选微信身份已经被绑定");
+        }
+        jdbc.update("""
+                        UPDATE iam_factory_operator_binding_intent
+                        SET status = 'CANCELLED'
+                        WHERE factory_operator_id = ?
+                          AND status = 'PENDING'
+                        """,
+                factoryOperatorId);
+
+        FactoryOperatorView after = find(factoryOperatorUid, false);
+        appendAudit(
+                actor,
+                operationUid,
+                action,
+                after,
+                reason,
+                fingerprint,
+                Map.of(
+                        "bindingMethod", "EXISTING_ORGANIZATION_USER",
+                        "tenantCode", tenantCode,
+                        "organizationCode", organizationCode,
+                        "organizationUserUid",
+                        request.organizationUserUid().toString()));
+        return after;
+    }
+
     private void revokeSessionsAndBinding(
             long factoryOperatorId,
             LocalDateTime now,
@@ -357,9 +488,34 @@ public class FactoryOperatorService {
             FactoryOperatorView target,
             String reason,
             byte[] fingerprint) {
+        appendAudit(
+                actor,
+                operationUid,
+                action,
+                target,
+                reason,
+                fingerprint,
+                Map.of());
+    }
+
+    private void appendAudit(
+            TargetWebActor actor,
+            UUID operationUid,
+            String action,
+            FactoryOperatorView target,
+            String reason,
+            byte[] fingerprint,
+            Map<String, Object> safeDetails) {
         TargetWebAuditRequestContext.describe(
                 action,
                 "factory-operator:" + target.factoryOperatorUid());
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put(
+                "requestSha256",
+                HexFormat.of().formatHex(fingerprint));
+        summary.put("status", target.status());
+        summary.put("bindingStatus", target.bindingStatus());
+        summary.putAll(safeDetails);
         auditPort.append(new AuditEntry(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -380,11 +536,7 @@ public class FactoryOperatorService {
                 "SUCCEEDED",
                 actor.sessionUid(),
                 reason,
-                objectMapper.writeValueAsString(Map.of(
-                        "requestSha256",
-                        HexFormat.of().formatHex(fingerprint),
-                        "status", target.status(),
-                        "bindingStatus", target.bindingStatus())),
+                objectMapper.writeValueAsString(summary),
                 Instant.now()));
     }
 
@@ -407,14 +559,133 @@ public class FactoryOperatorService {
     }
 
     private long id(UUID factoryOperatorUid) {
-        Long id = jdbc.queryForObject("""
+        return jdbc.query("""
                         SELECT id FROM iam_factory_operator
                         WHERE factory_operator_uid = ?
                         """,
+                (rs, ignored) -> rs.getLong("id"),
+                factoryOperatorUid.toString()).stream()
+                .findFirst()
+                .orElseThrow(() -> new TargetApiException(
+                        404,
+                        "RESOURCE.NOT_FOUND",
+                        "厂家操作员不存在"));
+    }
+
+    private ExistingWechatIdentity existingWechatIdentity(
+            String tenantCode,
+            String organizationCode,
+            UUID organizationUserUid,
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT u.miniapp_channel_id,
+                               u.wechat_subject_id,
+                               t.status AS tenant_status,
+                               o.status AS organization_status,
+                               ob.status AS organization_binding_status,
+                               m.login_enabled,
+                               m.activated_at,
+                               u.status AS organization_user_status,
+                               s.status AS wechat_subject_status
+                        FROM iam_tenant t
+                        JOIN iam_organization o
+                          ON o.tenant_id = t.id
+                        JOIN iam_organization_user u
+                          ON u.tenant_id = t.id
+                         AND u.organization_id = o.id
+                        JOIN iam_organization_miniapp_binding ob
+                          ON ob.tenant_id = t.id
+                         AND ob.organization_id = o.id
+                         AND ob.miniapp_channel_id =
+                             u.miniapp_channel_id
+                        JOIN iam_miniapp_channel m
+                          ON m.id = u.miniapp_channel_id
+                        JOIN iam_wechat_subject s
+                          ON s.miniapp_channel_id =
+                             u.miniapp_channel_id
+                         AND s.id = u.wechat_subject_id
+                        WHERE t.tenant_code = ?
+                          AND o.organization_code = ?
+                          AND u.organization_user_uid = ?
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> new ExistingWechatIdentity(
+                        rs.getLong("miniapp_channel_id"),
+                        rs.getLong("wechat_subject_id"),
+                        rs.getString("tenant_status"),
+                        rs.getString("organization_status"),
+                        rs.getString("organization_binding_status"),
+                        rs.getBoolean("login_enabled"),
+                        rs.getObject("activated_at", LocalDateTime.class),
+                        rs.getString("organization_user_status"),
+                        rs.getString("wechat_subject_status")),
+                tenantCode,
+                organizationCode,
+                organizationUserUid.toString()).stream()
+                .findFirst()
+                .orElseThrow(() -> new TargetApiException(
+                        404,
+                        "RESOURCE.NOT_FOUND",
+                        "机构用户不存在或不属于所选租户和机构"));
+    }
+
+    private Long activeSubjectBindingOwner(
+            long miniappChannelId,
+            long wechatSubjectId,
+            boolean forUpdate) {
+        return jdbc.query("""
+                        SELECT factory_operator_id
+                        FROM iam_factory_operator_miniapp_binding
+                        WHERE miniapp_channel_id = ?
+                          AND wechat_subject_id = ?
+                          AND status = 'ACTIVE'
+                        %s
+                        """.formatted(forUpdate ? "FOR UPDATE" : ""),
+                (rs, ignored) -> rs.getLong("factory_operator_id"),
+                miniappChannelId,
+                wechatSubjectId).stream().findFirst().orElse(null);
+    }
+
+    private void lockPendingBindingIntents(long factoryOperatorId) {
+        jdbc.queryForList("""
+                        SELECT id
+                        FROM iam_factory_operator_binding_intent
+                        WHERE factory_operator_id = ?
+                          AND status = 'PENDING'
+                        ORDER BY id
+                        FOR UPDATE
+                        """,
                 Long.class,
-                factoryOperatorUid.toString());
-        if (id == null) throw new IllegalStateException("operator id missing");
-        return id;
+                factoryOperatorId);
+    }
+
+    private static void requireUsable(ExistingWechatIdentity candidate) {
+        if (!"ENABLED".equals(candidate.tenantStatus())
+                || !"ENABLED".equals(candidate.organizationStatus())) {
+            throw conflict(
+                    "IDENTITY.ORGANIZATION_USER_SCOPE_DISABLED",
+                    "所选机构用户所在的租户或机构已停用");
+        }
+        if (!"ACTIVE".equals(candidate.organizationBindingStatus())) {
+            throw conflict(
+                    "IDENTITY.ORGANIZATION_MINIAPP_BINDING_INACTIVE",
+                    "所选机构尚未启用当前小程序渠道");
+        }
+        if (!candidate.loginEnabled() || candidate.activatedAt() == null) {
+            throw conflict(
+                    "IDENTITY.MINIAPP_LOGIN_DISABLED",
+                    "所选机构用户对应的小程序渠道尚未启用登录");
+        }
+        if (!"ACTIVE".equals(candidate.organizationUserStatus())) {
+            throw conflict(
+                    "IDENTITY.ORGANIZATION_USER_UNAVAILABLE",
+                    "所选机构用户已冻结，不能用于厂家身份绑定");
+        }
+        if (!"ACTIVE".equals(candidate.wechatSubjectStatus())) {
+            throw conflict(
+                    "IDENTITY.WECHAT_SUBJECT_FROZEN",
+                    "所选机构用户的微信身份已冻结");
+        }
     }
 
     private static String selectSql() {
@@ -498,11 +769,15 @@ public class FactoryOperatorService {
     }
 
     private static void requireUuidV4(UUID value) {
+        requireUuidV4(value, "Idempotency-Key");
+    }
+
+    private static void requireUuidV4(UUID value, String field) {
         if (value == null || value.version() != 4) {
             throw new TargetApiException(
                     400,
                     "COMMON.INVALID_REQUEST",
-                    "Idempotency-Key 必须是 UUIDv4");
+                    field + "必须是 UUIDv4");
         }
     }
 
@@ -527,6 +802,20 @@ public class FactoryOperatorService {
                     400,
                     "COMMON.INVALID_REQUEST",
                     "状态只能是 ACTIVE 或 DISABLED");
+        }
+        return normalized;
+    }
+
+    private static String normalizeDirectoryCode(
+            String value,
+            String field) {
+        String normalized = required(value, 32, field)
+                .toLowerCase(Locale.ROOT);
+        if (!normalized.matches("^[a-z0-9][a-z0-9-]*$")) {
+            throw new TargetApiException(
+                    400,
+                    "COMMON.INVALID_REQUEST",
+                    field + "格式不正确");
         }
         return normalized;
     }
@@ -584,5 +873,17 @@ public class FactoryOperatorService {
             String code,
             String message) {
         return new TargetApiException(409, code, message);
+    }
+
+    private record ExistingWechatIdentity(
+            long miniappChannelId,
+            long wechatSubjectId,
+            String tenantStatus,
+            String organizationStatus,
+            String organizationBindingStatus,
+            boolean loginEnabled,
+            LocalDateTime activatedAt,
+            String organizationUserStatus,
+            String wechatSubjectStatus) {
     }
 }

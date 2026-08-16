@@ -34,6 +34,13 @@ export interface FactoryOperatorPageParams {
   query?: string;
 }
 
+export interface ExistingOrganizationUserBinding {
+  tenantCode: string;
+  organizationCode: string;
+  organizationUserUid: string;
+  reason: string;
+}
+
 function command(
   intent: CommandIntent,
   url: string,
@@ -98,6 +105,21 @@ export function createFactoryBindingIntent(operator: FactoryOperator) {
     url: `${BASE}/${encodeURIComponent(operator.factoryOperatorUid)}/miniapp-binding-intents`,
     method: 'POST',
     noStore: true,
+  });
+}
+
+export function bindFactoryOperatorToOrganizationUser(
+  operator: FactoryOperator,
+  binding: ExistingOrganizationUserBinding,
+  intent: CommandIntent,
+) {
+  return intent.execute<FactoryOperator>({
+    url: `${BASE}/${encodeURIComponent(operator.factoryOperatorUid)}/miniapp-binding`,
+    method: 'PUT',
+    data: {
+      expectedVersion: operator.version,
+      ...binding,
+    },
   });
 }
 

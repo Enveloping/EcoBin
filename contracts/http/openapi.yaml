@@ -5776,6 +5776,26 @@
         }
       }
     },
+    "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/miniapp-binding": {
+      "parameters": [{"name": "factoryOperatorUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
+      "put": {
+        "operationId": "setFactoryOperatorMiniappBindingFromOrganizationUser",
+        "tags": ["Factory acceptance"],
+        "summary": "Bind a factory operator to the canonical WeChat identity of an existing organization user",
+        "description": "Platform-only fallback for a known organization user. The server resolves the canonical WeChat subject without returning or accepting a raw OpenID. Organization and factory authorization remain independent.",
+        "security": [{"webSessionCookie": [], "webCsrfToken": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SetFactoryOperatorMiniappBindingRequest"}}}},
+        "responses": {
+          "200": {"description": "Existing WeChat identity bound", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FactoryOperatorEnvelope"}}}},
+          "400": {"$ref": "#/components/responses/InvalidRequest"},
+          "401": {"$ref": "#/components/responses/UnauthorizedProblem"},
+          "403": {"$ref": "#/components/responses/ForbiddenProblem"},
+          "404": {"$ref": "#/components/responses/NotFoundProblem"},
+          "409": {"$ref": "#/components/responses/ConflictProblem"}
+        }
+      }
+    },
     "/api/v1/web/platform/factory-operators/{factoryOperatorUid}/miniapp-binding-revocations": {
       "parameters": [{"name": "factoryOperatorUid", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/UuidV4"}}],
       "post": {
@@ -14191,6 +14211,18 @@
         "required": ["expectedVersion", "reason"],
         "properties": {
           "expectedVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "SetFactoryOperatorMiniappBindingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedVersion", "tenantCode", "organizationCode", "organizationUserUid", "reason"],
+        "properties": {
+          "expectedVersion": {"$ref": "#/components/schemas/ExpectedVersion"},
+          "tenantCode": {"$ref": "#/components/schemas/TenantCode"},
+          "organizationCode": {"$ref": "#/components/schemas/OrganizationCode"},
+          "organizationUserUid": {"$ref": "#/components/schemas/PublicUid"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 500}
         }
       },

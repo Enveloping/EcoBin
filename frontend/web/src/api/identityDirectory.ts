@@ -704,6 +704,19 @@ export function listOrganizationUsers(
   });
 }
 
+export function listAllOrganizationUsers(
+  context: DirectoryContext,
+  organizationCode: string,
+  params: Omit<OrganizationUserPageParams, 'page' | 'pageSize'> = {},
+) {
+  return collectDirectoryItems((page) =>
+    listOrganizationUsers(context, organizationCode, {
+      ...params,
+      page,
+      pageSize: DIRECTORY_OPTION_PAGE_SIZE,
+    }));
+}
+
 export function getOrganizationUser(
   context: DirectoryContext,
   organizationCode: string,
