@@ -91,6 +91,9 @@ class OneNetEventDispatcherRemoteSupportTest {
 
         TrustedInboxMessage message = captor.getValue();
         assertEquals(
+                "onenet.remote-support-status",
+                message.sourceNamespace());
+        assertEquals(
                 "REMOTE_SUPPORT_TUNNEL_STATUS",
                 message.messageKind());
         AtomicReference<String> scopeKind = new AtomicReference<>();

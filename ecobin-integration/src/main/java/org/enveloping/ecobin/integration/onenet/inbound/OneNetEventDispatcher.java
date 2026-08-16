@@ -484,7 +484,7 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                 // 外层 Pulsar 消费者才确认传输消息，避免“先 ACK、后端宕机、事实丢失”。
                 TrustedInboxReceipt receipt = trustedInboxPort.receive(
                         new TrustedInboxMessage(
-                            "onenet.device-event",
+                            sourceNamespace(contract),
                             OneNetCanonicalJson.stablePrincipalKey(
                                     productId, hardwareSn),
                             eventUid.toString(),
@@ -574,6 +574,14 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
                     occurredAt == null ? null : Instant.parse(occurredAt));
         }
         return sourceScopePort.resolverForOrganizationAsset(hardwareSn);
+    }
+
+    private static String sourceNamespace(EventContract contract) {
+        // 远程维护状态属于平台控制事实。独立的稳定来源身份既隔离权限边界，也允许
+        // 已按旧规则错误落入机构作用域的不可变收件记录通过重传安全收敛。
+        return "REMOTE_SUPPORT_TUNNEL_STATUS".equals(contract.messageKind())
+                ? "onenet.remote-support-status"
+                : "onenet.device-event";
     }
 
     private void quarantine(
