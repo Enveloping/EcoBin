@@ -268,6 +268,84 @@ def test_real_fixed_frame_adapter_round_trips_over_linux_pty(tmp_path):
     not sys.platform.startswith("linux"),
     reason="Linux PTY integration requires Linux",
 )
+def test_real_pty_background_reads_cannot_starve_physical_starts(tmp_path):
+    link_path = tmp_path / "virtual-mcu-contended"
+    simulator = LinuxPtyFixedFrameSimulator(
+        SimulatorConfig(
+            response_delay_ms=10,
+            delivery_result_delay_ms=10,
+            clean_result_delay_ms=10,
+        ),
+        link_path,
+        log=lambda message: None,
+    )
+    simulator.open()
+    simulator_thread = threading.Thread(target=simulator.run, daemon=True)
+    simulator_thread.start()
+    adapter = FixedFrameMcuAdapter(
+        str(link_path),
+        edge_boot_id=77,
+        timeout_s=0.1,
+    )
+    stop_reader = threading.Event()
+
+    def read_forever():
+        while not stop_reader.is_set():
+            adapter.read_mcu_event(timeout_ms=100)
+
+    reader = threading.Thread(target=read_forever, daemon=True)
+    elapsed_seconds = []
+    try:
+        assert adapter.open()
+        reader.start()
+        for index in range(20):
+            started_at = time.monotonic()
+            if index % 2 == 0:
+                result = adapter.send_command(
+                    "START_DELIVERY_SESSION",
+                    {
+                        "unitPriceTenThousandths": 4_500,
+                        "startExecutionWindowMs": 1_000,
+                    },
+                )
+            else:
+                result = adapter.send_command(
+                    "START_CLEAN_OPERATION",
+                    {"startExecutionWindowMs": 1_000},
+                )
+            elapsed_seconds.append(time.monotonic() - started_at)
+            assert result["acked"] is True
+
+        deadline = time.monotonic() + 2
+        while (
+            (
+                simulator.model.delivery_start_count < 10
+                or simulator.model.clean_start_count < 10
+            )
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+        assert max(elapsed_seconds) < 0.5
+        assert simulator.model.delivery_start_count == 10
+        assert simulator.model.clean_start_count == 10
+    finally:
+        stop_reader.set()
+        reader.join(timeout=1)
+        adapter.close()
+        simulator.stop()
+        simulator_thread.join(timeout=2)
+        simulator.close()
+
+    assert not reader.is_alive()
+    assert not link_path.exists()
+    assert not link_path.is_symlink()
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="Linux PTY integration requires Linux",
+)
 def test_real_device_entry_url_is_fire_and_forget_and_replayed_on_reopen(
     tmp_path,
 ):

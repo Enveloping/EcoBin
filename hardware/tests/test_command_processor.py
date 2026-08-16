@@ -1211,6 +1211,56 @@ def test_compat_start_dispatches_when_open_photo_capture_fails(
     store.close()
 
 
+@pytest.mark.parametrize(
+    "example_name",
+    [
+        "start-delivery-session.service-wire.json",
+        "start-clean-operation.service-wire.json",
+    ],
+)
+def test_compat_start_expired_at_uart_is_a_pre_start_failure(
+    tmp_path,
+    example_name,
+):
+    store = make_store(tmp_path)
+    mark_configuration_applied(store)
+    uart = FakeCompatUart()
+    uart.command_result = {
+        "acked": False,
+        "error": "COMMAND_EXPIRED",
+    }
+    work = WorkManager(store, uart, None, FakePhotoManager())
+    processor = CommandProcessor(store, uart, work)
+    command = valid_compat_service_command(example_name)
+    if command["commandType"] == "START_CLEAN_OPERATION":
+        command["payload"]["oldBaselineWeightGrams"] = 1_500
+        command["payloadSha256"] = canonical_payload_sha256(
+            command["payload"]
+        )
+    store.receive_command(
+        command["commandUid"],
+        command["commandType"],
+        command,
+    )
+
+    processor.process_next()
+
+    inbox = store.get_command(command["commandUid"])
+    assert inbox["state"] == "FAILED"
+    assert inbox["last_error"] == "COMMAND_EXPIRED"
+    assert store.get_work_slot() is None
+    stages = {
+        row["stage"]
+        for row in store._conn.execute(
+            "SELECT stage FROM command_observation WHERE command_uid=?",
+            (command["commandUid"],),
+        ).fetchall()
+    }
+    assert "PRE_START_FAILED" in stages
+    assert "MCU_ACCEPTED" not in stages
+    store.close()
+
+
 def test_compat_ef_completes_clean_with_protocol_guarantees(tmp_path):
     store = make_store(tmp_path)
     mark_configuration_applied(store)

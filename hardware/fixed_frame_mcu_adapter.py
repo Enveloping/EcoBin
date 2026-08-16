@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from contextlib import contextmanager
 from typing import Callable, Optional
 
 try:
@@ -46,6 +47,7 @@ DEVICE_ENTRY_URL_FIELD_LENGTH = 192
 DEVICE_ENTRY_URL_FRAME_LENGTH = 195
 MAXIMUM_WEIGHT_GRAMS = 350_000
 MAXIMUM_RECEIVE_BUFFER = 4096
+FOREGROUND_IO_WAIT_WARNING_MS = 750.0
 
 FRAME_LENGTHS = {
     DELIVERY_HEADER: RESULT_FRAME_LENGTH,
@@ -240,6 +242,11 @@ class FixedFrameMcuAdapter:
         self._ser = None
         self._parser = FixedFrameParser()
         self._io_lock = threading.RLock()
+        # Passive reads may block for one serial timeout.  Foreground work
+        # announces intent through a separate condition before waiting on the
+        # RLock, preventing the reader from repeatedly reacquiring it first.
+        self._foreground_condition = threading.Condition()
+        self._foreground_operations = 0
         self._pending_events: deque[dict] = deque()
         self._mcu_boot_id = edge_boot_id
         self._mcu_capability = 0
@@ -258,35 +265,36 @@ class FixedFrameMcuAdapter:
         return self.is_open
 
     def open(self) -> bool:
-        factory = self._serial_factory
-        if factory is None:
-            if serial is None:
-                logger.error("pyserial not installed, cannot open UART")
+        with self._foreground_io("OPEN"):
+            factory = self._serial_factory
+            if factory is None:
+                if serial is None:
+                    logger.error("pyserial not installed, cannot open UART")
+                    return False
+                factory = serial.Serial
+            try:
+                reopening = self._has_opened_once
+                self._ser = factory(
+                    port=self.port,
+                    baudrate=self.baudrate,
+                    bytesize=8,
+                    parity="N",
+                    stopbits=1,
+                    timeout=self.timeout_s,
+                )
+                logger.info(
+                    "fixed-frame MCU UART opened: port=%s baudrate=%d",
+                    self.port,
+                    self.baudrate,
+                )
+                self._has_opened_once = True
+                if reopening:
+                    self._resend_device_entry_url_after_reopen()
+                return True
+            except Exception as error:
+                self._ser = None
+                logger.error("fixed-frame MCU UART open failed: %s", error)
                 return False
-            factory = serial.Serial
-        try:
-            reopening = self._has_opened_once
-            self._ser = factory(
-                port=self.port,
-                baudrate=self.baudrate,
-                bytesize=8,
-                parity="N",
-                stopbits=1,
-                timeout=self.timeout_s,
-            )
-            logger.info(
-                "fixed-frame MCU UART opened: port=%s baudrate=%d",
-                self.port,
-                self.baudrate,
-            )
-            self._has_opened_once = True
-            if reopening:
-                self._resend_device_entry_url_after_reopen()
-            return True
-        except Exception as error:
-            self._ser = None
-            logger.error("fixed-frame MCU UART open failed: %s", error)
-            return False
 
     def _resend_device_entry_url_after_reopen(self) -> None:
         provider = self._device_entry_url_provider
@@ -306,7 +314,7 @@ class FixedFrameMcuAdapter:
             )
 
     def close(self) -> None:
-        with self._io_lock:
+        with self._foreground_io("CLOSE"):
             if self._ser is not None:
                 try:
                     self._ser.close()
@@ -360,7 +368,7 @@ class FixedFrameMcuAdapter:
             raise ValueError("self-test result callback must be callable")
         if not isinstance(queue_unchanged_safety_event, bool):
             raise ValueError("safety event queue policy must be boolean")
-        with self._io_lock:
+        with self._foreground_io("SELF_TEST"):
             if not self.is_open:
                 return self._finish_self_test(
                     self._failed_self_test("UART_CLOSED"),
@@ -503,7 +511,7 @@ class FixedFrameMcuAdapter:
         )
         if len(wire) != DEVICE_ENTRY_URL_FRAME_LENGTH:
             raise AssertionError("device entry URL frame length is invalid")
-        with self._io_lock:
+        with self._foreground_io("DEVICE_ENTRY_URL"):
             self._write_exact(wire)
         return {
             "disposition": "LOCALLY_DISPATCHED",
@@ -528,6 +536,7 @@ class FixedFrameMcuAdapter:
                 False,
                 "UART_CLOSED",
             )
+        dispatch_deadline = self._physical_dispatch_deadline(values)
         try:
             if message_name == "START_DELIVERY_SESSION":
                 price = price_digit_from_ten_thousandths(
@@ -543,9 +552,29 @@ class FixedFrameMcuAdapter:
                         0xAA,
                     )
                 )
-                self._dispatch_start(wire)
+                if not self._dispatch_start(
+                    wire,
+                    message_name=message_name,
+                    dispatch_deadline=dispatch_deadline,
+                ):
+                    return self._command_result(
+                        message_name,
+                        command_uid,
+                        False,
+                        "COMMAND_EXPIRED",
+                    )
             elif message_name == "START_CLEAN_OPERATION":
-                self._dispatch_start(bytes((0xEE, 0x01, 0xEE)))
+                if not self._dispatch_start(
+                    bytes((0xEE, 0x01, 0xEE)),
+                    message_name=message_name,
+                    dispatch_deadline=dispatch_deadline,
+                ):
+                    return self._command_result(
+                        message_name,
+                        command_uid,
+                        False,
+                        "COMMAND_EXPIRED",
+                    )
             else:
                 return self._command_result(
                     message_name,
@@ -573,10 +602,89 @@ class FixedFrameMcuAdapter:
             "compatibility_mode": True,
         }
 
-    def _dispatch_start(self, wire: bytes) -> None:
-        with self._io_lock:
+    def _dispatch_start(
+        self,
+        wire: bytes,
+        *,
+        message_name: str,
+        dispatch_deadline: Optional[float],
+    ) -> bool:
+        with self._foreground_io(message_name) as wait_ms:
+            if self._dispatch_expired(dispatch_deadline):
+                logger.warning(
+                    "fixed-frame physical command expired before UART write: "
+                    "command=%s uart_wait_ms=%.1f",
+                    message_name,
+                    wait_ms,
+                )
+                return False
             self._discard_stale_business_input()
+            if self._dispatch_expired(dispatch_deadline):
+                logger.warning(
+                    "fixed-frame physical command expired while preparing UART "
+                    "write: command=%s uart_wait_ms=%.1f",
+                    message_name,
+                    wait_ms,
+                )
+                return False
             self._write_exact(wire)
+        logger.info(
+            "fixed-frame physical command locally dispatched: "
+            "command=%s uart_wait_ms=%.1f",
+            message_name,
+            wait_ms,
+        )
+        return True
+
+    @staticmethod
+    def _physical_dispatch_deadline(values: dict) -> Optional[float]:
+        window_ms = values.get("startExecutionWindowMs")
+        if window_ms is None:
+            return None
+        if (
+            not isinstance(window_ms, int)
+            or isinstance(window_ms, bool)
+            or window_ms <= 0
+        ):
+            return time.monotonic()
+        return time.monotonic() + window_ms / 1000.0
+
+    @staticmethod
+    def _dispatch_expired(deadline: Optional[float]) -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
+    @contextmanager
+    def _foreground_io(self, operation_name: str):
+        """Give one finite foreground transaction priority over new reads."""
+        requested_at = time.monotonic()
+        with self._foreground_condition:
+            self._foreground_operations += 1
+        try:
+            with self._io_lock:
+                wait_ms = (time.monotonic() - requested_at) * 1000.0
+                if wait_ms >= FOREGROUND_IO_WAIT_WARNING_MS:
+                    logger.warning(
+                        "fixed-frame foreground UART operation waited too long: "
+                        "operation=%s uart_wait_ms=%.1f",
+                        operation_name,
+                        wait_ms,
+                    )
+                yield wait_ms
+        finally:
+            with self._foreground_condition:
+                self._foreground_operations -= 1
+                if self._foreground_operations == 0:
+                    self._foreground_condition.notify_all()
+
+    def _wait_for_background_turn(self, deadline: float) -> bool:
+        """Wait without consuming more than the caller's read-time budget."""
+        with self._foreground_condition:
+            while self._foreground_operations > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._foreground_condition.wait(timeout=remaining)
+            return True
 
     def _write_exact(self, wire: bytes) -> None:
         written = self._ser.write(wire)
@@ -665,7 +773,12 @@ class FixedFrameMcuAdapter:
 
     def read_mcu_event(self, timeout_ms: int = 500) -> Optional[dict]:
         deadline = time.monotonic() + timeout_ms / 1000.0
-        with self._io_lock:
+        if not self._wait_for_background_turn(deadline):
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not self._io_lock.acquire(timeout=remaining):
+            return None
+        try:
             if self._pending_events:
                 return self._pending_events.popleft()
             if not self.is_open:
@@ -685,7 +798,9 @@ class FixedFrameMcuAdapter:
                 self._queue_invalid_smoke_events(invalid_smoke_before)
                 if self._pending_events:
                     return self._pending_events.popleft()
-        return None
+            return None
+        finally:
+            self._io_lock.release()
 
     def _queue_invalid_smoke_events(self, invalid_before: int) -> None:
         invalid_after = self._parser.invalid_count(SMOKE_HEADER)

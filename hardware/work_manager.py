@@ -499,6 +499,7 @@ class WorkManager:
             stage = (
                 "PRE_START_FAILED"
                 if error_code in {
+                    "COMMAND_EXPIRED",
                     "UART_CLOSED",
                     "MCU_FEATURE_NOT_SUPPORTED",
                 }
@@ -632,6 +633,7 @@ class WorkManager:
             stage = (
                 "PRE_START_FAILED"
                 if error_code in {
+                    "COMMAND_EXPIRED",
                     "UART_CLOSED",
                     "MCU_FEATURE_NOT_SUPPORTED",
                 }

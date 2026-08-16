@@ -1,3 +1,6 @@
+import threading
+import time
+
 import pytest
 
 from fixed_frame_mcu_adapter import (
@@ -62,6 +65,53 @@ class RespondingSerial(FakeSerial):
         if bytes(data) == bytes.fromhex("F0 01 F0"):
             self.inject(self.response)
         return written
+
+
+class ContendedSerial(FakeSerial):
+    """Serial double that exposes reads started while a write is pending."""
+
+    def __init__(self, read_delay_s=0.01):
+        super().__init__(timeout=read_delay_s)
+        self.read_started = threading.Event()
+        self._state_lock = threading.Lock()
+        self._foreground_pending = False
+        self._reads_during_foreground = 0
+        self.completed_foreground_read_counts = []
+
+    def begin_foreground(self):
+        with self._state_lock:
+            self._foreground_pending = True
+            self._reads_during_foreground = 0
+
+    def read(self, size):
+        self.read_started.set()
+        with self._state_lock:
+            if self._foreground_pending:
+                self._reads_during_foreground += 1
+        time.sleep(self.timeout)
+        return super().read(size)
+
+    def write(self, data):
+        with self._state_lock:
+            if self._foreground_pending:
+                self.completed_foreground_read_counts.append(
+                    self._reads_during_foreground
+                )
+                self._foreground_pending = False
+        return super().write(data)
+
+
+class BlockingWriteSerial(FakeSerial):
+    def __init__(self):
+        super().__init__()
+        self.write_started = threading.Event()
+        self.release_write = threading.Event()
+
+    def write(self, data):
+        self.write_started.set()
+        if not self.release_write.wait(timeout=1):
+            raise TimeoutError("test did not release the UART write")
+        return super().write(data)
 
 
 def test_parser_handles_partial_joined_and_payload_marker_bytes():
@@ -134,6 +184,131 @@ def test_delivery_start_writes_price_and_start_once_without_retry():
     assert fake.writes == [bytes.fromhex("BB 09 BB AA 01 AA")]
     assert fake.flush_count == 1
     assert fake.reset_count == 0
+
+
+def test_foreground_operations_are_not_starved_by_continuous_background_reads():
+    fake = ContendedSerial(read_delay_s=0.01)
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        timeout_s=0.01,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    stop = threading.Event()
+
+    def read_forever():
+        while not stop.is_set():
+            adapter.read_mcu_event(timeout_ms=10)
+
+    reader = threading.Thread(target=read_forever, daemon=True)
+    reader.start()
+    assert fake.read_started.wait(timeout=1)
+
+    try:
+        url = "https://www.jinshoubao.com/device-entry/public-code-1"
+        for index in range(60):
+            fake.begin_foreground()
+            if index % 3 == 0:
+                result = adapter.send_command(
+                    "START_DELIVERY_SESSION",
+                    {"unitPriceTenThousandths": 4_500},
+                )
+                assert result["acked"] is True
+            elif index % 3 == 1:
+                result = adapter.send_command(
+                    "START_CLEAN_OPERATION",
+                    {},
+                )
+                assert result["acked"] is True
+            else:
+                result = adapter.send_device_entry_url(url)
+                assert result["responseExpected"] is False
+    finally:
+        stop.set()
+        reader.join(timeout=2)
+        adapter.close()
+
+    assert not reader.is_alive()
+    assert len(fake.completed_foreground_read_counts) == 60
+    assert max(fake.completed_foreground_read_counts) <= 1
+    assert len(fake.writes) == 60
+
+
+def test_background_read_timeout_includes_waiting_for_foreground_io():
+    fake = BlockingWriteSerial()
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    url = "https://www.jinshoubao.com/device-entry/public-code-1"
+    writer = threading.Thread(
+        target=lambda: adapter.send_device_entry_url(url),
+        daemon=True,
+    )
+    writer.start()
+    assert fake.write_started.wait(timeout=1)
+    delayed_release = threading.Timer(0.1, fake.release_write.set)
+    delayed_release.start()
+
+    started_at = time.monotonic()
+    result = adapter.read_mcu_event(timeout_ms=20)
+    elapsed = time.monotonic() - started_at
+
+    fake.release_write.set()
+    writer.join(timeout=1)
+    delayed_release.cancel()
+    adapter.close()
+    assert not writer.is_alive()
+    assert result is None
+    assert elapsed < 0.08
+
+
+@pytest.mark.parametrize(
+    ("message_name", "values"),
+    [
+        (
+            "START_DELIVERY_SESSION",
+            {
+                "unitPriceTenThousandths": 4_500,
+                "startExecutionWindowMs": 5,
+            },
+        ),
+        (
+            "START_CLEAN_OPERATION",
+            {"startExecutionWindowMs": 5},
+        ),
+    ],
+)
+def test_start_does_not_write_after_execution_window_expires_while_waiting(
+    message_name,
+    values,
+):
+    fake = ContendedSerial(read_delay_s=0.05)
+    adapter = FixedFrameMcuAdapter(
+        "/dev/fake",
+        edge_boot_id=77,
+        timeout_s=0.05,
+        serial_factory=lambda **kwargs: fake,
+    )
+    assert adapter.open()
+    reader = threading.Thread(
+        target=lambda: adapter.read_mcu_event(timeout_ms=50),
+        daemon=True,
+    )
+    reader.start()
+    assert fake.read_started.wait(timeout=1)
+
+    result = adapter.send_command(message_name, values)
+
+    reader.join(timeout=1)
+    adapter.close()
+    assert not reader.is_alive()
+    assert result["acked"] is False
+    assert result["error"] == "COMMAND_EXPIRED"
+    assert fake.writes == []
 
 
 def test_device_entry_url_writes_fixed_frame_without_waiting_for_response():
