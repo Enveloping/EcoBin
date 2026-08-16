@@ -556,7 +556,9 @@ public class OneNetEventDispatcher implements OneNetMessageHandler {
             Map<String, Object> event,
             Map<String, Object> payload) {
         if ("DEVICE_ACCEPTANCE_EVIDENCE".equals(
-                contract.messageKind())) {
+                contract.messageKind())
+                || "REMOTE_SUPPORT_TUNNEL_STATUS".equals(
+                        contract.messageKind())) {
             return sourceScopePort.resolverForPlatformAsset(hardwareSn);
         }
         if ("BUSINESS_CONFIRMATION_RECEIPT".equals(

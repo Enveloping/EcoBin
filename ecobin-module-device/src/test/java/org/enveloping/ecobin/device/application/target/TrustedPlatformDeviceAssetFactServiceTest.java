@@ -70,6 +70,58 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                 eq(now));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void remoteSupportStatusIsAppliedInsidePlatformInboxTransaction() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(
+                contains("FROM dev_device_asset"),
+                any(RowMapper.class),
+                any(Object[].class)))
+                .thenReturn(List.of(41L));
+        LocalDateTime now = LocalDateTime.of(2026, 8, 16, 6, 53, 15);
+        when(jdbc.queryForObject(
+                "SELECT UTC_TIMESTAMP(3)", LocalDateTime.class))
+                .thenReturn(now);
+
+        TrustedPlatformInboxRef sourceInbox =
+                mock(TrustedPlatformInboxRef.class);
+        when(sourceInbox.use(any())).thenAnswer(invocation -> {
+            TrustedPlatformInboxRef.PlatformInboxFunction<Object> function =
+                    invocation.getArgument(0);
+            return function.apply(7L);
+        });
+        RemoteSupportSessionService remoteSupportSessions =
+                mock(RemoteSupportSessionService.class);
+        when(remoteSupportSessions.applyStatus(eq(7L), any()))
+                .thenReturn(true);
+        ReliablePlatformEdgeConfirmationService confirmationService =
+                mock(ReliablePlatformEdgeConfirmationService.class);
+        TrustedPlatformDeviceAssetFactService service =
+                new TrustedPlatformDeviceAssetFactService(
+                        jdbc,
+                        JsonMapper.builder().build(),
+                        confirmationService,
+                        remoteSupportSessions);
+
+        TrustedDeviceEventApplyResult result = service.apply(
+                new TrustedPlatformDeviceAssetFactEvent(
+                        sourceInbox,
+                        "REMOTE_SUPPORT_TUNNEL_STATUS",
+                        2,
+                        remoteSupportPayload()));
+
+        assertEquals(TrustedDeviceEventApplyResult.APPLIED, result);
+        verify(remoteSupportSessions).applyStatus(eq(7L), any());
+        verify(confirmationService).ensureApplied(
+                eq(41L),
+                eq("test-device-4"),
+                eq("8b000000-0000-4000-8000-000000000004"),
+                eq("a".repeat(64)),
+                eq("NO_ACTION_REQUIRED"),
+                eq(now));
+    }
+
     private static String safetyPayload() {
         return """
                 {
@@ -92,6 +144,35 @@ class TrustedPlatformDeviceAssetFactServiceTest {
                     "payload": {
                       "smokeState": "NORMAL",
                       "smokeDataUnavailable": false
+                    }
+                  }
+                }
+                """;
+    }
+
+    private static String remoteSupportPayload() {
+        return """
+                {
+                  "trustedSource": {
+                    "productId": "product",
+                    "deviceName": "test-device-4"
+                  },
+                  "eventCanonicalSha256":
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "event": {
+                    "schemaVersion": 2,
+                    "eventUid": "8b000000-0000-4000-8000-000000000004",
+                    "eventType": "REMOTE_SUPPORT_TUNNEL_STATUS",
+                    "target": {
+                      "type": "DEVICE_ASSET",
+                      "uid": "test-device-4"
+                    },
+                    "payloadSha256":
+                      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "payload": {
+                      "sessionUid": "8b000000-0000-4000-8000-000000000001",
+                      "state": "OPEN",
+                      "remotePort": 22012
                     }
                   }
                 }

@@ -18,6 +18,8 @@ import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyFullnessSampleCompleteUseCase;
 import org.enveloping.ecobin.recycling.api.port.ApplyFullnessStateChangedUseCase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -280,8 +282,13 @@ class ReliableDeviceInboxWorkerServiceTest {
         verify(deviceEvents, never()).apply(any());
     }
 
-    @Test
-    void platformSafetyFactCompletesWithoutOrganizationScope() {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SAFETY_SENSOR_STATE_CHANGED",
+            "REMOTE_SUPPORT_TUNNEL_STATUS"
+    })
+    void platformDeviceAssetFactCompletesWithoutOrganizationScope(
+            String messageKind) {
         ReliableInboxTaskRunner runner = mock(ReliableInboxTaskRunner.class);
         TrustedPlatformInboxRefFactory platformFactory =
                 mock(TrustedPlatformInboxRefFactory.class);
@@ -300,8 +307,7 @@ class ReliableDeviceInboxWorkerServiceTest {
                 .thenAnswer(invocation -> {
                     InboxTaskHandler handler = invocation.getArgument(2);
                     assertEquals(InboxTaskHandlerResult.NO_ACTION_REQUIRED,
-                            handler.handle(platformTask(
-                                    "SAFETY_SENSOR_STATE_CHANGED")));
+                            handler.handle(platformTask(messageKind)));
                     return new ReliableBatchResult(1, 1, 0);
                 });
 
@@ -369,7 +375,8 @@ class ReliableDeviceInboxWorkerServiceTest {
                         "BUSINESS_CONFIRMATION_RECEIPT",
                         "DEVICE_FAULT_OBSERVED",
                         "DEVICE_FAULT_RECOVERED",
-                        "SAFETY_SENSOR_STATE_CHANGED")
+                        "SAFETY_SENSOR_STATE_CHANGED",
+                        "REMOTE_SUPPORT_TUNNEL_STATUS")
                         .contains(messageKind) ? 2 : 1,
                 "{}",
                 now,
