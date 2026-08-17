@@ -75,6 +75,7 @@ class DeviceEnrollmentClient:
         enrollment_key_id: str = "K1",
         enrollment_mode: str = "SELF_ENROLLMENT",
         legacy_onenet_secret: str | None = None,
+        legacy_hardware_sn: str | None = None,
         http_post: Callable[..., Any] | None = None,
         timeout_seconds: float = 15.0,
     ):
@@ -93,7 +94,22 @@ class DeviceEnrollmentClient:
         self._mode = enrollment_mode
         if enrollment_mode == "LEGACY_ADOPTION" and not legacy_onenet_secret:
             raise ValueError("legacy adoption requires the current OneNet secret")
+        normalized_legacy_hardware_sn = (
+            legacy_hardware_sn.strip() if legacy_hardware_sn else None
+        )
+        if enrollment_mode == "LEGACY_ADOPTION":
+            if not normalized_legacy_hardware_sn or not re.fullmatch(
+                r"[A-Za-z0-9_-]{8,64}", normalized_legacy_hardware_sn
+            ):
+                raise ValueError(
+                    "legacy adoption requires the existing hardware serial number"
+                )
+        elif normalized_legacy_hardware_sn is not None:
+            raise ValueError(
+                "legacy hardware serial number is only valid for legacy adoption"
+            )
         self._legacy_onenet_secret = legacy_onenet_secret
+        self._legacy_hardware_sn = normalized_legacy_hardware_sn
         self._post = http_post or requests.post
         self._timeout = timeout_seconds
 
@@ -194,7 +210,9 @@ class DeviceEnrollmentClient:
             "enrollmentUid": str(uuid.uuid4()),
             "enrollmentKeyId": self._key_id,
             "enrollmentMode": self._mode,
-            "hardwareSn": derive_hardware_sn(identity_raw),
+            "hardwareSn": (
+                self._legacy_hardware_sn or derive_hardware_sn(identity_raw)
+            ),
             "identityPrivateKey": _raw_private_b64(identity),
             "identityPublicKey": identity_public.decode("ascii"),
             "responsePrivateKey": _raw_private_b64(response),
@@ -375,8 +393,13 @@ class DeviceEnrollmentClient:
             state.get("identityPublicKey"),
             "identityPublicKey",
         )
-        if derive_hardware_sn(identity_public) != state.get("hardwareSn"):
-            raise EnrollmentRejectedError("enrollment state identity is corrupt")
+        if self._mode == "SELF_ENROLLMENT":
+            if derive_hardware_sn(identity_public) != state.get("hardwareSn"):
+                raise EnrollmentRejectedError("enrollment state identity is corrupt")
+        elif state.get("hardwareSn") != self._legacy_hardware_sn:
+            raise EnrollmentRejectedError(
+                "enrollment state does not match the legacy hardware serial number"
+            )
         _b64decode(state.get("identityPrivateKey"), expected_length=32)
         _b64decode(state.get("responsePrivateKey"), expected_length=32)
         if not isinstance(state.get("tunnelPrivateKey"), str):

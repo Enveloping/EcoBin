@@ -41,6 +41,9 @@ OneNet 密钥或管理员个人公钥逐台写入 `.env`。
 - `registrationMac` 和 `signature` 分别是 K1 HMAC-SHA256 与设备 Ed25519 签名；
 - LEGACY_ADOPTION 额外提供当前 OneNet 密钥的域分离 HMAC，SELF_ENROLLMENT 的
   `legacyProof` 为 null；
+- LEGACY_ADOPTION 必须通过 `ECOBIN_LEGACY_HARDWARE_SN` 明确沿用存量资产的
+  `hardwareSn`（也就是现有 OneNet 设备名）；只有 SELF_ENROLLMENT 才从新注册公钥派生
+  `ECM0-...` 编号；
 - 202/PENDING 只重试已持久化的原请求，200/READY 才解密，422/FAILED 不删除 K1。
 
 正式凭证包含后端下发的 `assetUid`、`hardwareSn`、`modelCode=EC-M0`、

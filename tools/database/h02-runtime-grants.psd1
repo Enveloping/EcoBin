@@ -1,5 +1,5 @@
 @{
-    CatalogVersion = 24
+    CatalogVersion = 26
 
     ReadOnlyTables = @(
         "iam_permission_definition"
@@ -151,6 +151,9 @@
             "revocation_reason"
         )
         dev_device_asset = @(
+            "registration_source"
+            "factory_bag_revision"
+            "factory_bag_set_sha256"
             "installation_display_name"
             "installation_address"
             "installation_latitude"
@@ -180,6 +183,7 @@
         # only the label binding and resets the automatic tare projection.
         dev_factory_installed_bag = @(
             "bag_code"
+            "installation_source"
             "installed_by_factory_operator_id"
             "label_item_id"
             "tare_status"
@@ -229,6 +233,7 @@
             "opened_at"
             "close_requested_at"
             "closed_at"
+            "lease_released_at"
             "lock_version"
             "updated_at"
         )

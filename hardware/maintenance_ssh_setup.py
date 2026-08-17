@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 try:
     import pwd
@@ -16,8 +17,8 @@ except ImportError:  # pragma: no cover - production target is Linux
 from device_credentials import load_device_credentials
 from secure_files import atomic_write_bytes
 
-
 MAINTENANCE_USER = "ecobin-maintenance"
+SYSTEM_ETC_DIRECTORY = Path("/etc")
 
 
 def install_maintenance_ssh(
@@ -61,6 +62,21 @@ def install_maintenance_ssh(
     principals_target = Path(principals_path)
     drop_in_target = Path(sshd_drop_in_path)
     sudoers_target = Path(sudoers_path)
+    trusted_targets = (
+        ca_target,
+        principals_target,
+        drop_in_target,
+        sudoers_target,
+    )
+    if any(
+        target.is_absolute()
+        and target.is_relative_to(SYSTEM_ETC_DIRECTORY)
+        for target in trusted_targets
+    ):
+        _remove_group_and_world_write(
+            SYSTEM_ETC_DIRECTORY,
+            require_root_owner=validate_and_reload,
+        )
     for directory, mode in (
         (ca_target.parent, 0o755),
         (principals_target.parent, 0o755),
@@ -138,6 +154,27 @@ def _user_exists(name: str) -> bool:
     except KeyError:
         return False
     return True
+
+
+def _remove_group_and_world_write(
+    directory: Path,
+    *,
+    require_root_owner: bool,
+) -> None:
+    if directory.is_symlink() or not directory.is_dir():
+        raise PermissionError(
+            f"trusted configuration ancestor is not a real directory: "
+            f"{directory}"
+        )
+    metadata = directory.stat()
+    if require_root_owner and metadata.st_uid != 0:
+        raise PermissionError(
+            f"trusted configuration ancestor is not root-owned: {directory}"
+        )
+    current_mode = stat.S_IMODE(metadata.st_mode)
+    secure_mode = current_mode & ~0o022
+    if secure_mode != current_mode:
+        os.chmod(directory, secure_mode)
 
 
 def main(argv: list[str] | None = None) -> int:

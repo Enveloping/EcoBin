@@ -33,6 +33,16 @@ optional_env_value() {
     sed -n "s/^${key}=//p" "${file}" | tail -n 1
 }
 
+require_canonical_ed25519_public_key() {
+    local file="$1"
+    local key="$2"
+    local value
+
+    value="$(env_value "${file}" "${key}")"
+    [[ "${value}" =~ ^ssh-ed25519\ [A-Za-z0-9+/]{68}$ ]] \
+        || fail "${key} must be a canonical ssh-ed25519 key without a comment"
+}
+
 require_root_controlled_file() {
     local file="$1"
     local uid
@@ -206,6 +216,10 @@ if [[ "${remote_support_enabled}" = true ]]; then
     do
         env_value "${runtime_env}" "${key}" >/dev/null
     done
+    require_canonical_ed25519_public_key \
+        "${runtime_env}" remoteSupportTunnelServerHostPublicKey
+    require_canonical_ed25519_public_key \
+        "${runtime_env}" remoteSupportMaintenanceCaPublicKey
     [[ "$(env_value "${runtime_env}" remoteSupportSignerCaPrivateKeyPath)" \
         = /run/secrets/remote-support/maintenance-user-ca ]] \
         || fail "unexpected remote support CA private key path"

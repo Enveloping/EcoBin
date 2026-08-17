@@ -330,11 +330,13 @@ def test_legacy_adoption_adds_dual_proof(tmp_path: Path):
         paths=paths,
         enrollment_mode="LEGACY_ADOPTION",
         legacy_onenet_secret="current-device-secret",
+        legacy_hardware_sn="test-divice-1",
         http_post=post,
     )
     with pytest.raises(EnrollmentRetryableError):
         client.run_once()
 
+    assert captured["hardwareSn"] == "test-divice-1"
     canonical = canonical_enrollment_request_bytes(captured)
     transcript = enrollment_transcript(CHALLENGE_NONCE, canonical)
     expected = hmac.new(
@@ -343,6 +345,19 @@ def test_legacy_adoption_adds_dual_proof(tmp_path: Path):
         hashlib.sha256,
     ).digest()
     assert base64.b64decode(captured["legacyProof"]) == expected
+
+
+def test_legacy_adoption_requires_existing_hardware_serial(tmp_path: Path):
+    with pytest.raises(
+        ValueError,
+        match="existing hardware serial number",
+    ):
+        DeviceEnrollmentClient(
+            backend_base_url="https://backend.example.com",
+            paths=_paths(tmp_path),
+            enrollment_mode="LEGACY_ADOPTION",
+            legacy_onenet_secret="current-device-secret",
+        )
 
 
 def test_expired_challenge_is_replaced_without_changing_device_identity(tmp_path: Path):

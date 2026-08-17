@@ -129,6 +129,8 @@ remoteSupportLeaseActualDirectory=/run/ecobin/remote-support/actual
 
 先按实际值写好但保持两个功能开关为 `false`。`remoteSupportTunnelServerHostPublicKey` 必须
 从受控渠道取得并核对指纹，不能在首次连接时使用 `accept-new` 或关闭 Host Key 校验。
+两个 SSH 公钥配置都必须只保留 `ssh-ed25519` 和 Base64 公钥体这两段，不能保留
+`root@host` 等末尾注释；生产预检会按后端使用的规范格式拒绝带注释的值。
 
 ## 6. 暂存秘密、预检和启动
 
@@ -169,6 +171,18 @@ ECOBIN_ENROLLMENT_BACKEND_URL=https://生产域名
 ECOBIN_ENROLLMENT_KEY_ID=K1
 ECOBIN_ENROLLMENT_MODE=SELF_ENROLLMENT
 ```
+
+接管已存在于平台和 OneNet 的设备时改用 `LEGACY_ADOPTION`，并同时指定该资产当前的
+`hardwareSn`（即现有 OneNet 设备名）及只含旧 OneNet 设备密钥的 `0600` 文件：
+
+```text
+ECOBIN_ENROLLMENT_MODE=LEGACY_ADOPTION
+ECOBIN_LEGACY_HARDWARE_SN=现有设备名
+ECOBIN_LEGACY_ONENET_SECRET_FILE=/etc/ecobin/legacy-onenet-secret
+```
+
+注册成功后，设备会删除旧密钥文件；部署脚本还应从普通硬件环境中删除旧的 product ID、
+device name 和 device key 三项，避免正式凭证与旧环境变量并存。
 
 然后执行：
 

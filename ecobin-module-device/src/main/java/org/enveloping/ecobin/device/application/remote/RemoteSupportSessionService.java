@@ -582,6 +582,10 @@ public class RemoteSupportSessionService {
                     receivedAt,
                     receivedAt,
                     session.id()) == 1;
+            if (!changed && isTerminal(session.state())) {
+                changed = refreshTerminalDeviceReportedState(
+                        session.id(), receivedAt);
+            }
         } else {
             changed = jdbc.update("""
                             UPDATE dev_remote_support_session
@@ -608,6 +612,41 @@ public class RemoteSupportSessionService {
                 TARGET_TYPE,
                 sessionUid.toString());
         return changed;
+    }
+
+    private boolean refreshTerminalDeviceReportedState(
+            long sessionId,
+            LocalDateTime receivedAt) {
+        return jdbc.update("""
+                        UPDATE dev_remote_support_session
+                        SET device_reported_state = (
+                                SELECT latest.reported_state
+                                FROM dev_remote_support_status_event latest
+                                WHERE latest.session_id = ?
+                                ORDER BY latest.occurred_at DESC,
+                                         latest.id DESC
+                                LIMIT 1
+                            ),
+                            lock_version = lock_version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                          AND state IN ('CLOSED', 'FAILED', 'EXPIRED')
+                          AND (
+                              device_reported_state IS NULL
+                              OR device_reported_state <> (
+                                  SELECT latest.reported_state
+                                  FROM dev_remote_support_status_event latest
+                                  WHERE latest.session_id = ?
+                                  ORDER BY latest.occurred_at DESC,
+                                           latest.id DESC
+                                  LIMIT 1
+                              )
+                          )
+                        """,
+                sessionId,
+                receivedAt,
+                sessionId,
+                sessionId) == 1;
     }
 
     @Scheduled(

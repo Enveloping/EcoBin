@@ -54,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--legacy-onenet-secret-file",
         default=os.getenv("ECOBIN_LEGACY_ONENET_SECRET_FILE", ""),
     )
+    parser.add_argument(
+        "--legacy-hardware-sn",
+        default=os.getenv("ECOBIN_LEGACY_HARDWARE_SN", ""),
+    )
     parser.add_argument("--timeout-seconds", type=float, default=15.0)
     return parser
 
@@ -114,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         enrollment_key_id=args.enrollment_key_id,
         enrollment_mode=args.enrollment_mode,
         legacy_onenet_secret=legacy_secret,
+        legacy_hardware_sn=args.legacy_hardware_sn or None,
         timeout_seconds=args.timeout_seconds,
     ).run_once()
     logger.info("device enrollment credentials are installed and verified")

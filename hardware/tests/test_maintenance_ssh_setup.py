@@ -5,7 +5,9 @@ import os
 import stat
 from pathlib import Path
 
+import maintenance_ssh_setup
 from maintenance_ssh_setup import install_maintenance_ssh
+
 from tests.test_device_credentials import valid_document
 
 
@@ -104,3 +106,37 @@ def test_privileged_configuration_is_validated_before_sshd_reload(tmp_path: Path
         "ssh.service",
     ]
     assert all("shell" not in kwargs for _argv, kwargs in calls)
+
+
+def test_removes_write_bits_from_trusted_etc_ancestor(
+    tmp_path: Path,
+    monkeypatch,
+):
+    credentials = tmp_path / "device-credentials.json"
+    credentials.write_text(json.dumps(valid_document()), encoding="utf-8")
+    credentials.chmod(0o600)
+    fake_etc = tmp_path / "etc"
+    fake_etc.mkdir(mode=0o775)
+    fake_etc.chmod(0o775)
+    monkeypatch.setattr(
+        maintenance_ssh_setup,
+        "SYSTEM_ETC_DIRECTORY",
+        fake_etc,
+    )
+
+    install_maintenance_ssh(
+        credentials_path=credentials,
+        ca_path=fake_etc / "ssh" / "maintenance-ca.pub",
+        principals_path=(
+            fake_etc / "ssh" / "principals" / "ecobin-maintenance"
+        ),
+        sshd_drop_in_path=(
+            fake_etc / "ssh" / "sshd_config.d" / "maintenance.conf"
+        ),
+        sudoers_path=fake_etc / "sudoers.d" / "ecobin-maintenance",
+        user_exists=lambda _name: True,
+        validate_and_reload=False,
+    )
+
+    if os.name != "nt":
+        assert stat.S_IMODE(fake_etc.stat().st_mode) == 0o755

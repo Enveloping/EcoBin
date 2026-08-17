@@ -16,7 +16,12 @@ def _load_module() -> None:
     repository_library = Path(__file__).resolve().parent.parent / "lib"
     installed_library = Path("/usr/local/libexec/ecobin-remote-support")
     sys.path.insert(
-        0, str(repository_library if repository_library.is_dir() else installed_library)
+        0,
+        str(
+            repository_library
+            if (repository_library / "ecobin_remote_support.py").is_file()
+            else installed_library
+        ),
     )
 
 

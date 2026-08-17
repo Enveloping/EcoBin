@@ -123,6 +123,7 @@ $factoryBagColumns = @(
 )
 $factoryBagRequiredColumns = @(
     "bag_code"
+    "installation_source"
     "installed_by_factory_operator_id"
     "label_item_id"
     "tare_status"
@@ -170,14 +171,25 @@ $v52UpdateGrants = @{
         "close_command_uid", "device_reported_state", "server_lease_state",
         "failure_code", "failure_detail", "certificate_serial",
         "certificate_text", "certificate_sha256", "certificate_issued_at",
-        "opened_at", "close_requested_at", "closed_at", "lock_version",
-        "updated_at"
+        "opened_at", "close_requested_at", "closed_at", "lease_released_at",
+        "lock_version", "updated_at"
     )
 }
 foreach ($entry in $v52UpdateGrants.GetEnumerator()) {
     $actual = @($catalog.UpdateColumns[$entry.Key])
     if (@(Compare-Object @($entry.Value) $actual).Count -ne 0) {
         throw "V52 runtime UPDATE grant mismatch for $($entry.Key)"
+    }
+}
+
+$v52AssetColumns = @($catalog.UpdateColumns.dev_device_asset)
+foreach ($requiredColumn in @(
+        "registration_source",
+        "factory_bag_revision",
+        "factory_bag_set_sha256"
+    )) {
+    if ($v52AssetColumns -notcontains $requiredColumn) {
+        throw "V52 device-asset runtime UPDATE grant is missing $requiredColumn"
     }
 }
 if ($catalog.UpdateColumns.ContainsKey("dev_port")) {
@@ -226,6 +238,9 @@ if (@(
 }
 
 $assetRequiredColumns = @(
+    "registration_source"
+    "factory_bag_revision"
+    "factory_bag_set_sha256"
     "installation_display_name"
     "installation_address"
     "installation_latitude"
@@ -252,7 +267,7 @@ $assetRequiredColumns = @(
 )
 $assetColumns = @($catalog.UpdateColumns.dev_device_asset)
 if (@(Compare-Object $assetRequiredColumns $assetColumns).Count -ne 0) {
-    throw "dev_device_asset runtime UPDATE grants do not match V48"
+    throw "dev_device_asset runtime UPDATE grants do not match V52"
 }
 $rolloutRequiredColumns = @(
     "rollout_uid"
