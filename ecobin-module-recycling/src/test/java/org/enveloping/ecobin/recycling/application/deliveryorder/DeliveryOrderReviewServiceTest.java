@@ -22,6 +22,7 @@ import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReview
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewPreview;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.PreviewDeliveryReviewRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
+import org.enveloping.ecobin.recycling.api.port.ReliableRecyclingTaskExecutorPort;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -810,6 +811,85 @@ class DeliveryOrderReviewServiceTest {
         verify(audit, times(1)).append(any());
     }
 
+    @Test
+    void dueNormalOrderIsAutomaticallyReviewedAndCredited() {
+        DeliveryOrderScope scope = new DeliveryOrderScope(
+                TENANT_ID, ORGANIZATION_ID, null);
+        LockedDeliveryOrderRow order = automaticOrder(
+                "NORMAL_AUTO_IMMEDIATE",
+                REVIEWED_AT_DATABASE.minusSeconds(1));
+        when(repository.findScopeByOrderNo(ORDER_NO))
+                .thenReturn(Optional.of(scope));
+        when(repository.lockOrder(scope, ORDER_NO))
+                .thenReturn(Optional.of(order));
+        when(repository.hasBlockingAutomaticReviewAnomaly(order.id()))
+                .thenReturn(false);
+
+        ReliableRecyclingTaskExecutorPort.Result result = service.execute(
+                automaticReviewCommand());
+
+        assertThat(result.outcome()).isEqualTo(
+                ReliableRecyclingTaskExecutorPort.Result.Outcome.DONE);
+        ArgumentCaptor<DeliveryRevisionInsert> revision =
+                ArgumentCaptor.forClass(DeliveryRevisionInsert.class);
+        verify(repository).insertRevision(any(), any(), revision.capture());
+        assertThat(revision.getValue().reviewerKind()).isEqualTo("SYSTEM");
+        assertThat(revision.getValue().decision())
+                .isEqualTo("ORIGINAL_APPROVED");
+        assertThat(revision.getValue().afterAmountCent()).isEqualTo(80L);
+        verify(funds).applyDeliveryRevisionDelta(any());
+        verify(audit).append(any());
+    }
+
+    @Test
+    void delayedAutomaticReviewWaitsWithoutChangingBusinessFacts() {
+        DeliveryOrderScope scope = new DeliveryOrderScope(
+                TENANT_ID, ORGANIZATION_ID, null);
+        LockedDeliveryOrderRow order = automaticOrder(
+                "NORMAL_AUTO_AFTER_24H",
+                REVIEWED_AT_DATABASE.plusHours(3));
+        when(repository.findScopeByOrderNo(ORDER_NO))
+                .thenReturn(Optional.of(scope));
+        when(repository.lockOrder(scope, ORDER_NO))
+                .thenReturn(Optional.of(order));
+        when(repository.hasBlockingAutomaticReviewAnomaly(order.id()))
+                .thenReturn(false);
+
+        ReliableRecyclingTaskExecutorPort.Result result = service.execute(
+                automaticReviewCommand());
+
+        assertThat(result.outcome()).isEqualTo(
+                ReliableRecyclingTaskExecutorPort.Result.Outcome.WAITING);
+        assertThat(result.retryAfter()).isEqualTo(java.time.Duration.ofHours(3));
+        verify(repository, never()).insertRevision(any(), any(), any());
+        verify(funds, never()).applyDeliveryRevisionDelta(any());
+        verify(audit, never()).append(any());
+    }
+
+    @Test
+    void systemAnomalyKeepsAutomaticOrderForHumanReview() {
+        DeliveryOrderScope scope = new DeliveryOrderScope(
+                TENANT_ID, ORGANIZATION_ID, null);
+        LockedDeliveryOrderRow order = automaticOrder(
+                "NORMAL_AUTO_IMMEDIATE",
+                REVIEWED_AT_DATABASE);
+        when(repository.findScopeByOrderNo(ORDER_NO))
+                .thenReturn(Optional.of(scope));
+        when(repository.lockOrder(scope, ORDER_NO))
+                .thenReturn(Optional.of(order));
+        when(repository.hasBlockingAutomaticReviewAnomaly(order.id()))
+                .thenReturn(true);
+
+        ReliableRecyclingTaskExecutorPort.Result result = service.execute(
+                automaticReviewCommand());
+
+        assertThat(result.outcome()).isEqualTo(
+                ReliableRecyclingTaskExecutorPort.Result.Outcome.DONE);
+        assertThat(result.diagnostic()).contains("manual review");
+        verify(repository, never()).insertRevision(any(), any(), any());
+        verify(funds, never()).applyDeliveryRevisionDelta(any());
+    }
+
     private AuthorizedDeliveryScope authorized(
             boolean deliveryRead,
             boolean reviewExecute,
@@ -896,8 +976,12 @@ class DeliveryOrderReviewServiceTest {
                 new BigDecimal("0.8000"),
                 100_000L,
                 rawWeight,
+                rawWeight == null ? null : rawWeight.movePointRight(3).longValue(),
                 rawAmount,
                 rawStatus,
+                false,
+                "ALL_MANUAL",
+                null,
                 false,
                 "PENDING",
                 0L,
@@ -916,8 +1000,12 @@ class DeliveryOrderReviewServiceTest {
                 new BigDecimal("0.8000"),
                 100_000L,
                 new BigDecimal("1.00"),
+                1_000L,
                 80L,
                 "RELIABLE",
+                false,
+                "ALL_MANUAL",
+                null,
                 false,
                 "APPROVED",
                 revisionNo,
@@ -925,6 +1013,43 @@ class DeliveryOrderReviewServiceTest {
                 new BigDecimal("1.00"),
                 80L,
                 REVIEWED_AT_DATABASE.minusDays(1));
+    }
+
+    private static LockedDeliveryOrderRow automaticOrder(
+            String reviewMode,
+            LocalDateTime dueAt) {
+        return new LockedDeliveryOrderRow(
+                10L,
+                ORDER_NO,
+                ORGANIZATION_USER_ID,
+                new BigDecimal("0.8000"),
+                100_000L,
+                new BigDecimal("1.00"),
+                1_000L,
+                80L,
+                "RELIABLE",
+                false,
+                reviewMode,
+                dueAt,
+                false,
+                "PENDING",
+                0L,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private static ReliableRecyclingTaskExecutorPort.Command
+    automaticReviewCommand() {
+        return new ReliableRecyclingTaskExecutorPort.Command(
+                UUID.fromString(
+                        "60000000-0000-4000-8000-000000000001"),
+                UUID.fromString(
+                        "70000000-0000-4000-8000-000000000001"),
+                1L,
+                "AUTO_REVIEW_DELIVERY_ORDER",
+                ORDER_NO);
     }
 
     private static SuccessfulAudit successfulAudit(

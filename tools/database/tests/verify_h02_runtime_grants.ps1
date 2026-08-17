@@ -15,12 +15,12 @@ if ($provisionSource -notmatch 'Get-H02MigrationProvenance' -or
     throw "H-02 provisioning must reject dirty migrations and record provenance"
 }
 
-if ($provisionSource -notmatch '\$tables\.Count -ne 112' -or
-        $provisionSource -notmatch 'Expected 112 domain tables') {
-    throw "H-02 provisioning must enforce the V52 112-table shape"
+if ($provisionSource -notmatch '\$tables\.Count -ne 113' -or
+        $provisionSource -notmatch 'Expected 113 domain tables') {
+    throw "H-02 provisioning must enforce the V53 113-table shape"
 }
-if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 52') {
-    throw "H-02 provisioning must migrate through V52"
+if ($provisionSource -notmatch 'Invoke-FlywayMigration -Target 53') {
+    throw "H-02 provisioning must migrate through V53"
 }
 if ($provisionSource -notmatch
         'sha256:9cffaceb9b62d4280247acdb2324b380d2b36208ae34dfe9f0afb62eeaf70f08' -or

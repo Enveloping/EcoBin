@@ -181,27 +181,36 @@ class OrganizationDeliveryConfigurationServiceTest {
     }
 
     @Test
-    void refusesAnAutomaticReviewModeBeforeExecutionExists() {
-        assertThatThrownBy(() -> service.release(
+    void publishesASupportedAutomaticReviewMode() {
+        DeliveryConfigurationRow current =
+                row(1, -1_000L, 100_000L, true);
+        when(audit.findSuccessful(OPERATION_UID))
+                .thenReturn(Optional.empty());
+        when(repository.lockCurrent(scope()))
+                .thenReturn(Optional.of(current));
+        when(repository.insertVersion(any(), any()))
+                .thenReturn(100L);
+
+        var result = service.release(
                 false,
                 null,
                 "organization-a",
                 OPERATION_UID,
                 new DeliveryConfigurationReleaseRequest(
                         1L,
-                        "AUTO_AFTER_24H",
+                        "NORMAL_AUTO_AFTER_24H",
                         "-10.00",
                         "100.000",
-                        "not available")))
-                .isInstanceOfSatisfying(
-                        TargetApiException.class,
-                        failure -> {
-                            assertThat(failure.status()).isEqualTo(422);
-                            assertThat(failure.code()).isEqualTo(
-                                    "DELIVERY.REVIEW_MODE_NOT_AVAILABLE");
-                        });
+                        "enable automatic review"));
 
-        verify(repository, never()).lockCurrent(any());
+        assertThat(result.reviewMode())
+                .isEqualTo("NORMAL_AUTO_AFTER_24H");
+        ArgumentCaptor<NewDeliveryConfigurationVersion> inserted =
+                ArgumentCaptor.forClass(
+                        NewDeliveryConfigurationVersion.class);
+        verify(repository).insertVersion(any(), inserted.capture());
+        assertThat(inserted.getValue().reviewMode())
+                .isEqualTo("NORMAL_AUTO_AFTER_24H");
     }
 
     @Test

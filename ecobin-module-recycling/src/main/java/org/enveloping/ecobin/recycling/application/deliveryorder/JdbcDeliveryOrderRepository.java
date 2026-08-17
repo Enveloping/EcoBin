@@ -382,8 +382,12 @@ class JdbcDeliveryOrderRepository {
                                unit_price_yuan_per_kg,
                                max_review_abs_weight_g,
                                raw_business_weight_kg,
+                               raw_net_weight_g,
                                raw_amount_cent,
                                raw_calculation_status,
+                               negative_weight_anomaly,
+                               review_mode_snapshot,
+                               automatic_review_due_at,
                                EXISTS (
                                    SELECT 1
                                    FROM rec_delivery_anomaly mismatch
@@ -424,8 +428,12 @@ class JdbcDeliveryOrderRepository {
                                unit_price_yuan_per_kg,
                                max_review_abs_weight_g,
                                raw_business_weight_kg,
+                               raw_net_weight_g,
                                raw_amount_cent,
                                raw_calculation_status,
+                               negative_weight_anomaly,
+                               review_mode_snapshot,
+                               automatic_review_due_at,
                                EXISTS (
                                    SELECT 1
                                    FROM rec_delivery_anomaly mismatch
@@ -449,6 +457,30 @@ class JdbcDeliveryOrderRepository {
                 scope.tenantId(),
                 scope.organizationId(),
                 deliveryOrderNo).stream().findFirst();
+    }
+
+    Optional<DeliveryOrderScope> findScopeByOrderNo(
+            String deliveryOrderNo) {
+        return jdbc.query("""
+                        SELECT tenant_id, organization_id
+                        FROM rec_delivery_order
+                        WHERE delivery_order_no = ?
+                        """,
+                (rs, ignored) -> new DeliveryOrderScope(
+                        rs.getLong("tenant_id"),
+                        rs.getLong("organization_id"),
+                        null),
+                deliveryOrderNo).stream().findFirst();
+    }
+
+    boolean hasBlockingAutomaticReviewAnomaly(long orderId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM rec_delivery_anomaly
+                WHERE delivery_order_id = ?
+                  AND category IN ('USER', 'SYSTEM')
+                """, Integer.class, orderId);
+        return count != null && count > 0;
     }
 
     InsertedDeliveryRevision insertRevision(
@@ -702,8 +734,14 @@ class JdbcDeliveryOrderRepository {
                 rs.getBigDecimal("unit_price_yuan_per_kg"),
                 rs.getLong("max_review_abs_weight_g"),
                 rs.getBigDecimal("raw_business_weight_kg"),
+                nullableLong(rs, "raw_net_weight_g"),
                 nullableLong(rs, "raw_amount_cent"),
                 rs.getString("raw_calculation_status"),
+                rs.getBoolean("negative_weight_anomaly"),
+                rs.getString("review_mode_snapshot"),
+                rs.getObject(
+                        "automatic_review_due_at",
+                        LocalDateTime.class),
                 rs.getBoolean("net_weight_inconsistent"),
                 rs.getString("review_status"),
                 rs.getLong("current_revision_no"),
@@ -881,8 +919,12 @@ record LockedDeliveryOrderRow(
         BigDecimal unitPriceYuanPerKg,
         long maxReviewAbsWeightGram,
         BigDecimal rawWeightKg,
+        Long rawNetWeightGram,
         Long rawAmountCent,
         String rawCalculationStatus,
+        boolean negativeWeightAnomaly,
+        String reviewModeSnapshot,
+        LocalDateTime automaticReviewDueAt,
         boolean netWeightInconsistent,
         String reviewStatus,
         long currentRevisionNo,

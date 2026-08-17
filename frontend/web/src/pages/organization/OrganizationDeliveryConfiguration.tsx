@@ -37,8 +37,29 @@ interface OrganizationDeliveryConfigurationProps {
   organizationCode: string;
 }
 
+type ReviewMode = DeliveryConfigurationVersion['reviewMode'];
+
+const REVIEW_MODE: Record<ReviewMode, { label: string; description: string }> = {
+  ALL_MANUAL: {
+    label: '全部人工审核',
+    description: '每笔投递都由工作人员审核后才进入钱包',
+  },
+  NORMAL_AUTO_IMMEDIATE: {
+    label: '正常订单立即自动审核',
+    description: '后端收到正常投递后立即审核；异常订单仍转人工',
+  },
+  NORMAL_AUTO_AFTER_24H: {
+    label: '正常订单 24 小时后自动审核',
+    description: '从后端收到投递的时间开始等待 24 小时；异常订单仍转人工',
+  },
+  NORMAL_AUTO_AFTER_48H: {
+    label: '正常订单 48 小时后自动审核',
+    description: '从后端收到投递的时间开始等待 48 小时；异常订单仍转人工',
+  },
+};
+
 interface ReleaseForm {
-  reviewMode: 'ALL_MANUAL';
+  reviewMode: ReviewMode;
   openBalanceFloorYuan: string;
   maxReviewAbsoluteWeightKg: string;
   reason?: string;
@@ -121,7 +142,7 @@ export default function OrganizationDeliveryConfiguration({
   const openRelease = () => {
     if (!current) return;
     form.setFieldsValue({
-      reviewMode: 'ALL_MANUAL',
+      reviewMode: current.reviewMode,
       openBalanceFloorYuan: current.openBalanceFloorYuan,
       maxReviewAbsoluteWeightKg: current.maxReviewAbsoluteWeightKg,
       reason: undefined,
@@ -139,7 +160,7 @@ export default function OrganizationDeliveryConfiguration({
     }
     const payload: DeliveryConfigurationReleaseRequest = {
       expectedLatestVersion: current.versionNo,
-      reviewMode: 'ALL_MANUAL',
+      reviewMode: values.reviewMode,
       openBalanceFloorYuan: values.openBalanceFloorYuan.trim(),
       maxReviewAbsoluteWeightKg:
         values.maxReviewAbsoluteWeightKg.trim(),
@@ -228,9 +249,11 @@ export default function OrganizationDeliveryConfiguration({
         <Descriptions size="small" bordered column={{ xs: 1, md: 2 }}>
           <Descriptions.Item label="审核方式">
             <Space direction="vertical" size={0}>
-              <Typography.Text>全部人工审核</Typography.Text>
+              <Typography.Text>
+                {REVIEW_MODE[current.reviewMode].label}
+              </Typography.Text>
               <Typography.Text type="secondary">
-                订单须经人工认定后才改变钱包余额
+                {REVIEW_MODE[current.reviewMode].description}
               </Typography.Text>
             </Space>
           </Descriptions.Item>
@@ -276,8 +299,8 @@ export default function OrganizationDeliveryConfiguration({
             {
               title: '审核方式',
               dataIndex: 'reviewMode',
-              width: 120,
-              render: () => '全部人工审核',
+              width: 220,
+              render: (value: ReviewMode) => REVIEW_MODE[value].label,
             },
             {
               title: '停投下限',
@@ -332,11 +355,17 @@ export default function OrganizationDeliveryConfiguration({
           <Form.Item
             name="reviewMode"
             label="审核方式"
-            extra="当前阶段固定全部人工审核；自动审核尚未开放。"
+            extra="只有重量可靠、金额不为负且没有用户或系统异常的正常订单才会自动审核；其他订单仍进入人工审核。"
+            rules={[{ required: true, message: '请选择审核方式' }]}
           >
             <Select
-              options={[{ label: '全部人工审核', value: 'ALL_MANUAL' }]}
-              disabled
+              options={(Object.entries(REVIEW_MODE) as Array<[
+                ReviewMode,
+                (typeof REVIEW_MODE)[ReviewMode],
+              ]>).map(([value, item]) => ({
+                value,
+                label: item.label,
+              }))}
             />
           </Form.Item>
           <Form.Item

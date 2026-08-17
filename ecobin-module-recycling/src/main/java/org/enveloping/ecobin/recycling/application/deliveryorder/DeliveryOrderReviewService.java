@@ -19,6 +19,7 @@ import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReview
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.DeliveryReviewPreview;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.PreviewDeliveryReviewRequest;
 import org.enveloping.ecobin.recycling.web.v1.DeliveryOrderModels.ReviewDeliveryOrderRequest;
+import org.enveloping.ecobin.recycling.api.port.ReliableRecyclingTaskExecutorPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -49,7 +51,8 @@ import java.util.UUID;
  * 或扣差额，避免重复把整单金额入账。</p>
  */
 @Service
-public class DeliveryOrderReviewService {
+public class DeliveryOrderReviewService
+        implements ReliableRecyclingTaskExecutorPort {
 
     private static final String REVIEW_ACTION = "delivery.review";
     private static final String CORRECT_ACTION = "delivery.correct";
@@ -166,6 +169,204 @@ public class DeliveryOrderReviewService {
                 deliveryOrderNo,
                 operationUid,
                 request);
+    }
+
+    @Override
+    @Transactional(
+            isolation = Isolation.READ_COMMITTED,
+            readOnly = false)
+    public ReliableRecyclingTaskExecutorPort.Result execute(
+            ReliableRecyclingTaskExecutorPort.Command command) {
+        if (!"AUTO_REVIEW_DELIVERY_ORDER".equals(command.taskType())) {
+            return new ReliableRecyclingTaskExecutorPort.Result(
+                    ReliableRecyclingTaskExecutorPort.Result.Outcome.BLOCKED,
+                    "unsupported recycling task type");
+        }
+        String deliveryOrderNo = requiredOrderNo(
+                command.targetStableKey());
+        DeliveryOrderScope orderScope = repository
+                .findScopeByOrderNo(deliveryOrderNo)
+                .orElse(null);
+        if (orderScope == null) {
+            return new ReliableRecyclingTaskExecutorPort.Result(
+                    ReliableRecyclingTaskExecutorPort.Result.Outcome.BLOCKED,
+                    "delivery order is missing");
+        }
+
+        long currentStopThresholdCent =
+                repository.lockCurrentOpenBalanceFloor(orderScope);
+        LockedDeliveryOrderRow order = repository.lockOrder(
+                        orderScope,
+                        deliveryOrderNo)
+                .orElse(null);
+        if (order == null) {
+            return new ReliableRecyclingTaskExecutorPort.Result(
+                    ReliableRecyclingTaskExecutorPort.Result.Outcome.BLOCKED,
+                    "delivery order disappeared");
+        }
+        if (!"PENDING".equals(order.reviewStatus())
+                || order.currentRevisionNo() != 0) {
+            return new ReliableRecyclingTaskExecutorPort.Result(
+                    ReliableRecyclingTaskExecutorPort.Result.Outcome.DONE,
+                    "delivery order was already reviewed");
+        }
+        if ("ALL_MANUAL".equals(order.reviewModeSnapshot())
+                || order.automaticReviewDueAt() == null
+                || !automaticReviewEligible(order)
+                || repository.hasBlockingAutomaticReviewAnomaly(order.id())) {
+            return new ReliableRecyclingTaskExecutorPort.Result(
+                    ReliableRecyclingTaskExecutorPort.Result.Outcome.DONE,
+                    "delivery order requires manual review");
+        }
+
+        Instant nowInstant = clock.instant()
+                .truncatedTo(ChronoUnit.MILLIS);
+        LocalDateTime now = LocalDateTime.ofInstant(
+                nowInstant,
+                ZoneOffset.UTC);
+        if (now.isBefore(order.automaticReviewDueAt())) {
+            return new ReliableRecyclingTaskExecutorPort.Result(
+                    ReliableRecyclingTaskExecutorPort.Result.Outcome.WAITING,
+                    "automatic review is not due",
+                    Duration.between(now, order.automaticReviewDueAt()));
+        }
+
+        DeliveryReviewPolicy.ReviewValues values =
+                DeliveryReviewPolicy.calculate(
+                        order,
+                        "ORIGINAL_APPROVED",
+                        null);
+        long amountDeltaCent = values.finalAmountCent();
+        DeliveryWalletEntryOwnerRef walletOwnerRef =
+                amountDeltaCent == 0
+                        ? null
+                        : walletOwnerResolver.resolve(
+                                TransactionBoundDeliveryWalletEntryOwnerRequestRef
+                                        .issue(
+                                                orderScope.tenantId(),
+                                                orderScope.organizationId(),
+                                                order.organizationUserId()));
+        UUID revisionUid = UUID.randomUUID();
+        byte[] requestDigest = systemReviewDigest(
+                command.taskUid(),
+                deliveryOrderNo,
+                order.reviewModeSnapshot());
+        InsertedDeliveryRevision revision = repository.insertRevision(
+                orderScope,
+                order,
+                new DeliveryRevisionInsert(
+                        revisionUid,
+                        1,
+                        null,
+                        null,
+                        "INITIAL_REVIEW",
+                        values.decision(),
+                        null,
+                        null,
+                        values.finalWeightKg(),
+                        values.finalAmountCent(),
+                        amountDeltaCent,
+                        "SYSTEM",
+                        null,
+                        null,
+                        "机构投递规则自动审核通过",
+                        requestDigest,
+                        now));
+        repository.updateCurrentRevision(
+                orderScope,
+                order,
+                revision,
+                values.finalWeightKg(),
+                values.finalAmountCent(),
+                now);
+        if (amountDeltaCent != 0) {
+            funds.applyDeliveryRevisionDelta(
+                    new ApplyDeliveryRevisionDeltaCommand(
+                            deliveryOrderNo,
+                            revisionUid,
+                            Objects.requireNonNull(walletOwnerRef),
+                            TransactionBoundDeliveryRevisionWalletEntryRef
+                                    .issue(
+                                            orderScope.tenantId(),
+                                            orderScope.organizationId(),
+                                            revision.id()),
+                            DeliveryRevisionKind.INITIAL_REVIEW,
+                            amountDeltaCent,
+                            currentStopThresholdCent,
+                            nowInstant));
+        }
+        appendSystemAudit(
+                command.taskUid(),
+                orderScope,
+                deliveryOrderNo,
+                order.reviewModeSnapshot(),
+                revisionUid,
+                values,
+                nowInstant);
+        return new ReliableRecyclingTaskExecutorPort.Result(
+                ReliableRecyclingTaskExecutorPort.Result.Outcome.DONE,
+                "delivery order automatically reviewed");
+    }
+
+    private static boolean automaticReviewEligible(
+            LockedDeliveryOrderRow order) {
+        return "RELIABLE".equals(order.rawCalculationStatus())
+                && order.rawNetWeightGram() != null
+                && order.rawNetWeightGram() >= 0
+                && order.rawAmountCent() != null
+                && order.rawAmountCent() >= 0
+                && !order.negativeWeightAnomaly();
+    }
+
+    private void appendSystemAudit(
+            UUID operationUid,
+            DeliveryOrderScope scope,
+            String deliveryOrderNo,
+            String reviewMode,
+            UUID revisionUid,
+            DeliveryReviewPolicy.ReviewValues values,
+            Instant reviewedAt) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("reviewMode", reviewMode);
+        summary.put("revisionUid", revisionUid.toString());
+        summary.put("decision", values.decision());
+        summary.put("finalWeightKg", decimal(values.finalWeightKg()));
+        summary.put("finalAmountYuan", money(values.finalAmountCent()));
+        audit.append(new AuditEntry(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                operationUid,
+                AuditScopeKind.ORGANIZATION,
+                scope.tenantId(),
+                scope.organizationId(),
+                AuditActorKind.SYSTEM,
+                null,
+                null,
+                null,
+                "DELIVERY_AUTO_REVIEW",
+                "投递自动审核",
+                "delivery.auto_review",
+                TARGET_TYPE,
+                deliveryOrderNo,
+                "SYSTEM_TASK",
+                "SUCCEEDED",
+                null,
+                "机构投递规则自动审核通过",
+                writeJson(summary),
+                reviewedAt));
+    }
+
+    private static byte[] systemReviewDigest(
+            UUID taskUid,
+            String deliveryOrderNo,
+            String reviewMode) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(
+                    (taskUid + "|" + deliveryOrderNo + "|" + reviewMode)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private DeliveryReviewPreview previewInScope(

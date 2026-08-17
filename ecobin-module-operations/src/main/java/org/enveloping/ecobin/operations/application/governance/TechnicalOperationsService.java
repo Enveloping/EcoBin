@@ -82,7 +82,7 @@ public class TechnicalOperationsService {
         append(where, args, "task.state", enumValue(state,
                 Set.of("PENDING", "DONE", "CANCELLED", "BLOCKED")));
         append(where, args, "task.execution_lane", enumValue(
-                executionLane, Set.of("DEVICE", "FUNDS")));
+                executionLane, Set.of("DEVICE", "FUNDS", "RECYCLING")));
         append(where, args, "task.task_category", enumValue(
                 taskKind, Set.of("BUSINESS_INTENT", "INBOX_PROCESSING",
                         "TIMER", "RECONCILIATION")));

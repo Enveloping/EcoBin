@@ -217,10 +217,38 @@ public class WithdrawalApplicationService {
                 request.manualMinimumYuan(), "manualMinimumYuan");
         long maximum = RechargeApplicationService.parseCent(
                 request.manualMaximumYuan(), "manualMaximumYuan");
+        long manualReviewFree = RechargeApplicationService.parseCent(
+                request.manualReviewFreeThresholdYuan() == null
+                        ? "0.00"
+                        : request.manualReviewFreeThresholdYuan(),
+                "manualReviewFreeThresholdYuan");
+        boolean autoEnabled = Boolean.TRUE.equals(
+                request.autoWithdrawalEnabled());
+        Long autoMinimum = autoEnabled
+                ? RechargeApplicationService.parseCent(
+                        request.autoMinimumYuan(), "autoMinimumYuan")
+                : null;
+        Long autoMaximum = autoEnabled
+                ? RechargeApplicationService.parseCent(
+                        request.autoMaximumYuan(), "autoMaximumYuan")
+                : null;
+        Long autoReviewFree = autoEnabled
+                ? RechargeApplicationService.parseCent(
+                        request.autoReviewFreeThresholdYuan(),
+                        "autoReviewFreeThresholdYuan")
+                : null;
         if (minimum < 10 || minimum > maximum
-                || maximum > hard || hard > 20_000) {
+                || maximum > hard || hard > 20_000
+                || manualReviewFree < 0
+                || manualReviewFree > maximum
+                || (autoEnabled
+                && (autoMinimum < 10
+                || autoMinimum > autoMaximum
+                || autoMaximum > hard
+                || autoReviewFree < 0
+                || autoReviewFree > autoMaximum))) {
             throw validation(
-                    "提现配置必须满足 0.10 <= 最低额 <= 最高额 <= 硬上限 <= 200.00");
+                    "提现配置必须满足最低额不小于 0.10 元、最低额不高于最高额、最高额不高于硬上限、免审阈值在 0 与对应最高额之间，且硬上限不超过 200.00 元");
         }
         ConfigRow current = currentConfig(
                 scope.tenantId(), scope.organizationId(), true);
@@ -230,19 +258,28 @@ public class WithdrawalApplicationService {
                     "提现配置已被其他操作更新");
         }
         long version = Math.addExact(current.version(), 1);
-        String content = "hard=" + hard + ";min=" + minimum
-                + ";max=" + maximum + ";reviewFree=0";
+        String content = "hard=" + hard + ";manualMin=" + minimum
+                + ";manualMax=" + maximum
+                + ";manualReviewFree=" + manualReviewFree
+                + ";autoEnabled=" + autoEnabled
+                + ";autoMin=" + autoMinimum
+                + ";autoMax=" + autoMaximum
+                + ";autoReviewFree=" + autoReviewFree;
         LocalDateTime now = databaseNow();
         jdbc.update("""
                 INSERT INTO fund_organization_withdraw_config (
                     tenant_id, organization_id, version_no, content_sha256,
                     hard_limit_cent, manual_min_cent, manual_max_cent,
-                    manual_review_free_threshold_cent, publication_source,
+                    manual_review_free_threshold_cent,
+                    auto_withdrawal_enabled, auto_min_cent, auto_max_cent,
+                    auto_review_free_threshold_cent, publication_source,
                     published_by_staff_account_id, published_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'STAFF', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'STAFF', ?, ?, ?)
                 """, scope.tenantId(), scope.organizationId(), version,
                 RechargeApplicationService.sha256(content), hard, minimum,
-                maximum, scope.staffAccountId(), now, now);
+                maximum, manualReviewFree, autoEnabled ? 1 : 0,
+                autoMinimum, autoMaximum, autoReviewFree,
+                scope.staffAccountId(), now, now);
         long configId = requiredLong("""
                 SELECT id FROM fund_organization_withdraw_config
                 WHERE tenant_id = ? AND organization_id = ? AND version_no = ?
@@ -263,7 +300,11 @@ public class WithdrawalApplicationService {
                 "{\"versionNo\":" + version + "}", now);
         return new WithdrawalConfigurationView(
                 version, money(hard), money(minimum), money(maximum),
-                "0.00", instant(now));
+                money(manualReviewFree), autoEnabled,
+                autoMinimum == null ? null : money(autoMinimum),
+                autoMaximum == null ? null : money(autoMaximum),
+                autoReviewFree == null ? null : money(autoReviewFree),
+                instant(now));
     }
 
     @Transactional
@@ -337,13 +378,13 @@ public class WithdrawalApplicationService {
                     422, "WITHDRAWAL.USER_BALANCE_INSUFFICIENT",
                     "用户钱包可提现余额不足");
         }
+        CounterRow counter = lockCounter(
+                scope.tenantId(), scope.organizationId());
         if (activeWithdrawalExists(wallet.id(), true)) {
             throw new TargetApiException(
                     409, "WITHDRAWAL.ACTIVE_WITHDRAWAL_EXISTS",
                     "当前钱包已有一笔处理中提现");
         }
-        CounterRow counter = lockCounter(
-                scope.tenantId(), scope.organizationId());
         AccountRow account = requiredAccount(
                 scope.tenantId(), scope.organizationId(), true);
         if (account.availableCent() < amount) {
@@ -353,15 +394,21 @@ public class WithdrawalApplicationService {
         }
 
         LocalDateTime now = databaseNow();
+        boolean reviewRequired = amount > config.manualReviewFreeCent();
+        String initialState = reviewRequired
+                ? "PENDING_REVIEW"
+                : "READY_TO_SUBMIT";
         jdbc.update("""
                 INSERT INTO fund_withdrawal_order (
-                    withdrawal_order_no, tenant_id, organization_id,
+                    withdrawal_order_no, source_type,
+                    source_delivery_order_no, review_required_at_creation,
+                    tenant_id, organization_id,
                     organization_user_id, wallet_id,
                     organization_payout_account_id,
                     withdraw_config_id, withdraw_config_version_no,
-                    hard_limit_cent_snapshot, manual_min_cent_snapshot,
-                    manual_max_cent_snapshot,
-                    manual_review_free_threshold_cent_snapshot,
+                    hard_limit_cent_snapshot, effective_min_cent_snapshot,
+                    effective_max_cent_snapshot,
+                    effective_review_free_threshold_cent_snapshot,
                     amount_cent, miniapp_merchant_binding_id,
                     miniapp_channel_id, merchant_profile_id,
                     mchid_snapshot, appid_snapshot, openid_snapshot,
@@ -373,19 +420,22 @@ public class WithdrawalApplicationService {
                     channel_boundary_at, long_unsettled_at, reviewed_at,
                     channel_terminal_at, ended_at, lock_version,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?,
-                          ?, ?, ?, 'AUTHORIZED', ?, ?, ?,
-                          'PENDING_REVIEW', 0, 0, NULL,
-                          NULL, NULL, NULL, NULL, NULL, 0, ?, ?)
-                """, withdrawalNo, scope.tenantId(), scope.organizationId(),
+                ) VALUES (?, 'MANUAL', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?, 'AUTHORIZED', ?, ?, ?,
+                          ?, 0, 0, NULL,
+                          NULL, NULL, ?, NULL, NULL, 0, ?, ?)
+                """, withdrawalNo, reviewRequired ? 1 : 0,
+                scope.tenantId(), scope.organizationId(),
                 scope.organizationUserId(), wallet.id(), account.id(),
                 config.id(), config.version(), config.hardLimitCent(),
-                config.minimumCent(), config.maximumCent(), amount,
+                config.minimumCent(), config.maximumCent(),
+                config.manualReviewFreeCent(), amount,
                 binding.bindingId(), binding.miniappId(), binding.merchantId(),
                 binding.mchid(), binding.appid(), user.openid(),
                 activeAuthorization.id(),
                 activeAuthorization.outAuthorizationNo(),
-                activeAuthorization.authorizationId(), now, now);
+                activeAuthorization.authorizationId(), initialState,
+                reviewRequired ? null : now, now, now);
         long withdrawalId = requiredLong(
                 "SELECT id FROM fund_withdrawal_order WHERE withdrawal_order_no = ?",
                 withdrawalNo);
@@ -400,6 +450,15 @@ public class WithdrawalApplicationService {
                 scope, wallet, counter, withdrawalId, withdrawalNo,
                 amount, now);
         freezeAccount(scope, account, withdrawalId, amount, now);
+        if (!reviewRequired) {
+            recordSystemApprovalAndSubmitTask(
+                    scope.tenantId(),
+                    scope.organizationId(),
+                    withdrawalId,
+                    withdrawalNo,
+                    "手动提现金额未超过机构免审阈值",
+                    now);
+        }
         appendMiniappAudit(
                 scope, operationUid, "withdrawal.create", withdrawalNo,
                 "{\"amountYuan\":\"" + money(amount) + "\"}", now);
@@ -1978,6 +2037,9 @@ public class WithdrawalApplicationService {
             throws java.sql.SQLException {
         return new WithdrawalRow(
                 rs.getLong("id"), rs.getString("withdrawal_order_no"),
+                rs.getString("source_type"),
+                rs.getString("source_delivery_order_no"),
+                rs.getBoolean("review_required_at_creation"),
                 rs.getLong("tenant_id"), rs.getLong("organization_id"),
                 rs.getLong("organization_user_id"), rs.getLong("wallet_id"),
                 rs.getLong("organization_payout_account_id"),
@@ -2023,6 +2085,10 @@ public class WithdrawalApplicationService {
         return jdbc.queryForObject("""
                 SELECT c.id, c.version_no, c.hard_limit_cent,
                        c.manual_min_cent, c.manual_max_cent,
+                       c.manual_review_free_threshold_cent,
+                       c.auto_withdrawal_enabled,
+                       c.auto_min_cent, c.auto_max_cent,
+                       c.auto_review_free_threshold_cent,
                        c.published_at
                 FROM fund_organization_withdraw_config c
                 WHERE c.id = ? AND c.tenant_id = ?
@@ -2033,6 +2099,11 @@ public class WithdrawalApplicationService {
                         rs.getLong("hard_limit_cent"),
                         rs.getLong("manual_min_cent"),
                         rs.getLong("manual_max_cent"),
+                        rs.getLong("manual_review_free_threshold_cent"),
+                        rs.getBoolean("auto_withdrawal_enabled"),
+                        nullableLong(rs, "auto_min_cent"),
+                        nullableLong(rs, "auto_max_cent"),
+                        nullableLong(rs, "auto_review_free_threshold_cent"),
                         rs.getObject("published_at", LocalDateTime.class)),
                 head.configId(), tenantId, organizationId, head.version());
     }
@@ -2339,6 +2410,9 @@ public class WithdrawalApplicationService {
                 """ + (lock ? " FOR UPDATE" : ""), (rs, ignored) -> {
                     WithdrawalRow order = new WithdrawalRow(
                             rs.getLong("id"), rs.getString("withdrawal_order_no"),
+                            rs.getString("source_type"),
+                            rs.getString("source_delivery_order_no"),
+                            rs.getBoolean("review_required_at_creation"),
                             rs.getLong("tenant_id"), rs.getLong("organization_id"),
                             rs.getLong("organization_user_id"),
                             rs.getLong("wallet_id"),
@@ -2396,6 +2470,49 @@ public class WithdrawalApplicationService {
                 RechargeApplicationService.sha256(snapshot),
                 "SUBMIT_MERCHANT_TRANSFER".equals(type) ? 500 : 20,
                 runAt));
+    }
+
+    private void recordSystemApprovalAndSubmitTask(
+            long tenantId,
+            long organizationId,
+            long withdrawalId,
+            String withdrawalNo,
+            String reason,
+            LocalDateTime now) {
+        long auditId = audit.append(new AuditEntry(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                AuditScopeKind.ORGANIZATION,
+                tenantId, organizationId,
+                AuditActorKind.SYSTEM,
+                null, null, null,
+                "WITHDRAWAL_REVIEW_FREE",
+                "提现免审规则",
+                "withdrawal.auto_review",
+                "WITHDRAWAL",
+                withdrawalNo,
+                "SYSTEM_TASK",
+                "SUCCEEDED",
+                null,
+                reason,
+                "{\"decision\":\"APPROVED\"}",
+                instant(now)));
+        jdbc.update("""
+                INSERT INTO fund_withdrawal_review (
+                    review_uid, tenant_id, organization_id,
+                    withdrawal_order_id, decision, reviewer_kind,
+                    platform_admin_id, staff_account_id, note,
+                    succeeded_audit_id, reviewed_at, created_at
+                ) VALUES (?, ?, ?, ?, 'APPROVED', 'SYSTEM',
+                          NULL, NULL, ?, ?, ?, ?)
+                """, UUID.randomUUID().toString(), tenantId,
+                organizationId, withdrawalId, reason, auditId, now, now);
+        WithdrawalRow row = requiredWithdrawal(
+                tenantId, organizationId, withdrawalNo, false);
+        registerTask(
+                row,
+                "SUBMIT_MERCHANT_TRANSFER",
+                "SUBMIT_MERCHANT_TRANSFER:" + withdrawalNo,
+                now);
     }
 
     private long appendWebAudit(
@@ -2494,7 +2611,10 @@ public class WithdrawalApplicationService {
         String channelState = publicChannelState(row.channelState());
         return new WithdrawalView(
                 row.withdrawalNo(), row.state(), row.version(),
-                money(row.amountCent()), row.collectionMode(), channelState,
+                money(row.amountCent()), row.sourceType(),
+                row.sourceDeliveryOrderNo(),
+                row.reviewRequiredAtCreation(),
+                row.collectionMode(), channelState,
                 channel.errorCode(), channel.message(),
                 "USER_CONFIRM".equals(row.collectionMode())
                         && "WAIT_USER_CONFIRM".equals(channelState)
@@ -2821,12 +2941,23 @@ public class WithdrawalApplicationService {
     private record ConfigRow(
             long id, long version, long hardLimitCent,
             long minimumCent, long maximumCent,
+            long manualReviewFreeCent,
+            boolean autoWithdrawalEnabled,
+            Long autoMinimumCent,
+            Long autoMaximumCent,
+            Long autoReviewFreeCent,
             LocalDateTime publishedAt) {
 
         WithdrawalConfigurationView view() {
             return new WithdrawalConfigurationView(
                     version, money(hardLimitCent), money(minimumCent),
-                    money(maximumCent), "0.00", instant(publishedAt));
+                    money(maximumCent), money(manualReviewFreeCent),
+                    autoWithdrawalEnabled,
+                    autoMinimumCent == null ? null : money(autoMinimumCent),
+                    autoMaximumCent == null ? null : money(autoMaximumCent),
+                    autoReviewFreeCent == null
+                            ? null : money(autoReviewFreeCent),
+                    instant(publishedAt));
         }
     }
 
@@ -2951,7 +3082,10 @@ public class WithdrawalApplicationService {
     }
 
     private record WithdrawalRow(
-            long id, String withdrawalNo, long tenantId, long organizationId,
+            long id, String withdrawalNo,
+            String sourceType, String sourceDeliveryOrderNo,
+            boolean reviewRequiredAtCreation,
+            long tenantId, long organizationId,
             long userId, long walletId, long accountId, long amountCent,
             long configId, long configVersion, long bindingId, long miniappId,
             long merchantId, String mchid, String appid, String openid,

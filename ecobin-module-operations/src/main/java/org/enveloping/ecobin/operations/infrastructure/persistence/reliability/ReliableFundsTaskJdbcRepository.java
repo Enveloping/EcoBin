@@ -95,11 +95,86 @@ public class ReliableFundsTaskJdbcRepository {
         return registered.getFirst().taskUid();
     }
 
+    public UUID insert(
+            org.enveloping.ecobin.recycling.api.port
+                    .ReliableRecyclingTaskRegistrationPort.Registration task) {
+        UUID uid = UUID.randomUUID();
+        LocalDateTime now = databaseNow();
+        LocalDateTime initialRunAt = task.initialRunAt() == null
+                || task.initialRunAt().isBefore(now)
+                ? now : task.initialRunAt();
+        try {
+            jdbc.update("""
+                INSERT INTO ops_reliable_task (
+                    task_uid, scope_kind, tenant_id, organization_id,
+                    task_category, task_type, execution_lane, task_key,
+                    target_type, target_stable_key,
+                    source_inbox_id, source_device_asset_id,
+                    source_device_command_id, payload_schema_version,
+                    redacted_execution_snapshot, payload_sha256,
+                    correlation_uid, causation_uid, initiating_audit_id,
+                    priority, retry_policy_version, max_auto_attempts,
+                    state, next_run_at, lease_token, lease_worker, lease_until,
+                    attempt_sequence, consecutive_failure_count, wake_version,
+                    handled_wake_version, completed_at, blocked_reason_code,
+                    blocked_diagnostic, lock_version, created_at, updated_at
+                ) VALUES (
+                    ?, 'ORGANIZATION', ?, ?,
+                    'TIMER', ?, 'RECYCLING', ?,
+                    ?, ?,
+                    NULL, NULL, NULL, ?,
+                    CAST(? AS JSON), ?,
+                    NULL, NULL, NULL,
+                    100, 1, ?,
+                    'PENDING', ?, NULL, NULL, NULL,
+                    0, 0, 0, 0, NULL, NULL, NULL, 0, ?, ?
+                )
+                """,
+                uid.toString(), task.tenantId(), task.organizationId(),
+                task.taskType(), task.taskKey(), task.targetType(),
+                task.targetStableKey(), task.payloadSchemaVersion(),
+                task.redactedExecutionSnapshot(), task.payloadSha256(),
+                task.maxAutoAttempts(), initialRunAt, now, now);
+        } catch (DuplicateKeyException ignored) {
+            // The immutable intent is checked below.
+        }
+        List<RegisteredTask> registered = jdbc.query("""
+                SELECT task_uid, tenant_id, organization_id, task_type,
+                       target_type, target_stable_key, payload_schema_version,
+                       payload_sha256
+                FROM ops_reliable_task WHERE task_key = ?
+                """, (rs, ignored) -> new RegisteredTask(
+                        UUID.fromString(rs.getString("task_uid")),
+                        rs.getLong("tenant_id"),
+                        rs.getLong("organization_id"),
+                        rs.getString("task_type"),
+                        rs.getString("target_type"),
+                        rs.getString("target_stable_key"),
+                        rs.getInt("payload_schema_version"),
+                        rs.getBytes("payload_sha256")), task.taskKey());
+        if (registered.size() != 1
+                || !registered.getFirst().sameIntent(task)) {
+            throw new IllegalStateException(
+                    "reliable recycling task key collides with another intent");
+        }
+        return registered.getFirst().taskUid();
+    }
+
     @Transactional(
             propagation = Propagation.REQUIRES_NEW,
             isolation = Isolation.READ_COMMITTED)
     public ClaimedFundsTask claimOne(
             String workerId, Duration leaseDuration) {
+        return claimOne(workerId, leaseDuration, "FUNDS");
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED)
+    public ClaimedFundsTask claimOne(
+            String workerId,
+            Duration leaseDuration,
+            String executionLane) {
         LocalDateTime now = databaseNow();
         List<Candidate> rows = jdbc.query("""
                 SELECT id, task_uid, tenant_id, organization_id,
@@ -110,13 +185,13 @@ public class ReliableFundsTaskJdbcRepository {
                 FROM ops_reliable_task FORCE INDEX (ix_ops_task_claim)
                 WHERE state = 'PENDING'
                   AND task_category IN ('BUSINESS_INTENT', 'TIMER')
-                  AND execution_lane = 'FUNDS'
+                  AND execution_lane = ?
                   AND dispatch_wait_reason IS NULL
                   AND claimable_at <= UTC_TIMESTAMP(3)
                 ORDER BY claimable_at, priority, id
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
-                """, this::candidate);
+                """, this::candidate, executionLane);
         if (rows.isEmpty()) {
             return null;
         }
@@ -260,7 +335,8 @@ public class ReliableFundsTaskJdbcRepository {
                         lock_version = lock_version + 1, updated_at = ?
                     WHERE id = ?
                     """, now, failures,
-                    blocked ? "FUNDS_TASK_BLOCKED" : "AUTO_RETRY_EXHAUSTED",
+                    blocked ? blockedReasonCode(claim)
+                            : "AUTO_RETRY_EXHAUSTED",
                     safeDiagnostic(diagnostic), now, claim.taskId()),
                     "block funds task");
             return;
@@ -274,6 +350,12 @@ public class ReliableFundsTaskJdbcRepository {
                 WHERE id = ?
                 """, now.plus(retryAfter), failures, now, claim.taskId()),
                 "retry funds task");
+    }
+
+    private static String blockedReasonCode(ClaimedFundsTask claim) {
+        return "AUTO_REVIEW_DELIVERY_ORDER".equals(claim.taskType())
+                ? "RECYCLING_TASK_BLOCKED"
+                : "FUNDS_TASK_BLOCKED";
     }
 
     private Candidate candidate(ResultSet rs, int ignored) throws SQLException {
@@ -331,6 +413,19 @@ public class ReliableFundsTaskJdbcRepository {
             int payloadSchemaVersion, byte[] payloadSha256) {
 
         boolean sameIntent(ReliableFundsTaskRegistration task) {
+            return tenantId == task.tenantId()
+                    && organizationId == task.organizationId()
+                    && taskType.equals(task.taskType())
+                    && targetType.equals(task.targetType())
+                    && targetStableKey.equals(task.targetStableKey())
+                    && payloadSchemaVersion == task.payloadSchemaVersion()
+                    && java.util.Arrays.equals(
+                    payloadSha256, task.payloadSha256());
+        }
+
+        boolean sameIntent(
+                org.enveloping.ecobin.recycling.api.port
+                        .ReliableRecyclingTaskRegistrationPort.Registration task) {
             return tenantId == task.tenantId()
                     && organizationId == task.organizationId()
                     && taskType.equals(task.taskType())

@@ -164,6 +164,17 @@ ecobin:
         initial-backoff: 2s
         maximum-backoff: 10m
         max-auto-attempts: 20
+      recycling:
+        worker-count: 1
+        batch-size: 16
+        lease-duration: 30s
+        external-timeout: 10s
+        maximum-in-flight: 16
+        bounded-queue-capacity: 32
+        poll-interval: 1s
+        initial-backoff: 1s
+        maximum-backoff: 5m
+        max-auto-attempts: 20
       maintenance:
         worker-count: 1
         batch-size: 4

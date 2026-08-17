@@ -14,6 +14,7 @@ public class ReliableTaskProperties {
     private boolean workersEnabled = true;
     private Channel iotDevice = Channel.iotDeviceDefaults();
     private Channel fundsWechat = Channel.fundsWechatDefaults();
+    private Channel recycling = Channel.recyclingDefaults();
     private Channel maintenance = Channel.maintenanceDefaults();
 
     public boolean isWorkersEnabled() {
@@ -40,6 +41,14 @@ public class ReliableTaskProperties {
         this.fundsWechat = Objects.requireNonNull(fundsWechat, "fundsWechat");
     }
 
+    public Channel getRecycling() {
+        return recycling;
+    }
+
+    public void setRecycling(Channel recycling) {
+        this.recycling = Objects.requireNonNull(recycling, "recycling");
+    }
+
     public Channel getMaintenance() {
         return maintenance;
     }
@@ -51,6 +60,7 @@ public class ReliableTaskProperties {
     public void validate() {
         iotDevice.validate("iot-device");
         fundsWechat.validate("funds-wechat");
+        recycling.validate("recycling");
         maintenance.validate("maintenance");
     }
 
@@ -79,6 +89,13 @@ public class ReliableTaskProperties {
                     2, 8, Duration.ofSeconds(60), Duration.ofSeconds(30),
                     8, 32, Duration.ofSeconds(1), Duration.ofSeconds(2),
                     Duration.ofMinutes(10), 20);
+        }
+
+        public static Channel recyclingDefaults() {
+            return new Channel(
+                    1, 16, Duration.ofSeconds(30), Duration.ofSeconds(10),
+                    16, 32, Duration.ofSeconds(1), Duration.ofSeconds(1),
+                    Duration.ofMinutes(5), 20);
         }
 
         public static Channel maintenanceDefaults() {

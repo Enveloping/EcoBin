@@ -11,6 +11,8 @@ import org.enveloping.ecobin.device.api.result.TrustedDeviceEventApplyResult;
 import org.enveloping.ecobin.device.api.result.TrustedDeviceInboxEvent;
 import org.enveloping.ecobin.framework.reliability.UntrustedInboxSourceException;
 import org.enveloping.ecobin.recycling.api.port.ApplyDeliveryCompleteUseCase;
+import org.enveloping.ecobin.recycling.api.port.ReliableRecyclingTaskRegistrationPort;
+import org.enveloping.ecobin.recycling.api.port.ReliableRecyclingTaskRegistrationPort.Registration;
 import org.enveloping.ecobin.recycling.application.photo.RecyclingPhotoStatusService;
 import org.enveloping.ecobin.recycling.application.portgeneration.CurrentPortGenerationPolicy;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,6 +24,9 @@ import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -106,16 +111,19 @@ public class ApplyDeliveryCompleteService
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final RecyclingPhotoStatusService photoStatusService;
+    private final ReliableRecyclingTaskRegistrationPort tasks;
 
     public ApplyDeliveryCompleteService(
             CompleteDeliveryDeviceParticipationPort deviceCompletion,
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
-            RecyclingPhotoStatusService photoStatusService) {
+            RecyclingPhotoStatusService photoStatusService,
+            ReliableRecyclingTaskRegistrationPort tasks) {
         this.deviceCompletion = deviceCompletion;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.photoStatusService = photoStatusService;
+        this.tasks = tasks;
     }
 
     @Override
@@ -163,6 +171,12 @@ public class ApplyDeliveryCompleteService
                 calculation,
                 capacity,
                 capacityProjectionBlockReason);
+        registerAutomaticReviewIfEligible(
+                facts,
+                orderId,
+                orderNo,
+                calculation,
+                configuration);
         insertPhotos(facts, orderId);
         photoStatusService.mergeStagedDeliveryFacts(
                 facts, orderId);
@@ -182,6 +196,7 @@ public class ApplyDeliveryCompleteService
         List<DeliveryConfiguration> rows = jdbc.query("""
                         SELECT version_no,
                                content_sha256,
+                               review_mode,
                                open_balance_floor_cent,
                                max_review_abs_weight_g
                         FROM rec_organization_delivery_config
@@ -192,6 +207,7 @@ public class ApplyDeliveryCompleteService
                 (rs, ignored) -> new DeliveryConfiguration(
                         rs.getLong("version_no"),
                         rs.getBytes("content_sha256"),
+                        rs.getString("review_mode"),
                         rs.getLong("open_balance_floor_cent"),
                         rs.getLong("max_review_abs_weight_g")),
                 facts.tenantId(),
@@ -355,6 +371,8 @@ public class ApplyDeliveryCompleteService
                             delivery_config_version_id,
                             delivery_config_version_no,
                             delivery_config_content_sha256,
+                            review_mode_snapshot,
+                            automatic_review_due_at,
                             unit_price_yuan_per_kg,
                             open_balance_floor_cent,
                             bag_id, bag_uid_snapshot,
@@ -384,6 +402,8 @@ public class ApplyDeliveryCompleteService
                             ?, ?,
                             ?,
                             ?, ?,
+                            ?,
+                            ?,
                             ?,
                             ?,
                             ?,
@@ -425,6 +445,10 @@ public class ApplyDeliveryCompleteService
                 facts.deliveryConfigVersionId(),
                 configuration.versionNo(),
                 facts.deliveryConfigContentSha256(),
+                configuration.reviewMode(),
+                automaticReviewDueAt(
+                        configuration.reviewMode(),
+                        facts.backendReceivedAt()),
                 facts.unitPriceYuanPerKg(),
                 facts.openBalanceFloorCent(),
                 facts.bagId(),
@@ -498,6 +522,20 @@ public class ApplyDeliveryCompleteService
                     "USER",
                     "NEGATIVE_WEIGHT_ANOMALY",
                     null);
+        }
+        LocalDateTime occurredAt = utc(physical.deviceOccurredAt());
+        if (facts.backendReceivedAt().isAfter(
+                occurredAt.plusMinutes(15))) {
+            insertAnomaly(
+                    facts,
+                    orderId,
+                    "SYSTEM",
+                    "DELIVERY_COMPLETION_DELAYED",
+                    Map.of(
+                            "deviceOccurredAt", occurredAt.toString(),
+                            "backendReceivedAt",
+                            facts.backendReceivedAt().toString(),
+                            "maximumDelayMinutes", 15));
         }
         if (capacityProjectionBlockReason != null) {
             Map<String, Object> diagnostic = new LinkedHashMap<>();
@@ -680,6 +718,74 @@ public class ApplyDeliveryCompleteService
                 displayed);
     }
 
+    private void registerAutomaticReviewIfEligible(
+            DeliveryCompletionPersistenceFacts facts,
+            long orderId,
+            String orderNo,
+            OrderCalculation calculation,
+            DeliveryConfiguration configuration) {
+        if ("ALL_MANUAL".equals(configuration.reviewMode())) {
+            return;
+        }
+        Integer anomalies = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM rec_delivery_anomaly
+                WHERE tenant_id = ?
+                  AND organization_id = ?
+                  AND delivery_order_id = ?
+                  AND category IN ('USER', 'SYSTEM')
+                """, Integer.class, facts.tenantId(),
+                facts.organizationId(), orderId);
+        boolean eligible = "RELIABLE".equals(calculation.status())
+                && calculation.netWeightGrams() >= 0
+                && calculation.amountCent() != null
+                && calculation.amountCent() >= 0
+                && !facts.physicalFact().negativeWeightAnomaly()
+                && (anomalies == null || anomalies == 0);
+        if (!eligible) {
+            return;
+        }
+        LocalDateTime dueAt = automaticReviewDueAt(
+                configuration.reviewMode(), facts.backendReceivedAt());
+        String snapshot = "{\"deliveryOrderNo\":\""
+                + orderNo + "\",\"reviewMode\":\""
+                + configuration.reviewMode() + "\"}";
+        tasks.register(new Registration(
+                facts.tenantId(),
+                facts.organizationId(),
+                "AUTO_REVIEW_DELIVERY_ORDER",
+                "AUTO_REVIEW_DELIVERY:" + orderNo,
+                "DELIVERY_ORDER",
+                orderNo,
+                1,
+                snapshot,
+                sha256(snapshot),
+                20,
+                dueAt));
+    }
+
+    private static LocalDateTime automaticReviewDueAt(
+            String reviewMode,
+            LocalDateTime receivedAt) {
+        return switch (reviewMode) {
+            case "ALL_MANUAL" -> null;
+            case "NORMAL_AUTO_IMMEDIATE" -> receivedAt;
+            case "NORMAL_AUTO_AFTER_24H" -> receivedAt.plusHours(24);
+            case "NORMAL_AUTO_AFTER_48H" -> receivedAt.plusHours(48);
+            default -> throw new IllegalStateException(
+                    "unsupported delivery review mode " + reviewMode);
+        };
+    }
+
+    private static byte[] sha256(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(
+                    value.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
     static String capacityProjectionBlockReason(
             long currentBagId,
             CapacityState capacity) {
@@ -823,6 +929,7 @@ public class ApplyDeliveryCompleteService
     private record DeliveryConfiguration(
             long versionNo,
             byte[] contentSha256,
+            String reviewMode,
             long openBalanceFloorCent,
             long maxReviewAbsWeightGrams) {
     }

@@ -19,6 +19,8 @@ export type VersionedWithdrawalRequest =
   Schemas['VersionedWithdrawalRequest'];
 export type WithdrawalConfiguration =
   Schemas['WithdrawalConfigurationView'];
+export type ReleaseWithdrawalConfigurationRequest =
+  Schemas['ReleaseWithdrawalConfigurationRequest'];
 export type MerchantBinding = Schemas['MerchantBindingView'];
 export type VerifyMerchantBindingRequest =
   Schemas['VerifyMerchantBindingRequest'];
@@ -243,6 +245,27 @@ export function getWithdrawalConfiguration(
       + '/withdrawal-configuration',
     method: 'GET',
     noStore: true,
+  });
+}
+
+export function releaseWithdrawalConfiguration(
+  context: DirectoryContext,
+  organizationCode: string,
+  data: ReleaseWithdrawalConfigurationRequest,
+  intent: CommandIntent,
+) {
+  if (context.domain === 'platform') {
+    throw new Error('提现规则只能由目标租户的工作人员发布');
+  }
+  return intent.execute<
+    WithdrawalConfiguration,
+    ReleaseWithdrawalConfigurationRequest
+  >({
+    url:
+      `${organizationBase(context, organizationCode)}`
+      + '/withdrawal-configuration-releases',
+    method: 'POST',
+    data,
   });
 }
 

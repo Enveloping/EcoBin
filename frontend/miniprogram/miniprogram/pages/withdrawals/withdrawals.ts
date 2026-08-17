@@ -53,6 +53,7 @@ interface WithdrawalListItem extends WithdrawalView {
   statusText: string
   statusTone: string
   channelStateText: string
+  sourceText: string
 }
 
 interface MerchantTransferOptions {
@@ -117,6 +118,9 @@ function listItem(item: WithdrawalView): WithdrawalListItem {
     channelStateText: item.channelState
       ? CHANNEL_STATE[item.channelState] ?? item.channelState
       : '',
+    sourceText: item.sourceType === 'DELIVERY_AUTO'
+      ? '投递返现自动提现'
+      : '手动申请提现',
   }
 }
 

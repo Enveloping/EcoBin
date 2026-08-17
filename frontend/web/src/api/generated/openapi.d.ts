@@ -6287,10 +6287,10 @@ export interface components {
             photoCompleteness: components["schemas"]["DeliveryPhotoCompleteness"];
         };
         /**
-         * @description M0 keeps every delivery pending until a human review is committed.
+         * @description The immutable review policy captured by each newly created delivery order.
          * @enum {string}
          */
-        DeliveryReviewMode: "ALL_MANUAL";
+        DeliveryReviewMode: "ALL_MANUAL" | "NORMAL_AUTO_IMMEDIATE" | "NORMAL_AUTO_AFTER_24H" | "NORMAL_AUTO_AFTER_48H";
         DeliveryConfigurationReleaseRequest: {
             expectedLatestVersion: number;
             reviewMode: components["schemas"]["DeliveryReviewMode"];
@@ -7182,6 +7182,10 @@ export interface components {
             manualMinimumYuan: components["schemas"]["PositiveMoneyCny"];
             manualMaximumYuan: components["schemas"]["PositiveMoneyCny"];
             manualReviewFreeThresholdYuan: components["schemas"]["PositiveMoneyCny"];
+            autoWithdrawalEnabled: boolean;
+            autoMinimumYuan: string | null;
+            autoMaximumYuan: string | null;
+            autoReviewFreeThresholdYuan: string | null;
             /** Format: date-time */
             publishedAt: string;
         };
@@ -7191,6 +7195,11 @@ export interface components {
             hardLimitYuan: components["schemas"]["PositiveMoneyCny"];
             manualMinimumYuan: components["schemas"]["PositiveMoneyCny"];
             manualMaximumYuan: components["schemas"]["PositiveMoneyCny"];
+            manualReviewFreeThresholdYuan: components["schemas"]["PositiveMoneyCny"];
+            autoWithdrawalEnabled: boolean;
+            autoMinimumYuan?: string | null;
+            autoMaximumYuan?: string | null;
+            autoReviewFreeThresholdYuan?: string | null;
         };
         CreateWithdrawalRequest: {
             amountYuan: components["schemas"]["PositiveMoneyCny"];
@@ -7213,6 +7222,10 @@ export interface components {
             /** Format: int64 */
             version: number;
             amountYuan: components["schemas"]["PositiveMoneyCny"];
+            /** @enum {string} */
+            sourceType: "MANUAL" | "DELIVERY_AUTO";
+            sourceDeliveryOrderNo: string | null;
+            reviewRequiredAtCreation: boolean;
             /**
              * @description USER_CONFIRM is retained for historical orders; every new withdrawal uses AUTHORIZED
              * @enum {string}
@@ -7667,7 +7680,7 @@ export interface components {
             taskType: string;
             taskKind: string;
             /** @enum {string} */
-            executionLane: "DEVICE" | "FUNDS";
+            executionLane: "DEVICE" | "FUNDS" | "RECYCLING";
             /** @enum {string} */
             state: "PENDING" | "DONE" | "CANCELLED" | "BLOCKED";
             /** Format: int64 */
@@ -14705,7 +14718,7 @@ export interface operations {
         parameters: {
             query?: {
                 state?: "PENDING" | "DONE" | "CANCELLED" | "BLOCKED";
-                executionLane?: "DEVICE" | "FUNDS";
+                executionLane?: "DEVICE" | "FUNDS" | "RECYCLING";
                 taskKind?: string;
                 taskType?: string;
                 targetType?: string;

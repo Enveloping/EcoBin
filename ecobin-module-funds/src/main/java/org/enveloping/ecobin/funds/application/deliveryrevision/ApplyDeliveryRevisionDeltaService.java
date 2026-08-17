@@ -10,6 +10,7 @@ import org.enveloping.ecobin.funds.api.result.DeliveryGateEffect;
 import org.enveloping.ecobin.funds.api.result.WithdrawalBalanceEffect;
 import org.enveloping.ecobin.funds.api.value.DeliveryRevisionKind;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -39,10 +40,20 @@ public class ApplyDeliveryRevisionDeltaService
             "MANUAL_RECOVERY_REQUIRED";
 
     private final DeliveryRevisionDeltaRepository repository;
+    private final DeliveryAutoWithdrawalService autoWithdrawal;
+
+    @Autowired
+    ApplyDeliveryRevisionDeltaService(
+            DeliveryRevisionDeltaRepository repository,
+            DeliveryAutoWithdrawalService autoWithdrawal) {
+        this.repository = repository;
+        this.autoWithdrawal = autoWithdrawal;
+    }
 
     ApplyDeliveryRevisionDeltaService(
             DeliveryRevisionDeltaRepository repository) {
         this.repository = repository;
+        this.autoWithdrawal = null;
     }
 
     @Override
@@ -86,8 +97,19 @@ public class ApplyDeliveryRevisionDeltaService
                     "wallet owner and delivery revision references "
                             + "must share the same tenant and organization");
         }
-        // 锁序固定为钱包 → 机构可见序号 → 活动提现 → 提现单。
+        // 自动提现启用时，先按手动提现相同顺序锁身份、平台闸门、配置、绑定和授权；
+        // 随后固定为钱包 → 机构可见序号 → 活动提现 → 提现单 → 机构出款账户。
         // revision 和钱包所有者携带同事务一次性外键引用，避免跨模块用裸主键拼接资金记录。
+        DeliveryAutoWithdrawalService.Plan autoPlan =
+                autoWithdrawal == null
+                        ? DeliveryAutoWithdrawalService.Plan.disabled()
+                        : autoWithdrawal.prepare(
+                        command,
+                        ownerKeys.tenantKey(),
+                        ownerKeys.organizationKey(),
+                        ownerKeys.organizationUserKey(),
+                        revisionKeys.deliveryRevisionKey());
+
         DeliveryRevisionDeltaRepository.WalletRow wallet =
                 repository.lockWallet(
                                 ownerKeys.tenantKey(),
@@ -209,6 +231,17 @@ public class ApplyDeliveryRevisionDeltaService
                                 update.postBoundaryRisk(),
                                 update.expectedLockVersion(),
                                 occurredAt)));
+
+        if (autoWithdrawal != null) {
+            autoWithdrawal.complete(
+                    autoPlan,
+                    command,
+                    ownerKeys.organizationUserUid(),
+                    wallet,
+                    counter,
+                    activeWithdrawal.isPresent(),
+                    occurredAt);
+        }
 
         return new AppliedDeliveryWalletDelta(
                 wallet.availableBalanceCent(),

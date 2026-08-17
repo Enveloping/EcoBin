@@ -19,6 +19,12 @@ public interface FundsOperationalControlPort {
             UUID pausedEventUid,
             LocalDateTime resolvedAt);
 
+    void observeAutoWithdrawalOrganizationLiquidityShortage(
+            long tenantId,
+            long organizationId,
+            long requiredAmountCent,
+            LocalDateTime observedAt);
+
     void markPayoutTaskWaiting(
             UUID taskUid,
             long merchantProfileId,

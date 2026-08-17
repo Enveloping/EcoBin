@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -48,12 +49,16 @@ public class OrganizationDeliveryConfigurationService {
 
     private static final String CAPABILITY =
             "delivery.configuration.manage";
-    private static final String REVIEW_MODE = "ALL_MANUAL";
+    private static final Set<String> REVIEW_MODES = Set.of(
+            "ALL_MANUAL",
+            "NORMAL_AUTO_IMMEDIATE",
+            "NORMAL_AUTO_AFTER_24H",
+            "NORMAL_AUTO_AFTER_48H");
     private static final String ACTION =
             "delivery.configuration.release";
     private static final String TARGET_TYPE =
             "ORGANIZATION_DELIVERY_CONFIGURATION";
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 100;
     private static final long MAX_VERSION = 9_007_199_254_740_991L;
@@ -376,15 +381,15 @@ public class OrganizationDeliveryConfigurationService {
                     "expectedLatestVersion 必须是有效正整数");
         }
         String reviewMode = required(request.reviewMode());
-        if (!REVIEW_MODE.equals(reviewMode)) {
+        if (!REVIEW_MODES.contains(reviewMode)) {
             throw new TargetApiException(
                     422,
-                    "DELIVERY.REVIEW_MODE_NOT_AVAILABLE",
-                    "当前阶段只支持全部人工审核，自动审核将在具备自动执行链路后开放",
+                    "DELIVERY.REVIEW_MODE_INVALID",
+                    "投递审核模式不受支持",
                     false,
                     Map.of(
                             "supportedReviewModes",
-                            List.of(REVIEW_MODE)));
+                            REVIEW_MODES.stream().sorted().toList()));
         }
         long floorCent = parseFloor(request.openBalanceFloorYuan());
         long maximumWeightGram = parseMaximumWeight(

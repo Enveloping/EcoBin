@@ -84,6 +84,50 @@ public class FundsOperationalControlService
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public void observeAutoWithdrawalOrganizationLiquidityShortage(
+            long tenantId,
+            long organizationId,
+            long requiredAmountCent,
+            LocalDateTime observedAt) {
+        String aggregation = "AUTO_WITHDRAWAL_LIQUIDITY:"
+                + tenantId + ":" + organizationId;
+        String safeParameters = "{\"requiredAmountCent\":"
+                + requiredAmountCent + "}";
+        jdbc.update("""
+                INSERT INTO ops_alert (
+                    alert_uid, scope_kind, tenant_id, organization_id,
+                    alert_code, category, current_severity, highest_severity,
+                    source_kind, source_type, source_key, aggregation_key,
+                    status, first_seen_at, last_seen_at, discovery_count,
+                    safe_display_parameters, acknowledged_at,
+                    acknowledged_audit_id, resolved_at, lock_version,
+                    created_at, updated_at
+                ) VALUES (
+                    ?, 'ORGANIZATION', ?, ?,
+                    'FUNDS.AUTO_WITHDRAWAL_LIQUIDITY_SHORTAGE', 'FUNDS',
+                    'WARNING', 'WARNING', 'DOMAIN_FACT',
+                    'ORGANIZATION_PAYOUT_ACCOUNT', ?, ?, 'OPEN', ?, ?, 1,
+                    CAST(? AS JSON), NULL, NULL, NULL, 0, ?, ?
+                )
+                ON DUPLICATE KEY UPDATE
+                    last_seen_at = VALUES(last_seen_at),
+                    discovery_count = discovery_count + 1,
+                    current_severity = 'WARNING',
+                    highest_severity = IF(
+                        highest_severity = 'CRITICAL',
+                        'CRITICAL',
+                        'WARNING'),
+                    safe_display_parameters = VALUES(safe_display_parameters),
+                    lock_version = lock_version + 1,
+                    updated_at = VALUES(updated_at)
+                """, UUID.randomUUID().toString(), tenantId,
+                organizationId, aggregation, sha256(aggregation),
+                observedAt, observedAt, safeParameters,
+                observedAt, observedAt);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void markPayoutTaskWaiting(
             UUID taskUid,
             long merchantProfileId,

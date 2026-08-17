@@ -82,6 +82,10 @@ public final class FundsModels {
             String manualMinimumYuan,
             String manualMaximumYuan,
             String manualReviewFreeThresholdYuan,
+            boolean autoWithdrawalEnabled,
+            String autoMinimumYuan,
+            String autoMaximumYuan,
+            String autoReviewFreeThresholdYuan,
             Instant publishedAt) {
     }
 
@@ -89,7 +93,12 @@ public final class FundsModels {
             Long expectedCurrentVersion,
             String hardLimitYuan,
             String manualMinimumYuan,
-            String manualMaximumYuan) {
+            String manualMaximumYuan,
+            String manualReviewFreeThresholdYuan,
+            Boolean autoWithdrawalEnabled,
+            String autoMinimumYuan,
+            String autoMaximumYuan,
+            String autoReviewFreeThresholdYuan) {
     }
 
     public record CreateWithdrawalRequest(String amountYuan) {
@@ -133,6 +142,9 @@ public final class FundsModels {
             String status,
             long version,
             String amountYuan,
+            String sourceType,
+            String sourceDeliveryOrderNo,
+            boolean reviewRequiredAtCreation,
             String collectionMode,
             String channelState,
             String channelErrorCode,

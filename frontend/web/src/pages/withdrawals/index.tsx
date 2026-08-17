@@ -189,8 +189,8 @@ export default function WithdrawalsPage() {
         <Alert
           type="info"
           showIcon
-          message="所有提现都需要人工审核"
-          description="创建提现时已经同步冻结用户余额和机构出款额度；审核拒绝会释放双方冻结。新提现在用户完成一次授权后，审核通过即自动转入微信零钱；历史单仍保留逐笔确认模式。"
+          message="提现是否需要人工审核由创建时冻结的规则决定"
+          description="手动提现与投递返现自动提现分别使用各自的免审阈值。超过阈值的订单进入人工审核；未超过阈值的订单由系统直接批准并可靠提交微信。"
         />
         {error && <Alert type="error" showIcon message="提现订单加载失败" description={error} />}
         <Card title="提现订单">
@@ -203,6 +203,23 @@ export default function WithdrawalsPage() {
             columns={[
               { title: '提现单号', dataIndex: 'withdrawalNo', render: (value) => <Typography.Text copyable>{value}</Typography.Text> },
               { title: '金额', dataIndex: 'amountYuan', align: 'right', render: (value) => <Typography.Text strong>¥{formatMoneyCny(value)}</Typography.Text> },
+              {
+                title: '来源',
+                dataIndex: 'sourceType',
+                width: 190,
+                render: (value, order) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag color={value === 'DELIVERY_AUTO' ? 'cyan' : 'default'}>
+                      {value === 'DELIVERY_AUTO' ? '投递自动提现' : '手动提现'}
+                    </Tag>
+                    {order.sourceDeliveryOrderNo && (
+                      <Typography.Text type="secondary" copyable>
+                        {order.sourceDeliveryOrderNo}
+                      </Typography.Text>
+                    )}
+                  </Space>
+                ),
+              },
               {
                 title: '收款方式',
                 dataIndex: 'collectionMode',
@@ -275,7 +292,7 @@ export default function WithdrawalsPage() {
   })();
 
   return (
-    <PageContainer {...pageHeader('提现订单', '人工审核、双方冻结与微信商家转账状态')}>
+    <PageContainer {...pageHeader('提现订单', '规则免审、人工审核、双方冻结与微信商家转账状态')}>
       <DirectoryScopeBar scope={directory} />
       {content}
       <Modal

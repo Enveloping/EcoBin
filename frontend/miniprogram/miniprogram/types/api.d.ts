@@ -165,6 +165,10 @@ export interface WithdrawalConfigurationView {
   manualMinimumYuan: string
   manualMaximumYuan: string
   manualReviewFreeThresholdYuan: string
+  autoWithdrawalEnabled: boolean
+  autoMinimumYuan: string | null
+  autoMaximumYuan: string | null
+  autoReviewFreeThresholdYuan: string | null
   publishedAt: string
 }
 
@@ -184,6 +188,9 @@ export interface WithdrawalView {
   status: WithdrawalStatus
   version: number
   amountYuan: string
+  sourceType: 'MANUAL' | 'DELIVERY_AUTO'
+  sourceDeliveryOrderNo: string | null
+  reviewRequiredAtCreation: boolean
   collectionMode: 'USER_CONFIRM' | 'AUTHORIZED'
   channelState: string | null
   channelErrorCode?: string | null

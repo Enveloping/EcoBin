@@ -24,6 +24,7 @@ import {
   Space,
   Spin,
   Statistic,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -35,12 +36,14 @@ import {
   getPayoutGate,
   getWithdrawalConfiguration,
   listRechargeOrders,
+  releaseWithdrawalConfiguration,
   restorePayoutGate,
   verifyMerchantBinding,
   type MerchantBinding,
   type PayoutAccount,
   type PayoutGate,
   type RechargeOrder,
+  type ReleaseWithdrawalConfigurationRequest,
   type WithdrawalConfiguration,
 } from '@/api/funds';
 import { ApiProblem } from '@/api/request';
@@ -55,6 +58,19 @@ import {
 } from '@/utils/decimal';
 import { pageHeader } from '@/utils/pageStyle';
 import OrganizationRechargeCard from './OrganizationRechargeCard';
+
+const MONEY_PATTERN = /^(0|[1-9][0-9]*)\.[0-9]{2}$/;
+
+interface WithdrawalConfigurationForm {
+  hardLimitYuan: string;
+  manualMinimumYuan: string;
+  manualMaximumYuan: string;
+  manualReviewFreeThresholdYuan: string;
+  autoWithdrawalEnabled: boolean;
+  autoMinimumYuan?: string;
+  autoMaximumYuan?: string;
+  autoReviewFreeThresholdYuan?: string;
+}
 
 function errorText(error: unknown): string {
   if (error instanceof ApiProblem) {
@@ -76,6 +92,12 @@ export default function FundsPage() {
     fundsReplenishedConfirmed: boolean;
     reason?: string;
   }>();
+  const [configurationForm] =
+    Form.useForm<WithdrawalConfigurationForm>();
+  const automaticWithdrawalEnabled = Form.useWatch(
+    'autoWithdrawalEnabled',
+    configurationForm,
+  );
   const [account, setAccount] = useState<PayoutAccount | null>(null);
   const [gate, setGate] = useState<PayoutGate | null>(null);
   const [recharges, setRecharges] = useState<RechargeOrder[]>([]);
@@ -86,10 +108,84 @@ export default function FundsPage() {
   const [error, setError] = useState<string>();
   const [gateError, setGateError] = useState<string>();
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [configurationOpen, setConfigurationOpen] = useState(false);
+  const [configurationSubmitting, setConfigurationSubmitting] =
+    useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const mayCreateRecharge = directory.context?.domain !== 'platform'
     && !!session?.capabilities.includes('recharge.create');
+  const mayManageConfiguration = directory.context?.domain !== 'platform'
+    && !!session?.capabilities.includes('withdrawal.configuration.manage');
+
+  const openConfiguration = () => {
+    if (!configuration) return;
+    configurationForm.setFieldsValue({
+      hardLimitYuan: configuration.hardLimitYuan,
+      manualMinimumYuan: configuration.manualMinimumYuan,
+      manualMaximumYuan: configuration.manualMaximumYuan,
+      manualReviewFreeThresholdYuan:
+        configuration.manualReviewFreeThresholdYuan,
+      autoWithdrawalEnabled: configuration.autoWithdrawalEnabled,
+      autoMinimumYuan: configuration.autoMinimumYuan ?? undefined,
+      autoMaximumYuan: configuration.autoMaximumYuan ?? undefined,
+      autoReviewFreeThresholdYuan:
+        configuration.autoReviewFreeThresholdYuan ?? undefined,
+    });
+    setConfigurationOpen(true);
+  };
+
+  const releaseConfiguration = async () => {
+    if (
+      !configuration
+      || !directory.context
+      || !organization.organizationCode
+    ) return;
+    const values = await configurationForm.validateFields();
+    const enabled = values.autoWithdrawalEnabled;
+    const payload: ReleaseWithdrawalConfigurationRequest = {
+      expectedCurrentVersion: configuration.versionNo,
+      hardLimitYuan: values.hardLimitYuan.trim(),
+      manualMinimumYuan: values.manualMinimumYuan.trim(),
+      manualMaximumYuan: values.manualMaximumYuan.trim(),
+      manualReviewFreeThresholdYuan:
+        values.manualReviewFreeThresholdYuan.trim(),
+      autoWithdrawalEnabled: enabled,
+      autoMinimumYuan: enabled ? values.autoMinimumYuan?.trim() : null,
+      autoMaximumYuan: enabled ? values.autoMaximumYuan?.trim() : null,
+      autoReviewFreeThresholdYuan: enabled
+        ? values.autoReviewFreeThresholdYuan?.trim()
+        : null,
+    };
+    setConfigurationSubmitting(true);
+    try {
+      const released = await executeCommand(
+        commandKey(
+          'release-withdrawal-configuration',
+          organization.organizationCode,
+          payload,
+        ),
+        (intent) => releaseWithdrawalConfiguration(
+          directory.context!,
+          organization.organizationCode!,
+          payload,
+          intent,
+        ),
+      );
+      setConfiguration(released);
+      setConfigurationOpen(false);
+      message.success('提现规则新版本已发布');
+      await load();
+    } catch (releaseError) {
+      message.error(errorText(releaseError));
+      if (releaseError instanceof ApiProblem
+        && releaseError.isVersionConflict) {
+        await load();
+      }
+    } finally {
+      setConfigurationSubmitting(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!directory.context || !organization.organizationCode) return;
@@ -330,13 +426,37 @@ export default function FundsPage() {
 
             <Row gutter={[16, 16]}>
               <Col xs={24} lg={directory.platform ? 12 : 24}>
-                <Card title={<Space><WalletOutlined />提现规则</Space>}>
+                <Card
+                  title={<Space><WalletOutlined />提现规则</Space>}
+                  extra={mayManageConfiguration && (
+                    <Button type="primary" onClick={openConfiguration}>
+                      发布新版本
+                    </Button>
+                  )}
+                >
                   {configuration && (
                     <Descriptions column={2} size="small">
                       <Descriptions.Item label="当前版本">v{configuration.versionNo}</Descriptions.Item>
-                      <Descriptions.Item label="人工审核">全部提现</Descriptions.Item>
+                      <Descriptions.Item label="手动提现免审阈值">
+                        不超过 ¥{configuration.manualReviewFreeThresholdYuan}
+                      </Descriptions.Item>
                       <Descriptions.Item label="单笔范围">¥{configuration.manualMinimumYuan} — ¥{configuration.manualMaximumYuan}</Descriptions.Item>
                       <Descriptions.Item label="硬上限">¥{configuration.hardLimitYuan}</Descriptions.Item>
+                      <Descriptions.Item label="投递后自动提现">
+                        <Tag color={configuration.autoWithdrawalEnabled ? 'success' : 'default'}>
+                          {configuration.autoWithdrawalEnabled ? '已启用' : '未启用'}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="自动提现范围">
+                        {configuration.autoWithdrawalEnabled
+                          ? `¥${configuration.autoMinimumYuan} — ¥${configuration.autoMaximumYuan}`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="自动提现免审阈值">
+                        {configuration.autoWithdrawalEnabled
+                          ? `不超过 ¥${configuration.autoReviewFreeThresholdYuan}`
+                          : '—'}
+                      </Descriptions.Item>
                     </Descriptions>
                   )}
                 </Card>
@@ -447,6 +567,99 @@ export default function FundsPage() {
         </Form>
       </Modal>
 
+      <Modal
+        title="发布新的提现规则"
+        open={configurationOpen}
+        width={680}
+        okText="确认发布"
+        confirmLoading={configurationSubmitting}
+        onOk={() => void releaseConfiguration()}
+        onCancel={() => !configurationSubmitting
+          && setConfigurationOpen(false)}
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 18 }}
+          message="规则按版本冻结，发布后不覆盖历史提现"
+          description="自动提现只处理本次投递首次审核产生的正返现。用户未开通微信自动收款、已有提现、钱包原本为负数或机构额度不足时，本次自动提现会安全跳过，不会事后补建。"
+        />
+        <Form<WithdrawalConfigurationForm>
+          form={configurationForm}
+          layout="vertical"
+          disabled={configurationSubmitting}
+        >
+          <Row gutter={16}>
+            <Col span={8}>
+              <MoneyField name="hardLimitYuan" label="提现硬上限（元）" />
+            </Col>
+            <Col span={8}>
+              <MoneyField name="manualMinimumYuan" label="手动提现最低额（元）" />
+            </Col>
+            <Col span={8}>
+              <MoneyField name="manualMaximumYuan" label="手动提现最高额（元）" />
+            </Col>
+          </Row>
+          <MoneyField
+            name="manualReviewFreeThresholdYuan"
+            label="手动提现免人工审核阈值（元）"
+            extra="金额小于或等于该值时，系统直接批准；填写 0.00 表示手动提现全部需要人工审核。"
+          />
+          <Form.Item
+            name="autoWithdrawalEnabled"
+            label="投递返现自动提现"
+            valuePropName="checked"
+          >
+            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          </Form.Item>
+          {automaticWithdrawalEnabled && (
+            <>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <MoneyField name="autoMinimumYuan" label="自动提现最低额（元）" />
+                </Col>
+                <Col span={12}>
+                  <MoneyField name="autoMaximumYuan" label="自动提现最高额（元）" />
+                </Col>
+              </Row>
+              <MoneyField
+                name="autoReviewFreeThresholdYuan"
+                label="自动提现免人工审核阈值（元）"
+                extra="自动创建的提现不超过该值时，系统直接批准并提交微信；超过该值时仍需工作人员审核。"
+              />
+            </>
+          )}
+        </Form>
+      </Modal>
+
     </PageContainer>
+  );
+}
+
+function MoneyField({
+  name,
+  label,
+  extra,
+}: {
+  name: keyof WithdrawalConfigurationForm;
+  label: string;
+  extra?: string;
+}) {
+  return (
+    <Form.Item
+      name={name}
+      label={label}
+      extra={extra}
+      rules={[
+        { required: true, message: `请输入${label}` },
+        {
+          pattern: MONEY_PATTERN,
+          message: '请输入非负金额并精确到分，例如 1.00 或 0.00',
+        },
+      ]}
+    >
+      <Input placeholder="0.00" />
+    </Form.Item>
   );
 }
